@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -649,5 +650,339 @@ func TestAnAgentCreatesIntoABoard(t *testing.T) {
 		"week": board.AddDays(board.MondayOf(today), 7), "start": today,
 	}); !strings.Contains(msg, "does not take") {
 		t.Fatalf("a dated card typed into a week ahead = %q", msg)
+	}
+}
+
+// A description rides with the create — one card born with its body, instead
+// of a create-and-patch pair. With a create-by-URL title the two meet: the
+// explicit body takes the field, and the link that title files is KEPT beside
+// it (L2), since it is the card's only trace of the item it came from. One
+// body past the cap is refused BEFORE the card exists — an agent that sees
+// the error and retries must not leave a twin behind.
+func TestAnAgentCreatesACardWithItsBody(t *testing.T) {
+	fake := boardservicetest.New(nil, nil)
+	cs := connect(t, Config{Board: "acme", ResolveLogin: func(context.Context) (string, error) {
+		return "kvaps", nil
+	}}, fake)
+
+	call(t, cs, "create_card", map[string]any{
+		"title": "with body", "description": "see https://example.com/spec",
+	})
+	b, err := fake.LoadBoard(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range b.Cards {
+		if c.Title == "with body" {
+			found = true
+			if c.Description != "see https://example.com/spec" {
+				t.Fatalf("description = %q, want the body the create carried", c.Description)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the card was never created, so the body was never checked")
+	}
+
+	// Over the cap: refused before anything is created.
+	long := strings.Repeat("x", boardservice.MaxDescriptionLen+1)
+	before := len(b.Cards)
+	if msg := callErr(t, cs, "create_card", map[string]any{
+		"title": "too fat", "description": long,
+	}); !strings.Contains(msg, "too long") {
+		t.Fatalf("an over-cap body = %q", msg)
+	}
+	b, err = fake.LoadBoard(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Cards) != before {
+		t.Fatalf("a refused body still created the card (%d -> %d)", before, len(b.Cards))
+	}
+
+	// A bare-URL title files the link as the body; an explicit body takes the
+	// field over, but the link is kept — it is the card's only trace of the
+	// item it came from (L2).
+	call(t, cs, "create_card", map[string]any{
+		"title": "https://github.com/acme/repo/issues/7", "description": "triage notes",
+	})
+	b, err = fake.LoadBoard(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, c := range b.Cards {
+		if strings.Contains(c.Title, "acme/repo#7") {
+			found = true
+			if !strings.Contains(c.Description, "triage notes") ||
+				!strings.Contains(c.Description, "https://github.com/acme/repo/issues/7") {
+				t.Fatalf("create-by-URL with an explicit body = %q, want the caller's text AND the link", c.Description)
+			}
+			if len(board.ExtractLinks(c.Description)) == 0 {
+				t.Fatalf("the kept link extracts to nothing: %q", c.Description)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the create-by-URL card was never created, so its body was never checked")
+	}
+
+	// A body that already carries the link is left alone: the link is kept
+	// ONCE. The test is a NEIGHBOURING issue number, because a substring
+	// check reads .../issues/1 as present in a body that only mentions
+	// .../issues/13 and then keeps nothing.
+	call(t, cs, "create_card", map[string]any{
+		"title":       "https://github.com/acme/repo/issues/1",
+		"description": "supersedes https://github.com/acme/repo/issues/13",
+	})
+	b, err = fake.LoadBoard(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, c := range b.Cards {
+		if strings.Contains(c.Title, "acme/repo#1") && !strings.Contains(c.Title, "#13") {
+			found = true
+			if !strings.Contains(c.Description, "https://github.com/acme/repo/issues/1\n") &&
+				!strings.HasSuffix(c.Description, "https://github.com/acme/repo/issues/1") {
+				t.Fatalf("a body mentioning a NEIGHBOURING issue lost the card's own link: %q", c.Description)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the neighbouring-issue card was never created")
+	}
+	// And the same link twice is once: a body that already names it is kept
+	// as it is.
+	call(t, cs, "create_card", map[string]any{
+		"title":       "https://github.com/acme/repo/issues/42",
+		"description": "already linked: https://github.com/acme/repo/issues/42",
+	})
+	b, err = fake.LoadBoard(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, c := range b.Cards {
+		if strings.Contains(c.Title, "acme/repo#42") {
+			found = true
+			if n := strings.Count(c.Description, "https://github.com/acme/repo/issues/42"); n != 1 {
+				t.Fatalf("the link appears %d times, want once: %q", n, c.Description)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the already-linked card was never created")
+	}
+
+	// A body that names the item in SHORTHAND names it: the same item written
+	// owner/repo#N and as a /pull/ URL is one item, and it is kept once.
+	call(t, cs, "create_card", map[string]any{
+		"title":       "https://github.com/acme/repo/pull/7",
+		"description": "fixes acme/repo#7",
+	})
+	b, err = fake.LoadBoard(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, c := range b.Cards {
+		if strings.Contains(c.Title, "Pull: acme/repo#7") {
+			found = true
+			if strings.Contains(c.Description, "https://github.com/acme/repo/pull/7") {
+				t.Fatalf("a body naming the item in shorthand got the URL too: %q", c.Description)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the shorthand card was never created")
+	}
+
+	// And CASE is not a different item: GitHub owners and repositories answer
+	// to any spelling, so a body naming acme/repo#5 names Acme/Repo#5 too.
+	call(t, cs, "create_card", map[string]any{
+		"title":       "https://github.com/Acme/Repo/issues/5",
+		"description": "fixes acme/repo#5",
+	})
+	b, err = fake.LoadBoard(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, c := range b.Cards {
+		if strings.Contains(c.Title, "Acme/Repo#5") {
+			found = true
+			if strings.Contains(c.Description, "https://github.com/Acme/Repo/issues/5") {
+				t.Fatalf("a body naming the item in another case got the URL too: %q", c.Description)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the mixed-case card was never created")
+	}
+
+	// The CAP is the link's limit too: a body that leaves no room for it
+	// keeps the body whole and drops the link, rather than being refused or
+	// truncated — the caller's text is what they asked to store.
+	url := "https://github.com/acme/repo/issues/99"
+	brim := strings.Repeat("y", boardservice.MaxDescriptionLen-len(url))
+	call(t, cs, "create_card", map[string]any{"title": url, "description": brim})
+	b, err = fake.LoadBoard(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, c := range b.Cards {
+		if strings.Contains(c.Title, "acme/repo#99") {
+			found = true
+			if c.Description != brim {
+				t.Fatalf("a body at the brim = %d runes, want the caller's %d kept whole",
+					len([]rune(c.Description)), len([]rune(brim)))
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the brim-full card was never created")
+	}
+}
+
+// A description passed with reviewOf is the SHARED body: the review link
+// live-syncs it onto the card being reviewed, from the very create (L4).
+func TestAnAgentCreatesAReviewCardWithItsBody(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "orig", Title: "original", Team: "alpha", StartDate: today, SprintStart: today},
+	}, nil)
+	cs := connect(t, Config{Board: "acme", ResolveLogin: func(context.Context) (string, error) {
+		return "kvaps", nil
+	}}, fake)
+
+	call(t, cs, "create_card", map[string]any{
+		"title": "review it", "reviewOf": "orig", "description": "shared notes",
+	})
+	b, err := fake.LoadBoard(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bodies := map[string]string{}
+	for _, c := range b.Cards {
+		bodies[c.Title] = c.Description
+	}
+	if bodies["review it"] != "shared notes" {
+		t.Fatalf("the review card's body = %q, want the one the create carried", bodies["review it"])
+	}
+	if bodies["original"] != "shared notes" {
+		t.Fatalf("the reviewed card's body = %q, want the shared one synced onto it", bodies["original"])
+	}
+}
+
+// The grain of the rule above: the shared body is shared, so a description
+// passed with reviewOf would land on the card being reviewed too — and that
+// card's own body is NOT the review's to overwrite. Months of notes on a card
+// the caller never named must not go in one call: the create is refused
+// BEFORE anything exists, with both doors that still work named.
+func TestAReviewCardsBodyNeverOverwritesTheReviewedCards(t *testing.T) {
+	today := board.TodayIso()
+	const own = "the original's own notes, months of them"
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "orig", Title: "original", Description: own, Team: "alpha", StartDate: today, SprintStart: today},
+	}, nil)
+	cs := connect(t, Config{Board: "acme", ResolveLogin: func(context.Context) (string, error) {
+		return "kvaps", nil
+	}}, fake)
+
+	msg := callErr(t, cs, "create_card", map[string]any{
+		"title": "review it", "reviewOf": "orig", "description": "shared notes",
+	})
+	if !strings.Contains(msg, "update_card") {
+		t.Fatalf("the refusal = %q, want the door that still writes a body", msg)
+	}
+	b, err := fake.LoadBoard(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range b.Cards {
+		if c.ItemID == "orig" && c.Description != own {
+			t.Fatalf("the reviewed card's body = %q, want it untouched", c.Description)
+		}
+		if c.Title == "review it" {
+			t.Fatal("the refused create still made the review card")
+		}
+	}
+
+	// The SAME body is not an overwrite: nothing of the original's is lost,
+	// so the review card is made and the pair reads alike.
+	call(t, cs, "create_card", map[string]any{
+		"title": "review it", "reviewOf": "orig", "description": own,
+	})
+	b, err = fake.LoadBoard(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	made := false
+	for _, c := range b.Cards {
+		if c.Title == "review it" {
+			made = true
+		}
+		if c.ItemID == "orig" && c.Description != own {
+			t.Fatalf("the reviewed card's body = %q, want it unchanged", c.Description)
+		}
+	}
+	if !made {
+		t.Fatal("a body identical to the reviewed card's was refused, and it takes nothing away")
+	}
+
+	// A guard over somebody's notes that cannot READ them refuses: a reviewOf
+	// no card answers to is an error, not permission to write a shared body
+	// blind. Without a description there is nothing to share and the create
+	// goes through as it always has — the asymmetry is the rule.
+	msg = callErr(t, cs, "create_card", map[string]any{
+		"title": "review a ghost", "reviewOf": "nope", "description": "shared notes",
+	})
+	if !strings.Contains(msg, "nope") {
+		t.Fatalf("the refusal = %q, want the card it could not read", msg)
+	}
+	b, err = fake.LoadBoard(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range b.Cards {
+		if c.Title == "review a ghost" {
+			t.Fatal("a create the guard refused still made the card")
+		}
+	}
+}
+
+// The card is written first and its body second, so the pair can tear: the
+// card exists and the text does not. What the caller is told then decides
+// whether the board grows a TWIN — a bare failure reads as "nothing was
+// created", and the retry is a second create.
+func TestABodyThatFailsToLandNamesTheCardItLeftBehind(t *testing.T) {
+	fake := boardservicetest.New(nil, nil)
+	cs := connect(t, Config{Board: "acme", ResolveLogin: func(context.Context) (string, error) {
+		return "kvaps", nil
+	}}, fake)
+	fake.FailSetDescription(errors.New("the store went away"))
+
+	msg := callErr(t, cs, "create_card", map[string]any{"title": "half made", "description": "notes"})
+	if !strings.Contains(msg, "update_card") {
+		t.Fatalf("the failure = %q, want the door that still writes the body", msg)
+	}
+	b, err := fake.LoadBoard(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	made := ""
+	for _, c := range b.Cards {
+		if c.Title == "half made" {
+			made = c.ItemID
+		}
+	}
+	if made == "" {
+		t.Fatal("the card was not created, so there was nothing to name")
+	}
+	if !strings.Contains(msg, made) {
+		t.Fatalf("the failure = %q, want the uid %q of the card standing on the board", msg, made)
 	}
 }

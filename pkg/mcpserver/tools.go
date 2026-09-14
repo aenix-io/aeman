@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -205,21 +206,23 @@ func (h *server) getCard(ctx context.Context, _ *mcp.CallToolRequest, in cardRef
 
 // --- Create / update / delete ------------------------------------------------
 
-// createCardInput describes a card to create, mirroring POST /api/v1/cards.
+// createCardInput describes a card to create, mirroring POST /api/v1/cards —
+// plus a description, which that door does not take yet.
 type createCardInput struct {
 	boardRef
-	Title    string `json:"title" jsonschema:"card title (required)"`
-	Team     string `json:"team,omitempty" jsonschema:"team the card joins; empty is the no-team group. MUST be one of the board's EXISTING team keys — read them from get_board metadata.teams and map the user's wording onto an existing key, across languages and case ('маркетинг', 'the marketing team' -> existing 'marketing'). A value not in that list silently CREATES a new team with its own sprint pointer — a heavyweight, unusual action: only pass a new key when the user explicitly asks to create a new team"`
-	Zone     string `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave. The Me board (the default) adds work as UNPLANNED and refuses the other three: something that came up today is unplanned by definition, and the other bands are the plan. To file work in a band of the plan — an urgent card, planned work for the week — use view=team and name the assignee (that is what a person does on the team's grid, including for themselves); a subtask takes its parent's band whatever board it is typed on"`
-	Size     string `json:"size,omitempty" jsonschema:"what the card weighs: S (up to ~2h), M (half a day to a day), L (2–5 days) or XL (a week or more); summed as 1/2/4/8 points against each person's weekly capacity. Leave empty when you do not know — an unsized card is honest, a guessed one is not"`
-	Assignee string `json:"assignee,omitempty" jsonschema:"GitHub login to assign"`
-	Start    string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd; defaults to end, else today. A FUTURE day parks the card off the board until that day arrives — it is not shown in the current sprint meanwhile. Sprints are daily and created as they start, so no sprint covers a future day yet: the card deliberately joins NO sprint and the carry-over that reaches its day adopts it. That is the intended way to schedule work ahead; leave the sprint field alone"`
-	End      string `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; defaults to start, else today"`
-	Sprint   string `json:"sprint,omitempty" jsonschema:"sprint start day the card joins; defaults to the team's current sprint"`
-	Week     string `json:"week,omitempty" jsonschema:"schedule the card for a WEEK instead of a day: the week's Monday as yyyy-mm-dd, and no dates are set. Pass view=triage with it — that is the board a week card belongs to, and every other board refuses a week. A card filed under an epic ignores it — the slot's row is the week of its start date"`
-	Epic     string `json:"epic,omitempty" jsonschema:"Project-board column to file the card under, together with project — pass view=project with them, since a column is that board's. MUST be an EXISTING column — read them from get_board metadata.epics; add_epic creates one when the user explicitly asks. The card's week is its row; start/end dates may span several weeks"`
-	Project  string `json:"project,omitempty" jsonschema:"the project half of the column named by epic (columns are the (project, epic) pair — epic names repeat across projects)"`
-	ReviewOf string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews"`
+	Title       string `json:"title" jsonschema:"card title (required)"`
+	Team        string `json:"team,omitempty" jsonschema:"team the card joins; empty is the no-team group. MUST be one of the board's EXISTING team keys — read them from get_board metadata.teams and map the user's wording onto an existing key, across languages and case ('маркетинг', 'the marketing team' -> existing 'marketing'). A value not in that list silently CREATES a new team with its own sprint pointer — a heavyweight, unusual action: only pass a new key when the user explicitly asks to create a new team"`
+	Zone        string `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave. The Me board (the default) adds work as UNPLANNED and refuses the other three: something that came up today is unplanned by definition, and the other bands are the plan. To file work in a band of the plan — an urgent card, planned work for the week — use view=team and name the assignee (that is what a person does on the team's grid, including for themselves); a subtask takes its parent's band whatever board it is typed on"`
+	Size        string `json:"size,omitempty" jsonschema:"what the card weighs: S (up to ~2h), M (half a day to a day), L (2–5 days) or XL (a week or more); summed as 1/2/4/8 points against each person's weekly capacity. Leave empty when you do not know — an unsized card is honest, a guessed one is not"`
+	Assignee    string `json:"assignee,omitempty" jsonschema:"GitHub login to assign"`
+	Start       string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd; defaults to end, else today. A FUTURE day parks the card off the board until that day arrives — it is not shown in the current sprint meanwhile. Sprints are daily and created as they start, so no sprint covers a future day yet: the card deliberately joins NO sprint and the carry-over that reaches its day adopts it. That is the intended way to schedule work ahead; leave the sprint field alone"`
+	End         string `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; defaults to start, else today"`
+	Sprint      string `json:"sprint,omitempty" jsonschema:"sprint start day the card joins; defaults to the team's current sprint"`
+	Week        string `json:"week,omitempty" jsonschema:"schedule the card for a WEEK instead of a day: the week's Monday as yyyy-mm-dd, and no dates are set. Pass view=triage with it — that is the board a week card belongs to, and every other board refuses a week. A card filed under an epic ignores it — the slot's row is the week of its start date"`
+	Epic        string `json:"epic,omitempty" jsonschema:"Project-board column to file the card under, together with project — pass view=project with them, since a column is that board's. MUST be an EXISTING column — read them from get_board metadata.epics; add_epic creates one when the user explicitly asks. The card's week is its row; start/end dates may span several weeks"`
+	Project     string `json:"project,omitempty" jsonschema:"the project half of the column named by epic (columns are the (project, epic) pair — epic names repeat across projects)"`
+	ReviewOf    string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews"`
+	Description string `json:"description,omitempty" jsonschema:"the card's shared free-form body, at create instead of a separate update_card call (what the whole team sees) — and the right place for reference links: include related open PRs and issues in free form as FULL URLs or owner/repo#123 shorthands (links are extracted from anywhere in the text, surfaced on the card, and GitHub refs resolve to live titles/states; read them back with list_links). When the title is a bare GitHub issue/PR URL, that link is kept: appended to an explicit body that does not already name it. With reviewOf the body is SHARED with the card being reviewed, so a create that would overwrite a body standing there is refused — the review is made without one, or both are changed with update_card"`
 	// StartNewSprint controls sprint membership: omit for auto (join the team's
 	// running sprint, else start one today), true to force a new sprint today,
 	// false to force-join the current sprint.
@@ -243,6 +246,22 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 	if !ok {
 		return nil, apiserver.Card{}, fmt.Errorf("%w: %q (use S, M, L, XL or empty)", boardservice.ErrUnknownSize, in.Size)
 	}
+	// The body is validated BEFORE anything is created: refused after, the
+	// card would already exist and a retry would leave a twin.
+	desc := board.StripEventLines(in.Description)
+	if utf8.RuneCountInString(desc) > boardservice.MaxDescriptionLen {
+		return nil, apiserver.Card{}, boardservice.ErrDescriptionTooLong
+	}
+	// A create-by-URL title files its link as the body (withLinkDescription);
+	// an explicit body takes the field over, and the link joins it — it is the
+	// card's only trace of the item the card came from. Settled here, before
+	// the review guard, so that guard judges the body that will be stored.
+	// Dropped rather than truncated when the pair would break the cap: the
+	// body is what the caller asked to store, whole.
+	if ref, ok := board.ParseGitHubRef(strings.TrimSpace(in.Title)); ok && desc != "" && !mentionsLink(desc, ref) &&
+		utf8.RuneCountInString(desc)+utf8.RuneCountInString(ref.URL)+2 <= boardservice.MaxDescriptionLen {
+		desc += "\n\n" + ref.URL
+	}
 	// WHO the agent is acting for, when the transport has not already said:
 	// the Me board files the card on them, and the activity is theirs. Both
 	// transports stamp the actor themselves (stdio's login middleware, the
@@ -251,6 +270,24 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 	if board.ActorFrom(ctx) == "" && h.cfg.ResolveLogin != nil {
 		if login, err := h.cfg.ResolveLogin(ctx); err == nil && login != "" {
 			ctx = boardservice.WithActor(ctx, login)
+		}
+	}
+	// A review card's body is SHARED with the card it reviews (L4), so a body
+	// passed here lands on that card as well — and what stands there is not
+	// this create's to overwrite. The caller named the review, not the work
+	// being reviewed, and that card may carry notes nobody meant to lose.
+	// Read once the actor is known, so the read is logged as theirs.
+	if in.ReviewOf != "" && desc != "" {
+		_, reviewed, lerr := h.loadCard(ctx, svc, boardID, in.ReviewOf)
+		if lerr != nil {
+			// Closed rather than open: a guard over somebody's notes that
+			// cannot read them refuses the write, it does not wave it past.
+			return nil, apiserver.Card{}, lerr
+		}
+		if body := reviewed.Description; body != "" && body != desc {
+			return nil, apiserver.Card{}, fmt.Errorf(
+				"card %s already has a description, and a review card shares the body of the card it reviews — creating this review with one would overwrite it: create the review without a description, or change the shared body with update_card",
+				in.ReviewOf)
 		}
 	}
 	// No board named means the caller's OWN: an agent is acting for somebody,
@@ -281,7 +318,33 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
+	if desc != "" {
+		if err := svc.SetDescription(ctx, boardID, card.ItemID, desc); err != nil {
+			// The card EXISTS. A bare error reads as "nothing was created" and
+			// the retry is a second create — so name the card that is already
+			// there and the door that still writes its body.
+			return nil, apiserver.Card{}, fmt.Errorf(
+				"card %s was created, but its description was not written (%w) — set it with update_card, not another create_card",
+				card.ItemID, err)
+		}
+	}
 	return h.cardResource(ctx, svc, boardID, card.ItemID)
+}
+
+// mentionsLink reports whether a body already names the item a create-by-URL
+// title points at. Matched by the item, never by URL text: the same issue is
+// written owner/repo#7 and .../issues/7, a pull request answers to both
+// /pull/7 and /issues/7, an owner and a repository answer to any case, and a
+// plain substring test additionally reads .../issues/1 as present in a body
+// that only mentions .../issues/13.
+func mentionsLink(description string, ref board.Link) bool {
+	for _, l := range board.ExtractLinks(description) {
+		if l.IsGitHubRef() && l.Number == ref.Number &&
+			strings.EqualFold(l.Owner, ref.Owner) && strings.EqualFold(l.Repo, ref.Repo) {
+			return true
+		}
+	}
+	return false
 }
 
 // updateCardInput is a card patch, mirroring PATCH /api/v1/cards/{uid}: only

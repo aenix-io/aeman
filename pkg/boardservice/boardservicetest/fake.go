@@ -23,6 +23,7 @@ type Backend struct {
 	// test's own requests and assertions.
 	mu      sync.Mutex
 	loadErr error
+	descErr error
 	refs    map[string]board.Link
 	board   board.Board
 	events  map[string][]board.Event // the history AppendEvent recorded, by card
@@ -142,6 +143,15 @@ func (f *Backend) FailLoad(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.loadErr = err
+}
+
+// FailSetDescription makes every SetDescription answer err, leaving the body
+// unwritten — the seam for the partial failure a caller that writes a card
+// and then its body has to answer for: the card exists and the text does not.
+func (f *Backend) FailSetDescription(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.descErr = err
 }
 
 // LoadBoard returns the seeded cards assembled the way the real board is —
@@ -405,6 +415,9 @@ func (f *Backend) SetDescription(_ context.Context, _ board.Board, card board.Ca
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("SetDescription %s %s", card.ItemID, description)
+	if f.descErr != nil {
+		return f.descErr
+	}
 	if c := f.card(card.ItemID); c != nil {
 		c.Description = description
 	}
