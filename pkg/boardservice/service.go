@@ -104,6 +104,27 @@ var ErrNoteTooLong = fmt.Errorf("note is too long (max %d characters)", MaxNoteL
 // ErrEmptyTitle is a card, or a rename, with nothing to call it by.
 var ErrEmptyTitle = errors.New("a card needs a title")
 
+// MaxTitleLen caps a card title (in runes). A title is a one-line headline, and
+// it rides into card files, commit trailers and every watch frame — so an
+// unbounded one is a payload, not a name. The body-size cap already stops the
+// gigabyte title; this keeps a merely huge one out of the board.
+const MaxTitleLen = 1024
+
+// ErrTitleTooLong is a title past MaxTitleLen.
+var ErrTitleTooLong = fmt.Errorf("title is too long (max %d characters)", MaxTitleLen)
+
+// guardTitle refuses an empty or over-long title — the one check the create
+// and the rename share.
+func guardTitle(title string) error {
+	if strings.TrimSpace(title) == "" {
+		return ErrEmptyTitle
+	}
+	if utf8.RuneCountInString(title) > MaxTitleLen {
+		return ErrTitleTooLong
+	}
+	return nil
+}
+
 // ErrBackwardsDefer is a defer of zero or fewer days. Deferring is the act of
 // putting work OFF; a negative one pulled it back into days already gone.
 var ErrBackwardsDefer = errors.New("defer moves a card forward: days must be positive")
@@ -119,6 +140,25 @@ var ErrEmptyNote = errors.New("a note needs text")
 // cannot draw one and Defer refuses it; SetDates wrote whatever it was given,
 // and a card due before it starts is overdue for ever.
 var ErrEndBeforeStart = errors.New("a card cannot be due before it starts")
+
+// ErrBadDay is a date that is not a board day (yyyy-mm-dd, a real date).
+var ErrBadDay = errors.New("a date must be a board day (yyyy-mm-dd)")
+
+// guardDay refuses a date that is not a real board day; "" is allowed and
+// clears the field. A card whose date the doors wrote unchecked went where
+// string comparison put it: "2026-13-99" sorts after today, so the card read
+// as future, its sprint was cleared and no carry-over could ever reach it —
+// alive, unchanged, and on no board anyone can open. It is also the vector a
+// trailer injection rode in on (the date reached a commit trailer raw), which
+// the trailer sink now flattens as well.
+func guardDay(dates ...string) error {
+	for _, d := range dates {
+		if d != "" && !board.IsDayIso(d) {
+			return fmt.Errorf("%w: %q", ErrBadDay, d)
+		}
+	}
+	return nil
+}
 
 // Service performs aeman's board actions. It is stateless: every method loads
 // the board through the backend, computes the change with internal/board logic,
@@ -283,8 +323,8 @@ type CreateCardArgs struct {
 // TeamBoard.tsx / MeBoard.tsx.
 func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCardArgs) (board.Card, error) {
 	// A week is a Monday wherever one is given, this door included.
-	if strings.TrimSpace(args.Title) == "" {
-		return board.Card{}, ErrEmptyTitle
+	if err := guardTitle(args.Title); err != nil {
+		return board.Card{}, err
 	}
 	// A size the scale does not know weighs nothing at all on every board
 	// that sums points. SetSize has always refused one; the create door
@@ -295,6 +335,9 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 		}
 	}
 	if err := guardWeek(args.Week); err != nil {
+		return board.Card{}, err
+	}
+	if err := guardDay(args.Day, args.Start, args.SprintStart); err != nil {
 		return board.Card{}, err
 	}
 	b, err := s.backend.LoadBoard(ctx, boardID)
@@ -983,6 +1026,9 @@ func (s *Service) Defer(ctx context.Context, boardID string, itemID string, days
 // day itself when no tracked sprint covers it); empty values clear the dates.
 // It mirrors handleSetDates in TeamBoard.tsx.
 func (s *Service) SetDates(ctx context.Context, boardID string, itemID, start, end string) error {
+	if err := guardDay(start, end); err != nil {
+		return err
+	}
 	if start != "" && end != "" && end < start {
 		return fmt.Errorf("%w: %s..%s", ErrEndBeforeStart, start, end)
 	}
@@ -1966,6 +2012,9 @@ func (s *Service) SetSize(ctx context.Context, boardID string, itemID string, si
 
 // SetDay sets a card's scheduled day (day = "" clears it).
 func (s *Service) SetDay(ctx context.Context, boardID string, itemID, day string) error {
+	if err := guardDay(day); err != nil {
+		return err
+	}
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -1998,6 +2047,9 @@ func (s *Service) syncSlotWeek(ctx context.Context, b board.Board, c board.Card,
 
 // SetStart sets a card's start date (date = "" clears it).
 func (s *Service) SetStart(ctx context.Context, boardID string, itemID, date string) error {
+	if err := guardDay(date); err != nil {
+		return err
+	}
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -2016,6 +2068,9 @@ func (s *Service) SetStart(ctx context.Context, boardID string, itemID, date str
 // SetSprintStart sets the start day of the sprint a card belongs to (date = ""
 // clears it).
 func (s *Service) SetSprintStart(ctx context.Context, boardID string, itemID, date string) error {
+	if err := guardDay(date); err != nil {
+		return err
+	}
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -2598,9 +2653,10 @@ func (s *Service) setTeamOne(ctx context.Context, b board.Board, card board.Card
 func (s *Service) Rename(ctx context.Context, boardID string, itemID, title string) error {
 	// Nothing on a board can be called nothing — the create has always said
 	// so, and a rename is the same statement made later. A card renamed to
-	// nothing is a blank row on every board that draws it.
-	if strings.TrimSpace(title) == "" {
-		return ErrEmptyTitle
+	// nothing is a blank row on every board that draws it; one renamed to a
+	// payload is the same abuse the create refuses.
+	if err := guardTitle(title); err != nil {
+		return err
 	}
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
