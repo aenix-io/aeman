@@ -37,7 +37,6 @@ import { asksFirst, freeSubtasks, removeChoices, type RemoveChoice } from "../re
 import { parkPatch, parkable, parked, parkedLocally } from "../backlog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { BacklogDrawer, dropSpot, type Spot } from "./BacklogDrawer";
-import { isPersonalDomain } from "../domains";
 import { markOf } from "../placements";
 import { SIZES, SIZE_ORDER, pointsOf } from "../size";
 import { isComplete } from "../stages";
@@ -299,7 +298,6 @@ export function TriageBoard({
           c.reviewOf &&
           teams.includes(c.team ?? "") &&
           !c.parent &&
-          !isPersonalDomain(c.domain ?? "") &&
           !isComplete(c),
       ),
     [board.cards, teams],
@@ -320,7 +318,6 @@ export function TriageBoard({
           !c.reviewOf &&
           !c.parent &&
           teams.includes(c.team ?? "") &&
-          !isPersonalDomain(c.domain ?? "") &&
           !!placedIn(c),
       ),
     [board.cards, teams],
@@ -348,7 +345,7 @@ export function TriageBoard({
         continue;
       }
       // A card that HAS a week still has to be work someone is doing.
-      if (week && (c.parent || isPersonalDomain(c.domain ?? "") || isComplete(c))) {
+      if (week && (c.parent || isComplete(c))) {
         continue;
       }
       seen.add(whoOf(c));
@@ -2058,7 +2055,6 @@ export function TriageBoard({
           title={asking.title}
           progress={asking.progress ?? 0}
           choices={choicesFor(asking)}
-          keepOn={null}
           subtasks={board.cards.filter((c) => c.parent === asking.itemId).length}
           onClose={() => setAsking(null)}
           onSubmit={(choice) => doRemove(asking, choice)}

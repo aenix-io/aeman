@@ -177,6 +177,33 @@ func (s *Server) retrySetup() {
 	s.log.Info("the app installation arrived; the board is up")
 }
 
+// handleAppSetup is where GitHub redirects after the board's GitHub App is
+// installed or updated (the app's Setup URL). A server still waiting for the
+// installation retries the board; then home.
+func (s *Server) handleAppSetup(w http.ResponseWriter, r *http.Request) {
+	if _, waiting := s.inSetup(); waiting {
+		s.retrySetup()
+	}
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+// handleAuthCallback tells GitHub's post-install redirect apart from the
+// sign-in flow. When the app asks for user authorization during install,
+// GitHub lands here — with an installation signature (installation_id,
+// setup_action) and no state of ours — right after someone did the right
+// thing; greeting that with "invalid OAuth state" is wrong twice over. It
+// is the same event as /auth/setup and is handled as one. A callback
+// without the installation signature is the sign-in flow, CSRF check and
+// all.
+func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if q.Get("installation_id") != "" || q.Get("setup_action") != "" {
+		s.handleAppSetup(w, r)
+		return
+	}
+	s.auth.handleCallback(w, r)
+}
+
 // New builds a Server from the given options.
 func New(opts Options) (*Server, error) {
 	if opts.Addr == "" {
@@ -283,10 +310,9 @@ func New(opts Options) (*Server, error) {
 	mux.HandleFunc("/api/healthz", s.handleHealthz)
 	// GitHub sends the person here after they install (or update) the
 	// board's GitHub App, when the app's Setup URL points at
-	// <base>/auth/setup: whatever kept their personal board from attaching
-	// is forgotten and tried again at once, so installing the app fixes the
-	// board without anyone hunting for a retry button. Registered in every
-	// mode — the local one has personal boards too.
+	// <base>/auth/setup: a server still waiting for that installation tries
+	// the board again at once, so installing the app brings the board up
+	// without anyone hunting for a retry button.
 	mux.HandleFunc("/auth/setup", s.handleAppSetup)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	if s.auth != nil {

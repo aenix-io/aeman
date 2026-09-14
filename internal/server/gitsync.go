@@ -12,7 +12,6 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing"
 
-	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
 	"github.com/aenix-io/aeman/pkg/gitstore"
@@ -45,15 +44,8 @@ type gitOptions struct {
 	// Links resolves GitHub issue/PR references in card descriptions to
 	// their live title and state with the server credential; nil leaves
 	// them as written.
-	Links *forgeLinks
-	// Forge says how a token travels over HTTPS when a repository is
-	// attached at run time (a personal board); GitHub when nil.
-	Forge forge.Forge
-	// DataDir and RepoOpts are what a personal domain's clone is made with
-	// when its owner shows up.
-	DataDir  string
-	RepoOpts gitstore.Options
-	Logger   *slog.Logger
+	Links  *forgeLinks
+	Logger *slog.Logger
 }
 
 // gitDomain is one of the board's repositories and where it pushes.
@@ -64,24 +56,12 @@ type gitDomain struct {
 
 // gitSync is the per-store sync state.
 type gitSync struct {
-	forge      forge.Forge // the code host; nil reads as GitHub (gitAuth)
-	domains    []gitDomain // primary first; personal domains join at run time (personal.go)
+	domains    []gitDomain // primary first
 	mb         *gitstore.MultiBackend
 	pushDelay  time.Duration
 	historyMax time.Duration
 	links      *forgeLinks
 	log        *slog.Logger
-	// dataDir and repoOpts are what a personal domain's clone is made with.
-	dataDir  string
-	repoOpts gitstore.Options
-	// pmu serialises attaching and detaching personal domains, and guards
-	// pfail.
-	pmu sync.Mutex
-	// pfail remembers why a login's personal domain could not be attached,
-	// so a repository the server cannot reach is not tried again on every
-	// single request — a failing clone inside the request path is seconds
-	// of waiting, per request, for as long as the trouble lasts.
-	pfail map[string]personalFailure
 
 	// applyMu serializes the queue's commits with the sync's resets and
 	// replays: a group in flight finishes its commit before a rebase moves
@@ -115,8 +95,8 @@ func newGitBackend(store *boardStore, domains []gitDomain, opts gitOptions) *sto
 	be := &storeBackend{
 		inner: mb,
 		store: store,
-		git: &gitSync{forge: opts.Forge, domains: domains, mb: mb, pushDelay: opts.PushDelay, historyMax: opts.HistoryMax, links: opts.Links, log: opts.Logger,
-			dataDir: opts.DataDir, repoOpts: opts.RepoOpts, asOf: newAsOfCache()},
+		git: &gitSync{domains: domains, mb: mb, pushDelay: opts.PushDelay, historyMax: opts.HistoryMax, links: opts.Links, log: opts.Logger,
+			asOf: newAsOfCache()},
 	}
 	if opts.SyncInterval > 0 {
 		go be.runSync(context.Background(), opts.SyncInterval)

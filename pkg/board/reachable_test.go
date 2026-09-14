@@ -93,17 +93,6 @@ func TestATeamsBoardHoldsItsOwnOpenWorkWhateverSprintItSitsIn(t *testing.T) {
 	}
 }
 
-// A personal card belongs to its owner's board, which has no sprint and no
-// team: judging it by the team rules would call every one of them stranded.
-func TestAPersonalCardIsAlwaysReachable(t *testing.T) {
-	b := NewBoard([]Card{
-		{ItemID: "mine", Domain: PersonalDomain("kvaps"), Progress: 40},
-	})
-	if !Reachable(b, "2026-09-02")["mine"] {
-		t.Fatal("a personal card is on its owner's board, whatever the team rules say")
-	}
-}
-
 // A process task is the thing turns are copied FROM: it stands on the Process
 // tab, not on a day, and it is not work anyone lost.
 func TestAProcessTaskIsReachable(t *testing.T) {

@@ -1722,7 +1722,7 @@ func (b *storeBackend) SetProgress(ctx context.Context, bd board.Board, card boa
 	b.mutateCard(ctx, bd, card.ItemID, "progress", "set progress on "+cardRef(card), func(c *board.Card) {
 		// The storage's rule, mirrored so the cache answers as the commit
 		// will: reaching 100 remembers where the card came from and the day
-		// it got there (the personal view and its reseed read that day);
+		// it got there (the day boards draw finished work on that day);
 		// dropping below forgets both.
 		switch {
 		case progress >= 100 && c.Progress < 100:
@@ -1838,19 +1838,6 @@ func (b *storeBackend) SetDoneAt(ctx context.Context, bd board.Board, card board
 		}, func(ctx context.Context) error {
 			return b.inner.SetDoneAt(ctx, bd, card, day)
 		})
-	return nil
-}
-
-func (b *storeBackend) SetLeftAt(ctx context.Context, bd board.Board, card board.Card, day string) error {
-	summary := "leave " + cardRef(card) + " behind"
-	if day == "" {
-		summary = "bring " + cardRef(card) + " back"
-	}
-	b.mutateCard(ctx, bd, card.ItemID, "left", summary, func(c *board.Card) {
-		c.LeftAt = day
-	}, func(ctx context.Context) error {
-		return b.inner.SetLeftAt(ctx, bd, card, day)
-	})
 	return nil
 }
 

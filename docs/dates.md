@@ -111,7 +111,7 @@ The rules above place TODAY's cards on a day. That is what a day-lens is: dates 
 - **A day says which of its cards were finished on it.** A day board draws finished work on the day it recorded (`doneAt`) and no other — and the record of a day can supply that day where the card's own writer did not: the day **opened** with the card unfinished and **closed** with it done, so the work was finished inside it. It is filled in on the way out of the history, never stored, and what the card says itself always wins. The evidence is that change and not the day's list of names — a commit names what it touched, and a rank rebalance or a carry-over touches cards by the hundred without finishing any of them. A day whose own morning cannot be seen — the boundary day of a clone whose history is cut — claims nothing: "I do not know when this was closed" is a true answer where an invented day is not.
 - The history has an edge. The server keeps a horizon (`--history`, two weeks by default) and deepens on demand up to `--history-max` (a year); a day behind that is refused (410) rather than answered with the oldest state at hand.
 
-### Me view — a personal day (`selectedDate`)
+### Me view — one person's day (`selectedDate`)
 - A card (assigned to the viewer) shows when its scheduled day has arrived and the
   viewed day falls in a sprint the card **spans** — from the one it started in up
   to the sprint it now belongs to: `startDate <= selectedDate` **AND**
@@ -269,7 +269,7 @@ everywhere says nothing where it matters.
   grouping hands the child over to the parent's assignee, a direct change on a
   subtask snaps back to the parent's, and re-assigning a parent hands the whole
   family over (unassigning it unassigns them all). A family that drifts apart
-  lands on two personal boards — the Me view admits a card when you own one of
+  lands on two people's Me boards — the Me view admits a card when you own one of
   its subtasks, so one stray child drags the parent and every sibling onto a
   board they are not part of.
 - A subtask's team always follows its parent: changing the parent's team

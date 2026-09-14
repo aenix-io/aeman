@@ -1,6 +1,6 @@
 # The view is where the caller stands
 
-Status: **implemented** (G67). The routes, the create defaults, the gate and the MCP arguments all landed together; what is written below is what the server does.
+Status: **implemented** (G67). The routes, the create defaults, the gate and the MCP arguments all landed together; what is written below is what the server does. The `personal` view this landed with went away with the personal board itself (2026-09-14), and the text below no longer names it.
 
 This is the second half of what [api-redesign.md](api-redesign.md) set out to do. That one made the API a resource API — objects with a schema, LIST and WATCH, actions as explicit verbs — and it landed. What it did not finish is the sentence right under its goals: *the API surface mirrors what the user sees*. It does not, quite. A person opens a BOARD and presses something on it; an agent sends a card with fields on it and hopes the fields add up to the same thing.
 
@@ -8,7 +8,7 @@ This is the second half of what [api-redesign.md](api-redesign.md) set out to do
 
 ADR 0002 says the API and MCP mirror the frontend, not the backend. Two audits of the live tool set found where that stopped being true, and the pattern in both is the same: **the board's vocabulary is views and gestures, and the API's vocabulary is fields.**
 
-A person creating a card does it on a board, and the board is what makes the card what it is: typed into the Me board it is theirs, today, in this sprint; typed into a Triage week it is scheduled for that week and stands on no day; typed into the drawer it is parked; typed into a Project column it is a slot whose row is its start date. An agent creating the same four cards sends `personal`, `week`, `parked`, `epic`+`project` — four flags that encode the four boards, and nothing tells it which combinations are boards and which are states no board draws: `parked` with a `week` is a card in the drawer and in the plan at once, which the service now refuses, and `personal` with a `team` is a card in a repository whose board has no teams.
+A person creating a card does it on a board, and the board is what makes the card what it is: typed into the Me board it is theirs, today, in this sprint; typed into a Triage week it is scheduled for that week and stands on no day; typed into the drawer it is parked; typed into a Project column it is a slot whose row is its start date. An agent creating the same cards sends `week`, `parked`, `epic`+`project` — flags that encode the boards, and nothing tells it which combinations are boards and which are states no board draws: `parked` with a `week` is a card in the drawer and in the plan at once, which the service now refuses.
 
 The same split runs through the × — one gesture that means four different things and is answered by `intent` — and through listing, where `view=` is one selector among fifteen, so `view=me&team=platform&zone=urgent&focus=true` reads as a database query rather than as "open my board".
 
@@ -53,7 +53,6 @@ That is also why PATCH and DELETE stay off the view. Patching a field is not a g
 | `triage` | the weeks grid | the cards of `team=` in the weeks `from`..`from+weeks` |
 | `backlog` | the Triage drawer | the parked cards of `team=` — a place of its own, not a week (B11) |
 | `project` | the Project board | every card filed under a column |
-| `personal` | the caller's own repository | their personal board, which their read turns over (P7) |
 | `all` | no board | everything the caller may read — the escape hatch, and it has to be said out loud |
 
 `process` is not here: the Process board draws structure (processes and their tasks), which is view-less below, and the cards it shows are `project`'s.
@@ -68,15 +67,14 @@ Three things, in the order they bite.
 
 | create in | the card that comes out | refused |
 | --- | --- | --- |
-| `me` | on the caller, `day` (today by default), the team's current sprint, in the UNPLANNED band (a subtask takes its parent's instead) | `epic`, `parked`, `personal`, `week`, any other band |
-| `team` | on `team=`, `day`, that team's current sprint, in any band; `assignee` optional (the Unassigned column) | `epic`, `parked`, `personal`, `week` |
-| `triage` | scheduled for `week`; no dates and no sprint, unless the week is the one being WORKED — a card started in the current row belongs to today too | `parked`, `personal`, `epic`, and a `day` in any other week |
-| `backlog` | on `team=`'s shelf: parked, no week, no dates, no sprint | `week`, a `day`, `epic`, `personal` |
-| `project` | a slot under `epic` (+`project`): its row is the week of `dates.start`, no sprint | `parked`, `personal` |
-| `personal` | in the caller's own repository: no team and no column, in the unplanned band, keeping the days it was planned for | `team`, `epic`, `week`, `parked`, any other band |
+| `me` | on the caller, `day` (today by default), the team's current sprint, in the UNPLANNED band (a subtask takes its parent's instead) | `epic`, `parked`, `week`, any other band |
+| `team` | on `team=`, `day`, that team's current sprint, in any band; `assignee` optional (the Unassigned column) | `epic`, `parked`, `week` |
+| `triage` | scheduled for `week`; no dates and no sprint, unless the week is the one being WORKED — a card started in the current row belongs to today too | `parked`, `epic`, and a `day` in any other week |
+| `backlog` | on `team=`'s shelf: parked, no week, no dates, no sprint | `week`, a `day`, `epic` |
+| `project` | a slot under `epic` (+`project`): its row is the week of `dates.start`, no sprint | `parked` |
 | `all` | exactly what the fields say, as today | nothing |
 
-`personal` and `parked` stop being flags: each was a board wearing a field's clothes, and the board is now in the address. `noSprint` stays a field of the `me` and `team` creates, because it is a real question the board asks — the dialog that offers "this sprint" or "the next one" when a card is typed for a day ahead — and a question is not a board.
+`parked` stops being a flag: it was a board wearing a field's clothes, and the board is now in the address. `noSprint` stays a field of the `me` and `team` creates, because it is a real question the board asks — the dialog that offers "this sprint" or "the next one" when a card is typed for a day ahead — and a question is not a board.
 
 **It says which gestures are on offer.** A board gesture is answered by the board that draws it, and by no other:
 
@@ -101,7 +99,7 @@ The board's structure: the roster and the pointers, one per board, owned by no v
 /api/v1/board            /api/v1/sprints          /api/v1/people/{login}
 /api/v1/teams/…          /api/v1/projects/…       /api/v1/epics/…
 /api/v1/processes/…      /api/v1/processes/tasks/…  /api/v1/deadlines/…
-/api/v1/me/personal      /api/v1/presence         /api/healthz
+/api/v1/presence         /api/healthz
 ```
 
 These are the cluster-scoped half of the analogy, and it holds better here than the namespace half does: a team's sprint pointer is not a thing you see one of per board.
@@ -115,8 +113,6 @@ These are the cluster-scoped half of the analogy, and it holds better here than 
 The GESTURES take one too, and here the default is the escape hatch, deliberately: an agent is not standing anywhere. It reaches a card by uid — from a listing, from a title search — and making it work out which board draws that card would be friction with no safety in it, since the rules that matter (whose card it is, what the × may do to it) live in the service and answer every caller alike. Naming a board is how an agent ASKS to be held to one, and then it is refused exactly as the SPA would be.
 
 The tools the boards have and MCP did not are added in the same pass, since "what the UI can do" is the list MCP is measured against: `place_card`, `untriage_card`, `finished_earlier`, `reorder_teams`, `reorder_epics`, `delete_team`, `set_sprint_state`, `list_day_logs`, and `list_sprints` — when each team's sprint began, which every date rule is reckoned against and nothing answered. The parameter gaps go with them: `send_to_review`'s zone, `create_card`'s parent, `list_cards`'s `reviews`, `from` and `weeks`.
-
-One gap stays open, and it is structural rather than an oversight: **linking a personal repository** (`GET`/`PUT`/`DELETE /api/v1/me/personal`) is the server's, not the service's — it checks the URL, asks the forge whether the visitor can push to it, commits the link and attaches the clone with the visitor's own credential. An MCP server holding a board backend has none of that. An agent can read and write a personal board (`view: personal`); linking one stays a thing its owner does in the UI.
 
 ## The frontend
 
@@ -144,12 +140,12 @@ A plugin writing the repositories directly is unaffected: it writes files, not H
 
 ## Settled on the way in
 
-- **`me` and `personal` are two boards on one screen**, and the Triage grid and its drawer likewise. They stay two listings — two repositories with two rights on one side, two questions on the other — and `board.Panes` is what says a gesture made on the screen counts either. A single view with a flag would have made the drawer's × a Triage card's ×, which it is not.
+- **The Triage grid and its drawer are two listings on one screen.** They stay two — two questions — and `board.Panes` is what says a gesture made on the screen counts either. A single view with a flag would have made the drawer's × a Triage card's ×, which it is not.
 - **`team` still takes a set** (`team=platform,marketing`), because a lead with three teams opens all three; a gesture that names none is judged on the card's own team.
 
 ## What it costs
 
-The gate is a listing: `apiserver.Drawn` runs the board's own filter and stops at the card. Measured on a production-shaped board of 2500 cards (four teams, fifteen people, a fifth of them subtasks, the card looked for last): the **me** pane 8 ms, **team** 1.8 ms, **triage** 0.67 ms, **personal** 0.06 ms. The Me pane is quadratic — `MeView` asks `childAssigned` per unmatched top-level card — so it is 30 ms at 5000 cards and 136 ms at 10000.
+The gate is a listing: `apiserver.Drawn` runs the board's own filter and stops at the card. Measured on a production-shaped board of 2500 cards (four teams, fifteen people, a fifth of them subtasks, the card looked for last): the **me** pane 8 ms, **team** 1.8 ms, **triage** 0.67 ms. The Me pane is quadratic — `MeView` asks `childAssigned` per unmatched top-level card — so it is 30 ms at 5000 cards and 136 ms at 10000.
 
 It is paid once per gesture, and only by `remove` and `finished-earlier`, the two the Me board draws: the pane loop stops at the first board that draws the card, and `me` comes first. Beside it sits a git commit. The same walk is already on a hotter path — every scoped watch re-runs `FilterCards` per change event (`internal/server/boardstore.go`), which every open Me tab pays on every card write — so if the curve ever bites, the fix belongs in `MeView` (a parent→assignees index instead of the scan), where the watch gets it too. Not worth restructuring the gate for.
 

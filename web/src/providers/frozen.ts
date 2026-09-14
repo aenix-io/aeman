@@ -29,7 +29,6 @@ const READS = new Set([
   "listLog",
   "listDayLogs",
   "listNotes",
-  "getPersonal",
 ]);
 
 // QUIET are calls that change nothing durable and are not worth an error:

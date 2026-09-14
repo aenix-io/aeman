@@ -24,7 +24,7 @@ Also check how much is SIZED: `spec.size` on the closed cards. An unsized card w
 Over the last four complete weeks, per person:
 
 - Take the cards with a `status.doneAt` in the window, on that person (`spec.assignees[0]` — the first assignee owns the card; a card is not counted twice).
-- Leave out: subtasks (`spec.parent` set — they are weighed on their parent), review cards (`spec.reviewOf`), the board's own state cards, and anything on a personal domain. This is the team's work, not everything that moved.
+- Leave out: subtasks (`spec.parent` set — they are weighed on their parent), review cards (`spec.reviewOf`), and the board's own state cards. This is the team's work, not everything that moved.
 - Weigh each card: S=1, M=2, L=4, XL=8; a card with no size weighs M, and an unsized REVIEW card weighs S. An umbrella — a card with sized children — weighs its children, once, not itself.
 - Group by the Monday of `doneAt`. That gives up to four weekly totals.
 - **The capacity is the MEDIAN of the weeks the person closed something in.** Weeks with nothing closed are skipped, not counted as zero: a week off is not a slow week, and a number that remembers somebody's holiday is wrong the moment they come back. The median, not the mean, so one enormous week — an umbrella closed all at once — does not become the expectation.

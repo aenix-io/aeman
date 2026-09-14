@@ -9,9 +9,6 @@ interface RemoveChoiceDialogProps {
    *  else: a card that cannot be destroyed is never shown a button that
    *  says it can. */
   choices: RemoveChoice[];
-  /** The day a PERSONAL card would be left behind on, named on the "keep"
-   *  option. */
-  keepOn?: string | null;
   /** How many subtasks go with it, if any. */
   subtasks: number;
   onClose: () => void;
@@ -20,7 +17,7 @@ interface RemoveChoiceDialogProps {
 
 /** What each choice says: the button names the act, the line under it says
  *  where the card ends up. */
-function say(choice: RemoveChoice, keepOn?: string | null) {
+function say(choice: RemoveChoice) {
   switch (choice) {
     case "unassign":
       return {
@@ -46,18 +43,10 @@ function say(choice: RemoveChoice, keepOn?: string | null) {
         note: "Off the plan, kept on its team's shelf — nothing is lost, and nobody is holding it.",
         danger: false,
       };
-    case "keep":
-      return {
-        label: `Keep it on ${keepOn}`,
-        note: "Off today’s board, but the card stays — find it by stepping back a day.",
-        danger: false,
-      };
     default:
       return {
         label: "Take it off the board",
-        note: keepOn
-          ? "The card, its notes and its log are gone for good."
-          : "The day it stood on keeps it — step back to that day to see it. Today’s board is done with it.",
+        note: "The day it stood on keeps it — step back to that day to see it. Today’s board is done with it.",
         danger: true,
       };
   }
@@ -75,7 +64,6 @@ export function RemoveChoiceDialog({
   title,
   progress,
   choices,
-  keepOn,
   subtasks,
   onClose,
   onSubmit,
@@ -91,7 +79,7 @@ export function RemoveChoiceDialog({
       : "";
   // The safe option takes the focus where there is one: a dialog that opens
   // with the destructive button armed answers itself on a stray Enter.
-  const focusOn = choices.find((c) => !say(c, keepOn).danger) ?? choices[0];
+  const focusOn = choices.find((c) => !say(c).danger) ?? choices[0];
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -126,7 +114,7 @@ export function RemoveChoiceDialog({
           </p>
           <div className="sprint-choice-options">
             {choices.map((choice) => {
-              const { label, note, danger } = say(choice, keepOn);
+              const { label, note, danger } = say(choice);
               return (
                 <button
                   key={choice}

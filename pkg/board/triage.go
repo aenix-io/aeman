@@ -23,7 +23,7 @@ func PlacedAhead(c Card, today string) bool {
 // is waiting on a reviewer, not on a week: asking the strip's reader for one
 // asks them to decide something nobody is waiting on them to decide.
 func NeedsTriage(_ Board, c Card, _ string) bool {
-	if IsStateTitle(c.Title) || IsPersonalDomain(c.Domain) {
+	if IsStateTitle(c.Title) {
 		return false
 	}
 	if c.Parent != "" || c.ReviewOf != "" || c.Week != "" {

@@ -161,7 +161,7 @@ func plannedFor(c Card, day string) bool {
 // somebody finished it.
 func finishedOn(c Card, day string) bool { return c.DoneAt == day }
 
-// MeView returns the cards on the personal day board for a user on a given day:
+// MeView returns the cards on a person's own day board on a given day:
 // the user's cards (user = "" means everyone) that belong to the sprint that was
 // active on the viewed day (activeSprint) and whose scheduled day has arrived
 // (startDate empty or on or before the viewed day). Today shows the current
@@ -258,7 +258,7 @@ func MeView(b Board, user, day string) []Card {
 }
 
 // childAssigned reports whether any subtask of a card is assigned to user —
-// the personal board shows the parent when the person owns only a subtask.
+// the Me board shows the parent when the person owns only a subtask.
 func childAssigned(b Board, itemID, user string) bool {
 	for _, c := range b.Cards {
 		if c.Parent == itemID && slices.Contains(c.Assignees, user) {

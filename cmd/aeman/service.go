@@ -808,7 +808,7 @@ func installService(ctx context.Context, listen string, insecure bool, gf *gitFl
 	// Printed after the unit is written, which is exactly when somebody
 	// without a credential reads it and goes to log in. That login lands in
 	// the keychain the daemon already read: fillGitToken resolves the token
-	// once at start and only a personal domain's auth is replaced later.
+	// once at start.
 	fmt.Println("it resolves that once, at start, so an `aeman login` from here reaches the daemon only after `aeman service uninstall && aeman service install`")
 	if ssh := sshRemotes(cfg); len(ssh) > 0 {
 		fmt.Printf("warning: ssh remotes (%s) authenticate through an agent, and a unit reaches none of yours: a systemd user unit inherits no SSH_AUTH_SOCK, and a launchd agent is handed launchd's own socket rather than this shell's, so fetch and push can fail with nothing to fall back on\n",

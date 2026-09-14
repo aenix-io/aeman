@@ -1206,7 +1206,7 @@ export function TeamBoard({
     // A subtask always belongs to its parent's person (mirrors the server): a
     // direct change follows the parent, and re-assigning a parent hands the
     // whole family over. A family split across two people lands on two
-    // personal boards.
+    // people's Me boards.
     const target = card.parent ? cardsById.get(card.parent) ?? card : card;
     const next = card.parent
       ? target.assignees.slice(0, 1)
@@ -1889,7 +1889,6 @@ export function TeamBoard({
           title={removeChoice.title}
           progress={removeChoice.progress ?? 0}
           choices={removeChoices(removeChoice, gridCtx(removeChoice))}
-          keepOn={null}
           subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}
           onClose={() => setRemoveChoice(null)}
           onSubmit={(choice) => handleGridDelete(removeChoice, choice)}

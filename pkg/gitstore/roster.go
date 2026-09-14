@@ -67,14 +67,12 @@ const (
 	PathUser
 )
 
-// UserPath is users/<login>.yaml — a person's link to their personal
-// repository, read from the primary only.
+// UserPath is users/<login>.yaml — a person's roster entry (their capacity),
+// read from the primary only.
 func UserPath(login string) string { return "users/" + login + ".yaml" }
 
 // UserFile is users/<login>.yaml.
 type UserFile struct {
-	// Personal is the URL of the person's personal repository.
-	Personal string
 	// Capacity is the points a week a lead set for this person; 0 = none
 	// set, and the board does not invent one (board.CapacityOfPerson).
 	Capacity int
@@ -271,7 +269,6 @@ func EncodeTeam(f TeamFile) ([]byte, error) {
 // EncodeUser renders a user file.
 func EncodeUser(f UserFile) ([]byte, error) {
 	var w yamlWriter
-	w.str("personal", f.Personal)
 	if f.Capacity != 0 {
 		w.b.WriteString("capacity: " + strconv.Itoa(f.Capacity) + "\n")
 	}
@@ -284,8 +281,6 @@ func DecodeUser(data []byte) (UserFile, error) {
 	var f UserFile
 	extra, err := each(data, func(key string, val *yaml.Node) bool {
 		switch key {
-		case "personal":
-			f.Personal = val.Value
 		case "capacity":
 			f.Capacity, _ = strconv.Atoi(val.Value)
 		case "created":

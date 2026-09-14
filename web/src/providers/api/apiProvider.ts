@@ -6,7 +6,6 @@
 import { clientId } from "../../api/client";
 import { resolveCardId } from "../../api/pending";
 import type { CardLink } from "../../links";
-import type { PersonalBoard } from "../../personal";
 import {
   resourceToCard,
   resourceToNote,
@@ -75,7 +74,6 @@ export function boardMetadata(
   | "teamDomains"
   | "projectDomains"
   | "processDomains"
-  | "personal"
 > {
   return {
     title: info.metadata.title ?? "",
@@ -98,21 +96,12 @@ export function boardMetadata(
       name: d.name,
       writable: d.writable ?? false,
       members: d.members ?? [],
-      personal: d.personal || undefined,
     })),
     // Which repository a team or project lives in: what keeps the pickers
     // from offering a pair the server will refuse.
     teamDomains: info.metadata.teamDomains ?? undefined,
     projectDomains: info.metadata.projectDomains ?? undefined,
     processDomains: info.metadata.processDomains ?? undefined,
-    personal: info.metadata.personal
-      ? {
-          domain: info.metadata.personal.domain,
-          url: info.metadata.personal.url,
-          problem: info.metadata.personal.problem || undefined,
-          actionUrl: info.metadata.personal.actionUrl || undefined,
-        }
-      : undefined,
   };
 }
 
@@ -353,20 +342,6 @@ export const apiProvider: Provider = {
     // The board the card was typed into says what it means — the server fills
     // in the rest and refuses the fields that board does not own (views.ts).
     const into = `/views/${createView(input, viewOf(standing) as ViewName)}/cards`;
-    if (input.personal) {
-      // A personal card carries none of the TEAM board's coordinates — no
-      // team, column or week, which that board refuses — but it does carry
-      // DAYS: planning there is dates alone (P8), so a card added while the
-      // board is flipped to tomorrow belongs to tomorrow. They used to be
-      // dropped here, and the card landed on today instead.
-      return cardFrom("POST", into, {
-        title: input.title,
-        zone: semanticZone(input.zone),
-        ...(input.start || input.day
-          ? { dates: { start: input.start ?? "", end: input.day ?? "" } }
-          : {}),
-      });
-    }
     const body: Record<string, unknown> = {
       title: input.title,
       team: input.team ?? "",
@@ -819,25 +794,5 @@ export const apiProvider: Provider = {
       "DELETE",
       `/cards/${uid}/notes/${encodeURIComponent(noteId)}`,
     );
-  },
-
-  async getPersonal(): Promise<PersonalBoard | null> {
-    try {
-      return await api<PersonalBoard>("GET", "/me/personal");
-    } catch (err: unknown) {
-      // No link is an answer, not a failure.
-      if (err instanceof ApiError && err.status === 404) {
-        return null;
-      }
-      throw err;
-    }
-  },
-
-  async linkPersonal(url: string): Promise<PersonalBoard> {
-    return api<PersonalBoard>("PUT", "/me/personal", { url });
-  },
-
-  async unlinkPersonal(): Promise<void> {
-    await api("DELETE", "/me/personal");
   },
 };

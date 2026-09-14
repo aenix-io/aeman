@@ -545,49 +545,6 @@ func TestFillGitTokenDoesNotWaitOnTheForgeForThePushCredential(t *testing.T) {
 	}
 }
 
-// Asking who the credential belongs to is bounded wherever it happens at
-// start-up, not only where the credential itself is resolved. `aeman mcp`
-// attaches the personal board before it serves stdio, and an MCP client
-// gives up on a silent start: an unbounded lookup there puts the source's
-// own 30-second ceiling on top of the credential lookup's, on exactly the
-// network that made the first bound necessary.
-func TestTheStartUpLoginIsBounded(t *testing.T) {
-	hang := make(chan struct{})
-	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		select {
-		case <-hang:
-		case <-r.Context().Done():
-		}
-	}))
-	t.Cleanup(func() { close(hang); srv.Close() })
-
-	defer func(d time.Duration) { tokenLookupTimeout = d }(tokenLookupTimeout)
-	tokenLookupTimeout = 50 * time.Millisecond
-
-	f := forge.NewGitHubAt(srv.URL)
-	log, _ := testLog()
-	cli := &chain{log: log, forge: f, sources: []forge.CLI{
-		newEnvCLI(f, func(string) string { return "env-token" }, guardedClient(srv)),
-	}}
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		// An unreachable forge is not a missing credential: the chain
-		// answers with no name and no error, and attaching a personal
-		// board is a no-op on an empty login. What must not happen is
-		// waiting for it.
-		if login, _ := boundedLogin(context.Background(), cli); login != "" {
-			t.Errorf("login = %q, want none from a forge that never answered", login)
-		}
-	}()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the start-up login is still waiting on the forge")
-	}
-}
-
 // parseGitFlags is one round through the flag set: what a process is given
 // on the command line and in its environment, resolved.
 func parseGitFlags(t *testing.T, env map[string]string, args []string) *server.GitConfig {

@@ -120,9 +120,6 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/projects/actions/rename", s.handleRenameProject)
 	mux.HandleFunc("POST /api/v1/teams/actions/rename", s.handleRenameTeam)
 	mux.HandleFunc("POST /api/v1/teams/actions/capacity", s.handleSetTeamCapacity)
-	mux.HandleFunc("GET /api/v1/me/personal", s.handleGetPersonal)
-	mux.HandleFunc("PUT /api/v1/me/personal", s.handleLinkPersonal)
-	mux.HandleFunc("DELETE /api/v1/me/personal", s.handleUnlinkPersonal)
 	mux.HandleFunc("POST /api/v1/presence", s.handleSetPresence)
 }
 
@@ -151,9 +148,9 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 		MCP:     "/mcp",
 		Endpoints: []apiEndpoint{
 			{"GET", "/api/v1/board", "Board identity, team roster, deadlines, and the Project board's projects and epic columns. The board is the one the server was started with — no addressing parameter; \"project\" is aeman's planning entity"},
-			{"GET", "/api/v1/views", "The boards a caller may open — me, team, triage, backlog, project, personal, all — and the gestures each draws"},
+			{"GET", "/api/v1/views", "The boards a caller may open — me, team, triage, backlog, project, all — and the gestures each draws"},
 			{"GET", "/api/v1/views/{view}/cards", "List the cards that board draws (no descriptions; status.links carries extracted refs); narrowed by team, day, user, project, stage, zone, assignee, fields=full for complete cards"},
-			{"POST", "/api/v1/views/{view}/cards", "Create a card the way that board makes them: me files it on you today, triage schedules it for a week, backlog parks it, personal puts it in your own repository"},
+			{"POST", "/api/v1/views/{view}/cards", "Create a card the way that board makes them: me files it on you today, triage schedules it for a week, backlog parks it"},
 			{"GET", "/api/v1/views/{view}/watch", "Watch that board over a WebSocket: a card entering the selection arrives as ADDED and one leaving as DELETED (view=all with no selectors is the raw board stream)"},
 			{"POST", "/api/v1/views/{view}/cards/{uid}/actions/remove", "The board's ×: hand the card back to a home it still has, or delete it by that board's rules ({intent})"},
 			{"POST", "/api/v1/views/{view}/cards/{uid}/actions/place", "The Triage board's drop: put the card in a week ({week}, a Monday) — which is what triaging it means"},
@@ -209,9 +206,6 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/teams/actions/rename", "Rename a team in place, its cards and process tasks along with it ({team, to}); a name another team has is refused"},
 			{"POST", "/api/v1/teams/actions/capacity", "Set the points a week a team gets through ({team, points}); 0 takes the number back, and the board derives none"},
 			{"PATCH", "/api/v1/people/{login}", "Set the points a week a PERSON gets through ({capacity}); 0 takes the number back. Answers the whole Board resource, whose members carry load and capacity"},
-			{"GET", "/api/v1/me/personal", "The caller's personal board: the repository linked as their own domain ({domain, url}), 404 when none"},
-			{"PUT", "/api/v1/me/personal", "Link a repository the caller can push to as their personal board ({url}); an empty repository is given a board. Personal cards: POST /api/v1/views/personal/cards, GET /api/v1/views/personal/cards"},
-			{"DELETE", "/api/v1/me/personal", "Unlink the caller's personal board; the repository is left as it is"},
 			{"POST", "/api/v1/presence", "Share the caller's live card selection ({login, card}; empty card clears)"},
 		},
 	})
@@ -343,7 +337,6 @@ func (s *Server) handleGetBoard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info := apiserver.BoardResourceWithPeople(b, s.store.member)
-	login, personal, linked := s.personalOf(r)
 	// Always, one repository or many: the payload's stamps are domain
 	// NAMES — the store stamps the primary's entries too (G59) — so a
 	// board that listed none left the client comparing "aeman" against "",
@@ -356,10 +349,7 @@ func (s *Server) handleGetBoard(w http.ResponseWriter, r *http.Request) {
 		for _, m := range info.Metadata.Members {
 			logins = append(logins, m.Login)
 		}
-		info.Metadata.Domains = s.domainsFor(r.Context(), logins, login)
-	}
-	if linked {
-		info.Metadata.Personal = &personal
+		info.Metadata.Domains = s.domainsFor(r.Context(), logins)
 	}
 	writeJSON(w, http.StatusOK, info)
 }
@@ -368,9 +358,9 @@ func (s *Server) handleGetBoard(w http.ResponseWriter, r *http.Request) {
 // whether they may write each and which of the board's members can read it
 // (G16). Rights come from the request; who else reads a domain is the
 // forge's answer with the server credential.
-func (s *Server) domainsFor(ctx context.Context, members []string, login string) []apiserver.DomainInfo {
+func (s *Server) domainsFor(ctx context.Context, members []string) []apiserver.DomainInfo {
 	rights := rightsFrom(ctx)
-	out := make([]apiserver.DomainInfo, 0, len(s.gitCfg.Repos)+1)
+	out := make([]apiserver.DomainInfo, 0, len(s.gitCfg.Repos))
 	for _, d := range s.gitCfg.Repos {
 		if !rights.canRead(d.Name) {
 			continue
@@ -394,10 +384,6 @@ func (s *Server) domainsFor(ctx context.Context, members []string, login string)
 		}
 		out = append(out, apiserver.DomainInfo{Name: d.Name, Writable: rights.canWrite(d.Name), Members: readers})
 	}
-	// The visitor's own personal domain, when attached: theirs alone.
-	if login != "" && s.gitBE != nil && s.gitBE.hasPersonal(login) {
-		out = append(out, apiserver.DomainInfo{Name: board.PersonalDomain(login), Writable: true, Members: []string{login}, Personal: true})
-	}
 	return out
 }
 
@@ -416,18 +402,6 @@ func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
 	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
-	}
-	// The owner reading their personal board is what turns its day over: a
-	// personal board has no carry-over, so the finished recurrent cards that
-	// came due are reseeded here, and the list answers with the fresh copies.
-	// As of the real today, whatever day the list asks for — `day` is a lens
-	// (the column follows the day the board is flipped to), and looking at
-	// tomorrow must not create tomorrow's copies early.
-	if sel.View == "personal" && sel.User != "" && sel.User == board.ActorFrom(r.Context()) {
-		if _, err := svc.ReseedPersonal(r.Context(), boardID, sel.User, ""); err != nil {
-			s.apiError(w, r, err)
-			return
-		}
 	}
 	// A PAST day can be asked for as it stood, rather than as today's board
 	// filtered by that day's dates (see boardOfRequest).
@@ -537,9 +511,6 @@ type createCardRequest struct {
 	// NoSprint schedules the card for its day without joining any sprint (a
 	// "next sprint" create); the next carry-over to reach its day adopts it.
 	NoSprint bool `json:"noSprint"`
-	// Personal files the card on the caller's personal board (their own
-	// repository) instead of the team board; no team, column or plan band.
-	Personal bool `json:"personal"`
 }
 
 func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
@@ -554,18 +525,6 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	zone, ok := parseZone(w, in.Zone)
 	if !ok {
 		return
-	}
-	// A personal card needs the personal domain, and a domain that would not
-	// attach is refused deeper down as "no write access to the card's
-	// domain" — about a repository its owner plainly owns, with the real
-	// reason left in the server's log. Say it here instead.
-	if view == board.ViewPersonal || in.Personal {
-		if _, login, err := s.apiTokens(r); err == nil && login != "" {
-			if why, action := s.personalUnavailable(r.Context(), login); why != "" {
-				writeJSONErrorAction(w, http.StatusForbidden, why, action)
-				return
-			}
-		}
 	}
 	svc, boardID, ok := s.service(w, r)
 	if !ok {
@@ -601,7 +560,6 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		SprintStart:    in.Dates.Sprint,
 		Epic:           in.Epic,
 		Project:        in.CardProject,
-		Personal:       in.Personal,
 		ReviewOf:       in.ReviewOf,
 		Parent:         in.Parent,
 		StartNewSprint: in.StartNewSprint,
@@ -2143,10 +2101,8 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		// board (or another backend) can.
 		writeJSONError(w, http.StatusNotImplemented, err.Error())
 	case errors.Is(err, gitstore.ErrNameTaken),
-		errors.Is(err, gitstore.ErrPersonalRoster),
 		errors.Is(err, boardservice.ErrTeamExists),
 		errors.Is(err, boardservice.ErrTeamNotFound),
-		errors.Is(err, boardservice.ErrPersonalPlacement),
 		errors.Is(err, boardservice.ErrInvalidStage),
 		errors.Is(err, boardservice.ErrDescriptionTooLong),
 		errors.Is(err, boardservice.ErrNoteTooLong),

@@ -19,7 +19,7 @@ import { Avatar } from "./Avatar";
 import { daysSince, localDateIso } from "../date";
 import { Dropdown } from "./Dropdown";
 import { extractLinks, type CardLink } from "../links";
-import { recurrenceCycles, recurrenceLabel, recurrenceTitle } from "../personal";
+import { recurrenceCycles, recurrenceLabel, recurrenceTitle } from "../recurrence";
 import { RangeCalendar } from "./RangeCalendar";
 
 // ageColor fades the age badge from light grey (fresh) to maroon-red by ~10 days.
@@ -92,9 +92,6 @@ interface CardProps {
   /** Dim the card's team avatar to 50%. Set unless this card is the selected
    *  team, so only the selected team's avatars stay at full opacity. */
   dimAvatar?: boolean;
-  /** A personal-board card: its default recurrence turns with the day, not
-   *  the sprint, and the menu says so. */
-  personal?: boolean;
   /** The card is drawn on the viewer's OWN board (Me), where the stages only
    *  its owner may set are offered — refusing is a first-person act, and a
    *  lead marking somebody else's card refused would be putting words in
@@ -154,7 +151,6 @@ export function Card({
   onSetDates,
   onDefer,
   dimAvatar,
-  personal = false,
   mine,
   onLoadLinks,
   selectedBy,
@@ -415,7 +411,7 @@ export function Card({
           card.stage === "review"
             ? "On review"
             : card.stage === "recurrent"
-              ? recurrenceTitle(card.recurrence, personal)
+              ? recurrenceTitle(card.recurrence)
               : card.stage === "locked"
                 ? "Locked"
                 : card.stage === "refuse"
@@ -543,7 +539,7 @@ export function Card({
                   className={`card-stage-submenu${recLeft ? " card-stage-submenu-left" : ""}`}
                 >
                   {recurrenceCycles
-                    .map((cycle) => [cycle, recurrenceLabel(cycle, personal)] as const)
+                    .map((cycle) => [cycle, recurrenceLabel(cycle)] as const)
                     .map(([cycle, label]) => (
                     <button
                       key={cycle || "sprint"}

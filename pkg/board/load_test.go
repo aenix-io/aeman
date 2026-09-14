@@ -36,7 +36,6 @@ func TestCarryingNowLeavesOutWhatIsNotBeingCarried(t *testing.T) {
 		{"work at a hundred percent", Card{Progress: 100}},
 		{"a card put off to a week that has not arrived", Card{Week: "2026-09-14"}},
 		{"a subtask, which rides its parent", Card{Parent: "p1"}},
-		{"a card on a personal board", Card{Domain: "~kvaps"}},
 		{"the board's own bookkeeping", Card{Title: SprintStateTitle}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

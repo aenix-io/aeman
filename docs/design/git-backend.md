@@ -193,11 +193,10 @@ teams/<id>.yaml                    one team: name, rank, sprint pointers,
                                    and the points a week somebody set for it
                                    (`capacity: points:`; absent = no number,
                                    and the board derives none — B20)
-users/<login>.yaml                 primary domain only, one person: the link
-                                   to their personal repository (`personal`)
-                                   and/or the points a week somebody set for
-                                   them (`capacity`; absent = no number, and
-                                   the board derives none — B19)
+users/<login>.yaml                 primary domain only, one person: the
+                                   points a week somebody set for them
+                                   (`capacity`; absent = no number, and the
+                                   board derives none — B19); other keys kept
 projects/<id>/project.yaml         one project: name, rank; a file with no
                                    `name` is the NO-PROJECT bucket, written
                                    on demand (`projects/_/project.yaml`)

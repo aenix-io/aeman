@@ -9,11 +9,9 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// A person's capacity is one line of users/<login>.yaml — `capacity: 40` —
-// beside the link to their personal repository, and either may stand
-// without the other: most people have a capacity and no personal board, and
-// a personal board says nothing about a week's worth of points. Zero writes
-// no line, so a file that only ever carried a link is unchanged by it.
+// A person's capacity is one line of users/<login>.yaml — `capacity: 40`.
+// Zero writes no line, so a file that carries something else — a key an
+// older server or another writer put there — is unchanged by it.
 func TestAPersonsCapacityRoundTripsThroughTheirFile(t *testing.T) {
 	data, err := EncodeUser(UserFile{Capacity: 40, Created: "2026-09-08T10:00:00Z"})
 	if err != nil {
@@ -26,19 +24,20 @@ func TestAPersonsCapacityRoundTripsThroughTheirFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if back.Capacity != 40 || back.Personal != "" {
+	if back.Capacity != 40 {
 		t.Fatalf("after the round trip: %+v", back)
 	}
 
-	linked, err := EncodeUser(UserFile{Personal: "https://github.com/x/personal.git", Created: "2026-09-08T10:00:00Z"})
+	other, err := DecodeUser([]byte("personal: https://github.com/x/personal.git\ncreated: 2026-09-08T10:00:00Z\n"))
+	if err != nil || other.Capacity != 0 {
+		t.Fatalf("a file without the line decodes with none: %+v, %v", other, err)
+	}
+	rewritten, err := EncodeUser(other)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(linked), "capacity") {
-		t.Fatalf("no capacity, no line:\n%s", linked)
-	}
-	if back, err = DecodeUser(linked); err != nil || back.Capacity != 0 || back.Personal == "" {
-		t.Fatalf("a link-only file decodes as before: %+v, %v", back, err)
+	if strings.Contains(string(rewritten), "capacity") || !strings.Contains(string(rewritten), "personal: https://github.com/x/personal.git") {
+		t.Fatalf("no capacity, no line, and the rest as it was:\n%s", rewritten)
 	}
 }
 

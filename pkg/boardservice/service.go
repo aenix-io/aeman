@@ -216,7 +216,7 @@ func (s *Service) TeamView(ctx context.Context, boardID string, team, day string
 	return board.TeamGrid(b, team, day), nil
 }
 
-// MeView returns the personal day board for a user on a day (user = "" is
+// MeView returns a person's own day board on a day (user = "" is
 // everyone, day = "" is today). It mirrors myCards in MeBoard.tsx via board.MeView.
 func (s *Service) MeView(ctx context.Context, boardID string, user, day string) ([]board.Card, error) {
 	b, err := s.backend.LoadBoard(ctx, boardID)
@@ -264,10 +264,6 @@ type CreateCardArgs struct {
 	Project string
 	// ReviewOf marks the new card as the review of the given item.
 	ReviewOf string
-	// Personal files the card in the actor's personal domain — a backlog item
-	// of their own: no team, no sprint, no column, no plan band. The service
-	// names the domain from the actor; the caller only asks for it.
-	Personal bool
 	// Parent groups the new card as a subtask of the given item on create.
 	Parent         string
 	StartNewSprint *bool
@@ -329,14 +325,8 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	if err := guardRoster(b, args.Team, args.Project); err != nil {
 		return board.Card{}, err
 	}
-	// A personal card lives in the actor's own repository, outside the team
-	// board's placement: it has a zone, dates and a body, and none of team,
-	// sprint, column or plan band — those are the team board's coordinates.
 	if err := linksArePossible(b, args); err != nil {
 		return board.Card{}, err
-	}
-	if args.Personal {
-		return s.createPersonalCard(ctx, b, args, linkDescription, pendingRef)
 	}
 
 	// An epic card lives on the Project board: filed under its column,
@@ -965,9 +955,6 @@ func (s *Service) Defer(ctx context.Context, boardID string, itemID string, days
 		base = c.StartDate
 	}
 	target := board.AddDays(base, days)
-	if err := s.bringBack(ctx, b, c); err != nil {
-		return err
-	}
 	if err := s.backend.SetStart(ctx, b, c, target); err != nil {
 		return err
 	}
@@ -980,8 +967,7 @@ func (s *Service) Defer(ctx context.Context, boardID string, itemID string, days
 	s.logEvent(ctx, b, c, board.EventDates,
 		board.DateRange(c.StartDate, c.Day), board.DateRange(target, c.Day))
 	// A card created today has no history to keep: its sprint moves with it.
-	// A personal card has no sprint to relocate at all.
-	if board.LocalDateIso(c.CreatedAt) == today && !board.IsPersonalDomain(c.Domain) {
+	if board.LocalDateIso(c.CreatedAt) == today {
 		if err := s.backend.SetSprintStart(ctx, b, c, target); err != nil {
 			return err
 		}
@@ -1043,15 +1029,6 @@ func (s *Service) SetDates(ctx context.Context, boardID string, itemID, start, e
 	// subtasks with it.
 	if c.Epic != "" {
 		sprint = c.SprintStart
-	}
-	// A personal board has no sprints: planning there is dates alone, and
-	// the card must not be pinned to the no-team group's sprint pointer or
-	// to its own start day the way a team card is.
-	if board.IsPersonalDomain(c.Domain) {
-		sprint = ""
-	}
-	if err := s.bringBack(ctx, b, c); err != nil {
-		return err
 	}
 	if err := s.backend.SetStart(ctx, b, c, start); err != nil {
 		return err
@@ -1129,9 +1106,6 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, vie
 	}
 	if err := removingFromOnesOwnBoard(ctx, c, view); err != nil {
 		return err
-	}
-	if board.IsPersonalDomain(c.Domain) {
-		return s.removePersonal(ctx, b, c)
 	}
 	// OFF THE BOARD is taken at its word: the card goes even though its week
 	// or its column would have kept it, and the subtasks that were pieces of
@@ -1396,44 +1370,6 @@ func (s *Service) leaveWorkingArea(ctx context.Context, b board.Board, c board.C
 	}
 	s.logEvent(ctx, b, c, board.EventDates, board.DateRange(c.StartDate, c.Day), "")
 	return nil
-}
-
-// removePersonal is the × on a personal board, which has no sprint to demote
-// into: a worked-on card is left behind on yesterday's board — leftAt set on
-// it and on its subtasks, which ride with it — and an untouched one, or one
-// that started today, is deleted for real (mirrors personalRemovalKind in
-// removal.ts; the UI asks first when there is progress to lose).
-func (s *Service) removePersonal(ctx context.Context, b board.Board, c board.Card) error {
-	today := board.TodayIso()
-	if !board.PersonalLeaves(c, today) {
-		return s.deleteWithCascade(ctx, b, c)
-	}
-	return s.setLeftAt(ctx, b, c, board.AddDays(today, -1))
-}
-
-// setLeftAt writes a personal card's left-behind day — "" brings it back —
-// on the card and its subtasks, recording the move on each.
-func (s *Service) setLeftAt(ctx context.Context, b board.Board, c board.Card, day string) error {
-	for _, k := range append([]board.Card{c}, board.Children(b, c.ItemID)...) {
-		if k.LeftAt == day {
-			continue
-		}
-		if err := s.backend.SetLeftAt(ctx, b, k, day); err != nil {
-			return err
-		}
-		s.logEvent(ctx, b, k, board.EventLeft, k.LeftAt, day)
-	}
-	return nil
-}
-
-// bringBack clears a left-behind personal card's leftAt when it is re-dated:
-// the calendar and the defer put it on a day again, so it is on the board
-// again. A no-op for every other card.
-func (s *Service) bringBack(ctx context.Context, b board.Board, c board.Card) error {
-	if !board.IsPersonalDomain(c.Domain) || c.LeftAt == "" {
-		return nil
-	}
-	return s.setLeftAt(ctx, b, c, "")
 }
 
 // releaseToColumn gives a slot back: it loses its person and leaves the
@@ -2523,7 +2459,7 @@ func (s *Service) SetAssignee(ctx context.Context, boardID string, itemID, login
 	// A subtask always belongs to its parent's PERSON, the way it always
 	// belongs to the parent's team: a direct change follows the parent
 	// instead of drifting away from it. A family that drifts apart lands on
-	// two personal boards — the Me view admits a card when you own one of its
+	// two people's Me boards — the Me view admits a card when you own one of its
 	// subtasks, so one stray child drags the parent and every sibling onto a
 	// board they are not part of.
 	if card.Parent != "" {
@@ -2856,12 +2792,6 @@ func (s *Service) DeleteCard(ctx context.Context, boardID string, itemID string)
 func removingFromOnesOwnBoard(ctx context.Context, card board.Card, view board.View) error {
 	actor := board.ActorFrom(ctx)
 	if view != board.ViewMe || actor == "" || card.Parent != "" {
-		return nil
-	}
-	// A card of somebody's own PERSONAL board is all theirs, whatever band it
-	// stands in: there is no lead's plan there to be unmade. The column is
-	// drawn beside the Me day and its × is always offered (MeBoard.tsx).
-	if board.IsPersonalDomain(card.Domain) {
 		return nil
 	}
 	if card.Author == actor && board.ZoneOf(card) == board.ZoneYellow {

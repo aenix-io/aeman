@@ -11,7 +11,6 @@ const github = {
   signInLead: "Connect your GitHub account to open the board.",
   signInButton: "Sign in with GitHub",
   noTokenHint: "No GitHub token — run aeman login, or gh auth login, in the terminal where aeman runs.",
-  repoPlaceholder: "https://github.com/<you>/<repo>",
   connectHint: "Sign in with GitHub on first use (OAuth, no token stored).",
 };
 
@@ -24,7 +23,6 @@ const gitlab = {
   signInLead: "Connect your GitLab account to open the board.",
   signInButton: "Sign in with GitLab",
   noTokenHint: "No GitLab token — run aeman login, or glab auth login, in the terminal where aeman runs.",
-  repoPlaceholder: "https://gitlab.com/<you>/<repo>",
   connectHint: "Sign in with GitLab on first use (OAuth, no token stored).",
 };
 
@@ -57,7 +55,6 @@ describe("forgeCopy", () => {
   it("puts a self-hosted host into the repository placeholder and keeps the rest", () => {
     const copy = forgeCopy({ forge: "gitlab", forgeHost: "git.example.com" });
     expect(copy.host).toBe("git.example.com");
-    expect(copy.repoPlaceholder).toBe("https://git.example.com/<you>/<repo>");
     expect(copy.signInButton).toBe("Sign in with GitLab");
     expect(copy.noTokenHint).toBe(gitlab.noTokenHint);
   });
@@ -72,7 +69,6 @@ describe("forgeCopy", () => {
     expect(copy.label).toBe("GitHub Enterprise");
     expect(copy.signInLead).toBe("Connect your GitHub Enterprise account to open the board.");
     expect(copy.signInButton).toBe("Sign in with GitHub Enterprise");
-    expect(copy.repoPlaceholder).toBe("https://github.example.com/<you>/<repo>");
     expect(copy.connectHint).toBe(
       "Sign in with GitHub Enterprise on first use (OAuth, no token stored).",
     );

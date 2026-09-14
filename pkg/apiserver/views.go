@@ -19,7 +19,7 @@ const maxTriageWeeks = 26
 // exactly what the UI renders (the Team grid, the Me day board, the Triage
 // weeks); the plain field selectors compose with no view.
 type Selector struct {
-	// View is "", "all", "team", "me", "personal", "triage", "backlog" or "project". "" and "all" both list every
+	// View is "", "all", "team", "me", "triage", "backlog" or "project". "" and "all" both list every
 	// card (the HTTP/MCP layer defaults an unspecified view to the caller's "me").
 	View string
 	// Team is the team key for the team/triage views ("" = the no-team group).
@@ -115,7 +115,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		sel.Weeks = n
 	}
 	switch sel.View {
-	case "", "all", "team", "me", "personal", "project", "triage", "backlog":
+	case "", "all", "team", "me", "project", "triage", "backlog":
 	default:
 		return Selector{}, fmt.Errorf("unknown view %q", sel.View)
 	}
@@ -143,7 +143,7 @@ func ParseViewSelector(view string, q url.Values) (Selector, error) {
 
 // normalized fills the selector's day/week defaults against the wall clock.
 func (s Selector) normalized() Selector {
-	if s.View == "team" || s.View == "me" || s.View == "personal" {
+	if s.View == "team" || s.View == "me" {
 		if s.Day == "" {
 			s.Day = board.TodayIso()
 		}
@@ -179,10 +179,6 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		}
 	case "me":
 		base = board.MeView(b, sel.User, sel.Day)
-	case "personal":
-		// The caller's personal repository as a backlog: open cards and the
-		// ones done today; the user is who-am-i, filled in by the handler.
-		base = board.PersonalView(b, sel.User, sel.Day)
 	case "project":
 		// The Project board: every card filed under an epic, whatever its week
 		// — the client lays rows (weeks) and columns (epics) out itself. The
@@ -238,7 +234,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		}
 		// team filters the views that are not already scoped by it (the me, all
 		// and default lists). It accepts a comma-separated set, so
-		// ?view=me&team=marketing,portal narrows the personal board to those
+		// ?view=me&team=marketing,portal narrows the Me board to those
 		// teams — the Me view's team-focus toggle over the selected chips.
 		if (sel.View == "me" || sel.View == "" || sel.View == "all") && !teamInSet(c.Team, sel.Team) {
 			continue
@@ -490,7 +486,7 @@ func triageCards(b board.Board, sel Selector) []board.Card {
 	thisWeek := board.MondayOf(today)
 	var out []board.Card
 	for _, c := range b.Cards {
-		if c.Parent != "" || board.IsStateTitle(c.Title) || board.IsPersonalDomain(c.Domain) {
+		if c.Parent != "" || board.IsStateTitle(c.Title) {
 			continue
 		}
 		// A REVIEW rides along only when asked. It is not triage work —
@@ -560,7 +556,7 @@ func contains(s []string, v string) bool {
 func backlogCards(b board.Board, sel Selector) []board.Card {
 	var out []board.Card
 	for _, c := range b.Cards {
-		if c.Parent != "" || board.IsStateTitle(c.Title) || board.IsPersonalDomain(c.Domain) {
+		if c.Parent != "" || board.IsStateTitle(c.Title) {
 			continue
 		}
 		if !board.InBacklog(c) || !teamInSet(c.Team, sel.Team) {

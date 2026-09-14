@@ -31,8 +31,8 @@ var ErrViewNeedsField = errors.New("this board needs it to mean anything")
 // is theirs and today's; into a Triage week, where it is scheduled for that
 // week and stands on no day; into the drawer, where it is parked; into a
 // Project column, where it is a slot whose row is its start date. The fields
-// that encode those four — `personal`, `week`, `parked`, `epic` — were the
-// whole vocabulary the API had, so a caller had to know which COMBINATIONS are
+// that encode the last three — `week`, `parked`, `epic` — were the whole
+// vocabulary the API had, so a caller had to know which COMBINATIONS are
 // boards and which are states no board draws (parked with a week is a card in
 // the drawer and in the plan at once). The view is the board, said once.
 //
@@ -66,7 +66,7 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 	case board.ViewMe, board.ViewTeam:
 		refusals = []viewRefusal{
 			{args.Parked, "parked"}, {args.Epic != "", "epic"},
-			{args.Personal, "personal"}, {args.Week != "", "week"},
+			{args.Week != "", "week"},
 		}
 		// The Me board files for the person reading it — including a lead
 		// looking at somebody else's day, who says whose with an assignee.
@@ -82,8 +82,7 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 		}
 	case board.ViewTriage:
 		refusals = []viewRefusal{
-			{args.Parked, "parked"}, {args.Personal, "personal"},
-			{args.Epic != "", "epic"},
+			{args.Parked, "parked"}, {args.Epic != "", "epic"},
 			// A card of a week AHEAD stands on no day: it waits for its
 			// Monday, and dates on it would say two things at once (B1). The
 			// row that IS NOW is the exception the board's own add form
@@ -96,29 +95,18 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 		}
 	case board.ViewBacklog:
 		refusals = []viewRefusal{
-			{args.Week != "", "week"}, {args.Personal, "personal"},
-			{args.Epic != "", "epic"}, {dated, "a day"},
+			{args.Week != "", "week"}, {args.Epic != "", "epic"},
+			{dated, "a day"},
 		}
 		// Born on the shelf rather than born in the strip and moved: one
 		// commit, and no instant in between where the card stands somewhere
 		// nobody put it.
 		args.Parked = true
 	case board.ViewProject:
-		refusals = []viewRefusal{{args.Parked, "parked"}, {args.Personal, "personal"}}
+		refusals = []viewRefusal{{args.Parked, "parked"}}
 		if args.Epic == "" {
 			return args, fmt.Errorf("%w: a card of the Project board stands in a column", ErrViewNeedsField)
 		}
-	case board.ViewPersonal:
-		refusals = []viewRefusal{
-			{args.Team != "", "team"}, {args.Epic != "", "epic"},
-			{args.Week != "", "week"}, {args.Parked, "parked"},
-		}
-		// The personal column stands beside the Me day and shares its add
-		// form, so it shares the band it adds in.
-		if err := addsUnplanned(view, &args); err != nil {
-			return args, err
-		}
-		args.Personal = true
 	}
 	for _, r := range refusals {
 		if r.bad {
@@ -165,7 +153,7 @@ const (
 // list: a caller that said "all" has no board to be refused by.
 var gestureBoards = map[Gesture][]board.View{
 	GestureRemove: {board.ViewMe, board.ViewTeam, board.ViewTriage, board.ViewBacklog,
-		board.ViewProject, board.ViewPersonal, board.ViewAll},
+		board.ViewProject, board.ViewAll},
 	GesturePlace:           {board.ViewTriage, board.ViewAll},
 	GestureUntriage:        {board.ViewTriage, board.ViewAll},
 	GestureFinishedEarlier: {board.ViewMe, board.ViewTeam, board.ViewAll},
@@ -196,8 +184,7 @@ func Gestures(view board.View) []Gesture {
 	return out
 }
 
-// addsUnplanned holds a create on the Me board (and the personal column beside
-// it) to the UNPLANNED band.
+// addsUnplanned holds a create on the Me board to the UNPLANNED band.
 //
 // Something that came up today is unplanned by definition. The other three
 // zones are the PLAN — critical means "today, before anything else", planned

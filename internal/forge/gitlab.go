@@ -52,10 +52,10 @@ func (g *gitlab) AuthorizeURL() string { return g.base + "/oauth/authorize" }
 func (g *gitlab) TokenURL() string     { return g.base + "/oauth/token" }
 func (g *gitlab) api() string          { return g.base + "/api/v4" }
 
-// DefaultScopes: read_user for who-am-i, read_api for projects and members,
-// write_repository for git over HTTPS with the token (a personal board is
-// pushed with its owner's token).
-func (g *gitlab) DefaultScopes() string { return "read_user read_api write_repository" }
+// DefaultScopes: read_user for who-am-i, read_api for projects and members.
+// A visitor's token never pushes — the server's own credential does — so it
+// asks for nothing that writes.
+func (g *gitlab) DefaultScopes() string { return "read_user read_api" }
 
 func (g *gitlab) ExchangeForm(clientID, secret, code, redirectURI string) url.Values {
 	form := url.Values{}

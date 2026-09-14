@@ -175,18 +175,14 @@ type Card struct {
 	// cleared when it drops below again — what lets a board show a card the
 	// day it was done and drop it the next without reading history.
 	DoneAt string `json:"doneAt,omitempty"`
-	// LeftAt is the board day (yyyy-mm-dd) the × took the card off.
-	//
-	// On a PERSONAL card it is a live rule: the board shows it that day and
-	// before, off it from the next, and re-dating the card (calendar, defer)
-	// clears it — the card is on a day again.
-	//
-	// On a TEAM card the × demotes into the previous sprint instead, dates
-	// and all, and this records the day that happened. Nothing live reads it
-	// there: today's board drops the card, which is what the × is for. It is
-	// what a RECORD of that day gives back (G60) — the card was worked and
-	// finished on it — and a fact about a day gone by is not undone by
-	// re-dating the card, so it stands.
+	// LeftAt is the board day (yyyy-mm-dd) the older × took the card off:
+	// it demoted into the previous sprint, dates and all, and this recorded
+	// the day that happened. The × deletes now and nothing writes the field;
+	// the cards that carry it are still read. Nothing live reads it: today's
+	// board drops the card, which is what the × was for. It is what a RECORD
+	// of that day gives back (G60) — the card was worked and finished on it —
+	// and a fact about a day gone by is not undone by re-dating the card, so
+	// it stands.
 	LeftAt string `json:"leftAt,omitempty"`
 	// Link is a URL the card points at — the only trace an issue-backed
 	// card keeps of its issue. Nothing is fetched through it.
@@ -223,11 +219,7 @@ type CreateInput struct {
 	// Domain, on a roster stub (a team, project or process state card), is
 	// the repository to declare it in; "" is the primary. Cards never carry
 	// one — their domain is inherited (see DomainOf).
-	Domain string `json:"domain,omitempty"`
-	// Personal files the card in the caller's personal domain (Domain names
-	// it) instead of where the home rule would put it; such a card stays
-	// there whatever team or project it is later given.
-	Personal    bool    `json:"personal,omitempty"`
+	Domain      string  `json:"domain,omitempty"`
 	Title       string  `json:"title"`
 	Zone        ZoneKey `json:"zone,omitempty"`
 	Size        SizeKey `json:"size,omitempty"`

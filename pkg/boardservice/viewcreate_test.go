@@ -9,10 +9,10 @@ import (
 )
 
 // A PERSON creating a card does it on a BOARD, and the board is what makes the
-// card what it is. The API asked for the fields instead — `personal`, `week`,
-// `parked`, `epic` — so a caller had to know which combinations are boards and
-// which are states no board draws. These are the four add-boxes, as the views
-// they belong to (docs/design/view-scoped-api.md).
+// card what it is. The API asked for the fields instead — `week`, `parked`,
+// `epic` — so a caller had to know which combinations are boards and which are
+// states no board draws. These are the add-boxes, as the views they belong to
+// (docs/design/view-scoped-api.md).
 func TestEachBoardCreatesItsOwnKindOfCard(t *testing.T) {
 	today := board.TodayIso()
 	ctx := WithActor(ctx, "kvaps")
@@ -122,17 +122,6 @@ func TestEachBoardCreatesItsOwnKindOfCard(t *testing.T) {
 		}
 	})
 
-	t.Run("the personal board files it in my own repository", func(t *testing.T) {
-		f := seed()
-		c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewPersonal, CreateCardArgs{Title: "mine alone"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !board.IsPersonalDomain(c.Domain) {
-			t.Fatalf("domain = %q, want the caller's own", c.Domain)
-		}
-	})
-
 	// THE ME BOARD ADDS WORK AS UNPLANNED and in no other band. Something that
 	// came up today is unplanned by definition; the other three zones are the
 	// PLAN, and the plan is the lead's to make on the Team board — a person
@@ -184,16 +173,10 @@ func TestEachBoardCreatesItsOwnKindOfCard(t *testing.T) {
 		}
 	})
 
-	// The personal column stands beside the Me day and shares its add form, so
-	// it shares the band. The LEAD's grid is where the other three are typed:
-	// planning is what that board is for.
-	t.Run("the personal column follows it, the team's grid does not", func(t *testing.T) {
+	// The LEAD's grid is where the other three are typed: planning is what
+	// that board is for.
+	t.Run("the team's grid takes the bands the Me board refuses", func(t *testing.T) {
 		f := seed()
-		if _, err := f2svc(f).CreateInView(ctx, "acme", board.ViewPersonal,
-			CreateCardArgs{Title: "mine", Zone: board.ZoneGray}); !errors.Is(err, ErrNotOnThisBoard) {
-			t.Fatalf("a planned personal card = %v, want ErrNotOnThisBoard", err)
-		}
-		f = seed()
 		c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewTeam,
 			CreateCardArgs{Title: "planned work", Team: "alpha", Zone: board.ZoneGray})
 		if err != nil {
@@ -215,10 +198,8 @@ func TestEachBoardCreatesItsOwnKindOfCard(t *testing.T) {
 		}{
 			{board.ViewMe, CreateCardArgs{Title: "x", Parked: true}, "parked"},
 			{board.ViewMe, CreateCardArgs{Title: "x", Epic: "Auth"}, "epic"},
-			{board.ViewTeam, CreateCardArgs{Title: "x", Personal: true}, "personal"},
 			{board.ViewTriage, CreateCardArgs{Title: "x", Week: board.AddDays(board.MondayOf(today), 7), Day: today}, "day"},
 			{board.ViewBacklog, CreateCardArgs{Title: "x", Week: "2026-09-07"}, "week"},
-			{board.ViewPersonal, CreateCardArgs{Title: "x", Team: "alpha"}, "team"},
 			{board.ViewProject, CreateCardArgs{Title: "x", Epic: "Auth", Parked: true}, "parked"},
 		} {
 			f := seed()
@@ -340,19 +321,6 @@ func TestTheMeBoardsRemovalIsTheNarrowOne(t *testing.T) {
 		f := seed()
 		if err := f2svc(f).Remove(me, "acme", "planned", board.ViewTeam, Unassign); err != nil {
 			t.Fatalf("the team board's × on planned work = %v, want it taken", err)
-		}
-	})
-
-	// A card of the person's OWN personal board is all theirs, whatever band
-	// it stands in: there is no lead's plan there to be unmade, and the
-	// column beside the Me day draws its × on every card.
-	t.Run("a personal card is all its owner's", func(t *testing.T) {
-		f := seed()
-		f.b.Cards = append(f.b.Cards, board.Card{ItemID: "own", Title: "read the paper",
-			Author: "kvaps", Assignees: []string{"kvaps"}, Zone: board.ZoneGray,
-			Domain: board.PersonalDomain("kvaps"), StartDate: today, Day: today})
-		if err := f2svc(f).Remove(me, "acme", "own", board.ViewMe, RemoveAuto); err != nil {
-			t.Fatalf("removing my own personal card = %v, want it taken", err)
 		}
 	})
 

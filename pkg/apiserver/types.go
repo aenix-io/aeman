@@ -137,7 +137,7 @@ type CardStatus struct {
 	// hand; the git server stamps every card, one repository or many.
 	Domain string `json:"domain,omitempty"`
 	// DoneAt is the board day the card reached 100 (cleared on reopen) — the
-	// personal board shows a done card that day and drops it the next.
+	// day boards show a done card that day and drop it the next.
 	DoneAt string `json:"doneAt,omitempty"`
 	// Triage marks a card the Triage board's strip holds: nobody placed
 	// it in a week and it is not being worked (B5).
@@ -165,10 +165,9 @@ type CardStatus struct {
 	// the server's (board.CycleWindow): a second implementation of "when is
 	// this next due" is a second answer waiting to disagree.
 	Cycle *CycleWindow `json:"cycle,omitempty"`
-	// LeftAt is the board day the × took the card off. On a personal card
-	// that is a live rule — the board shows it that day and before, not
-	// after; on a team card the × demotes into the previous sprint and this
-	// records the day, which a RECORD of that day gives back (G60).
+	// LeftAt is the board day the older × demoted the card into the previous
+	// sprint, which a RECORD of that day gives back (G60). Nothing writes it
+	// any more; the cards that carry it still stand in the history.
 	LeftAt string `json:"leftAt,omitempty"`
 	// Links are the references extracted from the card's description —
 	// unresolved (no titles or states; GET /cards/{uid}/links resolves those).
@@ -297,10 +296,6 @@ type BoardMetadata struct {
 	// ProcessDomains does the same for processes: a card may only be tied
 	// to a process of its own repository, so the picker needs to know.
 	ProcessDomains map[string]string `json:"processDomains,omitempty"`
-	// Personal is the visitor's own repository when they linked one: the
-	// personal board lives there (the `personal` view: listed and created at
-	// /api/v1/views/personal/cards).
-	Personal *PersonalInfo `json:"personal,omitempty"`
 }
 
 // Member is one person on the board: a login and, when the server knows the
@@ -329,21 +324,6 @@ type DomainInfo struct {
 	Name     string   `json:"name"`
 	Writable bool     `json:"writable"`
 	Members  []string `json:"members"`
-	// Personal marks the visitor's own repository, attached for them alone.
-	Personal bool `json:"personal,omitempty"`
-}
-
-// PersonalInfo is the visitor's personal repository as the board knows it:
-// the domain it is served as and the repository it is.
-type PersonalInfo struct {
-	Domain string `json:"domain"`
-	URL    string `json:"url"`
-	// Problem says why the linked repository is not attached — the server
-	// cannot reach it — and ActionURL is what fixes it (installing the
-	// board's GitHub App on the repository). Both empty when the board is
-	// attached and well.
-	Problem   string `json:"problem,omitempty"`
-	ActionURL string `json:"actionUrl,omitempty"`
 }
 
 // EpicRef is one Project-board column: its name and the project that owns it.

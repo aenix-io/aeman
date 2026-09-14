@@ -102,7 +102,7 @@ func (h *server) getBoard(ctx context.Context, _ *mcp.CallToolRequest, in boardR
 // filters, mirroring GET /api/v1/views/{view}/cards.
 type listCardsInput struct {
 	boardRef
-	View     string `json:"view,omitempty" jsonschema:"the board to list: team, me, personal (your own personal board), triage, backlog or project — or all for every card. Empty is your own Me board, which is where everyone works. backlog lists the work a team has PARKED on its named lists — read but not planned — which is on no day board and in no week"`
+	View     string `json:"view,omitempty" jsonschema:"the board to list: team, me, triage, backlog or project — or all for every card. Empty is your own Me board, which is where everyone works. backlog lists the work a team has PARKED on its named lists — read but not planned — which is on no day board and in no week"`
 	Team     string `json:"team,omitempty" jsonschema:"team key for the team/triage views; on the me view a comma-separated set filters to those teams; empty is the no-team group / no filter"`
 	Day      string `json:"day,omitempty" jsonschema:"viewed day as yyyy-mm-dd for the team/me views; defaults to today"`
 	User     string `json:"user,omitempty" jsonschema:"GitHub login for the me view; empty is everyone"`
@@ -131,29 +131,18 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 		return nil, apiserver.CardList{}, fmt.Errorf("weeks %d: want 1..26", sel.Weeks)
 	}
 	if sel.View != "" && !board.KnownView(sel.View) {
-		return nil, apiserver.CardList{}, fmt.Errorf("%w: %q (use all, team, me, personal, project, triage or backlog)",
+		return nil, apiserver.CardList{}, fmt.Errorf("%w: %q (use all, team, me, project, triage or backlog)",
 			boardservice.ErrNoSuchView, sel.View)
 	}
-	// An unspecified view defaults to the caller's personal Me board (their own
+	// An unspecified view defaults to the caller's own Me board (their own
 	// cards); Team is the lead view and view=all is the whole board. "Who am I"
 	// is resolved server-side, so a Me request needs no user (explicit wins).
 	if sel.View == "" {
 		sel.View = "me"
 	}
-	self := false
-	if (sel.View == "me" || sel.View == "personal") && sel.User == "" && h.cfg.ResolveLogin != nil {
+	if sel.View == "me" && sel.User == "" && h.cfg.ResolveLogin != nil {
 		if login, err := h.cfg.ResolveLogin(ctx); err == nil {
 			sel.User = login
-			self = true
-		}
-	}
-	// The owner reading their personal board turns its day over: the
-	// finished recurrent cards that came due are reseeded before listing
-	// (a personal board has no carry-over), as the REST handler does — as
-	// of the real today; a `day` asked for is a lens, not a turn of the day.
-	if sel.View == "personal" && self {
-		if _, err := svc.ReseedPersonal(ctx, boardID, sel.User, ""); err != nil {
-			return nil, apiserver.CardList{}, err
 		}
 	}
 	// MCP inputs cannot distinguish absent from empty, so an empty stage/zone
@@ -237,7 +226,7 @@ type createCardInput struct {
 	StartNewSprint *bool `json:"startNewSprint,omitempty" jsonschema:"force a new sprint (true) or join the current one (false); omit for auto"`
 	// View is the BOARD the card is typed into, which is what makes it the
 	// kind of card it is; each board refuses the fields it does not own.
-	View   string `json:"view,omitempty" jsonschema:"the BOARD you are typing the card into, which is what it MEANS: me (the DEFAULT — the card is yours, scheduled for the day, in your team's sprint; it stands on your own board and in your column of the team's grid), team (the lead's grid, where PLANNING is done: the card lands in the Unassigned column unless you name an assignee, and any band is allowed — this is the board for work in the plan, whether it is for somebody else or for the person you are acting for, and the only one that takes urgent/planned/niceToHave), triage (scheduled for a WEEK and standing on no day — pass week), backlog (parked on the team's shelf: read and put aside, on no day and in no week), project (a slot under a column — pass epic and project), personal (your own linked repository, for you alone: no team, no column, no plan band). A board refuses what it does not own — a parked card typed into a day, a column named on the Me board — and says which field it was"`
+	View   string `json:"view,omitempty" jsonschema:"the BOARD you are typing the card into, which is what it MEANS: me (the DEFAULT — the card is yours, scheduled for the day, in your team's sprint; it stands on your own board and in your column of the team's grid), team (the lead's grid, where PLANNING is done: the card lands in the Unassigned column unless you name an assignee, and any band is allowed — this is the board for work in the plan, whether it is for somebody else or for the person you are acting for, and the only one that takes urgent/planned/niceToHave), triage (scheduled for a WEEK and standing on no day — pass week), backlog (parked on the team's shelf: read and put aside, on no day and in no week), project (a slot under a column — pass epic and project). A board refuses what it does not own — a parked card typed into a day, a column named on the Me board — and says which field it was"`
 	Parent string `json:"parent,omitempty" jsonschema:"uid of the card to group this one under as a subtask (one level deep). A card cannot be both a subtask and scheduled for a week of its own: naming a parent and a week together is refused, since grouping hands a subtask's week to its parent"`
 }
 

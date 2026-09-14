@@ -25,8 +25,6 @@ const (
 	ViewBacklog View = "backlog"
 	// ViewProject is the Project board: every card filed under a column.
 	ViewProject View = "project"
-	// ViewPersonal is the caller's own repository, read as a board.
-	ViewPersonal View = "personal"
 	// ViewAll is no board at all: everything the caller may read. It is the
 	// escape hatch for a tool that has no board to stand on — a migration, a
 	// sweep, an embedder — and it is never a default, because a caller acting
@@ -36,7 +34,7 @@ const (
 
 // Views lists them in the order the SPA's own tabs run, the escape hatch last.
 func Views() []View {
-	return []View{ViewMe, ViewTeam, ViewTriage, ViewBacklog, ViewProject, ViewPersonal, ViewAll}
+	return []View{ViewMe, ViewTeam, ViewTriage, ViewBacklog, ViewProject, ViewAll}
 }
 
 // KnownView reports whether a name is one of them. The empty string is NOT:
@@ -53,10 +51,8 @@ func KnownView(name string) bool {
 }
 
 // Panes are the listings a BOARD is drawn from. Most boards are one listing,
-// and two are not: the Triage grid stands beside its DRAWER of parked work,
-// and the Me day board beside the PERSONAL column, each fetched separately
-// because they are different questions (and, for the personal one, a different
-// repository with different rights).
+// and one is not: the Triage grid stands beside its DRAWER of parked work,
+// fetched separately because the two are different questions.
 //
 // It matters wherever a gesture is judged by the board it was made on: the ×
 // in the drawer is the Triage board's × — the reader is looking at one screen
@@ -65,17 +61,14 @@ func Panes(v View) []View {
 	switch v {
 	case ViewTriage:
 		return []View{ViewTriage, ViewBacklog}
-	case ViewMe:
-		return []View{ViewMe, ViewPersonal}
 	default:
 		return []View{v}
 	}
 }
 
 // ScopedByTeam reports the boards whose LISTING is narrowed by a team: the
-// lead's grid, the weeks and the drawer all ask for one. The Me board, the
-// personal column and the Project grid list every team, and "" is the answer
-// they give.
+// lead's grid, the weeks and the drawer all ask for one. The Me board and the
+// Project grid list every team, and "" is the answer they give.
 //
 // It is a fact about a BOARD, which is why it lives here rather than in either
 // door: a gesture is judged against the listing its board answered, and a gate

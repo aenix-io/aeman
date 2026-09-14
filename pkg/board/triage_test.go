@@ -37,7 +37,6 @@ func TestNeedsTriageIsACardNobodyPlaced(t *testing.T) {
 			with(open, func(c *Card) { c.Stage = StageReview; c.Progress = 85 }),
 			false,
 		},
-		{"a card on a personal board", with(open, func(c *Card) { c.Domain = "~kvaps" }), false},
 		{"work already finished", with(open, func(c *Card) { c.Stage = StageDone }), false},
 		{"work at a hundred percent", with(open, func(c *Card) { c.Progress = 100 }), false},
 		{"a state card the board keeps for itself", with(open, func(c *Card) { c.Title = SprintStateTitle }), false},

@@ -265,27 +265,6 @@ func TestSubtasksLeaveTheWorkingAreaWithTheirParent(t *testing.T) {
 	}
 }
 
-// A personal card follows the personal rule, never the board's: the × on one
-// leaves it behind on the day it was worked, or deletes it.
-func TestTheRemoveOnAPersonalCardFollowsThePersonalRule(t *testing.T) {
-	today := board.TodayIso()
-	fake := gridBoard([]board.Card{
-		{ItemID: "p1", Title: "mine", Domain: "~kvaps", Progress: 40,
-			StartDate: board.AddDays(today, -3), Day: board.AddDays(today, -3)},
-	})
-	if err := New(fake).Remove(t.Context(), "o", "p1", board.ViewAll, RemoveAuto); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := fake.LoadBoard(t.Context(), "o")
-	c, ok := findCard(b, "p1")
-	if !ok {
-		t.Fatal("a worked personal card is left behind, not deleted")
-	}
-	if c.LeftAt == "" {
-		t.Fatalf("the personal rule leaves it on yesterday's board: %+v", c)
-	}
-}
-
 // Leaving the working area is written down. A demote logs its sprint move
 // because a card that leaves today's board without a word in its own history
 // is a card nobody can account for (W6); the × that empties the working area

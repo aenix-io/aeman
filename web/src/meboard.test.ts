@@ -126,7 +126,7 @@ describe("what a drag may do on the Me board", () => {
 // offer every zone in every column, one's own included.
 //
 // The SERVER holds the same rule now, and only for this board's create
-// (boardservice.addsUnplanned, `view=me` and the personal column beside it):
+// (boardservice.addsUnplanned, `view=me`):
 // it could not before, because all three boards sent the same create and the
 // refusal reached a lead putting a card in their own column. The board is a
 // path segment now, so the rule reaches the add form it was written for. A

@@ -513,23 +513,13 @@ func (f *Backend) SetDay(_ context.Context, _ board.Board, card board.Card, day 
 	return nil
 }
 
-// SetLeftAt records the day a personal card was left behind on ("" clears).
+// SetDoneAt records the day a card was finished on ("" clears).
 func (f *Backend) SetDoneAt(_ context.Context, _ board.Board, card board.Card, day string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("SetDoneAt %s %s", card.ItemID, day)
 	if c := f.card(card.ItemID); c != nil {
 		c.DoneAt = day
-	}
-	return nil
-}
-
-func (f *Backend) SetLeftAt(_ context.Context, _ board.Board, card board.Card, day string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetLeftAt %s %s", card.ItemID, day)
-	if c := f.card(card.ItemID); c != nil {
-		c.LeftAt = day
 	}
 	return nil
 }

@@ -29,13 +29,8 @@ func HasRecords(view string) bool { return view == "me" || view == "team" }
 // Every door asks THIS — the merge that builds the day, and the guard that
 // refuses a write made from it — or the two answer differently and a card is
 // live on screen and refused by the server.
-//
-// A PERSONAL card is never a record: it belongs to no team and no sprint, its
-// day comes from its own dates, and it lives in its owner's repository. Named
-// by an empty team, it would otherwise answer to the no-team GROUP's sprint,
-// which it shares nothing with but that empty name.
 func IsRecord(c Card, past map[string]bool) bool {
-	return past[c.Team] && !IsPersonalDomain(c.Domain)
+	return past[c.Team]
 }
 
 // MergeAsOf is one day on one screen with two moments in it: the teams the

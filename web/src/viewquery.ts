@@ -20,19 +20,16 @@ export type ViewMode = "me" | "team" | "triage" | "project" | "process";
 export const TRIAGE_WEEKS = WEEKS_FWD + 1;
 
 // viewQueries builds the LIST selectors for a board view — possibly several,
-// fetched together and merged. Me is the personal board: the server resolves
+// fetched together and merged. Me is the reader's own day: the server resolves
 // "who am I" unless the user is impersonating someone (viewAs), which is sent
 // as an explicit user. Team is the multi-team lead board's day grid. Grid/me
 // queries ask for reviews=true so each card's linked review card rides along
-// for the reviewer badge. With a personal board linked, Me also loads it
-// (view=personal) — the viewer's own, so not while impersonating someone
-// else.
+// for the reviewer badge.
 export function viewQueries(
   view: ViewMode,
   day: string,
   teams: string[],
   viewAs?: string,
-  personal = false,
   today = todayIso(),
 ): Record<string, string>[] {
   // A day already past is asked for AS IT WAS: the server answers from the
@@ -47,9 +44,7 @@ export function viewQueries(
     if (viewAs) {
       q.user = viewAs;
     }
-    // The personal column follows the day being looked at, like the day
-    // board beside it: flipped to tomorrow, it shows tomorrow's plan.
-    return personal && !viewAs ? [q, { view: "personal", day, ...snap }] : [q];
+    return [q];
   }
   if (view === "project" || view === "process") {
     // Every epic-filed card of every project, all weeks: the Project board
@@ -123,17 +118,14 @@ export function watchQuery(
 }
 
 // watchQueries lists the selectors the active view keeps a watch on — one
-// socket each: the view's own (watchQuery) and, on the Me board with a
-// personal board linked and nobody impersonated, the personal selection.
+// socket each.
 export function watchQueries(
   view: ViewMode,
   day: string,
   teams: string[],
   viewAs?: string,
-  personal = false,
 ): Record<string, string>[] {
-  const base = watchQuery(view, day, teams, viewAs);
-  return view === "me" && personal && !viewAs ? [base, { view: "personal", day }] : [base];
+  return [watchQuery(view, day, teams, viewAs)];
 }
 
 // queryString serialises a selector to a URL fragment with a stable key order,

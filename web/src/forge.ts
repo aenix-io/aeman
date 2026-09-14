@@ -25,8 +25,6 @@ export interface ForgeCopy {
   signInButton: string;
   /** The local-mode banner when no source holds a token. */
   noTokenHint: string;
-  /** The personal-board dialog's URL placeholder. */
-  repoPlaceholder: string;
   /** The MCP caption in the Connect dialog. */
   connectHint: string;
 }
@@ -54,7 +52,6 @@ export function forgeCopy(config: ForgeConfig | null | undefined): ForgeCopy {
     signInLead: `Connect your ${label} account to open the board.`,
     signInButton: `Sign in with ${label}`,
     noTokenHint: `No ${label} token — run aeman login, or ${cli} auth login, in the terminal where aeman runs.`,
-    repoPlaceholder: `https://${host}/<you>/<repo>`,
     connectHint: `Sign in with ${label} on first use (OAuth, no token stored).`,
   };
 }

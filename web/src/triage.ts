@@ -6,7 +6,6 @@
 import type { Card } from "./providers/types";
 import { addDays, mondayOf } from "./date";
 import { parked } from "./backlog";
-import { isPersonalDomain } from "./domains";
 import { isComplete } from "./stages";
 
 /** needsTriage reports whether nobody has said WHEN the card's work is due:
@@ -16,8 +15,7 @@ import { isComplete } from "./stages";
  *
  *  What is NOT asked about: a subtask and a review card, which follow the
  *  card they belong to; a card SENT to review, whose work is done and which
- *  waits on a reviewer rather than on a week; a personal board's card, which
- *  is nobody else's to plan; and work already finished. Mirrors
+ *  waits on a reviewer rather than on a week; and work already finished. Mirrors
  *  board.NeedsTriage — the state cards it also excludes never reach the
  *  browser, so there is nothing to check here.
  */
@@ -27,9 +25,6 @@ export function needsTriage(
     "parent" | "reviewOf" | "week" | "domain" | "stage" | "progress" | "parked"
   >,
 ): boolean {
-  if (isPersonalDomain(c.domain ?? "")) {
-    return false;
-  }
   if (c.parent || c.reviewOf || c.week) {
     return false;
   }
@@ -74,7 +69,7 @@ export function broughtBack(
   week: string,
   today: string,
 ): { startDate: string; day: string } | null {
-  if (week !== mondayOf(today) || c.epic || isPersonalDomain(c.domain ?? "")) {
+  if (week !== mondayOf(today) || c.epic) {
     return null;
   }
   if (!daysRanOut(c, week)) {

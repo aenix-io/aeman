@@ -62,7 +62,6 @@ func (t tokenAccess) rights(_ context.Context, token, _ string) (*domainRights, 
 func (t tokenAccess) readers(_ context.Context, _ string, logins []string) ([]string, error) {
 	return logins, nil
 }
-func (t tokenAccess) canPush(context.Context, string, string) (bool, error) { return true, nil }
 
 // signInWithGitLab drives the browser flow against the fake and returns the
 // session cookie.
@@ -226,7 +225,7 @@ func TestGitLabSignInFlow(t *testing.T) {
 	loc := rec.Header().Get("Location")
 	// GitLab refuses an authorize request without response_type (GitHub
 	// never minded its absence, which is how it went missing).
-	if !strings.HasPrefix(loc, gl.URL+"/oauth/authorize?") || !strings.Contains(loc, "scope=read_user+read_api+write_repository") ||
+	if !strings.HasPrefix(loc, gl.URL+"/oauth/authorize?") || !strings.Contains(loc, "scope=read_user+read_api&") ||
 		!strings.Contains(loc, "response_type=code") {
 		t.Fatalf("login redirect = %s", loc)
 	}
