@@ -1,7 +1,7 @@
-// Package mcpserver exposes aeman's board operations as a Model Context Protocol
-// (MCP) server over stdio. Its tool set is a 1:1 projection of the /api/v1
-// resource API (Board/Card/Note resources, actions, LIST selectors), calling
-// the boardservice layer — the same logic behind the HTTP handlers — not
+// Package mcpserver builds a Model Context Protocol (MCP) server for aeman's board
+// operations, with transport chosen by the caller. Its tool set is a 1:1 projection
+// of the /api/v1 resource API (Board/Card/Note resources, actions, LIST selectors),
+// calling the boardservice layer — the same logic behind the HTTP handlers — not
 // proxying GitHub directly.
 package mcpserver
 
