@@ -29,7 +29,7 @@ func TestRightsAreServedWhileTheyRevalidate(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), srv.Client(),
+	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), guardedClient(srv),
 		[]RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared.git"}}, "srv-token", nil)
 	clock := &fakeClock{at: time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)}
 	fa.now = clock.now
@@ -104,7 +104,7 @@ func TestAnUnknownVisitorStillWaitsForTheForge(t *testing.T) {
 		_, _ = w.Write([]byte(`{"permissions":{"pull":true}}`))
 	}))
 	t.Cleanup(srv.Close)
-	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), srv.Client(),
+	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), guardedClient(srv),
 		[]RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared.git"}}, "srv-token", nil)
 	r, err := fa.rights(context.Background(), "tok", "newcomer")
 	if err != nil || !r.canRead("shared") || r.canWrite("shared") {
@@ -189,7 +189,7 @@ func TestADeadTokenIsForgottenRatherThanServedStale(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), srv.Client(),
+	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), guardedClient(srv),
 		[]RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared.git"}}, "srv-token", nil)
 	clock := &fakeClock{at: time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)}
 	fa.now = clock.now
@@ -245,7 +245,7 @@ func TestTheMemberListIsServedWhileItRefreshes(t *testing.T) {
 	const probeTime = 300 * time.Millisecond
 	var calls atomic.Int32
 	srv := memberForge(t, &calls, probeTime)
-	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), srv.Client(),
+	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), guardedClient(srv),
 		[]RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared.git"}}, "srv-token", nil)
 	clock := &fakeClock{at: time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)}
 	fa.now = clock.now
@@ -293,7 +293,7 @@ func TestTheMemberListIsServedWhileItRefreshes(t *testing.T) {
 func TestAPersonNobodyHasAskedAboutIsAskedAbout(t *testing.T) {
 	var calls atomic.Int32
 	srv := memberForge(t, &calls, 0)
-	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), srv.Client(),
+	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), guardedClient(srv),
 		[]RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared.git"}}, "srv-token", nil)
 	ctx := context.Background()
 	if _, err := fa.readers(ctx, "shared", []string{"kvaps"}); err != nil {

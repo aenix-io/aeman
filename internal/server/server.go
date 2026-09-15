@@ -37,6 +37,10 @@ const githubAPIBase = "https://api.github.com"
 // defaultAddr is used when Options.Addr is empty.
 const defaultAddr = "127.0.0.1:8765"
 
+// forgeToolCLI is the default credential source. Tests replace the factory
+// so a server built without Options.CLI cannot exec the machine's real gh.
+var forgeToolCLI = func() forge.CLI { return ghcli.NewTokenSource() }
+
 // Options configures a Server.
 type Options struct {
 	// Addr is the listen address, e.g. "127.0.0.1:8765".
@@ -249,7 +253,7 @@ func New(opts Options) (*Server, error) {
 	}
 	cli := opts.CLI
 	if cli == nil {
-		cli = ghcli.NewTokenSource()
+		cli = forgeToolCLI()
 	}
 	s := &Server{
 		opts:       opts,

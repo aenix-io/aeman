@@ -19,7 +19,7 @@ func TestTheBoardDoesNotWaitOnTheForgeOnceItIsWarm(t *testing.T) {
 	const probeTime = 400 * time.Millisecond
 	var calls atomic.Int32
 	srv := memberForge(t, &calls, probeTime)
-	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), srv.Client(),
+	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), guardedClient(srv),
 		[]RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared.git"}}, "srv-token", nil)
 	ctx := context.Background()
 

@@ -91,7 +91,7 @@ func TestForgeAccessReadsPermissionsPerDomain(t *testing.T) {
 		"acme/shared": {"pull": true, "push": true},
 		"acme/closed": {"pull": true},
 	}, &calls)
-	fa := newForgeAccess(forgepkg.NewGitHubAt(forge.URL), forge.Client(), []RepoSpec{
+	fa := newForgeAccess(forgepkg.NewGitHubAt(forge.URL), guardedClient(forge), []RepoSpec{
 		{Name: "shared", URL: "https://github.com/acme/shared.git"},
 		{Name: "closed", URL: "git@github.com:acme/closed.git"},
 		{Name: "hidden", URL: "https://github.com/acme/hidden"},
@@ -120,7 +120,7 @@ func TestForgeAccessReadsPermissionsPerDomain(t *testing.T) {
 func TestForgeAccessCachesPerVisitorAndSurvivesOutage(t *testing.T) {
 	var calls atomic.Int32
 	forge := fakeForge(t, map[string]map[string]bool{"acme/shared": {"pull": true, "push": true}}, &calls)
-	fa := newForgeAccess(forgepkg.NewGitHubAt(forge.URL), forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "srv-token", nil)
+	fa := newForgeAccess(forgepkg.NewGitHubAt(forge.URL), guardedClient(forge), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "srv-token", nil)
 	// A revalidation runs behind the answer and reads the clock from its own
 	// goroutine, so the clock the test winds forward has to be one.
 	clock := &fakeClock{at: time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)}
@@ -176,7 +176,7 @@ func TestForgeAccessAsksEachDomainWithItsOwnToken(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), srv.Client(), []RepoSpec{
+	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), guardedClient(srv), []RepoSpec{
 		{Name: "aeman-db", URL: "https://github.com/aenix-org/aeman-db.git", Token: "org-token"},
 		{Name: "founders", URL: "https://github.com/aenix-founders/aeman-db.git", Token: "founders-token"},
 		{Name: "shared", URL: "https://github.com/acme/shared.git"}, // no token of its own
@@ -218,7 +218,7 @@ func TestForgeAccessKeepsTheLastAnswerWhenThrottled(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), srv.Client(),
+	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), guardedClient(srv),
 		[]RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared.git"}}, "srv-token", nil)
 	now := time.Date(2026, 8, 28, 18, 0, 0, 0, time.UTC)
 	fa.now = func() time.Time { return now }
@@ -241,7 +241,7 @@ func TestForgeAccessKeepsTheLastAnswerWhenThrottled(t *testing.T) {
 func TestForgeAccessRefusesABadToken(t *testing.T) {
 	var calls atomic.Int32
 	forge := fakeForge(t, map[string]map[string]bool{"acme/shared": {"pull": true}}, &calls)
-	fa := newForgeAccess(forgepkg.NewGitHubAt(forge.URL), forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "srv-token", nil)
+	fa := newForgeAccess(forgepkg.NewGitHubAt(forge.URL), guardedClient(forge), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "srv-token", nil)
 	if _, err := fa.rights(context.Background(), "tok-expired", "alice"); err == nil {
 		t.Fatal("a rejected token must be an error, not an empty right set")
 	}
@@ -253,7 +253,7 @@ func TestForgeAccessRefusesABadToken(t *testing.T) {
 func TestForgeAccessReadersByCollaboratorPermission(t *testing.T) {
 	var calls atomic.Int32
 	forge := fakeForge(t, map[string]map[string]bool{"acme/shared": {"pull": true}}, &calls)
-	fa := newForgeAccess(forgepkg.NewGitHubAt(forge.URL), forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "srv-token", nil)
+	fa := newForgeAccess(forgepkg.NewGitHubAt(forge.URL), guardedClient(forge), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "srv-token", nil)
 	got, err := fa.readers(context.Background(), "shared", []string{"alice", "bob", "carol", "stranger"})
 	if err != nil {
 		t.Fatal(err)
@@ -275,7 +275,7 @@ func TestForgeAccessReadersByCollaboratorPermission(t *testing.T) {
 		t.Fatal("an unknown domain must be an error")
 	}
 	// No server credential: nobody can be vouched for, and that is not an error.
-	bare := newForgeAccess(forgepkg.NewGitHubAt(forge.URL), forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "", nil)
+	bare := newForgeAccess(forgepkg.NewGitHubAt(forge.URL), guardedClient(forge), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "", nil)
 	if got, err := bare.readers(context.Background(), "shared", []string{"alice"}); err != nil || len(got) != 0 {
 		t.Fatalf("without a server token: %v, %v", got, err)
 	}
@@ -347,12 +347,12 @@ func TestReadersAreAskedWithTheAppInstallationToken(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	app, err := forgepkg.NewGitHubAppAt(srv.URL, srv.Client(), "12345", pemKey)
+	app, err := forgepkg.NewGitHubAppAt(srv.URL, guardedClient(srv), "12345", pemKey)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// No static server token anywhere: the app is the credential.
-	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), srv.Client(),
+	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), guardedClient(srv),
 		[]RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "", nil)
 	fa.app = app
 	got, err := fa.readers(context.Background(), "shared", []string{"alice", "bob"})
