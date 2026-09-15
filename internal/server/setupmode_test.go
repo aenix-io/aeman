@@ -59,7 +59,7 @@ func TestAMissingInstallationIsAPageNotARefusalToStart(t *testing.T) {
 		}
 	}))
 	t.Cleanup(appSrv.Close)
-	app, err := forgepkg.NewGitHubAppAt(appSrv.URL, appSrv.Client(), "12345", testServerAppPEM(t))
+	app, err := forgepkg.NewGitHubAppAt(appSrv.URL, guardedClient(appSrv), "12345", testServerAppPEM(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestASetupModeServerHoldsItsDataDir(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound) // never installed
 	}))
 	t.Cleanup(appSrv.Close)
-	app, err := forgepkg.NewGitHubAppAt(appSrv.URL, appSrv.Client(), "12345", testServerAppPEM(t))
+	app, err := forgepkg.NewGitHubAppAt(appSrv.URL, guardedClient(appSrv), "12345", testServerAppPEM(t))
 	if err != nil {
 		t.Fatal(err)
 	}

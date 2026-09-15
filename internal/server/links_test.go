@@ -46,7 +46,7 @@ func fakeIssueForge(t *testing.T, calls *atomic.Int32) *httptest.Server {
 func TestForgeLinksResolveIssueAndPullState(t *testing.T) {
 	var calls atomic.Int32
 	forge := fakeIssueForge(t, &calls)
-	fl := newForgeLinks(forge.URL, forge.Client(), "srv-token")
+	fl := newForgeLinks(forge.URL, guardedClient(forge), "srv-token")
 	issue, err := fl.ResolveIssueRef(context.Background(), board.Link{URL: "https://github.com/acme/app/issues/7", Kind: "issue", Owner: "acme", Repo: "app", Number: 7})
 	if err != nil || issue.Title != "Login breaks on Safari" || issue.State != "open" {
 		t.Fatalf("issue = %+v, %v", issue, err)
@@ -76,7 +76,7 @@ func TestForgeLinksResolveIssueAndPullState(t *testing.T) {
 func TestForgeLinksUnknownReferenceIsUnresolved(t *testing.T) {
 	var calls atomic.Int32
 	forge := fakeIssueForge(t, &calls)
-	fl := newForgeLinks(forge.URL, forge.Client(), "srv-token")
+	fl := newForgeLinks(forge.URL, guardedClient(forge), "srv-token")
 	link := board.Link{URL: "https://github.com/acme/app/issues/404", Kind: "issue", Owner: "acme", Repo: "app", Number: 404}
 	if _, err := fl.ResolveIssueRef(context.Background(), link); err == nil {
 		t.Fatal("a reference the forge cannot show must stay unresolved (an error the service swallows)")
@@ -90,7 +90,7 @@ func TestForgeLinksUnknownReferenceIsUnresolved(t *testing.T) {
 func TestForgeLinksWithoutServerCredentialResolveNothing(t *testing.T) {
 	var calls atomic.Int32
 	forge := fakeIssueForge(t, &calls)
-	fl := newForgeLinks(forge.URL, forge.Client(), "")
+	fl := newForgeLinks(forge.URL, guardedClient(forge), "")
 	if _, err := fl.ResolveIssueRef(context.Background(), board.Link{URL: "https://github.com/acme/app/issues/7", Kind: "issue", Owner: "acme", Repo: "app", Number: 7}); err == nil {
 		t.Fatal("without a credential nothing can be vouched for")
 	}
@@ -102,7 +102,7 @@ func TestForgeLinksWithoutServerCredentialResolveNothing(t *testing.T) {
 func TestForgeLinksCacheExpires(t *testing.T) {
 	var calls atomic.Int32
 	forge := fakeIssueForge(t, &calls)
-	fl := newForgeLinks(forge.URL, forge.Client(), "srv-token")
+	fl := newForgeLinks(forge.URL, guardedClient(forge), "srv-token")
 	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
 	fl.now = func() time.Time { return now }
 	link := board.Link{URL: "https://github.com/acme/app/issues/7", Kind: "issue", Owner: "acme", Repo: "app", Number: 7}

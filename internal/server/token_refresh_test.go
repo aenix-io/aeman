@@ -60,7 +60,7 @@ func TestSessionRenewsItsGitHubToken(t *testing.T) {
 
 	a := newAuthManager(OAuthConfig{ClientID: "id", ClientSecret: "sec", BaseURL: "http://localhost"}, nil, slog.Default())
 	a.tokenURL = srv.URL + "/token"
-	a.client = srv.Client()
+	a.client = guardedClient(srv)
 
 	a.mu.Lock()
 	a.sessions["sid1"] = oauthSession{
@@ -114,7 +114,7 @@ func TestRenewalFailureKeepsALiveToken(t *testing.T) {
 	defer srv.Close()
 	a := newAuthManager(OAuthConfig{ClientID: "id", ClientSecret: "sec", BaseURL: "http://localhost"}, nil, slog.Default())
 	a.tokenURL = srv.URL + "/token"
-	a.client = srv.Client()
+	a.client = guardedClient(srv)
 	a.mu.Lock()
 	a.sessions["sid1"] = oauthSession{
 		token: "gh-token-0", login: "kvaps", created: time.Now(),

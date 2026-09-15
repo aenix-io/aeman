@@ -25,6 +25,36 @@ type tokenlessCLI struct{ err error }
 func (c tokenlessCLI) Token(context.Context) (string, error) { return "", c.err }
 func (c tokenlessCLI) Login(context.Context) (string, error) { return "", c.err }
 
+var errTestToolCredential = errors.New("a test asked the machine's real gh: pass a stand-in through Options.CLI")
+
+func TestDefaultCLIRefusesCredentialsInTests(t *testing.T) {
+	srv := newTestServer(t)
+	// Check the stand-in before asking anything: a regression must fail
+	// without reading the developer's real credential even in this test.
+	cli, ok := srv.cli.(tokenlessCLI)
+	if !ok || !errors.Is(cli.err, errTestToolCredential) {
+		t.Fatal("New without Options.CLI must use the TestMain stand-in")
+	}
+	for _, lookup := range []struct {
+		name string
+		call func(context.Context) (string, error)
+	}{
+		{"Token", srv.cli.Token},
+		{"Login", srv.cli.Login},
+	} {
+		t.Run(lookup.name, func(t *testing.T) {
+			value, err := lookup.call(context.Background())
+			if value != "" || !errors.Is(err, errTestToolCredential) {
+				t.Fatalf("%s must return an empty value and the test credential error", lookup.name)
+			}
+		})
+	}
+	token, login, err := srv.tokenForRequest(httptest.NewRequest(http.MethodGet, "/api/v1/views/all/cards", nil))
+	if token != "" || login != "" || !errors.Is(err, errTestToolCredential) {
+		t.Fatal("request credential resolution must propagate the test credential error")
+	}
+}
+
 // In the local mode `/api/config` decides "have we got a credential?" by
 // asking the CLI for a token and looking only at the error. A CLI that
 // answers "" with no error is therefore read as signed in: the board
@@ -277,16 +307,16 @@ func TestARejectedTokenIsNotAuthenticated(t *testing.T) {
 	}
 }
 
-// This package's tests run with the network shut off: the default
-// transport refuses anything but loopback, so a case that reaches for a
-// real forge through it fails on the request rather than answering with
-// whatever token the machine exports. Clients built from an httptest
-// server carry their own transport and are not covered — the fakes here
-// hand out the server rather than a client, unlike the ones in cmd/aeman
-// and internal/tokenstore, which wrap what they hand over.
+// Tests may construct the default CLI, but credential lookups return an
+// explicit error instead of asking the machine's real gh. Tests that need
+// credentials supply Options.CLI. HTTP is restricted to loopback through
+// both the default transport and guardedClient for httptest clients.
 func TestMain(m *testing.M) {
 	restore := nonet.Block()
+	prev := forgeToolCLI
+	forgeToolCLI = func() forgepkg.CLI { return tokenlessCLI{err: errTestToolCredential} }
 	code := m.Run()
+	forgeToolCLI = prev
 	restore()
 	os.Exit(code)
 }
