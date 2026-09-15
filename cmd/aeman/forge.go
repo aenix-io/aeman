@@ -43,7 +43,7 @@ var forgeToolCLI = func(f forge.Forge) forge.CLI {
 // A nil store leaves the keychain out, and so does a forge nobody named:
 // a token's owner is read from the forge, which an unnamed one cannot
 // answer.
-func cliFor(f forge.Forge, store tokenstore.Store, env func(string) string, log *slog.Logger) forge.CLI {
+func cliFor(f forge.Forge, store tokenstore.Store, env func(string) string, log *slog.Logger) *chain {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
