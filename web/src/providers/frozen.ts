@@ -32,8 +32,11 @@ const READS = new Set([
 ]);
 
 // QUIET are calls that change nothing durable and are not worth an error:
-// presence is "who is looking at what right now", and looking at a past day
-// is still looking.
+// presence is "who is looking at what right now". It is sent as usual on a
+// live board; only when the view IS a record — a past day — is it swallowed
+// rather than errored, since looking at a past day is still looking. It must
+// NOT be swallowed on a live board, or the shared-cursor feature never fires
+// at all (it was, and it did not).
 const QUIET = new Set(["setPresence"]);
 
 // CARD_WRITES take the card's uid first, so the guard can ask whether THAT
@@ -94,7 +97,10 @@ export function frozenProvider(
         return call;
       }
       if (QUIET.has(name)) {
-        return () => Promise.resolve();
+        // Sent as usual on a live board; only swallowed (never errored) when
+        // the view is a record. Swallowing it unconditionally silently killed
+        // the shared-cursor presence: nothing ever reached the server.
+        return anyRecord() ? () => Promise.resolve() : call;
       }
       if (CARD_WRITES.has(name)) {
         return (...args: unknown[]) => {
