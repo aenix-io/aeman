@@ -16,11 +16,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-git/go-git/v5/storage/memory"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/internal/nonet"
 	"github.com/aenix-io/aeman/internal/server"
 	"github.com/aenix-io/aeman/internal/tokenstore"
 	"github.com/aenix-io/aeman/internal/tokenstore/tokenstoretest"
+	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/gitstore"
 )
 
 // The board's forge is read off the primary repository's host, and the flag
@@ -1091,5 +1096,178 @@ func TestEnvCLIDoesNotRememberTheCallersOwnCancellation(t *testing.T) {
 	}
 	if login, err := c.Login(context.Background()); err != nil || login != "alice" {
 		t.Fatalf("second caller: login=%q err=%v; want the owner, asked afresh", login, err)
+	}
+}
+
+type fixedCredential struct {
+	token string
+	login string
+	err   error
+}
+
+func (c fixedCredential) Token(context.Context) (string, error) { return c.token, c.err }
+func (c fixedCredential) Login(context.Context) (string, error) { return c.login, c.err }
+func (c fixedCredential) TokenAndLogin(context.Context) (string, string, error) {
+	return c.token, c.login, c.err
+}
+
+func testMCPCommitRepo(t *testing.T) *gitstore.Repo {
+	t.Helper()
+	r, err := gitstore.Init(memory.NewStorage(), gitstore.Options{
+		Committer: gitstore.Identity{Name: "aeman", Email: "aeman@aenix.io"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Commit(
+		gitstore.Action{Name: "init", Summary: "initialize board"},
+		[]gitstore.FileWrite{{Path: "board.yaml", Data: []byte("title: test\n")}},
+	); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func mutatingMCPHandler(t *testing.T, r *gitstore.Repo) mcp.MethodHandler {
+	t.Helper()
+	return func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		_, err := r.Commit(
+			gitstore.Action{Name: "update-card", Actor: board.ActorFrom(ctx), Summary: "update card"},
+			[]gitstore.FileWrite{{Path: "cards/test.yaml", Data: []byte("title: changed\n")}},
+		)
+		return nil, err
+	}
+}
+
+func mcpToolRequest(name string, arguments string) *mcp.CallToolRequest {
+	return &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
+		Name:      name,
+		Arguments: []byte(arguments),
+	}}
+}
+
+func TestMCPKnownCredentialOwnerAttributesTheCommit(t *testing.T) {
+	r := testMCPCommitRepo(t)
+	handler := mcpCredentialActor(fixedCredential{token: "credential", login: "alice"})(mutatingMCPHandler(t, r))
+	if _, err := handler(context.Background(), "tools/call", mcpToolRequest("update_card", `{}`)); err != nil {
+		t.Fatal(err)
+	}
+	commit, err := r.CommitObject(r.Head())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commit.Author.Name != "alice" {
+		t.Fatalf("commit author = %q, want alice", commit.Author.Name)
+	}
+	if actor := gitstore.ParseTrailers(commit.Message).Actor; actor != "alice" {
+		t.Fatalf("Aeman-Actor = %q, want alice", actor)
+	}
+}
+
+func TestMCPUnknownCredentialOwnerRefusesMutationBeforeGit(t *testing.T) {
+	r := testMCPCommitRepo(t)
+	before := r.Head()
+	reached := false
+	next := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		reached = true
+		return mutatingMCPHandler(t, r)(ctx, method, req)
+	}
+	handler := mcpCredentialActor(fixedCredential{token: "ghs_installation_credential"})(next)
+	_, err := handler(context.Background(), "tools/call", mcpToolRequest("update_card", `{}`))
+	if !errors.Is(err, errCredentialOwnerUnknown) {
+		t.Fatalf("error = %v, want errCredentialOwnerUnknown", err)
+	}
+	if strings.Contains(err.Error(), "ghs_installation_credential") {
+		t.Fatalf("error exposes the credential: %v", err)
+	}
+	if reached {
+		t.Fatal("mutating handler ran before the unknown owner was refused")
+	}
+	if after := r.Head(); after != before {
+		t.Fatalf("HEAD moved from %s to %s", before, after)
+	}
+}
+
+func TestMCPUnknownCredentialOwnerCanStillRead(t *testing.T) {
+	reached := false
+	handler := mcpCredentialActor(fixedCredential{token: "credential"})(
+		func(context.Context, string, mcp.Request) (mcp.Result, error) {
+			reached = true
+			return nil, nil
+		},
+	)
+	if _, err := handler(context.Background(), "tools/call", mcpToolRequest("get_board", `{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if !reached {
+		t.Fatal("read-only handler was not called")
+	}
+}
+
+func TestMCPReadOnlyClassificationFailsClosed(t *testing.T) {
+	for _, name := range []string{
+		"get_board", "list_cards", "get_card", "list_sprints", "list_day_logs",
+		"list_log", "list_links", "list_notes", "list_processes",
+	} {
+		if !readOnlyMCPTool(mcpToolRequest(name, `{}`)) {
+			t.Errorf("%s classified as mutating", name)
+		}
+	}
+	for _, name := range []string{"update_card", "future_tool", ""} {
+		if readOnlyMCPTool(mcpToolRequest(name, `{}`)) {
+			t.Errorf("%q classified as read-only", name)
+		}
+	}
+	if readOnlyMCPTool(nil) {
+		t.Error("nil request classified as read-only")
+	}
+	if !readOnlyMCPTool(mcpToolRequest("carry_over", `{"dryRun":true}`)) {
+		t.Error("dry-run carry_over classified as mutating")
+	}
+	for _, arguments := range []string{`{"dryRun":false}`, `{`, ``} {
+		if readOnlyMCPTool(mcpToolRequest("carry_over", arguments)) {
+			t.Errorf("carry_over arguments %q classified as read-only", arguments)
+		}
+	}
+}
+
+func TestMCPMissingCredentialRemainsDistinctFromUnknownOwner(t *testing.T) {
+	reached := false
+	handler := mcpCredentialActor(fixedCredential{err: errors.New("no credential")})(
+		func(context.Context, string, mcp.Request) (mcp.Result, error) {
+			reached = true
+			return nil, nil
+		},
+	)
+	_, err := handler(context.Background(), "tools/call", mcpToolRequest("update_card", `{}`))
+	if err != nil {
+		t.Fatalf("missing credential became an owner-attribution error: %v", err)
+	}
+	if !reached {
+		t.Fatal("missing credential was treated as a credential with an unknown owner")
+	}
+}
+
+func TestServerActionRemainsUnattributed(t *testing.T) {
+	r := testMCPCommitRepo(t)
+	h, err := r.Commit(
+		gitstore.Action{Name: "sweep", Summary: "server maintenance"},
+		[]gitstore.FileWrite{{Path: "maintenance", Data: []byte("done\n")}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.IsZero() {
+		t.Fatal("server action made no commit")
+	}
+	commit, err := r.CommitObject(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commit.Author.Name != "aeman" {
+		t.Fatalf("commit author = %q, want aeman", commit.Author.Name)
+	}
+	if actor := gitstore.ParseTrailers(commit.Message).Actor; actor != "" {
+		t.Fatalf("Aeman-Actor = %q, want empty", actor)
 	}
 }
