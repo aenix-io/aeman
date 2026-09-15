@@ -126,14 +126,23 @@ describe("frozenProvider", () => {
     expect(calls).toEqual(["createCard", "carryOver"]);
   });
 
-  // Presence is who is looking at what; looking at a past day is still
-  // looking, and an error per selection would be noise.
-  it("swallows presence instead of erroring", async () => {
+  // Presence is who is looking at what; on a RECORD view (a past day) looking
+  // is still looking, so it is swallowed rather than errored per selection.
+  it("swallows presence on a record view instead of erroring", async () => {
     const { provider, calls } = spyProvider();
     await expect(
       guard(provider).setPresence("kvaps", "old"),
     ).resolves.toBeUndefined();
     expect(calls).toEqual([]);
+  });
+
+  // On a LIVE board it must actually be sent, or the shared-cursor feature
+  // never fires: swallowing it unconditionally is what once killed presence
+  // (a selection in Me showed up nowhere).
+  it("sends presence on a live board", async () => {
+    const { provider, calls } = spyProvider();
+    await guard(provider, false).setPresence("kvaps", "live");
+    expect(calls).toEqual(["setPresence"]);
   });
 
   // A method nobody classified is a write until proven otherwise.
