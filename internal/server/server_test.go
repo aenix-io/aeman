@@ -8,7 +8,57 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
+
+	"github.com/aenix-io/aeman/internal/nonet"
 )
+
+// guardedClient covers the transport httptest owns, which never consults
+// the default transport replaced by nonet.Block in TestMain.
+func guardedClient(srv *httptest.Server) *http.Client {
+	c := srv.Client()
+	c.Transport = nonet.Guard(c.Transport)
+	return c
+}
+
+func TestServerTestClientsStayOnLoopback(t *testing.T) {
+	const external = "http://192.0.2.1/user"
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect" {
+			http.Redirect(w, r, external, http.StatusFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer local.Close()
+	for name, client := range map[string]*http.Client{
+		"default":  newTestServer(t).httpClient,
+		"httptest": guardedClient(local),
+	} {
+		t.Run(name, func(t *testing.T) {
+			client.Timeout = time.Second
+			for _, target := range []string{local.URL, strings.Replace(local.URL, "127.0.0.1", "localhost", 1)} {
+				resp, err := client.Get(target)
+				if err != nil {
+					t.Fatalf("loopback request: %v", err)
+				}
+				_ = resp.Body.Close()
+				if resp.StatusCode != http.StatusNoContent {
+					t.Fatalf("loopback status = %d, want 204", resp.StatusCode)
+				}
+			}
+			for _, target := range []string{external, local.URL + "/redirect"} {
+				resp, err := client.Get(target)
+				if resp != nil {
+					_ = resp.Body.Close()
+				}
+				if err == nil || !strings.Contains(err.Error(), "tried to reach 192.0.2.1") {
+					t.Fatalf("%s: error = %v; want the guard's refusal", target, err)
+				}
+			}
+		})
+	}
+}
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
