@@ -9,6 +9,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -256,17 +258,11 @@ func runMCP(args []string) error {
 	srv := mcpserver.New(cfg)
 
 	// Attribute activity events to whoever the elected source's token
-	// belongs to. Cached per TOKEN rather than per process: a token
-	// replaced by `aeman login` in another terminal is re-read within
-	// the window and its owner asked again.
-	srv.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
-		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-			if login, err := cli.Login(ctx); err == nil {
-				ctx = boardservice.WithActor(ctx, login)
-			}
-			return next(ctx, method, req)
-		}
-	})
+	// belongs to, and refuse a mutation while that owner is unknown.
+	// Cached per TOKEN rather than per process: a token replaced by
+	// `aeman login` in another terminal is re-read within the window and
+	// its owner asked again.
+	srv.AddReceivingMiddleware(mcpCredentialActor(cli))
 	// One commit per tool call, not one per card a fan-out tool touches.
 	srv.AddReceivingMiddleware(gb.MCPActionMiddleware())
 
@@ -289,6 +285,49 @@ func runMCP(args []string) error {
 		logger.Warn("final push failed; unpushed commits stay in the clone", "err", derr)
 	}
 	return err
+}
+
+var errCredentialOwnerUnknown = errors.New("the credential's owner could not be determined")
+
+// mcpCredentialActor attributes a local MCP call to the owner of the elected
+// credential. A token whose owner the forge cannot answer for may still read,
+// but cannot write: an empty actor is reserved for work the server did itself,
+// and accepting the mutation would permanently record the user as the server.
+func mcpCredentialActor(credential forge.Credential) func(mcp.MethodHandler) mcp.MethodHandler {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			token, login, err := credential.TokenAndLogin(ctx)
+			if err == nil && login != "" {
+				ctx = boardservice.WithActor(ctx, login)
+			}
+			if err == nil && token != "" && login == "" && method == "tools/call" && !readOnlyMCPTool(req) {
+				return nil, fmt.Errorf("%w; refusing the MCP mutation so it is not attributed to the server", errCredentialOwnerUnknown)
+			}
+			return next(ctx, method, req)
+		}
+	}
+}
+
+// readOnlyMCPTool is fail-closed: a new or malformed tool call is considered
+// mutating until it is deliberately added here. These handlers only load the
+// board or its history and never enqueue a write.
+func readOnlyMCPTool(req mcp.Request) bool {
+	call, ok := req.(*mcp.CallToolRequest)
+	if !ok || call.Params == nil {
+		return false
+	}
+	switch call.Params.Name {
+	case "get_board", "list_cards", "get_card", "list_sprints", "list_day_logs",
+		"list_log", "list_links", "list_notes", "list_processes":
+		return true
+	case "carry_over":
+		var in struct {
+			DryRun bool `json:"dryRun"`
+		}
+		return json.Unmarshal(call.Params.Arguments, &in) == nil && in.DryRun
+	default:
+		return false
+	}
 }
 
 // resolveGitHubToken is the credential for reading a Projects v2 board:
