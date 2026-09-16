@@ -60,35 +60,69 @@ func (t *TokenSource) Token(ctx context.Context) (string, error) {
 // identity is one per machine, not per TokenSource, so this is the package
 // Login and shares its process-wide cache.
 func (t *TokenSource) Login(ctx context.Context) (string, error) {
-	return Login(ctx)
+	return login(ctx, t)
 }
 
 var (
 	loginMu     sync.Mutex
 	cachedLogin string
+	// Unanswered results share the successful cache's lock, but expire and
+	// only apply to the token that was read when the lookup failed.
+	unanswered    string
+	unansweredAt  time.Time
+	unansweredErr error
+	loginTokens   = NewTokenSource()
+	loginNow      = time.Now // tests advance the unanswered window without sleeping
 )
 
 // Login returns the login of the currently authenticated GitHub user, cached
 // for the lifetime of the process (it is read on every API request in local
 // mode, and the gh identity does not change under a running server).
+// Unanswered lookups are cached per token for forge.UnansweredTTL instead.
 func Login(ctx context.Context) (string, error) {
+	return login(ctx, loginTokens)
+}
+
+func login(ctx context.Context, tokens *TokenSource) (string, error) {
 	loginMu.Lock()
 	defer loginMu.Unlock()
 	if cachedLogin != "" {
 		return cachedLogin, nil
 	}
+	// Reuse the source's normal token window rather than running auth token
+	// on every request. A newly read value bypasses the unanswered window.
+	tok, tokenErr := tokens.Token(ctx)
+	if tokenErr == nil && tok == unanswered && loginNow().Sub(unansweredAt) < forge.UnansweredTTL {
+		return "", unansweredErr
+	}
 	out, err := Run(ctx, "api", "user", "--jq", ".login")
-	if err != nil {
+	if err != nil || strings.TrimSpace(out) == "" {
+		// Preserve both the underlying error and an empty, nil-error reply.
+		// Without a token there is no safe cache key. The caller's own
+		// cancellation is not an answer about the shared credential either.
+		if tokenErr == nil && ctx.Err() == nil {
+			unanswered, unansweredAt, unansweredErr = tok, loginNow(), err
+		}
 		return "", err
 	}
+	unanswered, unansweredErr = "", nil
 	cachedLogin = strings.TrimSpace(out)
 	return cachedLogin, nil
 }
+
+// runGH is the seam every gh invocation goes through. Tests replace it so the
+// CLI is never executed and the login cache can be exercised without a machine
+// that has gh installed and signed in.
+var runGH = runCLI
 
 // Run executes `gh` with the given arguments and returns its stdout. The gh
 // binary name is fixed and arguments are supplied by aeman itself, never by
 // untrusted input.
 func Run(ctx context.Context, args ...string) (string, error) {
+	return runGH(ctx, args...)
+}
+
+func runCLI(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", args...) //nolint:gosec // fixed binary, internal args
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
