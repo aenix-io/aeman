@@ -370,12 +370,17 @@ func (s *Server) boardOfRequest(r *http.Request, svc *boardservice.Service, boar
 	return bd, at.Format(time.RFC3339), records, nil
 }
 
-func (s *Server) handleGetCard(w http.ResponseWriter, r *http.Request) {
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
+// GetCard is one card in full: the body lives here, not in listings.
+func (a surface) GetCard(ctx context.Context, req apiv1.GetCardRequestObject) (apiv1.GetCardResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, err
 	}
-	s.cardResponse(w, r, svc, boardID, r.PathValue("uid"))
+	card, err := a.s.cardOf(ctx, svc, boardID, req.UID)
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.GetCard200JSONResponse(card), nil
 }
 
 func (s *Server) handleListSprints(w http.ResponseWriter, r *http.Request) {
@@ -439,8 +444,9 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	zone, ok := parseZone(w, in.Zone)
-	if !ok {
+	zone, err := parseZone(in.Zone)
+	if err != nil {
+		writeProblem(w, problemFor(err))
 		return
 	}
 	svc, boardID, ok := s.service(w, r)
@@ -463,8 +469,9 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	size, ok := parseSize(w, in.Size)
-	if !ok {
+	size, err := parseSize(in.Size)
+	if err != nil {
+		writeProblem(w, problemFor(err))
 		return
 	}
 	args := boardservice.CreateCardArgs{
@@ -502,136 +509,83 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, apiserver.CardResource(b, card))
 }
 
-// cardPatch is the PATCH /cards/{uid} body: only present fields are applied,
-// so absent and empty are different things (empty clears).
-type cardPatch struct {
-	Title       *string   `json:"title"`
-	Description *string   `json:"description"`
-	Team        *string   `json:"team"`
-	Zone        *string   `json:"zone"`
-	Size        *string   `json:"size"`
-	Assignees   *[]string `json:"assignees"`
-	Progress    *int      `json:"progress"`
-	Stage       *string   `json:"stage"`
-	// Recurrence is a recurrent card's reseed cycle ("", "week", "month").
-	Recurrence *string `json:"recurrence"`
-	// Epic and Project are the two halves of the card's column ("" clears).
-	// Epic names repeat across projects, so filing into another project's
-	// column names both; naming only the epic stays inside the card's project.
-	Epic    *string     `json:"epic"`
-	Project *string     `json:"project"`
-	Dates   *datesPatch `json:"dates"`
-	// Week is the week the card is scheduled for ("" takes it off the weeks).
-	Week *string `json:"week"`
-	// Parked puts the card on its team's shelf, or takes it off.
-	Parked   *bool   `json:"parked"`
-	ReviewOf *string `json:"reviewOf"`
-	// Parent groups the card as a subtask under another card ("" ungroups).
-	Parent *string `json:"parent"`
-	// Process ties the card to a process — the recurring shelf's counterpart
-	// of a column ("" clears). The process must already exist.
-	Process *string `json:"process"`
-}
-
-// datesPatch is the spec.dates fragment of a card patch.
-type datesPatch struct {
-	Start  *string `json:"start"`
-	End    *string `json:"end"`
-	Sprint *string `json:"sprint"`
-}
-
 // applyGroupingPatch is the parent/process fragment of a card patch: what
 // the card is grouped under.
-func (s *Server) applyGroupingPatch(w http.ResponseWriter, r *http.Request, svc *boardservice.Service, boardID, uid string, p *cardPatch) bool {
-	ctx := r.Context()
+func applyGroupingPatch(ctx context.Context, svc *boardservice.Service, boardID, uid string, p *apiv1.CardPatch) error {
 	if p.Parent != nil {
 		if err := svc.SetParent(ctx, boardID, uid, *p.Parent); err != nil {
-			s.apiError(w, r, err)
-			return false
+			return err
 		}
 	}
 	if p.Process != nil {
 		if err := svc.SetCardProcess(ctx, boardID, uid, *p.Process); err != nil {
-			s.apiError(w, r, err)
-			return false
+			return err
 		}
 	}
-	return true
+	return nil
 }
 
-// handlePatchCard applies a spec patch field by field through the service, so
-// every admission rule (clamps, the review-link sync, the review-cancel
-// cascade, calendar date semantics) runs exactly as if the UI made the edit.
-func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
-	var p cardPatch
-	if !decodeJSON(w, r, &p) {
-		return
+// PatchCard applies a spec patch field by field through the service, so every
+// admission rule (clamps, the review-link sync, the review-cancel cascade,
+// calendar date semantics) runs exactly as if the UI made the edit.
+func (a surface) PatchCard(ctx context.Context, req apiv1.PatchCardRequestObject) (apiv1.PatchCardResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, err
 	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	ctx := r.Context()
-	uid := r.PathValue("uid")
+	uid, p := req.UID, req.Body
 	if p.Title != nil {
 		if err := svc.Rename(ctx, boardID, uid, *p.Title); err != nil {
-			s.apiError(w, r, err)
-			return
+			return nil, err
 		}
 	}
 	if p.Description != nil {
 		if err := svc.SetDescription(ctx, boardID, uid, *p.Description); err != nil {
-			s.apiError(w, r, err)
-			return
+			return nil, err
 		}
 	}
 	if p.Team != nil {
 		if err := svc.SetTeam(ctx, boardID, uid, *p.Team, ""); err != nil {
-			s.apiError(w, r, err)
-			return
+			return nil, err
 		}
 	}
 	if p.Epic != nil || p.Project != nil {
 		if err := patchColumn(ctx, svc, boardID, uid, p); err != nil {
-			s.apiError(w, r, err)
-			return
+			return nil, err
 		}
 	}
-	if !s.patchZoneAndSize(ctx, w, r, svc, boardID, uid, p) {
-		return
+	if err := patchZoneAndSize(ctx, svc, boardID, uid, p); err != nil {
+		return nil, err
 	}
 	if p.Stage != nil {
-		stage, ok := parseStage(w, *p.Stage)
-		if !ok {
-			return
+		stage, err := parseStage(string(*p.Stage))
+		if err != nil {
+			return nil, err
 		}
 		if err := svc.SetStage(ctx, boardID, uid, stage); err != nil {
-			s.apiError(w, r, err)
-			return
+			return nil, err
 		}
 	}
 	if p.Recurrence != nil {
 		if err := svc.SetRecurrence(ctx, boardID, uid, *p.Recurrence); err != nil {
-			s.apiError(w, r, err)
-			return
+			return nil, err
 		}
 	}
 	if p.Progress != nil {
 		if err := svc.SetProgress(ctx, boardID, uid, *p.Progress); err != nil {
-			s.apiError(w, r, err)
-			return
+			return nil, err
 		}
 	}
 	if p.Dates != nil {
-		if !s.applyDatesPatch(w, r, svc, boardID, uid, p.Dates) {
-			return
+		if err := applyDatesPatch(ctx, svc, boardID, uid, p.Dates); err != nil {
+			return nil, err
 		}
 	}
-	if !s.applyPlacementPatch(w, r, svc, boardID, uid, &p) {
-		return
+	if err := applyPlacementPatch(ctx, svc, boardID, uid, p); err != nil {
+		return nil, err
 	}
-	if !s.applyGroupingPatch(w, r, svc, boardID, uid, &p) {
-		return
+	if err := applyGroupingPatch(ctx, svc, boardID, uid, p); err != nil {
+		return nil, err
 	}
 	// Assignees are applied AFTER the parent on purpose. Ungrouping hands an
 	// ownerless child the parent's person so it does not fall off every
@@ -643,25 +597,26 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 			login = (*p.Assignees)[0]
 		}
 		if err := svc.SetAssignee(ctx, boardID, uid, login); err != nil {
-			s.apiError(w, r, err)
-			return
+			return nil, err
 		}
 	}
 	if p.ReviewOf != nil {
 		if err := svc.SetReviewOf(ctx, boardID, uid, *p.ReviewOf); err != nil {
-			s.apiError(w, r, err)
-			return
+			return nil, err
 		}
 	}
-	s.cardResponse(w, r, svc, boardID, uid)
+	card, err := a.s.cardOf(ctx, svc, boardID, uid)
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.PatchCard200JSONResponse(card), nil
 }
 
 // applyDatesPatch applies a spec.dates patch. A patched start runs the calendar
 // semantics (the sprint follows the sprint active on the start day); patching
 // only the end (or only the sprint) stays granular, and an explicit sprint
-// always wins. Returns false after writing the error response.
-func (s *Server) applyDatesPatch(w http.ResponseWriter, r *http.Request, svc *boardservice.Service, boardID string, uid string, d *datesPatch) bool {
-	ctx := r.Context()
+// always wins.
+func applyDatesPatch(ctx context.Context, svc *boardservice.Service, boardID, uid string, d *apiv1.CardDatesPatch) error {
 	if d.Start != nil {
 		end := ""
 		if d.End != nil {
@@ -670,36 +625,33 @@ func (s *Server) applyDatesPatch(w http.ResponseWriter, r *http.Request, svc *bo
 			end = card.Day
 		}
 		if err := svc.SetDates(ctx, boardID, uid, *d.Start, end); err != nil {
-			s.apiError(w, r, err)
-			return false
+			return err
 		}
 	} else if d.End != nil {
 		if err := svc.SetDay(ctx, boardID, uid, *d.End); err != nil {
-			s.apiError(w, r, err)
-			return false
+			return err
 		}
 	}
 	if d.Sprint != nil {
 		if err := svc.SetSprintStart(ctx, boardID, uid, *d.Sprint); err != nil {
-			s.apiError(w, r, err)
-			return false
+			return err
 		}
 	}
-	return true
+	return nil
 }
 
 // --- Card actions --------------------------------------------------------------
 
-func (s *Server) handleDeleteCard(w http.ResponseWriter, r *http.Request) {
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
+// DeleteCard is the hard delete, cascading to the linked review card.
+func (a surface) DeleteCard(ctx context.Context, req apiv1.DeleteCardRequestObject) (apiv1.DeleteCardResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, err
 	}
-	if err := svc.DeleteCard(r.Context(), boardID, r.PathValue("uid")); err != nil {
-		s.apiError(w, r, err)
-		return
+	if err := svc.DeleteCard(ctx, boardID, req.UID); err != nil {
+		return nil, err
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.DeleteCard204Response{}, nil
 }
 
 func (s *Server) handleRemoveCard(w http.ResponseWriter, r *http.Request) {
@@ -742,193 +694,169 @@ func (s *Server) handleRemoveCard(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		After  string `json:"after"`
-		Before string `json:"before"`
-	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	move := func() error {
-		if in.Before != "" {
-			return svc.MoveCardBefore(r.Context(), boardID, r.PathValue("uid"), in.Before)
-		}
-		return svc.MoveCard(r.Context(), boardID, r.PathValue("uid"), in.After)
-	}
-	if err := move(); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) handleDeferCard(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Days int `json:"days"`
-	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	uid := r.PathValue("uid")
-	if err := svc.Defer(r.Context(), boardID, uid, in.Days); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	s.cardResponse(w, r, svc, boardID, uid)
-}
-
-func (s *Server) handleInProgress(w http.ResponseWriter, r *http.Request) {
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	uid := r.PathValue("uid")
-	if err := svc.SetInProgress(r.Context(), boardID, uid); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	s.cardResponse(w, r, svc, boardID, uid)
-}
-
-func (s *Server) handleReopen(w http.ResponseWriter, r *http.Request) {
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	uid := r.PathValue("uid")
-	if err := svc.Reopen(r.Context(), boardID, uid); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	s.cardResponse(w, r, svc, boardID, uid)
-}
-
-// placementBody is the {project, epic} pair the mirror actions take.
-type placementBody struct {
-	Project string `json:"project"`
-	Epic    string `json:"epic"`
-}
-
-func (s *Server) placementAction(w http.ResponseWriter, r *http.Request, respondCard bool,
-	act func(svc *boardservice.Service, boardID, uid, project, epic string) error,
-) {
-	var in placementBody
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	// A column is named by its EPIC, and the project half may be empty
-	// everywhere: the no-project bucket is a column like any other — a
-	// mirror home included, since a column's repository is read off the
-	// column's own stub and not off a project (G15/G59). This door used to
-	// require a project for a mirror, so a placement the service, the
-	// codec, MCP and the docs all accept was a 422 here — and the SPA's
-	// own picker, which offers the bucket, drove straight into it.
-	if in.Epic == "" {
-		writeProblem(w, problem(http.StatusUnprocessableEntity, "epicRequired",
-			"the epic is required — a column is named by its epic"))
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	if err := act(svc, boardID, r.PathValue("uid"), in.Project, in.Epic); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	// Mirror and unmirror answer with the card resource, like the other
-	// card actions; remove-from-project cannot — its card may no longer
-	// exist — so it answers 204.
-	if respondCard {
-		s.cardResponse(w, r, svc, boardID, r.PathValue("uid"))
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// handleMirror adds a second Project-board column to the card — the same
-// card shown in both projects, one file and one log.
-func (s *Server) handleMirror(w http.ResponseWriter, r *http.Request) {
-	s.placementAction(w, r, true, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
-		return svc.Mirror(r.Context(), boardID, uid, project, epic)
-	})
-}
-
-// handleUnmirror takes one mirror column away.
-func (s *Server) handleUnmirror(w http.ResponseWriter, r *http.Request) {
-	s.placementAction(w, r, true, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
-		return svc.Unmirror(r.Context(), boardID, uid, project, epic)
-	})
-}
-
-// handleRemoveFromProject is the Project board's ×: remove the card from
-// one column, with the mirror/promote/last-column rules of the service.
-func (s *Server) handleRemoveFromProject(w http.ResponseWriter, r *http.Request) {
-	s.placementAction(w, r, false, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
-		return svc.RemoveFromProject(r.Context(), boardID, uid, project, epic)
-	})
-}
-
-// handleSendToReview sends a card to a reviewer. When a linked review card
-// already exists the action reassigns it instead — the backend decides, the
-// client just states the intent.
-func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Reviewer string `json:"reviewer"`
-		Day      string `json:"day"`
-		// Zone places the review card explicitly (the Me board sends it to the
-		// reviewer's unplanned zone); empty keeps the original's zone.
-		Zone string `json:"zone"`
-	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	zone, ok := parseZone(w, in.Zone)
-	if !ok {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	ctx := r.Context()
-	uid := r.PathValue("uid")
-	// Reassignment is the SERVICE's rule now: sending a card that is already
-	// on review changes who reviews it. It lived here, so the other door grew
-	// a second review card on the same original instead.
-	review, err := svc.SendToReview(ctx, boardID, uid, in.Reviewer, in.Day, zone)
+// MoveCard reorders the card after (or before) another one.
+func (a surface) MoveCard(ctx context.Context, req apiv1.MoveCardRequestObject) (apiv1.MoveCardResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
 	if err != nil {
-		s.apiError(w, r, err)
-		return
+		return nil, err
+	}
+	if before := strOf(req.Body.Before); before != "" {
+		err = svc.MoveCardBefore(ctx, boardID, req.UID, before)
+	} else {
+		err = svc.MoveCard(ctx, boardID, req.UID, strOf(req.Body.After))
+	}
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.MoveCard204Response{}, nil
+}
+
+// DeferCard pushes the scheduled day N days ahead of today.
+func (a surface) DeferCard(ctx context.Context, req apiv1.DeferCardRequestObject) (apiv1.DeferCardResponseObject, error) {
+	card, err := a.cardAfter(ctx, req.UID, func(svc *boardservice.Service, boardID string) error {
+		return svc.Defer(ctx, boardID, req.UID, intOf(req.Body.Days))
+	})
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.DeferCard200JSONResponse(card), nil
+}
+
+// SetInProgress moves the card to the implicit In Progress status.
+func (a surface) SetInProgress(ctx context.Context, req apiv1.SetInProgressRequestObject) (apiv1.SetInProgressResponseObject, error) {
+	card, err := a.cardAfter(ctx, req.UID, func(svc *boardservice.Service, boardID string) error {
+		return svc.SetInProgress(ctx, boardID, req.UID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.SetInProgress200JSONResponse(card), nil
+}
+
+// ReopenCard undoes a done mark, restoring the progress the card had.
+func (a surface) ReopenCard(ctx context.Context, req apiv1.ReopenCardRequestObject) (apiv1.ReopenCardResponseObject, error) {
+	card, err := a.cardAfter(ctx, req.UID, func(svc *boardservice.Service, boardID string) error {
+		return svc.Reopen(ctx, boardID, req.UID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.ReopenCard200JSONResponse(card), nil
+}
+
+// placement runs one of the three column actions. A column is named by its
+// EPIC, and the project half may be empty everywhere: the no-project bucket is
+// a column like any other — a mirror home included, since a column's
+// repository is read off the column's own stub and not off a project
+// (G15/G59). This door used to require a project for a mirror, so a placement
+// the service, the codec, MCP and the docs all accept was a 422 here — and the
+// SPA's own picker, which offers the bucket, drove straight into it.
+func (a surface) placement(in apiv1.PlacementBody,
+	act func(svc *boardservice.Service, boardID, project, epic string) error,
+) (*boardservice.Service, string, error) {
+	if in.Epic == "" {
+		return nil, "", problem(http.StatusUnprocessableEntity, "epicRequired",
+			"the epic is required — a column is named by its epic")
+	}
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, "", err
+	}
+	if err := act(svc, boardID, strOf(in.Project), in.Epic); err != nil {
+		return nil, "", err
+	}
+	return svc, boardID, nil
+}
+
+// MirrorCard adds a second Project-board column to the card — the same card
+// shown in both projects, one file and one log.
+func (a surface) MirrorCard(ctx context.Context, req apiv1.MirrorCardRequestObject) (apiv1.MirrorCardResponseObject, error) {
+	svc, boardID, err := a.placement(*req.Body,
+		func(svc *boardservice.Service, boardID, project, epic string) error {
+			return svc.Mirror(ctx, boardID, req.UID, project, epic)
+		})
+	if err != nil {
+		return nil, err
+	}
+	card, err := a.s.cardOf(ctx, svc, boardID, req.UID)
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.MirrorCard200JSONResponse(card), nil
+}
+
+// UnmirrorCard takes one mirror column away.
+func (a surface) UnmirrorCard(ctx context.Context, req apiv1.UnmirrorCardRequestObject) (apiv1.UnmirrorCardResponseObject, error) {
+	svc, boardID, err := a.placement(*req.Body,
+		func(svc *boardservice.Service, boardID, project, epic string) error {
+			return svc.Unmirror(ctx, boardID, req.UID, project, epic)
+		})
+	if err != nil {
+		return nil, err
+	}
+	card, err := a.s.cardOf(ctx, svc, boardID, req.UID)
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.UnmirrorCard200JSONResponse(card), nil
+}
+
+// RemoveFromProject is the Project board's ×: remove the card from one column,
+// with the mirror/promote/last-column rules of the service. It cannot answer
+// with the card the way mirror and unmirror do — its card may no longer exist.
+func (a surface) RemoveFromProject(ctx context.Context, req apiv1.RemoveFromProjectRequestObject) (apiv1.RemoveFromProjectResponseObject, error) {
+	if _, _, err := a.placement(*req.Body,
+		func(svc *boardservice.Service, boardID, project, epic string) error {
+			return svc.RemoveFromProject(ctx, boardID, req.UID, project, epic)
+		}); err != nil {
+		return nil, err
+	}
+	return apiv1.RemoveFromProject204Response{}, nil
+}
+
+// SendToReview sends a card to a reviewer. When a linked review card already
+// exists the action reassigns it instead — the SERVICE decides, so the other
+// door cannot grow a second review card on the same original; the client just
+// states the intent.
+func (a surface) SendToReview(ctx context.Context, req apiv1.SendToReviewRequestObject) (apiv1.SendToReviewResponseObject, error) {
+	zone, err := parseZone(zoneOf(req.Body.Zone))
+	if err != nil {
+		return nil, err
+	}
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, err
+	}
+	review, err := svc.SendToReview(ctx, boardID, req.UID, strOf(req.Body.Reviewer), strOf(req.Body.Day), zone)
+	if err != nil {
+		return nil, err
 	}
 	b, err := svc.Board(ctx, boardID)
 	if err != nil {
-		s.apiError(w, r, err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusCreated, apiserver.CardResource(b, review))
+	return apiv1.SendToReview201JSONResponse(apiserver.CardResource(b, review)), nil
 }
 
-func (s *Server) handleRemoveReviewer(w http.ResponseWriter, r *http.Request) {
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
+// zoneOf reads an optional zone field. Absent is the empty name, and what
+// that means is the door's own: a review keeps the original's band, a create
+// leaves the band to the board's rule.
+func zoneOf[T ~string](z *T) string {
+	if z == nil {
+		return ""
 	}
-	uid := r.PathValue("uid")
-	if err := svc.RemoveReviewer(r.Context(), boardID, uid); err != nil {
-		s.apiError(w, r, err)
-		return
+	return string(*z)
+}
+
+// RemoveReviewer deletes the linked review card.
+func (a surface) RemoveReviewer(ctx context.Context, req apiv1.RemoveReviewerRequestObject) (apiv1.RemoveReviewerResponseObject, error) {
+	card, err := a.cardAfter(ctx, req.UID, func(svc *boardservice.Service, boardID string) error {
+		return svc.RemoveReviewer(ctx, boardID, req.UID)
+	})
+	if err != nil {
+		return nil, err
 	}
-	s.cardResponse(w, r, svc, boardID, uid)
+	return apiv1.RemoveReviewer200JSONResponse(card), nil
 }
 
 // handlePlaceCard puts a card in a week of the Triage board, which is what
@@ -1354,7 +1282,7 @@ func (s *Server) handleSetTeamCapacity(w http.ResponseWriter, r *http.Request) {
 // patchColumn re-files a card under a column — the (project, epic) pair.
 // Naming only the project keeps the column name the card is already under,
 // which is what moving a card between projects means.
-func patchColumn(ctx context.Context, svc *boardservice.Service, boardID string, uid string, p cardPatch) error {
+func patchColumn(ctx context.Context, svc *boardservice.Service, boardID, uid string, p *apiv1.CardPatch) error {
 	epic := ""
 	if p.Epic != nil {
 		epic = *p.Epic
@@ -1829,64 +1757,97 @@ func (s *Server) handleSetPresence(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// cardResponse loads the (post-mutation) card and writes it as the resource —
-// mutations echo the card exactly as a fresh GET would return it.
+// cardOf loads the card as the resource — a mutation echoes it exactly as a
+// fresh GET would answer.
+func (s *Server) cardOf(ctx context.Context, svc *boardservice.Service, boardID, uid string) (apiserver.Card, error) {
+	b, err := svc.Board(ctx, boardID)
+	if err != nil {
+		return apiserver.Card{}, err
+	}
+	for _, c := range b.Cards {
+		if c.ItemID == uid {
+			return apiserver.CardResource(b, c), nil
+		}
+	}
+	return apiserver.Card{}, fmt.Errorf("%w: %s", boardservice.ErrCardNotFound, uid)
+}
+
+// cardResponse is cardOf for a handler that still writes its own response; it
+// goes with the last of them.
 func (s *Server) cardResponse(w http.ResponseWriter, r *http.Request, svc *boardservice.Service, boardID string, uid string) {
-	b, err := svc.Board(r.Context(), boardID)
+	card, err := s.cardOf(r.Context(), svc, boardID, uid)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	for _, c := range b.Cards {
-		if c.ItemID == uid {
-			writeJSON(w, http.StatusOK, apiserver.CardResource(b, c))
-			return
-		}
-	}
-	s.apiError(w, r, fmt.Errorf("%w: %s", boardservice.ErrCardNotFound, uid))
+	writeJSON(w, http.StatusOK, card)
 }
 
-// parseZone validates a semantic zone name ("" clears); on failure it writes
-// the 400 and returns ok=false.
-func parseZone(w http.ResponseWriter, name string) (board.ZoneKey, bool) {
+// cardAfter runs one card action and answers with the card as it stands after
+// it — what a card action with something to show does.
+func (a surface) cardAfter(ctx context.Context, uid string, act func(svc *boardservice.Service, boardID string) error) (apiserver.Card, error) {
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return apiserver.Card{}, err
+	}
+	if err := act(svc, boardID); err != nil {
+		return apiserver.Card{}, err
+	}
+	return a.s.cardOf(ctx, svc, boardID, uid)
+}
+
+// strOf reads an optional body field: what the document leaves optional is a
+// pointer, and absent means the zero value here, which is what a handler
+// reading a plain struct got.
+func strOf(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func intOf(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+// parseZone validates a semantic zone name ("" clears).
+func parseZone(name string) (board.ZoneKey, error) {
 	if name == "" {
-		return "", true
+		return "", nil
 	}
 	zone := apiserver.DomainZone(name)
 	if zone == "" {
-		writeProblem(w, problem(http.StatusBadRequest, "unknownZone",
-			"unknown zone (urgent, unplanned, planned, niceToHave or empty)"))
-		return "", false
+		return "", problem(http.StatusBadRequest, "unknownZone",
+			"unknown zone (urgent, unplanned, planned, niceToHave or empty)")
 	}
-	return zone, true
+	return zone, nil
 }
 
 // patchZoneAndSize applies the two "what kind of work is this" fields of a
-// patch — the zone and the size — and reports whether the patch may go on;
-// false means the response has been written.
-func (s *Server) patchZoneAndSize(ctx context.Context, w http.ResponseWriter, r *http.Request,
-	svc *boardservice.Service, boardID, uid string, p cardPatch) bool {
+// patch — the zone and the size.
+func patchZoneAndSize(ctx context.Context, svc *boardservice.Service, boardID, uid string, p *apiv1.CardPatch) error {
 	if p.Zone != nil {
-		zone, ok := parseZone(w, *p.Zone)
-		if !ok {
-			return false
+		zone, err := parseZone(string(*p.Zone))
+		if err != nil {
+			return err
 		}
 		if err := svc.SetZone(ctx, boardID, uid, zone); err != nil {
-			s.apiError(w, r, err)
-			return false
+			return err
 		}
 	}
 	if p.Size != nil {
-		size, ok := parseSize(w, *p.Size)
-		if !ok {
-			return false
+		size, err := parseSize(*p.Size)
+		if err != nil {
+			return err
 		}
 		if err := svc.SetSize(ctx, boardID, uid, size); err != nil {
-			s.apiError(w, r, err)
-			return false
+			return err
 		}
 	}
-	return true
+	return nil
 }
 
 // handlePatchPerson sets what the roster says about a person — for now their
@@ -1924,27 +1885,24 @@ func (s *Server) handlePatchPerson(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiserver.BoardResourceWithPeople(b, s.store.member))
 }
 
-// parseSize validates a size ("" clears): S, M, L or XL in any case; on
-// failure it writes the 400 and returns ok=false.
-func parseSize(w http.ResponseWriter, raw string) (board.SizeKey, bool) {
+// parseSize validates a size ("" clears): S, M, L or XL in any case.
+func parseSize(raw string) (board.SizeKey, error) {
 	size, ok := board.ParseSize(raw)
 	if !ok {
-		writeProblem(w, problem(http.StatusBadRequest, "unknownSize", "unknown size (S, M, L, XL or empty)"))
-		return "", false
+		return "", problem(http.StatusBadRequest, "unknownSize", "unknown size (S, M, L, XL or empty)")
 	}
-	return size, true
+	return size, nil
 }
 
 // parseStage validates a stage name ("" clears).
-func parseStage(w http.ResponseWriter, name string) (board.StageKey, bool) {
+func parseStage(name string) (board.StageKey, error) {
 	switch board.StageKey(name) {
 	case board.StageNone, board.StageLocked, board.StageReview, board.StageRecurrent,
 		board.StageRefuse, board.StageDone:
-		return board.StageKey(name), true
+		return board.StageKey(name), nil
 	}
-	writeProblem(w, problem(http.StatusBadRequest, "unknownStage",
-		"unknown stage (locked, review, recurrent, refuse, done or empty)"))
-	return "", false
+	return "", problem(http.StatusBadRequest, "unknownStage",
+		"unknown stage (locked, review, recurrent, refuse, done or empty)")
 }
 
 // decodeJSON reads the request body into dst, answering 400 on malformed input.
@@ -1994,23 +1952,18 @@ func decodeJSONAllowingEmpty(w http.ResponseWriter, r *http.Request, dst any) bo
 // and the backlog list it is parked on. The two are one subject and exclusive
 // of each other — the service takes either off when the other is given — so
 // they are applied together, in the order they were sent.
-//
-// It reports whether the request may go on; a refusal has already answered.
-func (s *Server) applyPlacementPatch(w http.ResponseWriter, r *http.Request,
-	svc *boardservice.Service, boardID, uid string, p *cardPatch) bool {
+func applyPlacementPatch(ctx context.Context, svc *boardservice.Service, boardID, uid string, p *apiv1.CardPatch) error {
 	if p.Week != nil {
-		if err := svc.SetWeek(r.Context(), boardID, uid, *p.Week); err != nil {
-			s.apiError(w, r, err)
-			return false
+		if err := svc.SetWeek(ctx, boardID, uid, *p.Week); err != nil {
+			return err
 		}
 	}
 	if p.Parked != nil {
-		if err := svc.SetBacklog(r.Context(), boardID, uid, *p.Parked); err != nil {
-			s.apiError(w, r, err)
-			return false
+		if err := svc.SetBacklog(ctx, boardID, uid, *p.Parked); err != nil {
+			return err
 		}
 	}
-	return true
+	return nil
 }
 
 // apiError answers a service error: what the sentinels table says it is.

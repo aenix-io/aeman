@@ -22,54 +22,6 @@ func (h hybrid) GetBoard(w http.ResponseWriter, r *http.Request, _ apiv1.GetBoar
 	h.s.handleGetBoard(w, r)
 }
 
-func (h hybrid) DeleteCard(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
-	h.s.handleDeleteCard(w, r)
-}
-
-func (h hybrid) GetCard(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
-	h.s.handleGetCard(w, r)
-}
-
-func (h hybrid) PatchCard(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
-	h.s.handlePatchCard(w, r)
-}
-
-func (h hybrid) DeferCard(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
-	h.s.handleDeferCard(w, r)
-}
-
-func (h hybrid) SetInProgress(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
-	h.s.handleInProgress(w, r)
-}
-
-func (h hybrid) MirrorCard(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
-	h.s.handleMirror(w, r)
-}
-
-func (h hybrid) MoveCard(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
-	h.s.handleMoveCard(w, r)
-}
-
-func (h hybrid) RemoveFromProject(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
-	h.s.handleRemoveFromProject(w, r)
-}
-
-func (h hybrid) RemoveReviewer(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
-	h.s.handleRemoveReviewer(w, r)
-}
-
-func (h hybrid) ReopenCard(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
-	h.s.handleReopen(w, r)
-}
-
-func (h hybrid) SendToReview(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
-	h.s.handleSendToReview(w, r)
-}
-
-func (h hybrid) UnmirrorCard(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
-	h.s.handleUnmirror(w, r)
-}
-
 func (h hybrid) ListLinks(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
 	h.s.handleListLinks(w, r)
 }
