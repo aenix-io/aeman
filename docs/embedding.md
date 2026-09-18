@@ -13,6 +13,9 @@ A typical embedder is a **local MCP server**: it clones the board's repository i
 | `pkg/gitstore` | The git storage: the repository layout and file formats, one commit per action with trailers, shallow clone / deepen / push / rebase, the card log read from commits. `*gitstore.Backend` (one repository) and `*gitstore.MultiBackend` (a board of several domains) satisfy `boardservice.Backend`. |
 | `pkg/apiserver` | The resource layer: Card/Sprint/Note/Ordering shapes (`{kind, metadata, spec, status}`), semantic zones, view selectors. |
 | `pkg/mcpserver` | The full MCP tool set over a backend. |
+| `api` | The OpenAPI description of the REST surface, embedded as `api.Spec` (YAML bytes). |
+
+The `api` package carries the same document the server serves at `GET /api/v1/openapi.json`, so a tool that talks to an aeman deployment can generate its client from `api.Spec` — with `go:embed` there is no file to ship beside the binary — instead of reading the routes off this page. It describes the HTTP surface only; an embedder driving the board through `pkg/boardservice` needs none of it.
 
 `internal/` (the HTTP server, its cache and coalescing write queue, the sync and push workers, the embedded UI, the migration) stays private. An embedder therefore gets **one commit per write and an explicit push** — the batching the server does between requests is its own.
 
