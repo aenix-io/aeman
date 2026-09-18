@@ -30,6 +30,7 @@ func apiServer(t *testing.T, opts Options, fake *boardservicetest.Backend) *Serv
 	srv.newService = func(*http.Request) (*boardservice.Service, error) {
 		return boardservice.New(fake), nil
 	}
+	srv.handler = conforms(t, srv.handler)
 	return srv
 }
 
