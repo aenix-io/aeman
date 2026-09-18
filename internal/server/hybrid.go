@@ -18,30 +18,6 @@ type hybrid struct {
 	s *Server
 }
 
-func (h hybrid) ListLinks(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
-	h.s.handleListLinks(w, r)
-}
-
-func (h hybrid) GetCardLog(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
-	h.s.handleCardLog(w, r)
-}
-
-func (h hybrid) ListNotes(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
-	h.s.handleListNotes(w, r)
-}
-
-func (h hybrid) AddNote(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
-	h.s.handleAddNote(w, r)
-}
-
-func (h hybrid) DeleteNote(w http.ResponseWriter, r *http.Request, _ apiv1.UID, _ apiv1.NoteID) {
-	h.s.handleDeleteNote(w, r)
-}
-
-func (h hybrid) EditNote(w http.ResponseWriter, r *http.Request, _ apiv1.UID, _ apiv1.NoteID) {
-	h.s.handleEditNote(w, r)
-}
-
 func (h hybrid) AddDeadline(w http.ResponseWriter, r *http.Request) {
 	h.s.handleAddDeadline(w, r)
 }
@@ -72,14 +48,6 @@ func (h hybrid) ReorderEpics(w http.ResponseWriter, r *http.Request) {
 
 func (h hybrid) SetEpicProject(w http.ResponseWriter, r *http.Request) {
 	h.s.handleSetEpicProject(w, r)
-}
-
-func (h hybrid) GetDayLogs(w http.ResponseWriter, r *http.Request, _ apiv1.GetDayLogsParams) {
-	h.s.handleDayLogs(w, r)
-}
-
-func (h hybrid) PatchPerson(w http.ResponseWriter, r *http.Request, _ apiv1.Login) {
-	h.s.handlePatchPerson(w, r)
 }
 
 func (h hybrid) SetPresence(w http.ResponseWriter, r *http.Request) {
@@ -144,28 +112,4 @@ func (h hybrid) RenameProject(w http.ResponseWriter, r *http.Request) {
 
 func (h hybrid) ReorderProjects(w http.ResponseWriter, r *http.Request) {
 	h.s.handleReorderProjects(w, r)
-}
-
-func (h hybrid) PatchSprint(w http.ResponseWriter, r *http.Request) {
-	h.s.handlePatchSprint(w, r)
-}
-
-func (h hybrid) CarryOver(w http.ResponseWriter, r *http.Request) {
-	h.s.handleCarryOver(w, r)
-}
-
-func (h hybrid) DeleteTeam(w http.ResponseWriter, r *http.Request) {
-	h.s.handleDeleteTeam(w, r)
-}
-
-func (h hybrid) ReorderTeams(w http.ResponseWriter, r *http.Request) {
-	h.s.handleReorderTeams(w, r)
-}
-
-func (h hybrid) SetTeamCapacity(w http.ResponseWriter, r *http.Request) {
-	h.s.handleSetTeamCapacity(w, r)
-}
-
-func (h hybrid) RenameTeam(w http.ResponseWriter, r *http.Request) {
-	h.s.handleRenameTeam(w, r)
 }

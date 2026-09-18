@@ -164,46 +164,41 @@ func (s *Server) service(w http.ResponseWriter, _ *http.Request) (svc *boardserv
 	return svc, boardID, true
 }
 
-// handleCardLog serves a card's unified activity feed: its recorded events and
-// work notes merged chronologically. The day delta Ivan asked for — "what
-// happened on this card since yesterday" — reads straight off this list.
-func (s *Server) handleCardLog(w http.ResponseWriter, r *http.Request) {
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	card, events, truncated, err := svc.Log(r.Context(), boardID, r.PathValue("uid"))
+// GetCardLog serves a card's unified activity feed: its recorded events and
+// work notes merged chronologically. The day delta — "what happened on this
+// card since yesterday" — reads straight off this list.
+func (a surface) GetCardLog(ctx context.Context, req apiv1.GetCardLogRequestObject) (apiv1.GetCardLogResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
 	if err != nil {
-		s.apiError(w, r, err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, apiserver.CardLogFrom(card, events, truncated))
+	card, events, truncated, err := svc.Log(ctx, boardID, req.UID)
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.GetCardLog200JSONResponse(apiserver.CardLogFrom(card, events, truncated)), nil
 }
 
-// handleDayLogs answers the day feed: one day's notes and events for every
-// card named in uids. The day board asks this once instead of a whole
-// history per card — the read that made a page load fire dozens of
-// second-long requests.
-func (s *Server) handleDayLogs(w http.ResponseWriter, r *http.Request) {
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	uids := splitList(r.URL.Query().Get("uids"))
-	if len(uids) > maxDayLogCards {
-		writeProblem(w, problem(http.StatusBadRequest, "tooManyCards",
-			fmt.Sprintf("uids: at most %d cards per request", maxDayLogCards)))
-		return
-	}
-	day := r.URL.Query().Get("day")
-	if day != "" && !board.IsDayIso(day) {
-		writeProblem(w, problem(http.StatusBadRequest, "invalidDay", "day: want yyyy-mm-dd"))
-		return
-	}
-	per, err := svc.DayLogs(r.Context(), boardID, uids, day)
+// GetDayLogs answers the day feed: one day's notes and events for every card
+// named in uids. The day board asks this once instead of a whole history per
+// card — the read that made a page load fire dozens of second-long requests.
+func (a surface) GetDayLogs(ctx context.Context, req apiv1.GetDayLogsRequestObject) (apiv1.GetDayLogsResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
 	if err != nil {
-		s.apiError(w, r, err)
-		return
+		return nil, err
+	}
+	uids := splitList(strOf(req.Params.Uids))
+	if len(uids) > maxDayLogCards {
+		return nil, problem(http.StatusBadRequest, "tooManyCards",
+			fmt.Sprintf("uids: at most %d cards per request", maxDayLogCards))
+	}
+	day := strOf(req.Params.Day)
+	if day != "" && !board.IsDayIso(day) {
+		return nil, problem(http.StatusBadRequest, "invalidDay", "day: want yyyy-mm-dd")
+	}
+	per, err := svc.DayLogs(ctx, boardID, uids, day)
+	if err != nil {
+		return nil, err
 	}
 	if day == "" {
 		day = board.TodayIso()
@@ -212,7 +207,7 @@ func (s *Server) handleDayLogs(w http.ResponseWriter, r *http.Request) {
 	for uid, d := range per {
 		entries[uid] = apiserver.DayEntries{Notes: d.Notes, Events: d.Events}
 	}
-	writeJSON(w, http.StatusOK, apiserver.DayLogsFrom(day, entries))
+	return apiv1.GetDayLogs200JSONResponse(apiserver.DayLogsFrom(day, entries)), nil
 }
 
 // maxDayLogCards bounds one day-feed request: a day board shows tens of
@@ -870,194 +865,155 @@ func (a surface) gesture(ctx context.Context, name, uid string, g boardservice.G
 
 // --- Notes ----------------------------------------------------------------------
 
-// handleListLinks serves the URLs found in a card's description: GitHub
-// issue/PR references first (resolved to their titles when possible), plain
-// links after.
-func (s *Server) handleListLinks(w http.ResponseWriter, r *http.Request) {
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	links, err := svc.CardLinks(r.Context(), boardID, r.PathValue("uid"))
+// ListLinks serves the URLs found in a card's description: GitHub issue/PR
+// references first (resolved to their titles when possible), plain links after.
+func (a surface) ListLinks(ctx context.Context, req apiv1.ListLinksRequestObject) (apiv1.ListLinksResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
 	if err != nil {
-		s.apiError(w, r, err)
-		return
+		return nil, err
+	}
+	links, err := svc.CardLinks(ctx, boardID, req.UID)
+	if err != nil {
+		return nil, err
 	}
 	if links == nil {
 		links = []board.Link{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"kind": "LinkList", "items": links})
+	return apiv1.ListLinks200JSONResponse{Kind: apiv1.LinkListKindLinkList, Items: links}, nil
 }
 
-// notesResponse serves a card's notes after any note mutation, so clients
-// always converge on the server's view of the thread.
-func (s *Server) notesResponse(w http.ResponseWriter, r *http.Request, svc *boardservice.Service, boardID string, uid string, status int) {
-	card, err := svc.Card(r.Context(), boardID, uid)
+// notesOf is a card's notes, which every note mutation answers with, so
+// clients always converge on the server's view of the thread.
+func notesOf(ctx context.Context, svc *boardservice.Service, boardID, uid string) (apiv1.NoteList, error) {
+	card, err := svc.Card(ctx, boardID, uid)
 	if err != nil {
-		s.apiError(w, r, err)
-		return
+		return apiv1.NoteList{}, err
 	}
-	writeJSON(w, status, map[string]any{
-		"kind":  "NoteList",
-		"items": apiserver.NoteResources(card),
+	return apiv1.NoteList{Kind: apiv1.NoteListKindNoteList, Items: apiserver.NoteResources(card)}, nil
+}
+
+// notesAfter runs one note mutation and answers with the thread as it stands
+// after it.
+func (a surface) notesAfter(ctx context.Context, uid string, act func(svc *boardservice.Service, boardID string) error) (apiv1.NoteList, error) {
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return apiv1.NoteList{}, err
+	}
+	if act != nil {
+		if err := act(svc, boardID); err != nil {
+			return apiv1.NoteList{}, err
+		}
+	}
+	return notesOf(ctx, svc, boardID, uid)
+}
+
+// ListNotes is the card's work notes.
+func (a surface) ListNotes(ctx context.Context, req apiv1.ListNotesRequestObject) (apiv1.ListNotesResponseObject, error) {
+	notes, err := a.notesAfter(ctx, req.UID, nil)
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.ListNotes200JSONResponse(notes), nil
+}
+
+// AddNote appends a work note.
+func (a surface) AddNote(ctx context.Context, req apiv1.AddNoteRequestObject) (apiv1.AddNoteResponseObject, error) {
+	notes, err := a.notesAfter(ctx, req.UID, func(svc *boardservice.Service, boardID string) error {
+		return svc.AddNote(ctx, boardID, req.UID, strOf(req.Body.Text))
 	})
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.AddNote201JSONResponse(notes), nil
 }
 
-func (s *Server) handleListNotes(w http.ResponseWriter, r *http.Request) {
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
+// EditNote edits a work note.
+func (a surface) EditNote(ctx context.Context, req apiv1.EditNoteRequestObject) (apiv1.EditNoteResponseObject, error) {
+	notes, err := a.notesAfter(ctx, req.UID, func(svc *boardservice.Service, boardID string) error {
+		return svc.EditNote(ctx, boardID, req.UID, req.NoteID, strOf(req.Body.Text))
+	})
+	if err != nil {
+		return nil, err
 	}
-	s.notesResponse(w, r, svc, boardID, r.PathValue("uid"), http.StatusOK)
+	return apiv1.EditNote200JSONResponse(notes), nil
 }
 
-func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Text string `json:"text"`
+// DeleteNote deletes a work note.
+func (a surface) DeleteNote(ctx context.Context, req apiv1.DeleteNoteRequestObject) (apiv1.DeleteNoteResponseObject, error) {
+	notes, err := a.notesAfter(ctx, req.UID, func(svc *boardservice.Service, boardID string) error {
+		return svc.DeleteNote(ctx, boardID, req.UID, req.NoteID)
+	})
+	if err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	uid := r.PathValue("uid")
-	if err := svc.AddNote(r.Context(), boardID, uid, in.Text); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	s.notesResponse(w, r, svc, boardID, uid, http.StatusCreated)
-}
-
-func (s *Server) handleEditNote(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Text string `json:"text"`
-	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	uid := r.PathValue("uid")
-	if err := svc.EditNote(r.Context(), boardID, uid, r.PathValue("noteId"), in.Text); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	s.notesResponse(w, r, svc, boardID, uid, http.StatusOK)
-}
-
-func (s *Server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	uid := r.PathValue("uid")
-	if err := svc.DeleteNote(r.Context(), boardID, uid, r.PathValue("noteId")); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	s.notesResponse(w, r, svc, boardID, uid, http.StatusOK)
+	return apiv1.DeleteNote200JSONResponse(notes), nil
 }
 
 // --- Sprints ----------------------------------------------------------------------
 
-func (s *Server) handlePatchSprint(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Team     string `json:"team"`
-		Current  string `json:"current"`
-		Previous string `json:"previous"`
-		// Domain is the repository a NEW team is declared in; an existing
-		// team's pointer stays where the team is.
-		Domain string `json:"domain"`
+// PatchSprint sets a team's sprint pointers directly — the repair tool.
+func (a surface) PatchSprint(ctx context.Context, req apiv1.PatchSprintRequestObject) (apiv1.PatchSprintResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
+	in := req.Body
+	team, current, previous := strOf(in.Team), strOf(in.Current), strOf(in.Previous)
+	if err := svc.SetSprintState(board.WithDomain(ctx, strOf(in.Domain)), boardID, team, current, previous); err != nil {
+		return nil, err
 	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	if err := svc.SetSprintState(board.WithDomain(r.Context(), in.Domain), boardID, in.Team, in.Current, in.Previous); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, apiserver.Sprint{
+	return apiv1.PatchSprint200JSONResponse{
 		Kind:     "Sprint",
-		Metadata: apiserver.SprintMetadata{Team: in.Team},
-		Spec:     apiserver.SprintSpec{Current: in.Current, Previous: in.Previous},
-	})
+		Metadata: apiserver.SprintMetadata{Team: team},
+		Spec:     apiserver.SprintSpec{Current: current, Previous: previous},
+	}, nil
 }
 
-func (s *Server) handleCarryOver(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Team   string `json:"team"`
-		DryRun bool   `json:"dryRun"`
-	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
+// CarryOver advances a team's sprint to today and carries its unfinished
+// cards.
+func (a surface) CarryOver(ctx context.Context, req apiv1.CarryOverRequestObject) (apiv1.CarryOverResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, err
 	}
 	// The carry ops read the board through the SAME snapshot every other
 	// mutation already trusts: with write-behind the cache (queue replayed on
 	// top) IS the live truth, while a blocking GitHub reload here only adds
 	// seconds of latency and a chance to read a lagging replica. Stale-window
 	// semantics apply; a cold cache still loads.
-	ctx, _ := withStaleAllowed(r.Context())
-	rep, err := svc.CarryOver(ctx, boardID, in.Team, in.DryRun)
+	rep, err := svc.CarryOver(staleOK(ctx), boardID, strOf(req.Body.Team), boolOf(req.Body.DryRun))
 	if err != nil {
-		s.apiError(w, r, err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, rep)
+	return apiv1.CarryOver200JSONResponse(rep), nil
 }
 
-// handleReorderTeams applies a shared team order: the hidden sprint-state
-// cards are moved into the given sequence, so every client reads the same
-// order back from the board metadata.
-func (s *Server) handleReorderTeams(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Teams []string `json:"teams"`
+// ReorderTeams applies a shared team order: the hidden sprint-state cards are
+// moved into the given sequence, so every client reads the same order back
+// from the board metadata.
+func (a surface) ReorderTeams(ctx context.Context, req apiv1.ReorderTeamsRequestObject) (apiv1.ReorderTeamsResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
+	// Same cached-snapshot read as carry-over (see CarryOver).
+	if err := svc.ReorderTeams(staleOK(ctx), boardID, listOf(req.Body.Teams)); err != nil {
+		return nil, err
 	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	// Same cached-snapshot read as carry-over (see handleCarryOver).
-	ctx, _ := withStaleAllowed(r.Context())
-	if err := svc.ReorderTeams(ctx, boardID, in.Teams); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.ReorderTeams204Response{}, nil
 }
 
-// handleDeleteTeam deletes a team's hidden sprint-state card. A team that
-// still has cards is protected server-side (422).
-func (s *Server) handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Team string `json:"team"`
+// DeleteTeam deletes a team's hidden sprint-state card. A team that still has
+// cards is protected server-side (422).
+func (a surface) DeleteTeam(ctx context.Context, req apiv1.DeleteTeamRequestObject) (apiv1.DeleteTeamResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
+	if err := svc.DeleteTeam(ctx, boardID, strOf(req.Body.Team)); err != nil {
+		return nil, err
 	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	if err := svc.DeleteTeam(r.Context(), boardID, in.Team); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.DeleteTeam204Response{}, nil
 }
 
 // handleAddEpic declares a new Project-board column inside a project
@@ -1166,53 +1122,34 @@ func (s *Server) handleRenameProject(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleRenameTeam renames a team where it is declared, its cards and process
-// tasks along with it.
-func (s *Server) handleRenameTeam(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Team string `json:"team"`
-		To   string `json:"to"`
+// RenameTeam renames a team where it is declared, its cards and process tasks
+// along with it.
+func (a surface) RenameTeam(ctx context.Context, req apiv1.RenameTeamRequestObject) (apiv1.RenameTeamResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
+	if err := svc.RenameTeam(staleOK(ctx), boardID, strOf(req.Body.Team), strOf(req.Body.To)); err != nil {
+		return nil, err
 	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.RenameTeam(r.Context(), boardID, in.Team, in.To); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.RenameTeam204Response{}, nil
 }
 
-// handleSetTeamCapacity records the points a week a team gets through — the
-// number a week of its plan is weighed against. It is somebody's judgement,
-// like a person's: the board works out nothing (board.PointsAWeekOf).
-func (s *Server) handleSetTeamCapacity(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Team   string `json:"team"`
-		Points *int   `json:"points"`
+// SetTeamCapacity records the points a week a team gets through — the number a
+// week of its plan is weighed against. It is somebody's judgement, like a
+// person's: the board works out nothing (board.PointsAWeekOf).
+func (a surface) SetTeamCapacity(ctx context.Context, req apiv1.SetTeamCapacityRequestObject) (apiv1.SetTeamCapacityResponseObject, error) {
+	if req.Body.Points == nil {
+		return nil, problem(http.StatusBadRequest, "pointsRequired", "points is required")
 	}
-	if !decodeJSON(w, r, &in) {
-		return
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, err
 	}
-	if in.Points == nil {
-		writeProblem(w, problem(http.StatusBadRequest, "pointsRequired", "points is required"))
-		return
+	if err := svc.SetTeamPoints(staleOK(ctx), boardID, strOf(req.Body.Team), *req.Body.Points); err != nil {
+		return nil, err
 	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.SetTeamPoints(r.Context(), boardID, in.Team, *in.Points); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.SetTeamCapacity204Response{}, nil
 }
 
 // patchColumn re-files a card under a column — the (project, epic) pair.
@@ -1742,6 +1679,13 @@ func boolOf(p *bool) bool {
 	return p != nil && *p
 }
 
+func listOf(p *[]string) []string {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
 // parseZone validates a semantic zone name ("" clears).
 func parseZone(name string) (board.ZoneKey, error) {
 	if name == "" {
@@ -1779,39 +1723,28 @@ func patchZoneAndSize(ctx context.Context, svc *boardservice.Service, boardID, u
 	return nil
 }
 
-// handlePatchPerson sets what the roster says about a person — for now their
+// PatchPerson sets what the roster says about a person — for now their
 // capacity, the points a week the Triage board measures their load against
-// (`{"capacity": 40}`; 0 takes a set number back so the board derives one).
-// It answers with the whole Board resource, whose members carry load and
-// capacity: that is what the client redraws.
-func (s *Server) handlePatchPerson(w http.ResponseWriter, r *http.Request) {
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
+// (`{"capacity": 40}`; 0 takes a set number back). It answers with the whole
+// Board resource, whose members carry load and capacity: that is what the
+// client redraws.
+func (a surface) PatchPerson(ctx context.Context, req apiv1.PatchPersonRequestObject) (apiv1.PatchPersonResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, err
 	}
-	var in struct {
-		Capacity *int `json:"capacity"`
+	if req.Body.Capacity == nil {
+		return nil, problem(http.StatusBadRequest, "capacityRequired",
+			"capacity is required (0 takes a set number back)")
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeProblem(w, problem(http.StatusBadRequest, "invalidBody", "invalid JSON body"))
-		return
-	}
-	if in.Capacity == nil {
-		writeProblem(w, problem(http.StatusBadRequest, "capacityRequired",
-			"capacity is required (0 takes a set number back)"))
-		return
-	}
-	ctx := r.Context()
-	if err := svc.SetPersonCapacity(ctx, boardID, r.PathValue("login"), *in.Capacity); err != nil {
-		s.apiError(w, r, err)
-		return
+	if err := svc.SetPersonCapacity(ctx, boardID, req.Login, *req.Body.Capacity); err != nil {
+		return nil, err
 	}
 	b, err := svc.Board(ctx, boardID)
 	if err != nil {
-		s.apiError(w, r, err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, apiserver.BoardResourceWithPeople(b, s.store.member))
+	return apiv1.PatchPerson200JSONResponse(apiserver.BoardResourceWithPeople(b, a.s.store.member)), nil
 }
 
 // parseSize validates a size ("" clears): S, M, L or XL in any case.
