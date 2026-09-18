@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 
@@ -105,11 +106,17 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 
 // handleUnknownRoute closes the API off from the page behind it. The path is
 // echoed back so a caller sees which address missed, clipped because it is the
-// caller's own bytes and a detail is a sentence somebody reads.
+// caller's own bytes and a detail is a sentence somebody reads. The clip lands
+// on a rune boundary: cutting a path by bytes splits a multi-byte rune, and
+// the half that survives is not text — it reaches the reader as U+FFFD.
 func (s *Server) handleUnknownRoute(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	if len(path) > maxRouteInDetail {
-		path = path[:maxRouteInDetail] + "…"
+		cut := maxRouteInDetail
+		for cut > 0 && !utf8.RuneStart(path[cut]) {
+			cut--
+		}
+		path = path[:cut] + "…"
 	}
 	writeProblem(w, problem(http.StatusNotFound, "unknownRoute", "no such route: "+r.Method+" "+path))
 }
