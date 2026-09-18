@@ -1374,6 +1374,20 @@ paths:
           description: The selection is shared.
         default:
           $ref: '#/components/responses/Problem'
+  /openapi.json:
+    get:
+      operationId: getOpenAPI
+      tags: [Meta]
+      summary: This document, as JSON.
+      responses:
+        '200':
+          description: The OpenAPI description of this surface.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Problem'
 components:
   parameters:
     Uid:

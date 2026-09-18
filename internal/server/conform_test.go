@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/aenix-io/aeman/api"
 	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/boardservice"
 	"github.com/aenix-io/aeman/pkg/boardservice/boardservicetest"
 )
 
@@ -286,6 +288,37 @@ func TestEveryWiredRouteIsDescribed(t *testing.T) {
 		if item == nil || item.GetOperation(method) == nil {
 			t.Errorf("%s %s is wired and the spec does not describe it", method, m[2])
 		}
+	}
+}
+
+// The document is answered like the index beside it: a client generating
+// itself from it has nothing to be authorized for yet, so neither answer
+// resolves a token or builds a board service.
+func TestOpenAPIDocumentIsServed(t *testing.T) {
+	srv := apiServer(t, Options{}, boardservicetest.New(nil, nil))
+	srv.newService = func(*http.Request) (*boardservice.Service, error) {
+		t.Fatal("the document must not build a board service")
+		return nil, nil
+	}
+	srv.apiTokens = func(*http.Request) (string, string, error) {
+		return "", "", errors.New("no credential on this machine")
+	}
+	rec := do(t, srv, http.MethodGet, "/api/v1/openapi.json", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("Content-Type = %q, want JSON", ct)
+	}
+	doc, err := openapi3.NewLoader().LoadFromData(rec.Body.Bytes())
+	if err != nil {
+		t.Fatalf("what is served is not an OpenAPI document: %v", err)
+	}
+	if err := doc.Validate(context.Background()); err != nil {
+		t.Fatalf("the served document does not validate: %v", err)
+	}
+	if doc.Paths.Value("/cards/{uid}") == nil {
+		t.Error("the served document describes no card: it is not this board's")
 	}
 }
 
