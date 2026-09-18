@@ -97,6 +97,15 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/teams/actions/rename", s.handleRenameTeam)
 	mux.HandleFunc("POST /api/v1/teams/actions/capacity", s.handleSetTeamCapacity)
 	mux.HandleFunc("POST /api/v1/presence", s.handleSetPresence)
+	// Last, and without a method, so every more specific pattern above wins:
+	// what is left is a path no route serves, and the SPA's catch-all used to
+	// answer it with index.html — 200 and a page, to a caller asking for JSON.
+	mux.HandleFunc("/api/v1/", s.handleUnknownRoute)
+}
+
+// handleUnknownRoute closes the API off from the page behind it.
+func (s *Server) handleUnknownRoute(w http.ResponseWriter, r *http.Request) {
+	writeProblem(w, problem(http.StatusNotFound, "unknownRoute", "no such route: "+r.Method+" "+r.URL.Path))
 }
 
 // apiIndex is the GET /api/v1 answer: identity, the MCP mount point and where

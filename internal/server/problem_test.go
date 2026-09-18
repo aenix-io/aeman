@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -71,6 +72,55 @@ func TestAPIErrorsAreProblems(t *testing.T) {
 			}
 			if p.Detail == "" {
 				t.Error("detail is empty: a person is shown this sentence")
+			}
+		})
+	}
+}
+
+// A route nothing serves answers as the API, not as the page behind it: the
+// SPA's catch-all stands under every unmatched path and used to hand a caller
+// asking for JSON a 200 and index.html. A known path asked with a method it
+// does not have lands in the same answer — the catch-all matches every method,
+// so the mux never reaches its own 405, and a client reads "no such route"
+// where it once read "wrong verb".
+func TestAnUnknownRouteIsAProblem(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Team: "test"}}, nil)
+	srv := apiServer(t, Options{}, fake)
+	for _, tc := range []struct{ name, method, target string }{
+		{"a path nothing serves", http.MethodGet, "/api/v1/nope"},
+		{"an action the card has no door for", http.MethodPost, "/api/v1/cards/c1/actions/nope"},
+		{"a card asked with a method it does not answer", http.MethodPut, "/api/v1/cards/c1"},
+		{"a collection asked with one", http.MethodDelete, "/api/v1/sprints"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := do(t, srv, tc.method, tc.target, "")
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want 404 (%s)", rec.Code, rec.Body.String())
+			}
+			p := decodeProblem(t, rec)
+			if p.Code != "unknownRoute" {
+				t.Fatalf("code = %q, want unknownRoute", p.Code)
+			}
+			if !strings.Contains(p.Detail, tc.method) || !strings.Contains(p.Detail, tc.target) {
+				t.Errorf("detail = %q; it must say which request found nothing", p.Detail)
+			}
+		})
+	}
+	// The catch-all is registered without a method and stands last, so the
+	// three routes that are not resources keep their own answers.
+	for _, tc := range []struct {
+		name, target string
+		status       int
+	}{
+		{"the index", "/api/v1", http.StatusOK},
+		{"the document", "/api/v1/openapi.json", http.StatusOK},
+		// The handshake fails against a recorder, which is the point: the
+		// watch handler ran rather than the catch-all.
+		{"the watch", "/api/v1/views/me/watch", http.StatusUpgradeRequired},
+	} {
+		t.Run(tc.name+" is untouched", func(t *testing.T) {
+			if rec := do(t, srv, http.MethodGet, tc.target, ""); rec.Code != tc.status {
+				t.Fatalf("status = %d, want %d (%s)", rec.Code, tc.status, rec.Body.String())
 			}
 		})
 	}

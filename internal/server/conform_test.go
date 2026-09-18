@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"go/ast"
 	"go/parser"
@@ -112,9 +113,9 @@ func checkExchange(t *testing.T, r *http.Request, sent []byte, rec *httptest.Res
 	route, params, err := router.FindRoute(probe)
 	if err != nil {
 		// A path the document does not describe is only a failure when a
-		// HANDLER answered it: the mux's own 404 and the SPA's catch-all
-		// are the two of them agreeing that there is no such door.
-		if answered(rec) {
+		// handler answered it. The catch-all saying "no such route" is the
+		// mux agreeing with the spec that there is no such door.
+		if !catchAll(rec) {
 			t.Errorf("%s %s: no operation in the spec, yet a handler answered %d — %v",
 				r.Method, r.URL, rec.Code, err)
 		}
@@ -252,11 +253,10 @@ func TestEverySpecOperationHasItsRoute(t *testing.T) {
 				continue
 			}
 			rec := do(t, srv, method, target, "")
-			if answered(rec) {
-				continue
+			if catchAll(rec) {
+				t.Errorf("%s %s (%s): nothing serves it — the catch-all answered",
+					method, target, op.OperationID)
 			}
-			t.Errorf("%s %s (%s): nothing serves it — %d %q",
-				method, target, op.OperationID, rec.Code, rec.Header().Get("Content-Type"))
 		}
 	}
 }
@@ -325,13 +325,17 @@ func TestOpenAPIDocumentIsServed(t *testing.T) {
 // regexpPathParams matches a spec path's {placeholders}.
 var regexpPathParams = regexp.MustCompile(`\{[^}]+\}`)
 
-// answered reports whether a handler — rather than the mux's own 404 or the
-// SPA the unknown paths fall through to — wrote the response. A refusal
-// counts: a problem is a handler's answer, and it proves the route.
-func answered(rec *httptest.ResponseRecorder) bool {
-	if rec.Code == http.StatusNoContent {
-		return true
+// catchAll reports whether the response is the one the catch-all writes for a
+// path no route serves. It is the single answer under /api/v1/ that proves no
+// handler ran: everything else — a refusal included — came from one, and a
+// refusal proves the route as well as a 200 does.
+func catchAll(rec *httptest.ResponseRecorder) bool {
+	if rec.Code != http.StatusNotFound {
+		return false
 	}
-	ct := rec.Header().Get("Content-Type")
-	return strings.HasPrefix(ct, "application/json") || strings.HasPrefix(ct, "application/problem+json")
+	var p Problem
+	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+		return false
+	}
+	return p.Code == "unknownRoute"
 }
