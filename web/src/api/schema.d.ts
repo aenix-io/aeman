@@ -576,8 +576,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Declare an epic column inside a project.
-         * @description The project is required and must exist; the column lives with its project.
+         * Declare an epic column.
+         * @description The project is OPTIONAL, and the schema beside this says so too: named, it must already exist — a project the board does not have is a typo, and is refused (422 `projectNotFound`) — and the column lives with it; left empty, the column goes in the no-project bucket, which is a column home like any other. The name has to be free inside whichever of the two it lands in (422 `epicExists`).
          */
         post: operations["addEpic"];
         delete?: never;
