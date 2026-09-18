@@ -7,7 +7,7 @@ import createClient from "openapi-fetch";
 
 import { clientId } from "../../api/client";
 import { resolveCardId } from "../../api/pending";
-import { linkKind, type CardLink } from "../../links";
+import type { CardLink } from "../../links";
 import {
   resourceToCard,
   resourceToNote,
@@ -839,7 +839,7 @@ export const apiProvider: Provider = {
     const list = await answered(
       client.GET("/cards/{uid}/links", { params: { path: { uid } } }),
     );
-    return list.items.map((l) => ({ ...l, kind: linkKind(l.kind) }));
+    return list.items;
   },
 
   async setPresence(

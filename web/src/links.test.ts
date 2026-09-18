@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractLinks, linkKind, optimisticTitle } from "./links";
+import { extractLinks, optimisticTitle } from "./links";
 
 // The card must never sit on screen showing a raw URL: a bare GitHub
 // reference reads as the same "Pull: owner/repo#N" label the server falls
@@ -58,23 +58,5 @@ describe("extractLinks trailing markdown", () => {
   it("keeps punctuation that is part of the path", () => {
     const got = extractLinks("https://example.com/a_b/c~d/e*f?q=1");
     expect(got[0].url).toBe("https://example.com/a_b/c~d/e*f?q=1");
-  });
-});
-
-// The API types `kind` as an open string — pkg/board/links.go emits "issue",
-// "pull" and "link" and nothing else, but the document does not say so — while
-// the UI draws exactly three. This is where the open set is closed, so a kind
-// a later server invents renders as a plain link instead of reaching a switch
-// that has no arm for it.
-describe("linkKind", () => {
-  it("keeps the two GitHub kinds", () => {
-    expect(linkKind("issue")).toBe("issue");
-    expect(linkKind("pull")).toBe("pull");
-  });
-
-  it("reads anything else as a plain link", () => {
-    for (const raw of ["link", "discussion", "merge_request", "", "Issue"]) {
-      expect(linkKind(raw)).toBe("link");
-    }
   });
 });

@@ -1972,6 +1972,12 @@ components:
       properties:
         kind:
           type: string
+          description: >-
+            What the URL points at. A closed set: pkg/board/links.go recognises
+            a github.com issue and pull-request URL (and the owner/repo#number
+            shorthand, which the live resolver corrects to `pull` when the
+            number turns out to be one) and calls everything else a plain link.
+          enum: [issue, pull, link]
         url:
           type: string
         owner:
@@ -2535,6 +2541,12 @@ components:
           type: string
         kind:
           type: string
+          description: >-
+            What the URL points at. A closed set: pkg/board/links.go recognises
+            a github.com issue and pull-request URL (and the owner/repo#number
+            shorthand, which the live resolver corrects to `pull` when the
+            number turns out to be one) and calls everything else a plain link.
+          enum: [issue, pull, link]
         owner:
           type: string
         repo:

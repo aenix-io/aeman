@@ -16,7 +16,6 @@ import type {
   StageKey,
   ZoneKey,
 } from "../providers/types";
-import { linkKind } from "../links";
 import { sizeFromWire } from "../size";
 import type { components } from "./schema";
 
@@ -127,7 +126,7 @@ export function resourceToCard(res: CardResource): Card {
     description: spec.description,
     linkRefs: res.status?.links?.map((l) => ({
       url: l.url,
-      kind: linkKind(l.kind),
+      kind: l.kind,
       owner: l.owner,
       repo: l.repo,
       number: l.number,

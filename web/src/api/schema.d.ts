@@ -101,6 +101,10 @@ export interface paths {
          *     From the Me board the × is the narrow one: a person takes off their own board what they PUT there and what the plan has not taken up. Work another person scheduled for them, or work they scheduled on the Team or Triage board, is somebody's plan and is refused there (403) — the wide × lives on the board where the planning was done, and the answer to "I am not doing this" is `spec.stage: refuse`. A card with no recorded author is not exempt, and a subtask is outside the rule.
          *
          *     The × empties the WORKING AREA: assignee, sprint and dates cleared (a slot keeps its dates — they are its row). The card then lands wherever it still belongs — the week it is scheduled for, or its Project-board column. With nowhere else to be the working area was its only home, and the × deletes it. It takes the card's subtasks with it; a subtask standing in a column of its own is freed into that column instead, and one whose column cannot come along (a column of the parent's repository) is answered like any other columnless card, which is deletion. A deleted card is not lost to the board's history: the day it stood on gives it back. DELETE /cards/{uid} is the deliberate delete, and it FREES a card's subtasks rather than taking them along.
+         *
+         *     A second, wider rule sits in front of both doors, this one and DELETE /cards/{uid}: a card the caller is CARRYING but did not create is not theirs to take off the board, on ANY board (403). Their answer to work somebody else planned for them is `spec.stage: refuse`, which leaves the card standing for the person who planned it to decide. Unlike the Me-board rule above, a card with no recorded author is outside this one — there is nobody else it could belong to — and so are a subtask and a review card, which are pieces of other work rather than work assigned to anyone.
+         *
+         *     A client should ask before pressing it when there is progress or a linked review card to lose: the server does not ask, and what the card carries does not change what the gesture does.
          */
         post: operations["removeCard"];
         delete?: never;
@@ -179,7 +183,7 @@ export interface paths {
         post?: never;
         /**
          * Hard delete, cascading to the linked review card.
-         * @description The deliberate delete — "this card is a mistake" — as against the board's ×, which is "this work is off the board". It FREES the card's subtasks into standalone cards rather than taking them along.
+         * @description The deliberate delete — "this card is a mistake" — as against the board's ×, which is "this work is off the board". It FREES the card's subtasks into standalone cards rather than taking them along. A card the caller is CARRYING but did not create is refused here as it is at the × (403): `spec.stage: refuse` is the answer to work somebody else planned. A subtask, a review card and a card with no recorded author are outside that rule.
          */
         delete: operations["deleteCard"];
         options?: never;
@@ -1145,7 +1149,11 @@ export interface components {
         };
         /** @description One reference extracted from a description, unresolved. */
         CardLinkRef: {
-            kind: string;
+            /**
+             * @description What the URL points at. A closed set: pkg/board/links.go recognises a github.com issue and pull-request URL (and the owner/repo#number shorthand, which the live resolver corrects to `pull` when the number turns out to be one) and calls everything else a plain link.
+             * @enum {string}
+             */
+            kind: "issue" | "pull" | "link";
             url: string;
             owner?: string;
             repo?: string;
@@ -1357,7 +1365,11 @@ export interface components {
         /** @description One URL from a card's description. A GitHub issue or pull request is resolved to its live title and state where the server can read it. */
         Link: {
             url: string;
-            kind: string;
+            /**
+             * @description What the URL points at. A closed set: pkg/board/links.go recognises a github.com issue and pull-request URL (and the owner/repo#number shorthand, which the live resolver corrects to `pull` when the number turns out to be one) and calls everything else a plain link.
+             * @enum {string}
+             */
+            kind: "issue" | "pull" | "link";
             owner?: string;
             repo?: string;
             number?: number;
