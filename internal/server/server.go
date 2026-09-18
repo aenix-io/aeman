@@ -375,7 +375,9 @@ func (s *Server) setupGate(next http.Handler) http.Handler {
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/") {
-			writeJSONErrorAction(w, http.StatusServiceUnavailable, st.problem, st.installURL)
+			p := problem(http.StatusServiceUnavailable, "setupRequired", st.problem)
+			p.ActionURL = st.installURL
+			writeProblem(w, p)
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -417,7 +419,7 @@ func (s *Server) csrfGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isStateChanging(r.Method) && strings.HasPrefix(r.URL.Path, "/api/") {
 			if origin := r.Header.Get("Origin"); origin != "" && !s.originAllowed(origin, r) {
-				writeJSONError(w, http.StatusForbidden, "cross-site request blocked")
+				writeProblem(w, problem(http.StatusForbidden, "crossSiteBlocked", "cross-site request blocked"))
 				return
 			}
 		}
@@ -682,17 +684,6 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeJSONError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
-}
-
-// writeJSONErrorAction is a refusal with something to click: actionUrl is
-// the page that fixes the trouble (installing the board's GitHub App), for
-// the UI to render as a button rather than a URL buried in prose.
-func writeJSONErrorAction(w http.ResponseWriter, status int, msg, actionURL string) {
-	if actionURL == "" {
-		writeJSONError(w, status, msg)
-		return
-	}
-	writeJSON(w, status, map[string]string{"error": msg, "actionUrl": actionURL})
 }
 
 // frontendBuild fingerprints the embedded bundle: index.html names the hashed

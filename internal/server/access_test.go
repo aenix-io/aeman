@@ -174,6 +174,47 @@ func TestUnreadablePrimaryIs403(t *testing.T) {
 	}
 }
 
+// G72 — the gate in front of the /api/v1 handlers refuses in the shape those
+// handlers answer in. Each of its three refusals is a code a client branches on: the
+// visitor the server cannot name at all, the authorization the forge no
+// longer accepts, and rights the forge was asked for and did not decide.
+func TestTheAccessGateRefusesWithProblems(t *testing.T) {
+	t.Run("nobody to ask about", func(t *testing.T) {
+		srv := twoDomainServer(t)
+		srv.apiTokens = func(*http.Request) (string, string, error) {
+			return "", "", errors.New("no credential")
+		}
+		rec := doAs(t, srv, "alice", http.MethodGet, "/api/v1/board", "")
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401 (%s)", rec.Code, rec.Body.String())
+		}
+		if p := decodeProblem(t, rec); p.Code != "notAuthenticated" {
+			t.Fatalf("code = %q, want notAuthenticated", p.Code)
+		}
+	})
+	t.Run("an authorization the forge no longer accepts", func(t *testing.T) {
+		srv := twoDomainServer(t)
+		srv.access = tokenAccess{grant: rightsOn([]string{"shared"}, []string{"shared"})}
+		rec := doAs(t, srv, "alice", http.MethodGet, "/api/v1/board", "")
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401 (%s)", rec.Code, rec.Body.String())
+		}
+		if p := decodeProblem(t, rec); p.Code != "authorizationExpired" {
+			t.Fatalf("code = %q, want authorizationExpired", p.Code)
+		}
+	})
+	t.Run("rights the forge did not decide", func(t *testing.T) {
+		srv := twoDomainServer(t)
+		rec := doAs(t, srv, "mallory", http.MethodGet, "/api/v1/board", "")
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("status = %d, want 403 (%s)", rec.Code, rec.Body.String())
+		}
+		if p := decodeProblem(t, rec); p.Code != "accessUndecided" {
+			t.Fatalf("code = %q, want accessUndecided", p.Code)
+		}
+	})
+}
+
 // G25 — a write needs write access to the domain it targets; a move needs
 // both. A read-only collaborator sees the board and cannot change it.
 func TestWriteNeedsWriteAccessToTheDomain(t *testing.T) {
