@@ -10,8 +10,8 @@ info:
     problem whose `code` names the rule.
 
 
-    Three headers belong to the middleware and are documented in docs/api.md
-    rather than declared here: `X-Aeman-Client` on a request keys echo
+    Three headers belong to the middleware and are described here rather than
+    declared on an operation: `X-Aeman-Client` on a request keys echo
     suppression on the watch, `X-Aeman-As-Of` says the caller is looking at a
     past day, which refuses a WRITE to a card that day is over for, and
     `X-Aeman-Stale` rides a READ answered from a cache being revalidated. They
@@ -1785,8 +1785,12 @@ components:
         stage:
           type: string
           description: >-
-            An explicit status that recolours the bar: locked, review,
-            recurrent, refuse — or absent, the implicit in-progress state. Done
+            Open on the way out, unlike the patch's closed `stage`: a card's
+            stage is read verbatim from its file in the repository
+            (pkg/gitstore/layout.go), which any tool may commit to, so this
+            reports what the board says rather than what a write would have
+            been allowed to set. An explicit status that recolours the bar:
+            locked, review, recurrent, refuse — or absent, the implicit in-progress state. Done
             is DERIVED (`status.complete`): 100% with no stage. `refuse` is the
             answer of the person the card is on, so only they may set it (403
             otherwise); it does not take the card off anyone's board, it leaves
