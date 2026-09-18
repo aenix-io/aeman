@@ -62,5 +62,9 @@ jobs:
       # skips _test.go, which is where that half is exercised.
       - name: Cross-check for Windows
         run: GOOS=windows go vet ./...
+      # -race, not a plain run: the board cache is read by HTTP handlers and
+      # the watch fan-out while the git sync writes it, and a plain build
+      # cannot see that class of bug at all. It costs roughly half again as
+      # long as the uninstrumented suite.
       - name: Test
-        run: go test ./...
+        run: go test -race ./...

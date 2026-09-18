@@ -15,14 +15,14 @@ make frontend       # SPA once into web/dist
 make run            # go run ./cmd/aeman serve (frontend must be built once)
 make lint           # golangci-lint run (CI pins golangci-lint v2, .golangci.yaml)
 make fmt            # golangci-lint fmt
-make test           # go test ./...
+make test           # go test -race ./...
 make generate       # regenerate api.gen.go + schema.d.ts from api/openapi.yaml
 ```
 
-- Single Go test: `go test ./pkg/board -run TestMeView` (any package/regexp).
+- Single Go test: `go test -race ./pkg/board -run TestMeView` (any package/regexp). Keep `-race`: it is how CI runs, and the board cache's failure mode is invisible without it.
 - Frontend (from `web/`): `npm run typecheck`, `npm test` (vitest), single test file: `npx vitest run src/theme.test.ts`.
 - `make generate` rewrites both files built from `api/openapi.yaml` — `internal/server/apiv1/api.gen.go` and `web/src/api/schema.d.ts` (that half alone is `npm run generate` from `web/`). Run it in the same commit as a change to that document and commit the result: CI regenerates and diffs both (`.github/workflows/ci.yml`, step `Generated code is current`), so a stale copy fails the build rather than typechecking green.
-- CI (`.github/workflows/ci.yml`) runs golangci-lint, the frontend build + vitest, `make generate` with a diff over what it wrote, `make backend`, `GOOS=windows go vet ./...` and `go test ./...` — all of it must pass locally before pushing.
+- CI (`.github/workflows/ci.yml`) runs golangci-lint, the frontend build + vitest, `make generate` with a diff over what it wrote, `make backend`, `GOOS=windows go vet ./...` and `go test -race ./...` — all of it must pass locally before pushing.
 
 ## Architecture
 
