@@ -228,6 +228,22 @@ paths:
         card is not lost to the board's history: the day it stood on gives it
         back. DELETE /cards/{uid} is the deliberate delete, and it FREES a
         card's subtasks rather than taking them along.
+
+
+        A second, wider rule sits in front of both doors, this one and
+        DELETE /cards/{uid}: a card the caller is CARRYING but did not create
+        is not theirs to take off the board, on ANY board (403). Their answer
+        to work somebody else planned for them is `spec.stage: refuse`, which
+        leaves the card standing for the person who planned it to decide.
+        Unlike the Me-board rule above, a card with no recorded author is
+        outside this one — there is nobody else it could belong to — and so
+        are a subtask and a review card, which are pieces of other work rather
+        than work assigned to anyone.
+
+
+        A client should ask before pressing it when there is progress or a
+        linked review card to lose: the server does not ask, and what the card
+        carries does not change what the gesture does.
       parameters:
         - $ref: '#/components/parameters/View'
         - $ref: '#/components/parameters/Uid'
@@ -413,7 +429,11 @@ paths:
       description: >-
         The deliberate delete — "this card is a mistake" — as against the
         board's ×, which is "this work is off the board". It FREES the card's
-        subtasks into standalone cards rather than taking them along.
+        subtasks into standalone cards rather than taking them along. A card
+        the caller is CARRYING but did not create is refused here as it is at
+        the × (403): `spec.stage: refuse` is the answer to work somebody else
+        planned. A subtask, a review card and a card with no recorded author
+        are outside that rule.
       parameters:
         - $ref: '#/components/parameters/Uid'
       responses:
