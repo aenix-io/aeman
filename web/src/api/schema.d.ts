@@ -124,7 +124,7 @@ export interface paths {
         put?: never;
         /**
          * The Triage board's drop — put the card in a week, which is what triaging it means.
-         * @description `week` is a Monday; any other day is refused (422), since a week that is not a Monday matches no column the board draws. A week AHEAD of this one also empties the working area — the card is on no day board until that Monday — while the CURRENT week joins the team's sprint instead. A Project-board slot is refused (422): its week IS its start date's week, so its dates are what move. It is not the same as PATCH {"week": …}, which writes the week and nothing else.
+         * @description `week` is a Monday; any other day is refused (422), since a week that is not a Monday matches no column the board draws. A week AHEAD of this one also empties the working area — the card is on no day board until that Monday — while the CURRENT week joins the team's sprint instead. A Project-board slot is not refused: its week IS its start date's week, so its DATES are what move — the whole span shifts by the distance to the week asked for, and the row follows. It is not the same as PATCH {"week": …}, which writes the week and nothing else and refuses a slot outright (422 `weekDerived`).
          */
         post: operations["placeCard"];
         delete?: never;
@@ -142,7 +142,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** The Triage board's opposite — take the card's week away, back to the strip. */
+        /**
+         * The Triage board's opposite — take the card's week away, back to the strip.
+         * @description A Project-board slot is refused (422 `weekDerived`): its week is its row, derived from its dates, so there is no week to take away — taking it off the column is the gesture that means this. A card that is in no week already is left as it is.
+         */
         post: operations["untriageCard"];
         delete?: never;
         options?: never;
@@ -283,7 +286,7 @@ export interface paths {
         put?: never;
         /**
          * Send the card to a reviewer, or reassign the review that exists.
-         * @description The answer is the REVIEW card, whether it was created or reassigned. The reviewer must be able to read the card's domain. Without a `zone` the review lands in the unplanned one: for the reviewer it is work that turned up during their day, and the original's band says where the WORK stood, not where the asking belongs.
+         * @description The answer is the REVIEW card, whether it was created or reassigned. A reviewer who cannot read the card's repository cannot see the review either — it lives with the card it reviews — which is what `domains[].members` is for: a client narrows its picker by it. Without a `zone` the review lands in the unplanned one: for the reviewer it is work that turned up during their day, and the original's band says where the WORK stood, not where the asking belongs.
          */
         post: operations["sendToReview"];
         delete?: never;
