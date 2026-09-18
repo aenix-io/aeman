@@ -250,7 +250,7 @@ func TestTeamGridShowsASlotFromItsWeekUntilItIsDone(t *testing.T) {
 	if got := TeamGrid(b, "t", AddDays(today, -1)); len(got) != 1 {
 		t.Fatal("the day it was finished keeps it")
 	}
-	if got := TeamGrid(b, "t", "2026-09-17"); len(got) != 0 {
+	if got := TeamGrid(b, "t", today); len(got) != 0 {
 		t.Fatal("and the next day does not")
 	}
 }
