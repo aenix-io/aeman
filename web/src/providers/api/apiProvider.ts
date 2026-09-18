@@ -5,7 +5,7 @@
 
 import { clientId } from "../../api/client";
 import { resolveCardId } from "../../api/pending";
-import type { CardLink } from "../../links";
+import { linkKind, type CardLink } from "../../links";
 import {
   resourceToCard,
   resourceToNote,
@@ -17,7 +17,8 @@ import {
   type NoteListResource,
   type SprintListResource,
 } from "../../api/resources";
-import { splitDayLogs, type DayLogEntry } from "../../daylog";
+import type { components } from "../../api/schema";
+import { splitDayLogs } from "../../daylog";
 import { viewOf, viewPath } from "../../viewquery";
 import { createView, type ViewName } from "../../views";
 import type { Member } from "../../users";
@@ -44,9 +45,9 @@ import type {
  *  which carries the same shape — those numbers move on every card write, so
  *  they arrive on their own rather than with the whole roster. */
 export function membersFrom(
-  raw: BoardResource["metadata"]["members"],
+  raw: components["schemas"]["Member"][],
 ): Member[] {
-  return (raw ?? []).map((m) => ({
+  return raw.map((m) => ({
     login: m.login,
     avatarUrl: m.avatarUrl || undefined,
     name: m.name || undefined,
@@ -78,7 +79,7 @@ export function boardMetadata(
   return {
     title: info.metadata.title ?? "",
     url: info.metadata.url ?? "",
-    teams: info.metadata.teams ?? [],
+    teams: info.metadata.teams,
     projects: info.metadata.projects ?? [],
     deadlines: (info.metadata.deadlines ?? []).map((d) => ({
       week: d.week,
@@ -94,8 +95,8 @@ export function boardMetadata(
     // none; the UI then shows nothing of domains at all.
     domains: (info.metadata.domains ?? []).map((d) => ({
       name: d.name,
-      writable: d.writable ?? false,
-      members: d.members ?? [],
+      writable: d.writable,
+      members: d.members,
     })),
     // Which repository a team or project lives in: what keeps the pickers
     // from offering a pair the server will refuse.
@@ -105,13 +106,13 @@ export function boardMetadata(
   };
 }
 
-/** processesFrom normalises the process structure off the wire. */
-export function processesFrom(items: ProcessInfo[] | null | undefined): ProcessInfo[] {
-  return (items ?? []).map((p) => ({
-    ...p,
-    project: p.project ?? "",
-    tasks: (p.tasks ?? []).map((t) => ({ ...t, history: t.history ?? [] })),
-  }));
+/** processesFrom adapts the wire's processes to the internal model, whose
+ *  `project` is always a string: the wire omits it on a process that belongs
+ *  to none. */
+export function processesFrom(
+  items: components["schemas"]["Process"][],
+): ProcessInfo[] {
+  return items.map((p) => ({ ...p, project: p.project ?? "" }));
 }
 
 /** ApiError is a non-2xx answer: the problem's detail (or the status text)
@@ -232,7 +233,7 @@ async function notesFrom(
   body?: unknown,
 ): Promise<Note[]> {
   const list = await api<NoteListResource>(method, path, body);
-  return (list.items ?? []).map(resourceToNote);
+  return list.items.map(resourceToNote);
 }
 
 // patchBody translates a CardPatch onto the wire shape: only present fields go
@@ -317,7 +318,7 @@ export const apiProvider: Provider = {
       cards: [],
       ...boardMetadata(info),
       processes: [],
-      sprintStates: sprintStatesFrom(sprints.items ?? []),
+      sprintStates: sprintStatesFrom(sprints.items),
     };
   },
 
@@ -334,7 +335,7 @@ export const apiProvider: Provider = {
     // The board the query names is a path segment; the rest narrows it.
     const list = await api<CardListResource>("GET", viewPath(qs, "cards"));
     return {
-      cards: (list.items ?? []).map(resourceToCard),
+      cards: list.items.map(resourceToCard),
       // Set when the server answered with a past day's board rather than
       // today's: the client freezes on that, and says which day it shows.
       asOf: list.asOf,
@@ -586,7 +587,7 @@ export const apiProvider: Provider = {
 
   async listProcesses(project?: string): Promise<ProcessInfo[]> {
     const q = project ? `?project=${encodeURIComponent(project)}` : "";
-    const res = await api<{ items: ProcessInfo[] | null }>("GET", `/processes${q}`);
+    const res = await api<components["schemas"]["ProcessList"]>("GET", `/processes${q}`);
     return processesFrom(res.items);
   },
 
@@ -631,7 +632,7 @@ export const apiProvider: Provider = {
     process: string,
     input: TaskInput,
   ): Promise<string> {
-    const res = await api<{ uid: string }>("POST", "/processes/tasks", {
+    const res = await api<components["schemas"]["TaskRef"]>("POST", "/processes/tasks", {
       process,
       ...input,
     });
@@ -687,25 +688,10 @@ export const apiProvider: Provider = {
 
   async listLog(uid: string): Promise<CardLog> {
     uid = await resolveCardId(uid);
-    const list = await api<{
-      items:
-        | {
-            type: string;
-            id: string;
-            at?: string;
-            actor?: string;
-            kind?: string;
-            from?: string;
-            to?: string;
-            text?: string;
-          }[]
-        | null;
-      /** Set when older history exists beyond what the server has loaded. */
-      truncatedBefore?: string;
-    }>("GET", `/cards/${uid}/log`);
+    const list = await api<components["schemas"]["LogList"]>("GET", `/cards/${uid}/log`);
     const notes: Note[] = [];
     const events: CardEvent[] = [];
-    for (const it of list.items ?? []) {
+    for (const it of list.items) {
       if (it.type === "event") {
         events.push({
           id: it.id,
@@ -741,7 +727,7 @@ export const apiProvider: Provider = {
     }
     const answers = await Promise.all(
       batches.map((batch) =>
-        api<{ cards: Record<string, DayLogEntry[] | null> | null }>(
+        api<components["schemas"]["DayLogList"]>(
           "GET",
           `/logs?day=${encodeURIComponent(day)}&uids=${batch.map(encodeURIComponent).join(",")}`,
         ),
@@ -756,10 +742,10 @@ export const apiProvider: Provider = {
 
   async listLinks(uid: string): Promise<CardLink[]> {
     uid = await resolveCardId(uid);
-    const list = await api<{ kind: string; items: CardLink[] | null }>("GET",
+    const list = await api<components["schemas"]["LinkList"]>("GET",
       `/cards/${uid}/links`,
     );
-    return list.items ?? [];
+    return list.items.map((l) => ({ ...l, kind: linkKind(l.kind) }));
   },
 
   async setPresence(

@@ -16,6 +16,12 @@ export interface CardLink {
   state?: string;
 }
 
+/** linkKind narrows the open `kind` the API sends onto the three the UI
+ *  draws: anything that is not an issue or a pull renders as a plain link. */
+export function linkKind(raw: string): CardLink["kind"] {
+  return raw === "issue" || raw === "pull" ? raw : "link";
+}
+
 const URL_PATTERN = /https?:\/\/[^\s<>"'\)\]]+/g;
 
 /** Punctuation stripped off a matched URL's tail. Beyond sentence

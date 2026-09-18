@@ -3,6 +3,11 @@
 // where the two vocabularies meet: zones are semantic on the wire
 // (urgent/unplanned/planned/niceToHave) and colour keys (red/yellow/gray/green)
 // inside the app; dates are nested on the wire and flat on the Card.
+//
+// The wire half is not written here: it is api/schema.d.ts, generated from
+// api/openapi.yaml (`npm run generate`), so a field the server renames or
+// drops reaches the mappers below as a compile error rather than as undefined
+// at runtime.
 
 import type {
   Card,
@@ -11,7 +16,9 @@ import type {
   StageKey,
   ZoneKey,
 } from "../providers/types";
+import { linkKind } from "../links";
 import { sizeFromWire } from "../size";
+import type { components } from "./schema";
 
 // --- Zone vocabulary ---------------------------------------------------------
 
@@ -42,163 +49,19 @@ export function zoneFromSemantic(name: string | undefined): ZoneKey | undefined 
 
 // --- Wire types ----------------------------------------------------------------
 
-export interface CardResource {
-  kind: string;
-  metadata: {
-    uid: string;
-    author?: string;
-    createdAt?: string;
-  };
-  spec: {
-    title: string;
-    description?: string;
-    team?: string;
-    zone?: string;
-    size?: string;
-    assignees?: string[];
-    progress?: number;
-    stage?: string;
-    recurrence?: string;
-    dates?: { start?: string; end?: string; sprint?: string };
-    week?: string;
-    parked?: boolean;
-    epic?: string;
-    process?: string;
-    task?: string;
-    project?: string;
-    mirrors?: { project: string; epic: string }[];
-    reviewOf?: string;
-    parent?: string;
-  };
-  status?: {
-    complete?: boolean;
-    inProgress?: boolean;
-    overdue?: boolean;
-    /** Set when this card comes from the PAST: its team's sprint has moved
-     *  on past the day being looked at, so this is what the card was that
-     *  evening. A record — not to be offered for change. */
-    asOf?: string;
-    reviewedBy?: string;
-    reviewRound?: number;
-    /** The repository the card lives in; absent on an older server. */
-    domain?: string;
-    /** The board day the card reached done (yyyy-mm-dd); cleared on reopen. */
-    doneAt?: string;
-    /** Nobody placed the card in a week and it is not being worked. */
-    triage?: boolean;
-    /** The Monday of the Triage column the card stands in. */
-    triageWeek?: string;
-    /** A recurrent card's weeks to come. */
-    due?: string[];
-    /** A process turn's own occurrence: the weeks it may stand in. */
-    cycle?: { from: string; to: string };
-    links?: {
-      kind: string;
-      url: string;
-      owner?: string;
-      repo?: string;
-      number?: number;
-    }[];
-  };
-}
+type Schemas = components["schemas"];
 
-export interface SprintResource {
-  kind: string;
-  metadata: { team: string };
-  spec: {
-    current?: string;
-    previous?: string;
-    /** What a week of the team's plan is weighed against, in POINTS: a number
-     *  somebody SET, never derived. Mirrors board.PointsAWeekOf. */
-    capacity?: { points?: number };
-  };
-}
-
-export interface NoteResource {
-  kind: string;
-  metadata: {
-    id: string;
-    cardUid: string;
-    author?: string;
-    createdAt?: string;
-    source: string;
-  };
-  spec: { text: string };
-}
-
-export interface OrderingResource {
-  kind: string;
-  spec: { uids: string[] };
-}
-
-export interface BoardResource {
-  kind: string;
-  metadata: {
-    title?: string;
-    url?: string;
-    teams?: string[];
-    projects?: string[];
-    deadlines?: { week: string; project?: string }[];
-    processes?: { name: string; project?: string }[];
-    epics?: { name: string; project?: string; domain?: string }[];
-    /** The roster; `name` is the display name, absent on a GitHub board. */
-    members?: {
-      login: string;
-      avatarUrl?: string;
-      name?: string;
-      carrying?: number;
-      load?: number;
-      capacity?: number;
-    }[];
-    /** The repositories the board spans, primary first. */
-    domains?: {
-      name: string;
-      writable?: boolean;
-      members?: string[];
-    }[];
-    /** The repository a team or a project was declared in, for the entries
-     *  outside the primary (which is never named). A board of one repository
-     *  sends neither. */
-    teamDomains?: Record<string, string>;
-    projectDomains?: Record<string, string>;
-    processDomains?: Record<string, string>;
-  };
-}
-
-export interface CardListResource {
-  kind: string;
-  items: CardResource[] | null;
-  weekly?: { progress: number };
-  /** The moment a SNAPSHOT listing reflects — a past day answered as it
-   *  stood. Absent on a live listing, which is what a day inside the running
-   *  sprint still gets. */
-  asOf?: string;
-}
-
-export interface SprintListResource {
-  kind: string;
-  items: SprintResource[] | null;
-}
-
-export interface NoteListResource {
-  kind: string;
-  items: NoteResource[] | null;
-}
-
-/** PresenceResource is one user's live Me-view selection, broadcast over the
- * watch ("" card = cleared). Ephemeral: never part of the board data. */
-export interface PresenceResource {
-  login?: string;
-  card?: string;
-}
+export type CardResource = Schemas["Card"];
+export type SprintResource = Schemas["Sprint"];
+export type NoteResource = Schemas["Note"];
+export type BoardResource = Schemas["Board"];
+export type CardListResource = Schemas["CardList"];
+export type SprintListResource = Schemas["SprintList"];
+export type NoteListResource = Schemas["NoteList"];
 
 /** WatchFrame is one event on a board's watch WebSocket
- *  (/api/v1/views/{view}/watch). */
-export interface WatchFrame {
-  type?: "ADDED" | "MODIFIED" | "DELETED";
-  kind?: string;
-  object?: unknown;
-}
+ *  (/api/v1/views/{view}/watch), discriminated by `kind`. */
+export type WatchFrame = Schemas["WatchFrame"];
 
 // --- Resource → internal model --------------------------------------------------
 
@@ -260,7 +123,7 @@ export function resourceToCard(res: CardResource): Card {
     description: spec.description,
     linkRefs: res.status?.links?.map((l) => ({
       url: l.url,
-      kind: l.kind === "issue" || l.kind === "pull" ? l.kind : "link",
+      kind: linkKind(l.kind),
       owner: l.owner,
       repo: l.repo,
       number: l.number,
