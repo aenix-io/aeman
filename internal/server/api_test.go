@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -833,5 +834,40 @@ func TestAPIRemoveTakesNoBodyAtAll(t *testing.T) {
 	}
 	if got.Day != "" {
 		t.Errorf("day = %q, want empty — the × takes it off the day board", got.Day)
+	}
+}
+
+// Forty handlers read `req.Body` without asking whether it is nil, and what
+// keeps it non-nil is one word per operation in the document: only a body the
+// document leaves `required: false` makes the generated wrapper tolerate an
+// empty one and leave the pointer nil. Widen that set and the handler on the
+// other side dereferences nil — TestEverySpecOperationHasItsRoute drives every
+// operation with an empty body, so today that surfaces as a panic, which names
+// the wrong thing. This pins the set instead, so the edit is refused where it
+// is made and the reader is sent to the handler that would break.
+func TestOnlyOneOperationTakesAnOptionalBody(t *testing.T) {
+	doc, _ := loadedSpec(t)
+	var optional []string
+	bodies := 0
+	for path, item := range doc.Paths.Map() {
+		for method, op := range item.Operations() {
+			if op.RequestBody == nil || op.RequestBody.Value == nil {
+				continue
+			}
+			bodies++
+			if !op.RequestBody.Value.Required {
+				optional = append(optional, method+" "+path)
+			}
+		}
+	}
+	if bodies < 30 {
+		t.Fatalf("only %d operations declare a body — has the document moved?", bodies)
+	}
+	// removeCard alone: sending nothing is the intentless ×, and
+	// surface.RemoveCard is the one handler that checks the pointer.
+	want := []string{"POST /views/{view}/cards/{uid}/actions/remove"}
+	if !slices.Equal(optional, want) {
+		t.Errorf("operations with an optional body = %v, want %v — a handler dereferences req.Body for each of the other %d, so widening this set needs a nil check on the other side",
+			optional, want, bodies-1)
 	}
 }

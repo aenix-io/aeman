@@ -11,13 +11,14 @@ import (
 
 // surface is the /api/v1 surface as the document describes it: one method per
 // operation, taking the request already bound and answering with a response
-// object or an error. The embedded interface is nil on purpose — an operation
-// that has not been written yet panics here instead of answering wrongly —
-// and it goes with the last one.
+// object or an error.
 type surface struct {
-	apiv1.StrictServerInterface
 	s *Server
 }
+
+// An operation the generated interface names and this type does not implement
+// is a compile error: the document cannot promise a door the server lacks.
+var _ apiv1.StrictServerInterface = surface{}
 
 // registerStrict registers the generated routes on the mux, one pattern per
 // operation, and gives the three error hooks the generated server calls — a
@@ -30,7 +31,7 @@ func (s *Server) registerStrict(mux *http.ServeMux) {
 			RequestErrorHandlerFunc:  bodyRefused,
 			ResponseErrorHandlerFunc: s.apiError,
 		})
-	apiv1.HandlerWithOptions(hybrid{ServerInterface: strict, s: s}, apiv1.StdHTTPServerOptions{
+	apiv1.HandlerWithOptions(strict, apiv1.StdHTTPServerOptions{
 		BaseURL:          "/api/v1",
 		BaseRouter:       mux,
 		ErrorHandlerFunc: parameterRefused,
@@ -64,10 +65,10 @@ func parameterRefused(w http.ResponseWriter, _ *http.Request, err error) {
 type queryCtxKey struct{}
 
 // carryQuery puts the raw query on the context. A strict method is handed the
-// typed parameters and not the request, and some of them cannot be read off
-// that copy: the view selectors go through apiserver.ParseSelector, the public
-// contract for them (selectorOf), and the day/snapshot pair is read by
-// boardOfRequest for a route with no board segment of its own. The parameters
+// typed parameters and not the request, and two readers want the query itself:
+// selectorOf, which is the tree's only query-to-Selector parse and is shared
+// with the hand-registered watch, and boardOfRequest, which falls back to the
+// query's own `view` where the route has no board segment. The parameters
 // stay declared in the document, for clients; this side ignores the typed
 // copy.
 func carryQuery(f apiv1.StrictHandlerFunc, _ string) apiv1.StrictHandlerFunc {

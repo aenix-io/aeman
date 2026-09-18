@@ -153,17 +153,6 @@ func (s *Server) serviceOf() (svc *boardservice.Service, boardID string, err err
 	return svc, s.boardRef(), nil
 }
 
-// service is serviceOf for a handler that still writes its own response; it
-// goes with the last of them.
-func (s *Server) service(w http.ResponseWriter, _ *http.Request) (svc *boardservice.Service, boardID string, ok bool) {
-	svc, boardID, err := s.serviceOf()
-	if err != nil {
-		writeProblem(w, problemFor(err))
-		return nil, "", false
-	}
-	return svc, boardID, true
-}
-
 // GetCardLog serves a card's unified activity feed: its recorded events and
 // work notes merged chronologically. The day delta — "what happened on this
 // card since yesterday" — reads straight off this list.
@@ -1016,110 +1005,59 @@ func (a surface) DeleteTeam(ctx context.Context, req apiv1.DeleteTeamRequestObje
 	return apiv1.DeleteTeam204Response{}, nil
 }
 
-// handleAddEpic declares a new Project-board column inside a project
-// (body {name, project}). The project is required — see AddEpic.
-func (s *Server) handleAddEpic(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Name    string `json:"name"`
-		Project string `json:"project"`
+// rosterWrite runs one write to the board's own structure — a project, a
+// column, a process, a deadline. The board is read through a snapshot that may
+// be minutes old: these writes read it to check a name and to carry its ids
+// into the write, both of which a stale answer settles, and blocking on a full
+// reload made adding a column feel broken on a big board. The background
+// revalidation catches the rest up.
+func (a surface) rosterWrite(ctx context.Context, act func(ctx context.Context, svc *boardservice.Service, boardID string) error) error {
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	// The roster is read here to check a name and to carry the board's
-	// ids into the write; a snapshot minutes old answers both, and
-	// blocking on a full reload made adding a column feel broken on a
-	// big board. The background revalidation catches the rest up.
-	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.AddEpic(r.Context(), boardID, in.Name, in.Project); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return act(staleOK(ctx), svc, boardID)
 }
 
-// handleSetEpicProject moves a column from one project to another
-// (body {epic, from, project}); an empty target detaches it.
-func (s *Server) handleSetEpicProject(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Epic    string `json:"epic"`
-		From    string `json:"from"`
-		Project string `json:"project"`
+// AddEpic declares a new Project-board column.
+func (a surface) AddEpic(ctx context.Context, req apiv1.AddEpicRequestObject) (apiv1.AddEpicResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.AddEpic(ctx, boardID, strOf(req.Body.Name), strOf(req.Body.Project))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	// The roster is read here to check a name and to carry the board's
-	// ids into the write; a snapshot minutes old answers both, and
-	// blocking on a full reload made adding a column feel broken on a
-	// big board. The background revalidation catches the rest up.
-	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.SetEpicProject(r.Context(), boardID, in.From, in.Epic, in.Project); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.AddEpic204Response{}, nil
 }
 
-// handleRenameEpic renames a column in place, cards and all
-// (body {project, epic, to}).
-func (s *Server) handleRenameEpic(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Project string `json:"project"`
-		Epic    string `json:"epic"`
-		To      string `json:"to"`
+// SetEpicProject moves a column from one project to another; an empty target
+// detaches it.
+func (a surface) SetEpicProject(ctx context.Context, req apiv1.SetEpicProjectRequestObject) (apiv1.SetEpicProjectResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.SetEpicProject(ctx, boardID, strOf(req.Body.From), strOf(req.Body.Epic), strOf(req.Body.Project))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	// The roster is read here to check a name and to carry the board's
-	// ids into the write; a snapshot minutes old answers both, and
-	// blocking on a full reload made adding a column feel broken on a
-	// big board. The background revalidation catches the rest up.
-	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.RenameEpic(r.Context(), boardID, in.Project, in.Epic, in.To); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.SetEpicProject204Response{}, nil
 }
 
-// handleRenameProject renames a project in place, columns and cards along
-// with it (body {project, to}).
-func (s *Server) handleRenameProject(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Project string `json:"project"`
-		To      string `json:"to"`
+// RenameEpic renames a column in place, cards and all.
+func (a surface) RenameEpic(ctx context.Context, req apiv1.RenameEpicRequestObject) (apiv1.RenameEpicResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.RenameEpic(ctx, boardID, strOf(req.Body.Project), strOf(req.Body.Epic), strOf(req.Body.To))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
+	return apiv1.RenameEpic204Response{}, nil
+}
+
+// RenameProject renames a project in place, columns and cards along with it.
+func (a surface) RenameProject(ctx context.Context, req apiv1.RenameProjectRequestObject) (apiv1.RenameProjectResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.RenameProject(ctx, boardID, strOf(req.Body.Project), strOf(req.Body.To))
+	}); err != nil {
+		return nil, err
 	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	// The roster is read here to check a name and to carry the board's
-	// ids into the write; a snapshot minutes old answers both, and
-	// blocking on a full reload made adding a column feel broken on a
-	// big board. The background revalidation catches the rest up.
-	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.RenameProject(r.Context(), boardID, in.Project, in.To); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.RenameProject204Response{}, nil
 }
 
 // RenameTeam renames a team where it is declared, its cards and process tasks
@@ -1167,467 +1105,232 @@ func patchColumn(ctx context.Context, svc *boardservice.Service, boardID, uid st
 
 // --- Processes -----------------------------------------------------------------
 
-func (s *Server) handleListProcesses(w http.ResponseWriter, r *http.Request) {
-	r = r.WithContext(staleOK(r.Context()))
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	b, err := svc.Board(r.Context(), boardID)
+// ListProcesses is the Process tab: every process with its tasks and each
+// task's history.
+func (a surface) ListProcesses(ctx context.Context, req apiv1.ListProcessesRequestObject) (apiv1.ListProcessesResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
 	if err != nil {
-		s.apiError(w, r, err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, apiserver.ProcessesResource(b, r.URL.Query().Get("project")))
+	b, err := svc.Board(staleOK(ctx), boardID)
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.ListProcesses200JSONResponse(apiserver.ProcessesResource(b, strOf(req.Params.Project))), nil
 }
 
-func (s *Server) handleAddProcess(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Name    string `json:"name"`
-		Project string `json:"project"`
-		// Domain is the repository to declare a project-less process in;
-		// a process with a project lives with the project.
-		Domain string `json:"domain"`
+// AddProcess declares a process — recurring work inside a project.
+func (a surface) AddProcess(ctx context.Context, req apiv1.AddProcessRequestObject) (apiv1.AddProcessResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.AddProcess(board.WithDomain(ctx, strOf(req.Body.Domain)), boardID, strOf(req.Body.Name), strOf(req.Body.Project))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	r = r.WithContext(board.WithDomain(staleOK(r.Context()), in.Domain))
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	if err := svc.AddProcess(r.Context(), boardID, in.Name, in.Project); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.AddProcess204Response{}, nil
 }
 
-func (s *Server) handleDeleteProcess(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Process string `json:"process"`
+// DeleteProcess deletes an EMPTY process; it is refused while it has tasks.
+func (a surface) DeleteProcess(ctx context.Context, req apiv1.DeleteProcessRequestObject) (apiv1.DeleteProcessResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.DeleteProcess(ctx, boardID, strOf(req.Body.Process))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	r = r.WithContext(staleOK(r.Context()))
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	if err := svc.DeleteProcess(r.Context(), boardID, in.Process); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.DeleteProcess204Response{}, nil
 }
 
-func (s *Server) handleRenameProcess(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Process string `json:"process"`
-		To      string `json:"to"`
+// RenameProcess renames a process; its tasks follow.
+func (a surface) RenameProcess(ctx context.Context, req apiv1.RenameProcessRequestObject) (apiv1.RenameProcessResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.RenameProcess(ctx, boardID, strOf(req.Body.Process), strOf(req.Body.To))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	r = r.WithContext(staleOK(r.Context()))
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	if err := svc.RenameProcess(r.Context(), boardID, in.Process, in.To); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.RenameProcess204Response{}, nil
 }
 
-func (s *Server) handleSetProcessProject(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Process string `json:"process"`
-		Project string `json:"project"`
+// SetProcessProject moves a process to another project; an empty project is
+// the no-project bucket.
+func (a surface) SetProcessProject(ctx context.Context, req apiv1.SetProcessProjectRequestObject) (apiv1.SetProcessProjectResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.SetProcessProject(ctx, boardID, strOf(req.Body.Process), strOf(req.Body.Project))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	r = r.WithContext(staleOK(r.Context()))
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	if err := svc.SetProcessProject(r.Context(), boardID, in.Process, in.Project); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.SetProcessProject204Response{}, nil
 }
 
-func (s *Server) handleSetProcessPaused(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Process string `json:"process"`
-		Paused  bool   `json:"paused"`
+// SetProcessPaused pauses a process, or resumes it.
+func (a surface) SetProcessPaused(ctx context.Context, req apiv1.SetProcessPausedRequestObject) (apiv1.SetProcessPausedResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.SetProcessPaused(ctx, boardID, strOf(req.Body.Process), boolOf(req.Body.Paused))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	r = r.WithContext(staleOK(r.Context()))
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	if err := svc.SetProcessPaused(r.Context(), boardID, in.Process, in.Paused); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.SetProcessPaused204Response{}, nil
 }
 
-func (s *Server) handleReorderProcesses(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Processes []string `json:"processes"`
+// ReorderProcesses applies a shared process order.
+func (a surface) ReorderProcesses(ctx context.Context, req apiv1.ReorderProcessesRequestObject) (apiv1.ReorderProcessesResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.ReorderProcesses(ctx, boardID, listOf(req.Body.Processes))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	r = r.WithContext(staleOK(r.Context()))
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	if err := svc.ReorderProcesses(r.Context(), boardID, in.Processes); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.ReorderProcesses204Response{}, nil
 }
 
-func (s *Server) handleReorderProcessTasks(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Process string   `json:"process"`
-		UIDs    []string `json:"uids"`
+// ReorderProcessTasks applies one process's task order.
+func (a surface) ReorderProcessTasks(ctx context.Context, req apiv1.ReorderProcessTasksRequestObject) (apiv1.ReorderProcessTasksResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.ReorderProcessTasks(ctx, boardID, strOf(req.Body.Process), listOf(req.Body.Uids))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	r = r.WithContext(staleOK(r.Context()))
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	if err := svc.ReorderProcessTasks(r.Context(), boardID, in.Process, in.UIDs); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.ReorderProcessTasks204Response{}, nil
 }
 
-// taskRequest is a task on the wire, for create (all fields) and
-// patch (pointers: only the present ones apply).
-type taskRequest struct {
-	Process     string  `json:"process"`
-	Title       *string `json:"title"`
-	Description *string `json:"description"`
-	Recurrence  *string `json:"recurrence"`
-	Start       *string `json:"start"`
-	Team        *string `json:"team"`
-	Assignee    *string `json:"assignee"`
-	Accumulate  *bool   `json:"accumulate"`
-}
-
-func (s *Server) handleAddTask(w http.ResponseWriter, r *http.Request) {
-	var in taskRequest
-	if !decodeJSON(w, r, &in) {
-		return
+// AddTask adds what a process iterates on.
+func (a surface) AddTask(ctx context.Context, req apiv1.AddTaskRequestObject) (apiv1.AddTaskResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, err
 	}
-	r = r.WithContext(staleOK(r.Context()))
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	str := func(p *string) string {
-		if p == nil {
-			return ""
-		}
-		return *p
-	}
-	tpl, err := svc.AddProcessTask(r.Context(), boardID, in.Process, boardservice.TaskArgs{
-		Title: str(in.Title), Description: str(in.Description), Recurrence: str(in.Recurrence),
-		Start: str(in.Start), Team: str(in.Team), Assignee: str(in.Assignee),
-		Accumulate: in.Accumulate != nil && *in.Accumulate,
+	in := req.Body
+	tpl, err := svc.AddProcessTask(staleOK(ctx), boardID, strOf(in.Process), boardservice.TaskArgs{
+		Title: strOf(in.Title), Description: strOf(in.Description), Recurrence: strOf(in.Recurrence),
+		Start: strOf(in.Start), Team: strOf(in.Team), Assignee: strOf(in.Assignee),
+		Accumulate: boolOf(in.Accumulate),
 	})
 	if err != nil {
-		s.apiError(w, r, err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusCreated, map[string]string{"uid": tpl.ItemID})
+	return apiv1.AddTask201JSONResponse{UID: tpl.ItemID}, nil
 }
 
-func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
-	var in taskRequest
-	if !decodeJSON(w, r, &in) {
-		return
+// PatchTask changes what the NEXT turns will be; the running one is untouched.
+func (a surface) PatchTask(ctx context.Context, req apiv1.PatchTaskRequestObject) (apiv1.PatchTaskResponseObject, error) {
+	in := req.Body
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.UpdateProcessTask(ctx, boardID, req.UID, boardservice.TaskPatch{
+			Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
+			Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
+		})
+	}); err != nil {
+		return nil, err
 	}
-	r = r.WithContext(staleOK(r.Context()))
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	err := svc.UpdateProcessTask(r.Context(), boardID, r.PathValue("uid"), boardservice.TaskPatch{
-		Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
-		Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
-	})
-	if err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.PatchTask204Response{}, nil
 }
 
-func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
-	r = r.WithContext(staleOK(r.Context()))
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
+// DeleteTask deletes a task; its past turns stay as the record.
+func (a surface) DeleteTask(ctx context.Context, req apiv1.DeleteTaskRequestObject) (apiv1.DeleteTaskResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.DeleteProcessTask(ctx, boardID, req.UID)
+	}); err != nil {
+		return nil, err
 	}
-	if err := svc.DeleteProcessTask(r.Context(), boardID, r.PathValue("uid")); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.DeleteTask204Response{}, nil
 }
 
-// handleAddDeadline marks a week with one project's deadline line
-// (body {week, project}).
-func (s *Server) handleAddDeadline(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Week    string `json:"week"`
-		Project string `json:"project"`
+// AddDeadline marks a week with one project's deadline line.
+func (a surface) AddDeadline(ctx context.Context, req apiv1.AddDeadlineRequestObject) (apiv1.AddDeadlineResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.AddDeadline(ctx, boardID, strOf(req.Body.Week), strOf(req.Body.Project))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	// The roster is read here to check a name and to carry the board's
-	// ids into the write; a snapshot minutes old answers both, and
-	// blocking on a full reload made adding a column feel broken on a
-	// big board. The background revalidation catches the rest up.
-	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.AddDeadline(r.Context(), boardID, in.Week, in.Project); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.AddDeadline204Response{}, nil
 }
 
-// handleDeleteDeadline clears one project's deadline on a week
-// (body {week, project}).
-func (s *Server) handleDeleteDeadline(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Week    string `json:"week"`
-		Project string `json:"project"`
+// DeleteDeadline clears one project's deadline on a week.
+func (a surface) DeleteDeadline(ctx context.Context, req apiv1.DeleteDeadlineRequestObject) (apiv1.DeleteDeadlineResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.DeleteDeadline(ctx, boardID, strOf(req.Body.Week), strOf(req.Body.Project))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	// The roster is read here to check a name and to carry the board's
-	// ids into the write; a snapshot minutes old answers both, and
-	// blocking on a full reload made adding a column feel broken on a
-	// big board. The background revalidation catches the rest up.
-	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.DeleteDeadline(r.Context(), boardID, in.Week, in.Project); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.DeleteDeadline204Response{}, nil
 }
 
-// handleMoveDeadline drags a deadline to another week (body {from, to});
-// landing on a week that already has one leaves a single line.
-func (s *Server) handleMoveDeadline(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Project string `json:"project"`
-		From    string `json:"from"`
-		To      string `json:"to"`
+// MoveDeadline drags a deadline to another week; landing on a week that
+// already has one leaves a single line.
+func (a surface) MoveDeadline(ctx context.Context, req apiv1.MoveDeadlineRequestObject) (apiv1.MoveDeadlineResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.MoveDeadline(ctx, boardID, strOf(req.Body.Project), strOf(req.Body.From), strOf(req.Body.To))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	// The roster is read here to check a name and to carry the board's
-	// ids into the write; a snapshot minutes old answers both, and
-	// blocking on a full reload made adding a column feel broken on a
-	// big board. The background revalidation catches the rest up.
-	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.MoveDeadline(r.Context(), boardID, in.Project, in.From, in.To); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.MoveDeadline204Response{}, nil
 }
 
-// handleAddProject declares a project — the Project board's top grouping,
-// which owns epic columns (body {name}).
-func (s *Server) handleAddProject(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Name string `json:"name"`
-		// Domain is the repository to declare the project in (git mode with
-		// several); empty is the primary.
-		Domain string `json:"domain"`
+// AddProject declares a project — the Project board's top grouping, which owns
+// epic columns.
+func (a surface) AddProject(ctx context.Context, req apiv1.AddProjectRequestObject) (apiv1.AddProjectResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.AddProject(board.WithDomain(ctx, strOf(req.Body.Domain)), boardID, strOf(req.Body.Name))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	// The roster is read here to check a name and to carry the board's
-	// ids into the write; a snapshot minutes old answers both, and
-	// blocking on a full reload made adding a column feel broken on a
-	// big board. The background revalidation catches the rest up.
-	r = r.WithContext(board.WithDomain(staleOK(r.Context()), in.Domain))
-	if err := svc.AddProject(r.Context(), boardID, in.Name); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.AddProject204Response{}, nil
 }
 
-// handleDeleteProject removes an EMPTY project (422 while it still owns epic
+// DeleteProject removes an EMPTY project (422 while it still owns epic
 // columns — detaching planned work silently is the anti-goal).
-func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Project string `json:"project"`
+func (a surface) DeleteProject(ctx context.Context, req apiv1.DeleteProjectRequestObject) (apiv1.DeleteProjectResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.DeleteProject(ctx, boardID, strOf(req.Body.Project))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	// The roster is read here to check a name and to carry the board's
-	// ids into the write; a snapshot minutes old answers both, and
-	// blocking on a full reload made adding a column feel broken on a
-	// big board. The background revalidation catches the rest up.
-	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.DeleteProject(r.Context(), boardID, in.Project); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.DeleteProject204Response{}, nil
 }
 
-// handleReorderProjects applies the shared chip order (body {projects:[...]}).
-func (s *Server) handleReorderProjects(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Projects []string `json:"projects"`
+// ReorderProjects applies the shared chip order.
+func (a surface) ReorderProjects(ctx context.Context, req apiv1.ReorderProjectsRequestObject) (apiv1.ReorderProjectsResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.ReorderProjects(ctx, boardID, listOf(req.Body.Projects))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	// The roster is read here to check a name and to carry the board's
-	// ids into the write; a snapshot minutes old answers both, and
-	// blocking on a full reload made adding a column feel broken on a
-	// big board. The background revalidation catches the rest up.
-	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.ReorderProjects(r.Context(), boardID, in.Projects); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.ReorderProjects204Response{}, nil
 }
 
-// handleDeleteEpic removes an EMPTY epic column (422 while cards still sit
-// under it — the Project board's own anti-goal).
-func (s *Server) handleDeleteEpic(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Epic    string `json:"epic"`
-		Project string `json:"project"`
+// DeleteEpic removes an EMPTY epic column (422 while cards still sit under
+// it — the Project board's own anti-goal).
+func (a surface) DeleteEpic(ctx context.Context, req apiv1.DeleteEpicRequestObject) (apiv1.DeleteEpicResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.DeleteEpic(ctx, boardID, strOf(req.Body.Epic), strOf(req.Body.Project))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	// The roster is read here to check a name and to carry the board's
-	// ids into the write; a snapshot minutes old answers both, and
-	// blocking on a full reload made adding a column feel broken on a
-	// big board. The background revalidation catches the rest up.
-	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.DeleteEpic(r.Context(), boardID, in.Epic, in.Project); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.DeleteEpic204Response{}, nil
 }
 
-// handleReorderEpics applies a shared column order (body {epics:[...]}),
-// moving the hidden epic-state cards the way reorder-teams moves sprint-state.
-func (s *Server) handleReorderEpics(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Project string   `json:"project"`
-		Epics   []string `json:"epics"`
+// ReorderEpics applies a shared column order, moving the hidden epic-state
+// cards the way reorder-teams moves sprint-state.
+func (a surface) ReorderEpics(ctx context.Context, req apiv1.ReorderEpicsRequestObject) (apiv1.ReorderEpicsResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.ReorderEpics(ctx, boardID, strOf(req.Body.Project), listOf(req.Body.Epics))
+	}); err != nil {
+		return nil, err
 	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	// The roster is read here to check a name and to carry the board's
-	// ids into the write; a snapshot minutes old answers both, and
-	// blocking on a full reload made adding a column feel broken on a
-	// big board. The background revalidation catches the rest up.
-	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.ReorderEpics(r.Context(), boardID, in.Project, in.Epics); err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return apiv1.ReorderEpics204Response{}, nil
 }
 
 // --- Shared helpers ----------------------------------------------------------------
 
-// handleSetPresence records the caller's live Me-view selection — ephemeral
-// shared-cursor state broadcast over the watch, never persisted. The client id
+// SetPresence records the caller's live Me-view selection — ephemeral shared
+// state broadcast over the watch, never persisted. The client id
 // (X-Aeman-Client) keys it, so a closed tab clears its own mark.
-func (s *Server) handleSetPresence(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Card string `json:"card"`
-	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	boardID := s.boardRef()
-	if _, err := s.newService(); err != nil {
-		writeProblem(w, problem(http.StatusUnauthorized, "notAuthenticated", "not authenticated: "+err.Error()))
-		return
+func (a surface) SetPresence(ctx context.Context, req apiv1.SetPresenceRequestObject) (apiv1.SetPresenceResponseObject, error) {
+	if _, err := a.s.newService(); err != nil {
+		return nil, notAuthenticated(err)
 	}
 	// The broadcast login is the caller's authenticated identity (stamped by
 	// actorMiddleware), not a client-supplied value — otherwise any signed-in
 	// user could show a chosen card as selected by someone else.
-	login := board.ActorFrom(r.Context())
-	s.store.SetPresence(storeKey(boardID), clientIDFrom(r.Context()), login, in.Card)
-	w.WriteHeader(http.StatusNoContent)
+	a.s.store.SetPresence(storeKey(a.s.boardRef()), clientIDFrom(ctx), board.ActorFrom(ctx), strOf(req.Body.Card))
+	return apiv1.SetPresence204Response{}, nil
 }
 
 // cardOf loads the card as the resource — a mutation echoes it exactly as a
@@ -1765,19 +1468,6 @@ func parseStage(name string) (board.StageKey, error) {
 	}
 	return "", problem(http.StatusBadRequest, "unknownStage",
 		"unknown stage (locked, review, recurrent, refuse, done or empty)")
-}
-
-// decodeJSON reads the request body into dst, answering 400 on malformed input.
-func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
-	dec := json.NewDecoder(r.Body)
-	if err := dec.Decode(dst); err != nil {
-		if tooBig(w, err) {
-			return false
-		}
-		writeProblem(w, problem(http.StatusBadRequest, "invalidBody", "invalid JSON body: "+err.Error()))
-		return false
-	}
-	return true
 }
 
 // tooBig answers a body that ran past maxBodyBytes with 413 rather than a

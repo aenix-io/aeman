@@ -52,9 +52,9 @@ func scopedWatch(view board.View, q url.Values) bool {
 // `client` keys echo suppression (changes made with the same X-Aeman-Client
 // header are not echoed back). The stream is read-only.
 func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
-	boardID := s.boardRef()
-	svc, _, ok := s.service(w, r)
-	if !ok {
+	svc, boardID, err := s.serviceOf()
+	if err != nil {
+		s.apiError(w, r, err)
 		return
 	}
 	q := r.URL.Query()
