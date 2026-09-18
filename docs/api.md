@@ -42,7 +42,23 @@ A **column** of the Project board is the pair `(project, epic)`. Epic names are 
 
 ## HTTP API
 
-Base path: `/api/v1`. All requests and responses are JSON. Errors are returned as `{"error": "..."}` with an appropriate status code (400 bad request — including an unknown `domain`; 401 not authenticated; 403 no read access to the board or no write access to the card's domain; 404 card/note not found; 413 the request body is larger than the server accepts; 422 missing field or a rule refused the change — a title past its length cap or a date that is not a real board day included; 502 the forge could not be reached while resolving a link).
+Base path: `/api/v1`. Requests and responses are JSON. A write that leaves nothing to show answers `204 No Content` with no body; one that creates or changes a resource answers with that resource.
+
+Errors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem details, `Content-Type: application/problem+json`:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Unprocessable Entity",
+  "status": 422,
+  "detail": "team already exists: \"portal\"",
+  "code": "teamExists"
+}
+```
+
+`detail` is the sentence to show a person. `code` is what a program branches on: it is stable, and for a rule the board refuses with it is that rule's own name — `cardNotFound`, `teamExists`, `notAMonday`, `subtaskWeek`. `type` is always `about:blank` (there is no page per problem; `code` carries the identity) and `title` is the status's own text. `actionUrl`, when present, is a page that fixes the refusal — installing the board's GitHub App — for a client to offer as a button.
+
+The status says whose fault it was: 400 bad request — a body that does not parse (`invalidBody`), an unknown zone, size, stage or intent (`unknownZone`, `unknownSize`, `unknownStage`, `unknownIntent`), a selector or day that is not one (`invalidSelector`, `invalidDay`, `invalidAsOf`), a missing number (`pointsRequired`, `capacityRequired`), too many cards in one request (`tooManyCards`), an unknown `domain` (`unknownDomain`); 401 not authenticated (`notAuthenticated`, `authorizationExpired`); 403 no read access to the board or no write access to the card's domain (`forbidden`, `accessUndecided`), a card refused by someone it is not on or removed by its assignee when someone else put it there (`notYoursToRefuse`, `notYoursToRemove`), or a write from another site (`crossSiteBlocked`); 404 a card, note or board nobody has (`cardNotFound`, `noteNotFound`, `noSuchView`), or a gesture made from a board that does not draw it (`gestureNotOffered`, `cardNotOnBoard`); 409 a write to a day that is over for the card's team (`dayIsARecord`); 410 and 501 a past day history no longer reaches or never kept (`historyTruncated`, `noHistory`); 413 the request body is larger than the server accepts (`bodyTooLarge`); 422 a rule refused the change — a title past its length cap or a date that is not a real board day included; 502 the forge could not be reached (`upstreamFailed`); 503 the board's app is not installed yet (`setupRequired`, with `actionUrl`). The sign-in endpoints are outside this rule: `/oauth/token` and `/oauth/register` answer in RFC 6749's shape (`error` as a code, `error_description` as the sentence), and the browser-facing pages under `/auth/` and the rest of `/oauth/` still answer `{"error": "<sentence>"}`. The WebSocket handshake on `/api/v1/views/{view}/watch` is outside it too: its own refusals (a bad `Origin`, a malformed handshake) are the library's `text/plain` errors, not problems.
 
 `GET /api/v1` itself is a public, machine-readable catalog of every endpoint below.
 
@@ -78,14 +94,14 @@ Three things follow from the segment:
 | `DELETE /api/v1/cards/{uid}/notes/{noteId}` | Delete a note. |
 | `GET /api/v1/sprints` | Per-team sprint pointers. |
 | `PATCH /api/v1/sprints` | Set a pointer directly `{team, current, previous, domain?}`; a team not yet declared is declared in `domain` (default the primary). |
-| `POST /api/v1/projects` | Declare a project `{name, domain?}` (201) — the Project board's top grouping, which owns epic columns. It may be created empty. |
-| `POST /api/v1/epics` | Declare an epic column `{name, project}` (201). The project is required and must exist; the column lives with its project. |
+| `POST /api/v1/projects` | Declare a project `{name, domain?}` (204) — the Project board's top grouping, which owns epic columns. It may be created empty. |
+| `POST /api/v1/epics` | Declare an epic column `{name, project}` (204). The project is required and must exist; the column lives with its project. |
 | `GET /api/v1/processes` | The Process tab: every process with its tasks and each task's history (`?project=` filters). |
-| `POST /api/v1/processes` | Declare a process `{name, project, domain?}` (201); with a project it lives with the project. |
+| `POST /api/v1/processes` | Declare a process `{name, project, domain?}` (204); with a project it lives with the project. |
 | `POST /api/v1/processes/tasks` | Add what a process iterates on `{process, title, description, recurrence, start, team, assignee, accumulate}` (201, returns `{uid}`). |
 | `PATCH /api/v1/processes/tasks/{uid}` | Change what the NEXT iterations will be; the running one is untouched. |
 | `DELETE /api/v1/processes/tasks/{uid}` | Delete a task; its past iterations stay as the record. |
-| `POST /api/v1/deadlines` | Mark a week with a project's deadline `{week, project}` (201). Any day resolves to its Monday; asking twice changes nothing. |
+| `POST /api/v1/deadlines` | Mark a week with a project's deadline `{week, project}` (204). Any day resolves to its Monday; asking twice changes nothing. |
 | `GET /api/v1/views/{view}/watch` | WebSocket stream of that board's resource events (below); `view=all` with no selectors is the raw board stream. |
 | `GET /api/healthz` | Liveness and the storage's state (below). |
 
@@ -105,7 +121,7 @@ Actions carry the board rules — the client never reimplements them. The four t
 | `POST /api/v1/views/triage/cards/{uid}/actions/untriage` | `{}` | Take the card's week away: it goes back to the strip, waiting for somebody to say when. |
 
 These two actions are the board's own gesture, and they are **not** the same as `PATCH {"week": …}`: the patch writes the week and nothing else, while `place` also empties the working area for a week AHEAD and joins the team's sprint for the CURRENT one. MCP has both as tools of their own (`place_card`, `untriage_card`); `update_card week=` is still the bare patch, which writes the week and nothing else — an agent using it to schedule work for a later week has to clear the dates itself, or the card stands on today's board and in a future week at once.
-| `POST /api/v1/cards/{uid}/actions/mirror` | `{project, epic}` | Show the card in a second Project-board column — the same card, one file and one log, standing in both projects. The card must already be in a column; the target must exist, in the card's own repository, and must not be the card's own column; a subtask cannot be mirrored (all 422). Mirroring where it already stands is a no-op. Mirror and unmirror answer with the card resource; remove-from-project answers `{"ok": true}` — its card may no longer exist. |
+| `POST /api/v1/cards/{uid}/actions/mirror` | `{project, epic}` | Show the card in a second Project-board column — the same card, one file and one log, standing in both projects. The card must already be in a column; the target must exist, in the card's own repository, and must not be the card's own column; a subtask cannot be mirrored (all 422). Mirroring where it already stands is a no-op. Mirror and unmirror answer with the card resource; remove-from-project answers 204 — its card may no longer exist. |
 | `POST /api/v1/cards/{uid}/actions/unmirror` | `{project, epic}` | Take one mirror column away; the home and everything else stay. The EPIC half is required (422); the project half may be empty — the no-project bucket is a mirror home like any other, and a column's repository is read off the column itself. The stored placement itself needs only the epic: a column of no project is a mirror home like any other, and the codec keeps such an entry. |
 | `POST /api/v1/cards/{uid}/actions/remove-from-project` | `{project, epic}` | The Project board's ×: a mirror goes; the home with mirrors left hands its role to the first mirror; the last column drops the WEEK that was the slot's row, keeps a worked card (assignee + progress) as an orphan of the working area, and deletes the rest — cascading the linked review card. A SUBTASK is never deleted here: its other home is its parent, so the × only takes the column away, however untouched it is. `project` may be empty — the no-project bucket is a real column; `epic` is required (422 without it). |
 | `POST /api/v1/cards/{uid}/actions/send-to-review` | `{reviewer, day, zone?}` | Create the linked review card (201) — or reassign the existing one (200). The reviewer must be able to read the card's domain. Without a `zone` the review lands in the **unplanned** one (yellow): for the reviewer it is work that turned up during their day, and the original's band says where the WORK stood, not where the asking belongs. |
