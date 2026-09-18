@@ -173,9 +173,12 @@ type boardEntry struct {
 	// carrying and what it weighs. Coalesced like rosterDue and for the same
 	// reason — see loadBroadcast.
 	loadDue bool
-	// fanoutCost is how long the last fan-out took — what paces the next
-	// one (see fanoutDelay).
-	fanoutCost time.Duration
+	// fanoutCost is how long the last fan-out took, in nanoseconds — what
+	// paces the next one (see fanoutDelay). Atomic rather than covered by
+	// e.mu: the two flushes that write it have deliberately released the
+	// lock by then, and taking it back to record a duration would fold the
+	// wait for it into the duration being recorded.
+	fanoutCost atomic.Int64
 	// membersDue is a scoped subscription's membership waiting to be
 	// re-decided, and moved holds the cards the burst touched with the
 	// client that touched each (for echo suppression). Deciding a view's
@@ -1059,7 +1062,7 @@ func mine(origin, clientID string) bool { return origin != "" && origin == clien
 // size — and on the ordinary board, where a fan-out is a fraction of a
 // millisecond, the window stays the plain 25 ms.
 func (e *boardEntry) fanoutDelay() time.Duration {
-	d := 4 * e.fanoutCost
+	d := 4 * time.Duration(e.fanoutCost.Load())
 	if d < fanoutWindow {
 		return fanoutWindow
 	}
@@ -1104,9 +1107,15 @@ func (e *boardEntry) flushRoster() {
 }
 
 // noteFanout records what a fan-out cost, smoothed so one slow run does not
-// stretch the window for long. The caller holds e.mu.
+// stretch the window for long. Safe from any goroutine, with or without
+// e.mu.
+//
+// Two fan-outs landing together can lose one of the two updates, because the
+// read and the write are separate. That is the right trade for a number that
+// paces a timer and is clamped at both ends: a compare-and-swap loop would
+// imply a precision it does not have.
 func (e *boardEntry) noteFanout(d time.Duration) {
-	e.fanoutCost = (e.fanoutCost + d) / 2
+	e.fanoutCost.Store((e.fanoutCost.Load() + int64(d)) / 2)
 }
 
 // rightsKey names a projection of the board: two subscriptions with the same
