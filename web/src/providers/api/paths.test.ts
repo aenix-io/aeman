@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiProvider, standingOn } from "./apiProvider";
+import { isSignedOut } from "../../session";
+import { ApiError, apiProvider, showingDay, standingOn } from "./apiProvider";
 
 // WHERE EACH CALL GOES. The board a reader is standing on is part of the
 // address now, and nothing else in this suite reads a URL: the two bugs this
@@ -8,26 +9,37 @@ import { ApiError, apiProvider, standingOn } from "./apiProvider";
 // server no longer recognised as addressing its card — were both a path
 // nobody asserted. These are the paths, asserted.
 
-const calls: { method: string; url: string; body?: unknown }[] = [];
+interface Call {
+  method: string;
+  url: string;
+  body?: unknown;
+  headers: Headers;
+}
+
+const calls: Call[] = [];
 
 const card = {
   kind: "Card",
   metadata: { uid: "c1" },
-  spec: { title: "x", assignees: [] },
-  status: {},
+  spec: { title: "x", assignees: [], progress: 0, dates: {} },
+  status: { complete: false, inProgress: false },
   items: [],
 };
 
 function answer(status: number, statusText: string, body?: unknown): Response {
-  return {
-    ok: status >= 200 && status < 300,
+  if (body === undefined) {
+    return new Response(null, { status, statusText });
+  }
+  // A string body is sent as itself — that is a proxy's error page, which the
+  // problem reader has to fall off rather than parse.
+  if (typeof body === "string") {
+    return new Response(body, { status, statusText, headers: { "Content-Type": "text/html" } });
+  }
+  return new Response(JSON.stringify(body), {
     status,
     statusText,
-    json: () =>
-      body === undefined
-        ? Promise.reject(new SyntaxError("Unexpected end of JSON input"))
-        : Promise.resolve(body),
-  } as unknown as Response;
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 let respond: () => Response;
@@ -35,22 +47,26 @@ let respond: () => Response;
 beforeEach(() => {
   calls.length = 0;
   respond = () => answer(200, "OK", card);
-  vi.stubGlobal(
-    "fetch",
-    (url: string, init: RequestInit = {}) => {
-      calls.push({
-        method: init.method ?? "GET",
-        url,
-        body: init.body ? JSON.parse(init.body as string) : undefined,
-      });
-      return Promise.resolve(respond());
-    },
-  );
+  // The client is given ONE Request, not (url, init), and it looks `fetch` up
+  // per call — so a stub installed here reaches a client built at import time.
+  // The assertions below read the path back off that Request, which is what
+  // keeps them the same sentences they were before it existed.
+  vi.stubGlobal("fetch", async (request: Request) => {
+    const url = new URL(request.url);
+    calls.push({
+      method: request.method,
+      url: `${url.pathname}${url.search}`,
+      body: request.body ? ((await request.json()) as unknown) : undefined,
+      headers: request.headers,
+    });
+    return respond();
+  });
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
   standingOn("view=all");
+  showingDay("");
 });
 
 describe("the board in the address", () => {
@@ -110,6 +126,25 @@ describe("the board in the address", () => {
   });
 });
 
+// WHAT RIDES ALONG. Two headers carry state no URL does: which tab made the
+// change, and which day the person is looking at. The second is what stops a
+// write being made from a picture of a day that ended, so its absence on
+// today's board is as much the contract as its presence on a past one.
+describe("the headers a request carries", () => {
+  it("names the tab, and the day when the board is showing a past one", async () => {
+    showingDay("2026-09-11");
+    await apiProvider.getCard("c1");
+    expect(calls[0].headers.get("X-Aeman-Client")).toBeTruthy();
+    expect(calls[0].headers.get("X-Aeman-As-Of")).toBe("2026-09-11");
+  });
+
+  it("leaves the day off while the board is showing today", async () => {
+    await apiProvider.getCard("c1");
+    expect(calls[0].headers.get("X-Aeman-Client")).toBeTruthy();
+    expect(calls[0].headers.get("X-Aeman-As-Of")).toBeNull();
+  });
+});
+
 // WHAT COMES BACK. A write with nothing to show answers 204 and no body; a
 // refusal is an RFC 9457 problem whose detail is the sentence a person reads.
 describe("what the server answers", () => {
@@ -139,9 +174,35 @@ describe("what the server answers", () => {
   });
 
   it("falls back to the status text when the refusal is not a problem", async () => {
-    respond = () => answer(502, "Bad Gateway");
+    respond = () => answer(502, "Bad Gateway", "<html>502 Bad Gateway</html>");
     const err = await apiProvider.getCard("c1").catch((e: unknown) => e);
     expect(err).toMatchObject({ message: "Bad Gateway", status: 502 });
     expect((err as ApiError).code).toBeUndefined();
+  });
+
+  // HTTP/2 carries no reason phrase, so `statusText` is empty on every answer
+  // a server speaking it gives. That makes the status the last thing left to
+  // say, and without it the person reads an error with no text at all.
+  it("names the status when there is no reason phrase either", async () => {
+    respond = () => answer(500, "");
+    const err = await apiProvider.getCard("c1").catch((e: unknown) => e);
+    expect(err).toMatchObject({ message: "HTTP 500", status: 500 });
+  });
+
+  // The session can end under an open tab. session.isSignedOut recognises
+  // that by class and status, so a refusal raised as anything but an ApiError
+  // carrying 401 leaves the tab making calls behind a gate it cannot see —
+  // and a method answering void has no result to read the status out of.
+  it("raises a gone session as the sign-out the guard recognises", async () => {
+    respond = () =>
+      answer(401, "Unauthorized", {
+        type: "about:blank",
+        title: "Unauthorized",
+        status: 401,
+        detail: "not signed in",
+        code: "notAuthenticated",
+      });
+    const err = await apiProvider.deleteCard("c1").catch((e: unknown) => e);
+    expect(isSignedOut(err)).toBe(true);
   });
 });

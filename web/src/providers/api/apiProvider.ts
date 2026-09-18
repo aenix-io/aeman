@@ -3,6 +3,8 @@
 // return the resulting resources (mapped to the internal Card model), which the
 // caller applies over its optimistic state. All board rules run server-side.
 
+import createClient from "openapi-fetch";
+
 import { clientId } from "../../api/client";
 import { resolveCardId } from "../../api/pending";
 import { linkKind, type CardLink } from "../../links";
@@ -12,14 +14,12 @@ import {
   semanticZone,
   sprintStatesFrom,
   type BoardResource,
-  type CardListResource,
   type CardResource,
   type NoteListResource,
-  type SprintListResource,
 } from "../../api/resources";
-import type { components } from "../../api/schema";
+import type { components, paths } from "../../api/schema";
 import { splitDayLogs } from "../../daylog";
-import { viewOf, viewPath } from "../../viewquery";
+import { viewOf } from "../../viewquery";
 import { createView, type ViewName } from "../../views";
 import type { Member } from "../../users";
 import type {
@@ -156,59 +156,93 @@ export function standingOn(selector: string): void {
   standing = selector;
 }
 
-// gesturePath is one of that board's presses on a card: the board's address,
-// the card, the gesture.
-function gesturePath(uid: string, gesture: string): string {
-  const [base, query] = viewPath(standing, "cards").split("?");
-  return `${base}/${uid}/actions/${gesture}${query ? `?${query}` : ""}`;
+// standingScope is the address of one of that board's presses on a card: the
+// board is a path segment, the scope its own listing used stays a query, and
+// together they let the server answer "that card is not on this board" rather
+// than act on a card the person cannot see. `standing` is the serialised
+// selector (viewquery.queryString), so its values arrive percent-encoded and
+// are decoded back here for the client to encode again.
+function standingScope(uid: string): {
+  path: { view: string; uid: string };
+  query: Record<string, string>;
+} {
+  const query: Record<string, string> = {};
+  for (const part of standing.split("&")) {
+    const eq = part.indexOf("=");
+    if (eq < 0 || part.startsWith("view=")) {
+      continue;
+    }
+    query[part.slice(0, eq)] = decodeURIComponent(part.slice(eq + 1));
+  }
+  return { path: { view: viewOf(standing), uid }, query };
 }
 
-// api issues a request against /api/v1. The server serves exactly one board,
-// so nothing addresses it. Sets a JSON content type when there is a body; a
-// non-2xx is a problem whose detail becomes the ApiError message (falling back
-// to statusText), and a 204 resolves to undefined.
-async function api<T>(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<T> {
-  const url = `/api/v1${path}`;
-  // X-Aeman-Client keys watch echo suppression: the server skips this tab's
-  // own watch connection when broadcasting the changes it makes here.
-  // X-Aeman-As-Of says which day the person is LOOKING AT when that is a past
-  // one: the server then refuses a write to a card the day is over for, so a
-  // UI path that forgot fails loudly instead of writing today's board from a
-  // picture of a day that ended.
-  const headers: Record<string, string> = { "X-Aeman-Client": clientId };
-  if (viewedDay) {
-    headers["X-Aeman-As-Of"] = viewedDay;
-  }
-  const init: RequestInit = { method, headers };
-  if (body !== undefined) {
-    init.headers = { ...headers, "Content-Type": "application/json" };
-    init.body = JSON.stringify(body);
-  }
-  const res = await fetch(url, init);
-  if (!res.ok) {
-    let msg = res.statusText;
-    let actionUrl: string | undefined;
-    let code: string | undefined;
-    try {
-      const problem = (await res.json()) as { detail?: string; actionUrl?: string; code?: string };
-      if (problem.detail) {
-        msg = problem.detail;
-      }
-      actionUrl = problem.actionUrl || undefined;
-      code = problem.code || undefined;
-    } catch {
-      // Not a problem body; keep the status-text fallback.
+// The server serves exactly one board, so nothing addresses it. The base is
+// absolute because a request is built as `new Request(url)`, which outside a
+// browser has no document to resolve a relative path against; `fetch` is
+// looked up per call rather than captured, because this client is built when
+// the module loads and a test installs its own afterwards.
+const client = createClient<paths>({
+  baseUrl: `${globalThis.location?.origin ?? "http://localhost"}/api/v1`,
+  fetch: (request) => globalThis.fetch(request),
+});
+
+client.use({
+  onRequest({ request }) {
+    // X-Aeman-Client keys watch echo suppression: the server skips this tab's
+    // own watch connection when broadcasting the changes it makes here.
+    request.headers.set("X-Aeman-Client", clientId);
+    // X-Aeman-As-Of says which day the person is LOOKING AT when that is a
+    // past one: the server then refuses a write to a card the day is over
+    // for, so a UI path that forgot fails loudly instead of writing today's
+    // board from a picture of a day that ended.
+    if (viewedDay) {
+      request.headers.set("X-Aeman-As-Of", viewedDay);
     }
-    throw new ApiError(msg, res.status, actionUrl, code);
+    return request;
+  },
+  async onResponse({ response }) {
+    // A refusal is raised here rather than returned as `{error}` for the
+    // caller to unwrap: a method that answers void has nothing to unwrap, and
+    // the unwrap somebody forgets is the one that swallows the 401 the
+    // sign-out guard (session.ts) is waiting for.
+    if (!response.ok) {
+      throw await problemFrom(response);
+    }
+  },
+});
+
+// problemFrom reads a refusal: the RFC 9457 problem body the API answers with,
+// or the status alone when the answer is not one (a proxy's own 502 page).
+async function problemFrom(res: Response): Promise<ApiError> {
+  let detail = "";
+  let actionUrl: string | undefined;
+  let code: string | undefined;
+  try {
+    const problem = (await res.json()) as Partial<components["schemas"]["Problem"]>;
+    detail = problem.detail ?? "";
+    actionUrl = problem.actionUrl || undefined;
+    code = problem.code || undefined;
+  } catch {
+    // Not a problem body; the status is all there is left to say.
   }
-  if (res.status === 204) {
-    return undefined as T;
+  return new ApiError(
+    detail || res.statusText || `HTTP ${res.status}`,
+    res.status,
+    actionUrl,
+    code,
+  );
+}
+
+// answered unwraps a call that has a resource to give. The middleware has
+// already raised a refusal, so an absent body here is a 2xx that broke the
+// document's own word.
+async function answered<T>(call: Promise<{ data?: T }>): Promise<T> {
+  const { data } = await call;
+  if (data === undefined) {
+    throw new Error("the API answered with no body");
   }
-  return (await res.json()) as T;
+  return data;
 }
 
 // inDomain is the optional `domain` of a declare request: the repository a new
@@ -217,29 +251,22 @@ function inDomain(domain?: string): { domain?: string } {
   return domain ? { domain } : {};
 }
 
-// cardFrom runs a request that answers with a Card resource and maps it.
-async function cardFrom(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<Card> {
-  return resourceToCard(await api<CardResource>(method, path, body));
+// cardFrom maps the Card a call answers with onto the internal model.
+async function cardFrom(call: Promise<{ data?: CardResource }>): Promise<Card> {
+  return resourceToCard(await answered(call));
 }
 
-// notesFrom runs a request that answers with a NoteList and maps it.
+// notesFrom maps the whole thread a note call answers with.
 async function notesFrom(
-  method: string,
-  path: string,
-  body?: unknown,
+  call: Promise<{ data?: NoteListResource }>,
 ): Promise<Note[]> {
-  const list = await api<NoteListResource>(method, path, body);
-  return list.items.map(resourceToNote);
+  return (await answered(call)).items.map(resourceToNote);
 }
 
 // patchBody translates a CardPatch onto the wire shape: only present fields go
 // out ("" clears), zones travel under their semantic names.
-function patchBody(patch: CardPatch): Record<string, unknown> {
-  const body: Record<string, unknown> = {};
+function patchBody(patch: CardPatch): components["schemas"]["CardPatch"] {
+  const body: components["schemas"]["CardPatch"] = {};
   if (patch.title !== undefined) {
     body.title = patch.title;
   }
@@ -268,7 +295,7 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
     body.stage = patch.stage;
   }
   if (patch.dates) {
-    const dates: Record<string, string> = {};
+    const dates: components["schemas"]["CardDatesPatch"] = {};
     if (patch.dates.start !== undefined) {
       dates.start = patch.dates.start;
     }
@@ -306,11 +333,9 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
 
 export const apiProvider: Provider = {
   async loadBoard(query: Record<string, string> = {}): Promise<Board> {
-    const q = new URLSearchParams(query).toString();
-    const suffix = q ? `?${q}` : "";
     const [info, sprints] = await Promise.all([
-      api<BoardResource>("GET", `/board${suffix}`),
-      api<SprintListResource>("GET", `/sprints${suffix}`),
+      answered(client.GET("/board", { params: { query } })),
+      answered(client.GET("/sprints", { params: { query } })),
     ]);
     return {
       // Cards are loaded per view via listCards; the initial set arrives right
@@ -327,13 +352,16 @@ export const apiProvider: Provider = {
   ): Promise<CardListing> {
     // Listings are board rows (the server-side default): card bodies live
     // behind getCard, and status.links stands in for the row's links icon.
-    const qs = Object.keys(query)
-      .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(query[k])}`)
-      .join("&");
-    // LIST responses are served in board order; the Ordering watch events keep
-    // the local copy sorted between re-lists.
-    // The board the query names is a path segment; the rest narrows it.
-    const list = await api<CardListResource>("GET", viewPath(qs, "cards"));
+    // They come back in board order; the Ordering watch events keep the local
+    // copy sorted between re-lists.
+    //
+    // The board the selector names is the path segment; the rest narrows it.
+    const { view, ...narrowing } = query;
+    const list = await answered(
+      client.GET("/views/{view}/cards", {
+        params: { path: { view: view || "all" }, query: narrowing },
+      }),
+    );
     return {
       cards: list.items.map(resourceToCard),
       // Set when the server answered with a past day's board rather than
@@ -343,14 +371,16 @@ export const apiProvider: Provider = {
   },
 
   async getCard(uid: string): Promise<Card> {
-    return cardFrom("GET", `/cards/${await resolveCardId(uid)}`);
+    return cardFrom(
+      client.GET("/cards/{uid}", { params: { path: { uid: await resolveCardId(uid) } } }),
+    );
   },
 
   async createCard(input: NewCardInput): Promise<Card> {
     // The board the card was typed into says what it means — the server fills
     // in the rest and refuses the fields that board does not own (views.ts).
-    const into = `/views/${createView(input, viewOf(standing) as ViewName)}/cards`;
-    const body: Record<string, unknown> = {
+    const view = createView(input, viewOf(standing) as ViewName);
+    const body: components["schemas"]["CreateCardRequest"] = {
       title: input.title,
       team: input.team ?? "",
       zone: semanticZone(input.zone),
@@ -383,7 +413,9 @@ export const apiProvider: Provider = {
     if (input.noSprint) {
       body.noSprint = true;
     }
-    return cardFrom("POST", into, body);
+    return cardFrom(
+      client.POST("/views/{view}/cards", { params: { path: { view } }, body }),
+    );
   },
 
   async patchCard(
@@ -395,17 +427,22 @@ export const apiProvider: Provider = {
       // Grouping under a just-created card: wait for its real uid.
       patch = { ...patch, parent: await resolveCardId(patch.parent) };
     }
-    return cardFrom("PATCH", `/cards/${uid}`, patchBody(patch));
+    return cardFrom(
+      client.PATCH("/cards/{uid}", { params: { path: { uid } }, body: patchBody(patch) }),
+    );
   },
 
   async deleteCard(uid: string): Promise<void> {
     uid = await resolveCardId(uid);
-    await api("DELETE", `/cards/${uid}`);
+    await client.DELETE("/cards/{uid}", { params: { path: { uid } } });
   },
 
   async removeCard(uid: string, intent?: "unassign" | "off-board"): Promise<void> {
     uid = await resolveCardId(uid);
-    await api("POST", gesturePath(uid, "remove"), intent ? { intent } : {});
+    await client.POST("/views/{view}/cards/{uid}/actions/remove", {
+      params: standingScope(uid),
+      body: intent ? { intent } : {},
+    });
   },
 
   async moveCard(
@@ -414,7 +451,10 @@ export const apiProvider: Provider = {
   ): Promise<void> {
     uid = await resolveCardId(uid);
     const after = afterId ? await resolveCardId(afterId) : "";
-    await api("POST", `/cards/${uid}/actions/move`, { after });
+    await client.POST("/cards/{uid}/actions/move", {
+      params: { path: { uid } },
+      body: { after },
+    });
   },
 
   async moveCardBefore(
@@ -423,22 +463,34 @@ export const apiProvider: Provider = {
   ): Promise<void> {
     uid = await resolveCardId(uid);
     const before = await resolveCardId(beforeId);
-    await api("POST", `/cards/${uid}/actions/move`, { before });
+    await client.POST("/cards/{uid}/actions/move", {
+      params: { path: { uid } },
+      body: { before },
+    });
   },
 
   async deferCard(uid: string, days: number): Promise<Card> {
     uid = await resolveCardId(uid);
-    return cardFrom("POST", `/cards/${uid}/actions/defer`, { days });
+    return cardFrom(
+      client.POST("/cards/{uid}/actions/defer", {
+        params: { path: { uid } },
+        body: { days },
+      }),
+    );
   },
 
   async setInProgress(uid: string): Promise<Card> {
     uid = await resolveCardId(uid);
-    return cardFrom("POST", `/cards/${uid}/actions/in-progress`, {});
+    return cardFrom(
+      client.POST("/cards/{uid}/actions/in-progress", { params: { path: { uid } } }),
+    );
   },
 
   async reopen(uid: string): Promise<Card> {
     uid = await resolveCardId(uid);
-    return cardFrom("POST", `/cards/${uid}/actions/reopen`, {});
+    return cardFrom(
+      client.POST("/cards/{uid}/actions/reopen", { params: { path: { uid } } }),
+    );
   },
 
   async sendToReview(
@@ -448,85 +500,113 @@ export const apiProvider: Provider = {
     zone?: ZoneKey,
   ): Promise<Card> {
     uid = await resolveCardId(uid);
-    return cardFrom("POST", `/cards/${uid}/actions/send-to-review`, {
-      reviewer,
-      day: day ?? "",
-      zone: zone ? semanticZone(zone) : "",
-    });
+    return cardFrom(
+      client.POST("/cards/{uid}/actions/send-to-review", {
+        params: { path: { uid } },
+        body: { reviewer, day: day ?? "", zone: semanticZone(zone) },
+      }),
+    );
   },
 
   async removeReviewer(uid: string): Promise<Card> {
     uid = await resolveCardId(uid);
-    return cardFrom("POST", `/cards/${uid}/actions/remove-reviewer`, {});
+    return cardFrom(
+      client.POST("/cards/{uid}/actions/remove-reviewer", { params: { path: { uid } } }),
+    );
   },
 
   async placeCard(uid: string, week: string): Promise<Card> {
     uid = await resolveCardId(uid);
-    return cardFrom("POST", gesturePath(uid, "place"), { week });
+    return cardFrom(
+      client.POST("/views/{view}/cards/{uid}/actions/place", {
+        params: standingScope(uid),
+        body: { week },
+      }),
+    );
   },
 
   async finishedEarlier(uid: string): Promise<Card> {
     uid = await resolveCardId(uid);
-    return cardFrom("POST", gesturePath(uid, "finished-earlier"), {});
+    return cardFrom(
+      client.POST("/views/{view}/cards/{uid}/actions/finished-earlier", {
+        params: standingScope(uid),
+      }),
+    );
   },
 
   async setCapacity(login: string, points: number): Promise<void> {
-    await api<BoardResource>("PATCH", `/people/${encodeURIComponent(login)}`, { capacity: points });
+    await client.PATCH("/people/{login}", {
+      params: { path: { login } },
+      body: { capacity: points },
+    });
   },
 
   async setTeamCapacity(team: string, points: number): Promise<void> {
-    await api("POST", "/teams/actions/capacity", { team, points });
+    await client.POST("/teams/actions/capacity", { body: { team, points } });
   },
 
   async untriageCard(uid: string): Promise<Card> {
     uid = await resolveCardId(uid);
-    return cardFrom("POST", gesturePath(uid, "untriage"), {});
+    return cardFrom(
+      client.POST("/views/{view}/cards/{uid}/actions/untriage", {
+        params: standingScope(uid),
+      }),
+    );
   },
 
   async carryOver(
     team: string | null,
     dryRun = false,
   ): Promise<CarryReport> {
-    return api<CarryReport>("POST", "/sprints/actions/carry-over", {
-      team: team ?? "",
-      dryRun,
-    });
+    return answered(
+      client.POST("/sprints/actions/carry-over", {
+        body: { team: team ?? "", dryRun },
+      }),
+    );
   },
 
   async reorderTeams(teams: string[]): Promise<void> {
-    await api("POST", "/sprints/actions/reorder-teams", { teams });
+    await client.POST("/sprints/actions/reorder-teams", { body: { teams } });
   },
 
   async deleteTeam(team: string): Promise<void> {
-    await api("POST", "/sprints/actions/delete-team", { team });
+    await client.POST("/sprints/actions/delete-team", { body: { team } });
   },
 
   async mirrorCard(uid: string, project: string, epic: string): Promise<void> {
-    await api("POST", `/cards/${uid}/actions/mirror`, { project, epic });
+    await client.POST("/cards/{uid}/actions/mirror", {
+      params: { path: { uid } },
+      body: { project, epic },
+    });
   },
 
   async unmirrorCard(uid: string, project: string, epic: string): Promise<void> {
-    await api("POST", `/cards/${uid}/actions/unmirror`, { project, epic });
+    await client.POST("/cards/{uid}/actions/unmirror", {
+      params: { path: { uid } },
+      body: { project, epic },
+    });
   },
 
   async removeFromProject(uid: string, project: string, epic: string): Promise<void> {
-    await api("POST", `/cards/${uid}/actions/remove-from-project`, { project, epic });
+    await client.POST("/cards/{uid}/actions/remove-from-project", {
+      params: { path: { uid } },
+      body: { project, epic },
+    });
   },
 
   async addEpic(
     name: string,
     project: string,
   ): Promise<void> {
-    await api("POST", "/epics", { name, project });
+    await client.POST("/epics", { body: { name, project } });
   },
 
   async deleteEpic(
     name: string,
     project: string,
   ): Promise<void> {
-    await api("POST", "/epics/actions/delete-epic", {
-      epic: name,
-      project,
+    await client.POST("/epics/actions/delete-epic", {
+      body: { epic: name, project },
     });
   },
 
@@ -535,14 +615,14 @@ export const apiProvider: Provider = {
     epic: string,
     to: string,
   ): Promise<void> {
-    await api("POST", "/epics/actions/rename", { project, epic, to });
+    await client.POST("/epics/actions/rename", { body: { project, epic, to } });
   },
 
   async reorderEpics(
     project: string,
     epics: string[],
   ): Promise<void> {
-    await api("POST", "/epics/actions/reorder-epics", { project, epics });
+    await client.POST("/epics/actions/reorder-epics", { body: { project, epics } });
   },
 
   async setEpicProject(
@@ -550,31 +630,29 @@ export const apiProvider: Provider = {
     epic: string,
     project: string,
   ): Promise<void> {
-    await api("POST", "/epics/actions/set-project", {
-      epic,
-      from,
-      project,
+    await client.POST("/epics/actions/set-project", {
+      body: { epic, from, project },
     });
   },
 
   async addProject(name: string, domain?: string): Promise<void> {
-    await api("POST", "/projects", { name, ...inDomain(domain) });
+    await client.POST("/projects", { body: { name, ...inDomain(domain) } });
   },
 
   async deleteProject(name: string): Promise<void> {
-    await api("POST", "/projects/actions/delete-project", {
-      project: name,
+    await client.POST("/projects/actions/delete-project", {
+      body: { project: name },
     });
   },
 
   async reorderProjects(names: string[]): Promise<void> {
-    await api("POST", "/projects/actions/reorder-projects", {
-      projects: names,
+    await client.POST("/projects/actions/reorder-projects", {
+      body: { projects: names },
     });
   },
 
   async renameTeam(from: string, to: string): Promise<void> {
-    await api("POST", "/teams/actions/rename", { team: from, to });
+    await client.POST("/teams/actions/rename", { body: { team: from, to } });
   },
 
 
@@ -582,60 +660,70 @@ export const apiProvider: Provider = {
     from: string,
     to: string,
   ): Promise<void> {
-    await api("POST", "/projects/actions/rename", { project: from, to });
+    await client.POST("/projects/actions/rename", { body: { project: from, to } });
   },
 
   async listProcesses(project?: string): Promise<ProcessInfo[]> {
-    const q = project ? `?project=${encodeURIComponent(project)}` : "";
-    const res = await api<components["schemas"]["ProcessList"]>("GET", `/processes${q}`);
+    const res = await answered(
+      client.GET("/processes", { params: { query: project ? { project } : {} } }),
+    );
     return processesFrom(res.items);
   },
 
   async addProcess(name: string, project: string, domain?: string): Promise<void> {
-    await api("POST", "/processes", { name, project, ...inDomain(domain) });
+    await client.POST("/processes", {
+      body: { name, project, ...inDomain(domain) },
+    });
   },
 
   async deleteProcess(name: string): Promise<void> {
-    await api("POST", "/processes/actions/delete-process", { process: name });
+    await client.POST("/processes/actions/delete-process", {
+      body: { process: name },
+    });
   },
 
   async renameProcess(from: string, to: string): Promise<void> {
-    await api("POST", "/processes/actions/rename", { process: from, to });
+    await client.POST("/processes/actions/rename", { body: { process: from, to } });
   },
 
   async setProcessProject(
     process: string,
     project: string,
   ): Promise<void> {
-    await api("POST", "/processes/actions/set-project", { process, project });
+    await client.POST("/processes/actions/set-project", {
+      body: { process, project },
+    });
   },
 
   async setProcessPaused(
     process: string,
     paused: boolean,
   ): Promise<void> {
-    await api("POST", "/processes/actions/set-paused", { process, paused });
+    await client.POST("/processes/actions/set-paused", {
+      body: { process, paused },
+    });
   },
 
   async reorderProcesses(processes: string[]): Promise<void> {
-    await api("POST", "/processes/actions/reorder", { processes });
+    await client.POST("/processes/actions/reorder", { body: { processes } });
   },
 
   async reorderProcessTasks(
     process: string,
     uids: string[],
   ): Promise<void> {
-    await api("POST", "/processes/tasks/actions/reorder", { process, uids });
+    await client.POST("/processes/tasks/actions/reorder", {
+      body: { process, uids },
+    });
   },
 
   async addTask(
     process: string,
     input: TaskInput,
   ): Promise<string> {
-    const res = await api<components["schemas"]["TaskRef"]>("POST", "/processes/tasks", {
-      process,
-      ...input,
-    });
+    const res = await answered(
+      client.POST("/processes/tasks", { body: { process, ...input } }),
+    );
     return res.uid;
   },
 
@@ -643,25 +731,28 @@ export const apiProvider: Provider = {
     uid: string,
     patch: TaskInput,
   ): Promise<void> {
-    await api("PATCH", `/processes/tasks/${uid}`, patch);
+    await client.PATCH("/processes/tasks/{uid}", {
+      params: { path: { uid } },
+      body: patch,
+    });
   },
 
   async deleteTask(uid: string): Promise<void> {
-    await api("DELETE", `/processes/tasks/${uid}`);
+    await client.DELETE("/processes/tasks/{uid}", { params: { path: { uid } } });
   },
 
   async addDeadline(
     week: string,
     project: string,
   ): Promise<void> {
-    await api("POST", "/deadlines", { week, project });
+    await client.POST("/deadlines", { body: { week, project } });
   },
 
   async deleteDeadline(
     week: string,
     project: string,
   ): Promise<void> {
-    await api("POST", "/deadlines/actions/delete", { week, project });
+    await client.POST("/deadlines/actions/delete", { body: { week, project } });
   },
 
   async moveDeadline(
@@ -669,7 +760,7 @@ export const apiProvider: Provider = {
     from: string,
     to: string,
   ): Promise<void> {
-    await api("POST", "/deadlines/actions/move", { project, from, to });
+    await client.POST("/deadlines/actions/move", { body: { project, from, to } });
   },
 
   async setSprintState(
@@ -678,17 +769,21 @@ export const apiProvider: Provider = {
     previous: string | null,
     domain?: string,
   ): Promise<void> {
-    await api("PATCH", "/sprints", {
-      team: team ?? "",
-      current: current ?? "",
-      previous: previous ?? "",
-      ...inDomain(domain),
+    await client.PATCH("/sprints", {
+      body: {
+        team: team ?? "",
+        current: current ?? "",
+        previous: previous ?? "",
+        ...inDomain(domain),
+      },
     });
   },
 
   async listLog(uid: string): Promise<CardLog> {
     uid = await resolveCardId(uid);
-    const list = await api<components["schemas"]["LogList"]>("GET", `/cards/${uid}/log`);
+    const list = await answered(
+      client.GET("/cards/{uid}/log", { params: { path: { uid } } }),
+    );
     const notes: Note[] = [];
     const events: CardEvent[] = [];
     for (const it of list.items) {
@@ -727,9 +822,8 @@ export const apiProvider: Provider = {
     }
     const answers = await Promise.all(
       batches.map((batch) =>
-        api<components["schemas"]["DayLogList"]>(
-          "GET",
-          `/logs?day=${encodeURIComponent(day)}&uids=${batch.map(encodeURIComponent).join(",")}`,
+        answered(
+          client.GET("/logs", { params: { query: { day, uids: batch.join(",") } } }),
         ),
       ),
     );
@@ -742,8 +836,8 @@ export const apiProvider: Provider = {
 
   async listLinks(uid: string): Promise<CardLink[]> {
     uid = await resolveCardId(uid);
-    const list = await api<components["schemas"]["LinkList"]>("GET",
-      `/cards/${uid}/links`,
+    const list = await answered(
+      client.GET("/cards/{uid}/links", { params: { path: { uid } } }),
     );
     return list.items.map((l) => ({ ...l, kind: linkKind(l.kind) }));
   },
@@ -753,17 +847,19 @@ export const apiProvider: Provider = {
     card: string | null,
   ): Promise<void> {
     const uid = card && !card.startsWith("tmp-") ? card : "";
-    await api("POST", "/presence", { login, card: uid });
+    await client.POST("/presence", { body: { login, card: uid } });
   },
 
   async listNotes(uid: string): Promise<Note[]> {
     uid = await resolveCardId(uid);
-    return notesFrom("GET", `/cards/${uid}/notes`);
+    return notesFrom(client.GET("/cards/{uid}/notes", { params: { path: { uid } } }));
   },
 
   async addNote(uid: string, text: string): Promise<Note[]> {
     uid = await resolveCardId(uid);
-    return notesFrom("POST", `/cards/${uid}/notes`, { text });
+    return notesFrom(
+      client.POST("/cards/{uid}/notes", { params: { path: { uid } }, body: { text } }),
+    );
   },
 
   async editNote(
@@ -772,9 +868,11 @@ export const apiProvider: Provider = {
     text: string,
   ): Promise<Note[]> {
     uid = await resolveCardId(uid);
-    return notesFrom("PATCH",
-      `/cards/${uid}/notes/${encodeURIComponent(noteId)}`,
-      { text },
+    return notesFrom(
+      client.PATCH("/cards/{uid}/notes/{noteId}", {
+        params: { path: { uid, noteId } },
+        body: { text },
+      }),
     );
   },
 
@@ -784,8 +882,9 @@ export const apiProvider: Provider = {
   ): Promise<Note[]> {
     uid = await resolveCardId(uid);
     return notesFrom(
-      "DELETE",
-      `/cards/${uid}/notes/${encodeURIComponent(noteId)}`,
+      client.DELETE("/cards/{uid}/notes/{noteId}", {
+        params: { path: { uid, noteId } },
+      }),
     );
   },
 };

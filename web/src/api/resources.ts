@@ -22,7 +22,13 @@ import type { components } from "./schema";
 
 // --- Zone vocabulary ---------------------------------------------------------
 
-const ZONE_TO_SEMANTIC: Record<ZoneKey, string> = {
+// WireZone is the band vocabulary as the document states it, "" being "no
+// band". Taking it from a request schema rather than restating it here is what
+// makes a renamed band a compile error in this table instead of a refusal
+// nobody sees until a card is dropped.
+type WireZone = NonNullable<components["schemas"]["CardPatch"]["zone"]>;
+
+const ZONE_TO_SEMANTIC: Record<ZoneKey, Exclude<WireZone, "">> = {
   red: "urgent",
   yellow: "unplanned",
   gray: "planned",
@@ -37,7 +43,7 @@ const SEMANTIC_TO_ZONE: Record<string, ZoneKey> = {
 };
 
 /** semanticZone maps a ZoneKey onto its API name ("" and undefined stay ""). */
-export function semanticZone(zone: ZoneKey | "" | undefined): string {
+export function semanticZone(zone: ZoneKey | "" | undefined): WireZone {
   return zone ? ZONE_TO_SEMANTIC[zone] : "";
 }
 
@@ -55,8 +61,6 @@ export type CardResource = Schemas["Card"];
 export type SprintResource = Schemas["Sprint"];
 export type NoteResource = Schemas["Note"];
 export type BoardResource = Schemas["Board"];
-export type CardListResource = Schemas["CardList"];
-export type SprintListResource = Schemas["SprintList"];
 export type NoteListResource = Schemas["NoteList"];
 
 /** WatchFrame is one event on a board's watch WebSocket
