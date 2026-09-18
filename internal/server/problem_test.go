@@ -80,9 +80,10 @@ func TestAPIErrorsAreProblems(t *testing.T) {
 // A route nothing serves answers as the API, not as the page behind it: the
 // SPA's catch-all stands under every unmatched path and used to hand a caller
 // asking for JSON a 200 and index.html. A known path asked with a method it
-// does not have lands in the same answer — the catch-all matches every method,
-// so the mux never reaches its own 405, and a client reads "no such route"
-// where it once read "wrong verb".
+// does not have lands in the same answer, and for the same reason: the mux
+// answers 405 only when no pattern takes the METHOD, and the SPA's pattern
+// carries none, so it takes every method and a wrong verb reached the page
+// too. Both read "no such route" now; neither ever read "wrong verb".
 func TestAnUnknownRouteIsAProblem(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Team: "test"}}, nil)
 	srv := apiServer(t, Options{}, fake)
