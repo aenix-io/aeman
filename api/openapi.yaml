@@ -10,6 +10,14 @@ info:
     problem whose `code` names the rule.
 
 
+    A request schema says the SHAPE of a body, not what a call needs. What a
+    board REQUIRES is the board's own rule — it depends on the board the call
+    was made through, and it is answered as a refusal naming the field — so
+    almost every request schema here marks nothing as required. The few that
+    do are the fields a call means nothing without: a placement's `epic`, a
+    capacity's number.
+
+
     Three headers belong to the middleware and are described here rather than
     declared on an operation: `X-Aeman-Client` on a request keys echo
     suppression on the watch, `X-Aeman-As-Of` says the caller is looking at a
