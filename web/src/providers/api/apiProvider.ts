@@ -114,8 +114,8 @@ export function processesFrom(items: ProcessInfo[] | null | undefined): ProcessI
   }));
 }
 
-/** ApiError is a non-2xx answer: the server's {error} message (or the status
- *  text) with the status code, for callers that treat one code specially. */
+/** ApiError is a non-2xx answer: the problem's detail (or the status text)
+ *  with the status code, for callers that treat one code specially. */
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -123,6 +123,8 @@ export class ApiError extends Error {
     /** The page that fixes the refusal (installing the board's GitHub App),
      *  for the UI to render as a button rather than a URL in prose. */
     readonly actionUrl?: string,
+    /** Which rule refused, by the server's stable name for it. */
+    readonly code?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -161,9 +163,9 @@ function gesturePath(uid: string, gesture: string): string {
 }
 
 // api issues a request against /api/v1. The server serves exactly one board,
-// so nothing addresses it. Sets a JSON content type when there is a body, and
-// on a non-2xx response surfaces the server's {error} message (falling back to
-// statusText).
+// so nothing addresses it. Sets a JSON content type when there is a body; a
+// non-2xx is a problem whose detail becomes the ApiError message (falling back
+// to statusText), and a 204 resolves to undefined.
 async function api<T>(
   method: string,
   path: string,
@@ -189,16 +191,21 @@ async function api<T>(
   if (!res.ok) {
     let msg = res.statusText;
     let actionUrl: string | undefined;
+    let code: string | undefined;
     try {
-      const data = (await res.json()) as { error?: string; actionUrl?: string };
-      if (data.error) {
-        msg = data.error;
+      const problem = (await res.json()) as { detail?: string; actionUrl?: string; code?: string };
+      if (problem.detail) {
+        msg = problem.detail;
       }
-      actionUrl = data.actionUrl || undefined;
+      actionUrl = problem.actionUrl || undefined;
+      code = problem.code || undefined;
     } catch {
-      // No JSON error body; keep the status-text fallback.
+      // Not a problem body; keep the status-text fallback.
     }
-    throw new ApiError(msg, res.status, actionUrl);
+    throw new ApiError(msg, res.status, actionUrl, code);
+  }
+  if (res.status === 204) {
+    return undefined as T;
   }
   return (await res.json()) as T;
 }
@@ -467,7 +474,7 @@ export const apiProvider: Provider = {
   },
 
   async setTeamCapacity(team: string, points: number): Promise<void> {
-    await api<{ ok: boolean }>("POST", "/teams/actions/capacity", { team, points });
+    await api("POST", "/teams/actions/capacity", { team, points });
   },
 
   async untriageCard(uid: string): Promise<Card> {
