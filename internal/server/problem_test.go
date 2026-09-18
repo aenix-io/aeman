@@ -146,6 +146,14 @@ func TestALongPathIsClippedWithoutBreakingARune(t *testing.T) {
 	if p := decodeProblem(t, rec); strings.ContainsRune(p.Detail, utf8.RuneError) {
 		t.Errorf("detail carries a broken rune: %q", p.Detail)
 	}
+
+	// The METHOD is the caller's bytes too — the token grammar bounds its
+	// length no more than the path's — so clipping one of the two leaves the
+	// sentence as long as whichever was left.
+	rec = do(t, srv, strings.Repeat("X", 5000), "/api/v1/nope", "")
+	if p := decodeProblem(t, rec); len(p.Detail) > 300 {
+		t.Errorf("detail is %d bytes: the method is echoed unclipped", len(p.Detail))
+	}
 }
 
 // What no table row answers is not a rule refusing a change: it is the forge

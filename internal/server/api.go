@@ -104,26 +104,33 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/", s.handleUnknownRoute)
 }
 
-// handleUnknownRoute closes the API off from the page behind it. The path is
-// echoed back so a caller sees which address missed, clipped because it is the
-// caller's own bytes and a detail is a sentence somebody reads. The clip lands
-// on a rune boundary: cutting a path by bytes splits a multi-byte rune, and
-// the half that survives is not text — it reaches the reader as U+FFFD.
+// handleUnknownRoute closes the API off from the page behind it. Both halves
+// of the request are echoed so a caller sees which one missed, and both are
+// clipped: the METHOD is as much the caller's own bytes as the path — the
+// grammar bounds neither — so bounding one leaves the sentence as long as the
+// other.
 func (s *Server) handleUnknownRoute(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
-	if len(path) > maxRouteInDetail {
-		cut := maxRouteInDetail
-		for cut > 0 && !utf8.RuneStart(path[cut]) {
-			cut--
-		}
-		path = path[:cut] + "…"
-	}
-	writeProblem(w, problem(http.StatusNotFound, "unknownRoute", "no such route: "+r.Method+" "+path))
+	writeProblem(w, problem(http.StatusNotFound, "unknownRoute",
+		"no such route: "+clipForDetail(r.Method)+" "+clipForDetail(r.URL.Path)))
 }
 
-// maxRouteInDetail bounds the echoed path. Long enough for any route the
+// clipForDetail bounds one piece of a request on its way into a problem. The
+// cut lands on a rune boundary: splitting a multi-byte rune leaves half a
+// character, which is not text and reaches the reader as U+FFFD.
+func clipForDetail(s string) string {
+	if len(s) <= maxDetailPart {
+		return s
+	}
+	cut := maxDetailPart
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
+
+// maxDetailPart bounds each echoed piece. Long enough for any route the
 // document describes, short enough that a refusal stays a sentence.
-const maxRouteInDetail = 120
+const maxDetailPart = 120
 
 // apiIndex is the GET /api/v1 answer: identity, the MCP mount point and where
 // the description of this surface lives. It carries no board data, so it needs
