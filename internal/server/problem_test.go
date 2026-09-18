@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice/boardservicetest"
@@ -124,6 +125,26 @@ func TestAnUnknownRouteIsAProblem(t *testing.T) {
 				t.Fatalf("status = %d, want %d (%s)", rec.Code, tc.status, rec.Body.String())
 			}
 		})
+	}
+}
+
+// A path too long to echo is clipped, and the clip lands on a rune boundary.
+// Cutting by bytes splits a multi-byte rune, and the half that survives is
+// not text — it reaches the reader as U+FFFD. Testing that the detail is
+// VALID utf-8 does not catch it: the server's own json.Marshal replaces the
+// broken byte with the replacement rune, so the answer is well-formed either
+// way and only the character itself tells the two apart. The 9-byte prefix is
+// what puts byte 120 INSIDE a rune — after the 8-byte "/api/v1/" the cut
+// falls between two and a byte cut looks correct there.
+func TestALongPathIsClippedWithoutBreakingARune(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Team: "test"}}, nil)
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodGet, "/api/v1/x"+strings.Repeat("я", 80), "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (%s)", rec.Code, rec.Body.String())
+	}
+	if p := decodeProblem(t, rec); strings.ContainsRune(p.Detail, utf8.RuneError) {
+		t.Errorf("detail carries a broken rune: %q", p.Detail)
 	}
 }
 
