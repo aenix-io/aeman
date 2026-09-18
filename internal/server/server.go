@@ -113,8 +113,10 @@ type Server struct {
 	apiTokens func(*http.Request) (token, login string, err error)
 	// newService builds the board service for an /api/v1 request. It defaults
 	// to boardservice.New over the visitor's view of the shared store and is
-	// overridden in tests with a fake Backend.
-	newService func(*http.Request) (*boardservice.Service, error)
+	// overridden in tests with a fake Backend. It takes no request: what the
+	// visitor may do rides the context the middleware stamped, and a strict
+	// handler is handed no request to pass on.
+	newService func() (*boardservice.Service, error)
 }
 
 // setupState is the server waiting for its GitHub App to be installed on a

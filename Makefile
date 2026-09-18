@@ -2,7 +2,7 @@ BINARY := aeman
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
-.PHONY: all build frontend backend lint test fmt tidy run clean
+.PHONY: all build frontend backend generate lint test fmt tidy run clean
 
 all: build
 
@@ -16,6 +16,11 @@ build: frontend backend
 ## backend: build only the Go binary (expects web/dist to already exist)
 backend:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/aeman
+
+## generate: regenerate the code built from api/openapi.yaml, Go and TypeScript
+generate:
+	go generate ./...
+	cd web && npm run generate
 
 ## lint: run golangci-lint
 lint:

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -285,8 +286,14 @@ func TestEverySpecOperationHasItsRoute(t *testing.T) {
 
 // The other direction: a door nobody wrote down is a door an agent cannot
 // find, which is what happened to PATCH /people/{login} while the catalog was
-// kept by hand. The wiring is read from the source, so a route added without
-// its operation fails here rather than at the first client that needs it.
+// kept by hand. The routes come from the document now, so what is left to
+// check is the exception list — the patterns registered by hand in api.go,
+// which is the only file this reads and the one registerAPI is in. A route
+// added beside them there fails here rather than at the first client that
+// needs it; one hand-registered in another file does not, and nothing here
+// looks for that. The pattern below wants a method, so the methodless
+// catch-all never appears: two exceptions are pinned where ADR 0004 names
+// three, and the third is that catch-all.
 func TestEveryWiredRouteIsDescribed(t *testing.T) {
 	doc, _ := loadedSpec(t)
 	src, err := os.ReadFile("api.go")
@@ -295,14 +302,26 @@ func TestEveryWiredRouteIsDescribed(t *testing.T) {
 	}
 	wired := regexp.MustCompile(`mux\.HandleFunc\("([A-Z]+) (/api/v1[^"]*)"`)
 	found := wired.FindAllStringSubmatch(string(src), -1)
-	if len(found) < 50 {
-		t.Fatalf("only %d routes found — has registerAPI moved?", len(found))
+	var wiredPatterns []string
+	for _, m := range found {
+		wiredPatterns = append(wiredPatterns, m[1]+" "+m[2])
+	}
+	// The index cannot be a generated operation: under a server of /api/v1
+	// it would be the path "/", which the generator registers as a subtree
+	// pattern swallowing every unknown GET beneath it. The watch hijacks the
+	// writer, which a strict method is not handed. Compared as a SET: Go's
+	// mux resolves by specificity, so the order these two are registered in
+	// is not a rule and a test that pinned it would fail for the wrong
+	// reason.
+	exceptions := []string{"GET /api/v1", "GET /api/v1/views/{view}/watch"}
+	slices.Sort(wiredPatterns)
+	slices.Sort(exceptions)
+	if !slices.Equal(wiredPatterns, exceptions) {
+		t.Fatalf("the hand-registered routes are %v, want %v — everything else comes from the document",
+			wiredPatterns, exceptions)
 	}
 	for _, m := range found {
 		method, path := m[1], strings.TrimPrefix(m[2], "/api/v1")
-		// The index is the one route the document does not describe: under
-		// a server of /api/v1 it would be the path "/", which a generator
-		// turns into a subtree pattern swallowing every unknown path.
 		if path == "" {
 			continue
 		}
@@ -318,7 +337,7 @@ func TestEveryWiredRouteIsDescribed(t *testing.T) {
 // resolves a token or builds a board service.
 func TestOpenAPIDocumentIsServed(t *testing.T) {
 	srv := apiServer(t, Options{}, boardservicetest.New(nil, nil))
-	srv.newService = func(*http.Request) (*boardservice.Service, error) {
+	srv.newService = func() (*boardservice.Service, error) {
 		t.Fatal("the document must not build a board service")
 		return nil, nil
 	}

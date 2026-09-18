@@ -43,6 +43,18 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.27"
+      # Both artifacts built from api/openapi.yaml are committed: the image
+      # copies the tree and builds it (Dockerfile), this job runs make backend
+      # and the frontend step above builds the SPA, and an external importer
+      # compiles pkg/ as it is checked out — no generate step among them. The
+      # TypeScript half needs the npm install the frontend step already did.
+      - name: Generated code is current
+        run: |
+          make generate
+          # Staged, not a bare diff: a generator that started writing a NEW
+          # path would leave it untracked, and git diff does not see those.
+          git add -A internal/server/apiv1 web/src/api
+          git diff --cached --exit-code internal/server/apiv1 web/src/api
       - name: Build binary
         run: make backend
       # CI runs on Linux only, so the Windows half of the data-directory

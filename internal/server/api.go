@@ -15,89 +15,25 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/aenix-io/aeman/api"
+	"github.com/aenix-io/aeman/internal/server/apiv1"
 	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
 )
 
-// registerAPI wires the JSON API under /api/v1: a small set of Kubernetes-style
-// resources (Card, Sprint, Note, Ordering) plus actions for everything with
-// board-level rules. All board logic lives server-side in boardservice; clients
-// state intent and mirror the result via LIST (+ selectors) and the watch.
-//
-// Every route below is described in api/openapi.yaml, which the server hands
-// out at GET /api/v1/openapi.json; internal/server's tests hold each exchange
-// against it.
+// registerAPI wires the JSON API under /api/v1. The operations come from
+// api/openapi.yaml through the code generated from it (registerStrict), so
+// the document is the only description of the surface and a handler cannot
+// drift from it. Registered here by hand: the index and the watch, which a
+// generated operation cannot be, and the catch-all that closes the API off
+// from the page behind it.
 //
 // The BOARD a caller is standing on is a path segment; the card keeps its own
 // address (docs/design/view-scoped-api.md).
 func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1", s.handleAPIIndex)
-	mux.HandleFunc("GET /api/v1/openapi.json", s.handleOpenAPI)
-	mux.HandleFunc("GET /api/v1/board", s.handleGetBoard)
-	// The BOARD a caller is standing on is a path segment: it scopes a
-	// listing, says what a create means, and says which gestures are on offer
-	// (docs/design/view-scoped-api.md). The card ITSELF is still addressed as
-	// itself below — one uid, one address, whatever board it was found on.
-	mux.HandleFunc("GET /api/v1/views", s.handleListViews)
-	mux.HandleFunc("GET /api/v1/views/{view}/cards", s.handleListCards)
-	mux.HandleFunc("POST /api/v1/views/{view}/cards", s.handleCreateCard)
 	mux.HandleFunc("GET /api/v1/views/{view}/watch", s.handleWatch)
-	mux.HandleFunc("POST /api/v1/views/{view}/cards/{uid}/actions/remove", s.handleRemoveCard)
-	mux.HandleFunc("POST /api/v1/views/{view}/cards/{uid}/actions/place", s.handlePlaceCard)
-	mux.HandleFunc("POST /api/v1/views/{view}/cards/{uid}/actions/untriage", s.handleUntriageCard)
-	mux.HandleFunc("POST /api/v1/views/{view}/cards/{uid}/actions/finished-earlier", s.handleFinishedEarlier)
-	mux.HandleFunc("GET /api/v1/cards/{uid}", s.handleGetCard)
-	mux.HandleFunc("PATCH /api/v1/cards/{uid}", s.handlePatchCard)
-	mux.HandleFunc("DELETE /api/v1/cards/{uid}", s.handleDeleteCard)
-	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/move", s.handleMoveCard)
-	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/defer", s.handleDeferCard)
-	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/in-progress", s.handleInProgress)
-	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/reopen", s.handleReopen)
-	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/send-to-review", s.handleSendToReview)
-	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/mirror", s.handleMirror)
-	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/unmirror", s.handleUnmirror)
-	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/remove-from-project", s.handleRemoveFromProject)
-	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/remove-reviewer", s.handleRemoveReviewer)
-	mux.HandleFunc("GET /api/v1/cards/{uid}/links", s.handleListLinks)
-	mux.HandleFunc("GET /api/v1/cards/{uid}/log", s.handleCardLog)
-	mux.HandleFunc("GET /api/v1/logs", s.handleDayLogs)
-	mux.HandleFunc("GET /api/v1/cards/{uid}/notes", s.handleListNotes)
-	mux.HandleFunc("POST /api/v1/cards/{uid}/notes", s.handleAddNote)
-	mux.HandleFunc("PATCH /api/v1/cards/{uid}/notes/{noteId}", s.handleEditNote)
-	mux.HandleFunc("DELETE /api/v1/cards/{uid}/notes/{noteId}", s.handleDeleteNote)
-	mux.HandleFunc("GET /api/v1/sprints", s.handleListSprints)
-	mux.HandleFunc("PATCH /api/v1/sprints", s.handlePatchSprint)
-	mux.HandleFunc("PATCH /api/v1/people/{login}", s.handlePatchPerson)
-	mux.HandleFunc("POST /api/v1/sprints/actions/carry-over", s.handleCarryOver)
-	mux.HandleFunc("POST /api/v1/sprints/actions/reorder-teams", s.handleReorderTeams)
-	mux.HandleFunc("POST /api/v1/sprints/actions/delete-team", s.handleDeleteTeam)
-	mux.HandleFunc("POST /api/v1/epics", s.handleAddEpic)
-	mux.HandleFunc("POST /api/v1/epics/actions/delete-epic", s.handleDeleteEpic)
-	mux.HandleFunc("POST /api/v1/epics/actions/reorder-epics", s.handleReorderEpics)
-	mux.HandleFunc("POST /api/v1/epics/actions/set-project", s.handleSetEpicProject)
-	mux.HandleFunc("POST /api/v1/epics/actions/rename", s.handleRenameEpic)
-	mux.HandleFunc("GET /api/v1/processes", s.handleListProcesses)
-	mux.HandleFunc("POST /api/v1/processes", s.handleAddProcess)
-	mux.HandleFunc("POST /api/v1/processes/actions/delete-process", s.handleDeleteProcess)
-	mux.HandleFunc("POST /api/v1/processes/actions/rename", s.handleRenameProcess)
-	mux.HandleFunc("POST /api/v1/processes/actions/set-project", s.handleSetProcessProject)
-	mux.HandleFunc("POST /api/v1/processes/actions/set-paused", s.handleSetProcessPaused)
-	mux.HandleFunc("POST /api/v1/processes/actions/reorder", s.handleReorderProcesses)
-	mux.HandleFunc("POST /api/v1/processes/tasks/actions/reorder", s.handleReorderProcessTasks)
-	mux.HandleFunc("POST /api/v1/processes/tasks", s.handleAddTask)
-	mux.HandleFunc("PATCH /api/v1/processes/tasks/{uid}", s.handlePatchTask)
-	mux.HandleFunc("DELETE /api/v1/processes/tasks/{uid}", s.handleDeleteTask)
-	mux.HandleFunc("POST /api/v1/deadlines", s.handleAddDeadline)
-	mux.HandleFunc("POST /api/v1/deadlines/actions/delete", s.handleDeleteDeadline)
-	mux.HandleFunc("POST /api/v1/deadlines/actions/move", s.handleMoveDeadline)
-	mux.HandleFunc("POST /api/v1/projects", s.handleAddProject)
-	mux.HandleFunc("POST /api/v1/projects/actions/delete-project", s.handleDeleteProject)
-	mux.HandleFunc("POST /api/v1/projects/actions/reorder-projects", s.handleReorderProjects)
-	mux.HandleFunc("POST /api/v1/projects/actions/rename", s.handleRenameProject)
-	mux.HandleFunc("POST /api/v1/teams/actions/rename", s.handleRenameTeam)
-	mux.HandleFunc("POST /api/v1/teams/actions/capacity", s.handleSetTeamCapacity)
-	mux.HandleFunc("POST /api/v1/presence", s.handleSetPresence)
+	s.registerStrict(mux)
 	// Last, and without a method, so every more specific pattern above wins:
 	// what is left is a path no route serves, and the SPA's catch-all used to
 	// answer it with index.html — 200 and a page, to a caller asking for JSON.
@@ -163,25 +99,34 @@ var specJSON = sync.OnceValues(func() ([]byte, error) {
 	return json.Marshal(doc)
 })
 
-// handleOpenAPI serves the description of this surface. Like the index it
+// specResponse is the converted document on its way out, written as it stands.
+// The operation's schema is a bare object, so the generated response would
+// decode it into a map and encode that back per request.
+type specResponse []byte
+
+func (d specResponse) VisitGetOpenAPIResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_, err := w.Write(d)
+	return err
+}
+
+// GetOpenAPI serves the description of this surface. Like the index it
 // touches no board service: what the routes ARE is not board data, and a
 // client generating itself from the document has nothing to be authorized
 // for yet.
-func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
+func (a surface) GetOpenAPI(context.Context, apiv1.GetOpenAPIRequestObject) (apiv1.GetOpenAPIResponseObject, error) {
 	data, err := specJSON()
 	if err != nil {
-		s.apiError(w, r, err)
-		return
+		return nil, err
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_, _ = w.Write(data)
+	return specResponse(data), nil
 }
 
 // boardRef is the board a request addresses: the one this server is
 // configured with. A client's board query parameter is ignored;
 // "project" in the API is aeman's own planning entity (a group of epic
 // columns on the Project board) and is a card filter, not an address.
-func (s *Server) boardRef(*http.Request) (boardID string) {
+func (s *Server) boardRef() (boardID string) {
 	return s.gitBoard()
 }
 
@@ -189,7 +134,7 @@ func (s *Server) boardRef(*http.Request) (boardID string) {
 // one shared store, as the visitor may use it — the request brings its
 // identity (actor), its action and its rights; the visible backend projects
 // reads and checks writes against those.
-func (s *Server) defaultService(*http.Request) (*boardservice.Service, error) {
+func (s *Server) defaultService() (*boardservice.Service, error) {
 	if s.visibleBE == nil {
 		return nil, errNoBoard
 	}
@@ -199,14 +144,22 @@ func (s *Server) defaultService(*http.Request) (*boardservice.Service, error) {
 // errNoBoard is a server started without a repository.
 var errNoBoard = errors.New("no board is configured: start aeman with --repo")
 
-// service resolves the board reference and builds the per-request board service.
-// On failure it writes the response (400 on a bad ref, 401 on no token) and
-// returns ok=false.
-func (s *Server) service(w http.ResponseWriter, r *http.Request) (svc *boardservice.Service, boardID string, ok bool) {
-	boardID = s.boardRef(r)
-	svc, err := s.newService(r)
+// serviceOf resolves the board reference and builds the per-request board
+// service, or the 401 a caller without a usable credential gets.
+func (s *Server) serviceOf() (svc *boardservice.Service, boardID string, err error) {
+	svc, err = s.newService()
 	if err != nil {
-		writeProblem(w, problem(http.StatusUnauthorized, "notAuthenticated", "not authenticated: "+err.Error()))
+		return nil, "", notAuthenticated(err)
+	}
+	return svc, s.boardRef(), nil
+}
+
+// service is serviceOf for a handler that still writes its own response; it
+// goes with the last of them.
+func (s *Server) service(w http.ResponseWriter, _ *http.Request) (svc *boardservice.Service, boardID string, ok bool) {
+	svc, boardID, err := s.serviceOf()
+	if err != nil {
+		writeProblem(w, problemFor(err))
 		return nil, "", false
 	}
 	return svc, boardID, true
@@ -1863,8 +1816,8 @@ func (s *Server) handleSetPresence(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	boardID := s.boardRef(r)
-	if _, err := s.newService(r); err != nil {
+	boardID := s.boardRef()
+	if _, err := s.newService(); err != nil {
 		writeProblem(w, problem(http.StatusUnauthorized, "notAuthenticated", "not authenticated: "+err.Error()))
 		return
 	}

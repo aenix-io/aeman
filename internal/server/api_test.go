@@ -25,7 +25,7 @@ func apiServer(t *testing.T, opts Options, fake *boardservicetest.Backend) *Serv
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	srv.newService = func(*http.Request) (*boardservice.Service, error) {
+	srv.newService = func() (*boardservice.Service, error) {
 		return boardservice.New(fake), nil
 	}
 	srv.handler = conforms(t, srv.handler)
@@ -436,7 +436,7 @@ func TestAPIIgnoresOwnerAndBoardParameters(t *testing.T) {
 func TestAPIIndex(t *testing.T) {
 	srv := apiServer(t, Options{Version: "test-1.2.3"}, boardservicetest.New(nil, nil))
 	// The catalog is public metadata: it must not resolve a token or board.
-	srv.newService = func(*http.Request) (*boardservice.Service, error) {
+	srv.newService = func() (*boardservice.Service, error) {
 		t.Fatal("index must not build a board service")
 		return nil, nil
 	}

@@ -96,7 +96,7 @@ func TestSizingACardAnnouncesTheNewLoad(t *testing.T) {
 	if rec := do(t, srv, http.MethodGet, "/api/v1/board", ""); rec.Code != http.StatusOK {
 		t.Fatalf("board: %d %s", rec.Code, rec.Body.String())
 	}
-	sub, cancel := srv.store.subscribe(storeKey(srv.boardRef(nil)), "tab", nil,
+	sub, cancel := srv.store.subscribe(storeKey(srv.boardRef()), "tab", nil,
 		map[string]bool{"cards": true})
 	defer cancel()
 
@@ -116,7 +116,7 @@ func TestSettingACapacityAnnouncesIt(t *testing.T) {
 	if rec := do(t, srv, http.MethodGet, "/api/v1/board", ""); rec.Code != http.StatusOK {
 		t.Fatalf("board: %d %s", rec.Code, rec.Body.String())
 	}
-	sub, cancel := srv.store.subscribe(storeKey(srv.boardRef(nil)), "tab", nil,
+	sub, cancel := srv.store.subscribe(storeKey(srv.boardRef()), "tab", nil,
 		map[string]bool{"cards": true})
 	defer cancel()
 
@@ -162,7 +162,7 @@ func TestASprintFrameCarriesTheTeamsCapacity(t *testing.T) {
 	if rec := do(t, srv, http.MethodGet, "/api/v1/board", ""); rec.Code != http.StatusOK {
 		t.Fatalf("board: %d", rec.Code)
 	}
-	sub, cancel := srv.store.subscribe(storeKey(srv.boardRef(nil)), "tab", nil,
+	sub, cancel := srv.store.subscribe(storeKey(srv.boardRef()), "tab", nil,
 		map[string]bool{"sprints": true})
 	defer cancel()
 
@@ -194,13 +194,13 @@ func TestAReloadAnnouncesACapacityChangedElsewhere(t *testing.T) {
 	if rec := do(t, srv, http.MethodGet, "/api/v1/board", ""); rec.Code != http.StatusOK {
 		t.Fatalf("board: %d", rec.Code)
 	}
-	sub, cancel := srv.store.subscribe(storeKey(srv.boardRef(nil)), "tab", nil,
+	sub, cancel := srv.store.subscribe(storeKey(srv.boardRef()), "tab", nil,
 		map[string]bool{"cards": true})
 	defer cancel()
 
 	// A capacity that appears in the tree without this server writing it —
 	// what another replica's push looks like from here.
-	e := srv.store.entry(storeKey(srv.boardRef(nil)))
+	e := srv.store.entry(storeKey(srv.boardRef()))
 	e.mu.Lock()
 	old := e.board
 	next := old

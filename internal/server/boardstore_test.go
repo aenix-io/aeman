@@ -514,7 +514,7 @@ func TestMutationReadsBlockForFresh(t *testing.T) {
 func TestStaleHeaderOnAPIRead(t *testing.T) {
 	srv := newTestServer(t)
 	inner := &swrBackend{board: watchBoard()}
-	srv.newService = func(*http.Request) (*boardservice.Service, error) {
+	srv.newService = func() (*boardservice.Service, error) {
 		return boardservice.New(&storeBackend{inner: inner, store: srv.store}), nil
 	}
 
@@ -590,7 +590,7 @@ func (f *failAfterFirstLoad) LoadBoard(ctx context.Context, boardID string) (boa
 func TestCarryOverServedFromSnapshot(t *testing.T) {
 	srv := newTestServer(t)
 	inner := &failAfterFirstLoad{swrBackend: &swrBackend{board: watchBoard()}}
-	srv.newService = func(*http.Request) (*boardservice.Service, error) {
+	srv.newService = func() (*boardservice.Service, error) {
 		return boardservice.New(&storeBackend{inner: inner, store: srv.store}), nil
 	}
 

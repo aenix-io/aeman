@@ -34,12 +34,12 @@ func (s *Server) recordWriteGuard(next http.Handler) http.Handler {
 			writeProblem(w, problem(http.StatusBadRequest, "invalidAsOf", asOfHeader+": not a board day"))
 			return
 		}
-		svc, err := s.newService(r)
+		svc, err := s.newService()
 		if err != nil {
 			next.ServeHTTP(w, r) // the handler answers for the missing board
 			return
 		}
-		bd, err := svc.Board(r.Context(), s.boardRef(r))
+		bd, err := svc.Board(r.Context(), s.boardRef())
 		if err != nil {
 			next.ServeHTTP(w, r)
 			return

@@ -16,12 +16,13 @@ make run            # go run ./cmd/aeman serve (frontend must be built once)
 make lint           # golangci-lint run (CI pins golangci-lint v2, .golangci.yaml)
 make fmt            # golangci-lint fmt
 make test           # go test ./...
+make generate       # regenerate api.gen.go + schema.d.ts from api/openapi.yaml
 ```
 
 - Single Go test: `go test ./pkg/board -run TestMeView` (any package/regexp).
 - Frontend (from `web/`): `npm run typecheck`, `npm test` (vitest), single test file: `npx vitest run src/theme.test.ts`.
-- `npm run generate` (from `web/`) rewrites `web/src/api/schema.d.ts` from `api/openapi.yaml`. Run it in the same commit as a change to that document and commit the result: CI does not regenerate (`.github/workflows/ci.yml` runs `npm ci`, `npm run build`, `npm test`), so a stale copy typechecks green and nothing but this command will tell you.
-- CI (`.github/workflows/ci.yml`) runs golangci-lint, the frontend build + vitest, `make backend`, and `go test ./...` — all of it must pass locally before pushing.
+- `make generate` rewrites both files built from `api/openapi.yaml` — `internal/server/apiv1/api.gen.go` and `web/src/api/schema.d.ts` (that half alone is `npm run generate` from `web/`). Run it in the same commit as a change to that document and commit the result: CI regenerates and diffs both (`.github/workflows/ci.yml`, step `Generated code is current`), so a stale copy fails the build rather than typechecking green.
+- CI (`.github/workflows/ci.yml`) runs golangci-lint, the frontend build + vitest, `make generate` with a diff over what it wrote, `make backend`, `GOOS=windows go vet ./...` and `go test ./...` — all of it must pass locally before pushing.
 
 ## Architecture
 
@@ -54,6 +55,6 @@ The date/sprint/visibility logic is subtle and duplicated across consumers; the 
 - `docs/dates.md` — the date model and the Team/Me/Triage visibility rules.
 - `docs/api.md` — the board model, the LIST selectors, the watch protocol, the MCP surface and configuration; the routes themselves are `api/openapi.yaml` below.
 - `docs/design/behavior-matrix.md` — the behaviour matrix new rules get rows in.
-- `api/openapi.yaml` — the OpenAPI description of `/api/v1`, which IS the REST contract: `internal/server`'s tests hold the exchanges they make against it — the response always, the request when the server accepted it — so a route, body, field or problem code that changes without it fails the build.
+- `api/openapi.yaml` — the OpenAPI description of `/api/v1`, which IS the REST contract: the Go server interface is generated from it into `internal/server/apiv1` (committed; `make generate` rebuilds it and CI diffs the result), and `internal/server`'s tests hold the exchanges they make against it — the response always, the request when the server accepted it — so a route, body, field or problem code that changes without it fails the build.
 
 **A tool may write the board's repositories directly** — aeman is open source and its storage is just files in git, so anything can commit to a board without going through this server. What such a writer has to reproduce is specified in `docs/design/git-backend.md` and summarised in `docs/design/plugin-impact.md`: the layout and file formats, the rank keys, the domain rule, the move protocol and the commit trailers. Keep those two documents true when a PR changes domain rules or the storage schema — `pkg/board` semantics, `pkg/boardservice` admission/actions, the `pkg/gitstore` layout, file formats, trailers or the domain/move rules — because a writer following a stale spec silently produces states this server would never create (cards that never appear on the daily board, say). There is no longer a private companion repository to update alongside.
