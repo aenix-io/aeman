@@ -9,7 +9,8 @@ interface ConnectDialogProps {
 
 /**
  * ConnectDialog shows how to reach aeman programmatically: the MCP endpoint for
- * Claude Code / agents, and the REST API base URL with its catalog.
+ * Claude Code / agents, and the REST API base URL beside the OpenAPI document
+ * that describes what it answers.
  *
  * The "copied" feedback is timer-free: clicking a copy button records which
  * block was copied in local state, and the label reads "copied" until another
@@ -20,6 +21,7 @@ export function ConnectDialog({ onClose, connectHint }: ConnectDialogProps) {
   const origin = window.location.origin;
   const mcpCmd = `claude mcp add --transport http aeman ${origin}/mcp`;
   const apiUrl = `${origin}/api/v1`;
+  const specUrl = `${origin}/api/v1/openapi.json`;
   const [copied, setCopied] = useState<string | null>(null);
 
   const copy = (key: string, text: string) => {
@@ -86,8 +88,11 @@ export function ConnectDialog({ onClose, connectHint }: ConnectDialogProps) {
               </button>
             </div>
             <p className="connect-caption">
-              Same board operations over HTTP — open the link for the endpoint
-              catalog.
+              Same board operations over HTTP, described route by route in{" "}
+              <a href={specUrl} target="_blank" rel="noreferrer">
+                its OpenAPI document
+              </a>
+              .
             </p>
           </section>
         </div>

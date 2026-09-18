@@ -103,10 +103,20 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/", s.handleUnknownRoute)
 }
 
-// handleUnknownRoute closes the API off from the page behind it.
+// handleUnknownRoute closes the API off from the page behind it. The path is
+// echoed back so a caller sees which address missed, clipped because it is the
+// caller's own bytes and a detail is a sentence somebody reads.
 func (s *Server) handleUnknownRoute(w http.ResponseWriter, r *http.Request) {
-	writeProblem(w, problem(http.StatusNotFound, "unknownRoute", "no such route: "+r.Method+" "+r.URL.Path))
+	path := r.URL.Path
+	if len(path) > maxRouteInDetail {
+		path = path[:maxRouteInDetail] + "…"
+	}
+	writeProblem(w, problem(http.StatusNotFound, "unknownRoute", "no such route: "+r.Method+" "+path))
 }
+
+// maxRouteInDetail bounds the echoed path. Long enough for any route the
+// document describes, short enough that a refusal stays a sentence.
+const maxRouteInDetail = 120
 
 // apiIndex is the GET /api/v1 answer: identity, the MCP mount point and where
 // the description of this surface lives. It carries no board data, so it needs

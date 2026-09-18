@@ -204,6 +204,38 @@ func TestScopedWatchMembership(t *testing.T) {
 	}
 }
 
+// A card the board no longer holds has no resource to send, so the DELETED
+// frame announcing it is BUILT (tombstone). The document describes that frame
+// like any other and the lists it requires have to be lists: a nil slice
+// marshals to null, and a reader of the frame finds out by iterating one.
+func TestADeletedCardsFrameIsStillTheDescribedShape(t *testing.T) {
+	store := newBoardStore()
+	e := seedEntry(store, "k", watchBoard())
+	sel := apiserver.Selector{View: "team", Team: "alpha", Day: "2026-01-10"}
+	sub, cancel := store.subscribe("k", "", &sel, map[string]bool{"cards": true})
+	defer cancel()
+	if !sub.members["c1"] {
+		t.Fatalf("seeded members = %v", sub.members)
+	}
+
+	e.mu.Lock()
+	gone := e.board.Cards[0]
+	e.removeCard("c1")
+	e.cardChanged("", gone, "DELETED")
+	e.mu.Unlock()
+	settled(t, e)
+
+	f := readFrame(t, sub)
+	if f.Type != "DELETED" || frameUID(t, f) != "c1" {
+		t.Fatalf("frame = %+v", f)
+	}
+	raw, err := json.Marshal(f)
+	if err != nil {
+		t.Fatalf("marshal frame: %v", err)
+	}
+	conformsToSchema(t, "CardFrame", raw)
+}
+
 // V4: the originator's membership is still tracked while its frames are
 // suppressed, so later foreign changes do not mis-fire.
 func TestScopedWatchOriginMembershipTracked(t *testing.T) {

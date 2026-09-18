@@ -70,7 +70,10 @@ func loadedSpec(t *testing.T) (*openapi3.T, routers.Router) {
 
 // conforms wraps a handler so every /api/v1 exchange it serves is checked
 // against the spec. Only a recorded response is checked: a watch connection
-// hijacks the writer, and the spec describes no frames of it.
+// hijacks the writer, and the spec describes no frames of it. A test serving
+// this handler through httptest.NewServer is therefore NOT checked, and
+// skipping looks exactly like passing — drive the handler directly to be held
+// to the document.
 func conforms(t *testing.T, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec, recorded := w.(*httptest.ResponseRecorder)
@@ -86,6 +89,25 @@ func conforms(t *testing.T, next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 		checkExchange(t, r, sent, rec)
 	})
+}
+
+// conformsToSchema holds one value against a named schema of the document.
+// The watch is an upgrade with no recorded response, so its frames cannot ride
+// the middleware above; a test that builds one checks it here instead.
+func conformsToSchema(t *testing.T, name string, raw []byte) {
+	t.Helper()
+	doc, _ := loadedSpec(t)
+	ref, ok := doc.Components.Schemas[name]
+	if !ok {
+		t.Fatalf("the document has no schema %q", name)
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	if err := ref.Value.VisitJSON(v); err != nil {
+		t.Fatalf("the %s does not conform: %v\n — %s", name, err, raw)
+	}
 }
 
 // describedPath reports whether the spec speaks for a path. The watch is an
