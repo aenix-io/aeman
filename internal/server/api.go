@@ -365,7 +365,10 @@ func (s *Server) domainsFor(ctx context.Context, members []string) []apiserver.D
 		// repository's readers from another's, and it is a blocking call
 		// on a cold load for a login nothing is cached for.
 		if len(s.gitCfg.Repos) == 1 {
-			out = append(out, apiserver.DomainInfo{Name: d.Name, Writable: rights.canWrite(d.Name), Members: append([]string(nil), members...)})
+			// A copy of the empty slice, never of nil: the readers are a
+			// list on the wire, and a board nobody is assigned anything on
+			// would otherwise answer null.
+			out = append(out, apiserver.DomainInfo{Name: d.Name, Writable: rights.canWrite(d.Name), Members: append([]string{}, members...)})
 			continue
 		}
 		readers, err := s.access.readers(ctx, d.Name, members)
