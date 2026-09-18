@@ -41,8 +41,10 @@ accident of today's storage into everybody's integration.
 - Naming follows the frontend. When the Plan tab became Project, the
   view, the parameter and the tools were renamed with it, and the GitHub
   board moved to `board` to free the word.
-- A new tab ships with its endpoints and tools, documented in
-  `docs/api.md`, or it does not ship.
+- A new tab ships with its endpoints and tools described where each
+  belongs — the endpoints in `api/openapi.yaml`, which the server's tests
+  hold them to, the tools and the rules spanning routes in `docs/api.md`
+  — or it does not ship.
 - MCP tool descriptions explain the model to an agent the way the UI
   explains it to a person: what a thing is, what it belongs to, where a
   value is counted from — so an agent can act without reading the code.

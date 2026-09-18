@@ -52,7 +52,7 @@ Tests here are not happy-path exercises — they are the **second documentation 
 The date/sprint/visibility logic is subtle and duplicated across consumers; the docs are load-bearing, not decoration:
 
 - `docs/dates.md` — the date model and the Team/Me/Triage visibility rules.
-- `docs/api.md` — the REST/WATCH/MCP surface.
+- `docs/api.md` — the board model, the LIST selectors, the watch protocol, the MCP surface and configuration; the routes themselves are `api/openapi.yaml` below.
 - `docs/design/behavior-matrix.md` — the behaviour matrix new rules get rows in.
 - `api/openapi.yaml` — the OpenAPI description of `/api/v1`, which IS the REST contract: `internal/server`'s tests hold the exchanges they make against it — the response always, the request when the server accepted it — so a route, body, field or problem code that changes without it fails the build.
 
