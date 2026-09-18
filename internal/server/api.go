@@ -312,12 +312,6 @@ func splitList(v string) []string {
 	return out
 }
 
-// statusResponse is the acknowledgement returned by actions that leave no single
-// card to echo (delete, remove, move).
-type statusResponse struct {
-	Status string `json:"status"`
-}
-
 // --- Reads -------------------------------------------------------------------
 
 func (s *Server) handleGetBoard(w http.ResponseWriter, r *http.Request) {
@@ -782,7 +776,7 @@ func (s *Server) handleDeleteCard(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleRemoveCard(w http.ResponseWriter, r *http.Request) {
@@ -822,7 +816,7 @@ func (s *Server) handleRemoveCard(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
@@ -847,7 +841,7 @@ func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleDeferCard(w http.ResponseWriter, r *http.Request) {
@@ -930,12 +924,12 @@ func (s *Server) placementAction(w http.ResponseWriter, r *http.Request, respond
 	}
 	// Mirror and unmirror answer with the card resource, like the other
 	// card actions; remove-from-project cannot — its card may no longer
-	// exist — so it answers {"ok": true}.
+	// exist — so it answers 204.
 	if respondCard {
 		s.cardResponse(w, r, svc, boardID, r.PathValue("uid"))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleMirror adds a second Project-board column to the card — the same
@@ -1256,7 +1250,7 @@ func (s *Server) handleReorderTeams(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleDeleteTeam deletes a team's hidden sprint-state card. A team that
@@ -1276,7 +1270,7 @@ func (s *Server) handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleAddEpic declares a new Project-board column inside a project
@@ -1302,7 +1296,7 @@ func (s *Server) handleAddEpic(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleSetEpicProject moves a column from one project to another
@@ -1329,7 +1323,7 @@ func (s *Server) handleSetEpicProject(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleRenameEpic renames a column in place, cards and all
@@ -1356,7 +1350,7 @@ func (s *Server) handleRenameEpic(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleRenameProject renames a project in place, columns and cards along
@@ -1382,7 +1376,7 @@ func (s *Server) handleRenameProject(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleRenameTeam renames a team where it is declared, its cards and process
@@ -1404,7 +1398,7 @@ func (s *Server) handleRenameTeam(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleSetTeamCapacity records the points a week a team gets through — the
@@ -1431,7 +1425,7 @@ func (s *Server) handleSetTeamCapacity(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // patchColumn re-files a card under a column — the (project, epic) pair.
@@ -1483,7 +1477,7 @@ func (s *Server) handleAddProcess(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleDeleteProcess(w http.ResponseWriter, r *http.Request) {
@@ -1502,7 +1496,7 @@ func (s *Server) handleDeleteProcess(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleRenameProcess(w http.ResponseWriter, r *http.Request) {
@@ -1522,7 +1516,7 @@ func (s *Server) handleRenameProcess(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleSetProcessProject(w http.ResponseWriter, r *http.Request) {
@@ -1542,7 +1536,7 @@ func (s *Server) handleSetProcessProject(w http.ResponseWriter, r *http.Request)
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleSetProcessPaused(w http.ResponseWriter, r *http.Request) {
@@ -1562,7 +1556,7 @@ func (s *Server) handleSetProcessPaused(w http.ResponseWriter, r *http.Request) 
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleReorderProcesses(w http.ResponseWriter, r *http.Request) {
@@ -1581,7 +1575,7 @@ func (s *Server) handleReorderProcesses(w http.ResponseWriter, r *http.Request) 
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleReorderProcessTasks(w http.ResponseWriter, r *http.Request) {
@@ -1601,7 +1595,7 @@ func (s *Server) handleReorderProcessTasks(w http.ResponseWriter, r *http.Reques
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // taskRequest is a task on the wire, for create (all fields) and
@@ -1663,7 +1657,7 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
@@ -1676,7 +1670,7 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleAddDeadline marks a week with one project's deadline line
@@ -1702,7 +1696,7 @@ func (s *Server) handleAddDeadline(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleDeleteDeadline clears one project's deadline on a week
@@ -1728,7 +1722,7 @@ func (s *Server) handleDeleteDeadline(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleMoveDeadline drags a deadline to another week (body {from, to});
@@ -1755,7 +1749,7 @@ func (s *Server) handleMoveDeadline(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleAddProject declares a project — the Project board's top grouping,
@@ -1783,7 +1777,7 @@ func (s *Server) handleAddProject(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleDeleteProject removes an EMPTY project (422 while it still owns epic
@@ -1808,7 +1802,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleReorderProjects applies the shared chip order (body {projects:[...]}).
@@ -1832,7 +1826,7 @@ func (s *Server) handleReorderProjects(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleDeleteEpic removes an EMPTY epic column (422 while cards still sit
@@ -1858,7 +1852,7 @@ func (s *Server) handleDeleteEpic(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleReorderEpics applies a shared column order (body {epics:[...]}),
@@ -1884,7 +1878,7 @@ func (s *Server) handleReorderEpics(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // --- Shared helpers ----------------------------------------------------------------
@@ -1909,7 +1903,7 @@ func (s *Server) handleSetPresence(w http.ResponseWriter, r *http.Request) {
 	// user could show a chosen card as selected by someone else.
 	login := board.ActorFrom(r.Context())
 	s.store.SetPresence(storeKey(boardID), clientIDFrom(r.Context()), login, in.Card)
-	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // cardResponse loads the (post-mutation) card and writes it as the resource —

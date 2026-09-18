@@ -279,16 +279,16 @@ func TestCreateRosterEntryInChosenDomain(t *testing.T) {
 	if rec := doAs(t, srv, "bob", http.MethodPost, "/api/v1/projects", `{"name":"vault","domain":"nope"}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("unknown domain: %d %s, want 400", rec.Code, rec.Body.String())
 	}
-	if rec := doAs(t, srv, "bob", http.MethodPost, "/api/v1/projects", `{"name":"vault","domain":"closed"}`); rec.Code != http.StatusCreated {
+	if rec := doAs(t, srv, "bob", http.MethodPost, "/api/v1/projects", `{"name":"vault","domain":"closed"}`); rec.Code != http.StatusNoContent {
 		t.Fatalf("bob declares a closed project: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := doAs(t, srv, "bob", http.MethodPost, "/api/v1/processes", `{"name":"audit","domain":"closed"}`); rec.Code != http.StatusCreated {
+	if rec := doAs(t, srv, "bob", http.MethodPost, "/api/v1/processes", `{"name":"audit","domain":"closed"}`); rec.Code != http.StatusNoContent {
 		t.Fatalf("bob declares a closed process: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := doAs(t, srv, "bob", http.MethodPatch, "/api/v1/sprints", `{"team":"ops","current":"2026-08-31","domain":"closed"}`); rec.Code != http.StatusOK {
 		t.Fatalf("bob declares a closed team: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := doAs(t, srv, "alice", http.MethodPost, "/api/v1/projects", `{"name":"open"}`); rec.Code != http.StatusCreated {
+	if rec := doAs(t, srv, "alice", http.MethodPost, "/api/v1/projects", `{"name":"open"}`); rec.Code != http.StatusNoContent {
 		t.Fatalf("alice declares a primary project: %d %s", rec.Code, rec.Body.String())
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -424,7 +424,7 @@ func TestSizesAndCapacitiesNeedWriteAccessToo(t *testing.T) {
 	}
 	// The team "portal" is declared in the shared domain, and so is the
 	// roster: dave may set both.
-	if rec := doAs(t, srv, "dave", http.MethodPost, "/api/v1/teams/actions/capacity", `{"team":"portal","points":40}`); rec.Code != http.StatusOK {
+	if rec := doAs(t, srv, "dave", http.MethodPost, "/api/v1/teams/actions/capacity", `{"team":"portal","points":40}`); rec.Code != http.StatusNoContent {
 		t.Fatalf("dave sets a shared team's capacity: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/people/dave", `{"capacity":20}`); rec.Code != http.StatusOK {

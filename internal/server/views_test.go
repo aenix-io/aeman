@@ -65,11 +65,11 @@ func TestAGestureIsRefusedForACardTheBoardDoesNotDraw(t *testing.T) {
 	}
 	// The lead's grid draws it, and so does the escape hatch.
 	if rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards/theirs/actions/remove",
-		`{"intent":"unassign"}`); rec.Code != http.StatusOK {
+		`{"intent":"unassign"}`); rec.Code != http.StatusNoContent {
 		t.Fatalf("the team board's × answered %d: %s", rec.Code, rec.Body.String())
 	}
 	if rec := do(t, srv, http.MethodPost, "/api/v1/views/all/cards/mine/actions/remove",
-		`{"intent":"unassign"}`); rec.Code != http.StatusOK {
+		`{"intent":"unassign"}`); rec.Code != http.StatusNoContent {
 		t.Fatalf("view=all answered %d: %s", rec.Code, rec.Body.String())
 	}
 }
@@ -265,7 +265,7 @@ func TestTheDoorHandsTheServiceTheBoardItWasPressedOn(t *testing.T) {
 		t.Fatalf("the Me board's × on planned work answered %d, want 403: %s", rec.Code, rec.Body.String())
 	}
 	if rec := do(t, srv(seed()), http.MethodPost, "/api/v1/views/team/cards/planned/actions/remove?team=alpha",
-		`{"intent":"unassign"}`); rec.Code != http.StatusOK {
+		`{"intent":"unassign"}`); rec.Code != http.StatusNoContent {
 		t.Fatalf("the team grid's × on the same card answered %d: %s", rec.Code, rec.Body.String())
 	}
 }
@@ -284,7 +284,7 @@ func TestTheDrawersCrossIsTheTriageBoards(t *testing.T) {
 	// A parked card is in no week, so the grid's own listing does not hold it
 	// — the drawer beside the grid does, and the board is one screen.
 	if rec := do(t, srv, http.MethodPost, "/api/v1/views/triage/cards/shelved/actions/remove?team=alpha",
-		`{"intent":"off-board"}`); rec.Code != http.StatusOK {
+		`{"intent":"off-board"}`); rec.Code != http.StatusNoContent {
 		t.Fatalf("the drawer's × answered %d: %s", rec.Code, rec.Body.String())
 	}
 }

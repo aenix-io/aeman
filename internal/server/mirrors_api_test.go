@@ -85,7 +85,7 @@ func TestMirrorActionsOverTheGitStore(t *testing.T) {
 
 	// Remove from the home column: the mirror is promoted to the home.
 	rec = doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+uid+"/actions/remove-from-project", `{"project":"engineering","epic":"Cozystack"}`)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusNoContent {
 		t.Fatalf("remove-from-project: %d %s", rec.Code, rec.Body.String())
 	}
 	rec = doAs(t, srv, "kvaps", "GET", "/api/v1/cards/"+uid, "")
@@ -99,7 +99,7 @@ func TestMirrorActionsOverTheGitStore(t *testing.T) {
 
 	// And removing the last column deletes an untouched card outright.
 	rec = doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+uid+"/actions/remove-from-project", `{"project":"freedom","epic":"Launch"}`)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusNoContent {
 		t.Fatalf("last column: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards/"+uid, ""); rec.Code != http.StatusNotFound {
@@ -186,7 +186,7 @@ func TestRemoveFromANoProjectColumnOverHTTP(t *testing.T) {
 	const uid = "01JB4K2E7QZMX3R8V0N5T9WYD4"
 
 	rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+uid+"/actions/remove-from-project", `{"project":"","epic":"Inbox"}`)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusNoContent {
 		t.Fatalf("the no-project x must work: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards/"+uid, ""); rec.Code != http.StatusNotFound {
@@ -295,7 +295,7 @@ func TestAHandWrittenGhostMirrorNeverPromotes(t *testing.T) {
 	// And the x treats the home as the LAST column: the untouched card is
 	// deleted, not re-filed into a pair nobody declared.
 	rec = doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+uid+"/actions/remove-from-project", `{"project":"engineering","epic":"Cozystack"}`)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusNoContent {
 		t.Fatalf("remove: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards/"+uid, ""); rec.Code != http.StatusNotFound {

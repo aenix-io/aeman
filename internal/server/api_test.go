@@ -291,7 +291,7 @@ func TestAPIRemoveActionDeletes(t *testing.T) {
 	}, map[string]board.SprintState{"alpha": {Current: "2026-06-20", Previous: "2026-06-13", ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
 	rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards/c1/actions/remove", `{"from":"grid"}`)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	rec = do(t, srv, http.MethodGet, "/api/v1/cards/c1", "")
@@ -307,7 +307,7 @@ func TestAPIDeleteCascadesToReview(t *testing.T) {
 	}, nil)
 	srv := apiServer(t, Options{}, fake)
 	rec := do(t, srv, http.MethodDelete, "/api/v1/cards/c1", "")
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	rec = do(t, srv, http.MethodGet, "/api/v1/cards/r1", "")
@@ -702,7 +702,7 @@ func TestPresenceUsesAuthenticatedLogin(t *testing.T) {
 	r.Header.Set("X-Aeman-Client", "tab-1")
 	rec := httptest.NewRecorder()
 	srv.handler.ServeHTTP(rec, r)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 
@@ -770,7 +770,7 @@ func TestAPIRenameTeam(t *testing.T) {
 	})
 	srv := apiServer(t, Options{}, fake)
 	rec := do(t, srv, http.MethodPost, "/api/v1/teams/actions/rename", `{"team":"test","to":"platform"}`)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusNoContent {
 		t.Fatalf("rename: %d %s", rec.Code, rec.Body.String())
 	}
 	if c := fake.Card("c1"); c == nil || c.Team != "platform" {
