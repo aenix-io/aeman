@@ -90,7 +90,7 @@ export function viewQueries(
 // snapshotDay reports that a day is one the board can be shown AS IT WAS: a
 // past day on a daily board (Me or Team). Today is live, tomorrow has not
 // happened, and the Project and Process boards are not day boards at all.
-// Mirrors the server's own condition in handleListCards.
+// Mirrors the server's own condition (boardOfRequest, internal/server/api.go).
 export function snapshotDay(view: ViewMode, day: string, today = todayIso()): boolean {
   return (view === "me" || view === "team") && day !== "" && day < today;
 }

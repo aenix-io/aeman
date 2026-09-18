@@ -18,10 +18,6 @@ type hybrid struct {
 	s *Server
 }
 
-func (h hybrid) GetBoard(w http.ResponseWriter, r *http.Request, _ apiv1.GetBoardParams) {
-	h.s.handleGetBoard(w, r)
-}
-
 func (h hybrid) ListLinks(w http.ResponseWriter, r *http.Request, _ apiv1.UID) {
 	h.s.handleListLinks(w, r)
 }
@@ -150,10 +146,6 @@ func (h hybrid) ReorderProjects(w http.ResponseWriter, r *http.Request) {
 	h.s.handleReorderProjects(w, r)
 }
 
-func (h hybrid) ListSprints(w http.ResponseWriter, r *http.Request, _ apiv1.ListSprintsParams) {
-	h.s.handleListSprints(w, r)
-}
-
 func (h hybrid) PatchSprint(w http.ResponseWriter, r *http.Request) {
 	h.s.handlePatchSprint(w, r)
 }
@@ -176,32 +168,4 @@ func (h hybrid) SetTeamCapacity(w http.ResponseWriter, r *http.Request) {
 
 func (h hybrid) RenameTeam(w http.ResponseWriter, r *http.Request) {
 	h.s.handleRenameTeam(w, r)
-}
-
-func (h hybrid) ListViews(w http.ResponseWriter, r *http.Request) {
-	h.s.handleListViews(w, r)
-}
-
-func (h hybrid) ListCards(w http.ResponseWriter, r *http.Request, _ apiv1.View, _ apiv1.ListCardsParams) {
-	h.s.handleListCards(w, r)
-}
-
-func (h hybrid) CreateCard(w http.ResponseWriter, r *http.Request, _ apiv1.View) {
-	h.s.handleCreateCard(w, r)
-}
-
-func (h hybrid) FinishedEarlier(w http.ResponseWriter, r *http.Request, _ apiv1.View, _ apiv1.UID, _ apiv1.FinishedEarlierParams) {
-	h.s.handleFinishedEarlier(w, r)
-}
-
-func (h hybrid) PlaceCard(w http.ResponseWriter, r *http.Request, _ apiv1.View, _ apiv1.UID, _ apiv1.PlaceCardParams) {
-	h.s.handlePlaceCard(w, r)
-}
-
-func (h hybrid) RemoveCard(w http.ResponseWriter, r *http.Request, _ apiv1.View, _ apiv1.UID, _ apiv1.RemoveCardParams) {
-	h.s.handleRemoveCard(w, r)
-}
-
-func (h hybrid) UntriageCard(w http.ResponseWriter, r *http.Request, _ apiv1.View, _ apiv1.UID, _ apiv1.UntriageCardParams) {
-	h.s.handleUntriageCard(w, r)
 }

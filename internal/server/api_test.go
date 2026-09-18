@@ -801,3 +801,37 @@ func TestAPIRemoveReadsAStreamedIntent(t *testing.T) {
 		t.Fatalf("the streamed intent was dropped; card = %+v", got)
 	}
 }
+
+// The other half of the same rule: NO body at all is the intentless gesture,
+// which hands the card back to a home it still has rather than deleting it.
+// That tolerance is the document's, not the handler's — removeCard is the one
+// operation whose requestBody is `required: false`, and that word is what
+// makes the generated server forgive an empty body instead of refusing it with
+// 400. Turn it to `true` to match its forty neighbours and nothing stops
+// compiling; this is what notices.
+func TestAPIRemoveTakesNoBodyAtAll(t *testing.T) {
+	today := board.TodayIso()
+	// The same card the streamed case uses, and for the same reason: in the
+	// working area AND scheduled for a week, so the intentless gesture and
+	// off-board part company on it.
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "c1", Team: "alpha", Assignees: []string{"kvaps"},
+			Week: board.MondayOf(today), SprintStart: today, StartDate: today, Day: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards/c1/actions/remove", "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("an empty body answered %d, want 204 — %s", rec.Code, rec.Body.String())
+	}
+	got := fake.Card("c1")
+	if got == nil {
+		t.Fatal("the intentless × deleted the card; it has a week to be handed back to")
+	}
+	if got.Week != board.MondayOf(today) {
+		t.Errorf("week = %q, want %q — the card was handed back to its week", got.Week, board.MondayOf(today))
+	}
+	if got.Day != "" {
+		t.Errorf("day = %q, want empty — the × takes it off the day board", got.Day)
+	}
+}

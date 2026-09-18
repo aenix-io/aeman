@@ -58,14 +58,16 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	view, ok := s.viewOf(w, r)
-	if !ok {
+	view, err := viewOf(r.PathValue("view"))
+	if err != nil {
+		s.apiError(w, r, err)
 		return
 	}
 	var sel *apiserver.Selector
 	if scopedWatch(view, q) {
-		parsed, parsedOK := s.selectorOf(w, r, view)
-		if !parsedOK {
+		parsed, err := selectorOf(withQuery(r.Context(), q), view)
+		if err != nil {
+			s.apiError(w, r, err)
 			return
 		}
 		sel = &parsed

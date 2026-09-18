@@ -60,7 +60,7 @@ func (s *Server) recordWriteGuard(next http.Handler) http.Handler {
 			}
 		} else if isCreate(r) {
 			// A CREATE names its team in the body, so it is judged by that
-			// team where the body is already parsed (handleCreateCard). While
+			// team where the body is already parsed (surface.CreateCard). While
 			// a sprint is OPEN its days are the team's to work — the lead
 			// reading the day it began adds a card there, which is where the
 			// standup is — and refusing every create because SOME team on the

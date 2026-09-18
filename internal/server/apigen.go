@@ -1,7 +1,10 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"net/http"
+	"net/url"
 
 	"github.com/aenix-io/aeman/internal/server/apiv1"
 )
@@ -21,7 +24,8 @@ type surface struct {
 // body it cannot read, a parameter it cannot bind, an error a method
 // returned — the problem shape every other answer under /api/v1 has.
 func (s *Server) registerStrict(mux *http.ServeMux) {
-	strict := apiv1.NewStrictHandlerWithOptions(surface{s: s}, nil,
+	strict := apiv1.NewStrictHandlerWithOptions(surface{s: s},
+		[]apiv1.StrictMiddlewareFunc{carryQuery},
 		apiv1.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  bodyRefused,
 			ResponseErrorHandlerFunc: s.apiError,
@@ -40,6 +44,12 @@ func bodyRefused(w http.ResponseWriter, _ *http.Request, err error) {
 	if tooBig(w, err) {
 		return
 	}
+	// The sentence a person reads is the decoder's own; the generated server
+	// wraps it in one saying it could not decode the body, which is what the
+	// code already says.
+	if inner := errors.Unwrap(err); inner != nil {
+		err = inner
+	}
 	writeProblem(w, problem(http.StatusBadRequest, "invalidBody", "invalid JSON body: "+err.Error()))
 }
 
@@ -48,6 +58,34 @@ func bodyRefused(w http.ResponseWriter, _ *http.Request, err error) {
 // where reading the query by hand silently took the first value.
 func parameterRefused(w http.ResponseWriter, _ *http.Request, err error) {
 	writeProblem(w, problem(http.StatusBadRequest, "invalidParameter", err.Error()))
+}
+
+// queryCtxKey carries the request's raw query to a strict method.
+type queryCtxKey struct{}
+
+// carryQuery puts the raw query on the context. A strict method is handed the
+// typed parameters and not the request, and some of them cannot be read off
+// that copy: the view selectors go through apiserver.ParseSelector, the public
+// contract for them (selectorOf), and the day/snapshot pair is read by
+// boardOfRequest for a route with no board segment of its own. The parameters
+// stay declared in the document, for clients; this side ignores the typed
+// copy.
+func carryQuery(f apiv1.StrictHandlerFunc, _ string) apiv1.StrictHandlerFunc {
+	return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
+		return f(withQuery(ctx, r.URL.Query()), w, r, request)
+	}
+}
+
+// withQuery is carryQuery's own step, for the watch: it is registered by hand
+// and reads the selectors through the same door a strict method does.
+func withQuery(ctx context.Context, q url.Values) context.Context {
+	return context.WithValue(ctx, queryCtxKey{}, q)
+}
+
+// queryFrom is the request's raw query, as carryQuery left it.
+func queryFrom(ctx context.Context) url.Values {
+	q, _ := ctx.Value(queryCtxKey{}).(url.Values)
+	return q
 }
 
 // notAuthenticated is the answer to a request that brings no usable
