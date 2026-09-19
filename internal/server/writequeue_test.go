@@ -320,11 +320,34 @@ func TestReloadReplaysPending(t *testing.T) {
 	})
 	e.mu.Unlock()
 
-	got := be.install(e, watchBoard())
+	got := be.installAndTake(e, watchBoard())
+	var found bool
 	for _, c := range got.Cards {
-		if c.ItemID == "c1" && c.Progress != 55 {
+		if c.ItemID != "c1" {
+			continue
+		}
+		found = true
+		if c.Progress != 55 {
 			t.Fatalf("pending change lost on reload: %+v", c)
 		}
+	}
+	// Without this the loop passes on a board with no c1 in it, having
+	// checked nothing.
+	if !found {
+		t.Fatal("c1 is not in the reloaded board; the assertion above never ran")
+	}
+
+	// installAndTake detaches what it hands back, and nothing else in the
+	// suite fails when that clone is dropped: the cold-load path is the one
+	// place a board reaches a handler while the sync keeps writing the cache,
+	// and a race there needs two goroutines the tests never arrange. So pin
+	// it by ownership instead of by scheduling.
+	title := got.Cards[0].Title
+	e.mu.Lock()
+	e.board.Cards[0].Title = "written after the hand-out"
+	e.mu.Unlock()
+	if got.Cards[0].Title != title {
+		t.Fatalf("a write to the cache reached a board installAndTake had already handed out: %q", got.Cards[0].Title)
 	}
 }
 
@@ -360,7 +383,7 @@ func TestInstallKeepsRecentRosterStubs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := be.install(e, stale)
+	got := be.installAndTake(e, stale)
 	if got.ProjectStates["vault"] != "P_NEW" {
 		t.Fatalf("project lost on reload: %v", got.Projects)
 	}
@@ -422,7 +445,7 @@ func TestRevalidateKeepsRecentWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := be.install(e, stale)
+	got := be.installAndTake(e, stale)
 	if got.Cards[0].ItemID != "c2" || got.Cards[1].ItemID != "c1" {
 		t.Fatalf("order rolled back: got %s, %s", got.Cards[0].ItemID, got.Cards[1].ItemID)
 	}
@@ -459,7 +482,7 @@ func TestRevalidateRestoresCreatedCardInPlace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := be.install(e, stale)
+	got := be.installAndTake(e, stale)
 	ids := make([]string, len(got.Cards))
 	for i, c := range got.Cards {
 		ids[i] = c.ItemID

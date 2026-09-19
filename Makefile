@@ -28,7 +28,7 @@ lint:
 
 ## test: run Go tests
 test:
-	go test ./...
+	go test -race ./...
 
 ## fmt: format Go code
 fmt:

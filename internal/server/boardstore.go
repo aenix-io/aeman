@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -173,9 +175,13 @@ type boardEntry struct {
 	// carrying and what it weighs. Coalesced like rosterDue and for the same
 	// reason — see loadBroadcast.
 	loadDue bool
-	// fanoutCost is how long the last fan-out took — what paces the next
-	// one (see fanoutDelay).
-	fanoutCost time.Duration
+	// fanoutCost is how long the last fan-out took, in nanoseconds — what
+	// paces the next one (see fanoutDelay). Atomic rather than covered by
+	// e.mu, because its writers disagree about holding it: flushMembers
+	// records under the lock, while flushRoster and flushLoad have released
+	// it by then, and taking it back there would fold the wait for it into
+	// the duration being recorded.
+	fanoutCost atomic.Int64
 	// membersDue is a scoped subscription's membership waiting to be
 	// re-decided, and moved holds the cards the burst touched with the
 	// client that touched each (for echo suppression). Deciding a view's
@@ -388,7 +394,56 @@ func (e *boardEntry) cached() (board.Board, cacheState) {
 	if age >= boardFreshFor {
 		state = cacheStale
 	}
-	return e.board, state
+	return detached(e.board), state
+}
+
+// detached returns a board that shares no mutable container with the cache.
+//
+// The cache hands its board out BY VALUE, and a board.Board copy still
+// points at the same card array, the same roster slices and the same maps.
+// Every mutation path then edits those IN PLACE under e.mu (a card's field,
+// a deadline's week, a note's body, ProjectStates), so whoever holds such a
+// copy reads them under no lock at all. For the slices that is a torn multi-word field;
+// for the maps it is a concurrent map read and map write, which is a fatal
+// runtime throw and takes the process with it.
+//
+// The cost is on the read path and it is not small: this runs under e.mu on
+// every cached read, so a read went from O(1) to O(cards) inside the lock
+// every writer waits on. That is the trade against a fatal map throw, taken
+// deliberately; copy-on-write at the mutation sites is the exit if read
+// throughput ever matters more.
+//
+// Everything reachable and writable through a copy is cloned, rather than
+// only the fields some setter touches today. The invariant a reader can
+// check is "a board handed out owns its containers"; a list of the
+// currently-mutated ones would be correct until the next setter is added and
+// wrong silently.
+func detached(b board.Board) board.Board {
+	b.Cards = detachedCards(b.Cards)
+	b.Tasks = detachedCards(b.Tasks)
+	b.Epics = slices.Clone(b.Epics)
+	b.Deadlines = slices.Clone(b.Deadlines)
+	b.Processes = slices.Clone(b.Processes)
+	b.Projects = slices.Clone(b.Projects)
+	b.TeamOrder = slices.Clone(b.TeamOrder)
+	b.SprintStates = maps.Clone(b.SprintStates)
+	b.People = maps.Clone(b.People)
+	b.ProjectStates = maps.Clone(b.ProjectStates)
+	b.Domains = maps.Clone(b.Domains)
+	return b
+}
+
+// detachedCards clones the rows and the containers hanging off each: a card
+// copy still aliases its own notes, and EditNote rewrites a note's body
+// through that alias.
+func detachedCards(cards []board.Card) []board.Card {
+	out := slices.Clone(cards)
+	for i := range out {
+		out[i].Assignees = slices.Clone(out[i].Assignees)
+		out[i].Notes = slices.Clone(out[i].Notes)
+		out[i].Mirrors = slices.Clone(out[i].Mirrors)
+	}
+	return out
 }
 
 // cardChanged fans one card change out to the subscriptions. The caller holds
@@ -880,7 +935,7 @@ func (b *storeBackend) LoadBoard(ctx context.Context, boardID string) (board.Boa
 		}
 		b.store.logger().Info("board load done", "board", storeKey(boardID),
 			"cards", len(fresh.Cards), "dur", time.Since(started))
-		done <- loaded{bd: b.install(e, fresh)}
+		done <- loaded{bd: b.installAndTake(e, fresh)}
 	}()
 	select {
 	case l := <-done:
@@ -924,11 +979,29 @@ const detachedLoadTimeout = 5 * time.Minute
 
 // install replaces the cache with a freshly loaded board, fans the diff
 // against the previous snapshot out to watchers as ordinary events, and
-// closes with a Sync frame. Returns the installed board (with recent local
-// mutations re-applied).
-func (b *storeBackend) install(e *boardEntry, fresh board.Board) board.Board {
+// closes with a Sync frame. It hands nothing back: the sync tick and the
+// background revalidate both install and walk away, and cloning a whole
+// board for them to drop is the cost this shape avoids.
+func (b *storeBackend) install(e *boardEntry, fresh board.Board) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	b.installLocked(e, fresh)
+}
+
+// installAndTake is install for the one caller that needs what it installed.
+// The board leaves the SAME critical section that put it there. Reading it
+// back with a second cached() after install returned would let an
+// invalidation land in between — neither site that clears e.loaded holds
+// loadMu — and answer a full load with an empty board and no error at all.
+func (b *storeBackend) installAndTake(e *boardEntry, fresh board.Board) board.Board {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	b.installLocked(e, fresh)
+	return detached(e.board)
+}
+
+// installLocked is the body the two share. The caller holds e.mu.
+func (b *storeBackend) installLocked(e *boardEntry, fresh board.Board) {
 	old := e.board
 	hadOld := e.loaded
 	fresh = e.applyRecent(fresh)
@@ -948,7 +1021,6 @@ func (b *storeBackend) install(e *boardEntry, fresh board.Board) board.Board {
 		e.diffNotify(old)
 	}
 	e.syncBroadcast()
-	return e.board
 }
 
 // diffNotify announces everything a full reload changed against the previous
@@ -1059,7 +1131,7 @@ func mine(origin, clientID string) bool { return origin != "" && origin == clien
 // size — and on the ordinary board, where a fan-out is a fraction of a
 // millisecond, the window stays the plain 25 ms.
 func (e *boardEntry) fanoutDelay() time.Duration {
-	d := 4 * e.fanoutCost
+	d := 4 * time.Duration(e.fanoutCost.Load())
 	if d < fanoutWindow {
 		return fanoutWindow
 	}
@@ -1104,9 +1176,15 @@ func (e *boardEntry) flushRoster() {
 }
 
 // noteFanout records what a fan-out cost, smoothed so one slow run does not
-// stretch the window for long. The caller holds e.mu.
+// stretch the window for long. Safe from any goroutine, with or without
+// e.mu.
+//
+// Two fan-outs landing together can lose one of the two updates, because the
+// read and the write are separate. That is the right trade for a number that
+// paces a timer and is clamped at both ends: a compare-and-swap loop would
+// imply a precision it does not have.
 func (e *boardEntry) noteFanout(d time.Duration) {
-	e.fanoutCost = (e.fanoutCost + d) / 2
+	e.fanoutCost.Store((e.fanoutCost.Load() + int64(d)) / 2)
 }
 
 // rightsKey names a projection of the board: two subscriptions with the same
@@ -1207,7 +1285,7 @@ func (e *boardEntry) claimFanout(due *bool) ([]*watcherGroup, func(login string)
 		key := rightsKey(sub.rights)
 		g, ok := byKey[key]
 		if !ok {
-			g = &watcherGroup{board: sub.view(e.board)}
+			g = &watcherGroup{board: detached(sub.view(e.board))}
 			byKey[key] = g
 			order = append(order, g)
 		}
