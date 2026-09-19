@@ -6,6 +6,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/boardservice/boardservicetest"
 )
 
 // A request body is capped before any handler reads it: a handler decoding
@@ -38,5 +41,30 @@ func TestLimitBodyCapsTheRequest(t *testing.T) {
 	}
 	if read > maxBodyBytes {
 		t.Fatalf("the handler read %d bytes past the %d cap", read, maxBodyBytes)
+	}
+}
+
+// Over the cap, every route answers alike. PATCH /people/{login} did not: it
+// decoded straight off the body instead of through the shared helper, so a
+// caller who sent too much was told the JSON was invalid (400) where every
+// neighbour answered 413. There is one decode for the whole surface now, and
+// one answer with it.
+func TestAnOversizedBodyIsTooLargeOnEveryRoute(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Team: "t"}}, nil)
+	srv := apiServer(t, Options{}, fake)
+	pad := `,"pad":"` + strings.Repeat("x", maxBodyBytes) + `"}`
+	for _, c := range []struct{ name, method, target, body string }{
+		{"a person's capacity", http.MethodPatch, "/api/v1/people/bob", `{"capacity":1` + pad},
+		{"a card action", http.MethodPost, "/api/v1/cards/c1/actions/defer", `{"days":1` + pad},
+		{"a card patch", http.MethodPatch, "/api/v1/cards/c1", `{"title":"x"` + pad},
+	} {
+		rec := do(t, srv, c.method, c.target, c.body)
+		if rec.Code != http.StatusRequestEntityTooLarge {
+			t.Errorf("%s: %d, want 413 — %s", c.name, rec.Code, rec.Body.String())
+			continue
+		}
+		if code := decodeProblem(t, rec).Code; code != "bodyTooLarge" {
+			t.Errorf("%s: code %q, want bodyTooLarge", c.name, code)
+		}
 	}
 }

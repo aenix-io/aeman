@@ -83,7 +83,7 @@ func TestACarryOverAnnouncesTheBoardOnceNotPerCard(t *testing.T) {
 	// Twelve tabs, each draining its stream the way a browser does — a frame
 	// nobody reads is dropped, and a dropped frame would hide the cost that
 	// building it already paid.
-	key := storeKey(srv.boardRef(nil))
+	key := storeKey(srv.boardRef())
 	var boards, all atomic.Int64
 	var wg sync.WaitGroup
 	stop := make(chan struct{})

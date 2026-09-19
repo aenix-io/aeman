@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -25,7 +26,7 @@ func apiServer(t *testing.T, opts Options, fake *boardservicetest.Backend) *Serv
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	srv.newService = func(*http.Request) (*boardservice.Service, error) {
+	srv.newService = func() (*boardservice.Service, error) {
 		return boardservice.New(fake), nil
 	}
 	srv.handler = conforms(t, srv.handler)
@@ -436,7 +437,7 @@ func TestAPIIgnoresOwnerAndBoardParameters(t *testing.T) {
 func TestAPIIndex(t *testing.T) {
 	srv := apiServer(t, Options{Version: "test-1.2.3"}, boardservicetest.New(nil, nil))
 	// The catalog is public metadata: it must not resolve a token or board.
-	srv.newService = func(*http.Request) (*boardservice.Service, error) {
+	srv.newService = func() (*boardservice.Service, error) {
 		t.Fatal("index must not build a board service")
 		return nil, nil
 	}
@@ -799,5 +800,74 @@ func TestAPIRemoveReadsAStreamedIntent(t *testing.T) {
 	// it back to its week and left it standing.
 	if got := fake.Card("c1"); got != nil {
 		t.Fatalf("the streamed intent was dropped; card = %+v", got)
+	}
+}
+
+// The other half of the same rule: NO body at all is the intentless gesture,
+// which hands the card back to a home it still has rather than deleting it.
+// That tolerance is the document's, not the handler's — removeCard is the one
+// operation whose requestBody is `required: false`, and that word is what
+// makes the generated server forgive an empty body instead of refusing it with
+// 400. Turn it to `true` to match its forty neighbours and nothing stops
+// compiling; this is what notices.
+func TestAPIRemoveTakesNoBodyAtAll(t *testing.T) {
+	today := board.TodayIso()
+	// The same card the streamed case uses, and for the same reason: in the
+	// working area AND scheduled for a week, so the intentless gesture and
+	// off-board part company on it.
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "c1", Team: "alpha", Assignees: []string{"kvaps"},
+			Week: board.MondayOf(today), SprintStart: today, StartDate: today, Day: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards/c1/actions/remove", "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("an empty body answered %d, want 204 — %s", rec.Code, rec.Body.String())
+	}
+	got := fake.Card("c1")
+	if got == nil {
+		t.Fatal("the intentless × deleted the card; it has a week to be handed back to")
+	}
+	if got.Week != board.MondayOf(today) {
+		t.Errorf("week = %q, want %q — the card was handed back to its week", got.Week, board.MondayOf(today))
+	}
+	if got.Day != "" {
+		t.Errorf("day = %q, want empty — the × takes it off the day board", got.Day)
+	}
+}
+
+// Forty handlers read `req.Body` without asking whether it is nil, and what
+// keeps it non-nil is one word per operation in the document: only a body the
+// document leaves `required: false` makes the generated wrapper tolerate an
+// empty one and leave the pointer nil. Widen that set and the handler on the
+// other side dereferences nil — TestEverySpecOperationHasItsRoute drives every
+// operation with an empty body, so today that surfaces as a panic, which names
+// the wrong thing. This pins the set instead, so the edit is refused where it
+// is made and the reader is sent to the handler that would break.
+func TestOnlyOneOperationTakesAnOptionalBody(t *testing.T) {
+	doc, _ := loadedSpec(t)
+	var optional []string
+	bodies := 0
+	for path, item := range doc.Paths.Map() {
+		for method, op := range item.Operations() {
+			if op.RequestBody == nil || op.RequestBody.Value == nil {
+				continue
+			}
+			bodies++
+			if !op.RequestBody.Value.Required {
+				optional = append(optional, method+" "+path)
+			}
+		}
+	}
+	if bodies < 30 {
+		t.Fatalf("only %d operations declare a body — has the document moved?", bodies)
+	}
+	// removeCard alone: sending nothing is the intentless ×, and
+	// surface.RemoveCard is the one handler that checks the pointer.
+	want := []string{"POST /views/{view}/cards/{uid}/actions/remove"}
+	if !slices.Equal(optional, want) {
+		t.Errorf("operations with an optional body = %v, want %v — a handler dereferences req.Body for each of the other %d, so widening this set needs a nil check on the other side",
+			optional, want, bodies-1)
 	}
 }

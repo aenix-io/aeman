@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"net/http"
 
+	"github.com/aenix-io/aeman/internal/server/apiv1"
 	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
@@ -15,35 +17,40 @@ import (
 
 // viewOf reads the segment and refuses a board nobody has — 404, because a
 // view that is not a board is a route that is not there.
-func (s *Server) viewOf(w http.ResponseWriter, r *http.Request) (board.View, bool) {
-	name := r.PathValue("view")
+func viewOf(name string) (board.View, error) {
 	if !board.KnownView(name) {
-		writeProblem(w, problem(http.StatusNotFound, "noSuchView", "no such board: "+name))
-		return "", false
+		return "", problem(http.StatusNotFound, "noSuchView", "no such board: "+name)
 	}
-	return board.View(name), true
+	return board.View(name), nil
 }
 
 // selectorOf is the view's scope: the segment plus the selectors that narrow
 // it (team, day, user, the triage window). The me board is the caller's own
 // unless they say whose — "who am I" is resolved here, server side, so a
 // client never has to send it.
-func (s *Server) selectorOf(w http.ResponseWriter, r *http.Request, view board.View) (apiserver.Selector, bool) {
-	sel, err := apiserver.ParseViewSelector(string(view), r.URL.Query())
+//
+// The selectors are read from the RAW query (carryQuery) rather than from the
+// bound parameters. apiserver.ParseViewSelector is the tree's only
+// query-to-Selector parse, and the hand-registered watch goes through this
+// same function, so reading the typed copy here would leave a second
+// implementation of that parse beside the one the watch still needs. It also
+// refuses an explicit `view=` query, which no binder can do: the generated
+// parameters model no query `view` for these routes.
+func selectorOf(ctx context.Context, view board.View) (apiserver.Selector, error) {
+	sel, err := apiserver.ParseViewSelector(string(view), queryFrom(ctx))
 	if err != nil {
-		writeProblem(w, problem(http.StatusBadRequest, "invalidSelector", err.Error()))
-		return apiserver.Selector{}, false
+		return apiserver.Selector{}, problem(http.StatusBadRequest, "invalidSelector", err.Error())
 	}
 	if sel.View == string(board.ViewMe) && sel.User == "" {
-		if _, login, err := s.apiTokens(r); err == nil {
-			sel.User = login
-		}
+		// The actor the middleware resolved, which is the same login the
+		// selector used to look up for itself.
+		sel.User = board.ActorFrom(ctx)
 	}
-	return sel, true
+	return sel, nil
 }
 
 // gestureOn answers both halves of "may this press be made here", in the order
-// they bite, and writes the 404 itself when either says no.
+// they bite.
 //
 // The board first: a gesture a board does not draw is a route that is not
 // there (there is no week to drop into on the Me board). Then the CARD: a
@@ -56,29 +63,26 @@ func (s *Server) selectorOf(w http.ResponseWriter, r *http.Request, view board.V
 // generously: the day is today, the team is the card's own, the person is the
 // caller. A gate stricter than that would refuse gestures the board plainly
 // offers — the whole point is the board, not the parameters.
-func (s *Server) gestureOn(w http.ResponseWriter, r *http.Request, view board.View, g boardservice.Gesture) bool {
+func (s *Server) gestureOn(ctx context.Context, view board.View, g boardservice.Gesture, uid string) error {
 	if !boardservice.Offers(view, g) {
-		writeProblem(w, problem(http.StatusNotFound, "gestureNotOffered",
-			"the "+string(view)+" board has no "+string(g)+" — it is not a gesture it draws"))
-		return false
+		return problem(http.StatusNotFound, "gestureNotOffered",
+			"the "+string(view)+" board has no "+string(g)+" — it is not a gesture it draws")
 	}
 	if view == board.ViewAll {
-		return true
+		return nil
 	}
-	sel, ok := s.selectorOf(w, r, view)
-	if !ok {
-		return false
-	}
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return false
-	}
-	b, err := svc.Board(r.Context(), boardID)
+	sel, err := selectorOf(ctx, view)
 	if err != nil {
-		s.apiError(w, r, err)
-		return false
+		return err
 	}
-	uid := r.PathValue("uid")
+	svc, boardID, err := s.serviceOf()
+	if err != nil {
+		return err
+	}
+	b, err := svc.Board(ctx, boardID)
+	if err != nil {
+		return err
+	}
 	if sel.Team == "" && board.ScopedByTeam(view) {
 		// The card's own team, so a caller that named no team is judged on
 		// the grid the card is actually drawn on rather than on the no-team
@@ -97,41 +101,29 @@ func (s *Server) gestureOn(w http.ResponseWriter, r *http.Request, view board.Vi
 	// A board can be drawn from more than one listing — the Triage grid
 	// beside its drawer — and the × in the drawer is the Triage board's ×
 	// (board.Panes).
-	drawn := false
 	for _, pane := range board.Panes(view) {
 		paneSel := sel
 		paneSel.View = string(pane)
 		if apiserver.Drawn(b, paneSel, uid) {
-			drawn = true
-			break
+			return nil
 		}
 	}
-	if !drawn {
-		writeProblem(w, problem(http.StatusNotFound, "cardNotOnBoard",
-			"that card is not on the "+string(view)+" board — act from the board that draws it, or say view=all"))
-		return false
-	}
-	return true
+	return problem(http.StatusNotFound, "cardNotOnBoard",
+		"that card is not on the "+string(view)+" board — act from the board that draws it, or say view=all")
 }
 
-// viewResource is one board in the catalog.
-type viewResource struct {
-	Name     string   `json:"name"`
-	Gestures []string `json:"gestures"`
-}
-
-// handleListViews is the catalog: the boards a caller may open and the
-// gestures each draws. It exists so a client — or an agent — can read the
-// surface instead of being told it in a description, which is how the two
-// drifted apart in the first place.
-func (s *Server) handleListViews(w http.ResponseWriter, _ *http.Request) {
-	out := make([]viewResource, 0, len(board.Views()))
+// ListViews is the catalog: the boards a caller may open and the gestures each
+// draws. It exists so a client — or an agent — can read the surface instead of
+// being told it in a description, which is how the two drifted apart in the
+// first place.
+func (a surface) ListViews(context.Context, apiv1.ListViewsRequestObject) (apiv1.ListViewsResponseObject, error) {
+	out := make([]apiv1.ViewResource, 0, len(board.Views()))
 	for _, v := range board.Views() {
 		gestures := make([]string, 0, 4)
 		for _, g := range boardservice.Gestures(v) {
 			gestures = append(gestures, string(g))
 		}
-		out = append(out, viewResource{Name: string(v), Gestures: gestures})
+		out = append(out, apiv1.ViewResource{Name: string(v), Gestures: gestures})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"kind": "ViewList", "items": out})
+	return apiv1.ListViews200JSONResponse{Kind: apiv1.ViewListKindViewList, Items: out}, nil
 }

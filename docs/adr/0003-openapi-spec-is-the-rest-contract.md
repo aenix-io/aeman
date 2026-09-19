@@ -24,6 +24,6 @@ Writing the document ahead of any generation also proves it against the server t
 
 - The response schemas are a second copy of the Go structs. Nothing enforces them at compile time; a test does, and a field added in Go without a line of YAML fails the first test that sends it. That cost is the price of `pkg/apiserver` staying hand-written, and it is paid on every field.
 - kin-openapi is a test-only dependency. It must stay that way: the binary keeps its short dependency list, which is why the document is served through the YAML parser already linked in rather than through the validator.
-- A route added to `registerAPI` lands with its operation or the tests fail, in both directions. So does a new problem code.
+- A new problem code lands with its entry in the `Problem.code` enum or the tests fail, in both directions. Routes were the same until the server interface became generated: they are added to the document now, not to `registerAPI` — see [ADR 0004](0004-the-server-interface-is-generated.md).
 - The document describes what the server does, not what it should do. Where the two were found to differ, the server won and the document says the true thing — a reader looking for the intended behaviour reads `docs/api.md` beside it.
 - Frames on the watch stream are described but unvalidated: no test drives a WebSocket through the document, so those schemas are kept true by reading, like any prose.

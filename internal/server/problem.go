@@ -24,6 +24,12 @@ type Problem struct {
 	ActionURL string `json:"actionUrl,omitempty"`
 }
 
+// Error lets a handler hand back a problem it decided itself — a zone the
+// board does not have, a gesture the board does not draw — where the only way
+// out is an error: a strict method answers through its return value, and the
+// response hook writes whatever problemFor makes of it.
+func (p Problem) Error() string { return p.Detail }
+
 func problem(status int, code, detail string) Problem {
 	return Problem{
 		Type:   "about:blank",
@@ -140,6 +146,10 @@ var sentinels = []struct {
 // problemFor answers a service error. One the table does not name is not a
 // rule refusing a change: it is the forge failing, and a caller may retry it.
 func problemFor(err error) Problem {
+	var decided Problem
+	if errors.As(err, &decided) {
+		return decided
+	}
 	for _, s := range sentinels {
 		if errors.Is(err, s.err) {
 			return problem(s.status, s.code, err.Error())

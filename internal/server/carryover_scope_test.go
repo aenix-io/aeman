@@ -83,7 +83,7 @@ func carryWithTabs(t *testing.T, name string, tabs int) (time.Duration, int64) {
 
 	// The views a team keeps open on a planning morning: the grid, the weeks
 	// ahead and people's own boards — every one of them scoped.
-	key := storeKey(srv.boardRef(nil))
+	key := storeKey(srv.boardRef())
 	sels := []apiserver.Selector{
 		{View: "team", Team: "portal"},
 		{View: "me", User: "kvaps"},

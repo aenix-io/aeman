@@ -1659,6 +1659,7 @@ components:
             - invalidAsOf
             - invalidBody
             - invalidDay
+            - invalidParameter
             - invalidSelector
             - invalidStage
             - nameTaken
@@ -2635,6 +2636,7 @@ components:
     View:
       type: object
       additionalProperties: false
+      x-go-name: ViewResource
       description: >-
         One board a caller may open and the gestures it draws. It exists so a
         client can READ the surface instead of being told it in a description,
@@ -2887,6 +2889,7 @@ components:
       properties:
         capacity:
           type: integer
+          x-go-type: '*int'
           description: >-
             The points a week; 0 takes a set number back. It is required — a
             body without it is refused (400) rather than read as zero.
@@ -3087,6 +3090,7 @@ components:
           type: string
         points:
           type: integer
+          x-go-type: '*int'
           description: >-
             The points a week; 0 takes the number back. It is required — a body
             without it is refused (400) rather than read as zero.

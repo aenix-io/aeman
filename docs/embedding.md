@@ -17,6 +17,8 @@ A typical embedder is a **local MCP server**: it clones the board's repository i
 
 The `api` package carries the same document the server serves at `GET /api/v1/openapi.json`, so a tool that talks to an aeman deployment can generate its client from `api.Spec` — with `go:embed` there is no file to ship beside the binary — instead of reading the routes off this page. It describes the HTTP surface only; an embedder driving the board through `pkg/boardservice` needs none of it.
 
+aeman generates its own REST server from that document, and the cost reaches an embedder's module graph but not its binary. Importing any `pkg/*` package links none of the generator, its runtime or their dependencies — `go list -deps` on a program that imports `pkg/board` shows none of them. What does travel is version floors: aeman's requirements, the `tool` directive for oapi-codegen included, appear in `go list -m all` for anything that requires this module, which raises the minimum for a few `go-openapi` packages. Nothing is linked that you do not import; the graph is wider than the binary.
+
 `internal/` (the HTTP server, its cache and coalescing write queue, the sync and push workers, the embedded UI, the migration) stays private. An embedder therefore gets **one commit per write and an explicit push** — the batching the server does between requests is its own.
 
 ## The whole MCP server, locally
