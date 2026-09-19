@@ -31,7 +31,7 @@ func (s *Server) recordWriteGuard(next http.Handler) http.Handler {
 			return
 		}
 		if !board.IsDayIso(day) {
-			writeJSONError(w, http.StatusBadRequest, asOfHeader+": not a board day")
+			writeProblem(w, problem(http.StatusBadRequest, "invalidAsOf", asOfHeader+": not a board day"))
 			return
 		}
 		svc, err := s.newService(r)
@@ -71,8 +71,8 @@ func (s *Server) recordWriteGuard(next http.Handler) http.Handler {
 		// A write that names no card and no team (a carry-over, a roster
 		// change) cannot be judged that way, and a view holding records is no
 		// place to make one from.
-		writeJSONError(w, http.StatusConflict,
-			"the board of "+day+" is a record: that day is over for this card's team, so it cannot be changed from there")
+		writeProblem(w, problem(http.StatusConflict, "dayIsARecord",
+			"the board of "+day+" is a record: that day is over for this card's team, so it cannot be changed from there"))
 	})
 }
 

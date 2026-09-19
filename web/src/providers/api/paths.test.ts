@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { apiProvider, standingOn } from "./apiProvider";
+import { ApiError, apiProvider, standingOn } from "./apiProvider";
 
 // WHERE EACH CALL GOES. The board a reader is standing on is part of the
 // address now, and nothing else in this suite reads a URL: the two bugs this
@@ -10,8 +10,31 @@ import { apiProvider, standingOn } from "./apiProvider";
 
 const calls: { method: string; url: string; body?: unknown }[] = [];
 
+const card = {
+  kind: "Card",
+  metadata: { uid: "c1" },
+  spec: { title: "x", assignees: [] },
+  status: {},
+  items: [],
+};
+
+function answer(status: number, statusText: string, body?: unknown): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText,
+    json: () =>
+      body === undefined
+        ? Promise.reject(new SyntaxError("Unexpected end of JSON input"))
+        : Promise.resolve(body),
+  } as unknown as Response;
+}
+
+let respond: () => Response;
+
 beforeEach(() => {
   calls.length = 0;
+  respond = () => answer(200, "OK", card);
   vi.stubGlobal(
     "fetch",
     (url: string, init: RequestInit = {}) => {
@@ -20,19 +43,7 @@ beforeEach(() => {
         url,
         body: init.body ? JSON.parse(init.body as string) : undefined,
       });
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        json: () =>
-          Promise.resolve({
-            kind: "Card",
-            metadata: { uid: "c1" },
-            spec: { title: "x", assignees: [] },
-            status: {},
-            items: [],
-          }),
-      } as unknown as Response);
+      return Promise.resolve(respond());
     },
   );
 });
@@ -96,5 +107,41 @@ describe("the board in the address", () => {
     await apiProvider.patchCard("c1", { progress: 40 });
     expect(calls[1].url).toBe("/api/v1/cards/c1");
     expect(calls[1].method).toBe("PATCH");
+  });
+});
+
+// WHAT COMES BACK. A write with nothing to show answers 204 and no body; a
+// refusal is an RFC 9457 problem whose detail is the sentence a person reads.
+describe("what the server answers", () => {
+  it("takes 204 as done, with nothing to parse", async () => {
+    respond = () => answer(204, "No Content");
+    await expect(apiProvider.renameTeam("test", "platform")).resolves.toBeUndefined();
+  });
+
+  it("raises a problem as an ApiError carrying its detail, status, code and action", async () => {
+    respond = () =>
+      answer(503, "Service Unavailable", {
+        type: "about:blank",
+        title: "Service Unavailable",
+        status: 503,
+        detail: "the app cannot reach acme/board",
+        code: "setupRequired",
+        actionUrl: "https://forge.example/install",
+      });
+    const err = await apiProvider.getCard("c1").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({
+      message: "the app cannot reach acme/board",
+      status: 503,
+      code: "setupRequired",
+      actionUrl: "https://forge.example/install",
+    });
+  });
+
+  it("falls back to the status text when the refusal is not a problem", async () => {
+    respond = () => answer(502, "Bad Gateway");
+    const err = await apiProvider.getCard("c1").catch((e: unknown) => e);
+    expect(err).toMatchObject({ message: "Bad Gateway", status: 502 });
+    expect((err as ApiError).code).toBeUndefined();
   });
 });

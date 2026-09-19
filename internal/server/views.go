@@ -18,7 +18,7 @@ import (
 func (s *Server) viewOf(w http.ResponseWriter, r *http.Request) (board.View, bool) {
 	name := r.PathValue("view")
 	if !board.KnownView(name) {
-		writeJSONError(w, http.StatusNotFound, "no such board: "+name)
+		writeProblem(w, problem(http.StatusNotFound, "noSuchView", "no such board: "+name))
 		return "", false
 	}
 	return board.View(name), true
@@ -31,7 +31,7 @@ func (s *Server) viewOf(w http.ResponseWriter, r *http.Request) (board.View, boo
 func (s *Server) selectorOf(w http.ResponseWriter, r *http.Request, view board.View) (apiserver.Selector, bool) {
 	sel, err := apiserver.ParseViewSelector(string(view), r.URL.Query())
 	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
+		writeProblem(w, problem(http.StatusBadRequest, "invalidSelector", err.Error()))
 		return apiserver.Selector{}, false
 	}
 	if sel.View == string(board.ViewMe) && sel.User == "" {
@@ -58,8 +58,8 @@ func (s *Server) selectorOf(w http.ResponseWriter, r *http.Request, view board.V
 // offers — the whole point is the board, not the parameters.
 func (s *Server) gestureOn(w http.ResponseWriter, r *http.Request, view board.View, g boardservice.Gesture) bool {
 	if !boardservice.Offers(view, g) {
-		writeJSONError(w, http.StatusNotFound,
-			"the "+string(view)+" board has no "+string(g)+" — it is not a gesture it draws")
+		writeProblem(w, problem(http.StatusNotFound, "gestureNotOffered",
+			"the "+string(view)+" board has no "+string(g)+" — it is not a gesture it draws"))
 		return false
 	}
 	if view == board.ViewAll {
@@ -107,8 +107,8 @@ func (s *Server) gestureOn(w http.ResponseWriter, r *http.Request, view board.Vi
 		}
 	}
 	if !drawn {
-		writeJSONError(w, http.StatusNotFound,
-			"that card is not on the "+string(view)+" board — act from the board that draws it, or say view=all")
+		writeProblem(w, problem(http.StatusNotFound, "cardNotOnBoard",
+			"that card is not on the "+string(view)+" board — act from the board that draws it, or say view=all"))
 		return false
 	}
 	return true

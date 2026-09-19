@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -14,21 +15,36 @@ import (
 )
 
 // Every refusal the service can hand back is a REFUSAL — 422, "a rule
-// refused the change" — while the default arm answers 502, "the forge
-// could not be reached". A sentinel that misses apiError's list therefore
-// tells the caller a lie about whose fault it is and invites a retry that
-// cannot help: ErrSubtaskWeek shipped exactly that way.
+// refused the change" — while what the sentinels table does not name answers
+// 502, "the forge could not be reached". A sentinel that misses the table
+// therefore tells the caller a lie about whose fault it is and invites a
+// retry that cannot help: ErrSubtaskWeek shipped exactly that way.
 //
 // The list of sentinels is read from the SOURCE, not from a table kept
 // here: a table has to be updated by the same person who forgot the other
 // one, which is no check at all. Every exported Err… in the package must
-// appear in apiError, by name.
+// have a row, by name — and the row's code is the name itself (ErrCardNotFound
+// is cardNotFound), so a row cannot pair a sentinel with another one's code.
 func TestEverySentinelIsAnsweredByApiError(t *testing.T) {
 	names := exportedSentinelNames(t, "../../pkg/boardservice")
 	if len(names) < 15 {
 		t.Fatalf("only %d sentinels found — has the package moved?", len(names))
 	}
-	answered := readsSentinels(t, "api.go", "apiError")
+	rows := sentinelRows(t, "problem.go")
+	answered := map[string]bool{}
+	owner := map[string]string{}
+	for _, r := range rows {
+		if r.pkg == "boardservice" {
+			answered[r.name] = true
+		}
+		if want := strings.ToLower(r.name[3:4]) + r.name[4:]; r.code != want {
+			t.Errorf("%s.%s is coded %q, want %q — the code is the sentinel's name", r.pkg, r.name, r.code, want)
+		}
+		if prev, taken := owner[r.code]; taken {
+			t.Errorf("code %q names both %s and %s.%s", r.code, prev, r.pkg, r.name)
+		}
+		owner[r.code] = r.pkg + "." + r.name
+	}
 	var missing []string
 	for _, n := range names {
 		if !answered[n] {
@@ -36,12 +52,12 @@ func TestEverySentinelIsAnsweredByApiError(t *testing.T) {
 		}
 	}
 	if len(missing) > 0 {
-		t.Fatalf("apiError does not name these, so they answer 502 — a rule that refused a change is not a forge failure: %s",
+		t.Fatalf("the sentinels table does not name these, so they answer 502 — a rule that refused a change is not a forge failure: %s",
 			strings.Join(missing, ", "))
 	}
 	// Named, not necessarily 422: a not-found sentinel answers 404 and a
 	// forbidden one 403. What no refusal may be is a GATEWAY failure,
-	// which is what the default arm means.
+	// which is what falling off the table means.
 	// And the mapping is real, not just a mention: one sentinel end to end.
 	if code := statusFor(t, boardservice.ErrSubtaskWeek); code != 422 {
 		t.Fatalf("ErrSubtaskWeek answers %d, want 422", code)
@@ -90,42 +106,50 @@ func exportedSentinelNames(t *testing.T, dir string) []string {
 	return out
 }
 
-// readsSentinels collects the boardservice.Err… names a file mentions.
-func readsSentinels(t *testing.T, path, fn string) map[string]bool {
+type sentinelRow struct{ pkg, name, code string }
+
+// sentinelRows reads the `sentinels` table out of the source: each row's
+// pkg.ErrName and the code written beside it.
+func sentinelRows(t *testing.T, path string) []sentinelRow {
 	t.Helper()
-	src, err := os.ReadFile(filepath.Clean(path))
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := map[string]bool{}
-	text := string(src)
-	// ONE function's body: a sentinel named by some other handler is not
-	// an answer, and counting it would make this test claim less than its
-	// docstring promises.
-	start := strings.Index(text, ") "+fn+"(")
-	if start < 0 {
-		t.Fatalf("%s has no %s", path, fn)
-	}
-	end := strings.Index(text[start:], "\n}\n")
-	if end < 0 {
-		t.Fatalf("%s's %s does not end", path, fn)
-	}
-	text = text[start : start+end]
-	for i := 0; ; {
-		j := strings.Index(text[i:], "boardservice.Err")
-		if j < 0 {
-			break
+	var out []sentinelRow
+	ast.Inspect(file, func(n ast.Node) bool {
+		vs, ok := n.(*ast.ValueSpec)
+		if !ok || len(vs.Names) != 1 || vs.Names[0].Name != "sentinels" || len(vs.Values) != 1 {
+			return true
 		}
-		start := i + j + len("boardservice.")
-		end := start
-		for end < len(text) && (text[end] == '_' ||
-			(text[end] >= 'a' && text[end] <= 'z') ||
-			(text[end] >= 'A' && text[end] <= 'Z') ||
-			(text[end] >= '0' && text[end] <= '9')) {
-			end++
+		table, ok := vs.Values[0].(*ast.CompositeLit)
+		if !ok {
+			t.Fatalf("%s: sentinels is not a literal", path)
 		}
-		out[text[start:end]] = true
-		i = end
+		for _, elt := range table.Elts {
+			row, ok := elt.(*ast.CompositeLit)
+			if !ok || len(row.Elts) != 3 {
+				t.Fatalf("%s: a sentinels row is not {err, status, code}", path)
+			}
+			sel, isSel := row.Elts[0].(*ast.SelectorExpr)
+			lit, isLit := row.Elts[2].(*ast.BasicLit)
+			if !isSel || !isLit {
+				t.Fatalf("%s: a sentinels row is not {pkg.ErrName, status, \"code\"}", path)
+			}
+			pkg, isIdent := sel.X.(*ast.Ident)
+			if !isIdent {
+				t.Fatalf("%s: a sentinels row names its error as something other than pkg.ErrName", path)
+			}
+			code, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, sentinelRow{pkg: pkg.Name, name: sel.Sel.Name, code: code})
+		}
+		return false
+	})
+	if len(out) == 0 {
+		t.Fatalf("%s has no sentinels table", path)
 	}
 	return out
 }

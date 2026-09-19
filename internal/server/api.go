@@ -13,7 +13,6 @@ import (
 	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
-	"github.com/aenix-io/aeman/pkg/gitstore"
 )
 
 // registerAPI wires the JSON API under /api/v1: a small set of Kubernetes-style
@@ -240,7 +239,7 @@ func (s *Server) service(w http.ResponseWriter, r *http.Request) (svc *boardserv
 	boardID = s.boardRef(r)
 	svc, err := s.newService(r)
 	if err != nil {
-		writeJSONError(w, http.StatusUnauthorized, "not authenticated: "+err.Error())
+		writeProblem(w, problem(http.StatusUnauthorized, "notAuthenticated", "not authenticated: "+err.Error()))
 		return nil, "", false
 	}
 	return svc, boardID, true
@@ -273,12 +272,13 @@ func (s *Server) handleDayLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	uids := splitList(r.URL.Query().Get("uids"))
 	if len(uids) > maxDayLogCards {
-		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("uids: at most %d cards per request", maxDayLogCards))
+		writeProblem(w, problem(http.StatusBadRequest, "tooManyCards",
+			fmt.Sprintf("uids: at most %d cards per request", maxDayLogCards)))
 		return
 	}
 	day := r.URL.Query().Get("day")
 	if day != "" && !board.IsDayIso(day) {
-		writeJSONError(w, http.StatusBadRequest, "day: want yyyy-mm-dd")
+		writeProblem(w, problem(http.StatusBadRequest, "invalidDay", "day: want yyyy-mm-dd"))
 		return
 	}
 	per, err := svc.DayLogs(r.Context(), boardID, uids, day)
@@ -310,12 +310,6 @@ func splitList(v string) []string {
 		}
 	}
 	return out
-}
-
-// statusResponse is the acknowledgement returned by actions that leave no single
-// card to echo (delete, remove, move).
-type statusResponse struct {
-	Status string `json:"status"`
 }
 
 // --- Reads -------------------------------------------------------------------
@@ -541,8 +535,8 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 			if team == "" {
 				team = "no team"
 			}
-			writeJSONError(w, http.StatusConflict,
-				"the board of "+day+" is a record for «"+team+"»: that day is over for them, so nothing can be added to it from there")
+			writeProblem(w, problem(http.StatusConflict, "dayIsARecord",
+				"the board of "+day+" is a record for «"+team+"»: that day is over for them, so nothing can be added to it from there"))
 			return
 		}
 	}
@@ -782,7 +776,7 @@ func (s *Server) handleDeleteCard(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleRemoveCard(w http.ResponseWriter, r *http.Request) {
@@ -803,8 +797,8 @@ func (s *Server) handleRemoveCard(w http.ResponseWriter, r *http.Request) {
 	default:
 		// Before the gate: an intent the × does not have is answered by
 		// reading the body, not by building the board's listing first.
-		writeJSONError(w, http.StatusBadRequest,
-			"unknown intent (use unassign, off-board, or leave it out)")
+		writeProblem(w, problem(http.StatusBadRequest, "unknownIntent",
+			"unknown intent (use unassign, off-board, or leave it out)"))
 		return
 	}
 	view, ok := s.viewOf(w, r)
@@ -822,7 +816,7 @@ func (s *Server) handleRemoveCard(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
@@ -847,7 +841,7 @@ func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleDeferCard(w http.ResponseWriter, r *http.Request) {
@@ -916,7 +910,8 @@ func (s *Server) placementAction(w http.ResponseWriter, r *http.Request, respond
 	// codec, MCP and the docs all accept was a 422 here — and the SPA's
 	// own picker, which offers the bucket, drove straight into it.
 	if in.Epic == "" {
-		writeJSONError(w, http.StatusUnprocessableEntity, "the epic is required — a column is named by its epic")
+		writeProblem(w, problem(http.StatusUnprocessableEntity, "epicRequired",
+			"the epic is required — a column is named by its epic"))
 		return
 	}
 	svc, boardID, ok := s.service(w, r)
@@ -929,12 +924,12 @@ func (s *Server) placementAction(w http.ResponseWriter, r *http.Request, respond
 	}
 	// Mirror and unmirror answer with the card resource, like the other
 	// card actions; remove-from-project cannot — its card may no longer
-	// exist — so it answers {"ok": true}.
+	// exist — so it answers 204.
 	if respondCard {
 		s.cardResponse(w, r, svc, boardID, r.PathValue("uid"))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleMirror adds a second Project-board column to the card — the same
@@ -1255,7 +1250,7 @@ func (s *Server) handleReorderTeams(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleDeleteTeam deletes a team's hidden sprint-state card. A team that
@@ -1275,7 +1270,7 @@ func (s *Server) handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleAddEpic declares a new Project-board column inside a project
@@ -1301,7 +1296,7 @@ func (s *Server) handleAddEpic(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleSetEpicProject moves a column from one project to another
@@ -1328,7 +1323,7 @@ func (s *Server) handleSetEpicProject(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleRenameEpic renames a column in place, cards and all
@@ -1355,7 +1350,7 @@ func (s *Server) handleRenameEpic(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleRenameProject renames a project in place, columns and cards along
@@ -1381,7 +1376,7 @@ func (s *Server) handleRenameProject(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleRenameTeam renames a team where it is declared, its cards and process
@@ -1403,7 +1398,7 @@ func (s *Server) handleRenameTeam(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleSetTeamCapacity records the points a week a team gets through — the
@@ -1418,7 +1413,7 @@ func (s *Server) handleSetTeamCapacity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Points == nil {
-		http.Error(w, "points is required", http.StatusBadRequest)
+		writeProblem(w, problem(http.StatusBadRequest, "pointsRequired", "points is required"))
 		return
 	}
 	svc, boardID, ok := s.service(w, r)
@@ -1430,7 +1425,7 @@ func (s *Server) handleSetTeamCapacity(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // patchColumn re-files a card under a column — the (project, epic) pair.
@@ -1482,7 +1477,7 @@ func (s *Server) handleAddProcess(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleDeleteProcess(w http.ResponseWriter, r *http.Request) {
@@ -1501,7 +1496,7 @@ func (s *Server) handleDeleteProcess(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleRenameProcess(w http.ResponseWriter, r *http.Request) {
@@ -1521,7 +1516,7 @@ func (s *Server) handleRenameProcess(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleSetProcessProject(w http.ResponseWriter, r *http.Request) {
@@ -1541,7 +1536,7 @@ func (s *Server) handleSetProcessProject(w http.ResponseWriter, r *http.Request)
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleSetProcessPaused(w http.ResponseWriter, r *http.Request) {
@@ -1561,7 +1556,7 @@ func (s *Server) handleSetProcessPaused(w http.ResponseWriter, r *http.Request) 
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleReorderProcesses(w http.ResponseWriter, r *http.Request) {
@@ -1580,7 +1575,7 @@ func (s *Server) handleReorderProcesses(w http.ResponseWriter, r *http.Request) 
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleReorderProcessTasks(w http.ResponseWriter, r *http.Request) {
@@ -1600,7 +1595,7 @@ func (s *Server) handleReorderProcessTasks(w http.ResponseWriter, r *http.Reques
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // taskRequest is a task on the wire, for create (all fields) and
@@ -1662,7 +1657,7 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
@@ -1675,7 +1670,7 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleAddDeadline marks a week with one project's deadline line
@@ -1701,7 +1696,7 @@ func (s *Server) handleAddDeadline(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleDeleteDeadline clears one project's deadline on a week
@@ -1727,7 +1722,7 @@ func (s *Server) handleDeleteDeadline(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleMoveDeadline drags a deadline to another week (body {from, to});
@@ -1754,7 +1749,7 @@ func (s *Server) handleMoveDeadline(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleAddProject declares a project — the Project board's top grouping,
@@ -1782,7 +1777,7 @@ func (s *Server) handleAddProject(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleDeleteProject removes an EMPTY project (422 while it still owns epic
@@ -1807,7 +1802,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleReorderProjects applies the shared chip order (body {projects:[...]}).
@@ -1831,7 +1826,7 @@ func (s *Server) handleReorderProjects(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleDeleteEpic removes an EMPTY epic column (422 while cards still sit
@@ -1857,7 +1852,7 @@ func (s *Server) handleDeleteEpic(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleReorderEpics applies a shared column order (body {epics:[...]}),
@@ -1883,7 +1878,7 @@ func (s *Server) handleReorderEpics(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // --- Shared helpers ----------------------------------------------------------------
@@ -1900,7 +1895,7 @@ func (s *Server) handleSetPresence(w http.ResponseWriter, r *http.Request) {
 	}
 	boardID := s.boardRef(r)
 	if _, err := s.newService(r); err != nil {
-		writeJSONError(w, http.StatusUnauthorized, "not authenticated: "+err.Error())
+		writeProblem(w, problem(http.StatusUnauthorized, "notAuthenticated", "not authenticated: "+err.Error()))
 		return
 	}
 	// The broadcast login is the caller's authenticated identity (stamped by
@@ -1908,7 +1903,7 @@ func (s *Server) handleSetPresence(w http.ResponseWriter, r *http.Request) {
 	// user could show a chosen card as selected by someone else.
 	login := board.ActorFrom(r.Context())
 	s.store.SetPresence(storeKey(boardID), clientIDFrom(r.Context()), login, in.Card)
-	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // cardResponse loads the (post-mutation) card and writes it as the resource —
@@ -1936,7 +1931,8 @@ func parseZone(w http.ResponseWriter, name string) (board.ZoneKey, bool) {
 	}
 	zone := apiserver.DomainZone(name)
 	if zone == "" {
-		writeJSONError(w, http.StatusBadRequest, "unknown zone (urgent, unplanned, planned, niceToHave or empty)")
+		writeProblem(w, problem(http.StatusBadRequest, "unknownZone",
+			"unknown zone (urgent, unplanned, planned, niceToHave or empty)"))
 		return "", false
 	}
 	return zone, true
@@ -1984,11 +1980,12 @@ func (s *Server) handlePatchPerson(w http.ResponseWriter, r *http.Request) {
 		Capacity *int `json:"capacity"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
+		writeProblem(w, problem(http.StatusBadRequest, "invalidBody", "invalid JSON body"))
 		return
 	}
 	if in.Capacity == nil {
-		writeJSONError(w, http.StatusBadRequest, "capacity is required (0 takes a set number back)")
+		writeProblem(w, problem(http.StatusBadRequest, "capacityRequired",
+			"capacity is required (0 takes a set number back)"))
 		return
 	}
 	ctx := r.Context()
@@ -2009,7 +2006,7 @@ func (s *Server) handlePatchPerson(w http.ResponseWriter, r *http.Request) {
 func parseSize(w http.ResponseWriter, raw string) (board.SizeKey, bool) {
 	size, ok := board.ParseSize(raw)
 	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "unknown size (S, M, L, XL or empty)")
+		writeProblem(w, problem(http.StatusBadRequest, "unknownSize", "unknown size (S, M, L, XL or empty)"))
 		return "", false
 	}
 	return size, true
@@ -2022,8 +2019,8 @@ func parseStage(w http.ResponseWriter, name string) (board.StageKey, bool) {
 		board.StageRefuse, board.StageDone:
 		return board.StageKey(name), true
 	}
-	writeJSONError(w, http.StatusBadRequest,
-		"unknown stage (locked, review, recurrent, refuse, done or empty)")
+	writeProblem(w, problem(http.StatusBadRequest, "unknownStage",
+		"unknown stage (locked, review, recurrent, refuse, done or empty)"))
 	return "", false
 }
 
@@ -2034,7 +2031,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 		if tooBig(w, err) {
 			return false
 		}
-		writeJSONError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		writeProblem(w, problem(http.StatusBadRequest, "invalidBody", "invalid JSON body: "+err.Error()))
 		return false
 	}
 	return true
@@ -2046,7 +2043,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 func tooBig(w http.ResponseWriter, err error) bool {
 	var maxErr *http.MaxBytesError
 	if errors.As(err, &maxErr) {
-		writeJSONError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		writeProblem(w, problem(http.StatusRequestEntityTooLarge, "bodyTooLarge", "request body too large"))
 		return true
 	}
 	return false
@@ -2064,7 +2061,7 @@ func decodeJSONAllowingEmpty(w http.ResponseWriter, r *http.Request, dst any) bo
 		if tooBig(w, err) {
 			return false
 		}
-		writeJSONError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		writeProblem(w, problem(http.StatusBadRequest, "invalidBody", "invalid JSON body: "+err.Error()))
 		return false
 	}
 	return true
@@ -2093,98 +2090,7 @@ func (s *Server) applyPlacementPatch(w http.ResponseWriter, r *http.Request,
 	return true
 }
 
-// apiError maps service errors onto HTTP statuses.
+// apiError answers a service error: what the sentinels table says it is.
 func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
-	switch {
-	case errors.Is(err, boardservice.ErrCardNotFound), errors.Is(err, boardservice.ErrNoteNotFound),
-		// A board nobody has is a route that is not there — the same answer
-		// the door itself gives before the service is reached at all.
-		errors.Is(err, boardservice.ErrNoSuchView):
-		writeJSONError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, boardservice.ErrForbidden),
-		// The Me board's narrower seat: another caller is not wrong about
-		// the card, they are the wrong person to be doing this to it.
-		errors.Is(err, boardservice.ErrNotYoursToRefuse),
-		errors.Is(err, boardservice.ErrNotYoursToRemove):
-		writeJSONError(w, http.StatusForbidden, err.Error())
-	case errors.Is(err, gitstore.ErrUnknownDomain):
-		writeJSONError(w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, boardservice.ErrHistoryTruncated):
-		// The day was there and is not any more — the clone's horizon moved
-		// past it. Gone says exactly that, and a client can offer to widen
-		// the horizon rather than retry.
-		writeJSONError(w, http.StatusGone, err.Error())
-	case errors.Is(err, boardservice.ErrNoHistory):
-		// Storage that keeps no past cannot be asked about one; another
-		// board (or another backend) can.
-		writeJSONError(w, http.StatusNotImplemented, err.Error())
-	case errors.Is(err, gitstore.ErrNameTaken),
-		errors.Is(err, boardservice.ErrTeamExists),
-		errors.Is(err, boardservice.ErrTeamNotFound),
-		errors.Is(err, boardservice.ErrInvalidStage),
-		errors.Is(err, boardservice.ErrDescriptionTooLong),
-		errors.Is(err, boardservice.ErrNoteTooLong),
-		errors.Is(err, boardservice.ErrTitleTooLong),
-		errors.Is(err, boardservice.ErrBadDay),
-		errors.Is(err, boardservice.ErrSubtaskDepth),
-		errors.Is(err, boardservice.ErrSubtaskWeek),
-		// The × was told to do something the card does not allow: a slot or a
-		// turn taken off the board, or a card unassigned into nowhere.
-		errors.Is(err, boardservice.ErrNotYoursToDestroy),
-		errors.Is(err, boardservice.ErrNowhereToLeaveIt),
-		// A list the team does not have, and work another board owns: both
-		// are rules refusing a change, not the forge failing.
-		errors.Is(err, boardservice.ErrNotYoursToPark),
-		// A shelf for a card that has no place of its own, and a process turn
-		// carried out of the occurrence it is a turn of: the board's own
-		// rules, answered as such.
-		errors.Is(err, boardservice.ErrNoPlaceOfItsOwn),
-		// A create carrying a field the board it was made on does not own,
-		// or missing the one that board is: the view refused the change.
-		errors.Is(err, boardservice.ErrNotOnThisBoard),
-		errors.Is(err, boardservice.ErrViewNeedsField),
-		errors.Is(err, boardservice.ErrOutsideCycle),
-		// Work sent back to the sprint it was done in, where there is nothing
-		// to send or nowhere to send it: rules refusing a change, not a forge
-		// failure.
-		errors.Is(err, boardservice.ErrNotFinished),
-		errors.Is(err, boardservice.ErrNoEarlierSprint),
-		errors.Is(err, boardservice.ErrParentNotFound),
-		errors.Is(err, boardservice.ErrOpenSubtasks),
-		errors.Is(err, boardservice.ErrTeamInUse),
-		errors.Is(err, boardservice.ErrEpicInUse),
-		errors.Is(err, boardservice.ErrEpicExists),
-		errors.Is(err, boardservice.ErrEpicNotFound),
-		errors.Is(err, boardservice.ErrProjectInUse),
-		errors.Is(err, boardservice.ErrProjectExists),
-		errors.Is(err, boardservice.ErrProjectNotFound),
-		errors.Is(err, boardservice.ErrWeekDerived),
-		errors.Is(err, boardservice.ErrNotAMonday),
-		errors.Is(err, boardservice.ErrUnknownSize),
-		errors.Is(err, boardservice.ErrBadCapacity),
-		// Written in this handler until they were found missing from the
-		// other door — the service holds them now, and the answer a caller
-		// gets must not change with the move.
-		errors.Is(err, boardservice.ErrEmptyTitle),
-		errors.Is(err, boardservice.ErrBackwardsDefer),
-		errors.Is(err, boardservice.ErrNoReviewer),
-		errors.Is(err, boardservice.ErrEmptyNote),
-		errors.Is(err, boardservice.ErrEndBeforeStart),
-		errors.Is(err, boardservice.ErrProcessExists),
-		errors.Is(err, boardservice.ErrProcessNotFound),
-		errors.Is(err, boardservice.ErrTurnProcess),
-		errors.Is(err, boardservice.ErrNotRecurrent),
-		errors.Is(err, boardservice.ErrSubtaskTie),
-		errors.Is(err, boardservice.ErrProcessInUse),
-		errors.Is(err, boardservice.ErrTaskNotFound),
-		errors.Is(err, boardservice.ErrDomainConflict),
-		errors.Is(err, boardservice.ErrCrossDomain),
-		errors.Is(err, boardservice.ErrNoColumn),
-		errors.Is(err, boardservice.ErrOwnColumn),
-		errors.Is(err, boardservice.ErrSubtaskMirror),
-		errors.Is(err, boardservice.ErrNotInProject):
-		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
-	default:
-		writeJSONError(w, http.StatusBadGateway, err.Error())
-	}
+	writeProblem(w, problemFor(err))
 }

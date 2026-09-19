@@ -23,7 +23,9 @@ import (
 // card again.
 //
 // A request made while looking at a past day says which day (X-Aeman-As-Of);
-// the same question the listing answered decides the write.
+// the same question the listing answered decides the write. The refusal is a
+// problem a client branches on (dayIsARecord), and a header that names no day
+// at all is the client's own mistake (invalidAsOf).
 func TestAWriteFromAPastDayIsRefused(t *testing.T) {
 	remote := gitRemoteN(t, "board")
 	r, err := gitstore.Init(memory.NewStorage(), gitstore.Options{Committer: gitstore.Identity{Name: "aeman", Email: "a@x"}})
@@ -72,7 +74,7 @@ func TestAWriteFromAPastDayIsRefused(t *testing.T) {
 	}
 	srv := gitModeServer(t, remote)
 
-	patch := func(uid, body, asOf string) int {
+	patch := func(uid, body, asOf string) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodPatch, "/api/v1/cards/"+uid, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -82,15 +84,19 @@ func TestAWriteFromAPastDayIsRefused(t *testing.T) {
 		}
 		rec := httptest.NewRecorder()
 		srv.handler.ServeHTTP(rec, req)
-		return rec.Code
+		return rec
 	}
 
 	// The record of a day portal has moved past: refused, and the card keeps
 	// what it says today.
-	if code := patch(settled, `{"description":"typed into a picture"}`, "2026-08-20"); code != http.StatusConflict {
-		t.Fatalf("a write from a past day answered %d, want 409", code)
+	rec := patch(settled, `{"description":"typed into a picture"}`, "2026-08-20")
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("a write from a past day answered %d, want 409", rec.Code)
 	}
-	rec := do(t, srv, http.MethodGet, "/api/v1/cards/"+settled, "")
+	if p := decodeProblem(t, rec); p.Code != "dayIsARecord" {
+		t.Fatalf("code = %q, want dayIsARecord", p.Code)
+	}
+	rec = do(t, srv, http.MethodGet, "/api/v1/cards/"+settled, "")
 	var got struct {
 		Spec struct {
 			Description string `json:"description"`
@@ -105,7 +111,7 @@ func TestAWriteFromAPastDayIsRefused(t *testing.T) {
 
 	// The same day is NOT over for backoffice — that card is live on the same
 	// screen and stays writable.
-	if code := patch(working, `{"description":"still working"}`, "2026-08-20"); code != http.StatusOK {
+	if code := patch(working, `{"description":"still working"}`, "2026-08-20").Code; code != http.StatusOK {
 		t.Fatalf("a write to a live card on a mixed board answered %d, want 200", code)
 	}
 
@@ -124,8 +130,17 @@ func TestAWriteFromAPastDayIsRefused(t *testing.T) {
 
 	// And a write with no day claimed is an ordinary write, as every other
 	// client makes.
-	if code := patch(settled, `{"description":"from today"}`, ""); code != http.StatusOK {
+	if code := patch(settled, `{"description":"from today"}`, "").Code; code != http.StatusOK {
 		t.Fatalf("an ordinary write answered %d", code)
+	}
+
+	// A day that is not one is refused before the board is asked anything.
+	rec = patch(settled, `{"description":"from nowhere"}`, "not-a-day")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("a write from a day that is not one answered %d, want 400", rec.Code)
+	}
+	if p := decodeProblem(t, rec); p.Code != "invalidAsOf" {
+		t.Fatalf("code = %q, want invalidAsOf", p.Code)
 	}
 
 	// A CREATE names its team, so it is judged by that team like everything

@@ -86,10 +86,16 @@ func TestAMissingInstallationIsAPageNotARefusalToStart(t *testing.T) {
 	if !strings.Contains(page, "https://github.com/apps/aenix-aeman/installations/new") || !strings.Contains(page, "board") {
 		t.Fatalf("the page must carry the install link and name the repository: %s", page)
 	}
-	// The API answers with the machine-readable action, not a panic.
+	// The API answers with the machine-readable action, not a panic: the
+	// install link is a member a client follows, not a substring of prose it
+	// would have to scrape out of the sentence.
 	rec = doAs(t, srv, "kvaps", "GET", "/api/v1/board", "")
-	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "installations/new") {
+	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("api during setup: %d %s", rec.Code, rec.Body.String())
+	}
+	if p := decodeProblem(t, rec); p.Code != "setupRequired" ||
+		p.ActionURL != "https://github.com/apps/aenix-aeman/installations/new" {
+		t.Fatalf("problem = %+v, want setupRequired carrying the install URL in actionUrl", p)
 	}
 	if rec := doAs(t, srv, "kvaps", "GET", "/api/healthz", ""); !strings.Contains(rec.Body.String(), `"setup"`) {
 		t.Fatalf("healthz must say setup: %s", rec.Body.String())

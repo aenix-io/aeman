@@ -167,7 +167,7 @@ func TestASprintFrameCarriesTheTeamsCapacity(t *testing.T) {
 	defer cancel()
 
 	if rec := do(t, srv, http.MethodPost, "/api/v1/teams/actions/capacity",
-		`{"team":"portal","points":40}`); rec.Code != http.StatusOK {
+		`{"team":"portal","points":40}`); rec.Code != http.StatusNoContent {
 		t.Fatalf("capacity: %d %s", rec.Code, rec.Body.String())
 	}
 	got := awaitSprint(t, sub.ch, "portal")

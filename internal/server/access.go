@@ -496,7 +496,7 @@ func (s *Server) accessMiddleware(next http.Handler) http.Handler {
 		}
 		tok, login, err := s.apiTokens(r)
 		if err != nil {
-			writeJSONError(w, http.StatusUnauthorized, "not authenticated: "+err.Error())
+			writeProblem(w, problem(http.StatusUnauthorized, "notAuthenticated", "not authenticated: "+err.Error()))
 			return
 		}
 		rights, err := s.access.rights(r.Context(), tok, login)
@@ -524,10 +524,11 @@ func (s *Server) accessMiddleware(next http.Handler) http.Handler {
 					}
 					s.auth.setCookie(w, sessionCookie, "", -1)
 				}
-				writeJSONError(w, http.StatusUnauthorized, "your authorization is no longer valid: "+err.Error())
+				writeProblem(w, problem(http.StatusUnauthorized, "authorizationExpired",
+					"your authorization is no longer valid: "+err.Error()))
 				return
 			}
-			writeJSONError(w, http.StatusForbidden, "access could not be decided: "+err.Error())
+			writeProblem(w, problem(http.StatusForbidden, "accessUndecided", "access could not be decided: "+err.Error()))
 			return
 		}
 		r = r.WithContext(withRights(r.Context(), rights))
