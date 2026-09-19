@@ -1,0 +1,3289 @@
+openapi: 3.0.3
+info:
+  title: aeman
+  version: "1"
+  description: >-
+    The REST surface of one aeman board. Resources are Kubernetes-style —
+    {kind, metadata, spec, status} — and everything with board-level rules is an
+    action: a client states intent and the server applies the rules. A write
+    that leaves nothing to show answers 204; every refusal is an RFC 9457
+    problem whose `code` names the rule.
+
+
+    A request schema says the SHAPE of a body, not what a call needs. What a
+    board REQUIRES is the board's own rule — it depends on the board the call
+    was made through, and it is answered as a refusal naming the field — so
+    almost every request schema here marks nothing as required. The few that
+    do are the fields a call means nothing without: a placement's `epic`, a
+    capacity's number.
+
+
+    Three headers belong to the middleware and are described here rather than
+    declared on an operation: `X-Aeman-Client` on a request keys echo
+    suppression on the watch, `X-Aeman-As-Of` says the caller is looking at a
+    past day, which refuses a WRITE to a card that day is over for, and
+    `X-Aeman-Stale` rides a READ answered from a cache being revalidated. They
+    are the middleware's, so no operation declares them.
+servers:
+  - url: /api/v1
+tags:
+  - name: Board
+    description: The board itself — its roster, its boards, and the stream of what changes.
+  - name: Cards
+    description: Cards, the gestures a board draws on them, and what they carry.
+  - name: Notes
+    description: A card's work notes.
+  - name: Sprints
+    description: Per-team sprint pointers and the carry-over.
+  - name: Epics
+    description: The Project board's columns.
+  - name: Processes
+    description: Recurring work and the tasks it iterates on.
+  - name: Deadlines
+    description: The deadline lines a project draws across the weeks.
+  - name: Projects
+    description: The Project board's top grouping.
+  - name: Teams
+    description: Team names and what a team gets through in a week.
+  - name: Presence
+    description: Who is looking at what, right now.
+  - name: Meta
+    description: The description of this surface.
+paths:
+  /board:
+    get:
+      operationId: getBoard
+      tags: [Board]
+      summary: >-
+        The board: title, the team roster, the Project board's structure, the
+        people and the visitor's domains.
+      description: >-
+        The board is the one the server was started with — there is no
+        addressing parameter, and "project" is aeman's own planning entity. Ask
+        it with the same day selector as the listing beside it: a past day's
+        SPRINT POINTERS come with that day's cards, and today's pointers over
+        that day's cards drop nearly all of them.
+      parameters:
+        - $ref: '#/components/parameters/Day'
+        - $ref: '#/components/parameters/Snapshot'
+        - $ref: '#/components/parameters/BoardOfView'
+      responses:
+        '200':
+          description: The board.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Board'
+        default:
+          $ref: '#/components/responses/Problem'
+  /views:
+    get:
+      operationId: listViews
+      tags: [Board]
+      summary: The boards a caller may open, each with the gestures it draws.
+      responses:
+        '200':
+          description: The catalog of boards.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ViewList'
+        default:
+          $ref: '#/components/responses/Problem'
+  /views/{view}/cards:
+    get:
+      operationId: listCards
+      tags: [Cards]
+      summary: List the cards that board draws, in board order.
+      description: >-
+        A listing is the board-ROW shape: no `spec.description` — `status.links`
+        carries the refs extracted from it — and the body itself is one
+        GET /cards/{uid} away. `fields=full` opts a genuine bulk reader into
+        complete cards. Every listing is the visitor's projection: cards in
+        domains they cannot read are not there.
+      parameters:
+        - $ref: '#/components/parameters/View'
+        - $ref: '#/components/parameters/Team'
+        - $ref: '#/components/parameters/Day'
+        - $ref: '#/components/parameters/User'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/Weeks'
+        - $ref: '#/components/parameters/Project'
+        - $ref: '#/components/parameters/Assignee'
+        - $ref: '#/components/parameters/Stage'
+        - $ref: '#/components/parameters/Zone'
+        - $ref: '#/components/parameters/Focus'
+        - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/Fields'
+        - $ref: '#/components/parameters/Snapshot'
+      responses:
+        '200':
+          description: What that board draws.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CardList'
+        default:
+          $ref: '#/components/responses/Problem'
+    post:
+      operationId: createCard
+      tags: [Cards]
+      summary: Create the card that board makes.
+      description: >-
+        A create means what the board means by it: typed into `me` the card is
+        yours, today, in the sprint and in the unplanned band; into `team` it
+        lands in the Unassigned column unless somebody is named; into `triage`
+        it is scheduled for a week; into `backlog` it is parked on the team's
+        shelf; into `project` it is a slot under a column. Each board refuses
+        the fields it does not own — a parked card typed into a day, a column
+        named on the Me board — with a 422 that says which field it was. A title
+        that is nothing but a GitHub issue/PR URL becomes that item's real
+        title, with the link moved into the description.
+      parameters:
+        - $ref: '#/components/parameters/View'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCardRequest'
+      responses:
+        '201':
+          description: The card as it was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        default:
+          $ref: '#/components/responses/Problem'
+  /views/{view}/watch:
+    get:
+      operationId: watchView
+      tags: [Board]
+      summary: Watch that board over a WebSocket.
+      description: >-
+        An upgrade, not a response: each text frame that follows is one
+        `#/components/schemas/WatchFrame`. With the narrowing parameters the
+        subscription is SCOPED — a card entering the selection arrives as ADDED
+        and one leaving it as DELETED — while `view=all` with no selectors is
+        the raw board stream. `resources` picks the kinds and `client` keys echo
+        suppression: a change made with the same `X-Aeman-Client` is not
+        streamed back on that connection.
+      parameters:
+        - $ref: '#/components/parameters/View'
+        - $ref: '#/components/parameters/Team'
+        - $ref: '#/components/parameters/Day'
+        - $ref: '#/components/parameters/User'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/Weeks'
+        - $ref: '#/components/parameters/Project'
+        - $ref: '#/components/parameters/Assignee'
+        - $ref: '#/components/parameters/Stage'
+        - $ref: '#/components/parameters/Zone'
+        - $ref: '#/components/parameters/Focus'
+        - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/Fields'
+        - $ref: '#/components/parameters/Snapshot'
+        - name: resources
+          in: query
+          required: false
+          description: >-
+            A comma-separated set of the kinds to receive; the default is
+            cards,sprints,ordering,presence.
+          schema:
+            type: string
+        - name: client
+          in: query
+          required: false
+          description: The client id changes are attributed to, for echo suppression.
+          schema:
+            type: string
+      responses:
+        '101':
+          description: Switching to the WebSocket stream.
+  /views/{view}/cards/{uid}/actions/remove:
+    post:
+      operationId: removeCard
+      tags: [Cards]
+      summary: The board's × — hand the card back to a home it still has, or delete it by that board's rules.
+      description: >-
+        `intent` says which of the ×'s two meanings is wanted: `unassign`
+        empties the working area and leaves the card in its week or its column,
+        `off-board` takes it away with the subtasks that were pieces of it.
+        Omitted, the gesture decides for itself. `off-board` on a Project-board
+        slot or a process turn is 422 — those belong to another board's plan;
+        `unassign` on a card with no week and no column is 422 too, since it
+        would leave the card nowhere at all.
+
+
+        From the Me board the × is the narrow one: a person takes off their own
+        board what they PUT there and what the plan has not taken up. Work
+        another person scheduled for them, or work they scheduled on the Team or
+        Triage board, is somebody's plan and is refused there (403) — the wide ×
+        lives on the board where the planning was done, and the answer to "I am
+        not doing this" is `spec.stage: refuse`. A card with no recorded author
+        is not exempt, and a subtask is outside the rule.
+
+
+        The × empties the WORKING AREA: assignee, sprint and dates cleared (a
+        slot keeps its dates — they are its row). The card then lands wherever
+        it still belongs — the week it is scheduled for, or its Project-board
+        column. With nowhere else to be the working area was its only home, and
+        the × deletes it. It takes the card's subtasks with it; a subtask
+        standing in a column of its own is freed into that column instead, and
+        one whose column cannot come along (a column of the parent's repository)
+        is answered like any other columnless card, which is deletion. A deleted
+        card is not lost to the board's history: the day it stood on gives it
+        back. DELETE /cards/{uid} is the deliberate delete, and it FREES a
+        card's subtasks rather than taking them along.
+
+
+        A second, wider rule sits in front of both doors, this one and
+        DELETE /cards/{uid}: a card the caller is CARRYING but did not create
+        is not theirs to take off the board, on ANY board (403). Their answer
+        to work somebody else planned for them is `spec.stage: refuse`, which
+        leaves the card standing for the person who planned it to decide.
+        Unlike the Me-board rule above, a card with no recorded author is
+        outside this one — there is nobody else it could belong to — and so
+        are a subtask and a review card, which are pieces of other work rather
+        than work assigned to anyone.
+
+
+        A client should ask before pressing it when there is progress or a
+        linked review card to lose: the server does not ask, and what the card
+        carries does not change what the gesture does.
+      parameters:
+        - $ref: '#/components/parameters/View'
+        - $ref: '#/components/parameters/Uid'
+        - $ref: '#/components/parameters/Team'
+        - $ref: '#/components/parameters/Day'
+        - $ref: '#/components/parameters/User'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/Weeks'
+        - $ref: '#/components/parameters/Project'
+        - $ref: '#/components/parameters/Assignee'
+        - $ref: '#/components/parameters/Stage'
+        - $ref: '#/components/parameters/Zone'
+        - $ref: '#/components/parameters/Focus'
+        - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/Fields'
+        - $ref: '#/components/parameters/Snapshot'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoveCardBody'
+      responses:
+        '204':
+          description: The card is off that board.
+        default:
+          $ref: '#/components/responses/Problem'
+  /views/{view}/cards/{uid}/actions/place:
+    post:
+      operationId: placeCard
+      tags: [Cards]
+      summary: The Triage board's drop — put the card in a week, which is what triaging it means.
+      description: >-
+        `week` is a Monday; any other day is refused (422), since a week that is
+        not a Monday matches no column the board draws. A week AHEAD of this one
+        also empties the working area — the card is on no day board until that
+        Monday — while the CURRENT week joins the team's sprint instead. A
+        Project-board slot is not refused: its week IS its start date's week,
+        so its DATES are what move — the whole span shifts by the distance to
+        the week asked for, and the row follows. It is not the same as
+        PATCH {"week": …}, which writes the week and nothing else and refuses a
+        slot outright (422 `weekDerived`).
+      parameters:
+        - $ref: '#/components/parameters/View'
+        - $ref: '#/components/parameters/Uid'
+        - $ref: '#/components/parameters/Team'
+        - $ref: '#/components/parameters/Day'
+        - $ref: '#/components/parameters/User'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/Weeks'
+        - $ref: '#/components/parameters/Project'
+        - $ref: '#/components/parameters/Assignee'
+        - $ref: '#/components/parameters/Stage'
+        - $ref: '#/components/parameters/Zone'
+        - $ref: '#/components/parameters/Focus'
+        - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/Fields'
+        - $ref: '#/components/parameters/Snapshot'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaceCardBody'
+      responses:
+        '200':
+          description: The card after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        default:
+          $ref: '#/components/responses/Problem'
+  /views/{view}/cards/{uid}/actions/untriage:
+    post:
+      operationId: untriageCard
+      tags: [Cards]
+      summary: The Triage board's opposite — take the card's week away, back to the strip.
+      description: >-
+        A Project-board slot is refused (422 `weekDerived`): its week is its
+        row, derived from its dates, so there is no week to take away — taking
+        it off the column is the gesture that means this. A card that is in no
+        week already is left as it is.
+      parameters:
+        - $ref: '#/components/parameters/View'
+        - $ref: '#/components/parameters/Uid'
+        - $ref: '#/components/parameters/Team'
+        - $ref: '#/components/parameters/Day'
+        - $ref: '#/components/parameters/User'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/Weeks'
+        - $ref: '#/components/parameters/Project'
+        - $ref: '#/components/parameters/Assignee'
+        - $ref: '#/components/parameters/Stage'
+        - $ref: '#/components/parameters/Zone'
+        - $ref: '#/components/parameters/Focus'
+        - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/Fields'
+        - $ref: '#/components/parameters/Snapshot'
+      responses:
+        '200':
+          description: The card after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        default:
+          $ref: '#/components/responses/Problem'
+  /views/{view}/cards/{uid}/actions/finished-earlier:
+    post:
+      operationId: finishedEarlier
+      tags: [Cards]
+      summary: A day board's answer for work done in the sprint before this one and marked done now.
+      description: >-
+        It sends finished work back to the sprint it was done in, its dates and
+        the day it counts as done along with it. A MOVE rather than a removal,
+        which is why it has a door of its own.
+      parameters:
+        - $ref: '#/components/parameters/View'
+        - $ref: '#/components/parameters/Uid'
+        - $ref: '#/components/parameters/Team'
+        - $ref: '#/components/parameters/Day'
+        - $ref: '#/components/parameters/User'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/Weeks'
+        - $ref: '#/components/parameters/Project'
+        - $ref: '#/components/parameters/Assignee'
+        - $ref: '#/components/parameters/Stage'
+        - $ref: '#/components/parameters/Zone'
+        - $ref: '#/components/parameters/Focus'
+        - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/Fields'
+        - $ref: '#/components/parameters/Snapshot'
+      responses:
+        '200':
+          description: The card after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}:
+    get:
+      operationId: getCard
+      tags: [Cards]
+      summary: One card in full — the body lives here, not in listings.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      responses:
+        '200':
+          description: The card.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        default:
+          $ref: '#/components/responses/Problem'
+    patch:
+      operationId: patchCard
+      tags: [Cards]
+      summary: Edit spec fields; only present fields apply, and an empty value clears.
+      description: >-
+        The server applies the rules as the UI would: the clamps, the review
+        linkage, the calendar semantics of the dates. Fields are applied in the
+        order the handler reads them, and the assignees last — ungrouping hands
+        an ownerless child its parent's person, and a patch that also names
+        assignees means the caller decided who owns it.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardPatch'
+      responses:
+        '200':
+          description: The card after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteCard
+      tags: [Cards]
+      summary: Hard delete, cascading to the linked review card.
+      description: >-
+        The deliberate delete — "this card is a mistake" — as against the
+        board's ×, which is "this work is off the board". It FREES the card's
+        subtasks into standalone cards rather than taking them along. A card
+        the caller is CARRYING but did not create is refused here as it is at
+        the × (403): `spec.stage: refuse` is the answer to work somebody else
+        planned. A subtask, a review card and a card with no recorded author
+        are outside that rule.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      responses:
+        '204':
+          description: The card is gone.
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}/actions/move:
+    post:
+      operationId: moveCard
+      tags: [Cards]
+      summary: Reorder the card after (or before) another one.
+      description: >-
+        `before` wins when both are sent; an empty `after` puts the card at the
+        top.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveCardBody'
+      responses:
+        '204':
+          description: The order is applied.
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}/actions/defer:
+    post:
+      operationId: deferCard
+      tags: [Cards]
+      summary: Push the scheduled day N days ahead of today.
+      description: >-
+        Presses stack, and a card created today relocates fully. `days` must be
+        positive — putting work OFF is the whole gesture — and a zero or
+        negative one is 422.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeferCardBody'
+      responses:
+        '200':
+          description: The card after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}/actions/in-progress:
+    post:
+      operationId: setInProgress
+      tags: [Cards]
+      summary: Move the card to the implicit In Progress status.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      responses:
+        '200':
+          description: The card after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}/actions/reopen:
+    post:
+      operationId: reopenCard
+      tags: [Cards]
+      summary: Undo a done mark, restoring the progress the card had when done was set.
+      description: >-
+        The stage clears and the progress returns to what the card carried when
+        it was marked done, the jump recorded in its log; with no history to
+        read it falls back to In Progress.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      responses:
+        '200':
+          description: The card after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}/actions/send-to-review:
+    post:
+      operationId: sendToReview
+      tags: [Cards]
+      summary: Send the card to a reviewer, or reassign the review that exists.
+      description: >-
+        The answer is the REVIEW card, whether it was created or reassigned. A
+        reviewer who cannot read the card's repository cannot see the review
+        either — it lives with the card it reviews — which is what
+        `domains[].members` is for: a client narrows its picker by it. Without a `zone` the
+        review lands in the unplanned one: for the reviewer it is work that
+        turned up during their day, and the original's band says where the WORK
+        stood, not where the asking belongs.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendToReviewBody'
+      responses:
+        '201':
+          description: The review card.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}/actions/mirror:
+    post:
+      operationId: mirrorCard
+      tags: [Cards]
+      summary: Show the card in a second Project-board column.
+      description: >-
+        One card, one file and one log, standing in both plans. The card must
+        already be in a column; the target must exist, in the card's own
+        repository, and must not be the card's own column; a subtask cannot be
+        mirrored (all 422). Mirroring where it already stands is a no-op. The
+        EPIC half is required — a column is named by its epic — while the
+        project half may be empty, since the no-project bucket is a mirror home
+        like any other.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlacementBody'
+      responses:
+        '200':
+          description: The card after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}/actions/unmirror:
+    post:
+      operationId: unmirrorCard
+      tags: [Cards]
+      summary: Take one mirror column away; the home and everything else stay.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlacementBody'
+      responses:
+        '200':
+          description: The card after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}/actions/remove-from-project:
+    post:
+      operationId: removeFromProject
+      tags: [Cards]
+      summary: The Project board's × — take the card out of one column.
+      description: >-
+        A mirror goes; the home with mirrors left hands its role to the first
+        mirror; the last column drops the WEEK that was the slot's row, keeps a
+        worked card (assignee and progress) as an orphan of the working area,
+        and deletes the rest, cascading the linked review card. A SUBTASK is
+        never deleted here — its other home is its parent, so the × only takes
+        the column away. It answers 204 rather than the card, which may no
+        longer exist.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlacementBody'
+      responses:
+        '204':
+          description: The card is out of that column.
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}/actions/remove-reviewer:
+    post:
+      operationId: removeReviewer
+      tags: [Cards]
+      summary: Delete the linked review card.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      responses:
+        '200':
+          description: The card after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}/links:
+    get:
+      operationId: listLinks
+      tags: [Cards]
+      summary: The URLs found in the card's description, GitHub refs resolved and listed first.
+      description: >-
+        Only github.com references are recognised; GitLab issue and
+        merge-request links are plain links for now.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      responses:
+        '200':
+          description: The card's links.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkList'
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}/log:
+    get:
+      operationId: getCardLog
+      tags: [Cards]
+      summary: The card's activity feed — recorded events and work notes, one chronological list.
+      description: >-
+        Read from the repository's history: every commit that touched the card
+        is one or more events, with the commit's author and time, merged with
+        its notes. A change made by a direct git write shows up like any other.
+        This is one card's whole history; for a day's feed across many cards ask
+        GET /logs.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      responses:
+        '200':
+          description: The card's feed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogList'
+        default:
+          $ref: '#/components/responses/Problem'
+  /logs:
+    get:
+      operationId: getDayLogs
+      tags: [Cards]
+      summary: One day's feed for many cards at once — what a day board shows.
+      description: >-
+        The history walk stops at the day's first moment, so this costs a
+        fraction of a log per card: asking a whole log per card is what made a
+        board open fire dozens of slow requests. A card that was quiet that day
+        is present with an empty list; a card the visitor cannot read is absent.
+      parameters:
+        - name: day
+          in: query
+          required: false
+          description: The board day to read, yyyy-mm-dd. Empty or absent is today.
+          schema:
+            type: string
+            pattern: '^(\d{4}-\d{2}-\d{2})?$'
+        - name: uids
+          in: query
+          required: false
+          description: The cards to read, comma-separated; at most 200 per request.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: That day, per card.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DayLogList'
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}/notes:
+    get:
+      operationId: listNotes
+      tags: [Notes]
+      summary: The card's work notes.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      responses:
+        '200':
+          description: The thread.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteList'
+        default:
+          $ref: '#/components/responses/Problem'
+    post:
+      operationId: addNote
+      tags: [Notes]
+      summary: Append a work note.
+      description: >-
+        Every note mutation answers the card's whole thread, so clients converge
+        on the server's view of it rather than on their own idea of the order.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteBody'
+      responses:
+        '201':
+          description: The thread with the new note in it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteList'
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}/notes/{noteId}:
+    patch:
+      operationId: editNote
+      tags: [Notes]
+      summary: Edit a work note.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+        - $ref: '#/components/parameters/NoteId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteBody'
+      responses:
+        '200':
+          description: The thread after the edit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteList'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteNote
+      tags: [Notes]
+      summary: Delete a work note.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+        - $ref: '#/components/parameters/NoteId'
+      responses:
+        '200':
+          description: The thread the note has left.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteList'
+        default:
+          $ref: '#/components/responses/Problem'
+  /sprints:
+    get:
+      operationId: listSprints
+      tags: [Sprints]
+      summary: Per-team sprint pointers.
+      description: >-
+        Ask it with the same day selector as the listing beside it: a past day's
+        pointers come with that day's cards, and the client's own view rules
+        compare a card's sprint against them.
+      parameters:
+        - $ref: '#/components/parameters/Day'
+        - $ref: '#/components/parameters/Snapshot'
+        - $ref: '#/components/parameters/BoardOfView'
+      responses:
+        '200':
+          description: The pointers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SprintList'
+        default:
+          $ref: '#/components/responses/Problem'
+    patch:
+      operationId: patchSprint
+      tags: [Sprints]
+      summary: Set a team's sprint pointer directly.
+      description: >-
+        A team is declared by its first sprint write, in the `domain` the caller
+        picks; an existing team's pointer stays where the team is.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SprintPatch'
+      responses:
+        '200':
+          description: The pointer as it now stands.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sprint'
+        default:
+          $ref: '#/components/responses/Problem'
+  /people/{login}:
+    patch:
+      operationId: patchPerson
+      tags: [Board]
+      summary: Set the points a week a PERSON gets through.
+      description: >-
+        The number a day board measures their load against. 0 takes a set number
+        back and nothing derives one; outside 0..999, or a login that could not
+        be one, is 422. It answers the whole Board resource, whose members carry
+        `load` and `capacity` — that is what the client redraws.
+      parameters:
+        - $ref: '#/components/parameters/Login'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonPatch'
+      responses:
+        '200':
+          description: The board, with the person's new number in it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Board'
+        default:
+          $ref: '#/components/responses/Problem'
+  /sprints/actions/carry-over:
+    post:
+      operationId: carryOver
+      tags: [Sprints]
+      summary: Advance a team's sprint to today and carry its unfinished cards.
+      description: >-
+        Finished recurrent cards reseed as fresh copies. With `dryRun` the
+        counts are reported and nothing changes, which is what backs a confirm
+        dialog.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CarryOverBody'
+      responses:
+        '200':
+          description: What was carried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CarryReport'
+        default:
+          $ref: '#/components/responses/Problem'
+  /sprints/actions/reorder-teams:
+    post:
+      operationId: reorderTeams
+      tags: [Sprints]
+      summary: Apply a shared team order.
+      description: >-
+        The hidden sprint-state cards are moved into the given sequence, so
+        every client reads the same order back from the board metadata. Teams
+        missing from the list keep their positions after the reordered ones.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReorderTeamsBody'
+      responses:
+        '204':
+          description: The order is applied.
+        default:
+          $ref: '#/components/responses/Problem'
+  /sprints/actions/delete-team:
+    post:
+      operationId: deleteTeam
+      tags: [Sprints]
+      summary: Delete a team's sprint pointer; refused while cards still use the team.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamBody'
+      responses:
+        '204':
+          description: The team is gone from the roster.
+        default:
+          $ref: '#/components/responses/Problem'
+  /epics:
+    post:
+      operationId: addEpic
+      tags: [Epics]
+      summary: Declare an epic column.
+      description: >-
+        The project is OPTIONAL, and the schema beside this says so too: named,
+        it must already exist — a project the board does not have is a typo,
+        and is refused (422 `projectNotFound`) — and the column lives with it;
+        left empty, the column goes in the no-project bucket, which is a column
+        home like any other. The name has to be free inside whichever of the
+        two it lands in (422 `epicExists`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddEpicBody'
+      responses:
+        '204':
+          description: The column is declared.
+        default:
+          $ref: '#/components/responses/Problem'
+  /epics/actions/delete-epic:
+    post:
+      operationId: deleteEpic
+      tags: [Epics]
+      summary: Delete an EMPTY epic column; refused while cards sit under it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EpicBody'
+      responses:
+        '204':
+          description: The column is gone.
+        default:
+          $ref: '#/components/responses/Problem'
+  /epics/actions/reorder-epics:
+    post:
+      operationId: reorderEpics
+      tags: [Epics]
+      summary: Apply one project's column order.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReorderEpicsBody'
+      responses:
+        '204':
+          description: The order is applied.
+        default:
+          $ref: '#/components/responses/Problem'
+  /epics/actions/set-project:
+    post:
+      operationId: setEpicProject
+      tags: [Epics]
+      summary: Move a column from one project to another; an empty target detaches it.
+      description: >-
+        Its cards are rewritten with it. The column cannot change REPOSITORY —
+        its stub is written back to the repository that holds it — so a target
+        project of another one is refused (422), and the name must be free in
+        the destination, the no-project bucket included.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetEpicProjectBody'
+      responses:
+        '204':
+          description: The column belongs to the other project now.
+        default:
+          $ref: '#/components/responses/Problem'
+  /epics/actions/rename:
+    post:
+      operationId: renameEpic
+      tags: [Epics]
+      summary: Rename a column in place, cards and all.
+      description: >-
+        A name already used inside the SAME project is refused (422); the same
+        name in another project is fine.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameEpicBody'
+      responses:
+        '204':
+          description: The column is renamed.
+        default:
+          $ref: '#/components/responses/Problem'
+  /processes:
+    get:
+      operationId: listProcesses
+      tags: [Processes]
+      summary: The Process tab — every process with its tasks and each task's history.
+      parameters:
+        - name: project
+          in: query
+          required: false
+          description: Keep only the processes of one project; empty is every project.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The processes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessList'
+        default:
+          $ref: '#/components/responses/Problem'
+    post:
+      operationId: addProcess
+      tags: [Processes]
+      summary: Declare a process — recurring work inside a project.
+      description: >-
+        A process with a project lives with the project; `domain` picks the
+        repository for a project-less one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddProcessBody'
+      responses:
+        '204':
+          description: The process is declared.
+        default:
+          $ref: '#/components/responses/Problem'
+  /processes/actions/delete-process:
+    post:
+      operationId: deleteProcess
+      tags: [Processes]
+      summary: Delete an EMPTY process; refused while it has tasks.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProcessBody'
+      responses:
+        '204':
+          description: The process is gone.
+        default:
+          $ref: '#/components/responses/Problem'
+  /processes/actions/rename:
+    post:
+      operationId: renameProcess
+      tags: [Processes]
+      summary: Rename a process; its tasks follow.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameProcessBody'
+      responses:
+        '204':
+          description: The process is renamed.
+        default:
+          $ref: '#/components/responses/Problem'
+  /processes/actions/set-project:
+    post:
+      operationId: setProcessProject
+      tags: [Processes]
+      summary: Move a process to another project; an empty project is the no-project bucket.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetProcessProjectBody'
+      responses:
+        '204':
+          description: The process belongs to the other project now.
+        default:
+          $ref: '#/components/responses/Problem'
+  /processes/actions/set-paused:
+    post:
+      operationId: setProcessPaused
+      tags: [Processes]
+      summary: Pause a process, or resume it.
+      description: >-
+        A paused process files no turns and projects none; resuming files what
+        the current week is owed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetProcessPausedBody'
+      responses:
+        '204':
+          description: The process is paused, or running again.
+        default:
+          $ref: '#/components/responses/Problem'
+  /processes/actions/reorder:
+    post:
+      operationId: reorderProcesses
+      tags: [Processes]
+      summary: Apply a shared process order.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReorderProcessesBody'
+      responses:
+        '204':
+          description: The order is applied.
+        default:
+          $ref: '#/components/responses/Problem'
+  /processes/tasks/actions/reorder:
+    post:
+      operationId: reorderProcessTasks
+      tags: [Processes]
+      summary: Apply one process's task order.
+      description: >-
+        A uid from another process is adopted into this one — which is how a
+        cross-process drop lands.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReorderProcessTasksBody'
+      responses:
+        '204':
+          description: The order is applied.
+        default:
+          $ref: '#/components/responses/Problem'
+  /processes/tasks:
+    post:
+      operationId: addTask
+      tags: [Processes]
+      summary: Add what a process iterates on.
+      description: >-
+        A task says what every turn is called and says, its cycle (counted on
+        the calendar from its start date, not from when the last turn closed),
+        the team the turns land in and the standing owner. The server files what
+        each week is owed by itself, as the week arrives.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskRequest'
+      responses:
+        '201':
+          description: The uid of the new task.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskRef'
+        default:
+          $ref: '#/components/responses/Problem'
+  /processes/tasks/{uid}:
+    patch:
+      operationId: patchTask
+      tags: [Processes]
+      summary: Change what the NEXT turns will be; the running one is untouched.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskRequest'
+      responses:
+        '204':
+          description: The task is changed.
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteTask
+      tags: [Processes]
+      summary: Delete a task; its past turns stay as the record.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      responses:
+        '204':
+          description: The task is gone.
+        default:
+          $ref: '#/components/responses/Problem'
+  /deadlines:
+    post:
+      operationId: addDeadline
+      tags: [Deadlines]
+      summary: Mark a week with a project's deadline line.
+      description: >-
+        A project holds at most one per week; any day resolves to its Monday,
+        and asking twice changes nothing. Two projects can each have something
+        due the same week, and those are two lines.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeadlineBody'
+      responses:
+        '204':
+          description: The line is drawn.
+        default:
+          $ref: '#/components/responses/Problem'
+  /deadlines/actions/delete:
+    post:
+      operationId: deleteDeadline
+      tags: [Deadlines]
+      summary: Clear a project's deadline on a week.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeadlineBody'
+      responses:
+        '204':
+          description: The line is gone.
+        default:
+          $ref: '#/components/responses/Problem'
+  /deadlines/actions/move:
+    post:
+      operationId: moveDeadline
+      tags: [Deadlines]
+      summary: Drag a project's deadline to another week.
+      description: >-
+        Landing where it already has one leaves a single line; another project's
+        line on that week is untouched.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveDeadlineBody'
+      responses:
+        '204':
+          description: The line has moved.
+        default:
+          $ref: '#/components/responses/Problem'
+  /projects:
+    post:
+      operationId: addProject
+      tags: [Projects]
+      summary: Declare a project — the Project board's top grouping, which owns epic columns.
+      description: It may be created empty; `domain` picks the repository it is declared in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddProjectBody'
+      responses:
+        '204':
+          description: The project is declared.
+        default:
+          $ref: '#/components/responses/Problem'
+  /projects/actions/delete-project:
+    post:
+      operationId: deleteProject
+      tags: [Projects]
+      summary: Delete an EMPTY project; refused while it still owns columns.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectBody'
+      responses:
+        '204':
+          description: The project is gone.
+        default:
+          $ref: '#/components/responses/Problem'
+  /projects/actions/reorder-projects:
+    post:
+      operationId: reorderProjects
+      tags: [Projects]
+      summary: Apply the shared project order.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReorderProjectsBody'
+      responses:
+        '204':
+          description: The order is applied.
+        default:
+          $ref: '#/components/responses/Problem'
+  /projects/actions/rename:
+    post:
+      operationId: renameProject
+      tags: [Projects]
+      summary: Rename a project in place; its columns and their cards follow.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameProjectBody'
+      responses:
+        '204':
+          description: The project is renamed.
+        default:
+          $ref: '#/components/responses/Problem'
+  /teams/actions/rename:
+    post:
+      operationId: renameTeam
+      tags: [Teams]
+      summary: Rename a team in place, its cards and process tasks along with it.
+      description: >-
+        Its declaration keeps its sprint pointer. A name another team has is
+        refused (422), and the no-team group cannot be renamed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameTeamBody'
+      responses:
+        '204':
+          description: The team is renamed.
+        default:
+          $ref: '#/components/responses/Problem'
+  /teams/actions/capacity:
+    post:
+      operationId: setTeamCapacity
+      tags: [Teams]
+      summary: Set the points a week a team gets through.
+      description: >-
+        The number a week of the team's plan is weighed against, stored in the
+        team's own file. 0 takes it back and the board derives none; outside
+        0..999 is 422, and so is a team the board does not declare.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamCapacityBody'
+      responses:
+        '204':
+          description: The number is recorded.
+        default:
+          $ref: '#/components/responses/Problem'
+  /presence:
+    post:
+      operationId: setPresence
+      tags: [Presence]
+      summary: Share the caller's live card selection; an empty card clears it.
+      description: >-
+        Ephemeral shared-cursor state, broadcast over the watch and never
+        persisted. The login is the caller's authenticated identity, not a
+        client-supplied value, and the client id (`X-Aeman-Client`) keys it, so
+        a closed tab clears its own mark.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresenceBody'
+      responses:
+        '204':
+          description: The selection is shared.
+        default:
+          $ref: '#/components/responses/Problem'
+  /openapi.json:
+    get:
+      operationId: getOpenAPI
+      tags: [Meta]
+      summary: This document, as JSON.
+      responses:
+        '200':
+          description: The OpenAPI description of this surface.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Problem'
+components:
+  parameters:
+    Uid:
+      name: uid
+      in: path
+      required: true
+      description: The card's own address, a ULID assigned at creation.
+      schema:
+        type: string
+    View:
+      name: view
+      in: path
+      required: true
+      description: >-
+        The board the caller is standing on: me, team, triage, backlog, project,
+        or all — the escape hatch, which has to be said out loud. A board nobody
+        has is a route that is not there (404).
+      schema:
+        type: string
+    NoteId:
+      name: noteId
+      in: path
+      required: true
+      description: The note's id inside the card.
+      schema:
+        type: string
+    Login:
+      name: login
+      in: path
+      required: true
+      description: The person's forge login.
+      schema:
+        type: string
+    Team:
+      name: team
+      in: query
+      required: false
+      description: >-
+        A comma-separated set of team keys; the listings union them. Empty is
+        every team, and the no-team group is the empty key.
+      schema:
+        type: string
+    Day:
+      name: day
+      in: query
+      required: false
+      description: The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
+      schema:
+        type: string
+        pattern: '^(\d{4}-\d{2}-\d{2})?$'
+    User:
+      name: user
+      in: query
+      required: false
+      description: >-
+        Whose Me board to read. Who-am-I is resolved server-side, so a caller
+        needs none; an explicit one wins, for a lead looking at somebody else's
+        day.
+      schema:
+        type: string
+    From:
+      name: from
+      in: query
+      required: false
+      description: >-
+        The Monday the Triage window opens on; empty or absent is the current
+        week.
+      schema:
+        type: string
+        pattern: '^(\d{4}-\d{2}-\d{2})?$'
+    Weeks:
+      name: weeks
+      in: query
+      required: false
+      description: >-
+        How many weeks the Triage window covers, that Monday included: 1..26,
+        default 6. Anything else is refused (400). A client must ask for every
+        week it intends to DRAW.
+      schema:
+        type: string
+    Project:
+      name: project
+      in: query
+      required: false
+      description: >-
+        One project's columns, for the Project board; empty is every project,
+        including the columns that belong to none.
+      schema:
+        type: string
+    Assignee:
+      name: assignee
+      in: query
+      required: false
+      description: Keep only the cards on one person.
+      schema:
+        type: string
+    Stage:
+      name: stage
+      in: query
+      required: false
+      description: >-
+        Keep only the cards carrying one stage; present and empty means the
+        cards carrying none.
+      schema:
+        type: string
+    Zone:
+      name: zone
+      in: query
+      required: false
+      description: >-
+        Keep only the cards in one band; present and empty means the cards in
+        none. The filter reads the same answer the listing states, so the two
+        never disagree about a card.
+      schema:
+        type: string
+    Focus:
+      name: focus
+      in: query
+      required: false
+      description: >-
+        "true" or "1" keeps only the cards workable right now — done, on-review
+        and locked are dropped.
+      schema:
+        type: string
+    Reviews:
+      name: reviews
+      in: query
+      required: false
+      description: >-
+        "true" or "1" brings review cards into the view: on me and team each
+        card's linked review is APPENDED, on triage the reviews the grid
+        otherwise leaves out are KEPT, standing in the week their own dates fall
+        in. Off by default in both.
+      schema:
+        type: string
+    Fields:
+      name: fields
+      in: query
+      required: false
+      description: >-
+        The resource shape a listing delivers: "summary" (the default, a board
+        row with no description) or "full". Anything else is refused (400).
+      schema:
+        type: string
+    Snapshot:
+      name: snapshot
+      in: query
+      required: false
+      description: >-
+        "true" or "1", with a PAST day on a me or team board: the board as it
+        STOOD when that day ended, rather than today's cards filtered by that
+        day's dates. Whether a day is over is asked per team. A day the clone's
+        history no longer reaches is 410, and storage that keeps no history
+        answers 501. Ignored where a board has no records to give.
+      schema:
+        type: string
+    BoardOfView:
+      name: view
+      in: query
+      required: false
+      description: >-
+        Which board is asking, for a read with no board segment of its own: only
+        a DAY board has a day to be a record of, so the snapshot flag is ignored
+        for the others.
+      schema:
+        type: string
+  responses:
+    Problem:
+      description: >-
+        The request was refused. The status says whose fault it was, `detail` is
+        the sentence to show a person, and `code` is what a program branches on.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    Problem:
+      type: object
+      description: An RFC 9457 problem detail, with two extension members.
+      required: [type, title, status, detail, code]
+      properties:
+        type:
+          type: string
+          description: >-
+            Always "about:blank": there is no page per problem, and `code`
+            carries the identity.
+        title:
+          type: string
+          description: The status code's own text.
+        status:
+          type: integer
+          description: The HTTP status, repeated in the body.
+        detail:
+          type: string
+          description: The sentence to show a person.
+        code:
+          type: string
+          description: >-
+            The rule that refused, for a program to branch on. For a rule of the
+            board it is that rule's own name.
+          enum:
+            - accessUndecided
+            - authorizationExpired
+            - backwardsDefer
+            - badCapacity
+            - badDay
+            - bodyTooLarge
+            - capacityRequired
+            - cardNotFound
+            - cardNotOnBoard
+            - crossDomain
+            - crossSiteBlocked
+            - dayIsARecord
+            - descriptionTooLong
+            - domainConflict
+            - emptyNote
+            - emptyTitle
+            - endBeforeStart
+            - epicExists
+            - epicInUse
+            - epicNotFound
+            - epicRequired
+            - forbidden
+            - gestureNotOffered
+            - historyTruncated
+            - invalidAsOf
+            - invalidBody
+            - invalidDay
+            - invalidSelector
+            - invalidStage
+            - nameTaken
+            - noColumn
+            - noEarlierSprint
+            - noHistory
+            - noPlaceOfItsOwn
+            - noReviewer
+            - noSuchView
+            - notAMonday
+            - notAuthenticated
+            - notFinished
+            - notInProject
+            - notOnThisBoard
+            - notRecurrent
+            - notYoursToDestroy
+            - notYoursToPark
+            - notYoursToRefuse
+            - notYoursToRemove
+            - noteNotFound
+            - noteTooLong
+            - nowhereToLeaveIt
+            - openSubtasks
+            - outsideCycle
+            - ownColumn
+            - parentNotFound
+            - pointsRequired
+            - processExists
+            - processInUse
+            - processNotFound
+            - projectExists
+            - projectInUse
+            - projectNotFound
+            - setupRequired
+            - subtaskDepth
+            - subtaskMirror
+            - subtaskTie
+            - subtaskWeek
+            - taskNotFound
+            - teamExists
+            - teamInUse
+            - teamNotFound
+            - titleTooLong
+            - tooManyCards
+            - turnProcess
+            - unknownDomain
+            - unknownIntent
+            - unknownRoute
+            - unknownSize
+            - unknownStage
+            - unknownZone
+            - upstreamFailed
+            - viewNeedsField
+            - weekDerived
+        actionUrl:
+          type: string
+          description: >-
+            Where the person can go to fix the refusal — installing the board's
+            app — for a client to offer as a button.
+    Card:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.Card
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [kind, metadata, spec, status]
+      properties:
+        kind:
+          type: string
+          enum: [Card]
+        metadata:
+          $ref: '#/components/schemas/CardMetadata'
+        spec:
+          $ref: '#/components/schemas/CardSpec'
+        status:
+          $ref: '#/components/schemas/CardStatus'
+    CardMetadata:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.CardMetadata
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: The card's identity and immutable facts.
+      required: [uid]
+      properties:
+        uid:
+          type: string
+          description: >-
+            A ULID, assigned at creation and never changed by a rename, a move
+            or a re-filing. A card migrated from a GitHub Projects v2 board also
+            answers to its old id for one major version.
+        author:
+          type: string
+        createdAt:
+          type: string
+    CardSpec:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.CardSpec
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: The user's intent — everything an edit can change.
+      required: [title, assignees, progress, dates]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+          description: >-
+            The card's body. ABSENT in a listing — that is the "not loaded"
+            marker — and always present, possibly empty, on a full resource, so
+            an empty body never reads as a missing one.
+        team:
+          type: string
+        zone:
+          type: string
+          description: >-
+            The band the card stands in, by meaning rather than by colour. A
+            card in the WORKING AREA — one carrying a sprint or dates of its own
+            — always answers with a band: nobody having said means "planned",
+            which is where every board draws it anyway. Absent is reserved for
+            cards that are on no day (the strip, a shelf, a week to come), where
+            "no band yet" is a state a client draws as one.
+          enum: [urgent, unplanned, planned, niceToHave]
+        size:
+          type: string
+          description: >-
+            What somebody said the card weighs. The points a board sums are
+            derived from it — S 1, M 2, L 4, XL 8 — never stored, and a card
+            with SUBTASKS weighs their sum instead of its own size (the umbrella
+            rule: a parent's estimate stands until its children exist, then they
+            replace it, and nothing counts twice). A card nobody has sized
+            weighs M — except a review card, which weighs S — and that default
+            is what the SUMS use, never a value written to the card, so the
+            field stays absent on it. A size the board does not know is answered
+            as absent rather than echoed back.
+          enum: [S, M, L, XL]
+        assignees:
+          type: array
+          items:
+            type: string
+        progress:
+          type: integer
+          description: >-
+            0..100. The service clamps rather than refuses: review and locked
+            hold it inside [10, 90], and done fills it.
+        stage:
+          type: string
+          description: >-
+            Open on the way out, unlike the patch's closed `stage`: a card's
+            stage is read verbatim from its file in the repository
+            (pkg/gitstore/layout.go), which any tool may commit to, so this
+            reports what the board says rather than what a write would have
+            been allowed to set. An explicit status that recolours the bar:
+            locked, review, recurrent, refuse — or absent, the implicit in-progress state. Done
+            is DERIVED (`status.complete`): 100% with no stage. `refuse` is the
+            answer of the person the card is on, so only they may set it (403
+            otherwise); it does not take the card off anyone's board, it leaves
+            it standing for their lead to answer, and clearing it IS that
+            answer, which anyone may do. A review card takes neither review nor
+            recurrent (422). Taking a card off review cancels its unfinished
+            linked review card, unless the reviewer has already worked on it.
+        recurrence:
+          type: string
+          description: >-
+            A recurrent card's reseed cycle: absent is every sprint, "week" and
+            "month" once the interval has elapsed.
+        dates:
+          $ref: '#/components/schemas/CardDates'
+        week:
+          type: string
+          description: >-
+            The week a card with no dates is scheduled for, a Monday: its column
+            on the Triage board. Any other day is refused (422) — a column IS a
+            Monday. A slot's row is the week of its `dates.start`, always
+            derived, so setting a week on a card filed under a column is refused
+            too, though re-asserting the week it already derives is a harmless
+            no-op. A process TURN keeps to its own occurrence.
+        parked:
+          type: boolean
+          description: >-
+            The card is on its team's SHELF rather than in the plan — work
+            somebody has read and put aside. Exclusive with `week`: setting one
+            clears the other, at every door. Parking empties the working area,
+            takes the card's subtasks off the board with it, withdraws any
+            unfinished review of it, and puts it at the top of the shelf. Every
+            team has a shelf and nothing declares it. A Project-board slot, a
+            process turn, a review card and a subtask are refused (422): none of
+            them has a place of its own to be parked out of.
+        epic:
+          type: string
+          description: >-
+            The card's column, which is the (project, epic) PAIR — epic names
+            repeat across projects, so anything acting on a column names both
+            halves.
+        project:
+          type: string
+        mirrors:
+          type: array
+          description: >-
+            The additional columns the same card stands in — one file, one log,
+            one set of dates — always in the card's own repository.
+          items:
+            $ref: '#/components/schemas/Placement'
+        process:
+          type: string
+          description: >-
+            The process this card is a turn of, or the one it was tied to
+            directly. A card on a day board carries it so a person can see what
+            the work belongs to.
+        task:
+          type: string
+          description: The task a process turn was copied from.
+        reviewOf:
+          type: string
+        parent:
+          type: string
+          description: On a subtask, the uid of the card it is grouped under.
+    CardDates:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.CardDates
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: >-
+        The card's date model: the scheduled start, the end of its visible
+        range, and the sprint it belongs to. PATCHing `start` runs the calendar
+        rule — the sprint follows the sprint that was active on the start day —
+        so patch only `end` or `sprint` for a granular change.
+      properties:
+        start:
+          type: string
+        end:
+          type: string
+        sprint:
+          type: string
+    CardStatus:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.CardStatus
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: Derived by the server, never written by a client.
+      required: [complete, inProgress]
+      properties:
+        complete:
+          type: boolean
+        inProgress:
+          type: boolean
+        overdue:
+          type: boolean
+          description: >-
+            A promise made on ANOTHER board and broken: a slot past its end
+            date, a process turn past the week its process filed it into. A card
+            the Triage board scheduled into a week is not marked late for still
+            being open — that week is this board's own planning — though it is
+            still a debt.
+        reviewedBy:
+          type: string
+          description: The assignee of the unfinished linked review card.
+        reviewRound:
+          type: integer
+        asOf:
+          type: string
+          description: >-
+            The moment this card is a RECORD of: its team's sprint has moved
+            past the day asked for, so this is what the card was that evening.
+            Absent on every live card, including in the same listing — whether a
+            day is over is each team's own answer.
+        domain:
+          type: string
+          description: >-
+            The repository the card lives in — the store's decision by the
+            inheritance rule, never a client's choice. Read it as a NAME to
+            compare against `domains[0]`, never as "absent means primary".
+        doneAt:
+          type: string
+          description: The board day the card reached 100, cleared on reopen.
+        triage:
+          type: boolean
+          description: >-
+            The card stands in the Triage board's strip: nobody has placed it in
+            a week and it is not being worked.
+        triageWeek:
+          type: string
+          description: >-
+            The Monday of the column the card stands in on the Triage board: its
+            week, or — for a review card, which has none of its own — the week
+            its own dates fall in.
+        due:
+          type: array
+          description: >-
+            A RECURRENT card's weeks to come: the ones it comes round in over
+            the planning horizon and no copy of it stands in yet.
+          items:
+            type: string
+        cycle:
+          $ref: '#/components/schemas/CycleWindow'
+        leftAt:
+          type: string
+          description: >-
+            The board day the older × demoted the card into the previous sprint,
+            which a record of that day gives it back by. Nothing writes it any
+            more.
+        links:
+          type: array
+          description: >-
+            The references extracted from the description, unresolved and capped
+            — they ride the status so a row that omits the description still
+            knows it has links to show. GET /cards/{uid}/links resolves them.
+          items:
+            $ref: '#/components/schemas/CardLinkRef'
+    CycleWindow:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.CycleWindow
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: >-
+        A process turn's own occurrence: the first and last week it may stand
+        in, both Mondays and both inclusive. It is sent rather than derived
+        because the calendar is the server's, and a second implementation of
+        "when is this next due" is a second answer waiting to disagree.
+      required: [from, to]
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+    CardLinkRef:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.CardLinkRef
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: One reference extracted from a description, unresolved.
+      required: [kind, url]
+      properties:
+        kind:
+          type: string
+          description: >-
+            What the URL points at. A closed set: pkg/board/links.go recognises
+            a github.com issue and pull-request URL (and the owner/repo#number
+            shorthand, which the live resolver corrects to `pull` when the
+            number turns out to be one) and calls everything else a plain link.
+          enum: [issue, pull, link]
+        url:
+          type: string
+        owner:
+          type: string
+        repo:
+          type: string
+        number:
+          type: integer
+    Placement:
+      type: object
+      additionalProperties: false
+      x-go-type: board.Placement
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/board
+      description: A Project-board column — the (project, epic) pair.
+      required: [project, epic]
+      properties:
+        project:
+          type: string
+        epic:
+          type: string
+    CardList:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.CardList
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [kind, items]
+      properties:
+        kind:
+          type: string
+          enum: [CardList]
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Card'
+        asOf:
+          type: string
+          description: >-
+            The moment a snapshot listing reflects (RFC3339) — the end of the
+            day it was asked for. Absent on a live listing.
+    Sprint:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.Sprint
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: A team's sprint pointer; the empty team is the no-team group.
+      required: [kind, metadata, spec]
+      properties:
+        kind:
+          type: string
+          enum: [Sprint]
+        metadata:
+          $ref: '#/components/schemas/SprintMetadata'
+        spec:
+          $ref: '#/components/schemas/SprintSpec'
+    SprintMetadata:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.SprintMetadata
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [team]
+      properties:
+        team:
+          type: string
+    SprintSpec:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.SprintSpec
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      properties:
+        current:
+          type: string
+        previous:
+          type: string
+        capacity:
+          $ref: '#/components/schemas/SprintCapacity'
+    SprintCapacity:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.SprintCapacity
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: >-
+        What a week of the team's plan is weighed against: the points a week it
+        gets through, a number somebody SET and never derived — absent when
+        nobody has said.
+      properties:
+        points:
+          type: integer
+    Note:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.Note
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [kind, metadata, spec]
+      properties:
+        kind:
+          type: string
+          enum: [Note]
+        metadata:
+          $ref: '#/components/schemas/NoteMetadata'
+        spec:
+          $ref: '#/components/schemas/NoteSpec'
+    NoteMetadata:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.NoteMetadata
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [id, cardUid, source]
+      properties:
+        id:
+          type: string
+        cardUid:
+          type: string
+        author:
+          type: string
+        createdAt:
+          type: string
+        source:
+          type: string
+    NoteSpec:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.NoteSpec
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [text]
+      properties:
+        text:
+          type: string
+    Ordering:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.Ordering
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: The board-level manual order — the uid list clients sort by.
+      required: [kind, spec]
+      properties:
+        kind:
+          type: string
+          enum: [Ordering]
+        spec:
+          $ref: '#/components/schemas/OrderingSpec'
+    OrderingSpec:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.OrderingSpec
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [uids]
+      properties:
+        uids:
+          type: array
+          items:
+            type: string
+    Board:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.BoardInfo
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [kind, metadata]
+      properties:
+        kind:
+          type: string
+          enum: [Board]
+        metadata:
+          $ref: '#/components/schemas/BoardMetadata'
+    BoardMetadata:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.BoardMetadata
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [teams, members]
+      properties:
+        title:
+          type: string
+        url:
+          type: string
+        teams:
+          type: array
+          description: The teams that have sprint pointers, in board order.
+          items:
+            type: string
+        projects:
+          type: array
+          items:
+            type: string
+        processes:
+          type: array
+          description: >-
+            The roster of processes, so a client can tell when it changed; the
+            Process tab reads the full structure from GET /processes.
+          items:
+            $ref: '#/components/schemas/ProcessRef'
+        deadlines:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeadlineRef'
+        epics:
+          type: array
+          items:
+            $ref: '#/components/schemas/EpicRef'
+        members:
+          type: array
+          description: >-
+            Every distinct assignee on the board, in login order, with the
+            numbers beside each — the people roster the pickers offer. Who may
+            READ a repository is the other list, `domains[].members`.
+          items:
+            $ref: '#/components/schemas/Member'
+        domains:
+          type: array
+          description: >-
+            The repositories the visitor can read, primary first. The board
+            lists its repositories whatever it spans, so a client reads a SINGLE
+            entry as "no boundaries" — by the COUNT, never by the list being
+            absent — and compares the stamps cards and columns carry against
+            these names.
+          items:
+            $ref: '#/components/schemas/DomainInfo'
+        teamDomains:
+          type: object
+          description: >-
+            The repository each team was declared in. A card's team and its
+            project must live in the same repository — the project decides where
+            the card lives, so a team from another one would leave the card
+            where its own people cannot read it — and a write that would pair
+            them is refused (422), so a client narrows its own pickers with
+            these maps rather than offering a choice the server will reject. An
+            entry missing from a map means the primary.
+          additionalProperties:
+            type: string
+        projectDomains:
+          type: object
+          description: The repository each project was declared in.
+          additionalProperties:
+            type: string
+        processDomains:
+          type: object
+          description: >-
+            The repository each process was declared in: a card may only be tied
+            to a process of its own repository.
+          additionalProperties:
+            type: string
+    Member:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.Member
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: >-
+        One person on the board. The login is the identity everywhere; the name
+        is for eyes, and a forge that has none sends only the avatar.
+      required: [login]
+      properties:
+        login:
+          type: string
+        name:
+          type: string
+        avatarUrl:
+          type: string
+        carrying:
+          type: integer
+          description: >-
+            How much open work is this person's right now, counted across EVERY
+            team: a board is read through a filter and a person is not.
+        load:
+          type: integer
+          description: The same work weighed in points.
+        capacity:
+          type: integer
+          description: >-
+            The points a week the person gets through — the roster's number, and
+            only that, absent when nobody has set one. A day board draws
+            load/capacity beside the person and goes red past it.
+    DomainInfo:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.DomainInfo
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: >-
+        One readable repository of the visitor's board: whether they may write
+        it, and which of the board's members can read it — so a reviewer picker
+        offers only people who will see the card.
+      required: [name, writable, members]
+      properties:
+        name:
+          type: string
+        writable:
+          type: boolean
+        members:
+          type: array
+          items:
+            type: string
+    EpicRef:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.EpicRef
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: >-
+        One Project-board column: its name and the project that owns it. A
+        client cannot compute the column's repository from the project — the
+        same project NAME may be declared in two repositories with its columns
+        merged under one entry — and it is the COLUMN that decides whether a
+        card may stand in it.
+      required: [name]
+      properties:
+        name:
+          type: string
+        project:
+          type: string
+        domain:
+          type: string
+    ProcessRef:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.ProcessRef
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [name]
+      properties:
+        name:
+          type: string
+        project:
+          type: string
+    DeadlineRef:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.DeadlineRef
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [week]
+      properties:
+        week:
+          type: string
+        project:
+          type: string
+    ProcessList:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.ProcessList
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [kind, items]
+      properties:
+        kind:
+          type: string
+          enum: [ProcessList]
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Process'
+    Process:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.Process
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [name, tasks]
+      properties:
+        name:
+          type: string
+        project:
+          type: string
+        paused:
+          type: boolean
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Task'
+    Task:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.Task
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: What a turn is copied from, plus how the last few went.
+      required: [uid, title, recurrence, history, turns, done, late]
+      properties:
+        uid:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        recurrence:
+          type: string
+        start:
+          type: string
+        team:
+          type: string
+        assignee:
+          type: string
+        accumulate:
+          type: boolean
+          description: >-
+            An open turn holds the next one back — the stuck card IS the process
+            — unless the task accumulates, for work where unpaid months must
+            pile up as separate cards.
+        history:
+          type: array
+          description: >-
+            The task's recent turns, oldest first, and only the tail: a process
+            that has run for a year has fifty, and this list rides in every
+            board frame.
+          items:
+            $ref: '#/components/schemas/Iteration'
+        turns:
+          type: integer
+          description: >-
+            Every turn, the tail that is not sent included: turns == the length
+            of history means nothing was left out.
+        done:
+          type: integer
+        late:
+          type: integer
+        due:
+          type: array
+          description: >-
+            The weeks this task comes due in over the planning horizon with no
+            turn of its own yet — what the process is going to file. A paused
+            process sends none.
+          items:
+            type: string
+    Iteration:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.Iteration
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: >-
+        One spawned card and how it went: "done" when it closed, "open" while it
+        still runs inside its cycle, "late" once the week it was owed in has
+        passed with it still open.
+      required: [uid, week, state]
+      properties:
+        uid:
+          type: string
+        week:
+          type: string
+        state:
+          type: string
+          enum: [done, open, late]
+    LogEntry:
+      x-go-type: apiserver.LogEntry
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: One item of a card's unified activity feed.
+      oneOf:
+        - $ref: '#/components/schemas/LogEventEntry'
+        - $ref: '#/components/schemas/LogNoteEntry'
+      discriminator:
+        propertyName: type
+        mapping:
+          event: '#/components/schemas/LogEventEntry'
+          note: '#/components/schemas/LogNoteEntry'
+    LogEventEntry:
+      type: object
+      additionalProperties: false
+      description: A recorded change — stage, progress, review, plan.
+      required: [type, id]
+      properties:
+        type:
+          type: string
+          enum: [event]
+        id:
+          type: string
+        at:
+          type: string
+        actor:
+          type: string
+        kind:
+          type: string
+          description: What changed.
+        from:
+          type: string
+        to:
+          type: string
+    LogNoteEntry:
+      type: object
+      additionalProperties: false
+      description: A work note, in the same timeline as the events.
+      required: [type, id]
+      properties:
+        type:
+          type: string
+          enum: [note]
+        id:
+          type: string
+        at:
+          type: string
+        actor:
+          type: string
+        text:
+          type: string
+    LogList:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.LogList
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [kind, items]
+      properties:
+        kind:
+          type: string
+          enum: [LogList]
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEntry'
+        truncatedBefore:
+          type: string
+          description: >-
+            Present only when the history is cut: the clone is shallow, and
+            older entries exist on the remote without being here. A request for
+            a card created before the horizon deepens the clone back to its
+            creation, bounded by the server's history cap.
+    DayLogList:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.DayLogList
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [kind, day, cards]
+      properties:
+        kind:
+          type: string
+          enum: [DayLogList]
+        day:
+          type: string
+        cards:
+          type: object
+          description: A card's uid to its entries on that day, oldest first.
+          additionalProperties:
+            type: array
+            items:
+              $ref: '#/components/schemas/LogEntry'
+    Link:
+      type: object
+      additionalProperties: false
+      x-go-type: board.Link
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/board
+      description: >-
+        One URL from a card's description. A GitHub issue or pull request is
+        resolved to its live title and state where the server can read it.
+      required: [url, kind]
+      properties:
+        url:
+          type: string
+        kind:
+          type: string
+          description: >-
+            What the URL points at. A closed set: pkg/board/links.go recognises
+            a github.com issue and pull-request URL (and the owner/repo#number
+            shorthand, which the live resolver corrects to `pull` when the
+            number turns out to be one) and calls everything else a plain link.
+          enum: [issue, pull, link]
+        owner:
+          type: string
+        repo:
+          type: string
+        number:
+          type: integer
+        title:
+          type: string
+        state:
+          type: string
+    LinkList:
+      type: object
+      additionalProperties: false
+      required: [kind, items]
+      properties:
+        kind:
+          type: string
+          enum: [LinkList]
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Link'
+    SprintList:
+      type: object
+      additionalProperties: false
+      required: [kind, items]
+      properties:
+        kind:
+          type: string
+          enum: [SprintList]
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Sprint'
+    NoteList:
+      type: object
+      additionalProperties: false
+      required: [kind, items]
+      properties:
+        kind:
+          type: string
+          enum: [NoteList]
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Note'
+    ViewList:
+      type: object
+      additionalProperties: false
+      required: [kind, items]
+      properties:
+        kind:
+          type: string
+          enum: [ViewList]
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/View'
+    View:
+      type: object
+      additionalProperties: false
+      description: >-
+        One board a caller may open and the gestures it draws. It exists so a
+        client can READ the surface instead of being told it in a description,
+        which is how the two drifted apart in the first place.
+      required: [name, gestures]
+      properties:
+        name:
+          type: string
+        gestures:
+          type: array
+          items:
+            type: string
+    CarryReport:
+      type: object
+      additionalProperties: false
+      x-go-type: boardservice.CarryReport
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/boardservice
+      required: [carried, reseeded]
+      properties:
+        carried:
+          type: integer
+          description: >-
+            The open plan cards from earlier weeks — the debts now showing on
+            the target week's panel. They are not moved.
+        reseeded:
+          type: integer
+    TaskRef:
+      type: object
+      additionalProperties: false
+      required: [uid]
+      properties:
+        uid:
+          type: string
+    CreateCardRequest:
+      type: object
+      description: >-
+        The card a board makes. Every field is optional here because what a
+        board REQUIRES and what it refuses are the board's own rules, answered
+        as a 422 that names the field.
+      properties:
+        title:
+          type: string
+        team:
+          type: string
+        zone:
+          type: string
+          enum: ["", urgent, unplanned, planned, niceToHave]
+        size:
+          type: string
+          description: S, M, L or XL in any case; empty leaves the card unsized.
+        assignees:
+          type: array
+          description: Only the first is read — a card is one person's.
+          items:
+            type: string
+        dates:
+          $ref: '#/components/schemas/CardDatesInput'
+        week:
+          type: string
+          description: >-
+            Schedules the card for a WEEK (its Monday) instead of a day: no
+            dates are set and no sprint is joined.
+        parked:
+          type: boolean
+          description: >-
+            Puts the card straight on its team's shelf. Like `week`, no dates
+            are set and no sprint is joined.
+        epic:
+          type: string
+          description: >-
+            With `project`, files the card on the Project board under the column
+            that pair identifies. Its row is the week of `dates.start` — `week`
+            anchors it when there are no dates — and the dates may span weeks.
+        project:
+          type: string
+        reviewOf:
+          type: string
+        parent:
+          type: string
+          description: >-
+            Groups the card as a subtask. A `parent` and a `week` together are
+            refused (422): grouping hands the week to the parent, so the pair
+            asks for two contradictory things.
+        startNewSprint:
+          type: boolean
+        noSprint:
+          type: boolean
+          description: >-
+            Schedules the card for its day without joining any sprint — a "next
+            sprint" create; the next carry-over to reach its day adopts it.
+    CardDatesInput:
+      type: object
+      properties:
+        start:
+          type: string
+        end:
+          type: string
+        sprint:
+          type: string
+    CardPatch:
+      type: object
+      description: >-
+        Only present fields are applied, so absent and empty are different
+        things: empty clears.
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        team:
+          type: string
+        zone:
+          type: string
+          enum: ["", urgent, unplanned, planned, niceToHave]
+        size:
+          type: string
+          description: S, M, L or XL in any case; empty takes the size back.
+        assignees:
+          type: array
+          items:
+            type: string
+        progress:
+          type: integer
+        stage:
+          type: string
+          enum: ["", locked, review, recurrent, refuse, done]
+          description: >-
+            A name the board does not have is refused rather than stored.
+            "done" clears the stage and fills 100; review and locked clamp the
+            progress into [10, 90].
+        recurrence:
+          type: string
+        epic:
+          type: string
+          description: >-
+            The two halves of the card's column; empty clears. Epic names repeat
+            across projects, so filing into another project's column names both,
+            while naming only the epic stays inside the card's project.
+        project:
+          type: string
+        dates:
+          $ref: '#/components/schemas/CardDatesPatch'
+        week:
+          type: string
+          description: >-
+            The week the card is scheduled for; empty takes it off the weeks.
+            Giving a STANDING subtask a week pulls it out of its group first —
+            that is what the request means — while clearing one is free.
+        parked:
+          type: boolean
+        reviewOf:
+          type: string
+        parent:
+          type: string
+          description: Groups the card under another one; empty ungroups.
+        process:
+          type: string
+          description: >-
+            Ties the card to an existing process — the recurring shelf's
+            counterpart of a column; empty clears. The process must live in the
+            card's own repository; only a RECURRENT card takes a tie, and a
+            process TURN is refused outright, since a turn's process is its
+            task's.
+    CardDatesPatch:
+      type: object
+      properties:
+        start:
+          type: string
+        end:
+          type: string
+        sprint:
+          type: string
+    RemoveCardBody:
+      type: object
+      properties:
+        intent:
+          type: string
+          description: >-
+            "unassign", "off-board", or left out for the gesture to decide for
+            itself. Anything else is refused (400).
+    PlaceCardBody:
+      type: object
+      properties:
+        week:
+          type: string
+          description: The Monday of the week the card is placed in.
+    MoveCardBody:
+      type: object
+      properties:
+        after:
+          type: string
+          description: The card to land behind; empty means the top.
+        before:
+          type: string
+          description: The card to land in front of. It wins when both are sent.
+    DeferCardBody:
+      type: object
+      properties:
+        days:
+          type: integer
+          description: How many days ahead of today the card is pushed; must be positive.
+    SendToReviewBody:
+      type: object
+      properties:
+        reviewer:
+          type: string
+        day:
+          type: string
+        zone:
+          type: string
+          enum: ["", urgent, unplanned, planned, niceToHave]
+          description: >-
+            Where the review card stands; empty is the unplanned band, which is
+            where the asking belongs.
+    PlacementBody:
+      type: object
+      description: >-
+        A column, named by its EPIC. The project half may be empty — the
+        no-project bucket is a column like any other, and a column's repository
+        is read off the column's own stub.
+      required: [epic]
+      properties:
+        project:
+          type: string
+        epic:
+          type: string
+    NoteBody:
+      type: object
+      properties:
+        text:
+          type: string
+    SprintPatch:
+      type: object
+      properties:
+        team:
+          type: string
+        current:
+          type: string
+        previous:
+          type: string
+        domain:
+          type: string
+          description: >-
+            The repository a NEW team is declared in; an existing team's pointer
+            stays where the team is.
+    PersonPatch:
+      type: object
+      required: [capacity]
+      properties:
+        capacity:
+          type: integer
+          description: >-
+            The points a week; 0 takes a set number back. It is required — a
+            body without it is refused (400) rather than read as zero.
+    CarryOverBody:
+      type: object
+      properties:
+        team:
+          type: string
+        dryRun:
+          type: boolean
+          description: Report the counts and change nothing.
+    ReorderTeamsBody:
+      type: object
+      properties:
+        teams:
+          type: array
+          items:
+            type: string
+    TeamBody:
+      type: object
+      properties:
+        team:
+          type: string
+    AddEpicBody:
+      type: object
+      properties:
+        name:
+          type: string
+        project:
+          type: string
+    EpicBody:
+      type: object
+      properties:
+        epic:
+          type: string
+        project:
+          type: string
+    ReorderEpicsBody:
+      type: object
+      properties:
+        project:
+          type: string
+        epics:
+          type: array
+          items:
+            type: string
+    SetEpicProjectBody:
+      type: object
+      properties:
+        epic:
+          type: string
+        from:
+          type: string
+          description: The project the column is leaving.
+        project:
+          type: string
+          description: The project it joins; empty detaches it.
+    RenameEpicBody:
+      type: object
+      properties:
+        project:
+          type: string
+        epic:
+          type: string
+        to:
+          type: string
+    AddProcessBody:
+      type: object
+      properties:
+        name:
+          type: string
+        project:
+          type: string
+        domain:
+          type: string
+          description: >-
+            The repository to declare a project-less process in; one with a
+            project lives with the project.
+    ProcessBody:
+      type: object
+      properties:
+        process:
+          type: string
+    RenameProcessBody:
+      type: object
+      properties:
+        process:
+          type: string
+        to:
+          type: string
+    SetProcessProjectBody:
+      type: object
+      properties:
+        process:
+          type: string
+        project:
+          type: string
+    SetProcessPausedBody:
+      type: object
+      properties:
+        process:
+          type: string
+        paused:
+          type: boolean
+    ReorderProcessesBody:
+      type: object
+      properties:
+        processes:
+          type: array
+          items:
+            type: string
+    ReorderProcessTasksBody:
+      type: object
+      properties:
+        process:
+          type: string
+        uids:
+          type: array
+          items:
+            type: string
+    TaskRequest:
+      type: object
+      description: >-
+        A task on the wire, for the create (which reads every field) and the
+        patch (which applies only the present ones).
+      properties:
+        process:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        recurrence:
+          type: string
+        start:
+          type: string
+        team:
+          type: string
+        assignee:
+          type: string
+        accumulate:
+          type: boolean
+    DeadlineBody:
+      type: object
+      properties:
+        week:
+          type: string
+        project:
+          type: string
+    MoveDeadlineBody:
+      type: object
+      properties:
+        project:
+          type: string
+        from:
+          type: string
+        to:
+          type: string
+    AddProjectBody:
+      type: object
+      properties:
+        name:
+          type: string
+        domain:
+          type: string
+          description: The repository to declare the project in; empty is the primary.
+    ProjectBody:
+      type: object
+      properties:
+        project:
+          type: string
+    ReorderProjectsBody:
+      type: object
+      properties:
+        projects:
+          type: array
+          items:
+            type: string
+    RenameProjectBody:
+      type: object
+      properties:
+        project:
+          type: string
+        to:
+          type: string
+    RenameTeamBody:
+      type: object
+      properties:
+        team:
+          type: string
+        to:
+          type: string
+    TeamCapacityBody:
+      type: object
+      required: [points]
+      properties:
+        team:
+          type: string
+        points:
+          type: integer
+          description: >-
+            The points a week; 0 takes the number back. It is required — a body
+            without it is refused (400) rather than read as zero.
+    PresenceBody:
+      type: object
+      properties:
+        card:
+          type: string
+          description: The card the caller has selected; empty clears the mark.
+    WatchFrame:
+      description: >-
+        One frame of the watch stream. No operation references it — a WebSocket
+        upgrade has no response body to describe — but a client applying the
+        stream needs the shapes, so they are stated here.
+      oneOf:
+        - $ref: '#/components/schemas/CardFrame'
+        - $ref: '#/components/schemas/SprintFrame'
+        - $ref: '#/components/schemas/OrderingFrame'
+        - $ref: '#/components/schemas/PresenceFrame'
+        - $ref: '#/components/schemas/BoardFrame'
+        - $ref: '#/components/schemas/LoadFrame'
+        - $ref: '#/components/schemas/SyncFrame'
+        - $ref: '#/components/schemas/QueueFrame'
+        - $ref: '#/components/schemas/SyncErrorFrame'
+    CardFrame:
+      type: object
+      description: >-
+        A card changed. On a SCOPED subscription the verb is about the
+        SELECTION: a card entering it arrives as ADDED and one leaving it as
+        DELETED, whatever became of the card itself.
+      required: [type, kind, object]
+      properties:
+        type:
+          type: string
+          enum: [ADDED, MODIFIED, DELETED]
+        kind:
+          type: string
+          enum: [Card]
+        object:
+          $ref: '#/components/schemas/Card'
+    SprintFrame:
+      type: object
+      description: >-
+        A team's sprint pointer moved. It is shaped exactly as the listing
+        shapes it, because a client merges the frame into what it holds: a field
+        the frame left out would be a field the client LOSES.
+      required: [type, kind, object]
+      properties:
+        type:
+          type: string
+          enum: [MODIFIED]
+        kind:
+          type: string
+          enum: [Sprint]
+        object:
+          $ref: '#/components/schemas/Sprint'
+    OrderingFrame:
+      type: object
+      required: [type, kind, object]
+      properties:
+        type:
+          type: string
+          enum: [MODIFIED]
+        kind:
+          type: string
+          enum: [Ordering]
+        object:
+          $ref: '#/components/schemas/Ordering'
+    PresenceFrame:
+      type: object
+      required: [type, kind, object]
+      properties:
+        type:
+          type: string
+          enum: [MODIFIED]
+        kind:
+          type: string
+          enum: [Presence]
+        object:
+          $ref: '#/components/schemas/Presence'
+    Presence:
+      type: object
+      additionalProperties: false
+      description: One person's live selection.
+      required: [login, card]
+      properties:
+        login:
+          type: string
+        card:
+          type: string
+    BoardFrame:
+      type: object
+      description: >-
+        The board's STRUCTURE changed — a project, a column, a deadline, a
+        process or one of its tasks. It carries the whole board resource plus
+        the process structure, so a client applies it without a round trip, and
+        it is coalesced for a burst of writes.
+      required: [type, kind, object]
+      properties:
+        type:
+          type: string
+          enum: [MODIFIED]
+        kind:
+          type: string
+          enum: [Board]
+        object:
+          type: object
+          additionalProperties: false
+          description: >-
+            The board resource with the process structure beside it. Stated
+            field by field rather than composed out of Board: a closed schema
+            cannot be extended by an allOf, and the closure is what catches a
+            field added in Go without a line here.
+          required: [kind, metadata, processes]
+          properties:
+            kind:
+              type: string
+              enum: [Board]
+            metadata:
+              $ref: '#/components/schemas/BoardMetadata'
+            processes:
+              type: array
+              items:
+                $ref: '#/components/schemas/Process'
+    LoadFrame:
+      type: object
+      description: >-
+        What the board's PEOPLE are holding. Those numbers are summed over cards
+        from every team, so a client holding one view's cards can neither
+        compute them nor learn them from the card events it receives. Shaped as
+        `metadata.members`, to be merged in place.
+      required: [type, kind, object]
+      properties:
+        type:
+          type: string
+          enum: [MODIFIED]
+        kind:
+          type: string
+          enum: [Load]
+        object:
+          type: object
+          required: [members]
+          properties:
+            members:
+              type: array
+              items:
+                $ref: '#/components/schemas/Member'
+    SyncFrame:
+      type: object
+      description: The board cache was reloaded; the moment it now reflects.
+      required: [type, kind, object]
+      properties:
+        type:
+          type: string
+          enum: [MODIFIED]
+        kind:
+          type: string
+          enum: [Sync]
+        object:
+          type: object
+          required: [loadedAt]
+          properties:
+            loadedAt:
+              type: string
+    QueueFrame:
+      type: object
+      description: How many writes are still unsynced; the UI hides the number at zero.
+      required: [type, kind, object]
+      properties:
+        type:
+          type: string
+          enum: [MODIFIED]
+        kind:
+          type: string
+          enum: [Queue]
+        object:
+          type: object
+          required: [pending]
+          properties:
+            pending:
+              type: integer
+    SyncErrorFrame:
+      type: object
+      description: >-
+        A write was lost after its retries. Nobody is spared this one — the
+        client that made the change needs the rollback most of all.
+      required: [type, kind, object]
+      properties:
+        type:
+          type: string
+          enum: [ERROR]
+        kind:
+          type: string
+          enum: [SyncError]
+        object:
+          type: object
+          required: [message]
+          properties:
+            message:
+              type: string

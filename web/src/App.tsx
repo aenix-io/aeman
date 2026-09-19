@@ -3,16 +3,7 @@ import { clientId, fetchConfig, fetchHealth, type AppConfig } from "./api/client
 import { ApiError, apiProvider } from "./providers/api/apiProvider";
 import { guardSignedOut } from "./session";
 import { mergeCardLists } from "./cardmerge";
-import {
-  resourceToCard,
-  sprintStateFrom,
-  type BoardResource,
-  type CardResource,
-  type OrderingResource,
-  type SprintResource,
-  type WatchFrame,
-  type PresenceResource,
-} from "./api/resources";
+import { resourceToCard, sprintStateFrom, type WatchFrame } from "./api/resources";
 import type { Board, Card as CardModel, SprintState } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
@@ -1079,8 +1070,8 @@ export function App() {
         if (frame.kind === "Sprint" || frame.kind === "Ordering") {
           return;
         }
-        if (frame.kind === "Card" && frame.object) {
-          const uid = (frame.object as CardResource).metadata?.uid;
+        if (frame.kind === "Card") {
+          const uid = frame.object.metadata.uid;
           if (uid && recordsRef.current.has(uid)) {
             return;
           }
@@ -1095,8 +1086,8 @@ export function App() {
       // process. The frame carries the board itself, so it is applied the way
       // a Card frame is: no round trip, and our own roster writes need no
       // reload either.
-      if (frame.kind === "Board" && frame.object) {
-        const obj = frame.object as BoardResource & { processes?: ProcessInfo[] | null };
+      if (frame.kind === "Board") {
+        const obj = frame.object;
         setBoard((cur) =>
           cur
             ? { ...cur, ...boardMetadata(obj), processes: processesFrom(obj.processes) }
@@ -1110,29 +1101,26 @@ export function App() {
       // is not showing still moves the number over its owner. It arrives
       // apart from the roster because it moves on every write and the roster
       // hardly ever does.
-      if (frame.kind === "Load" && frame.object) {
-        const obj = frame.object as { members?: BoardResource["metadata"]["members"] };
-        setBoard((cur) => (cur ? { ...cur, members: membersFrom(obj.members) } : cur));
+      if (frame.kind === "Load") {
+        setBoard((cur) =>
+          cur ? { ...cur, members: membersFrom(frame.object.members) } : cur,
+        );
         return;
       }
       // The write queue's depth: changes applied everywhere but not yet
       // committed.
       if (frame.kind === "Queue") {
-        queuePendingSync((frame.object as { pending?: number })?.pending ?? 0);
+        queuePendingSync(frame.object.pending);
         return;
       }
       // A write the store finally rejected: the board has been rolled back to
       // the server's reloaded state; surface what was lost.
       if (frame.kind === "SyncError") {
-        const msg = (frame.object as { message?: string })?.message;
-        setError(msg || "a change could not be saved");
-        return;
-      }
-      if (!frame.object) {
+        setError(frame.object.message || "a change could not be saved");
         return;
       }
       if (frame.kind === "Card") {
-        const card = resourceToCard(frame.object as CardResource);
+        const card = resourceToCard(frame.object);
         const notifyCardFrame = (deleted: boolean) => {
           for (const fn of cardFrameListeners.current) {
             fn(card.itemId, deleted);
@@ -1166,7 +1154,7 @@ export function App() {
         return;
       }
       if (frame.kind === "Sprint") {
-        const sprint = frame.object as SprintResource;
+        const sprint = frame.object;
         setBoard((cur) =>
           cur
             ? {
@@ -1181,11 +1169,11 @@ export function App() {
         return;
       }
       if (frame.kind === "Ordering") {
-        reorderCards((frame.object as OrderingResource).spec.uids);
+        reorderCards(frame.object.spec.uids);
         return;
       }
       if (frame.kind === "Presence") {
-        const { login, card } = frame.object as PresenceResource;
+        const { login, card } = frame.object;
         if (!login) {
           return;
         }

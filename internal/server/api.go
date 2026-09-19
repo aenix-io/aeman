@@ -8,8 +8,13 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
+	"unicode/utf8"
 
+	"gopkg.in/yaml.v3"
+
+	"github.com/aenix-io/aeman/api"
 	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
@@ -20,42 +25,15 @@ import (
 // board-level rules. All board logic lives server-side in boardservice; clients
 // state intent and mirror the result via LIST (+ selectors) and the watch.
 //
-// Routes:
-//
-//	GET    /api/v1                                    public route catalog (no auth)
-//	GET    /api/v1/board                              board identity + team roster
-//	GET    /api/v1/views                              the boards a caller may open, and what each draws
-//	GET    /api/v1/views/{view}/cards                 LIST what that board draws (team/day/user/stage/zone/assignee narrow it)
-//	POST   /api/v1/views/{view}/cards                 create the card that board makes
-//	GET    /api/v1/views/{view}/watch                 WebSocket stream of that board (Card/Sprint/Ordering/Board/Load)
-//	POST   /api/v1/views/{view}/cards/{uid}/actions/remove            the board's ×
-//	POST   /api/v1/views/{view}/cards/{uid}/actions/place             the Triage board's drop into a week
-//	POST   /api/v1/views/{view}/cards/{uid}/actions/untriage          back to the strip
-//	POST   /api/v1/views/{view}/cards/{uid}/actions/finished-earlier  a day board's "done in the sprint before"
-//	GET    /api/v1/cards/{uid}                        one card
-//	PATCH  /api/v1/cards/{uid}                        edit spec fields (admission applies the rules)
-//	DELETE /api/v1/cards/{uid}                        hard delete (cascades to the review card)
-//	POST   /api/v1/cards/{uid}/actions/move           reorder after another card
-//	POST   /api/v1/cards/{uid}/actions/defer          push the scheduled day N days ahead
-//	POST   /api/v1/cards/{uid}/actions/in-progress    move to the implicit In Progress
-//	POST   /api/v1/cards/{uid}/actions/reopen         undo a done mark, restoring the pre-done progress
-//	POST   /api/v1/cards/{uid}/actions/send-to-review send (or reassign) to a reviewer
-//	POST   /api/v1/cards/{uid}/actions/remove-reviewer delete the linked review card
-//	GET    /api/v1/cards/{uid}/links                  links from the description (GitHub refs resolved)
-//	GET    /api/v1/cards/{uid}/log                    unified activity feed (events + notes)
-//	GET    /api/v1/logs                               one day's feed for many cards at once
-//	GET    /api/v1/cards/{uid}/notes                  the card's work notes
-//	POST   /api/v1/cards/{uid}/notes                  append a note
-//	PATCH  /api/v1/cards/{uid}/notes/{noteId}         edit a note
-//	DELETE /api/v1/cards/{uid}/notes/{noteId}         delete a note
-//	GET    /api/v1/sprints                            per-team sprint pointers
-//	PATCH  /api/v1/sprints                            set a team's pointer directly
-//	POST   /api/v1/sprints/actions/carry-over         advance a sprint, carry unfinished (dryRun)
+// Every route below is described in api/openapi.yaml, which the server hands
+// out at GET /api/v1/openapi.json; internal/server's tests hold each exchange
+// against it.
 //
 // The BOARD a caller is standing on is a path segment; the card keeps its own
 // address (docs/design/view-scoped-api.md).
 func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1", s.handleAPIIndex)
+	mux.HandleFunc("GET /api/v1/openapi.json", s.handleOpenAPI)
 	mux.HandleFunc("GET /api/v1/board", s.handleGetBoard)
 	// The BOARD a caller is standing on is a path segment: it scopes a
 	// listing, says what a create means, and says which gestures are on offer
@@ -120,94 +98,83 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/teams/actions/rename", s.handleRenameTeam)
 	mux.HandleFunc("POST /api/v1/teams/actions/capacity", s.handleSetTeamCapacity)
 	mux.HandleFunc("POST /api/v1/presence", s.handleSetPresence)
+	// Last, and without a method, so every more specific pattern above wins:
+	// what is left is a path no route serves, and the SPA's catch-all used to
+	// answer it with index.html — 200 and a page, to a caller asking for JSON.
+	mux.HandleFunc("/api/v1/", s.handleUnknownRoute)
 }
 
-// apiEndpoint describes one route in the GET /api/v1 catalog.
-type apiEndpoint struct {
-	Method      string `json:"method"`
-	Path        string `json:"path"`
-	Description string `json:"description"`
+// handleUnknownRoute closes the API off from the page behind it. Both halves
+// of the request are echoed so a caller sees which one missed, and both are
+// clipped: the METHOD is as much the caller's own bytes as the path — the
+// grammar bounds neither — so bounding one leaves the sentence as long as the
+// other.
+func (s *Server) handleUnknownRoute(w http.ResponseWriter, r *http.Request) {
+	writeProblem(w, problem(http.StatusNotFound, "unknownRoute",
+		"no such route: "+clipForDetail(r.Method)+" "+clipForDetail(r.URL.Path)))
 }
 
-// apiIndex is the public GET /api/v1 catalog: identity, the MCP mount point and
-// the full route list. It carries no board data, so it needs no authentication.
+// clipForDetail bounds one piece of a request on its way into a problem. The
+// cut lands on a rune boundary: splitting a multi-byte rune leaves half a
+// character, which is not text and reaches the reader as U+FFFD.
+func clipForDetail(s string) string {
+	if len(s) <= maxDetailPart {
+		return s
+	}
+	cut := maxDetailPart
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
+
+// maxDetailPart bounds each echoed piece. Long enough for any route the
+// document describes, short enough that a refusal stays a sentence.
+const maxDetailPart = 120
+
+// apiIndex is the GET /api/v1 answer: identity, the MCP mount point and where
+// the description of this surface lives. It carries no board data, so it needs
+// no board service.
 type apiIndex struct {
-	Name      string        `json:"name"`
-	Version   string        `json:"version"`
-	MCP       string        `json:"mcp"`
-	Endpoints []apiEndpoint `json:"endpoints"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	MCP     string `json:"mcp"`
+	OpenAPI string `json:"openapi"`
 }
 
-// handleAPIIndex serves the public API catalog. It mirrors the routes wired in
-// registerAPI so a client can discover them without a token.
+// handleAPIIndex serves the index: what this server is, and where to read
+// what it can do.
 func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, apiIndex{
 		Name:    "aeman",
 		Version: s.opts.Version,
 		MCP:     "/mcp",
-		Endpoints: []apiEndpoint{
-			{"GET", "/api/v1/board", "Board identity, team roster, deadlines, and the Project board's projects and epic columns. The board is the one the server was started with — no addressing parameter; \"project\" is aeman's planning entity"},
-			{"GET", "/api/v1/views", "The boards a caller may open — me, team, triage, backlog, project, all — and the gestures each draws"},
-			{"GET", "/api/v1/views/{view}/cards", "List the cards that board draws (no descriptions; status.links carries extracted refs); narrowed by team, day, user, project, stage, zone, assignee, fields=full for complete cards"},
-			{"POST", "/api/v1/views/{view}/cards", "Create a card the way that board makes them: me files it on you today, triage schedules it for a week, backlog parks it"},
-			{"GET", "/api/v1/views/{view}/watch", "Watch that board over a WebSocket: a card entering the selection arrives as ADDED and one leaving as DELETED (view=all with no selectors is the raw board stream)"},
-			{"POST", "/api/v1/views/{view}/cards/{uid}/actions/remove", "The board's ×: hand the card back to a home it still has, or delete it by that board's rules ({intent})"},
-			{"POST", "/api/v1/views/{view}/cards/{uid}/actions/place", "The Triage board's drop: put the card in a week ({week}, a Monday) — which is what triaging it means"},
-			{"POST", "/api/v1/views/{view}/cards/{uid}/actions/untriage", "The Triage board's opposite: take the card's week away, back to the strip"},
-			{"POST", "/api/v1/views/{view}/cards/{uid}/actions/finished-earlier", "A day board's answer for work done in the sprint before this one and marked done now"},
-			{"GET", "/api/v1/cards/{uid}", "One card in full (the body lives here, not in listings)"},
-			{"PATCH", "/api/v1/cards/{uid}", "Edit spec fields; the server applies clamps, links and date rules"},
-			{"DELETE", "/api/v1/cards/{uid}", "Hard delete (cascades to the linked review card)"},
-			{"POST", "/api/v1/cards/{uid}/actions/move", "Reorder after ({after}) or before ({before}) another card; empty = top"},
-			{"POST", "/api/v1/cards/{uid}/actions/defer", "Push the scheduled day {days} ahead of today"},
-			{"POST", "/api/v1/cards/{uid}/actions/reopen", "Undo a done mark: the stage clears and the progress returns to what the card had when done was set (its log records the jump); no history falls back to In Progress"},
-			{"POST", "/api/v1/cards/{uid}/actions/in-progress", "Move to the implicit In Progress status"},
-			{"POST", "/api/v1/cards/{uid}/actions/send-to-review", "Send to review ({reviewer, day}); reassigns if a review card exists"},
-			{"POST", "/api/v1/cards/{uid}/actions/remove-reviewer", "Delete the linked review card"},
-			{"POST", "/api/v1/cards/{uid}/actions/mirror", "Show the card in a second Project-board column ({project, epic}) — one card, one file, standing in both plans"},
-			{"POST", "/api/v1/cards/{uid}/actions/unmirror", "Take one mirror column away ({project, epic}); the home and everything else stay"},
-			{"POST", "/api/v1/cards/{uid}/actions/remove-from-project", "The Project board's × ({project, epic}): a mirror goes, a home hands its role to the first mirror, the last column takes the card off the plan"},
-			{"GET", "/api/v1/cards/{uid}/links", "URLs from the card's description; GitHub issue/PR refs resolved with titles, listed first"},
-			{"GET", "/api/v1/cards/{uid}/log", "The card's activity feed: recorded events (stage/progress/review/week changes) and work notes, one chronological list"},
-			{"GET", "/api/v1/logs", "One day's feed for many cards at once ({day, uids}, at most 200) — what a day board shows, at a fraction of a log per card"},
-			{"GET", "/api/v1/cards/{uid}/notes", "The card's work notes"},
-			{"POST", "/api/v1/cards/{uid}/notes", "Append a work note ({text})"},
-			{"PATCH", "/api/v1/cards/{uid}/notes/{noteId}", "Edit a work note ({text})"},
-			{"DELETE", "/api/v1/cards/{uid}/notes/{noteId}", "Delete a work note"},
-			{"GET", "/api/v1/sprints", "Per-team sprint pointers"},
-			{"PATCH", "/api/v1/sprints", "Set a team's sprint pointer directly ({team, current, previous})"},
-			{"POST", "/api/v1/sprints/actions/carry-over", "Advance a team's sprint to today, carry unfinished ({team, dryRun})"},
-			{"POST", "/api/v1/sprints/actions/reorder-teams", "Apply a shared team order (moves the hidden sprint-state cards; body {teams:[...]})"},
-			{"POST", "/api/v1/sprints/actions/delete-team", "Delete a team's sprint pointer; refused while cards still use the team (body {team})"},
-			{"POST", "/api/v1/epics", "Declare an epic column inside a project ({name, project}); the project is required"},
-			{"POST", "/api/v1/epics/actions/delete-epic", "Delete an EMPTY epic column; refused while cards sit under it ({epic, project})"},
-			{"POST", "/api/v1/epics/actions/reorder-epics", "Apply one project's column order (moves the hidden epic-state cards; body {project, epics:[...]})"},
-			{"POST", "/api/v1/epics/actions/set-project", "Move a column from one project to another ({epic, from, project}); an empty target detaches it"},
-			{"POST", "/api/v1/epics/actions/rename", "Rename a column in place, cards and all ({project, epic, to})"},
-			{"GET", "/api/v1/processes", "The Process tab: every process with its tasks and each task's history (?project= filters)"},
-			{"POST", "/api/v1/processes", "Declare a process — recurring work inside a project ({name, project})"},
-			{"POST", "/api/v1/processes/actions/delete-process", "Delete an EMPTY process ({process}); refused while it has tasks"},
-			{"POST", "/api/v1/processes/actions/rename", "Rename a process; its tasks follow ({process, to})"},
-			{"POST", "/api/v1/processes/actions/set-project", "Move a process to another project ({process, project}; empty project = the no-project bucket)"},
-			{"POST", "/api/v1/processes/actions/reorder", "Apply a shared process order ({processes: [names]})"},
-			{"POST", "/api/v1/processes/tasks/actions/reorder", "Apply one process's task order ({process, uids}); a uid from another process is adopted into this one — how a cross-process drop lands"},
-			{"POST", "/api/v1/processes/actions/set-paused", "Pause a process, or resume it ({process, paused}); a paused process files no iterations"},
-			{"POST", "/api/v1/processes/tasks", "Add what a process iterates on ({process, title, description, recurrence, start, team, assignee, accumulate})"},
-			{"PATCH", "/api/v1/processes/tasks/{uid}", "Change what the NEXT iterations will be; the running one is untouched"},
-			{"DELETE", "/api/v1/processes/tasks/{uid}", "Delete a task; its past iterations stay as the record"},
-			{"POST", "/api/v1/deadlines", "Mark a week with a project's deadline line ({week, project}); a project holds at most one per week"},
-			{"POST", "/api/v1/deadlines/actions/delete", "Clear a project's deadline on a week ({week, project})"},
-			{"POST", "/api/v1/deadlines/actions/move", "Drag a project's deadline to another week ({project, from, to}); landing where it already has one leaves a single line"},
-			{"POST", "/api/v1/projects", "Declare a project — the Project board's top grouping, which owns epic columns ({name})"},
-			{"POST", "/api/v1/projects/actions/delete-project", "Delete an EMPTY project; refused while it owns epic columns ({project})"},
-			{"POST", "/api/v1/projects/actions/reorder-projects", "Apply the shared project order (body {projects:[...]})"},
-			{"POST", "/api/v1/projects/actions/rename", "Rename a project in place, columns and cards along with it ({project, to})"},
-			{"POST", "/api/v1/teams/actions/rename", "Rename a team in place, its cards and process tasks along with it ({team, to}); a name another team has is refused"},
-			{"POST", "/api/v1/teams/actions/capacity", "Set the points a week a team gets through ({team, points}); 0 takes the number back, and the board derives none"},
-			{"PATCH", "/api/v1/people/{login}", "Set the points a week a PERSON gets through ({capacity}); 0 takes the number back. Answers the whole Board resource, whose members carry load and capacity"},
-			{"POST", "/api/v1/presence", "Share the caller's live card selection ({login, card}; empty card clears)"},
-		},
+		OpenAPI: "/api/v1/openapi.json",
 	})
+}
+
+// specJSON is the embedded document as JSON, converted once: the file is YAML
+// so a person can read and edit it, and JSON is what a client's tooling reads.
+var specJSON = sync.OnceValues(func() ([]byte, error) {
+	var doc any
+	if err := yaml.Unmarshal(api.Spec, &doc); err != nil {
+		return nil, err
+	}
+	return json.Marshal(doc)
+})
+
+// handleOpenAPI serves the description of this surface. Like the index it
+// touches no board service: what the routes ARE is not board data, and a
+// client generating itself from the document has nothing to be authorized
+// for yet.
+func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
+	data, err := specJSON()
+	if err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_, _ = w.Write(data)
 }
 
 // boardRef is the board a request addresses: the one this server is
@@ -365,7 +332,10 @@ func (s *Server) domainsFor(ctx context.Context, members []string) []apiserver.D
 		// repository's readers from another's, and it is a blocking call
 		// on a cold load for a login nothing is cached for.
 		if len(s.gitCfg.Repos) == 1 {
-			out = append(out, apiserver.DomainInfo{Name: d.Name, Writable: rights.canWrite(d.Name), Members: append([]string(nil), members...)})
+			// A copy of the empty slice, never of nil: the readers are a
+			// list on the wire, and a board nobody is assigned anything on
+			// would otherwise answer null.
+			out = append(out, apiserver.DomainInfo{Name: d.Name, Writable: rights.canWrite(d.Name), Members: append([]string{}, members...)})
 			continue
 		}
 		readers, err := s.access.readers(ctx, d.Name, members)

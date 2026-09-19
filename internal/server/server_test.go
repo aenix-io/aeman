@@ -16,6 +16,7 @@ func newTestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	srv.handler = conforms(t, srv.handler)
 	return srv
 }
 

@@ -267,6 +267,7 @@ func TestHealthzDegradesPastUnpushedWarn(t *testing.T) {
 	t.Cleanup(func() { _ = srv.Close() })
 	srv.apiTokens = func(*http.Request) (string, string, error) { return "", "tester", nil }
 	srv.gitBE.git.pushDelay = 0 // nothing pushes until asked
+	srv.handler = conforms(t, srv.handler)
 	if rec := do(t, srv, "GET", "/api/healthz", ""); !strings.Contains(rec.Body.String(), `"status":"ok"`) {
 		t.Fatalf("health before any write: %s", rec.Body.String())
 	}

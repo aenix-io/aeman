@@ -76,6 +76,7 @@ func TestAMissingInstallationIsAPageNotARefusalToStart(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = srv.Close() })
 	srv.apiTokens = func(*http.Request) (string, string, error) { return "", "kvaps", nil }
+	srv.handler = conforms(t, srv.handler)
 
 	// The page says what is wrong and what to click.
 	rec := doAs(t, srv, "kvaps", "GET", "/", "")

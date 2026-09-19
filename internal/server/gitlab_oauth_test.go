@@ -138,6 +138,7 @@ func TestARefusedSessionTokenIsRenewedBeforeTheSessionIsDropped(t *testing.T) {
 		srv.gitBE.git.pushDelay = 0
 		// The forge refuses the first token and trusts the renewed one.
 		srv.access = tokenAccess{good: map[string]bool{"gl-token-2": true}, grant: rightsOn([]string{"shared"}, []string{"shared"})}
+		srv.handler = conforms(t, srv.handler)
 		return srv, &refreshes
 	}
 	board := func(srv *Server, session string) *httptest.ResponseRecorder {

@@ -486,7 +486,7 @@ func (e *boardEntry) flushMembers() {
 			if now[id] || mine(moved[id], sub.clientID) {
 				continue
 			}
-			obj := apiserver.Card{Kind: "Card", Metadata: apiserver.CardMetadata{UID: id}}
+			obj := tombstone(id)
 			for _, c := range e.board.Cards {
 				if c.ItemID == id {
 					obj = apiserver.CardResource(e.board, c)
@@ -520,7 +520,7 @@ func (e *boardEntry) reevaluate(origin string) {
 			if now[id] || suppressed {
 				continue
 			}
-			obj := apiserver.Card{Kind: "Card", Metadata: apiserver.CardMetadata{UID: id}}
+			obj := tombstone(id)
 			for _, c := range e.board.Cards {
 				if c.ItemID == id {
 					obj = apiserver.CardResource(e.board, c)
@@ -530,6 +530,18 @@ func (e *boardEntry) reevaluate(origin string) {
 			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})
 		}
 		sub.members = now
+	}
+}
+
+// tombstone is the DELETED frame's object for a card the board no longer
+// holds: the uid a client keys on, and an empty list where the contract has
+// one — a nil slice marshals to null, which the frame's schema does not
+// allow.
+func tombstone(id string) apiserver.Card {
+	return apiserver.Card{
+		Kind:     "Card",
+		Metadata: apiserver.CardMetadata{UID: id},
+		Spec:     apiserver.CardSpec{Assignees: []string{}},
 	}
 }
 

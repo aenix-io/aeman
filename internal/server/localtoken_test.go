@@ -205,6 +205,7 @@ func TestAnUnreachableForgeIsNotAMissingToken(t *testing.T) {
 	}
 	releaseDataDir(t, srv)
 	srv.gitBE.git.pushDelay = 0
+	srv.handler = conforms(t, srv.handler)
 
 	rec := httptest.NewRecorder()
 	srv.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/config", nil))

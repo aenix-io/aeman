@@ -5,7 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice/boardservicetest"
@@ -73,6 +75,84 @@ func TestAPIErrorsAreProblems(t *testing.T) {
 				t.Error("detail is empty: a person is shown this sentence")
 			}
 		})
+	}
+}
+
+// A route nothing serves answers as the API, not as the page behind it: the
+// SPA's catch-all stands under every unmatched path and used to hand a caller
+// asking for JSON a 200 and index.html. A known path asked with a method it
+// does not have lands in the same answer, and for the same reason: the mux
+// answers 405 only when no pattern takes the METHOD, and the SPA's pattern
+// carries none, so it takes every method and a wrong verb reached the page
+// too. Both read "no such route" now; neither ever read "wrong verb".
+func TestAnUnknownRouteIsAProblem(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Team: "test"}}, nil)
+	srv := apiServer(t, Options{}, fake)
+	for _, tc := range []struct{ name, method, target string }{
+		{"a path nothing serves", http.MethodGet, "/api/v1/nope"},
+		{"an action the card has no door for", http.MethodPost, "/api/v1/cards/c1/actions/nope"},
+		{"a card asked with a method it does not answer", http.MethodPut, "/api/v1/cards/c1"},
+		{"a collection asked with one", http.MethodDelete, "/api/v1/sprints"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := do(t, srv, tc.method, tc.target, "")
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want 404 (%s)", rec.Code, rec.Body.String())
+			}
+			p := decodeProblem(t, rec)
+			if p.Code != "unknownRoute" {
+				t.Fatalf("code = %q, want unknownRoute", p.Code)
+			}
+			if !strings.Contains(p.Detail, tc.method) || !strings.Contains(p.Detail, tc.target) {
+				t.Errorf("detail = %q; it must say which request found nothing", p.Detail)
+			}
+		})
+	}
+	// The catch-all is registered without a method and stands last, so the
+	// three routes that are not resources keep their own answers.
+	for _, tc := range []struct {
+		name, target string
+		status       int
+	}{
+		{"the index", "/api/v1", http.StatusOK},
+		{"the document", "/api/v1/openapi.json", http.StatusOK},
+		// The handshake fails against a recorder, which is the point: the
+		// watch handler ran rather than the catch-all.
+		{"the watch", "/api/v1/views/me/watch", http.StatusUpgradeRequired},
+	} {
+		t.Run(tc.name+" is untouched", func(t *testing.T) {
+			if rec := do(t, srv, http.MethodGet, tc.target, ""); rec.Code != tc.status {
+				t.Fatalf("status = %d, want %d (%s)", rec.Code, tc.status, rec.Body.String())
+			}
+		})
+	}
+}
+
+// A path too long to echo is clipped, and the clip lands on a rune boundary.
+// Cutting by bytes splits a multi-byte rune, and the half that survives is
+// not text — it reaches the reader as U+FFFD. Testing that the detail is
+// VALID utf-8 does not catch it: the server's own json.Marshal replaces the
+// broken byte with the replacement rune, so the answer is well-formed either
+// way and only the character itself tells the two apart. The 9-byte prefix is
+// what puts byte 120 INSIDE a rune — after the 8-byte "/api/v1/" the cut
+// falls between two and a byte cut looks correct there.
+func TestALongPathIsClippedWithoutBreakingARune(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Team: "test"}}, nil)
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodGet, "/api/v1/x"+strings.Repeat("я", 80), "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (%s)", rec.Code, rec.Body.String())
+	}
+	if p := decodeProblem(t, rec); strings.ContainsRune(p.Detail, utf8.RuneError) {
+		t.Errorf("detail carries a broken rune: %q", p.Detail)
+	}
+
+	// The METHOD is the caller's bytes too — the token grammar bounds its
+	// length no more than the path's — so clipping one of the two leaves the
+	// sentence as long as whichever was left.
+	rec = do(t, srv, strings.Repeat("X", 5000), "/api/v1/nope", "")
+	if p := decodeProblem(t, rec); len(p.Detail) > 300 {
+		t.Errorf("detail is %d bytes: the method is echoed unclipped", len(p.Detail))
 	}
 }
 
