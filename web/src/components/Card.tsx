@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { type JSX, useMemo, useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
 import {
   STAGES,
