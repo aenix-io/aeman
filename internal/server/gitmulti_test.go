@@ -409,6 +409,39 @@ func TestMaintenanceSweepsGhosts(t *testing.T) {
 	}
 }
 
+// A maintenance pass runs at startup, not only every MaintainEvery: a busy
+// process restarts (deploy, OOM) more often than that interval, so a ticker
+// whose first tick is a day away never packs the store and go-git's per-commit
+// loose objects and per-fetch packs pile up until a push cannot be built in
+// time. Here the interval is an hour and cannot fire in the test, so only the
+// startup pass can sweep the ghost and push its removal to the remote.
+func TestMaintenanceRunsAPassOnStartup(t *testing.T) {
+	shared, closed := tornMoveRemotes(t)
+	be := gitStoreOver(t, shared, closed)
+	ctx, cancel := context.WithCancel(context.Background())
+	if _, err := be.LoadBoard(ctx, "acme"); err != nil {
+		t.Fatal(err)
+	}
+
+	prev := startupMaintainDelay
+	startupMaintainDelay = time.Millisecond
+	defer func() { startupMaintainDelay = prev }()
+
+	done := make(chan struct{})
+	go func() { be.runMaintain(ctx, time.Hour); close(done) }()
+	// The startup pass fires ~1ms in and finishes in microseconds on memory
+	// stores; give it a wide margin, then stop the goroutine and wait for it to
+	// exit so the clone is read with nothing writing it.
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	<-done
+
+	p, _ := gitstore.CardPath("01JB4K2E7QZMX3R8V0N5T9WYA1")
+	if _, err := be.git.domains[0].Repo.ReadFile(p); err == nil {
+		t.Fatal("the ghost is still in the clone: no maintenance pass ran on startup")
+	}
+}
+
 // gitStoreOver is one replica over several remotes, primary first, named
 // shared / closed / third.
 func gitStoreOver(t *testing.T, remotes ...gitstore.Remote) *storeBackend {

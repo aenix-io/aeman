@@ -515,9 +515,12 @@ public API — none is optional:
 4. A rejected push from a shallow clone surfaces as `object not found`,
    not as a non-fast-forward error. The retry loop never classifies by
    error type (below).
-5. go-git never packs. A maintenance tick runs `RepackObjects` +
-   `Prune` (in-process, no binary) when loose objects exceed a
-   threshold; one day of a busy board packs in well under a second.
+5. go-git never packs. A maintenance pass runs `RepackObjects` +
+   `Prune` (in-process, no binary) once the initial load settles and
+   then hourly; a busy process restarts (deploy, OOM) more often than a
+   day, so the old daily-only tick often never fired and the clone
+   bloated until a push could not be built inside its deadline. An
+   hour of a busy board packs in well under a second.
 6. SSH host keys are not pinned to the stored algorithm. The default
    transport is **HTTPS with a token** — faster on every operation (a
    no-op fetch is 0.2 s vs 1.4 s), no host keys, and the same shape on
@@ -639,9 +642,13 @@ chosen to keep a board in tens of MB.
 
 ### Maintenance
 
-Loose objects accumulate at ~8 KB per commit. A daily tick repacks and
-prunes in-process and deletes torn-move ghosts whose destination has
-landed. There is no gc of history: a board's history is the product.
+Loose objects accumulate at ~8 KB per commit, and a fetch writes its own
+pack. A pass at startup and then every hour repacks and prunes in-process
+and deletes torn-move ghosts whose destination has landed. It runs at
+startup, not only on the interval, because a busy process restarts more
+often than the interval, so a first tick a day away would never arrive and
+the clone would bloat until a push could not be built in time. There is no
+gc of history: a board's history is the product.
 
 ## Multiple repositories
 

@@ -513,6 +513,14 @@ func (b *storeBackend) runSync(ctx context.Context, interval time.Duration) {
 // that does not finish is skipped and repeated on the next interval.
 const syncTickTimeout = 15 * time.Second
 
+// startupMaintainDelay is how long after boot the first maintenance pass runs.
+// A pass packs the store (go-git never does), and it runs at startup and not
+// only every MaintainEvery because a busy process restarts (deploy, OOM) more
+// often than that interval, so a plain ticker's first tick often never
+// arrives; the delay lets the initial board load settle before the repack
+// takes the apply lock. A var so tests can shorten it.
+var startupMaintainDelay = 30 * time.Second
+
 // tick is one fetch-tick cycle for a board: sync, then file the week's due
 // process turns as the server identity — the sweep's home now that no
 // warmer rides anyone's session — then sync again so the turns land. Every
@@ -594,6 +602,31 @@ func deepenSince(truncated, created time.Time, maxBack time.Duration, now time.T
 // runMaintain is the maintenance ticker: every interval, one pass per known
 // board.
 func (b *storeBackend) runMaintain(ctx context.Context, every time.Duration) {
+	pass := func() {
+		b.store.mu.Lock()
+		keys := make([]string, 0, len(b.store.entries))
+		for k := range b.store.entries {
+			keys = append(keys, k)
+		}
+		b.store.mu.Unlock()
+		for _, k := range keys {
+			if _, err := b.maintainNow(ctx, k); err != nil && !errors.Is(err, context.Canceled) {
+				b.git.log.Warn("maintenance", "board", k, "err", err)
+			}
+		}
+	}
+	// A pass once the initial load has settled, then on every interval. Packing
+	// only at the interval let the store bloat without bound whenever the
+	// process turned over faster than it (see startupMaintainDelay): go-git
+	// leaves an object loose per commit and a pack per fetch, and once enough
+	// pile up a push cannot be built inside its deadline and the board stops
+	// syncing.
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(startupMaintainDelay):
+	}
+	pass()
 	t := time.NewTicker(every)
 	defer t.Stop()
 	for {
@@ -601,17 +634,7 @@ func (b *storeBackend) runMaintain(ctx context.Context, every time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			b.store.mu.Lock()
-			keys := make([]string, 0, len(b.store.entries))
-			for k := range b.store.entries {
-				keys = append(keys, k)
-			}
-			b.store.mu.Unlock()
-			for _, k := range keys {
-				if _, err := b.maintainNow(ctx, k); err != nil && !errors.Is(err, context.Canceled) {
-					b.git.log.Warn("maintenance", "board", k, "err", err)
-				}
-			}
+			pass()
 		}
 	}
 }
