@@ -286,7 +286,7 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 		}
 	}
 	return newGitBackend(store, domains, gitOptions{PushDelay: 300 * time.Millisecond, SyncInterval: cfg.SyncInterval,
-		MaintainEvery: 24 * time.Hour, HistoryMax: cfg.HistoryMax, Logger: log,
+		MaintainEvery: time.Hour, HistoryMax: cfg.HistoryMax, Logger: log,
 		// Issue/PR titles in card descriptions are read with the push
 		// credential — the store has no per-visitor token any more.
 		Links: links}), nil
