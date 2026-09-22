@@ -657,7 +657,7 @@ func (b *storeBackend) maintainNow(ctx context.Context, key string) (int, error)
 	swept, err := g.mb.SweepGhosts(ctx, landed)
 	if err == nil {
 		for _, d := range g.domains {
-			if merr := d.Repo.Maintain(); merr != nil {
+			if merr := d.Repo.Maintain(ctx); merr != nil {
 				g.log.Warn("repack failed", "domain", d.Name, "err", merr)
 			}
 		}

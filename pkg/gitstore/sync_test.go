@@ -241,7 +241,7 @@ func TestUnpushedSurvivesReopen(t *testing.T) {
 // G21 — repack and prune leave every object reachable.
 func TestRepackKeepsHistoryReadable(t *testing.T) {
 	dir := t.TempDir()
-	r, err := Init(filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault()), Options{Committer: serverID})
+	r, err := Init(filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault()), Options{Committer: serverID, Dir: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +253,7 @@ func TestRepackKeepsHistoryReadable(t *testing.T) {
 		}
 	}
 	before := countFiles(t, filepath.Join(dir, "objects"))
-	if err := r.Maintain(); err != nil {
+	if err := r.Maintain(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	after := countFiles(t, filepath.Join(dir, "objects"))
@@ -286,7 +286,7 @@ func TestRepackKeepsHistoryReadable(t *testing.T) {
 // only a restart built a new storer.
 func TestASecondRepackLeavesTheHistoryReadable(t *testing.T) {
 	dir := t.TempDir()
-	r, err := Init(filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault()), Options{Committer: serverID})
+	r, err := Init(filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault()), Options{Committer: serverID, Dir: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,14 +303,14 @@ func TestASecondRepackLeavesTheHistoryReadable(t *testing.T) {
 		commit(i)
 	}
 	// The first repack: nothing to replace.
-	if err := r.Maintain(); err != nil {
+	if err := r.Maintain(context.Background()); err != nil {
 		t.Fatalf("first maintain: %v", err)
 	}
 	// More work, then the repack that REPLACES the pack the first one wrote.
 	for i := 20; i < 40; i++ {
 		commit(i)
 	}
-	if err := r.Maintain(); err != nil {
+	if err := r.Maintain(context.Background()); err != nil {
 		t.Fatalf("second maintain: %v", err)
 	}
 

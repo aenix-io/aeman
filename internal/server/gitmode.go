@@ -338,6 +338,7 @@ func initHint(url string) error {
 // makes a shallow one; a server that does not speak shallow gets a full
 // clone instead of a refusal.
 func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url string) (*gitstore.Repo, error) {
+	opts.Dir = dir // where Maintain runs `git repack`
 	storer := filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
 	if existing := gitstore.Open(storer, opts); !existing.Head().IsZero() {
 		return existing, nil

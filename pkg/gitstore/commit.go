@@ -40,6 +40,12 @@ type Options struct {
 	AuthorEmail func(login string) string
 	// Branch is the ref commits land on; empty means refs/heads/main.
 	Branch plumbing.ReferenceName
+	// Dir is the on-disk path of a filesystem-backed store. It lets
+	// Maintain repack through the system `git` binary, which go-git's own
+	// RepackObjects cannot do without overflowing the stack on a real
+	// history. Empty (an in-memory store, or a caller that did not set it)
+	// makes Maintain a no-op.
+	Dir string
 }
 
 // Repo is one domain's repository: a go-git object store and the branch the
@@ -48,6 +54,7 @@ type Repo struct {
 	s      storage.Storer
 	opts   Options
 	branch plumbing.ReferenceName
+	dir    string // on-disk path for `git repack`; empty = no repack
 	mu     sync.Mutex
 	// idx is the per-path history (see pathIndex), built on the first log
 	// read and kept in step with the head; idxMu guards it apart from mu,
@@ -167,7 +174,7 @@ func wrap(s storage.Storer, opts Options) *Repo {
 	if opts.AuthorEmail == nil {
 		opts.AuthorEmail = func(login string) string { return login + "@aeman" }
 	}
-	return &Repo{s: s, opts: opts, branch: opts.Branch}
+	return &Repo{s: s, opts: opts, branch: opts.Branch, dir: opts.Dir}
 }
 
 // resolvedAt is a moment answered: the newest commit made at or before it,

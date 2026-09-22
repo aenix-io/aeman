@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os/exec"
 	"sort"
+	"strings"
 	"time"
 
 	git "github.com/go-git/go-git/v5"
@@ -16,7 +18,6 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp/capability"
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp/sideband"
-	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/client"
 	"github.com/go-git/go-git/v5/storage"
@@ -339,37 +340,35 @@ func closeKeep(c io.Closer, err *error) {
 	}
 }
 
-// Maintain repacks loose objects into one pack and prunes them — go-git
-// never packs on its own, and a commit per action leaves ~4 loose objects
-// each. A store that cannot pack (the in-memory one) is left alone.
-func (r *Repo) Maintain() error {
-	if _, ok := r.s.(storer.PackedObjectStorer); !ok {
+// Maintain packs the store's loose objects and packs into one pack. go-git
+// never packs on its own — a commit leaves ~4 loose objects and every fetch
+// writes its own pack — and its own RepackObjects OVERFLOWS THE STACK on a
+// real history rather than packing it, so the store grew without bound until
+// a push could not be built inside its deadline. The board's clone is a plain
+// on-disk git repository, so this shells out to the system `git`, which packs
+// it in one pass. A store with no on-disk path (an in-memory one, or a caller
+// that set no Dir) is left alone.
+func (r *Repo) Maintain(ctx context.Context) error {
+	if r.dir == "" {
 		return nil
 	}
-	repo, err := git.Open(r.s, nil)
-	if err != nil {
-		return err
+	// -a -d packs everything into a single pack and drops the loose objects
+	// and packs it made redundant. safe.directory keeps git from refusing a
+	// repository whose owner it cannot vouch for — go-git made this clone and
+	// we run as its owner, so the check has nothing to add.
+	//nolint:gosec // git is a fixed binary and r.dir is the server's own data path, never user input
+	cmd := exec.CommandContext(ctx, "git", "-c", "safe.directory=*", "-C", r.dir, "repack", "-a", "-d")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("gitstore: repack: %w: %s", err, strings.TrimSpace(string(out)))
 	}
-	if err := repo.RepackObjects(&git.RepackConfig{}); err != nil {
-		return fmt.Errorf("gitstore: repack: %w", err)
-	}
-	// The repack DELETED the packs it replaced, and the storer's pack index is
-	// a map built once and cached for the life of the process — nothing
-	// invalidates it. Without this, every object that lived in a deleted pack
-	// becomes unreachable to this process, permanently: the prune below fails
-	// on the spot, the board then loads zero cards, and every push fails the
-	// same way, while the repository on disk is perfectly healthy. Only a
-	// restart cleared it, because only a restart built a new storer.
-	//
-	// It bites on the SECOND repack, never the first: a first repack has no
-	// earlier pack to replace, which is why this survived a test that repacks
-	// once and two months of production.
-	if r, ok := r.s.(interface{ Reindex() }); ok {
-		r.Reindex()
-	}
-	err = repo.Prune(git.PruneOptions{OnlyObjectsOlderThan: time.Now(), Handler: repo.DeleteObject})
-	if err != nil && !errors.Is(err, git.ErrLooseObjectsNotSupported) {
-		return fmt.Errorf("gitstore: prune: %w", err)
+	// git rewrote the packs and DELETED the ones it replaced. The storer's
+	// pack index is a map built once and cached for the life of the process,
+	// so every object that lived in a deleted pack would read as missing —
+	// the board loads zero cards and every push fails the same way, while the
+	// repository on disk is perfectly healthy — until a restart built a fresh
+	// storer. Rebuilding the index here is what makes it safe to run live.
+	if rs, ok := r.s.(interface{ Reindex() }); ok {
+		rs.Reindex()
 	}
 	return nil
 }
