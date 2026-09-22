@@ -515,12 +515,15 @@ public API — none is optional:
 4. A rejected push from a shallow clone surfaces as `object not found`,
    not as a non-fast-forward error. The retry loop never classifies by
    error type (below).
-5. go-git never packs. A maintenance pass runs `RepackObjects` +
-   `Prune` (in-process, no binary) once the initial load settles and
-   then hourly; a busy process restarts (deploy, OOM) more often than a
-   day, so the old daily-only tick often never fired and the clone
-   bloated until a push could not be built inside its deadline. An
-   hour of a busy board packs in well under a second.
+5. go-git never packs, and its own `RepackObjects` overflows the stack
+   on a real history rather than packing it, so maintenance shells out
+   to the system `git` (`git repack -ad`) and then rebuilds the storer's
+   pack index. A pass runs once the initial load settles and then hourly;
+   a busy process restarts (deploy, OOM) more often than a day, so the
+   old daily-only tick often never fired and the clone bloated until a
+   push could not be built inside its deadline. An hour of a busy board
+   packs in well under a second. The runtime image carries `git` for
+   this; commits themselves are still built through go-git plumbing.
 6. SSH host keys are not pinned to the stored algorithm. The default
    transport is **HTTPS with a token** — faster on every operation (a
    no-op fetch is 0.2 s vs 1.4 s), no host keys, and the same shape on
@@ -643,12 +646,13 @@ chosen to keep a board in tens of MB.
 ### Maintenance
 
 Loose objects accumulate at ~8 KB per commit, and a fetch writes its own
-pack. A pass at startup and then every hour repacks and prunes in-process
-and deletes torn-move ghosts whose destination has landed. It runs at
-startup, not only on the interval, because a busy process restarts more
-often than the interval, so a first tick a day away would never arrive and
-the clone would bloat until a push could not be built in time. There is no
-gc of history: a board's history is the product.
+pack. A pass at startup and then every hour repacks (through the system
+`git`, since go-git's own `RepackObjects` overflows the stack on a real
+history) and deletes torn-move ghosts whose destination has landed. It
+runs at startup, not only on the interval, because a busy process restarts
+more often than the interval, so a first tick a day away would never
+arrive and the clone would bloat until a push could not be built in time.
+There is no gc of history: a board's history is the product.
 
 ## Multiple repositories
 
@@ -892,7 +896,7 @@ The tests are the second documentation: each names its edges.
 | G18 | A newer `schema` is refused; an older one is migrated in a commit | `schema: 99` → clear error at startup; `schema: 0` → one commit, `schema: 1`, files rewritten |
 | G19 | Remote changes reach the cache by diff | a commit pushed from elsewhere touching one card updates that card only and is broadcast once, to readers of its domain only |
 | G20 | Restart keeps unpushed commits | commit, no push, reopen the store → the commit is in the queue and pushed; the same for `aeman mcp` exiting right after a mutation |
-| G21 | Repack keeps every object reachable | after RepackObjects+Prune every commit, tree and blob of the history still reads |
+| G21 | Repack keeps every object reachable | after `git repack -ad` and a storer reindex every commit, tree and blob of the history still reads |
 | G22 | A cross-domain move is create-then-delete with the same id and one action id; a torn move shows the card once, from the tree alone | filing a team card under a closed project → two commits, same ULID, the create carries `Aeman-Moved-From` and `movedFrom:` in the file, the delete `Aeman-Moved-To`; the create is committed to disk before the delete; only the create pushed → a fresh **depth-1** clone of both domains shows the card once (the source file is the ghost); only the delete pushed → the card is still served from this replica's cache; maintenance removes the ghost after the destination landed |
 | G23 | `Reopen` restores `doneFrom` regardless of history depth | a card done past the horizon reopens to its pre-done progress; a card with no `doneFrom` falls back to the in-progress nudge |
 | G24 | An unborn remote is refused with the init hint; `aeman init` bootstraps in one commit | `serve` against an empty repository exits naming `aeman init`; `init` writes `board.yaml` + `teams/_.yaml`, pushes, and a second `init` is a no-op |

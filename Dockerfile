@@ -25,10 +25,19 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
 # A nonroot-owned /data so a session-file volume mounted here is writable.
 RUN mkdir -p /data && chown 65532:65532 /data
 
-# 3. Minimal runtime (static binary + CA certs, non-root).
-FROM gcr.io/distroless/static-debian12:nonroot
+# 3. Runtime: a small image carrying the static Go binary plus `git`, which
+#    maintenance shells out to for repacking the store (go-git's own
+#    RepackObjects overflows the stack on a real history). ca-certificates for
+#    HTTPS to the forge and tzdata for the board's named timezones; run as a
+#    non-root user, uid matching the distroless `nonroot` it replaced so an
+#    existing /data volume stays writable.
+FROM alpine:3.21
+RUN apk add --no-cache git ca-certificates tzdata \
+ && addgroup -g 65532 nonroot \
+ && adduser -D -H -u 65532 -G nonroot nonroot
 COPY --from=build /aeman /aeman
 COPY --from=build --chown=65532:65532 /data /data
+USER 65532:65532
 EXPOSE 8765
 ENTRYPOINT ["/aeman"]
 CMD ["serve", "--addr=0.0.0.0:8765", "--open=false"]
