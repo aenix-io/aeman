@@ -749,7 +749,9 @@ type boardStore struct {
 	log *slog.Logger
 	// member is what the forge knows about a login — avatar, display name —
 	// put on the board resource's members so clients assemble no forge URL
-	// themselves. Nil leaves them bare (tests, no forge).
+	// themselves. Nil leaves them bare (tests, no forge). Server construction
+	// sets this before any entry can be created or the store is published;
+	// after that it is immutable, so entry does not need a runtime lock for it.
 	member func(login string) apiserver.Member
 }
 

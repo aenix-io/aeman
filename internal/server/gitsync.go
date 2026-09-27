@@ -451,7 +451,10 @@ func (b *storeBackend) adoptRemote(ctx context.Context, e *boardEntry) error {
 // dropped first, or a card we just re-applied would keep its pre-rebase
 // shape in the cache.
 func (b *storeBackend) reloadFromTip(ctx context.Context, e *boardEntry) error {
-	fresh, err := b.inner.LoadBoard(ctx, e.board.Board)
+	e.mu.Lock()
+	boardID := e.board.Board
+	e.mu.Unlock()
+	fresh, err := b.inner.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -730,7 +733,9 @@ func (b *storeBackend) loadPast(ctx context.Context, kind string, at time.Time,
 	if !mine {
 		select {
 		case <-fl.done:
-			return fl.bd, fl.ok, fl.err
+			// The flight keeps its own snapshot and may have many followers;
+			// each caller receives an independently writable result.
+			return detached(fl.bd), fl.ok, fl.err
 		case <-ctx.Done():
 			return board.Board{}, false, ctx.Err()
 		}
