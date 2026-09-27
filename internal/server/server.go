@@ -294,6 +294,9 @@ func New(opts Options) (*Server, error) {
 	s.people = newPeople(f, s.httpClient, peopleToken)
 	s.store = newBoardStore()
 	s.store.log = s.log
+	// Construction invariant: install the hook before initGit can create
+	// entries or start background work, and before New returns the server.
+	// boardStore.member is immutable after this assignment.
 	s.store.member = s.people.member // the forge the identities come from
 	if opts.Git != nil {
 		// The claim belongs to the process, not to the store: the

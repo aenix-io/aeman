@@ -48,6 +48,9 @@ type flight struct {
 	bd   board.Board
 	ok   bool
 	err  error
+	// waiters is guarded by asOfCache.mu. It makes joining explicit enough
+	// for the concurrency contract test to wait for a follower, not a timer.
+	waiters int
 }
 
 func newAsOfCache() *asOfCache {
@@ -61,6 +64,7 @@ func (c *asOfCache) begin(key string) (f *flight, mine bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if f, ok := c.flying[key]; ok {
+		f.waiters++
 		return f, false
 	}
 	f = &flight{done: make(chan struct{})}
@@ -73,7 +77,9 @@ func (c *asOfCache) finish(key string, f *flight, bd board.Board, ok bool, err e
 	c.mu.Lock()
 	delete(c.flying, key)
 	c.mu.Unlock()
-	f.bd, f.ok, f.err = bd, ok, err
+	// The producer receives bd too. The flight owns a separate snapshot so a
+	// producer and any follower cannot mutate one another's answer.
+	f.bd, f.ok, f.err = detached(bd), ok, err
 	close(f.done)
 }
 
@@ -82,7 +88,11 @@ func (c *asOfCache) get(key string) (board.Board, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	bd, ok := c.kept[key]
-	return bd, ok
+	if !ok {
+		return board.Board{}, false
+	}
+	// Every cache recipient owns its snapshot; kept remains private to c.
+	return detached(bd), true
 }
 
 // put keeps a board, dropping the oldest once the shelf is full.
@@ -96,7 +106,8 @@ func (c *asOfCache) put(key string, bd board.Board) {
 			c.order = c.order[1:]
 		}
 	}
-	c.kept[key] = bd
+	// The cache owns what it retains independently of the caller's result.
+	c.kept[key] = detached(bd)
 }
 
 // shouldDeepen answers whether to pull history for a day the clone does not

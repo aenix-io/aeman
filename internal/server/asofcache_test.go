@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -41,6 +42,107 @@ func TestHistoryIsPulledOncePerDay(t *testing.T) {
 	if !c.shouldDeepen(day, now) {
 		t.Fatal("a day the history reached keeps no record of the attempt")
 	}
+}
+
+func mutateHistoricalSnapshot(b *board.Board) {
+	b.Cards[0].Title = "changed"
+	b.Cards[0].Assignees[0] = "bob"
+	b.Cards[0].Notes[0].Body = "rewritten"
+	b.Cards[0].Mirrors[0].Project = "other"
+	b.Tasks[0].Title = "changed task"
+	b.SprintStates["alpha"] = board.SprintState{ItemID: "other"}
+	b.People["ann"] = board.Person{Capacity: 99}
+	b.TeamOrder[0] = "other"
+	b.ProjectStates["proj"] = "other"
+	b.Domains["s1"] = "other"
+}
+
+func assertHistoricalSnapshotUnchanged(t *testing.T, b board.Board) {
+	t.Helper()
+	if b.Cards[0].Title != "c1" || b.Cards[0].Assignees[0] != "ann" ||
+		b.Cards[0].Notes[0].Body != "first" || b.Cards[0].Mirrors[0].Project != "p" {
+		t.Fatalf("card containers changed through another snapshot: %+v", b.Cards[0])
+	}
+	if b.Tasks[0].Title != "t1" || b.SprintStates["alpha"].ItemID != "s1" ||
+		b.People["ann"].Capacity != 20 || b.TeamOrder[0] != "alpha" ||
+		b.ProjectStates["proj"] != "ps1" || b.Domains["s1"] != "primary" {
+		t.Fatalf("board containers changed through another snapshot: %+v", b)
+	}
+}
+
+func TestHistoricalCacheOwnsWhatItKeepsAndEachResult(t *testing.T) {
+	c := newAsOfCache()
+	source := fullBoard()
+	c.put("day", source)
+
+	mutateHistoricalSnapshot(&source)
+	first, ok := c.get("day")
+	if !ok {
+		t.Fatal("the initial put was not retained")
+	}
+	assertHistoricalSnapshotUnchanged(t, first)
+
+	mutateHistoricalSnapshot(&first)
+	second, ok := c.get("day")
+	if !ok {
+		t.Fatal("the kept snapshot disappeared")
+	}
+	assertHistoricalSnapshotUnchanged(t, second)
+
+	replacement := fullBoard()
+	replacement.Title = "replacement"
+	c.put("day", replacement)
+	got, ok := c.get("day")
+	if !ok || got.Title != "replacement" {
+		t.Fatalf("replacement = %+v, %v", got, ok)
+	}
+	if _, ok := c.get("missing"); ok {
+		t.Fatal("a missing key returned a snapshot")
+	}
+	c.put("empty", board.Board{})
+	if empty, ok := c.get("empty"); !ok || empty.Cards != nil || empty.People != nil {
+		t.Fatalf("empty snapshot = %+v, %v", empty, ok)
+	}
+}
+
+func TestHistoricalFlightPublishesIndependentSnapshots(t *testing.T) {
+	at := time.Date(2026, 8, 20, 23, 59, 59, 0, time.UTC)
+	g := &gitSync{asOf: newAsOfCache()}
+	be := &storeBackend{git: g}
+	key := "at\x00" + g.asOfKey(at)
+	flight, mine := g.asOf.begin(key)
+	if !mine {
+		t.Fatal("the initial flight was not ours")
+	}
+
+	follower := make(chan board.Board, 1)
+	go func() {
+		bd, _, _ := be.loadPast(context.Background(), "at", at,
+			func(context.Context) (board.Board, bool, error) {
+				panic("an in-flight follower must not run the load")
+			})
+		follower <- bd
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		g.asOf.mu.Lock()
+		waiters := flight.waiters
+		g.asOf.mu.Unlock()
+		if waiters == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the follower did not join the in-flight historical read")
+		}
+	}
+
+	producer := fullBoard()
+	g.asOf.finish(key, flight, producer, true, nil)
+	got := <-follower
+	mutateHistoricalSnapshot(&producer)
+	assertHistoricalSnapshotUnchanged(t, got)
+	mutateHistoricalSnapshot(&got)
+	assertHistoricalSnapshotUnchanged(t, flight.bd)
 }
 
 // A kept board is served while nothing has changed, and the shelf stays
