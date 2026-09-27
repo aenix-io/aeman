@@ -3,18 +3,23 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-git/go-billy/v5/osfs"
 	"github.com/go-git/go-git/v5/plumbing/cache"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/storage/filesystem"
 	"github.com/go-git/go-git/v5/storage/memory"
 
+	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/gitstore"
 )
 
@@ -247,6 +252,223 @@ func TestOpenGitBackendStandalone(t *testing.T) {
 	p, _ := gitstore.CardPath(cardByTitle(bd, "one").ItemID)
 	if data, _ := other.ReadFile(p); !strings.Contains(string(data), "progress: 60") {
 		t.Fatalf("the drained write is not on the remote:\n%s", data)
+	}
+}
+
+// A reopened clone is refreshed before its backend is returned. The first
+// read must therefore see work another process pushed while this one was
+// stopped, without depending on the periodic sync ticker.
+func TestOpenGitBackendRefreshesAReopenedCloneBeforeTheFirstRead(t *testing.T) {
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	dir := t.TempDir()
+	cfg := &GitConfig{
+		Repos:        []RepoSpec{{Name: "board", URL: remote.URL}},
+		DataDir:      dir,
+		SyncInterval: 0,
+	}
+
+	first, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	writer, _ := gitStore(t, remote)
+	ctx := withAction(board.WithActor(context.Background(), "alice"), "01JB4KA0M2P4R6T8V0X2Z4B6R1", "progress")
+	bd, err := writer.LoadBoard(ctx, "board")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.SetProgress(ctx, bd, cardByTitle(bd, "one"), 73); err != nil {
+		t.Fatal(err)
+	}
+	waitQueue(t, writer)
+	if err := writer.syncNowWaiting(context.Background(), "board"); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	fresh, err := second.Backend().LoadBoard(context.Background(), "ignored")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cardByTitle(fresh, "one").Progress; got != 73 {
+		t.Fatalf("first read progress = %d, want remote progress 73", got)
+	}
+}
+
+func TestStartupRefreshReconcilesLocalAndRemoteWork(t *testing.T) {
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	dir := t.TempDir()
+	cfg := &GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: dir}
+	first, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.be.git.pushDelay = time.Hour
+	localCtx := withAction(board.WithActor(context.Background(), "local-author"), "01JB4KA0M2P4R6T8V0X2Z4B6R2", "progress")
+	local, err := first.Backend().LoadBoard(localCtx, "ignored")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Backend().SetProgress(localCtx, local, cardByTitle(local, "one"), 61); err != nil {
+		t.Fatal(err)
+	}
+	waitQueue(t, first.be)
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	writer, _ := gitStore(t, remote)
+	remoteCtx := withAction(board.WithActor(context.Background(), "remote-author"), "01JB4KA0M2P4R6T8V0X2Z4B6R3", "progress")
+	remoteBoard, err := writer.LoadBoard(remoteCtx, "board")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.SetProgress(remoteCtx, remoteBoard, cardByTitle(remoteBoard, "two"), 72); err != nil {
+		t.Fatal(err)
+	}
+	waitQueue(t, writer)
+	if err := writer.syncNowWaiting(context.Background(), "board"); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	merged, err := second.Backend().LoadBoard(context.Background(), "ignored")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cardByTitle(merged, "one").Progress; got != 61 {
+		t.Fatalf("local progress = %d, want 61", got)
+	}
+	if got := cardByTitle(merged, "two").Progress; got != 72 {
+		t.Fatalf("remote progress = %d, want 72", got)
+	}
+	commits, err := second.be.git.primary().UnpushedCommits()
+	if err != nil || len(commits) != 1 {
+		t.Fatalf("unpushed commits = %d, %v; want the replayed local commit", len(commits), err)
+	}
+	if commits[0].Author.Name != "local-author" {
+		t.Fatalf("replayed author = %q, want local-author", commits[0].Author.Name)
+	}
+}
+
+func TestStartupRefreshAdoptsAnAlreadyFetchedTrackingTip(t *testing.T) {
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	dir := t.TempDir()
+	cfg := &GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: dir}
+	first, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldHead := first.be.git.primary().Head()
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	writer, _ := gitStore(t, remote)
+	ctx := withAction(context.Background(), "01JB4KA0M2P4R6T8V0X2Z4B6R4", "progress")
+	bd, _ := writer.LoadBoard(ctx, "board")
+	if err := writer.SetProgress(ctx, bd, cardByTitle(bd, "one"), 84); err != nil {
+		t.Fatal(err)
+	}
+	waitQueue(t, writer)
+	if err := writer.syncNowWaiting(context.Background(), "board"); err != nil {
+		t.Fatal(err)
+	}
+
+	cloneDir := filepath.Join(dir, "repos", "board")
+	storer := filesystem.NewStorage(osfs.New(cloneDir), cache.NewObjectLRUDefault())
+	repo := gitstore.Open(storer, gitstore.Options{Dir: cloneDir})
+	if _, moved, err := repo.Fetch(context.Background(), remote); err != nil || !moved {
+		t.Fatalf("pre-fetch = moved %v, %v", moved, err)
+	}
+	if repo.Head() != oldHead {
+		t.Fatal("the setup fetch unexpectedly adopted the tracking tip")
+	}
+
+	second, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	fresh, _ := second.Backend().LoadBoard(context.Background(), "ignored")
+	if got := cardByTitle(fresh, "one").Progress; got != 84 {
+		t.Fatalf("first read progress = %d, want 84 from the already-fetched tip", got)
+	}
+}
+
+func TestStartupRefreshIncludesEveryDomain(t *testing.T) {
+	shared, closed := gitRemoteN(t, "shared"), gitRemoteN(t, "closed")
+	seedGitRemote(t, shared)
+	seedClosedRemote(t, closed)
+	dir := t.TempDir()
+	cfg := &GitConfig{Repos: []RepoSpec{{Name: "shared", URL: shared.URL}, {Name: "closed", URL: closed.URL}}, DataDir: dir}
+	first, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	writer, _ := gitStore(t, closed)
+	ctx := withAction(context.Background(), "01JB4KA0M2P4R6T8V0X2Z4B6R5", "progress")
+	bd, _ := writer.LoadBoard(ctx, "closed")
+	if err := writer.SetProgress(ctx, bd, cardByTitle(bd, "three-closed"), 88); err != nil {
+		t.Fatal(err)
+	}
+	waitQueue(t, writer)
+	if err := writer.syncNowWaiting(context.Background(), "closed"); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	fresh, _ := second.Backend().LoadBoard(context.Background(), "ignored")
+	if got := cardByTitle(fresh, "three-closed").Progress; got != 88 {
+		t.Fatalf("secondary-domain progress = %d, want 88", got)
+	}
+}
+
+func TestStartupRefreshOnlyContinuesForNetworkOutages(t *testing.T) {
+	networkErr := &net.DNSError{Err: "temporary failure", Name: "forge.test", IsTemporary: true}
+	for name, err := range map[string]error{
+		"deadline": context.DeadlineExceeded,
+		"network":  networkErr,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !recoverableRefreshError(err) {
+				t.Fatalf("%v should preserve the intact offline clone", err)
+			}
+		})
+	}
+	for name, err := range map[string]error{
+		"authentication": transport.ErrAuthenticationRequired,
+		"authorization":  transport.ErrAuthorizationFailed,
+		"storage":        errors.New("corrupt object"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if recoverableRefreshError(err) {
+				t.Fatalf("%v was incorrectly classified as a network outage", err)
+			}
+		})
 	}
 }
 
