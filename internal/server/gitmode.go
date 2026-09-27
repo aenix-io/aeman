@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -235,9 +236,23 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 			// renewed between two pushes is picked up without re-wiring.
 			remote.Auth = cfg.App.GitAuthFor(spec.URL)
 		}
-		repo, err := cloneOrOpen(dir, remote, opts, spec.URL)
+		repo, reopened, err := cloneOrOpen(dir, remote, opts, spec.URL)
 		if err != nil {
 			return nil, err
+		}
+		if reopened {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			tip, _, fetchErr := repo.Fetch(ctx, remote)
+			cancel()
+			if fetchErr != nil {
+				if !recoverableRefreshError(fetchErr) {
+					return nil, fmt.Errorf("refresh %s: %w", spec.URL, fetchErr)
+				}
+				log.Warn("startup refresh failed; serving the intact local snapshot",
+					"repo", spec.Name, "err", fetchErr)
+			} else if _, err := repo.Rebase(tip); err != nil {
+				return nil, fmt.Errorf("adopt refreshed %s: %w", spec.URL, err)
+			}
 		}
 		if !repo.Head().IsZero() {
 			// G18: an older schema is brought up to date before anything is
@@ -337,11 +352,11 @@ func initHint(url string) error {
 // cloneOrOpen reopens an existing clone (its unpushed commits included) or
 // makes a shallow one; a server that does not speak shallow gets a full
 // clone instead of a refusal.
-func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url string) (*gitstore.Repo, error) {
+func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url string) (*gitstore.Repo, bool, error) {
 	opts.Dir = dir // where Maintain runs `git repack`
 	storer := filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
 	if existing := gitstore.Open(storer, opts); !existing.Head().IsZero() {
-		return existing, nil
+		return existing, true, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -353,10 +368,10 @@ func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url 
 		// yet — and a real failure fails again here.
 		if gitstore.Open(storer, opts).Head().IsZero() {
 			if err := os.RemoveAll(dir); err != nil {
-				return nil, fmt.Errorf("reset clone dir: %w", err)
+				return nil, false, fmt.Errorf("reset clone dir: %w", err)
 			}
 			if err := os.MkdirAll(dir, 0o750); err != nil {
-				return nil, fmt.Errorf("data dir: %w", err)
+				return nil, false, fmt.Errorf("data dir: %w", err)
 			}
 		}
 		storer = filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
@@ -364,11 +379,23 @@ func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url 
 	}
 	if err != nil {
 		if errors.Is(err, gitstore.ErrEmptyRepository) || errors.Is(err, transport.ErrEmptyRemoteRepository) {
-			return nil, initHint(url)
+			return nil, false, initHint(url)
 		}
-		return nil, fmt.Errorf("clone %s: %w", url, err)
+		return nil, false, fmt.Errorf("clone %s: %w", url, err)
 	}
-	return r, nil
+	return r, false, nil
+}
+
+// recoverableRefreshError is deliberately narrow. A timeout or network
+// outage may serve a previously validated local clone with an explicit
+// warning; authentication, repository, history and storage failures still
+// refuse startup instead of being mislabeled as offline operation.
+func recoverableRefreshError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr)
 }
 
 // deepenInBackground brings the history to the horizon after start-up, so
