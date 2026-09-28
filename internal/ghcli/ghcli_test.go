@@ -11,21 +11,14 @@ import (
 	"github.com/aenix-io/aeman/internal/forge"
 )
 
-// resetLoginCache clears the process-wide login caches and pins the clock and
-// the gh seam, restoring all of them when the test ends. The login caches are
-// package globals shared by every caller, so a test that did not reset them
-// would inherit another's answer; these tests therefore never run in parallel.
+// resetLoginCache isolates the package's default source and gh seam. Tests use
+// their own TokenSource values, but the package helper must not leak state.
 func resetLoginCache(t *testing.T) {
 	t.Helper()
-	loginMu.Lock()
-	cachedLogin, unanswered, unansweredErr, unansweredAt = "", "", nil, time.Time{}
-	loginMu.Unlock()
-	prevNow, prevRun := loginNow, runGH
+	prevRun, prevTokens := runGH, loginTokens
+	loginTokens = NewTokenSource()
 	t.Cleanup(func() {
-		loginMu.Lock()
-		cachedLogin, unanswered, unansweredErr, unansweredAt = "", "", nil, time.Time{}
-		loginNow, runGH = prevNow, prevRun
-		loginMu.Unlock()
+		runGH, loginTokens = prevRun, prevTokens
 	})
 }
 
@@ -76,15 +69,15 @@ func (f *fakeGH) setUser(t *testing.T, reply string, err error) {
 // forge costs one subprocess per window rather than one per request.
 func TestLoginCachesFailure(t *testing.T) {
 	resetLoginCache(t)
-	loginNow = func() time.Time { return time.Unix(1000, 0) }
 	f := &fakeGH{tokens: []string{"tok"}, userErr: errors.New("403 from forge")}
 	runGH = f.run
 	src := NewTokenSource()
+	src.now = func() time.Time { return time.Unix(1000, 0) }
 
-	if _, err := login(context.Background(), src); err == nil {
+	if _, err := src.Login(context.Background()); err == nil {
 		t.Fatal("first lookup must return the forge error")
 	}
-	if _, err := login(context.Background(), src); err == nil {
+	if _, err := src.Login(context.Background()); err == nil {
 		t.Fatal("second lookup, within the window, must still be an error")
 	}
 	if got := f.userCalls.Load(); got != 1 {
@@ -93,28 +86,28 @@ func TestLoginCachesFailure(t *testing.T) {
 }
 
 // The window is not a verdict: once it expires the lookup runs again, and a
-// recovery fills the process-wide successful cache.
+// recovery fills the source's successful cache.
 func TestLoginRetriesAtUnansweredTTLAndCachesRecovery(t *testing.T) {
 	resetLoginCache(t)
 	now := time.Unix(1000, 0)
-	loginNow = func() time.Time { return now }
 	f := &fakeGH{tokens: []string{"tok"}, userErr: errors.New("transient 503")}
 	runGH = f.run
 	src := NewTokenSource()
+	src.now = func() time.Time { return now }
 
-	if _, err := login(context.Background(), src); err == nil {
+	if _, err := src.Login(context.Background()); err == nil {
 		t.Fatal("first lookup fails and opens the window")
 	}
 	now = now.Add(forge.UnansweredTTL) // the window expires exactly at the TTL
 	f.setUser(t, "octocat", nil)
-	if got, err := login(context.Background(), src); err != nil || got != "octocat" {
+	if got, err := src.Login(context.Background()); err != nil || got != "octocat" {
 		t.Fatalf("after the window a retry must run and succeed: %q, %v", got, err)
 	}
 	if got := f.userCalls.Load(); got != 2 {
 		t.Fatalf("gh api user ran %d times, want 2 (one per window)", got)
 	}
-	if got, err := login(context.Background(), src); err != nil || got != "octocat" || f.userCalls.Load() != 2 {
-		t.Fatalf("success must be cached for the process: %q, %v, calls=%d", got, err, f.userCalls.Load())
+	if got, err := src.Login(context.Background()); err != nil || got != "octocat" || f.userCalls.Load() != 2 {
+		t.Fatalf("success must be cached for the source: %q, %v, calls=%d", got, err, f.userCalls.Load())
 	}
 }
 
@@ -123,23 +116,23 @@ func TestLoginRetriesAtUnansweredTTLAndCachesRecovery(t *testing.T) {
 func TestLoginRenewsUnansweredWindow(t *testing.T) {
 	resetLoginCache(t)
 	now := time.Unix(2000, 0)
-	loginNow = func() time.Time { return now }
 	f := &fakeGH{tokens: []string{"tok"}, userErr: errors.New("still 503")}
 	runGH = f.run
 	src := NewTokenSource()
+	src.now = func() time.Time { return now }
 
-	if _, err := login(context.Background(), src); err == nil {
+	if _, err := src.Login(context.Background()); err == nil {
 		t.Fatal("first failure opens a window")
 	}
 	now = now.Add(forge.UnansweredTTL) // window one expires
-	if _, err := login(context.Background(), src); err == nil {
+	if _, err := src.Login(context.Background()); err == nil {
 		t.Fatal("second failure retries and opens a new window")
 	}
 	if got := f.userCalls.Load(); got != 2 {
 		t.Fatalf("want 2 retries across two windows, got %d", got)
 	}
 	now = now.Add(forge.UnansweredTTL - time.Second) // inside the renewed window
-	if _, err := login(context.Background(), src); err == nil {
+	if _, err := src.Login(context.Background()); err == nil {
 		t.Fatal("still failing")
 	}
 	if got := f.userCalls.Load(); got != 2 {
@@ -151,14 +144,17 @@ func TestLoginRenewsUnansweredWindow(t *testing.T) {
 // source bypasses it and is asked about at once.
 func TestLoginTokenChangeBypassesUnansweredCache(t *testing.T) {
 	resetLoginCache(t)
-	loginNow = func() time.Time { return time.Unix(3000, 0) }
+	now := time.Unix(3000, 0)
 	f := &fakeGH{tokens: []string{"tok-a", "tok-b"}, userErr: errors.New("403")}
 	runGH = f.run
+	src := NewTokenSource()
+	src.now = func() time.Time { return now }
 
-	if _, err := login(context.Background(), NewTokenSource()); err == nil {
+	if _, err := src.Login(context.Background()); err == nil {
 		t.Fatal("token A fails and opens a window")
 	}
-	if _, err := login(context.Background(), NewTokenSource()); err == nil {
+	now = now.Add(tokenTTL)
+	if _, err := src.Login(context.Background()); err == nil {
 		t.Fatal("token B still errors")
 	}
 	if got := f.userCalls.Load(); got != 2 {
@@ -166,23 +162,66 @@ func TestLoginTokenChangeBypassesUnansweredCache(t *testing.T) {
 	}
 }
 
-// A resolved login is cached for the life of the process, whatever the forge
-// answers later.
-func TestLoginSuccessIsSharedForProcessLifetime(t *testing.T) {
+// A resolved login belongs only to its source. Another source may carry a
+// different token and must ask for its own identity.
+func TestLoginSuccessIsScopedToSource(t *testing.T) {
 	resetLoginCache(t)
-	loginNow = func() time.Time { return time.Unix(4000, 0) }
-	f := &fakeGH{tokens: []string{"tok"}, userReply: "octocat"}
+	f := &fakeGH{tokens: []string{"tok-alice", "tok-bob"}, userReply: "alice"}
 	runGH = f.run
+	alice := NewTokenSource()
+	bob := NewTokenSource()
 
-	if got, err := login(context.Background(), NewTokenSource()); err != nil || got != "octocat" {
+	if got, err := alice.Login(context.Background()); err != nil || got != "alice" {
 		t.Fatalf("first login: %q, %v", got, err)
 	}
-	f.setUser(t, "", errors.New("forge down"))
-	if got, err := login(context.Background(), NewTokenSource()); err != nil || got != "octocat" {
-		t.Fatalf("a later lookup must return the cached login: %q, %v", got, err)
+	f.setUser(t, "bob", nil)
+	if got, err := bob.Login(context.Background()); err != nil || got != "bob" {
+		t.Fatalf("second source login: %q, %v", got, err)
 	}
-	if got := f.userCalls.Load(); got != 1 {
-		t.Fatalf("gh api user ran %d times, want 1 (login cached for the process)", got)
+	if got := f.userCalls.Load(); got != 2 {
+		t.Fatalf("gh api user ran %d times, want 2 (once per source)", got)
+	}
+}
+
+// A changed token invalidates the successful login cached on the same source.
+func TestLoginRefreshesWhenTokenChanges(t *testing.T) {
+	resetLoginCache(t)
+	now := time.Unix(4000, 0)
+	f := &fakeGH{tokens: []string{"tok-alice", "tok-bob"}, userReply: "alice"}
+	runGH = f.run
+	src := NewTokenSource()
+	src.now = func() time.Time { return now }
+
+	if got, err := src.Login(context.Background()); err != nil || got != "alice" {
+		t.Fatalf("first login: %q, %v", got, err)
+	}
+	now = now.Add(tokenTTL)
+	f.setUser(t, "bob", nil)
+	if got, err := src.Login(context.Background()); err != nil || got != "bob" {
+		t.Fatalf("login after token replacement: %q, %v", got, err)
+	}
+	if got := f.userCalls.Load(); got != 2 {
+		t.Fatalf("gh api user ran %d times, want 2 (once per token)", got)
+	}
+}
+
+func TestTokenAndLoginRefreshTogether(t *testing.T) {
+	resetLoginCache(t)
+	now := time.Unix(4500, 0)
+	f := &fakeGH{tokens: []string{"tok-alice", "tok-bob"}, userReply: "alice"}
+	runGH = f.run
+	src := NewTokenSource()
+	src.now = func() time.Time { return now }
+
+	tok, login, err := src.TokenAndLogin(context.Background())
+	if err != nil || tok != "tok-alice" || login != "alice" {
+		t.Fatalf("first pair = %q, %q, %v", tok, login, err)
+	}
+	now = now.Add(tokenTTL)
+	f.setUser(t, "bob", nil)
+	tok, login, err = src.TokenAndLogin(context.Background())
+	if err != nil || tok != "tok-bob" || login != "bob" {
+		t.Fatalf("refreshed pair = %q, %q, %v", tok, login, err)
 	}
 }
 
@@ -190,15 +229,15 @@ func TestLoginSuccessIsSharedForProcessLifetime(t *testing.T) {
 // as such, with nil kept as the error rather than a fabricated one.
 func TestLoginCachesEmptyReplyWithoutInventingError(t *testing.T) {
 	resetLoginCache(t)
-	loginNow = func() time.Time { return time.Unix(5000, 0) }
 	f := &fakeGH{tokens: []string{"tok"}, userReply: "", userErr: nil}
 	runGH = f.run
 	src := NewTokenSource()
+	src.now = func() time.Time { return time.Unix(5000, 0) }
 
-	if got, err := login(context.Background(), src); got != "" || err != nil {
+	if got, err := src.Login(context.Background()); got != "" || err != nil {
 		t.Fatalf("an empty reply is an empty login and no error: %q, %v", got, err)
 	}
-	if got, err := login(context.Background(), src); got != "" || err != nil {
+	if got, err := src.Login(context.Background()); got != "" || err != nil {
 		t.Fatalf("the empty reply is cached as-is, no invented error: %q, %v", got, err)
 	}
 	if got := f.userCalls.Load(); got != 1 {
@@ -210,10 +249,10 @@ func TestLoginCachesEmptyReplyWithoutInventingError(t *testing.T) {
 // is never cached: the next live call asks again.
 func TestLoginDoesNotCacheCallerCancellation(t *testing.T) {
 	resetLoginCache(t)
-	loginNow = func() time.Time { return time.Unix(6000, 0) }
 	f := &fakeGH{tokens: []string{"tok"}, respectCtx: true, userErr: errors.New("unused")}
 	runGH = f.run
 	src := NewTokenSource()
+	src.now = func() time.Time { return time.Unix(6000, 0) }
 	// Warm the token cache so the cancelled call still reaches api-user rather
 	// than failing on the token read.
 	if _, err := src.Token(context.Background()); err != nil {
@@ -222,10 +261,10 @@ func TestLoginDoesNotCacheCallerCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := login(ctx, src); err == nil {
+	if _, err := src.Login(ctx); err == nil {
 		t.Fatal("a cancelled lookup is an error")
 	}
-	if _, err := login(context.Background(), src); err == nil {
+	if _, err := src.Login(context.Background()); err == nil {
 		t.Fatal("the forge still errors")
 	}
 	if got := f.userCalls.Load(); got != 2 {
@@ -233,14 +272,14 @@ func TestLoginDoesNotCacheCallerCancellation(t *testing.T) {
 	}
 }
 
-// The package mutex covers the subprocess, so a burst of callers arriving on an
+// The source mutex covers the subprocess, so a burst of callers arriving on an
 // unanswered token share one attempt.
 func TestLoginConcurrentCallersShareUnansweredWindow(t *testing.T) {
 	resetLoginCache(t)
-	loginNow = func() time.Time { return time.Unix(7000, 0) }
 	f := &fakeGH{tokens: []string{"tok"}, userErr: errors.New("503")}
 	runGH = f.run
 	src := NewTokenSource()
+	src.now = func() time.Time { return time.Unix(7000, 0) }
 
 	const n = 16
 	var wg sync.WaitGroup
@@ -248,7 +287,7 @@ func TestLoginConcurrentCallersShareUnansweredWindow(t *testing.T) {
 	for range n {
 		go func() {
 			defer wg.Done()
-			_, _ = login(context.Background(), src)
+			_, _ = src.Login(context.Background())
 		}()
 	}
 	wg.Wait()
@@ -261,16 +300,16 @@ func TestLoginConcurrentCallersShareUnansweredWindow(t *testing.T) {
 // result is returned, and nothing is remembered.
 func TestLoginWithoutTokenPreservesLookupResult(t *testing.T) {
 	resetLoginCache(t)
-	loginNow = func() time.Time { return time.Unix(8000, 0) }
 	lookupErr := errors.New("gh api user: not found")
 	f := &fakeGH{tokenErr: errors.New("not logged in"), userErr: lookupErr}
 	runGH = f.run
 	src := NewTokenSource()
+	src.now = func() time.Time { return time.Unix(8000, 0) }
 
-	if _, err := login(context.Background(), src); !errors.Is(err, lookupErr) {
+	if _, err := src.Login(context.Background()); !errors.Is(err, lookupErr) {
 		t.Fatalf("the lookup's own error must be preserved, got %v", err)
 	}
-	if _, err := login(context.Background(), src); !errors.Is(err, lookupErr) {
+	if _, err := src.Login(context.Background()); !errors.Is(err, lookupErr) {
 		t.Fatalf("a keyless failure is not cached, got %v", err)
 	}
 	if got := f.userCalls.Load(); got != 2 {
