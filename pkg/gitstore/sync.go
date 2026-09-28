@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -246,6 +247,43 @@ func (r *Repo) push(ctx context.Context, remote Remote, force bool) error {
 	})
 	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
 		return fmt.Errorf("gitstore: push: %w", err)
+	}
+	return r.s.SetReference(plumbing.NewHashReference(r.tracking(), head))
+}
+
+// PushGit sends the branch through the system `git` binary and, on success,
+// marks it pushed (the tracking ref, as the go-git path does). go-git's own
+// PushContext walks the whole object graph to negotiate and on a real board —
+// a shallow clone that has still accumulated a hundred thousand objects — that
+// takes longer than any deadline the sync can give it, so the board's commits
+// never leave; system git does the same push in a couple of seconds. The
+// credential is handed to git through an inline helper that reads it from the
+// environment, so the token is never in the process's argv (where the process
+// list would expose it); an empty password means no credential, for a public
+// or on-disk remote. `git push` is fast-forward by default, so a diverged
+// remote is rejected, not overwritten — the caller fetches and re-applies, as
+// with the go-git path.
+func (r *Repo) PushGit(ctx context.Context, url, username, password string) error {
+	head := r.Head()
+	if head.IsZero() {
+		return errors.New("gitstore: nothing to push")
+	}
+	if r.dir == "" {
+		return errors.New("gitstore: PushGit needs an on-disk repository")
+	}
+	spec := r.branch.String() + ":" + r.branch.String()
+	args := []string{"-c", "safe.directory=*"}
+	env := os.Environ()
+	if password != "" {
+		args = append(args, "-c", `credential.helper=!f() { echo "username=$AEMAN_GIT_USER"; echo "password=$AEMAN_GIT_PASS"; }; f`)
+		env = append(env, "AEMAN_GIT_USER="+username, "AEMAN_GIT_PASS="+password)
+	}
+	args = append(args, "-C", r.dir, "push", url, spec)
+	//nolint:gosec // git is a fixed binary, url and dir are the server's own, and the token rides the environment rather than argv
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = env
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("gitstore: push: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return r.s.SetReference(plumbing.NewHashReference(r.tracking(), head))
 }

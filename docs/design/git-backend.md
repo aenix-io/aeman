@@ -512,9 +512,15 @@ public API — none is optional:
    request `{Wants, Haves, Shallows, Depth: since}` → sideband demux →
    `packfile.UpdateObjectStorage` → `SetShallow(old + shallows −
    unshallows)`. ~80 lines, exact to the day, one round-trip.
-4. A rejected push from a shallow clone surfaces as `object not found`,
-   not as a non-fast-forward error. The retry loop never classifies by
-   error type (below).
+4. `PushContext` walks the whole object graph to negotiate and never
+   finishes inside the sync's deadline on a real board's ~150k objects,
+   so the sync pushes an on-disk store through the system `git` (`git
+   push`, fast-forward, the token handed over by an env-fed credential
+   helper rather than argv) and then marks the tracking ref; an
+   in-memory store keeps the go-git push. Rejection is classified by the
+   follow-up fetch, never by error type (below), so it does not matter
+   that go-git (`object not found` from a shallow clone) and git report
+   it differently.
 5. go-git never packs, and its own `RepackObjects` overflows the stack
    on a real history rather than packing it, so maintenance shells out
    to the system `git` (`git repack -ad`) and then rebuilds the storer's

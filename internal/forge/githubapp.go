@@ -303,3 +303,14 @@ func (g *AppGitAuth) SetAuth(r *http.Request) {
 	}
 	r.SetBasicAuth("x-access-token", tok)
 }
+
+// Credential resolves the git username and a fresh installation token for the
+// repository, for a caller that pushes through the system `git` binary rather
+// than go-git's transport (git receives it via a credential helper).
+func (g *AppGitAuth) Credential(ctx context.Context) (string, string, error) {
+	tok, err := g.app.Token(ctx, g.url)
+	if err != nil {
+		return "", "", err
+	}
+	return "x-access-token", tok, nil
+}
