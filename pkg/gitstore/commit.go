@@ -243,6 +243,10 @@ func (r *Repo) asOfResolved(at time.Time, head plumbing.Hash, horizon string, h 
 // Storer exposes the underlying object store (for sync and tests).
 func (r *Repo) Storer() storage.Storer { return r.s }
 
+// Dir is the on-disk path of a filesystem-backed store, empty for an
+// in-memory one. A caller pushes through the system git only when it is set.
+func (r *Repo) Dir() string { return r.dir }
+
 // Branch is the ref the board lives on.
 func (r *Repo) Branch() plumbing.ReferenceName { return r.branch }
 

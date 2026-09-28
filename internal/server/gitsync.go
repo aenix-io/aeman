@@ -7,11 +7,15 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 
+	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
 	"github.com/aenix-io/aeman/pkg/gitstore"
@@ -364,7 +368,19 @@ func (g *gitSync) pushAll(ctx context.Context) (*gitDomain, plumbing.Hash, error
 		if n == 0 {
 			continue
 		}
-		err = d.Repo.Push(ctx, d.remote)
+		// Push through the system git: go-git's own push cannot finish its
+		// object walk inside any deadline on a real board's graph. Only for an
+		// on-disk store over an HTTP(S) remote — production's shape, and what
+		// the system git can actually speak; an in-memory store or a test's
+		// custom transport falls back to the go-git push, which is fine at
+		// their size.
+		if !pushesThroughGit(d.remote.URL) || d.Repo.Dir() == "" {
+			err = d.Repo.Push(ctx, d.remote)
+		} else if user, pass, cerr := gitCred(ctx, d.remote.Auth); cerr != nil {
+			err = cerr
+		} else {
+			err = d.Repo.PushGit(ctx, d.remote.URL, user, pass)
+		}
 		if err == nil {
 			continue
 		}
@@ -385,6 +401,31 @@ func (g *gitSync) pushAll(ctx context.Context) (*gitDomain, plumbing.Hash, error
 	g.lastPushErr = nil
 	g.mu.Unlock()
 	return nil, plumbing.ZeroHash, nil
+}
+
+// pushesThroughGit reports whether a remote should be pushed with the system
+// git rather than go-git: an HTTP(S) URL, which is production's transport and
+// one the git binary can speak. A custom test transport or another scheme
+// keeps the go-git push.
+func pushesThroughGit(url string) bool {
+	return strings.HasPrefix(url, "https://") || strings.HasPrefix(url, "http://")
+}
+
+// gitCred resolves the git username and password for a domain's remote so the
+// system git can push it. A static token is a BasicAuth; a GitHub App mints a
+// fresh installation token per call. A nil auth (a public or on-disk remote)
+// has no credential.
+func gitCred(ctx context.Context, auth transport.AuthMethod) (string, string, error) {
+	switch a := auth.(type) {
+	case nil:
+		return "", "", nil
+	case *githttp.BasicAuth:
+		return a.Username, a.Password, nil
+	case *forge.AppGitAuth:
+		return a.Credential(ctx)
+	default:
+		return "", "", fmt.Errorf("no git credential for %T", auth)
+	}
 }
 
 // rebaseDomain re-applies one domain's unpushed commits on its remote's new

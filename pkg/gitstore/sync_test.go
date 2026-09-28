@@ -482,3 +482,38 @@ func walkCount(t *testing.T, r *Repo) int {
 	}
 	return n
 }
+
+// PushGit sends through the system git binary — go-git's own push is
+// pathologically slow on a large object graph — and marks the commits pushed
+// so the board stops showing them as unpushed. A bare local remote needs no
+// credentials, so the git-shell path is exercised without one.
+func TestPushGitSendsThroughSystemGitAndMarksPushed(t *testing.T) {
+	dir := t.TempDir()
+	r, err := Init(filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault()), Options{Committer: serverID, Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Commit(Action{Name: "create", Actor: "kvaps", Summary: "a"}, []FileWrite{
+		{Path: "cards/a/1/A1.md", Data: []byte("---\ntitle: a\n---\n")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	remote := t.TempDir()
+	if out, err := exec.Command("git", "init", "--bare", "-b", "main", remote).CombinedOutput(); err != nil {
+		t.Fatalf("bare remote: %v: %s", err, out)
+	}
+	if err := r.PushGit(context.Background(), remote, "", ""); err != nil {
+		t.Fatalf("PushGit: %v", err)
+	}
+	got, err := exec.Command("git", "--git-dir", remote, "rev-parse", "refs/heads/main").Output()
+	if err != nil || strings.TrimSpace(string(got)) != r.Head().String() {
+		t.Fatalf("remote main = %q (%v), want %s", strings.TrimSpace(string(got)), err, r.Head())
+	}
+	if n, err := r.Unpushed(); err != nil || n != 0 {
+		t.Fatalf("unpushed after push = %d (%v), want 0", n, err)
+	}
+	// Nothing new to send is a no-op, not an error.
+	if err := r.PushGit(context.Background(), remote, "", ""); err != nil {
+		t.Fatalf("second PushGit: %v", err)
+	}
+}
