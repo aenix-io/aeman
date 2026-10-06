@@ -22,7 +22,12 @@ import type { Card } from "./providers/types";
  *  That is the whole rule. It used to be seven layered ones, and between them
  *  they put work nobody was doing on the day while dropping a card scheduled
  *  for last Tuesday and never finished, which no rule reached any more. */
-export function inHandOn(c: Partial<Card>, day: string, today: string): boolean {
+export function inHandOn(
+  c: Partial<Card>,
+  day: string,
+  today: string,
+  currentSprint = "",
+): boolean {
   if (c.parent || parked(c)) {
     return false;
   }
@@ -44,7 +49,7 @@ export function inHandOn(c: Partial<Card>, day: string, today: string): boolean 
   // still leaves it is what was taken OUT of the sprint: a card deferred past
   // TODAY goes at once, and one planned into a week to come never reached it.
   // Mirrors board.inSprintOn.
-  if (inSprintOn(c, day) && !deferredPast(c, today)) {
+  if (inSprintOn(c, day, today, currentSprint) && !deferredPast(c, today)) {
     return true;
   }
   // Finished work belongs to the day it recorded, and to no other.
@@ -78,11 +83,28 @@ export function plannedFor(c: Partial<Card>, day: string): boolean {
 
 /** inSprintOn reports that a day answers for the card's SPRINT, which is what
  *  makes that day hold the sprint's work whatever has become of it, finished
- *  included. ONE day does: the day the sprint BEGAN — its own page, the one
- *  the "current sprint" jump lands on. Deliberately not every day of a running
- *  sprint: today is what is in HAND, and a card finished on Tuesday standing
- *  on Wednesday too is the thing the day rule set out to end. Mirrors
- *  board.inSprintOn. */
-export function inSprintOn(c: Partial<Card>, day: string): boolean {
-  return !!c.sprintStart && c.sprintStart === day;
+ *  included. The team's CURRENT sprint answers for itself on two of its days —
+ *  the day it BEGAN (its page) and TODAY — so the board reads as "the sprint
+ *  so far", closed work included, rather than "what is left"; Carry Over
+ *  leaves a finished card on the closing sprint, so once a new sprint opens
+ *  that work is a PREVIOUS sprint's and drops off today. Deliberately not the
+ *  days in between: a sprint never carried over stays current for weeks, and
+ *  resurfacing its closed work on each of those days is the thing the rule set
+ *  out to end (a carried-on-cadence sprint has its start day be today or
+ *  yesterday anyway). A sprint that is no longer current answers for its whole
+ *  self only on the day it BEGAN; with no sprint pointer the current sprint is
+ *  unknown, so the same narrow answer holds. Mirrors board.inSprintOn. */
+export function inSprintOn(
+  c: Partial<Card>,
+  day: string,
+  today = "",
+  currentSprint = "",
+): boolean {
+  if (!c.sprintStart) {
+    return false;
+  }
+  if (c.sprintStart === currentSprint) {
+    return day === c.sprintStart || day === today;
+  }
+  return c.sprintStart === day;
 }

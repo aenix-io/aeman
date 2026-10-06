@@ -535,6 +535,7 @@ func TestTheSprintsOwnDayIsTheWholeSprint(t *testing.T) {
 		// after. Not deferred any more, so the sprint has it back.
 		{ItemID: "arrived", Team: "T", SprintStart: opened, StartDate: today, Day: today},
 	})
+	b.SprintStates = map[string]SprintState{"T": {Current: opened}}
 	on := func(day string) map[string]bool {
 		out := map[string]bool{}
 		for _, c := range TeamGrid(b, "T", day) {
@@ -576,22 +577,21 @@ func TestTheSprintsOwnDayIsTheWholeSprint(t *testing.T) {
 	if !on(AddDays(today, 3))["later"] {
 		t.Error("it arrives on the day it was sent to")
 	}
-	// And TODAY is still what is in hand: the closed card belongs to the day
-	// it was closed on, not to every day after it.
-	if on(today)["closed"] {
-		t.Error("finished work does not follow the team around; it stays on its day")
+	// And TODAY shows the current sprint's closed work too: the board is the
+	// sprint so far, and Carry Over is what later clears it onto the previous
+	// sprint.
+	if !on(today)["closed"] {
+		t.Error("the current sprint's closed work shows on today too")
 	}
 }
 
-// THE SPRINT'S OWN DAY KEEPS THE WORK IT FINISHED. A lead agreed a card into
-// this sprint, somebody did it, and the day the sprint began — the day the
-// "current sprint" jump lands on — goes on holding it, done. That day is the
-// sprint's page: it answers "what has this sprint been", not "what is left".
-//
-// Every OTHER day of the sprint answers the other question, and that is why
-// the rule stops here: today is what is in hand. A card finished on Tuesday
-// standing on Wednesday and Thursday of the same sprint is the "work nobody
-// is doing appeared on the day" the day rule set out to end.
+// THE CURRENT SPRINT KEEPS THE WORK IT FINISHED, ON EVERY DAY UP TO TODAY. A
+// lead agreed a card into this sprint, somebody did it, and the sprint goes on
+// holding it, done — on the day it began and on today alike, so the Team board
+// reads as "what has this sprint been" rather than "what is left". Carry Over
+// is the reset: a finished card is left on the closing sprint, so once a new
+// sprint opens it is a PREVIOUS sprint's work and drops off today — a previous
+// sprint answers for its closed work only on its own day (a record).
 func TestASprintsOwnDayKeepsTheWorkItFinished(t *testing.T) {
 	today := TodayIso()
 	opened := AddDays(today, -2) // the sprint began the day before yesterday
@@ -626,9 +626,10 @@ func TestASprintsOwnDayKeepsTheWorkItFinished(t *testing.T) {
 	if !sprint["open"] {
 		t.Errorf("and what it is still doing: %v", sprint)
 	}
-	// Today is what is IN HAND: the finished card is not dragged along.
-	if on(today)["closed"] {
-		t.Error("finished work does not follow the sprint around; today is what is in hand")
+	// Today shows the current sprint's work, closed included: the board reads
+	// as "the sprint so far", not "what is left".
+	if !on(today)["closed"] {
+		t.Error("the current sprint's finished work shows on today too")
 	}
 	// It is still reachable on the day it was finished, as every finished card is.
 	if !on(AddDays(today, -1))["closed"] {

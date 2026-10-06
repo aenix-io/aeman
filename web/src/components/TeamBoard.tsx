@@ -198,8 +198,16 @@ export function TeamBoard({
   // put off to later. The rule itself is teamgrid.inHandOn, which mirrors
   // board.TeamGrid.
   const filteredCards = useMemo(
-    () => inFilter.filter((c) => inHandOn(c, selectedDate, todayIso())),
-    [inFilter, selectedDate],
+    () =>
+      inFilter.filter((c) =>
+        inHandOn(
+          c,
+          selectedDate,
+          todayIso(),
+          currentSprint(board, c.team ?? null) ?? "",
+        ),
+      ),
+    [inFilter, selectedDate, board],
   );
 
   // Columns are PEOPLE: the distinct assignees among the filtered cards (me

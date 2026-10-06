@@ -12,10 +12,19 @@ import type { Card } from "./providers/types";
  *  plan), deduping by item id; board order within each list is preserved.
  *  `loaded` is the board's current cards, if any: a card coming back in the
  *  listing keeps the notes, events and body already fetched for it, so
- *  switching views does not throw away — and then re-fetch — a log per card. */
+ *  switching views does not throw away — and then re-fetch — a log per card.
+ *
+ *  `keep` holds back a loaded card the fresh listing does NOT carry: it is for
+ *  cards the reader just MADE in this view (justMade), whose create the
+ *  listing has not caught up to yet. Without it a re-list racing a create —
+ *  the first card of a team, which reloads to pick up the new sprint pointer —
+ *  drops the card the user just typed, and it vanishes (it reappears only on
+ *  the next listing). A card made in a view the reader has left is forgotten
+ *  (forgetMade), so this never holds stale cards across a view switch. */
 export function mergeCardLists(
   lists: Card[][],
   loaded: readonly Card[] = [],
+  keep?: (itemId: string) => boolean,
 ): Card[] {
   const known = new Map(loaded.map((c) => [c.itemId, c]));
   const seen = new Set<string>();
@@ -26,6 +35,14 @@ export function mergeCardLists(
     }
     seen.add(fresh.itemId);
     out.push(withLoaded(fresh, known.get(fresh.itemId)));
+  }
+  if (keep) {
+    for (const c of loaded) {
+      if (!seen.has(c.itemId) && keep(c.itemId)) {
+        seen.add(c.itemId);
+        out.push(c);
+      }
+    }
   }
   return out;
 }

@@ -60,4 +60,35 @@ describe("mergeCardLists", () => {
   it("works without a previous board", () => {
     expect(mergeCardLists([[card("a")]]).map((c) => c.itemId)).toEqual(["a"]);
   });
+
+  // A loaded card the fresh listing does not carry is dropped — that is how a
+  // view switch sheds the cards of the view being left.
+  it("drops a loaded card the listing no longer carries", () => {
+    const got = mergeCardLists([[card("a")]], [card("a"), card("gone")]);
+    expect(got.map((c) => c.itemId)).toEqual(["a"]);
+  });
+
+  // ...unless `keep` holds it back: a card the reader just made in this view,
+  // whose create the listing has not caught up to. This is the first card of a
+  // team, whose create forces a reload to pick up the new sprint pointer: the
+  // reload re-lists before the server shows the card, and without this it
+  // vanishes. The kept card keeps its loaded copy and is not duplicated when
+  // the listing finally carries it.
+  it("keeps a loaded card the listing omits when keep() holds it", () => {
+    const got = mergeCardLists(
+      [[card("a")]],
+      [card("a"), card("just-made"), card("gone")],
+      (id) => id === "just-made",
+    );
+    expect(got.map((c) => c.itemId)).toEqual(["a", "just-made"]);
+  });
+
+  it("does not duplicate a kept card once the listing carries it", () => {
+    const got = mergeCardLists(
+      [[card("a"), card("just-made")]],
+      [card("just-made")],
+      (id) => id === "just-made",
+    );
+    expect(got.map((c) => c.itemId)).toEqual(["a", "just-made"]);
+  });
 });

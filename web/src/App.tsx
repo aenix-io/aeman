@@ -28,7 +28,7 @@ import { forgeCopy } from "./forge";
 import { unpushedNotice, type HealthStatus } from "./health";
 import { migrateBoardScopedKeys } from "./storage";
 import { pruneTeamFilter, settlePendingTeams, teamRoster } from "./teams";
-import { forgetMade } from "./justmade";
+import { forgetMade, justMade } from "./justmade";
 import { queryString, snapshotDay, viewPath, viewQueries, watchQueries } from "./viewquery";
 import { frozenProvider } from "./providers/frozen";
 import { todayIso, setBoardTimezone } from "./date";
@@ -799,7 +799,7 @@ export function App() {
       }
       setBoard((cur) => ({
         ...loaded,
-        cards: mergeCardLists(lists.map((l) => l.cards), cur?.cards),
+        cards: mergeCardLists(lists.map((l) => l.cards), cur?.cards, justMade),
         processes,
       }));
     } catch (err: unknown) {
@@ -854,7 +854,7 @@ export function App() {
             ? {
                 ...cur,
                 ...(loaded ? { ...loaded, cards: cur.cards, processes: cur.processes } : {}),
-                cards: mergeCardLists(lists.map((l) => l.cards), cur.cards),
+                cards: mergeCardLists(lists.map((l) => l.cards), cur.cards, justMade),
               }
             : cur,
         );
