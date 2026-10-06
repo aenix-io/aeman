@@ -100,19 +100,34 @@ func TeamGrid(b Board, team, day string) []Card {
 // makes that day hold the sprint's work whatever has become of it, finished
 // included.
 //
-// ONE day does: the day the sprint BEGAN. It is the sprint's own page, the
-// one the "current sprint" jump lands on and the one a lead reads the sprint
-// from, so it holds everything the sprint has been — the work it opened with,
-// the work typed into it since, and the work already closed.
+// The team's CURRENT sprint answers for itself on TWO of its days: the day it
+// BEGAN (its own page, the "current sprint" jump) and TODAY. Both read as "the
+// sprint so far" — the work it opened with, the work typed into it since, and
+// the work already CLOSED — rather than "what is left". Carry Over is the
+// reset: it leaves a finished card on the closing sprint (its SprintStart is
+// not moved), so the moment a new sprint opens that done work is a PREVIOUS
+// sprint's and drops off today, which is how "today shows the sprint's closed
+// work, carry-over clears it" is meant to read.
 //
-// Deliberately not every day of a running sprint. That would put the sprint's
-// closed work on today as well, and today is what is in HAND: a card finished
-// on Tuesday would stand on Wednesday, Thursday and Friday of the same sprint,
-// which is the "work nobody is doing appeared on the day" this rule set out to
-// end. The sprint's own day is where that work is read, and the jump goes
-// straight to it.
-func inSprintOn(_ Board, c Card, day, _ string) bool {
-	return c.SprintStart != "" && c.SprintStart == day
+// Deliberately not every day in between: a sprint that is never carried over
+// stays current for weeks, and the days between its start and today are not
+// the lead's standup — resurfacing the sprint's closed work on each of them
+// (a tidied-away card among them) is the "work nobody is doing appeared on the
+// day" the rule set out to end. For a sprint carried over on its own cadence
+// the start day is today or yesterday, so the two coincide anyway.
+//
+// A sprint that is no longer the team's current one answers for its whole self
+// only on the day it BEGAN — its own page, served as a snapshot once the day
+// is past. Without a sprint-state pointer the team's current sprint is
+// unknown, so the same narrow day-it-began answer holds.
+func inSprintOn(b Board, c Card, day, today string) bool {
+	if c.SprintStart == "" {
+		return false
+	}
+	if c.SprintStart == CurrentSprint(b, c.Team) {
+		return day == c.SprintStart || day == today
+	}
+	return c.SprintStart == day
 }
 
 // deferredPast reports a card put off to a day later than the one given: it

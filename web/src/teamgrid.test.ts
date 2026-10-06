@@ -133,28 +133,47 @@ describe("inHandOn, looking ahead", () => {
   });
 });
 
-// The sprint's own day keeps the work it finished — and only that day does.
-// Every other day of the sprint answers "what is in hand". Mirrors
+// The CURRENT sprint shows its finished work on two of its days — the day it
+// began and TODAY — so the board reads as "the sprint so far". A done card is
+// also always on its doneAt day; a middle day that is none of those shows only
+// open work. A sprint that is no longer current keeps its closed work on the
+// day it began alone, which is how Carry Over clears it off today. Mirrors
 // board.inSprintOn.
-describe("the sprint's own day keeps the work it finished", () => {
-  const TODAY = "2026-09-11";
+describe("the current sprint keeps the work it finished", () => {
   const OPENED = "2026-09-09";
+  const MID = "2026-09-10"; // a day of the sprint that is neither its start nor today
+  const TODAY = "2026-09-11";
+  // Finished on the day it opened, so today is NOT its doneAt day.
+  const done = () => card({ sprintStart: OPENED, progress: 100, doneAt: OPENED });
 
-  it("holds the sprint's finished work on the day it began", () => {
-    const done = card({ sprintStart: OPENED, progress: 100, doneAt: "2026-09-10" });
-    expect(inHandOn(done, OPENED, TODAY)).toBe(true);
+  it("shows the current sprint's finished work on the day it began and on today", () => {
+    expect(inHandOn(done(), OPENED, TODAY, OPENED)).toBe(true); // the day it began
+    expect(inHandOn(done(), TODAY, TODAY, OPENED)).toBe(true); // today, though not its doneAt
   });
 
-  it("does not drag it onto the other days of the sprint", () => {
-    const done = card({ sprintStart: OPENED, progress: 100, doneAt: "2026-09-10" });
-    expect(inHandOn(done, TODAY, TODAY)).toBe(false);
-    // The day it was finished on still keeps it, as every finished card.
-    expect(inHandOn(done, "2026-09-10", TODAY)).toBe(true);
+  it("does not resurface it on a middle day that is neither start, today nor doneAt", () => {
+    expect(inHandOn(done(), MID, TODAY, OPENED)).toBe(false);
   });
 
-  it("answers for one sprint only", () => {
-    expect(inSprintOn(card({ sprintStart: OPENED }), OPENED)).toBe(true);
-    expect(inSprintOn(card({ sprintStart: OPENED }), TODAY)).toBe(false);
-    expect(inSprintOn(card({}), OPENED)).toBe(false);
+  it("drops it off today once its sprint is no longer current (carried over)", () => {
+    // A later sprint is current now; the done card's sprint is the previous one.
+    expect(inHandOn(done(), TODAY, TODAY, TODAY)).toBe(false);
+    // Still on the day it began — a record of that sprint.
+    expect(inHandOn(done(), OPENED, TODAY, TODAY)).toBe(true);
+  });
+
+  it("without a current-sprint pointer, only the day it began holds it", () => {
+    expect(inHandOn(done(), OPENED, TODAY)).toBe(true);
+    expect(inHandOn(done(), TODAY, TODAY)).toBe(false);
+  });
+
+  it("inSprintOn: the current sprint answers on its start day and today; else its start day", () => {
+    const c = card({ sprintStart: OPENED });
+    expect(inSprintOn(c, OPENED, TODAY, OPENED)).toBe(true); // current: day it began
+    expect(inSprintOn(c, TODAY, TODAY, OPENED)).toBe(true); // current: today
+    expect(inSprintOn(c, MID, TODAY, OPENED)).toBe(false); // current: a day in between — no
+    expect(inSprintOn(c, OPENED, TODAY, TODAY)).toBe(true); // not current: day it began
+    expect(inSprintOn(c, TODAY, TODAY, TODAY)).toBe(false); // not current: other day
+    expect(inSprintOn(card({}), OPENED, TODAY, OPENED)).toBe(false);
   });
 });
