@@ -726,3 +726,57 @@ func TestTheMeBoardDrawsAWeekThatHasCome(t *testing.T) {
 		t.Error("next week's card is on the day before its Monday")
 	}
 }
+
+// Two things watched at a real standup. (1) EVERY day of the current sprint
+// accumulates its work, closed included — a lead opening a middle day of a
+// running sprint sees what the sprint has finished, not only what it opened
+// that day with. (2) Carry Over leaves finished work on the closing sprint: a
+// card done TODAY but in a sprint the team has just carried past does not cling
+// to today; it belongs to that closed sprint's own day.
+func TestCurrentSprintAccumulatesDoneAndCarryOverLeavesItBehind(t *testing.T) {
+	today := TodayIso()
+	opened := AddDays(today, -3)
+	mid := AddDays(today, -1) // a day of the sprint that is neither its start nor today
+
+	b := NewBoard([]Card{
+		// Done on the sprint's FIRST day: a middle day is neither its doneAt
+		// nor today, so only the whole-sprint rule can put it there.
+		{ItemID: "doneEarly", Team: "T", SprintStart: opened, StartDate: opened, Progress: 100, DoneAt: opened},
+		{ItemID: "open", Team: "T", SprintStart: opened, StartDate: opened},
+	})
+	b.SprintStates = map[string]SprintState{"T": {Current: opened}}
+	on := func(day string) map[string]bool {
+		out := map[string]bool{}
+		for _, c := range TeamGrid(b, "T", day) {
+			out[c.ItemID] = true
+		}
+		return out
+	}
+	for _, day := range []string{opened, mid, today} {
+		if !on(day)["doneEarly"] {
+			t.Errorf("the current sprint's finished work must show on %s (every day of the sprint)", day)
+		}
+	}
+
+	b2 := NewBoard([]Card{
+		{ItemID: "doneToday", Team: "T", SprintStart: opened, StartDate: opened, Progress: 100, DoneAt: today},
+		{ItemID: "carried", Team: "T", SprintStart: today, StartDate: opened},
+	})
+	b2.SprintStates = map[string]SprintState{"T": {Current: today, Previous: opened}}
+	on2 := func(day string) map[string]bool {
+		out := map[string]bool{}
+		for _, c := range TeamGrid(b2, "T", day) {
+			out[c.ItemID] = true
+		}
+		return out
+	}
+	if on2(today)["doneToday"] {
+		t.Error("Carry Over leaves finished work behind; a done card of the closed sprint must not cling to today even if finished today")
+	}
+	if !on2(today)["carried"] {
+		t.Error("the carried-over open card belongs to today")
+	}
+	if !on2(opened)["doneToday"] {
+		t.Error("the closed sprint's own day keeps the work it finished")
+	}
+}

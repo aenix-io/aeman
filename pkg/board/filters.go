@@ -77,10 +77,16 @@ func TeamGrid(b Board, team, day string) []Card {
 			out = append(out, c)
 			continue
 		}
-		// Finished work belongs to the day it was finished on, and to no
-		// other: a card finished yesterday belongs to yesterday, and a board
-		// that keeps it is a board nobody can read.
-		if Complete(c.Stage, c.Progress) && !finishedOn(c, day) {
+		// Finished work belongs to the day it was finished on — with one
+		// exception on TODAY's live board: a done card whose sprint the team
+		// has CARRIED PAST was left behind by Carry Over on purpose, so it
+		// does not come back to today merely because it was finished today. It
+		// still stands on the day it recorded (its sprint's own day, served as
+		// a snapshot once past). A done card of the CURRENT sprint is already
+		// kept above; one of no sprint at all (a dated or week card) is never
+		// closed and shows on its day as before.
+		if Complete(c.Stage, c.Progress) &&
+			(!finishedOn(c, day) || (day == today && inClosedSprint(b, c))) {
 			continue
 		}
 		// Put off to a later day: gone from the board until that day comes.
@@ -100,21 +106,15 @@ func TeamGrid(b Board, team, day string) []Card {
 // makes that day hold the sprint's work whatever has become of it, finished
 // included.
 //
-// The team's CURRENT sprint answers for itself on TWO of its days: the day it
-// BEGAN (its own page, the "current sprint" jump) and TODAY. Both read as "the
-// sprint so far" — the work it opened with, the work typed into it since, and
-// the work already CLOSED — rather than "what is left". Carry Over is the
-// reset: it leaves a finished card on the closing sprint (its SprintStart is
-// not moved), so the moment a new sprint opens that done work is a PREVIOUS
-// sprint's and drops off today, which is how "today shows the sprint's closed
-// work, carry-over clears it" is meant to read.
-//
-// Deliberately not every day in between: a sprint that is never carried over
-// stays current for weeks, and the days between its start and today are not
-// the lead's standup — resurfacing the sprint's closed work on each of them
-// (a tidied-away card among them) is the "work nobody is doing appeared on the
-// day" the rule set out to end. For a sprint carried over on its own cadence
-// the start day is today or yesterday, so the two coincide anyway.
+// The team's CURRENT sprint accumulates all of its work — open AND closed — on
+// every one of its days, from the day it began through today. A lead opening
+// any day of the running sprint reads "what has this sprint been", the work it
+// opened with, the work typed into it since, and the work already CLOSED,
+// rather than "what is left on this one day". Carry Over is the reset: it
+// leaves a finished card on the closing sprint (its SprintStart is not moved),
+// so the moment a new sprint opens that done work is a PREVIOUS sprint's and
+// stops showing on the current board — which is how "the sprint keeps its done
+// work until carry-over moves on" is meant to read.
 //
 // A sprint that is no longer the team's current one answers for its whole self
 // only on the day it BEGAN — its own page, served as a snapshot once the day
@@ -125,7 +125,11 @@ func inSprintOn(b Board, c Card, day, today string) bool {
 		return false
 	}
 	if c.SprintStart == CurrentSprint(b, c.Team) {
-		return day == c.SprintStart || day == today
+		// A card TAKEN OFF the board (LeftAt — the legacy × demote) is not part
+		// of the live sprint's accumulation: it belongs to the record of the
+		// day it was removed, which gives it back, not to every day of the
+		// sprint it was demoted into.
+		return c.LeftAt == "" && day >= c.SprintStart && day <= today
 	}
 	return c.SprintStart == day
 }
@@ -175,6 +179,18 @@ func plannedFor(c Card, day string) bool {
 // closed on no day this board can name, and there is no day ahead on which
 // somebody finished it.
 func finishedOn(c Card, day string) bool { return c.DoneAt == day }
+
+// inClosedSprint reports a card whose sprint the team has already CARRIED
+// PAST — its SprintStart is neither the current sprint nor empty. Such a
+// card is that closed sprint's record (shown on its own day and in the
+// history), not the live board, so a done one does not come back to today on
+// the strength of having been finished today. A card in the CURRENT sprint,
+// or in no sprint at all, is not closed. It needs the sprint-state pointer;
+// without one (current unknown) nothing is treated as closed.
+func inClosedSprint(b Board, c Card) bool {
+	cur := CurrentSprint(b, c.Team)
+	return c.SprintStart != "" && cur != "" && c.SprintStart != cur
+}
 
 // MeView returns the cards on a person's own day board on a given day:
 // the user's cards (user = "" means everyone) that belong to the sprint that was

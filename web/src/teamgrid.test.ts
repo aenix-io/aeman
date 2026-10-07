@@ -133,29 +133,36 @@ describe("inHandOn, looking ahead", () => {
   });
 });
 
-// The CURRENT sprint shows its finished work on two of its days — the day it
-// began and TODAY — so the board reads as "the sprint so far". A done card is
-// also always on its doneAt day; a middle day that is none of those shows only
-// open work. A sprint that is no longer current keeps its closed work on the
-// day it began alone, which is how Carry Over clears it off today. Mirrors
-// board.inSprintOn.
-describe("the current sprint keeps the work it finished", () => {
+// The CURRENT sprint accumulates ALL of its work on EVERY one of its days —
+// the day it began, the days since and today each hold its finished work as
+// well as its open work, so a lead opening any day of the running sprint reads
+// "the sprint so far". Carry Over leaves finished work on the closing sprint:
+// once a new sprint opens, that done card is a PREVIOUS sprint's and drops off
+// today even if it was finished today, staying on its own sprint's days. A
+// done card is also always on its doneAt day whatever its sprint. Mirrors
+// board.inSprintOn and board.inClosedSprint.
+describe("the current sprint accumulates its finished work and carry over leaves it behind", () => {
   const OPENED = "2026-09-09";
-  const MID = "2026-09-10"; // a day of the sprint that is neither its start nor today
+  const MID = "2026-09-10"; // a day of the sprint between its start and today
   const TODAY = "2026-09-11";
   // Finished on the day it opened, so today is NOT its doneAt day.
   const done = () => card({ sprintStart: OPENED, progress: 100, doneAt: OPENED });
 
-  it("shows the current sprint's finished work on the day it began and on today", () => {
+  it("shows the current sprint's finished work on every one of its days", () => {
     expect(inHandOn(done(), OPENED, TODAY, OPENED)).toBe(true); // the day it began
+    expect(inHandOn(done(), MID, TODAY, OPENED)).toBe(true); // a middle day
     expect(inHandOn(done(), TODAY, TODAY, OPENED)).toBe(true); // today, though not its doneAt
   });
 
-  it("does not resurface it on a middle day that is neither start, today nor doneAt", () => {
-    expect(inHandOn(done(), MID, TODAY, OPENED)).toBe(false);
+  it("leaves a card finished TODAY on the closing sprint once carried over, off today", () => {
+    // Carry Over ran: a later sprint is current now, the done card's sprint is
+    // the previous one, and it was finished today. It must NOT cling to today.
+    const doneToday = card({ sprintStart: OPENED, progress: 100, doneAt: TODAY });
+    expect(inHandOn(doneToday, TODAY, TODAY, TODAY)).toBe(false); // today — left behind
+    expect(inHandOn(doneToday, OPENED, TODAY, TODAY)).toBe(true); // on its own sprint's day
   });
 
-  it("drops it off today once its sprint is no longer current (carried over)", () => {
+  it("drops a card finished earlier off today once its sprint is no longer current", () => {
     // A later sprint is current now; the done card's sprint is the previous one.
     expect(inHandOn(done(), TODAY, TODAY, TODAY)).toBe(false);
     // Still on the day it began — a record of that sprint.
@@ -167,11 +174,11 @@ describe("the current sprint keeps the work it finished", () => {
     expect(inHandOn(done(), TODAY, TODAY)).toBe(false);
   });
 
-  it("inSprintOn: the current sprint answers on its start day and today; else its start day", () => {
+  it("inSprintOn: the current sprint answers on every day start..today; else its start day", () => {
     const c = card({ sprintStart: OPENED });
     expect(inSprintOn(c, OPENED, TODAY, OPENED)).toBe(true); // current: day it began
+    expect(inSprintOn(c, MID, TODAY, OPENED)).toBe(true); // current: a day in between
     expect(inSprintOn(c, TODAY, TODAY, OPENED)).toBe(true); // current: today
-    expect(inSprintOn(c, MID, TODAY, OPENED)).toBe(false); // current: a day in between — no
     expect(inSprintOn(c, OPENED, TODAY, TODAY)).toBe(true); // not current: day it began
     expect(inSprintOn(c, TODAY, TODAY, TODAY)).toBe(false); // not current: other day
     expect(inSprintOn(card({}), OPENED, TODAY, OPENED)).toBe(false);
