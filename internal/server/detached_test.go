@@ -51,6 +51,14 @@ func refFields(t reflect.Type) []string {
 	return out
 }
 
+// cardContainerExemptions is the path-shaped exemption used by the type guard
+// below. At these paths detached does not merely copy the []Card: it also
+// copies the containers hanging off every Card.
+var cardContainerExemptions = map[string]bool{
+	"Board.Cards": true,
+	"Board.Tasks": true,
+}
+
 // A board handed out of the cache must own its containers. Whoever holds one
 // reads it with no lock while the cache keeps editing its own rows in place
 // under e.mu, so a shared array is a torn read and a shared map is a fatal
@@ -95,6 +103,39 @@ func TestDetachedSharesNoContainerWithTheCache(t *testing.T) {
 			continue
 		}
 		check(f.Name+"[0]", bv.Field(i).Index(0), ov.Field(i).Index(0))
+	}
+}
+
+// Keep the path exemption in the type guard tied to what detached actually
+// does. Every []Card field gets a Card with a backing array of its own; the
+// clone, rather than this test's reading of its implementation, says which
+// paths descend into the Card and replace that array.
+func TestCardContainerExemptionsMatchDetachedBehaviour(t *testing.T) {
+	boardType := reflect.TypeFor[board.Board]()
+	cardsType := reflect.TypeFor[[]board.Card]()
+	in := reflect.New(boardType).Elem()
+
+	for i := range boardType.NumField() {
+		if boardType.Field(i).Type == cardsType {
+			in.Field(i).Set(reflect.ValueOf([]board.Card{{Assignees: []string{"ann"}}}))
+		}
+	}
+	out := reflect.ValueOf(detached(in.Interface().(board.Board)))
+
+	got := map[string]bool{}
+	for i := range boardType.NumField() {
+		field := boardType.Field(i)
+		if field.Type != cardsType {
+			continue
+		}
+		before := in.Field(i).Index(0).FieldByName("Assignees")
+		after := out.Field(i).Index(0).FieldByName("Assignees")
+		if before.Pointer() != after.Pointer() {
+			got[boardType.Name()+"."+field.Name] = true
+		}
+	}
+	if !reflect.DeepEqual(got, cardContainerExemptions) {
+		t.Errorf("paths where detached clones Card containers = %v, guard exemptions = %v", got, cardContainerExemptions)
 	}
 }
 
@@ -187,45 +228,45 @@ func TestDetachedKeepsNilContainersNil(t *testing.T) {
 // while [2][]string and [2]Card share through their elements, so the correct
 // test is recursive and not one more kind in the switch. Adding the kind
 // would flag the safe case. The deeper point is that a guard reading types
-// can only be as complete as whoever wrote the list, and the failure it keeps
-// meeting is a divergence between what the types declare and what the clone
-// does; catching that needs a check that observes the clone instead.
+// can only be as complete as whoever wrote the list. The behavioural check
+// above separately pins the place where this guard and the clone could
+// otherwise diverge: the paths at which Card's containers are exempt because
+// detached already cloned them.
 func TestTypesBelowTheClonedOnesAreFlat(t *testing.T) {
 	descended := map[reflect.Type]bool{
 		reflect.TypeFor[board.Board](): true,
 		reflect.TypeFor[board.Card]():  true,
 	}
-	// detachedCards runs on Board.Cards and Board.Tasks and nowhere else, so
-	// exempting Card by TYPE is only right while those are the only places a
-	// Card appears. The exemption is keyed by type and the behaviour is keyed
-	// by path, and that mismatch is what lets a Card somewhere else keep
-	// sharing its notes with the cache while both guards stay green.
+	// detachedCards runs on Board.Cards and Board.Tasks and nowhere else. Keep
+	// that exemption keyed by path: a Card reached anywhere else keeps sharing
+	// its containers, even though its type is identical to these two.
 	cardType := reflect.TypeFor[board.Card]()
-	boardType := reflect.TypeFor[board.Board]()
 	reachesCard := func(f reflect.Type) bool {
 		for f.Kind() == reflect.Slice || f.Kind() == reflect.Map || f.Kind() == reflect.Pointer {
 			f = f.Elem()
 		}
 		return f == cardType
 	}
-	seen := map[reflect.Type]bool{}
+	walking := map[reflect.Type]bool{}
 	type gap struct{ field, why string }
 	var found []gap
-	var walk func(reflect.Type)
-	walk = func(t reflect.Type) {
+	var walk func(reflect.Type, string)
+	walk = func(t reflect.Type, path string) {
 		switch t.Kind() {
 		case reflect.Slice, reflect.Array, reflect.Pointer:
-			walk(t.Elem())
+			walk(t.Elem(), path)
 		case reflect.Map:
-			walk(t.Key())
-			walk(t.Elem())
+			walk(t.Key(), path)
+			walk(t.Elem(), path)
 		case reflect.Struct:
-			if seen[t] {
+			if walking[t] {
 				return
 			}
-			seen[t] = true
+			walking[t] = true
+			defer delete(walking, t)
 			for i := range t.NumField() {
 				f := t.Field(i)
+				fieldPath := path + "." + f.Name
 				if !f.IsExported() {
 					// detached is in another package, so it cannot reach
 					// these at all: a container here is uncloneable rather
@@ -233,45 +274,44 @@ func TestTypesBelowTheClonedOnesAreFlat(t *testing.T) {
 					// guard can do is say so.
 					switch f.Type.Kind() {
 					case reflect.Slice, reflect.Map, reflect.Pointer, reflect.Interface:
-						found = append(found, gap{t.Name() + "." + f.Name,
+						found = append(found, gap{fieldPath,
 							"unexported, so no clone outside its own package can reach it"})
 					}
 					continue
 				}
-				viaDetachedCards := t == boardType && (f.Name == "Cards" || f.Name == "Tasks")
-				if reachesCard(f.Type) && !viaDetachedCards {
-					found = append(found, gap{t.Name() + "." + f.Name,
+				if reachesCard(f.Type) && !cardContainerExemptions[fieldPath] {
+					found = append(found, gap{fieldPath,
 						"detachedCards only reaches Board.Cards and Board.Tasks, so this card's own containers stay shared"})
 				}
 				switch f.Type.Kind() {
 				case reflect.Slice, reflect.Map:
 					// Cloned on Board and Card, nowhere else.
 					if !descended[t] {
-						found = append(found, gap{t.Name() + "." + f.Name,
+						found = append(found, gap{fieldPath,
 							"detached does not descend into " + t.Name() + ": clone it there, or make detached recurse"})
 						break
 					}
 					// Cloned, but one level deep. A container OF containers
 					// keeps sharing its inner ones through the copy.
 					if e := f.Type.Elem(); e.Kind() == reflect.Slice || e.Kind() == reflect.Map || e.Kind() == reflect.Pointer {
-						found = append(found, gap{t.Name() + "." + f.Name,
+						found = append(found, gap{fieldPath,
 							"its elements are containers and the clone is one level deep, so they stay shared"})
 					}
 				case reflect.Pointer:
 					// Cloned nowhere: a copy of any struct shares the pointee.
-					found = append(found, gap{t.Name() + "." + f.Name,
+					found = append(found, gap{fieldPath,
 						"detached clones no pointer, so every copy shares the pointee"})
 				case reflect.Interface:
 					// What is behind it is decided at runtime, so no clone
 					// written against the types can know whether to descend.
-					found = append(found, gap{t.Name() + "." + f.Name,
+					found = append(found, gap{fieldPath,
 						"an interface may hold a container and the clone cannot see inside it"})
 				}
-				walk(f.Type)
+				walk(f.Type, fieldPath)
 			}
 		}
 	}
-	walk(reflect.TypeFor[board.Board]())
+	walk(reflect.TypeFor[board.Board](), "Board")
 
 	for _, g := range found {
 		t.Errorf("%s escapes the clone: %s", g.field, g.why)
