@@ -240,7 +240,12 @@ without mirrors.
 has a planning card above it, however many levels up. A task with no
 parent is not on the Roadmap — it is on the day boards. The listing is
 the card listing of the view (`GET /api/v1/views/roadmap/cards`), with
-the same watch; the tree is assembled from `parent` on the client. A
+the same watch; the tree is assembled from `parent` on the client. The
+watch keeps the tree LIVE: a planning card is never written when a task
+under it changes, so every card change also arrives as a `MODIFIED`
+frame for each planning card above it — the chain it stands under and
+the chain it left — with the counts the server derived, to everyone the
+Roadmap draws them for, the originator included. A
 **create** on the Roadmap is a planning card — `type` is `goal`,
 `initiative` or `epic`, `parent` optional under the level rule — or a
 **task under one**: no `type`, a `parent` naming a goal, an initiative

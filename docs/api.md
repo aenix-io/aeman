@@ -138,6 +138,8 @@ Deciding what a scoped view holds means building that view, so it is decided **o
 
 **Board frames**: a change to the board's STRUCTURE — a project, a column, a deadline — cannot be expressed as a card event, so it arrives as a `MODIFIED` frame of kind `Board` carrying the whole board resource (apply it, no round trip needed). These frames are **coalesced**: one request that touches many cards announces the board once, a moment (~25 ms) after its changes, not once per card — a carry-over moving a team's whole backlog would otherwise repaint the board for every open tab hundreds of times over, and it did.
 
+**Hierarchy frames**: a planning card records nothing about its standing — `status.hierarchy` is derived from the tasks under it on every read (H5) — so no write ever touches an epic when a task under it is filed, taken, finished, moved or deleted. Every card change therefore also arrives as a `MODIFIED` frame for each PLANNING card above it, in the chain the card stands under now and in the chain it left, carrying the fresh counts; a scoped watch gets them for the ancestors its board draws (the Roadmap and the raw stream — a Me or Team watch draws no planning card), and the originator gets them too, since it holds its own change and not what the tree derived from it. A task filed under an epic enters a Roadmap watch as `ADDED`, one taken out leaves it as `DELETED`, by the same membership rule as any scope.
+
 Changes that reach the repository from elsewhere — another aeman replica, a plugin committing directly — arrive the same way: the server fetches on its sync tick (`--sync-interval`, 15 s), reads exactly the cards the new commits touched, and streams them.
 
 ### Health

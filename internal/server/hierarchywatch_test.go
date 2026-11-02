@@ -1,0 +1,152 @@
+package server
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/aenix-io/aeman/pkg/apiserver"
+	"github.com/aenix-io/aeman/pkg/board"
+)
+
+// hierarchyWatchBoard is a goal → initiative → epic chain and one dated task
+// of team alpha standing on its own.
+func hierarchyWatchBoard(today string) board.Board {
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "goal", Title: "Reach Europe", Type: board.TypeGoal},
+		{ItemID: "init", Title: "Portugal", Type: board.TypeInitiative, Parent: "goal"},
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "init"},
+		{ItemID: "c1", Title: "Invoices", Team: "alpha", StartDate: today, Day: today, SprintStart: today},
+	})
+	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}}
+	return b
+}
+
+// took reads n frames off a subscription into a map by uid, decoding the
+// card each carries, so a burst's order — the view's — does not matter.
+func took(t *testing.T, sub *subscription, n int) map[string]struct {
+	Type string
+	Card apiserver.Card
+} {
+	t.Helper()
+	out := map[string]struct {
+		Type string
+		Card apiserver.Card
+	}{}
+	for i := 0; i < n; i++ {
+		f := readFrame(t, sub)
+		var c apiserver.Card
+		if err := json.Unmarshal(f.Object, &c); err != nil {
+			t.Fatalf("frame %d: %v", i, err)
+		}
+		out[c.Metadata.UID] = struct {
+			Type string
+			Card apiserver.Card
+		}{f.Type, c}
+	}
+	noFrame(t, sub)
+	return out
+}
+
+// THE ROADMAP UPDATES LIVE. A planning card's standing is derived from the
+// tasks under it (H5) and never written, so no write ever touches the epic
+// when a task under it changes — and the Roadmap watcher, which draws the
+// epic with its counts, heard nothing. Every card change now reaches the
+// planning cards above it: the chain it LEFT and the chain it JOINED, as
+// MODIFIED frames carrying the fresh counts, to everyone who may read them
+// — the originator included, since the server alone knows the new standing.
+func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) {
+	today := board.TodayIso()
+	store := newBoardStore()
+	e := seedEntry(store, "k", hierarchyWatchBoard(today))
+	sel := apiserver.Selector{View: "roadmap"}
+	roadmap, cancel := store.subscribe("k", "", &sel, map[string]bool{"cards": true})
+	defer cancel()
+	origin, cancel2 := store.subscribe("k", "me", &sel, map[string]bool{"cards": true})
+	defer cancel2()
+	raw, cancel3 := store.subscribe("k", "", nil, map[string]bool{"cards": true})
+	defer cancel3()
+	if !roadmap.members["epic"] || roadmap.members["c1"] {
+		t.Fatalf("seeded roadmap members = %v", roadmap.members)
+	}
+	find := func(id string) board.Card {
+		c, _ := board.Find(e.board, id)
+		return c
+	}
+
+	// The task is filed under the epic by "me": it ENTERS the Roadmap, and
+	// the three above it change their standing — no items → to do.
+	e.mu.Lock()
+	c1 := find("c1")
+	c1.Parent = "epic"
+	e.upsertCard(c1)
+	e.cardChanged("me", c1, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+	got := took(t, roadmap, 4)
+	if got["c1"].Type != "ADDED" {
+		t.Fatalf("the task did not enter the Roadmap: %+v", got["c1"])
+	}
+	for _, id := range []string{"goal", "init", "epic"} {
+		h := got[id].Card.Status.Hierarchy
+		if got[id].Type != "MODIFIED" || h == nil || h.Status != board.HierarchyTodo || h.Total != 1 {
+			t.Fatalf("%s after the attach = %s %+v, want MODIFIED todo 0/1", id, got[id].Type, h)
+		}
+	}
+	// The originator holds its own change already, but not the standing the
+	// server derived: the ancestors reach it, the task's own frame does not.
+	mine := took(t, origin, 3)
+	if _, echoed := mine["c1"]; echoed || mine["epic"].Type != "MODIFIED" {
+		t.Fatalf("the originator got %+v", mine)
+	}
+	// The raw stream hears the verb and the ancestors alike.
+	all := took(t, raw, 4)
+	if all["c1"].Type != "MODIFIED" || all["goal"].Type != "MODIFIED" {
+		t.Fatalf("the raw stream got %+v", all)
+	}
+
+	// Somebody takes the task: in progress, all the way up.
+	e.mu.Lock()
+	c1 = find("c1")
+	c1.Assignees = []string{"ann"}
+	e.upsertCard(c1)
+	e.cardChanged("", c1, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+	got = took(t, roadmap, 4)
+	if got["c1"].Type != "MODIFIED" || got["goal"].Card.Status.Hierarchy.Status != board.HierarchyInProgress {
+		t.Fatalf("after the assignment: %+v / %+v", got["c1"].Type, got["goal"].Card.Status.Hierarchy)
+	}
+
+	// Re-filed straight under the goal: the chain it LEFT (epic, initiative)
+	// hears it as much as the one it joined, or the epic would keep a task
+	// it no longer has.
+	e.mu.Lock()
+	c1 = find("c1")
+	c1.Parent = "goal"
+	e.upsertCard(c1)
+	e.cardChanged("", c1, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+	got = took(t, roadmap, 4)
+	if h := got["epic"].Card.Status.Hierarchy; got["epic"].Type != "MODIFIED" || h.Status != board.HierarchyNoItems || h.Total != 0 {
+		t.Fatalf("the epic the task left: %s %+v, want MODIFIED no-items 0/0", got["epic"].Type, h)
+	}
+	if h := got["goal"].Card.Status.Hierarchy; h.Status != board.HierarchyInProgress || h.Total != 1 {
+		t.Fatalf("the goal the task joined: %+v, want in-progress 0/1", h)
+	}
+
+	// Deleted: gone from the Roadmap, and the goal has no items again.
+	e.mu.Lock()
+	gone := find("c1")
+	e.removeCard("c1")
+	e.cardChanged("", gone, "DELETED")
+	e.mu.Unlock()
+	settled(t, e)
+	got = took(t, roadmap, 2)
+	if got["c1"].Type != "DELETED" {
+		t.Fatalf("the task did not leave the Roadmap: %+v", got["c1"])
+	}
+	if h := got["goal"].Card.Status.Hierarchy; got["goal"].Type != "MODIFIED" || h.Status != board.HierarchyNoItems {
+		t.Fatalf("the goal after the delete: %s %+v, want MODIFIED no-items", got["goal"].Type, h)
+	}
+}

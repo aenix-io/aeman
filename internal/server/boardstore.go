@@ -189,6 +189,13 @@ type boardEntry struct {
 	// see cardChanged and flushMembers.
 	membersDue bool
 	moved      map[string]string
+	// parentOf is every card's parent as last announced, so a change can
+	// name the planning cards it LEFT as well as the ones it stands under
+	// now: a planning card's standing is derived from the tasks under it
+	// (H5) and never written, so nothing but this fan-out tells a Roadmap
+	// watcher that an epic's counts moved. Seeded from each installed board
+	// and kept by cardChanged.
+	parentOf map[string]string
 }
 
 // recentGrace is how long a local mutation outweighs a full reload.
@@ -456,30 +463,43 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	// people are announced for the burst, whatever the change was: deciding
 	// here which writes matter would mean re-deriving the load to find out.
 	e.loadBroadcast()
+	// The planning cards above the card changed their standing with it —
+	// the chain it joined and the chain it left (H5) — and the server alone
+	// knows by how much, so they are announced to everyone who may read
+	// them, the originator included: it holds its own change, not the
+	// counts the tree derived from it.
+	ancestors := e.ancestorsChanged(c, verb)
 	// Built on demand: on a board whose tabs are all scoped — the ordinary
 	// case — a burst of changes must not pay for a resource nobody is sent.
 	var res apiserver.Card
 	built := false
 	scoped := false
 	for sub := range e.watchers {
-		if !sub.resources["cards"] || !sub.rights.canRead(c.Domain) {
+		if !sub.resources["cards"] {
 			continue
 		}
-		if sub.sel == nil {
-			if !mine(origin, sub.clientID) {
-				if !built {
-					res, built = apiserver.CardResource(e.board, c), true
-				}
-				sub.send(watchFrame{Type: verb, Kind: "Card", Object: res})
+		if sub.sel != nil {
+			// What a scoped subscription is told depends on whether this
+			// change moved the card INTO or OUT OF its view — a question
+			// about the whole view. Asking it here (build the view, look
+			// for one uid) is what made a carry-over cost a full board scan
+			// per card per tab; it is answered once for the burst, in
+			// flushMembers, against the view's own projection — which is
+			// where a watcher's rights over an ancestor are applied too.
+			scoped = true
+			continue
+		}
+		if sub.rights.canRead(c.Domain) && !mine(origin, sub.clientID) {
+			if !built {
+				res, built = apiserver.CardResource(e.board, c), true
 			}
-			continue
+			sub.send(watchFrame{Type: verb, Kind: "Card", Object: res})
 		}
-		// What a scoped subscription is told depends on whether this change
-		// moved the card INTO or OUT OF its view — a question about the
-		// whole view. Asking it here (build the view, look for one uid) is
-		// what made a carry-over cost a full board scan per card per tab; it
-		// is answered once for the burst, in flushMembers.
-		scoped = true
+		for _, a := range ancestors {
+			if sub.rights.canRead(a.Domain) {
+				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: apiserver.CardResource(e.board, a)})
+			}
+		}
 	}
 	if !scoped {
 		return
@@ -488,6 +508,12 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 		e.moved = map[string]string{}
 	}
 	e.moved[c.ItemID] = origin
+	// Marked as nobody's change, so no watcher's echo suppression swallows
+	// the standing the tree derived: flushMembers sends a MODIFIED for a
+	// touched member to its originator unless the change was its own.
+	for _, a := range ancestors {
+		e.moved[a.ItemID] = ""
+	}
 	if !e.membersDue {
 		e.membersDue = true
 		time.AfterFunc(e.fanoutDelay(), e.flushMembers)
@@ -1012,7 +1038,60 @@ func (b *storeBackend) installLocked(e *boardEntry, fresh board.Board) {
 	if hadOld {
 		e.diffNotify(old)
 	}
+	// After the diff, which needs to know where each card stood before.
+	e.rememberParents()
 	e.syncBroadcast()
+}
+
+// rememberParents records every card's parent off the installed board, so
+// the next change to a card can name the chain it left (cardChanged). The
+// caller holds e.mu.
+func (e *boardEntry) rememberParents() {
+	e.parentOf = make(map[string]string, len(e.board.Cards))
+	for _, c := range e.board.Cards {
+		e.parentOf[c.ItemID] = c.Parent
+	}
+}
+
+// ancestorsChanged is the planning cards whose standing a card change moved:
+// the planning ancestors of the chain the card stands under now and of the
+// chain it stood under at the last announcement, root first, each once, the
+// card itself excluded. It also records the card's parent for next time. A
+// planning card records nothing about progress (H5), so no write reaches
+// it when a task under it changes; this is how the change reaches its
+// watchers. O(depth) lookups per change, through board.Lineage. The caller
+// holds e.mu with the cache already updated.
+func (e *boardEntry) ancestorsChanged(c board.Card, verb string) []board.Card {
+	if e.parentOf == nil {
+		// A board installed without the seed (a bare test entry): from here
+		// on parents are remembered; this one change cannot name the chain
+		// it left.
+		e.rememberParents()
+	}
+	old, known := e.parentOf[c.ItemID]
+	if verb == "DELETED" {
+		delete(e.parentOf, c.ItemID)
+	} else {
+		e.parentOf[c.ItemID] = c.Parent
+	}
+	if !known {
+		old = ""
+	}
+	seen := map[string]bool{c.ItemID: true}
+	var out []board.Card
+	add := func(chain []board.Card) {
+		for _, a := range chain {
+			if board.IsPlanning(a) && !seen[a.ItemID] {
+				seen[a.ItemID] = true
+				out = append(out, a)
+			}
+		}
+	}
+	add(board.Lineage(e.board, c))
+	if old != c.Parent {
+		add(board.Lineage(e.board, board.Card{ItemID: c.ItemID, Parent: old}))
+	}
+	return out
 }
 
 // diffNotify announces everything a full reload changed against the previous
