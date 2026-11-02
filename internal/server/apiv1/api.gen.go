@@ -222,7 +222,6 @@ const (
 	NotAMonday           ProblemCode = "notAMonday"
 	NotAuthenticated     ProblemCode = "notAuthenticated"
 	NotFinished          ProblemCode = "notFinished"
-	NotInProject         ProblemCode = "notInProject"
 	NotOnThisBoard       ProblemCode = "notOnThisBoard"
 	NotYoursToDestroy    ProblemCode = "notYoursToDestroy"
 	NotYoursToPark       ProblemCode = "notYoursToPark"
@@ -245,7 +244,6 @@ const (
 	ScopeExists          ProblemCode = "scopeExists"
 	ScopeInUse           ProblemCode = "scopeInUse"
 	ScopeNotFound        ProblemCode = "scopeNotFound"
-	ScopeRequired        ProblemCode = "scopeRequired"
 	SetupRequired        ProblemCode = "setupRequired"
 	SubtaskDepth         ProblemCode = "subtaskDepth"
 	SubtaskWeek          ProblemCode = "subtaskWeek"
@@ -338,8 +336,6 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case NotFinished:
 		return true
-	case NotInProject:
-		return true
 	case NotOnThisBoard:
 		return true
 	case NotYoursToDestroy:
@@ -383,8 +379,6 @@ func (e ProblemCode) Valid() bool {
 	case ScopeInUse:
 		return true
 	case ScopeNotFound:
-		return true
-	case ScopeRequired:
 		return true
 	case SetupRequired:
 		return true
@@ -756,12 +750,6 @@ type PersonPatch struct {
 type PlaceCardBody struct {
 	// Week The Monday of the week the card is placed in.
 	Week *string `json:"week,omitempty"`
-}
-
-// PlacementBody A column, named by its SCOPE. The project half may be empty — the no-project bucket is a column like any other, and a column's repository is read off the column's own stub.
-type PlacementBody struct {
-	Project *string `json:"project,omitempty"`
-	Scope   string  `json:"scope"`
 }
 
 // PresenceBody defines model for PresenceBody.
@@ -1277,9 +1265,6 @@ type DeferCardJSONRequestBody = DeferCardBody
 // MoveCardJSONRequestBody defines body for MoveCard for application/json ContentType.
 type MoveCardJSONRequestBody = MoveCardBody
 
-// RemoveFromProjectJSONRequestBody defines body for RemoveFromProject for application/json ContentType.
-type RemoveFromProjectJSONRequestBody = PlacementBody
-
 // SendToReviewJSONRequestBody defines body for SendToReview for application/json ContentType.
 type SendToReviewJSONRequestBody = SendToReviewBody
 
@@ -1384,9 +1369,6 @@ type ServerInterface interface {
 	// MoveCard Reorder the card after (or before) another one.
 	// (POST /cards/{uid}/actions/move)
 	MoveCard(w http.ResponseWriter, r *http.Request, uid UID)
-	// RemoveFromProject The Project board's × — take the card out of its column.
-	// (POST /cards/{uid}/actions/remove-from-project)
-	RemoveFromProject(w http.ResponseWriter, r *http.Request, uid UID)
 	// RemoveReviewer Delete the linked review card.
 	// (POST /cards/{uid}/actions/remove-reviewer)
 	RemoveReviewer(w http.ResponseWriter, r *http.Request, uid UID)
@@ -1724,32 +1706,6 @@ func (siw *ServerInterfaceWrapper) MoveCard(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.MoveCard(w, r, uid)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// RemoveFromProject operation middleware
-func (siw *ServerInterfaceWrapper) RemoveFromProject(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "uid" -------------
-	var uid UID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "uid", r.PathValue("uid"), &uid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uid", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RemoveFromProject(w, r, uid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3832,7 +3788,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/in-progress", wrapper.SetInProgress)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/reopen", wrapper.ReopenCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/send-to-review", wrapper.SendToReview)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/remove-from-project", wrapper.RemoveFromProject)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/remove-reviewer", wrapper.RemoveReviewer)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cards/{uid}/links", wrapper.ListLinks)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cards/{uid}/log", wrapper.GetCardLog)
@@ -4122,40 +4077,6 @@ type MoveCarddefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response MoveCarddefaultApplicationProblemPlusJSONResponse) VisitMoveCardResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type RemoveFromProjectRequestObject struct {
-	UID  UID `json:"uid"`
-	Body *RemoveFromProjectJSONRequestBody
-}
-
-type RemoveFromProjectResponseObject interface {
-	VisitRemoveFromProjectResponse(w http.ResponseWriter) error
-}
-
-type RemoveFromProject204Response struct {
-}
-
-func (response RemoveFromProject204Response) VisitRemoveFromProjectResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type RemoveFromProjectdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response RemoveFromProjectdefaultApplicationProblemPlusJSONResponse) VisitRemoveFromProjectResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -5661,9 +5582,6 @@ type StrictServerInterface interface {
 	// MoveCard Reorder the card after (or before) another one.
 	// (POST /cards/{uid}/actions/move)
 	MoveCard(ctx context.Context, request MoveCardRequestObject) (MoveCardResponseObject, error)
-	// RemoveFromProject The Project board's × — take the card out of its column.
-	// (POST /cards/{uid}/actions/remove-from-project)
-	RemoveFromProject(ctx context.Context, request RemoveFromProjectRequestObject) (RemoveFromProjectResponseObject, error)
 	// RemoveReviewer Delete the linked review card.
 	// (POST /cards/{uid}/actions/remove-reviewer)
 	RemoveReviewer(ctx context.Context, request RemoveReviewerRequestObject) (RemoveReviewerResponseObject, error)
@@ -6021,39 +5939,6 @@ func (sh *strictHandler) MoveCard(w http.ResponseWriter, r *http.Request, uid UI
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(MoveCardResponseObject); ok {
 		if err := validResponse.VisitMoveCardResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// RemoveFromProject operation middleware
-func (sh *strictHandler) RemoveFromProject(w http.ResponseWriter, r *http.Request, uid UID) {
-	var request RemoveFromProjectRequestObject
-
-	request.UID = uid
-
-	var body RemoveFromProjectJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.RemoveFromProject(ctx, request.(RemoveFromProjectRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "RemoveFromProject")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(RemoveFromProjectResponseObject); ok {
-		if err := validResponse.VisitRemoveFromProjectResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

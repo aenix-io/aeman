@@ -713,43 +713,6 @@ func (a surface) ReopenCard(ctx context.Context, req apiv1.ReopenCardRequestObje
 	return apiv1.ReopenCard200JSONResponse(card), nil
 }
 
-// placement runs one of the three column actions. A column is named by its
-// SCOPE, and the project half may be empty everywhere: the no-project bucket is
-// a column like any other — a mirror home included, since a column's
-// repository is read off the column's own stub and not off a project
-// (G15/G59). This door used to require a project for a mirror, so a placement
-// the service, the codec, MCP and the docs all accept was a 422 here — and the
-// SPA's own picker, which offers the bucket, drove straight into it.
-func (a surface) placement(in apiv1.PlacementBody,
-	act func(svc *boardservice.Service, boardID, project, scope string) error,
-) (*boardservice.Service, string, error) {
-	if in.Scope == "" {
-		return nil, "", problem(http.StatusUnprocessableEntity, "scopeRequired",
-			"the scope is required — a column is named by its scope")
-	}
-	svc, boardID, err := a.s.serviceOf()
-	if err != nil {
-		return nil, "", err
-	}
-	if err := act(svc, boardID, strOf(in.Project), in.Scope); err != nil {
-		return nil, "", err
-	}
-	return svc, boardID, nil
-}
-
-// RemoveFromProject is the Project board's ×: take the card out of its
-// column, with the last-column rules of the service. It answers 204 rather
-// than the card, which may no longer exist.
-func (a surface) RemoveFromProject(ctx context.Context, req apiv1.RemoveFromProjectRequestObject) (apiv1.RemoveFromProjectResponseObject, error) {
-	if _, _, err := a.placement(*req.Body,
-		func(svc *boardservice.Service, boardID, project, scope string) error {
-			return svc.RemoveFromProject(ctx, boardID, req.UID, project, scope)
-		}); err != nil {
-		return nil, err
-	}
-	return apiv1.RemoveFromProject204Response{}, nil
-}
-
 // SendToReview sends a card to a reviewer. When a linked review card already
 // exists the action reassigns it instead — the SERVICE decides, so the other
 // door cannot grow a second review card on the same original; the client just

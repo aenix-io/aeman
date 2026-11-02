@@ -452,9 +452,6 @@ export interface Provider {
   ): Promise<void>;
   /** Delete a team's sprint pointer; rejects while cards still use the team. */
   deleteTeam(team: string): Promise<void>;
-  /** The Project board's ×: take the card out of its column (a worked card
-   *  survives as an orphan of the working area; the rest is deleted). */
-  removeFromProject(uid: string, project: string, scope: string): Promise<void>;
   /** Set a team's sprint pointer directly (current/previous start dates). With
    *  both empty this declares the team; `domain` picks the repository its
    *  roster entry is written to (default: the primary). */

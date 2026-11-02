@@ -620,31 +620,6 @@ paths:
                 $ref: '#/components/schemas/Card'
         default:
           $ref: '#/components/responses/Problem'
-  /cards/{uid}/actions/remove-from-project:
-    post:
-      operationId: removeFromProject
-      tags: [Cards]
-      summary: The Project board's × — take the card out of its column.
-      description: >-
-        The WEEK that was the slot's row goes with it; a worked card (assignee
-        and progress) stays as an orphan of the working area, and the rest is
-        deleted, cascading the linked review card. A SUBTASK is
-        never deleted here — its other home is its parent, so the × only takes
-        the column away. It answers 204 rather than the card, which may no
-        longer exist.
-      parameters:
-        - $ref: '#/components/parameters/Uid'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PlacementBody'
-      responses:
-        '204':
-          description: The card is out of that column.
-        default:
-          $ref: '#/components/responses/Problem'
   /cards/{uid}/actions/remove-reviewer:
     post:
       operationId: removeReviewer
@@ -1457,7 +1432,6 @@ components:
             - scopeExists
             - scopeInUse
             - scopeNotFound
-            - scopeRequired
             - forbidden
             - gestureNotOffered
             - historyTruncated
@@ -1476,7 +1450,6 @@ components:
             - notAMonday
             - notAuthenticated
             - notFinished
-            - notInProject
             - notOnThisBoard
             - notYoursToDestroy
             - notYoursToPark
@@ -2539,18 +2512,6 @@ components:
           description: >-
             Where the review card stands; empty is the unplanned band, which is
             where the asking belongs.
-    PlacementBody:
-      type: object
-      description: >-
-        A column, named by its SCOPE. The project half may be empty — the
-        no-project bucket is a column like any other, and a column's repository
-        is read off the column's own stub.
-      required: [scope]
-      properties:
-        project:
-          type: string
-        scope:
-          type: string
     NoteBody:
       type: object
       properties:

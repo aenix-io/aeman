@@ -365,7 +365,7 @@ type updateCardInput struct {
 	Start       *string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd: the card joins the sprint active on that day. A FUTURE day parks it off the board until that day arrives (this is how you schedule work ahead, and how the +1 day / +1 week buttons work). Sprints are daily and created as they start, so no sprint covers a future day yet: the card is left with NO sprint while it waits and the carry-over that reaches its day adopts it — expected, not a mis-scheduled card, and setting sprint by hand would only drag it back onto today's board. Empty clears the dates"`
 	End         *string `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; empty clears it"`
 	Sprint      *string `json:"sprint,omitempty" jsonschema:"sprint start day the card belongs to; empty clears it"`
-	Scope       *string `json:"scope,omitempty" jsonschema:"Project-board column to file the card under; empty clears it. MUST be an EXISTING column from get_board metadata.scopes — and columns are identified by the (project, scope) pair, so pass project too unless the card is already in the right project. A card that carries a team, an assignee or a TASK parent cannot be filed into a column (a project card has none — a planning parent is fine): clear them first. A goal, an initiative or an epic is never filed into a column"`
+	Scope       *string `json:"scope,omitempty" jsonschema:"Project-board column to file the card under. A project card lives and dies in its column: an empty scope on one is refused (delete_card instead), another column is a move. MUST be an EXISTING column from get_board metadata.scopes — and columns are identified by the (project, scope) pair, so pass project too unless the card is already in the right project. A card that carries a team, an assignee or a TASK parent cannot be filed into a column (a project card has none — a planning parent is fine): clear them first. A goal, an initiative or an epic is never filed into a column"`
 	Project     *string `json:"project,omitempty" jsonschema:"the project half of the card's column (see scope). Scope names repeat across projects, so filing a card into another project's column needs both"`
 	Week        *string `json:"week,omitempty" jsonschema:"the week the card is scheduled for, its Monday as yyyy-mm-dd; empty takes it off the Triage board's weeks. A Project-board slot (a card with an scope) refuses it — its week IS its start date's week, so move the dates instead and the row follows"`
 	Parked      *bool   `json:"parked,omitempty" jsonschema:"put the card on its TEAM's backlog, or take it off with false. Every team has a backlog and nothing declares it. It is the third place a card can be: not a week and not the triage strip, but work somebody has read and put aside — 'not now'. Parking clears the week, the person, the sprint and the dates, takes the card's subtasks off the board with it and withdraws any review of it; giving a parked card a week takes it off the shelf. A Project-board slot is refused: its week is another board's to say. A REVIEW card and a SUBTASK are refused too — neither has a place of its own to be parked out of, one follows the card it reviews and the other stands inside its parent, so the shelf would take it out of the only place it is drawn"`
@@ -740,25 +740,6 @@ func (h *server) removeCard(ctx context.Context, _ *mcp.CallToolRequest, in remo
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "removed", UID: in.UID}, nil
-}
-
-// columnInput names a Project-board column — the (project, scope) pair,
-// since scope names repeat across projects.
-type columnInput struct {
-	cardRef
-	Project string `json:"project" jsonschema:"the project half of the column"`
-	Scope   string `json:"scope" jsonschema:"the scope half of the column"`
-}
-
-func (h *server) removeFromProject(ctx context.Context, _ *mcp.CallToolRequest, in columnInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.RemoveFromProject(ctx, boardID, in.UID, in.Project, in.Scope); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "removed from project", UID: in.UID}, nil
 }
 
 // --- Card actions --------------------------------------------------------------

@@ -133,7 +133,6 @@ func TestMCPListsTools(t *testing.T) {
 		"add_project", "delete_project", "reorder_projects", "rename_project", "rename_team",
 		"add_deadline", "delete_deadline", "move_deadline",
 		"reopen_card",
-		"remove_from_project",
 		"set_capacity", "set_team_capacity",
 		// The gestures and reads the boards have and the tool set did not.
 		"place_card", "untriage_card", "finished_earlier", "list_sprints",

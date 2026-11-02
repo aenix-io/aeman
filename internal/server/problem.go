@@ -139,7 +139,6 @@ var sentinels = []struct {
 	{boardservice.ErrEndBeforeStart, http.StatusUnprocessableEntity, "endBeforeStart"},
 	{boardservice.ErrDomainConflict, http.StatusUnprocessableEntity, "domainConflict"},
 	{boardservice.ErrCrossDomain, http.StatusUnprocessableEntity, "crossDomain"},
-	{boardservice.ErrNotInProject, http.StatusUnprocessableEntity, "notInProject"},
 }
 
 // problemFor answers a service error. One the table does not name is not a

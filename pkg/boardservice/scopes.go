@@ -175,6 +175,13 @@ func (s *Service) SetScope(ctx context.Context, boardID string, itemID, scope st
 			return err
 		}
 	}
+	// A project card lives and dies in its column (H4): taking the column
+	// AWAY would leave a card with no team, no owner, no band, no plan and
+	// no column — on no board anyone can open — so it is refused, and the
+	// person deletes the card instead. Another column is a move, and free.
+	if scope == "" && card.Scope != "" {
+		return fmt.Errorf("%w: %q stands in its column — delete it instead of taking the column away", ErrProjectCard, card.Title)
+	}
 	projectName := card.Project
 	if inProject != nil {
 		projectName = *inProject
@@ -299,59 +306,5 @@ func scopeNameFree(b board.Board, project, name, except string) error {
 			return fmt.Errorf("%w in %q: %q", ErrScopeExists, project, e.Name)
 		}
 	}
-	return nil
-}
-
-// ErrNotInProject is removing a card from a column it does not stand in.
-var ErrNotInProject = errors.New("the card does not stand in that column")
-
-// RemoveFromProject is the Project board's ×: it takes the card out of its
-// column. A project card has no other home — no team, no owner, no parent
-// (H4) — so an untouched one is deleted outright, and one somebody has MOVED
-// (its progress says so) is kept as a dated card of the no-team group, where
-// a lead can give it a team and a person. The UI asks first when work would
-// go (deleteWarning).
-func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID, project, scope string) error {
-	// A column is named by its SCOPE — an empty scope is no column: without
-	// this, a card standing in no column "matched" ("", "") and fell
-	// through to the deletion branch, deleted outright by the very call
-	// that asked to remove it from nowhere. The PROJECT half may be empty:
-	// the no-project bucket is a real column with a working ×, and a card
-	// outside every column has an empty scope, so ("", scope) on it honestly
-	// mismatches below. This package is a public contract and the MCP tool
-	// feeds it directly, so the guard lives here.
-	if scope == "" {
-		return fmt.Errorf("%w: a column is named by its scope — the scope half is required", ErrNotInProject)
-	}
-	b, c, err := s.loadCard(ctx, boardID, itemID)
-	if err != nil {
-		return err
-	}
-	if c.Project != project || c.Scope != scope {
-		return fmt.Errorf("%w: %q / %q", ErrNotInProject, project, scope)
-	}
-	// Progress is the one trace of work a project card can carry: it has no
-	// owner to have had it (H4). Untouched, the whole card goes — a deletion
-	// moves nothing, and clearing its column first would be a dead write into
-	// the very commit that removes the file.
-	if c.Progress == 0 {
-		return s.deleteWithCascade(ctx, b, c)
-	}
-	// ORPHANING clears the pair; for a teamless card that is a repository
-	// move to the primary, which the backend makes as any other.
-	// A stale week from before schema 2 goes with it: it was the slot's row,
-	// not a placement anyone made for the card itself.
-	if c.Week != "" {
-		if err := s.backend.SetWeek(ctx, b, c, ""); err != nil {
-			return err
-		}
-	}
-	if err := s.backend.SetScope(ctx, b, c, ""); err != nil {
-		return err
-	}
-	if err := s.backend.SetProject(ctx, b, c, ""); err != nil {
-		return err
-	}
-	s.logEvent(ctx, b, c, board.EventScope, project+" / "+scope, "")
 	return nil
 }

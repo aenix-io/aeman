@@ -569,13 +569,6 @@ export const apiProvider: Provider = {
     await client.POST("/sprints/actions/delete-team", { body: { team } });
   },
 
-  async removeFromProject(uid: string, project: string, scope: string): Promise<void> {
-    await client.POST("/cards/{uid}/actions/remove-from-project", {
-      params: { path: { uid } },
-      body: { project, scope },
-    });
-  },
-
   async addScope(
     name: string,
     project: string,

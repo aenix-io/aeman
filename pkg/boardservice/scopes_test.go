@@ -104,14 +104,16 @@ func TestSetScopeProject(t *testing.T) {
 	}
 }
 
-// Deleting an scope with cards is protected; an empty one removes its state card.
+// Deleting a scope with cards is protected; an empty one removes its state
+// card. A project card leaves its column only by being deleted (H4), so that
+// is how the column is emptied here.
 func TestDeleteScope(t *testing.T) {
 	fake := scopeBoard()
 	svc := New(fake)
 	if err := svc.DeleteScope(context.Background(), "acme", "Infra", "Cozystack"); !errors.Is(err, ErrScopeInUse) {
 		t.Fatalf("an scope with cards must be protected, got %v", err)
 	}
-	if err := svc.SetScope(context.Background(), "acme", "c1", "", nil); err != nil {
+	if err := svc.DeleteCard(context.Background(), "acme", "c1"); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.DeleteScope(context.Background(), "acme", "Infra", "Cozystack"); err != nil {
