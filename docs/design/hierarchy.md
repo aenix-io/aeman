@@ -228,7 +228,11 @@ G18), in this order:
 5. strip `team`, `assignees`, `parent`, `zone`, `size`, `sprint` and `week`
    from every card that has a `scope` (the door that files a card into a
    column clears the sprint and the week as well, and a sprint on a card no
-   day board draws is one a carry-over would move for nothing), and
+   day board draws is one a carry-over would move for nothing) — a card
+   whose `week` was its only date takes that week as its dates first,
+   Monday to Friday, the conversion the filing door makes
+   (`board.WeekAsDates`; a card the Project board draws by its dates would
+   otherwise have no row on any board; dates the card has win) — and
    `parent` from every card grouped under one
    (decision taken
    2026-11-02: a card in a column was created as a plan and stays one; a

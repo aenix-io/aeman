@@ -238,16 +238,15 @@ func (s *Service) SetScope(ctx context.Context, boardID string, itemID, scope st
 	// all; and the WEEK and the SPRINT go, because neither the weekly plan
 	// nor a team's day board draws a project card (H4).
 	card.Scope = scope
-	if card.StartDate == "" && card.Week != "" {
-		end := board.AddDays(card.Week, 4) // through its Friday
-		if err := s.backend.SetStart(ctx, b, card, card.Week); err != nil {
+	if start, end, ok := board.WeekAsDates(card); ok {
+		if err := s.backend.SetStart(ctx, b, card, start); err != nil {
 			return err
 		}
 		if err := s.backend.SetDay(ctx, b, card, end); err != nil {
 			return err
 		}
-		s.logEvent(ctx, b, card, board.EventDates, "", board.DateRange(card.Week, end))
-		card.StartDate = card.Week
+		s.logEvent(ctx, b, card, board.EventDates, "", board.DateRange(start, end))
+		card.StartDate = start
 	}
 	if card.Week != "" {
 		if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {

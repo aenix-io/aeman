@@ -260,6 +260,36 @@ func TestACardInAColumnOrOfALevelReadsWithNoZoneOrSize(t *testing.T) {
 	}
 }
 
+// A card in a column is DRAWN by its dates — they are its row on the Project
+// board — and the week is read off it (above). A card that had a week and no
+// dates (a slot of the weekly plan, filed before the week→dates conversion
+// existed) would then have no row at all: on no board, and nothing to bring
+// it back. So the week it was owed in BECOMES its dates, Monday to Friday,
+// before it is dropped — the same conversion the door that files a card into
+// a column makes (WeekAsDates). Dates it already has win; a task keeps its
+// week; a planning card never had one to convert.
+func TestAWeekOnlyProjectCardReadsAsItsWeeksDates(t *testing.T) {
+	t.Parallel()
+	b := NewBoard([]Card{
+		{ItemID: "slot", Scope: "Infra", Project: "P", Week: "2026-10-05"},
+		{ItemID: "dated", Scope: "Infra", Project: "P", StartDate: "2026-10-01", Day: "2026-10-03", Week: "2026-10-05"},
+		{ItemID: "task", Team: "t", Week: "2026-10-05"},
+		{ItemID: "epic", Type: TypeEpic, Week: "2026-10-05"},
+	})
+	if c, _ := Find(b, "slot"); c.StartDate != "2026-10-05" || c.Day != "2026-10-09" || c.Week != "" {
+		t.Errorf("a week-only column card reads as start %q day %q week %q, want its week's Monday..Friday and no week", c.StartDate, c.Day, c.Week)
+	}
+	if c, _ := Find(b, "dated"); c.StartDate != "2026-10-01" || c.Day != "2026-10-03" || c.Week != "" {
+		t.Errorf("a column card's own dates win over its week, got start %q day %q week %q", c.StartDate, c.Day, c.Week)
+	}
+	if c, _ := Find(b, "task"); c.Week != "2026-10-05" || c.StartDate != "" {
+		t.Errorf("a task keeps its week and gets no dates, got %+v", c)
+	}
+	if c, _ := Find(b, "epic"); c.StartDate != "" || c.Day != "" || c.Week != "" {
+		t.Errorf("a planning card's stray week is dropped and no dates invented, got %+v", c)
+	}
+}
+
 // A planning card is nobody's and no team's: the people and the teams are
 // on the tasks under it. A file that names an owner or a team on a goal — a
 // repository written before the rule, a direct writer — is read without

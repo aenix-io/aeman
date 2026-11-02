@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing/object"
+
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // The schema is a contract between server and repository (G18). A
@@ -238,7 +240,13 @@ func schema2(tree *object.Tree) ([]FileWrite, error) {
 			cf.Card.Zone, cf.Card.Size = "", ""
 			// And no sprint, no week: the runtime door that files a card into
 			// a column clears both, and a sprint on a card no day board draws
-			// is one a carry-over would move for nothing.
+			// is one a carry-over would move for nothing. A card whose week
+			// was its only date takes that week as its dates first — the
+			// Project board draws a card by its dates, and without them it
+			// would stand on no board at all.
+			if start, day, ok := board.WeekAsDates(cf.Card); ok {
+				cf.Card.StartDate, cf.Card.Day = start, day
+			}
 			cf.Card.SprintStart, cf.Card.Week = "", ""
 		case inColumn[cf.Card.Parent]:
 			cf.Card.Parent = ""

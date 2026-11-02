@@ -160,6 +160,36 @@ func TestFinalTreeEqualsSnapshot(t *testing.T) {
 	}
 }
 
+// A column entry whose only date was its WEEK (a slot of the weekly plan)
+// comes in with that week's dates, Monday to Friday — the Project board draws
+// a card by its dates, and a project card has no week (H4), so without them
+// the card would stand on no board at all.
+func TestAWeekOnlyColumnEntryComesInWithItsWeeksDates(t *testing.T) {
+	src := boardservicetest.New([]board.Card{
+		{ItemID: "PVTI_proj", Title: board.ProjectStateTitle, Project: "portal", CreatedAt: "2026-06-01T08:00:00Z"},
+		{ItemID: "PVTI_scope", Title: board.ScopeStateTitle, Scope: "Bugs", Project: "portal", CreatedAt: "2026-06-02T08:00:00Z"},
+		{ItemID: "PVTI_slot", Title: "a slot of the week", Scope: "Bugs", Project: "portal", Week: "2026-09-07", CreatedAt: "2026-08-24T09:00:00Z"},
+	}, map[string]board.SprintState{"": {ItemID: "PVTI_noteam"}})
+	remote := newRemote(t, "")
+	if _, err := Run(context.Background(), fakeSource{src}, memory.NewStorage(), remote, base); err != nil {
+		t.Fatal(err)
+	}
+	s, err := gitstore.Load(clone(t, remote))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range s.Cards {
+		if c.Title != "a slot of the week" {
+			continue
+		}
+		if c.StartDate != "2026-09-07" || c.Day != "2026-09-11" || c.Week != "" {
+			t.Fatalf("a week-only column entry came in as start %q day %q week %q, want its week's Monday..Friday", c.StartDate, c.Day, c.Week)
+		}
+		return
+	}
+	t.Fatal("the column entry was not imported")
+}
+
 // The event log becomes history: one commit per event, dated and authored
 // from it, plus the import and the reconcile; the review's reviewer rides an
 // Aeman-Change trailer.

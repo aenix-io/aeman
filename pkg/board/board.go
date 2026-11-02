@@ -414,6 +414,14 @@ func NewBoardIn(primary string, cards []Card) Board {
 	// left on one (a team had picked the card up before the rule) is a
 	// sprint a carry-over would move for nothing and nothing else reads.
 	for i := range b.Cards {
+		// A column card whose week was its only date takes that week as its
+		// dates before the week goes, or it would have no row on the Project
+		// board and stand on no board at all.
+		if b.Cards[i].Scope != "" {
+			if start, day, ok := WeekAsDates(b.Cards[i]); ok {
+				b.Cards[i].StartDate, b.Cards[i].Day = start, day
+			}
+		}
 		if b.Cards[i].Scope != "" || IsPlanning(b.Cards[i]) {
 			b.Cards[i].Zone, b.Cards[i].Size = ZoneNone, ""
 			b.Cards[i].SprintStart, b.Cards[i].Week = "", ""
@@ -440,6 +448,20 @@ func olderSprintState(a, b Card) bool {
 		return a.CreatedAt < b.CreatedAt
 	}
 	return a.ItemID < b.ItemID
+}
+
+// WeekAsDates is the row a card filed into a column takes when its WEEK was
+// its only date: Monday to Friday of that week, the whole of the week it was
+// owed in. The Project board draws a card by its dates and a project card has
+// no week (H4), so the week becomes the dates rather than being lost. Dates
+// the card already has win (ok is false). One rule for every place that
+// makes a project card out of a card with a week: the door that files one
+// into a column, the reading of a file, the schema-2 bump, the importer.
+func WeekAsDates(c Card) (start, day string, ok bool) {
+	if c.Week == "" || c.StartDate != "" {
+		return "", "", false
+	}
+	return c.Week, AddDays(c.Week, 4), true
 }
 
 // ScopesOf lists a project's scope columns in board order. A column whose

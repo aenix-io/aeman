@@ -426,6 +426,13 @@ func (m *mapper) convert() {
 		case c.Scope != "":
 			c.Team, c.Assignees, c.Parent = "", nil, ""
 			c.Zone, c.Size = board.ZoneNone, ""
+			// No week and no sprint either, and a week that was the entry's
+			// only date becomes its dates (board.WeekAsDates), or the card
+			// would stand on no board at all.
+			if start, day, ok := board.WeekAsDates(c); ok {
+				c.StartDate, c.Day = start, day
+			}
+			c.SprintStart, c.Week = "", ""
 		case scoped[src.Parent]:
 			c.Parent = ""
 		}

@@ -271,3 +271,44 @@ func TestMigrateSchema2TakesAProjectCardOutOfEverybodysHands(t *testing.T) {
 		t.Fatalf("second run: migrated=%v err=%v head moved %v", again, err, r.Head() != c.Hash)
 	}
 }
+
+// Step 5 takes the WEEK off a card in a column — and a card whose week was
+// its only date (a slot of the weekly plan, from before the week→dates
+// conversion) would then have no row on the Project board: in no column a
+// person can see, on no day board, on no list. So the week becomes the card's
+// dates first, Monday to Friday, the conversion SetScope makes at runtime;
+// dates the card already has win. The bump stays idempotent.
+func TestMigrateSchema2GivesAWeekOnlyColumnCardItsWeeksDates(t *testing.T) {
+	const slotID, datedID = "01JB4K2E7QZMX3R8V0N5T9WYD1", "01JB4K2E7QZMX3R8V0N5T9WYD2"
+	slot := "---\ntitle: a slot of the week\nweek: 2026-10-05\nproject: engineering\nepic: Cozystack\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n"
+	dated := "---\ntitle: a dated slot\nstart: 2026-10-01\nday: 2026-10-03\nweek: 2026-10-05\nproject: engineering\nepic: Cozystack\nrank: b\ncreated: 2026-08-26T09:15:03Z\n---\n"
+	r := repoWith(t, map[string]string{
+		BoardPath:                                "schema: 1\ntitle: b\n",
+		ProjectPath("01JB4PROJ"):                 "name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		"projects/01JB4PROJ/epics/01JB4COL.yaml": "name: Cozystack\nrank: a\ncreated: 2026-06-04T08:00:00Z\n",
+		"cards/d/1/" + slotID + ".md":            slot,
+		"cards/d/2/" + datedID + ".md":           dated,
+	})
+	if migrated, err := MigrateSchema(r); err != nil || !migrated {
+		t.Fatalf("migrated=%v err=%v, want a migration", migrated, err)
+	}
+	head := r.Head()
+	data, _ := r.ReadFile("cards/d/1/" + slotID + ".md")
+	got := string(data)
+	for _, want := range []string{"start: 2026-10-05", "day: 2026-10-09", "scope: Cozystack"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("a week-only column card lost its row, %q missing:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "week:") {
+		t.Fatalf("the week survived the bump:\n%s", got)
+	}
+	data, _ = r.ReadFile("cards/d/2/" + datedID + ".md")
+	got = string(data)
+	if !strings.Contains(got, "start: 2026-10-01") || !strings.Contains(got, "day: 2026-10-03") || strings.Contains(got, "week:") {
+		t.Fatalf("a column card's own dates win over its week:\n%s", got)
+	}
+	if again, err := MigrateSchema(r); err != nil || again || r.Head() != head {
+		t.Fatalf("second run: migrated=%v err=%v head moved %v", again, err, r.Head() != head)
+	}
+}
