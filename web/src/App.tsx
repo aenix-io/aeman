@@ -26,7 +26,14 @@ import { unpushedNotice, type HealthStatus } from "./health";
 import { migrateBoardScopedKeys } from "./storage";
 import { pruneTeamFilter, settlePendingTeams, teamRoster } from "./teams";
 import { forgetMade, justMade } from "./justmade";
-import { queryString, snapshotDay, viewPath, viewQueries, watchQueries } from "./viewquery";
+import {
+  queryString,
+  snapshotDay,
+  viewPath,
+  viewQueries,
+  watchQueries,
+  type ViewMode,
+} from "./viewquery";
 import { frozenProvider } from "./providers/frozen";
 import { todayIso, setBoardTimezone } from "./date";
 import { doneAtAfter } from "./stages";
@@ -48,8 +55,6 @@ const waitingAfterMs = 300;
 // is said, because a banner explaining a thing that already happened is
 // noise.
 
-type ViewMode = "me" | "team" | "triage" | "project";
-
 const LS_VIEW = "aeman.view";
 const LS_TEAM_FILTER = "aeman.teamFilter";
 const LS_VIEW_AS = "aeman.viewAs";
@@ -66,6 +71,9 @@ function readView(): ViewMode {
   }
   if (raw === "triage") {
     return "triage";
+  }
+  if (raw === "roadmap") {
+    return "roadmap";
   }
   return "me";
 }
@@ -1463,6 +1471,15 @@ export function App() {
             onClick={() => setView("triage")}
           >
             Triage
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "roadmap"}
+            className={`segment${view === "roadmap" ? " segment-active" : ""}`}
+            onClick={() => setView("roadmap")}
+          >
+            Roadmap
           </button>
           <button
             type="button"

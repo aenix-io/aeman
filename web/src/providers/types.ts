@@ -169,8 +169,13 @@ export interface NewCardInput {
   team?: string | null;
   /** On a review card, the itemId of the original card it reviews. */
   reviewOf?: string | null;
-  /** Group the new card as a subtask of this card on create. */
+  /** The card to sit under on create: a task to be a subtask of, or a
+   *  planning card to be filed under (the level rule, H2). */
   parent?: string | null;
+  /** A PLANNING card's level — a goal, an initiative or an epic. Set, the
+   *  create is the Roadmap's (views.ts createView) whatever board is open;
+   *  absent, a task. Fixed for the card's life. */
+  type?: CardType | null;
   /** Force the team's sprint pointer to (re)start on the card's day. */
   startNewSprint?: boolean;
   /** Schedule the card for its day without joining any sprint (a "next

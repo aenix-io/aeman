@@ -373,6 +373,9 @@ export const apiProvider: Provider = {
       // A parent may still be an optimistic tmp id: wait for the real uid.
       parent: input.parent ? await resolveCardId(input.parent) : "",
     };
+    if (input.type) {
+      body.type = input.type; // a planning card: the Roadmap's create
+    }
     // A card scheduled for a WEEK carries no dates; a day card passes its
     // start/end and the server joins (or records) the sprint itself.
     if (input.start || input.day) {
