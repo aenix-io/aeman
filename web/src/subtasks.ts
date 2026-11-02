@@ -1,3 +1,33 @@
+import type { Card } from "./providers/types";
+
+/** isPlanning reports a goal, an initiative or an epic — a card the Roadmap
+ *  draws and no day board does. Mirrors board.IsPlanning. */
+export function isPlanning(c: Pick<Card, "type">): boolean {
+  return !!c.type;
+}
+
+/** isSubtask reports a task whose parent is a TASK — the one kind of card
+ *  that rides another: hidden from the boards, drawn under its parent. A
+ *  task under an epic has a parent too and is NOT one (hierarchy.md, H1).
+ *
+ *  The parent's kind is read off the card's lineage, whose last entry is the
+ *  parent, because the day boards never deliver a planning card to look it
+ *  up by. No lineage at all — a card made optimistically a moment ago, or a
+ *  parent that is not on the board — reads as a subtask, which is what every
+ *  card with a parent read as before, and what the server reads a dangling
+ *  parent as (board.IsSubtask). */
+export function isSubtask(c: Pick<Card, "parent" | "lineage">): boolean {
+  if (!c.parent) {
+    return false;
+  }
+  const up = c.lineage;
+  if (!up || up.length === 0) {
+    return true;
+  }
+  const parent = up[up.length - 1];
+  return parent.uid !== c.parent || !parent.type;
+}
+
 /** The slice of a card the subtask-visibility rule reads. */
 export interface SubtaskLike {
   team?: string;

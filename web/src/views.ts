@@ -12,6 +12,7 @@ export type ViewName =
   | "team"
   | "triage"
   | "backlog"
+  | "roadmap"
   | "project"
   | "all";
 
@@ -34,7 +35,13 @@ export function createView(input: {
   scope?: string | null;
   start?: string | null;
   day?: string | null;
+  type?: string | null;
 }, standing?: ViewName): ViewName {
+  // A TYPE is the Roadmap's whole gesture: a goal, an initiative or an epic
+  // is a planning card, and no other board makes one (H7).
+  if (input.type) {
+    return "roadmap";
+  }
   if (input.scope) {
     return "project";
   }

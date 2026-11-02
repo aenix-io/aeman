@@ -11,6 +11,7 @@ import {
   isInProgress,
 } from "../stages";
 import { snapProgress } from "../progress";
+import { isPlanning, isSubtask } from "../subtasks";
 import { teamColor, teamInitial } from "../avatar";
 import { hasOriginToShow, markOf, type CardPlacements } from "../placements";
 import { PlacementMenu } from "./PlacementMenu";
@@ -657,7 +658,7 @@ export function Card({
             ×
           </button>
         )}
-        {onAddSubtask && !card.parent && (
+        {onAddSubtask && !isSubtask(card) && !isPlanning(card) && (
           <button
             type="button"
             className="card-action card-hoveronly card-subs-add"

@@ -7,7 +7,8 @@
 // The rule they exist for: a person's answer to work they will not do is the
 // REFUSED stage, not the ×. Refusing leaves the card where the lead can see
 // it and decide; removing it takes the decision away from them.
-import type { ZoneKey } from "./providers/types";
+import type { LineageRef, ZoneKey } from "./providers/types";
+import { isSubtask } from "./subtasks";
 
 /** ADD_ZONE is the only zone the Me board takes a new card in. Something that
  *  came up today is unplanned by definition; the other three zones are the
@@ -49,11 +50,13 @@ export function acceptsNewCard(zone: ZoneKey): boolean {
  *  (boardservice.removingFromOnesOwnBoard, `view=me`): it lived here and
  *  nowhere else, so every other caller got the wide × of the team's grid. */
 export function mayRemove(
-  c: { author?: string; parent?: string; zone?: ZoneKey },
+  c: { author?: string; parent?: string; lineage?: LineageRef[]; zone?: ZoneKey },
   me: string | undefined,
   viewingAs = false,
 ): boolean {
-  if (c.parent) {
+  // A subtask is exempt — a piece of the card it hangs under. A task under
+  // an epic is not a subtask and is judged like any card of the person's.
+  if (isSubtask(c)) {
     return true;
   }
   if (viewingAs) {

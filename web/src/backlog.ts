@@ -14,6 +14,7 @@
 // Mirrors pkg/board/backlog.go and the rules boardservice.SetBacklog enforces.
 
 import type { Card, ZoneKey } from "./providers/types";
+import { isPlanning, isSubtask } from "./subtasks";
 
 /** parked reports whether the card is on its team's shelf. */
 export function parked(c: Pick<Card, "parked">): boolean {
@@ -34,8 +35,10 @@ export function parked(c: Pick<Card, "parked">): boolean {
  *  (removal.ts) while the drawer went on accepting the drop, which made the
  *  same card parkable or not depending on which gesture was used;
  *  ErrNoPlaceOfItsOwn is the server's side of it. */
-export function parkable(c: Pick<Card, "scope" | "reviewOf" | "parent">): boolean {
-  return !c.scope && !c.reviewOf && !c.parent;
+export function parkable(c: Pick<Card, "scope" | "reviewOf" | "parent" | "lineage" | "type">): boolean {
+  // A planning card has no shelf (H3); a task under an epic has a place of
+  // its own and may be parked like any task (H1).
+  return !c.scope && !c.reviewOf && !isSubtask(c) && !isPlanning(c);
 }
 
 /** ShelfDrop is what a drop on a team's shelf writes.

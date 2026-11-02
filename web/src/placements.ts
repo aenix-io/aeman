@@ -6,6 +6,7 @@
 import { addDays } from "./date";
 import { parkable } from "./backlog";
 import { inPrimary, primaryDomain, rosterDomain, type DomainInfo, type RosterDomains } from "./domains";
+import { isPlanning, isSubtask } from "./subtasks";
 import type { Card, CardPatch, ScopeRef } from "./providers/types";
 
 /** ProjectTargets is one project the picker offers, with its columns. */
@@ -147,9 +148,18 @@ export function removeFromProjectOutcome(
  *  (ErrProjectCard) — so the picker offers it nothing, rather than a column
  *  that comes back as 422. Mirrors boardservice.projectCardCannotCarry. */
 export function canBeFiledIntoAColumn(
-  card: Pick<Card, "team" | "assignees" | "parent" | "reviewOf">,
+  card: Pick<Card, "team" | "assignees" | "parent" | "lineage" | "type" | "reviewOf">,
 ): boolean {
-  return !card.team && (card.assignees?.length ?? 0) === 0 && !card.parent && !card.reviewOf;
+  // A TASK parent makes it a subtask and bars the column; a planning parent
+  // is the hierarchy's link and is fine. A planning card itself is never
+  // filed into a column (hierarchy.md).
+  return (
+    !card.team &&
+    (card.assignees?.length ?? 0) === 0 &&
+    !isSubtask(card) &&
+    !isPlanning(card) &&
+    !card.reviewOf
+  );
 }
 
 /** CardPlacements is everything the assign menu needs to attach one card —

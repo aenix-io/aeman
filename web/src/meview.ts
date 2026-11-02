@@ -7,6 +7,7 @@ import { mondayOf } from "./date";
 import { parked } from "./backlog";
 import { activeSprint } from "./sprint";
 import { isComplete } from "./stages";
+import { isPlanning, isSubtask } from "./subtasks";
 import type { Board, Card } from "./providers/types";
 
 /** onMyDay reports whether a card of the viewer's is on their board on a day.
@@ -28,8 +29,13 @@ export function onMyDay(
   day: string,
   today: string,
 ): boolean {
-  // Subtasks render nested under their parent, never as zone rows.
-  if (c.parent) {
+  // A planning card is the Roadmap's, not a person's day (H3).
+  if (isPlanning(c)) {
+    return false;
+  }
+  // Subtasks render nested under their parent, never as zone rows. A task
+  // under an epic is not one (H1). Mirrors board.MeView.
+  if (isSubtask(c)) {
     return false;
   }
   // A card in a Scope column is a PROJECT CARD and is drawn on the Project

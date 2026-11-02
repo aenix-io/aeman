@@ -1,3 +1,5 @@
+import type { LineageRef } from "./providers/types";
+import { isSubtask } from "./subtasks";
 
 export interface RemovableCard {
   sprintStart?: string;
@@ -7,8 +9,11 @@ export interface RemovableCard {
    *  means the card belongs to one. */
   scope?: string;
   project?: string;
-  /** A subtask rides its parent: it has no history of its own. */
+  /** The card this one sits under. Under a TASK it is a subtask and rides
+   *  its parent, with no history of its own; under a planning card it is a
+   *  task like any other (subtasks.ts isSubtask reads the lineage). */
   parent?: string;
+  lineage?: LineageRef[];
 }
 
 export interface RemovalContext {
@@ -116,7 +121,7 @@ export type Outcome = "leave" | "delete" | "ungroup";
  *  function so every board asks the same question — the Me board used to
  *  answer it differently and hard-deleted what the Team board kept. */
 export function gridRemoval(
-  c: RemovalHomes & Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent">,
+  c: RemovalHomes & Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent" | "lineage">,
   _ctx: RemovalContext,
 ): Outcome {
   // A subtask has no sprint history of its own: it rides its parent, and
@@ -124,8 +129,10 @@ export function gridRemoval(
   // what syncChildrenSprint exists to prevent. The × deletes it, and it is
   // gone from under its parent at once. (It used to be released into a
   // column it carried; a subtask carries none now — a card in a column is
-  // nobody's subtask, H4.)
-  if (c.parent) {
+  // nobody's subtask, H4.) A task under an epic is not a subtask: the × on
+  // it is the grid's ordinary ×, and the hierarchy is not where it is being
+  // taken off (H1).
+  if (isSubtask(c)) {
     return "delete";
   }
   // A card with a WEEK still has the Triage board to be on: taking it off
@@ -217,13 +224,13 @@ export type RemoveChoice =
  *  a person clears the prompt by saying where the work belongs. */
 export function removeChoices(
   c: RemovalHomes &
-    Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent"> & {
+    Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent" | "lineage"> & {
       parked?: boolean;
       reviewOf?: string;
     },
   ctx: RemovalContext,
 ): RemoveChoice[] {
-  if (c.parent) {
+  if (isSubtask(c)) {
     return gridRemoval(c, ctx) === "ungroup" ? ["ungroup"] : ["off-board"];
   }
   const shelve: RemoveChoice[] =

@@ -6,6 +6,7 @@
 import { activeOnDay, mondayOf } from "./date";
 import { parked } from "./backlog";
 import { deferredPast, finishedOn, isComplete } from "./stages";
+import { isPlanning, isSubtask } from "./subtasks";
 import type { Card } from "./providers/types";
 
 /** inHandOn reports whether a card is in hand on a day: what the person is
@@ -28,7 +29,10 @@ export function inHandOn(
   today: string,
   currentSprint = "",
 ): boolean {
-  if (c.parent || parked(c)) {
+  // The day boards draw TASKS: a goal, an initiative or an epic is the
+  // Roadmap's (H3), and a subtask rides its parent. A task under an epic is
+  // neither — it stands here like any task (H1). Mirrors board.TeamGrid.
+  if (isPlanning(c) || isSubtask(c) || parked(c)) {
     return false;
   }
   // A card in a Scope column is a PROJECT CARD: the Project board's plan,

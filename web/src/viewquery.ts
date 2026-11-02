@@ -4,7 +4,7 @@
 import { mondayOf, todayIso } from "./date";
 import { WEEKS_FWD } from "./weekgrid";
 
-export type ViewMode = "me" | "team" | "triage" | "project";
+export type ViewMode = "me" | "team" | "triage" | "roadmap" | "project";
 
 // TRIAGE_WEEKS is how many weeks the Triage board asks for, the current one
 // included — and it is DERIVED from how many the board draws, never chosen
@@ -51,6 +51,12 @@ export function viewQueries(
     // lays the table out itself and the project chips filter client-side, so
     // switching projects costs no request.
     return [{ view: "project" }];
+  }
+  if (view === "roadmap") {
+    // The hierarchy: every planning card and every card under one, board-
+    // wide. The tree is assembled client-side from `parent`; never a
+    // snapshot — it is not a day board (docs/design/hierarchy.md).
+    return [{ view: "roadmap" }];
   }
   const team = teams.join(",");
   if (view === "triage") {
@@ -104,6 +110,9 @@ export function watchQuery(
 ): Record<string, string> {
   if (view === "project") {
     return { view: "project" };
+  }
+  if (view === "roadmap") {
+    return { view: "roadmap" };
   }
   if (view === "me") {
     const q: Record<string, string> = { view: "me", day, reviews: "true" };

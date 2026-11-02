@@ -17,6 +17,25 @@ export type SizeKey = "S" | "M" | "L" | "XL";
 /** StageKey is an explicit per-card status that recolours the progress bar. */
 export type StageKey = "locked" | "review" | "recurrent" | "refuse" | "done";
 
+/** CardType is a PLANNING card's level; a task has none. Mirrors the
+ *  board.Type* constants. */
+export type CardType = "goal" | "initiative" | "epic";
+
+/** LineageRef is one ancestor of a card (status.lineage). */
+export interface LineageRef {
+  uid: string;
+  type?: CardType;
+  title: string;
+}
+
+/** HierarchyStatus is a planning card's derived standing (status.hierarchy):
+ *  never stored, read off the tasks under it on every listing. */
+export interface HierarchyStatus {
+  status: "backlog" | "in-progress" | "done";
+  done: number;
+  total: number;
+}
+
 /** Note is a dated work note attached to a card (a line of its log). */
 export interface Note {
   id: string;
@@ -62,8 +81,21 @@ export interface Card {
   /** On a review card, the itemId of the original card it reviews (review →
    * original; find the reverse by scanning for `reviewOf === original.itemId`). */
   reviewOf?: string;
-  /** On a subtask, the itemId of the card it is grouped under. */
+  /** The itemId of the card this one sits under — the ONE link of the
+   *  hierarchy. What it means is the parent's type: under a task this card is
+   *  a SUBTASK (subtasks.ts isSubtask); under a goal, an initiative or an
+   *  epic it is filed in the hierarchy and nothing else about it changes. */
   parent?: string;
+  /** The card's level. Absent for a task; a PLANNING card — drawn on the
+   *  Roadmap and on no day board — says which (docs/design/hierarchy.md). */
+  type?: CardType;
+  /** Every ancestor, root first: the breadcrumb. Absent on a root. The last
+   *  entry is the parent itself, and its type is what tells a subtask from a
+   *  task under an epic without a lookup. */
+  lineage?: LineageRef[];
+  /** A planning card's derived standing, from the tasks under it. Absent on a
+   *  task. */
+  hierarchy?: HierarchyStatus;
   /** On a review card, its review-round counter (>=2 shown; round 1 implicit). */
   reviewRound?: number;
   /** A recurrent card's reseed cycle: "" = every sprint, "week" | "month". */

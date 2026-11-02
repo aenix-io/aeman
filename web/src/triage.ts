@@ -7,6 +7,7 @@ import type { Card } from "./providers/types";
 import { addDays, mondayOf } from "./date";
 import { parked } from "./backlog";
 import { isComplete } from "./stages";
+import { isPlanning, isSubtask } from "./subtasks";
 
 /** needsTriage reports whether nobody has said WHEN the card's work is due:
  *  an open card of its own, with no week. The week is the whole of the
@@ -22,10 +23,13 @@ import { isComplete } from "./stages";
 export function needsTriage(
   c: Pick<
     Card,
-    "parent" | "reviewOf" | "week" | "domain" | "stage" | "progress" | "parked"
+    "parent" | "lineage" | "type" | "reviewOf" | "week" | "domain" | "stage" | "progress" | "parked"
   >,
 ): boolean {
-  if (c.parent || c.reviewOf || c.week) {
+  // A planning card is the Roadmap's (H3); a subtask rides its parent; a
+  // task under an epic that nobody scheduled is in the strip like any other
+  // (H1). Mirrors board.NeedsTriage.
+  if (isPlanning(c) || isSubtask(c) || c.reviewOf || c.week) {
     return false;
   }
   // Parked work has already been triaged: "not now" is an answer, and the

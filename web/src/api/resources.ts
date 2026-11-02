@@ -11,6 +11,7 @@
 
 import type {
   Card,
+  CardType,
   Note,
   SprintState,
   StageKey,
@@ -99,6 +100,15 @@ export function resourceToCard(res: CardResource): Card {
     team: spec.team || undefined,
     reviewOf: spec.reviewOf || undefined,
     parent: spec.parent || undefined,
+    type: spec.type || undefined,
+    lineage: res.status?.lineage?.map((l) => ({
+      uid: l.uid,
+      type: (l.type as CardType | undefined) || undefined,
+      title: l.title,
+    })),
+    hierarchy: res.status?.hierarchy
+      ? { status: res.status.hierarchy.status, done: res.status.hierarchy.done, total: res.status.hierarchy.total }
+      : undefined,
     reviewRound: res.status?.reviewRound,
     overdue: res.status?.overdue ?? false,
     asOf: res.status?.asOf,
