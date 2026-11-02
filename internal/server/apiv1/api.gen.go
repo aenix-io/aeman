@@ -232,6 +232,8 @@ const (
 	NoteTooLong          ProblemCode = "noteTooLong"
 	NowhereToLeaveIt     ProblemCode = "nowhereToLeaveIt"
 	OpenSubtasks         ProblemCode = "openSubtasks"
+	OwnerFollowsLink     ProblemCode = "ownerFollowsLink"
+	OwnerNeedsTeam       ProblemCode = "ownerNeedsTeam"
 	ParentLevel          ProblemCode = "parentLevel"
 	ParentNotFound       ProblemCode = "parentNotFound"
 	PlanningCard         ProblemCode = "planningCard"
@@ -355,6 +357,10 @@ func (e ProblemCode) Valid() bool {
 	case NowhereToLeaveIt:
 		return true
 	case OpenSubtasks:
+		return true
+	case OwnerFollowsLink:
+		return true
+	case OwnerNeedsTeam:
 		return true
 	case ParentLevel:
 		return true
@@ -731,6 +737,15 @@ type NoteMetadata = apiserver.NoteMetadata
 // NoteSpec defines model for NoteSpec.
 type NoteSpec = apiserver.NoteSpec
 
+// OwnBody defines model for OwnBody.
+type OwnBody struct {
+	// Person The person on that team the card is handed to; needs a team.
+	Person *string `json:"person,omitempty"`
+
+	// Team The team the card is handed to; empty with an empty person takes the team off.
+	Team *string `json:"team,omitempty"`
+}
+
 // PersonPatch defines model for PersonPatch.
 type PersonPatch struct {
 	// Capacity The points a week; 0 takes a set number back. It is required — a body without it is refused (400) rather than read as zero.
@@ -1085,6 +1100,48 @@ type FinishedEarlierParams struct {
 	Snapshot *Snapshot `form:"snapshot,omitempty" json:"snapshot,omitempty"`
 }
 
+// OwnCardParams defines parameters for OwnCard.
+type OwnCardParams struct {
+	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key.
+	Team *Team `form:"team,omitempty" json:"team,omitempty"`
+
+	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
+	Day *Day `form:"day,omitempty" json:"day,omitempty"`
+
+	// User Whose Me board to read. Who-am-I is resolved server-side, so a caller needs none; an explicit one wins, for a lead looking at somebody else's day.
+	User *User `form:"user,omitempty" json:"user,omitempty"`
+
+	// From The Monday the Triage window opens on; empty or absent is the current week.
+	From *From `form:"from,omitempty" json:"from,omitempty"`
+
+	// Weeks How many weeks the Triage window covers, that Monday included: 1..26, default 6. Anything else is refused (400). A client must ask for every week it intends to DRAW.
+	Weeks *Weeks `form:"weeks,omitempty" json:"weeks,omitempty"`
+
+	// Project One project's columns, for the Project board; empty is every project, including the columns that belong to none.
+	Project *Project `form:"project,omitempty" json:"project,omitempty"`
+
+	// Assignee Keep only the cards on one person.
+	Assignee *Assignee `form:"assignee,omitempty" json:"assignee,omitempty"`
+
+	// Stage Keep only the cards carrying one stage; present and empty means the cards carrying none.
+	Stage *Stage `form:"stage,omitempty" json:"stage,omitempty"`
+
+	// Zone Keep only the cards in one band; present and empty means the cards in none. The filter reads the same answer the listing states, so the two never disagree about a card.
+	Zone *Zone `form:"zone,omitempty" json:"zone,omitempty"`
+
+	// Focus "true" or "1" keeps only the cards workable right now — done, on-review and locked are dropped.
+	Focus *Focus `form:"focus,omitempty" json:"focus,omitempty"`
+
+	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED, on triage the reviews the grid otherwise leaves out are KEPT, standing in the week their own dates fall in. Off by default in both.
+	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
+
+	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
+	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
+
+	// Snapshot "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give.
+	Snapshot *Snapshot `form:"snapshot,omitempty" json:"snapshot,omitempty"`
+}
+
 // PlaceCardParams defines parameters for PlaceCard.
 type PlaceCardParams struct {
 	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key.
@@ -1295,6 +1352,9 @@ type RenameTeamJSONRequestBody = RenameTeamBody
 // CreateCardJSONRequestBody defines body for CreateCard for application/json ContentType.
 type CreateCardJSONRequestBody = CreateCardRequest
 
+// OwnCardJSONRequestBody defines body for OwnCard for application/json ContentType.
+type OwnCardJSONRequestBody = OwnBody
+
 // PlaceCardJSONRequestBody defines body for PlaceCard for application/json ContentType.
 type PlaceCardJSONRequestBody = PlaceCardBody
 
@@ -1435,6 +1495,9 @@ type ServerInterface interface {
 	// FinishedEarlier A day board's answer for work done in the sprint before this one and marked done now.
 	// (POST /views/{view}/cards/{uid}/actions/finished-earlier)
 	FinishedEarlier(w http.ResponseWriter, r *http.Request, view View, uid UID, params FinishedEarlierParams)
+	// OwnCard Whose is this — a team and a person on it, a team alone, or nobody.
+	// (POST /views/{view}/cards/{uid}/actions/own)
+	OwnCard(w http.ResponseWriter, r *http.Request, view View, uid UID, params OwnCardParams)
 	// PlaceCard The Triage board's drop — put the card in a week, which is what triaging it means.
 	// (POST /views/{view}/cards/{uid}/actions/place)
 	PlaceCard(w http.ResponseWriter, r *http.Request, view View, uid UID, params PlaceCardParams)
@@ -2804,6 +2867,213 @@ func (siw *ServerInterfaceWrapper) FinishedEarlier(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// OwnCard operation middleware
+func (siw *ServerInterfaceWrapper) OwnCard(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "view" -------------
+	var view View
+
+	err = runtime.BindStyledParameterWithOptions("simple", "view", r.PathValue("view"), &view, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "view", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "uid" -------------
+	var uid UID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "uid", r.PathValue("uid"), &uid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uid", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params OwnCardParams
+
+	// ------------- Optional query parameter "team" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "team", r.URL.Query(), &params.Team, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "team"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "day" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "day", r.URL.Query(), &params.Day, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "day"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "day", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "user" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "user", r.URL.Query(), &params.User, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "user"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "weeks" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "weeks", r.URL.Query(), &params.Weeks, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "weeks"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "weeks", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "project" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project", r.URL.Query(), &params.Project, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "assignee" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "assignee", r.URL.Query(), &params.Assignee, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "assignee"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "assignee", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "stage" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "stage", r.URL.Query(), &params.Stage, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "stage"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "stage", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "zone" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "zone", r.URL.Query(), &params.Zone, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "zone"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "zone", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "focus" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "focus", r.URL.Query(), &params.Focus, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "focus"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "focus", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "reviews" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "reviews", r.URL.Query(), &params.Reviews, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reviews"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reviews", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "fields" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "fields", r.URL.Query(), &params.Fields, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "fields"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fields", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "snapshot" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "snapshot", r.URL.Query(), &params.Snapshot, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "snapshot"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "snapshot", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.OwnCard(w, r, view, uid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PlaceCard operation middleware
 func (siw *ServerInterfaceWrapper) PlaceCard(w http.ResponseWriter, r *http.Request) {
 
@@ -3551,6 +3821,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/views/{view}/cards", wrapper.CreateCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/views/{view}/cards/{uid}/actions/remove", wrapper.RemoveCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/views/{view}/cards/{uid}/actions/place", wrapper.PlaceCard)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/views/{view}/cards/{uid}/actions/own", wrapper.OwnCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/views/{view}/cards/{uid}/actions/untriage", wrapper.UntriageCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/views/{view}/cards/{uid}/actions/finished-earlier", wrapper.FinishedEarlier)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/cards/{uid}", wrapper.DeleteCard)
@@ -5206,6 +5477,48 @@ func (response FinishedEarlierdefaultApplicationProblemPlusJSONResponse) VisitFi
 	return err
 }
 
+type OwnCardRequestObject struct {
+	View   View `json:"view"`
+	UID    UID  `json:"uid"`
+	Params OwnCardParams
+	Body   *OwnCardJSONRequestBody
+}
+
+type OwnCardResponseObject interface {
+	VisitOwnCardResponse(w http.ResponseWriter) error
+}
+
+type OwnCard200JSONResponse Card
+
+func (response OwnCard200JSONResponse) VisitOwnCardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OwnCarddefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response OwnCarddefaultApplicationProblemPlusJSONResponse) VisitOwnCardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type PlaceCardRequestObject struct {
 	View   View `json:"view"`
 	UID    UID  `json:"uid"`
@@ -5459,6 +5772,9 @@ type StrictServerInterface interface {
 	// FinishedEarlier A day board's answer for work done in the sprint before this one and marked done now.
 	// (POST /views/{view}/cards/{uid}/actions/finished-earlier)
 	FinishedEarlier(ctx context.Context, request FinishedEarlierRequestObject) (FinishedEarlierResponseObject, error)
+	// OwnCard Whose is this — a team and a person on it, a team alone, or nobody.
+	// (POST /views/{view}/cards/{uid}/actions/own)
+	OwnCard(ctx context.Context, request OwnCardRequestObject) (OwnCardResponseObject, error)
 	// PlaceCard The Triage board's drop — put the card in a week, which is what triaging it means.
 	// (POST /views/{view}/cards/{uid}/actions/place)
 	PlaceCard(ctx context.Context, request PlaceCardRequestObject) (PlaceCardResponseObject, error)
@@ -6805,6 +7121,41 @@ func (sh *strictHandler) FinishedEarlier(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(FinishedEarlierResponseObject); ok {
 		if err := validResponse.VisitFinishedEarlierResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// OwnCard operation middleware
+func (sh *strictHandler) OwnCard(w http.ResponseWriter, r *http.Request, view View, uid UID, params OwnCardParams) {
+	var request OwnCardRequestObject
+
+	request.View = view
+	request.UID = uid
+	request.Params = params
+
+	var body OwnCardJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.OwnCard(ctx, request.(OwnCardRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "OwnCard")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(OwnCardResponseObject); ok {
+		if err := validResponse.VisitOwnCardResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

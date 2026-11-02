@@ -531,6 +531,16 @@ export const apiProvider: Provider = {
     await client.POST("/teams/actions/capacity", { body: { team, points } });
   },
 
+  async ownCard(uid: string, team: string, person: string): Promise<Card> {
+    uid = await resolveCardId(uid);
+    return cardFrom(
+      client.POST("/views/{view}/cards/{uid}/actions/own", {
+        params: standingScope(uid),
+        body: { team, person },
+      }),
+    );
+  },
+
   async untriageCard(uid: string): Promise<Card> {
     uid = await resolveCardId(uid);
     return cardFrom(

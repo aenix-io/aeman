@@ -386,6 +386,14 @@ export interface Provider {
   setTeamCapacity(team: string, points: number): Promise<void>;
   /** Take a card out of every week — back to the triage strip. */
   untriageCard(uid: string): Promise<Card>;
+  /** Whose is this: a team and a person on it, a team alone (person = ""),
+   *  or nobody (both ""). A person files an UNPLANNED card the way the Me
+   *  board would — today, the unplanned band, the team's sprint, off any
+   *  shelf; a team alone parks it on that team's shelf; a planned card only
+   *  changes hands (docs/design/hierarchy.md "Owner", H10). A person needs a
+   *  team (422 ownerNeedsTeam); a subtask and a review card are refused
+   *  (ownerFollowsLink); so are planning and project cards. */
+  ownCard(uid: string, team: string, person: string): Promise<Card>;
   /** Advance a team's sprint to today and carry its unfinished cards forward.
    * dryRun reports the would-be counts without writing. team = null is the
    * no-team group. */

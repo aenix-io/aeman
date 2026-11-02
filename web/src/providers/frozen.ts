@@ -55,6 +55,7 @@ const CARD_WRITES = new Set([
   "removeReviewer",
   "placeCard",
   "untriageCard",
+  "ownCard",
   "removeFromProject",
   "addNote",
   "editNote",

@@ -323,6 +323,60 @@ paths:
                 $ref: '#/components/schemas/Card'
         default:
           $ref: '#/components/responses/Problem'
+  /views/{view}/cards/{uid}/actions/own:
+    post:
+      operationId: ownCard
+      tags: [Cards]
+      summary: Whose is this — a team and a person on it, a team alone, or nobody.
+      description: >-
+        The Roadmap's answer for the loose work listed below its tree, offered
+        by every board that draws a task (not the Project board). What the
+        answer DOES depends on whether the card has a plan — a day, a week or
+        a sprint. A `person` (with their `team`) files an UNPLANNED card the
+        way typing it into their Me board would: on the team, today, in the
+        unplanned band, in the team's sprint, off any shelf — so it stands on
+        their Team and Me boards at once; a planned card changes hands and
+        keeps its plan. A `team` alone parks an unplanned card on that team's
+        shelf — its Backlog on Triage — with nobody on it; a planned card
+        moves team, keeps its plan and loses its person. Neither takes the
+        team and the person off: a planned card keeps its plan in the no-team
+        group, an unplanned one is the strip's again. A person without a team
+        is refused (422 `ownerNeedsTeam`); a subtask and a review card have
+        no owner of their own (422 `ownerFollowsLink` — the parent's, the
+        reviewer); a planning card and a project card carry none (422
+        `planningCard`, `projectCard`). Subtasks follow the card's team and
+        person, as they do everywhere.
+      parameters:
+        - $ref: '#/components/parameters/View'
+        - $ref: '#/components/parameters/Uid'
+        - $ref: '#/components/parameters/Team'
+        - $ref: '#/components/parameters/Day'
+        - $ref: '#/components/parameters/User'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/Weeks'
+        - $ref: '#/components/parameters/Project'
+        - $ref: '#/components/parameters/Assignee'
+        - $ref: '#/components/parameters/Stage'
+        - $ref: '#/components/parameters/Zone'
+        - $ref: '#/components/parameters/Focus'
+        - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/Fields'
+        - $ref: '#/components/parameters/Snapshot'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OwnBody'
+      responses:
+        '200':
+          description: The card after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        default:
+          $ref: '#/components/responses/Problem'
   /views/{view}/cards/{uid}/actions/untriage:
     post:
       operationId: untriageCard
@@ -1432,6 +1486,8 @@ components:
             - noteTooLong
             - nowhereToLeaveIt
             - openSubtasks
+            - ownerFollowsLink
+            - ownerNeedsTeam
             - parentLevel
             - parentNotFound
             - planningCard
@@ -2446,6 +2502,15 @@ components:
         week:
           type: string
           description: The Monday of the week the card is placed in.
+    OwnBody:
+      type: object
+      properties:
+        team:
+          type: string
+          description: The team the card is handed to; empty with an empty person takes the team off.
+        person:
+          type: string
+          description: The person on that team the card is handed to; needs a team.
     MoveCardBody:
       type: object
       properties:

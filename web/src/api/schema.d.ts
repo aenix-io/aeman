@@ -133,6 +133,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/views/{view}/cards/{uid}/actions/own": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Whose is this — a team and a person on it, a team alone, or nobody.
+         * @description The Roadmap's answer for the loose work listed below its tree, offered by every board that draws a task (not the Project board). What the answer DOES depends on whether the card has a plan — a day, a week or a sprint. A `person` (with their `team`) files an UNPLANNED card the way typing it into their Me board would: on the team, today, in the unplanned band, in the team's sprint, off any shelf — so it stands on their Team and Me boards at once; a planned card changes hands and keeps its plan. A `team` alone parks an unplanned card on that team's shelf — its Backlog on Triage — with nobody on it; a planned card moves team, keeps its plan and loses its person. Neither takes the team and the person off: a planned card keeps its plan in the no-team group, an unplanned one is the strip's again. A person without a team is refused (422 `ownerNeedsTeam`); a subtask and a review card have no owner of their own (422 `ownerFollowsLink` — the parent's, the reviewer); a planning card and a project card carry none (422 `planningCard`, `projectCard`). Subtasks follow the card's team and person, as they do everywhere.
+         */
+        post: operations["ownCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/views/{view}/cards/{uid}/actions/untriage": {
         parameters: {
             query?: never;
@@ -849,7 +869,7 @@ export interface components {
              * @description The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
              * @enum {string}
              */
-            code: "accessUndecided" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "dayIsARecord" | "descriptionTooLong" | "domainConflict" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "scopeExists" | "scopeInUse" | "scopeNotFound" | "scopeRequired" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAMonday" | "notAuthenticated" | "notFinished" | "notInProject" | "notOnThisBoard" | "notYoursToDestroy" | "notYoursToPark" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "nowhereToLeaveIt" | "openSubtasks" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "projectExists" | "projectInUse" | "projectNotFound" | "setupRequired" | "subtaskDepth" | "subtaskWeek" | "teamExists" | "teamInUse" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField" | "projectCard";
+            code: "accessUndecided" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "dayIsARecord" | "descriptionTooLong" | "domainConflict" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "scopeExists" | "scopeInUse" | "scopeNotFound" | "scopeRequired" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAMonday" | "notAuthenticated" | "notFinished" | "notInProject" | "notOnThisBoard" | "notYoursToDestroy" | "notYoursToPark" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "nowhereToLeaveIt" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "projectExists" | "projectInUse" | "projectNotFound" | "setupRequired" | "subtaskDepth" | "subtaskWeek" | "teamExists" | "teamInUse" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField" | "projectCard";
             /** @description Where the person can go to fix the refusal — installing the board's app — for a client to offer as a button. */
             actionUrl?: string;
         };
@@ -1237,6 +1257,12 @@ export interface components {
         PlaceCardBody: {
             /** @description The Monday of the week the card is placed in. */
             week?: string;
+        };
+        OwnBody: {
+            /** @description The team the card is handed to; empty with an empty person takes the team off. */
+            team?: string;
+            /** @description The person on that team the card is handed to; needs a team. */
+            person?: string;
         };
         MoveCardBody: {
             /** @description The card to land behind; empty means the top. */
@@ -1771,6 +1797,63 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PlaceCardBody"];
+            };
+        };
+        responses: {
+            /** @description The card after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Card"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    ownCard: {
+        parameters: {
+            query?: {
+                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. */
+                team?: components["parameters"]["Team"];
+                /** @description The day a day board is read for, yyyy-mm-dd. Empty or absent is today. */
+                day?: components["parameters"]["Day"];
+                /** @description Whose Me board to read. Who-am-I is resolved server-side, so a caller needs none; an explicit one wins, for a lead looking at somebody else's day. */
+                user?: components["parameters"]["User"];
+                /** @description The Monday the Triage window opens on; empty or absent is the current week. */
+                from?: components["parameters"]["From"];
+                /** @description How many weeks the Triage window covers, that Monday included: 1..26, default 6. Anything else is refused (400). A client must ask for every week it intends to DRAW. */
+                weeks?: components["parameters"]["Weeks"];
+                /** @description One project's columns, for the Project board; empty is every project, including the columns that belong to none. */
+                project?: components["parameters"]["Project"];
+                /** @description Keep only the cards on one person. */
+                assignee?: components["parameters"]["Assignee"];
+                /** @description Keep only the cards carrying one stage; present and empty means the cards carrying none. */
+                stage?: components["parameters"]["Stage"];
+                /** @description Keep only the cards in one band; present and empty means the cards in none. The filter reads the same answer the listing states, so the two never disagree about a card. */
+                zone?: components["parameters"]["Zone"];
+                /** @description "true" or "1" keeps only the cards workable right now — done, on-review and locked are dropped. */
+                focus?: components["parameters"]["Focus"];
+                /** @description "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED, on triage the reviews the grid otherwise leaves out are KEPT, standing in the week their own dates fall in. Off by default in both. */
+                reviews?: components["parameters"]["Reviews"];
+                /** @description The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400). */
+                fields?: components["parameters"]["Fields"];
+                /** @description "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give. */
+                snapshot?: components["parameters"]["Snapshot"];
+            };
+            header?: never;
+            path: {
+                /** @description The board the caller is standing on: me, team, triage, backlog, roadmap, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+                view: components["parameters"]["View"];
+                /** @description The card's own address, a ULID assigned at creation. */
+                uid: components["parameters"]["Uid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OwnBody"];
             };
         };
         responses: {

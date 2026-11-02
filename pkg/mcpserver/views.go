@@ -113,6 +113,27 @@ func (h *server) placeCard(ctx context.Context, _ *mcp.CallToolRequest, in place
 	return h.cardResource(ctx, svc, boardID, in.UID)
 }
 
+type ownInput struct {
+	cardRef
+	boardStand
+	Team   string `json:"team,omitempty" jsonschema:"the team the card is handed to; left out with no person, the team comes off"`
+	Person string `json:"person,omitempty" jsonschema:"the person on that team the card is handed to; needs a team"`
+}
+
+func (h *server) ownCard(ctx context.Context, _ *mcp.CallToolRequest, in ownInput) (*mcp.CallToolResult, apiserver.Card, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	if err := h.gestureOn(ctx, svc, boardID, in.boardStand, boardservice.GestureOwn, in.UID); err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	if err := svc.Own(ctx, boardID, in.UID, in.Team, in.Person); err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	return h.cardResource(ctx, svc, boardID, in.UID)
+}
+
 type standOnCard struct {
 	cardRef
 	boardStand

@@ -179,6 +179,11 @@ const (
 	// GestureFinishedEarlier is the day boards': work done in the sprint
 	// before this one and only marked done now.
 	GestureFinishedEarlier Gesture = "finished-earlier"
+	// GestureOwn is the Roadmap's "whose is this": a team and a person, a
+	// team alone, or nobody — and what that does to a card with no plan yet
+	// (own.go, H10). Every board that draws a task offers it, so the drawer
+	// asks the same question from wherever the card was opened.
+	GestureOwn Gesture = "own"
 )
 
 // gestureBoards is which boards draw each one. The escape hatch is in every
@@ -189,6 +194,9 @@ var gestureBoards = map[Gesture][]board.View{
 	GesturePlace:           {board.ViewTriage, board.ViewAll},
 	GestureUntriage:        {board.ViewTriage, board.ViewAll},
 	GestureFinishedEarlier: {board.ViewMe, board.ViewTeam, board.ViewAll},
+	// Not the Project board's: it draws no task (H4).
+	GestureOwn: {board.ViewRoadmap, board.ViewMe, board.ViewTeam, board.ViewTriage,
+		board.ViewBacklog, board.ViewAll},
 }
 
 // Offers reports whether a board draws a gesture. A gesture asked of a board
@@ -208,7 +216,7 @@ func Offers(view board.View, g Gesture) bool {
 // client reads instead of being told in a description.
 func Gestures(view board.View) []Gesture {
 	var out []Gesture
-	for _, g := range []Gesture{GestureRemove, GesturePlace, GestureUntriage, GestureFinishedEarlier} {
+	for _, g := range []Gesture{GestureRemove, GesturePlace, GestureUntriage, GestureFinishedEarlier, GestureOwn} {
 		if Offers(view, g) {
 			out = append(out, g)
 		}

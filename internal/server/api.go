@@ -808,6 +808,19 @@ func (a surface) PlaceCard(ctx context.Context, req apiv1.PlaceCardRequestObject
 	return apiv1.PlaceCard200JSONResponse(card), nil
 }
 
+// OwnCard answers "whose is this" for a task — a team and a person, a team
+// alone, or nobody — and files loose work accordingly (boardservice.Own).
+func (a surface) OwnCard(ctx context.Context, req apiv1.OwnCardRequestObject) (apiv1.OwnCardResponseObject, error) {
+	card, err := a.gesture(ctx, req.View, req.UID, boardservice.GestureOwn,
+		func(svc *boardservice.Service, boardID string) error {
+			return svc.Own(ctx, boardID, req.UID, strOf(req.Body.Team), strOf(req.Body.Person))
+		})
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.OwnCard200JSONResponse(card), nil
+}
+
 // FinishedEarlier sends finished work back to the sprint it was done in — its
 // dates and the day it counts as done along with it. It is a MOVE and not a
 // removal, so it has a door of its own: Remove's law is about emptying the

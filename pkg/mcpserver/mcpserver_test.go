@@ -139,6 +139,8 @@ func TestMCPListsTools(t *testing.T) {
 		"place_card", "untriage_card", "finished_earlier", "list_sprints",
 		"list_day_logs", "reorder_teams", "reorder_scopes", "delete_team",
 		"set_sprint_state",
+		// The Roadmap's "whose is this" (H10).
+		"own_card",
 	}
 	for _, w := range want {
 		if !names[w] {
@@ -531,6 +533,8 @@ func TestTheToolSetHoldsWhatTheBoardsDo(t *testing.T) {
 		"finished_earlier",
 		// The Triage board's, beside place: a card pulled back out of every week into the strip.
 		"untriage_card", "place_card",
+		// The Roadmap's: whose is this, and where loose work goes when told.
+		"own_card",
 		// The roster gestures the manage dialogs make.
 		"reorder_teams", "reorder_scopes", "delete_team", "set_sprint_state",
 		// What a day board reads in one request instead of a log per card.

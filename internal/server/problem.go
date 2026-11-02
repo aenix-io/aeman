@@ -122,6 +122,10 @@ var sentinels = []struct {
 	{boardservice.ErrUnknownType, http.StatusUnprocessableEntity, "unknownType"},
 	{boardservice.ErrParentLevel, http.StatusUnprocessableEntity, "parentLevel"},
 	{boardservice.ErrPlanningCard, http.StatusUnprocessableEntity, "planningCard"},
+	// Own (H10): a person is picked from a team, and a card whose owner a
+	// link decides — a subtask, a review card — is not asked.
+	{boardservice.ErrOwnerNeedsTeam, http.StatusUnprocessableEntity, "ownerNeedsTeam"},
+	{boardservice.ErrOwnerFollowsLink, http.StatusUnprocessableEntity, "ownerFollowsLink"},
 	{boardservice.ErrNotAMonday, http.StatusUnprocessableEntity, "notAMonday"},
 	{boardservice.ErrUnknownSize, http.StatusUnprocessableEntity, "unknownSize"},
 	{boardservice.ErrBadCapacity, http.StatusUnprocessableEntity, "badCapacity"},
