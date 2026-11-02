@@ -115,7 +115,6 @@ export function resourceToCard(res: CardResource): Card {
     size: sizeFromWire(spec.size),
     epic: spec.epic || undefined,
     project: spec.project || undefined,
-    mirrors: spec.mirrors?.length ? spec.mirrors : undefined,
     // A summary listing omits the body: description stays undefined ("not
     // loaded") and the boards fetch it on selection. A full resource with a
     // genuinely empty body also arrives undefined (the field is omitempty) —

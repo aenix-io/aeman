@@ -245,9 +245,7 @@ board red, and a mark that is everywhere says nothing where it matters.
   whole group visible in no column at all. Its team badge is read-only there —
   a subtask's team follows its parent — and the slot's × only takes the column
   away: the card still rides its parent, so it is never deleted from there. The
-  column may be re-attached afterwards; a SECOND column (a mirror) it may not
-  have, because its file follows the parent and the mirror would be stranded
-  the moment the parent changes repository. The day grid's × on such a card
+  column may be re-attached afterwards. The day grid's × on such a card
   takes it OUT OF THE GROUP and leaves it in its column: a subtask's person
   and sprint are its parent's, so releasing it while still grouped would
   break that pair or be undone by the next carry-over. The column must name the repository
@@ -258,10 +256,7 @@ board red, and a mark that is everywhere says nothing where it matters.
   parent nothing draws — a column with no dates is no slot — answers for
   nothing, and the child counts. A column's own bar asks the narrower question:
   it drops the child only when the parent stands in that same column. Both
-  read every column the parent is DRAWN in — its home pair and its mirrors
-  — since a mirror is the same card standing in a second column: a parent
-  mirrored into the child's column answers for the child there, and the bar
-  that read home pairs alone counted the two of them. A figure that spans
+  read the column the parent is DRAWN in. A figure that spans
   columns (the board's header total) asks it by identity instead: the
   parent is either drawn in that figure or it is not.
 - **Derived progress**: while a card has subtasks its bar derives from them —

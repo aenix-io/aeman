@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { ProjectTargets } from "../placements";
 
 interface PlacementMenuProps {
-  /** The row's label — "Attach to project…", "Mirror to…". */
+  /** The row's label — "Attach to project…". */
   label: string;
   /** Project → epics targets; a click on a project unfolds its columns. */
   targets?: ProjectTargets[];
@@ -15,7 +15,7 @@ interface PlacementMenuProps {
   onPick: (project: string, epic: string) => void;
 }
 
-/** PlacementMenu is the attach/mirror section of a card's assign menu: a
+/** PlacementMenu is the attach section of a card's assign menu: a
  *  row that unfolds IN PLACE into the projects of the card's repository,
  *  each unfolding into its epic columns. In place, not as a flyout: the
  *  assign menu is a portal that closes on any pointer-down outside its own

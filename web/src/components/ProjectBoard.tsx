@@ -20,16 +20,11 @@ import {
   drawnAsSlot,
   drawnOnProjectBoard,
   teamFollowsParent,
-  makeCardPlacements,
-  type CardPlacements,
   movingSlot,
   removeFromProjectOutcome,
   rosterOf,
-  settleMirrorDrop,
   slotDragPlan,
-  slotDropMirrors,
 } from "../placements";
-import { PlacementMenu } from "./PlacementMenu";
 import { deleteWarning, freeSubtasks } from "../removal";
 import { Dropdown } from "./Dropdown";
 import { ProjectPicker } from "./ProjectPicker";
@@ -550,7 +545,7 @@ export function ProjectBoard({
     const week = weeks[row];
     const end = addDays(weeks[Math.min(row + span - 1, weeks.length - 1)], 4);
     const target = { project: epic.project, epic: epic.name };
-    const plan = slotDragPlan(card, grabbed, target);
+    const plan = slotDragPlan(grabbed, target);
     const weekChanged = week !== card.week;
     if (plan.kind === "dates" && !weekChanged) {
       return;
@@ -561,13 +556,12 @@ export function ProjectBoard({
       project: card.project,
       startDate: card.startDate,
       day: card.day,
-      mirrors: card.mirrors,
     };
     const rollback = (err: unknown) => {
       patchCard(card.itemId, prev);
       onError(errText(err));
     };
-    // The date change is the card's, whatever placement was dragged.
+    // The date change is the card's, whichever column was dragged to.
     const dates: Partial<CardModel> = { week, startDate: week, day: end };
     switch (plan.kind) {
       case "dates": {
@@ -583,9 +577,6 @@ export function ProjectBoard({
           ...dates,
           epic: target.epic,
           project: target.project,
-          // The server drops a mirror the home lands on; so does the patch,
-          // or the grid draws the slot twice until the reload.
-          mirrors: slotDropMirrors(card, grabbed, target, plan.kind),
         });
         void provider
           .patchCard(card.itemId, {
@@ -596,32 +587,6 @@ export function ProjectBoard({
           })
           .then(addCard)
           .catch(rollback);
-        return;
-      }
-      case "moveMirror":
-      case "collapseMirror": {
-        // A dragged MIRROR copy moves its own entry — never the home. The
-        // mirror is added before the old one goes, so a failure half-way
-        // never leaves the card short a placement; a drop onto the home
-        // simply folds the mirror away.
-        patchCard(card.itemId, {
-          ...(weekChanged ? dates : {}),
-          mirrors: slotDropMirrors(card, grabbed, target, plan.kind),
-        });
-        void settleMirrorDrop(
-          provider,
-          card.itemId,
-          grabbed,
-          target,
-          plan.kind,
-          weekChanged ? { start: week, end } : null,
-          {
-            restore: () => patchCard(card.itemId, prev),
-            reload,
-            onError,
-            errMessage: errText,
-          },
-        );
         return;
       }
     }
@@ -887,23 +852,9 @@ export function ProjectBoard({
   const subtaskTitle = (title: string | undefined) =>
     title ? `Subtask of «${title}»` : "Subtask — its parent is not on this board";
 
-  // placementsFor: the slot menu's "Mirror to…" section. The same factory
-  // the Me and Team boards use, so the three cannot drift apart — and the
-  // only way to mirror a card that lives ONLY in a column: such a card
-  // never joins a sprint, so it appears on no other board (TeamGrid hides
-  // an epic card until it does), and its card menu exists nowhere else.
-  const placementsFor = (card: CardModel): CardPlacements =>
-    makeCardPlacements(card, board, {
-      provider,
-      patchCard,
-      reload,
-      onError,
-      errMessage: errText,
-    });
-
-  // The slot's ×: remove the card from THIS column. A mirror goes, the
-  // home hands over to its first mirror, an orphaned worked card survives
-  // in the working area — only the true delete asks, naming the loss.
+  // The slot's ×: take the card out of its column. An orphaned worked card
+  // survives in the working area — only the true delete asks, naming the
+  // loss.
   const removeFromColumn = (card: CardModel, project: string, epic: string) => {
     const outcome = removeFromProjectOutcome(card, project, epic);
     // The server would refuse this pair — a column the card does not stand
@@ -938,19 +889,6 @@ export function ProjectBoard({
       for (const f of freeSubtasks(board.cards, card.itemId)) {
         patchCard(f.itemId, f.patch);
       }
-    } else if (outcome === "unmirror") {
-      patchCard(card.itemId, {
-        mirrors: (card.mirrors ?? []).filter(
-          (m) => !(m.project === project && m.epic === epic),
-        ),
-      });
-    } else if (outcome === "promote") {
-      const heir = (card.mirrors ?? [])[0];
-      patchCard(card.itemId, {
-        project: heir.project,
-        epic: heir.epic,
-        mirrors: (card.mirrors ?? []).slice(1),
-      });
     } else {
       // orphan: off the Project board, kept by its work.
       patchCard(card.itemId, {
@@ -1023,25 +961,12 @@ export function ProjectBoard({
       const list = byCol.get(k) ?? [];
       list.push({ card: c, row, span, lane: 0, lanes: 1, width: 1, stack: 0, stacked: 1 });
       byCol.set(k, list);
-      // A mirrored card stands in every one of its columns: the same entry,
-      // the same shared dates, once per placement — except while THIS card
-      // is being dragged, when only the moving preview is drawn.
-      if (move?.card.itemId !== c.itemId) {
-        for (const mi of c.mirrors ?? []) {
-          const mk = colKey(mi.project, mi.epic);
-          const ml = byCol.get(mk) ?? [];
-          ml.push({ card: c, row, span, lane: 0, lanes: 1, width: 1, stack: 0, stacked: 1 });
-          byCol.set(mk, ml);
-        }
-      }
       if (rest) {
-        // The same card at REST — pre-preview geometry, for the lane pin.
-        // Every placement, mirrors included: pulling an edge in a MIRROR
-        // column must pin against that column's resting neighbours, not
-        // find the map empty and let the slot hop lanes under the pointer.
-        const cols = [colKey(c.project ?? "", c.epic)].concat(
-          (c.mirrors ?? []).map((mi) => colKey(mi.project, mi.epic)),
-        );
+        // The same card at REST — pre-preview geometry, for the lane pin:
+        // pulling an edge must pin against the column's resting
+        // neighbours, not find the map empty and let the slot hop lanes
+        // under the pointer.
+        const cols = [colKey(c.project ?? "", c.epic)];
         for (const rk of cols) {
           const rl = rest.get(rk) ?? [];
           rl.push({
@@ -1121,12 +1046,9 @@ export function ProjectBoard({
   const colProgress = useMemo(() => {
     const byCol = new Map<string, CardModel[]>();
     for (const c of cards.filter(drawnAsSlot)) {
-      // Every column the card is DRAWN in, mirrors included: keyed by the
-      // home pair alone, a mirror column reported a total of zero while
-      // showing slots, and the header disagreed with the columns beneath
-      // it on one screen. The de-duplication is asked PER COLUMN for the
-      // same reason — a parent mirrored into this one answers for its
-      // child here, whatever its home epic says.
+      // The column the card is DRAWN in (columnsOf), and the
+      // de-duplication asked PER COLUMN: a parent standing in this one
+      // answers for its child here.
       for (const col of columnsOf(c)) {
         if (!countedForProgress(c, byId, col)) {
           continue;
@@ -1633,16 +1555,6 @@ export function ProjectBoard({
               title={card.title}
             >
               <span className="project-slot-title">
-                {(card.mirrors ?? []).some(
-                  (m) => m.project === e.project && m.epic === e.name,
-                ) && (
-                  <span
-                    className="project-slot-mirror"
-                    title={`Mirrored here from ${card.project} · ${card.epic}`}
-                  >
-                    ⧉
-                  </span>
-                )}
                 {card.parent && (
                   <span
                     className="project-slot-subtask"
@@ -1687,9 +1599,9 @@ export function ProjectBoard({
                     ? { background: teamColor(card.team), color: "#fff" }
                     : undefined
                 }
-                // The badge is the slot's MENU HANDLE — "Mark as done", the
-                // team list, "Mirror to…" all hang off it — so it stays
-                // clickable for every card. A subtask's team follows its
+                // The badge is the slot's MENU HANDLE — "Mark as done" and
+                // the team list hang off it — so it stays clickable for
+                // every card. A subtask's team follows its
                 // parent (S9, and the server rewrites any other choice):
                 // that makes the team LIST read-only inside the menu, not
                 // the menu unreachable.
@@ -1732,30 +1644,6 @@ export function ProjectBoard({
                   />
                   {complete(card) ? "Reopen" : "Mark as done"}
                 </button>
-                {/* Mirroring lives in this menu because the slot has no
-                    other: a card in a column may be shown in a second one,
-                    and for a card that never joined a sprint this is the
-                    only place in the UI that can say so. */}
-                {/* Only for the OPEN menu: React evaluates a Dropdown's
-                    children whether or not it is open, and this walk is
-                    O(projects × epics) per slot — on every frame of a
-                    drag, since the slots recompute as the pointer moves. */}
-                {(() => {
-                  if (teamMenu !== card.itemId) {
-                    return null;
-                  }
-                  const placements = placementsFor(card);
-                  return placements.mirror ? (
-                    <PlacementMenu
-                      label="Mirror to…"
-                      targets={placements.mirror}
-                      onPick={(project, epic) => {
-                        placements.onMirror(project, epic);
-                        setTeamMenu(null);
-                      }}
-                    />
-                  ) : null;
-                })()}
                 {/* The roster carries "" for the no-team group; the explicit
                     "No team" entry below is that, so skip the blank one. And
                     only the teams of the card's own repository are offered:

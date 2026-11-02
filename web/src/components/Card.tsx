@@ -945,25 +945,6 @@ export function Card({
                     {card.epic}
                   </span>
                 )}
-                {(card.mirrors ?? []).map((m) => (
-                  <span key={`${m.project}\u0000${m.epic}`}>
-                    <span className="card-assign-origin-kind">mirror</span>
-                    {m.project} · {m.epic}
-                    {placements && (
-                      <button
-                        type="button"
-                        className="card-placements-unmirror"
-                        title={`No longer show in ${m.project} · ${m.epic}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          placements.onUnmirror(m.project, m.epic);
-                        }}
-                      >
-                        ×
-                      </button>
-                    )}
-                  </span>
-                ))}
               </div>
             )}
             {placements?.attach && (
@@ -990,16 +971,6 @@ export function Card({
                 <ShelfIcon />
                 Send to the backlog
               </button>
-            )}
-            {placements?.mirror && (
-              <PlacementMenu
-                label="Mirror to…"
-                targets={placements.mirror}
-                onPick={(project, epic) => {
-                  placements.onMirror(project, epic);
-                  setAssignOpen(false);
-                }}
-              />
             )}
             <div className="card-assign-cols">
               {onSetTeam && (

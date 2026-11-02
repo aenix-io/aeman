@@ -3966,7 +3966,7 @@ button.card-age {
   transition: margin-right 90ms ease-out;
 }
 
-/* ---- placements: attach / mirror in the assign menu, mirror markers ---- */
+/* ---- placements: attach in the assign menu ---- */
 
 .card-placements-head,
 .card-placements-project {
@@ -3994,26 +3994,6 @@ button.card-age {
 
 .card-placements-leaf {
   padding-left: 26px;
-}
-
-.card-placements-unmirror {
-  border: none;
-  background: none;
-  cursor: pointer;
-  padding: 0 2px;
-  margin-left: 4px;
-  opacity: 0.5;
-  font-size: 11px;
-}
-
-.card-placements-unmirror:hover {
-  opacity: 1;
-}
-
-.project-slot-mirror {
-  margin-right: 4px;
-  opacity: 0.6;
-  font-size: 11px;
 }
 
 /* A menu row that states a fact instead of offering a choice — a

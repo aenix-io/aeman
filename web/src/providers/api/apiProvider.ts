@@ -556,20 +556,6 @@ export const apiProvider: Provider = {
     await client.POST("/sprints/actions/delete-team", { body: { team } });
   },
 
-  async mirrorCard(uid: string, project: string, epic: string): Promise<void> {
-    await client.POST("/cards/{uid}/actions/mirror", {
-      params: { path: { uid } },
-      body: { project, epic },
-    });
-  },
-
-  async unmirrorCard(uid: string, project: string, epic: string): Promise<void> {
-    await client.POST("/cards/{uid}/actions/unmirror", {
-      params: { path: { uid } },
-      body: { project, epic },
-    });
-  },
-
   async removeFromProject(uid: string, project: string, epic: string): Promise<void> {
     await client.POST("/cards/{uid}/actions/remove-from-project", {
       params: { path: { uid } },

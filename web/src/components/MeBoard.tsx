@@ -1078,7 +1078,7 @@ export function MeBoard({
   // Card shows no "Delete?" of its own in front of it — see boardAsks), and
   // a subtask, having no history of its own, never opens it.
 
-  // placementsFor: the assign menu's attach/mirror section — one shared
+  // placementsFor: the assign menu's attach section — one shared
   // factory (makeCardPlacements), so the boards cannot drift apart.
   const placementsFor = (card: CardModel): CardPlacements | undefined => {
     return makeCardPlacements(card, board, {

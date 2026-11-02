@@ -13,16 +13,13 @@ import {
   drawnOnProjectBoard,
   hasOriginToShow,
   makeCardPlacements,
-  mirrorTargets,
   movingSlot,
   placementTargets,
   projectsAColumnCanJoin,
   projectsWithColumns,
   removeFromProjectOutcome,
   rosterOf,
-  settleMirrorDrop,
   slotDragPlan,
-  slotDropMirrors,
   teamFollowsParent,
   teamlessIsLawful,
   teamsACardCanTake,
@@ -39,7 +36,7 @@ import type { Card } from "./providers/types";
  *  the rules' documentation. */
 const mk = (c: Partial<Card>): Card => c as Card;
 
-describe("attach and mirror targets", () => {
+describe("attach targets", () => {
   const projects = ["engineering", "freedom", "strategy"];
   // The repository rides on the COLUMN, the way the server records it: a
   // column declared in the closed repository carries it, whatever its
@@ -77,16 +74,6 @@ describe("attach and mirror targets", () => {
     expect(attachTargets(projects, single, "").map((p) => p.name)).toEqual(projects);
   });
 
-  it("mirror targets follow the HOME project's repository and skip where the card stands", () => {
-    const card = {
-      project: "engineering",
-      epic: "Cozystack",
-      mirrors: [{ project: "freedom", epic: "Launch" }],
-    } as Card;
-    const got = mirrorTargets(card, projects, epics);
-    // Cozystack is the home, Launch is already mirrored: only Ingress is left.
-    expect(got).toEqual([{ name: "engineering", epics: ["Ingress"] }]);
-  });
 });
 
 // Attaching a card scheduled for a WEEK gives it the slot of that week —
@@ -101,22 +88,11 @@ describe("attachSlotDates", () => {
   });
 });
 
-// The Project board's × means four different things, and the UI must know
-// which before it asks anything: a mirror goes silently, the home hands
-// over silently, an orphan survives, and only the delete is worth a
-// question.
+// The Project board's × means two different things, and the UI must know
+// which before it asks anything: an orphan survives, and only the delete is
+// worth a question.
 describe("removeFromProjectOutcome", () => {
   const base = mk({ project: "engineering", epic: "Cozystack" });
-
-  it("is unmirror on a mirror placement", () => {
-    const c = { ...base, mirrors: [{ project: "freedom", epic: "Launch" }] } as Card;
-    expect(removeFromProjectOutcome(c, "freedom", "Launch")).toBe("unmirror");
-  });
-
-  it("is promote on the home while mirrors remain", () => {
-    const c = { ...base, mirrors: [{ project: "freedom", epic: "Launch" }] } as Card;
-    expect(removeFromProjectOutcome(c, "engineering", "Cozystack")).toBe("promote");
-  });
 
   it("is orphan on the last column of a worked card, delete otherwise", () => {
     const worked = mk({ ...base, assignees: ["kvaps"], progress: 40 });
@@ -193,32 +169,6 @@ describe("countedForProgress", () => {
     expect(countedForProgress(child, index([child, parent]), { project: "engineering" })).toBe(false);
   });
 
-  // A parent MIRRORED into the column its child stands in answers for that
-  // child there: the column's bar counted both, since the parent's home
-  // epic differed while the column it was drawn in did not.
-  it("skips a child whose parent MIRRORS into the same column", () => {
-    const parent = {
-      itemId: "p1",
-      project: "engineering",
-      epic: "Roadmap",
-      startDate: "2026-08-24",
-      mirrors: [{ project: "engineering", epic: "Cozystack" }],
-    } as Card;
-    expect(
-      countedForProgress(child, index([child, parent]), {
-        project: "engineering",
-        epic: "Cozystack",
-      }),
-    ).toBe(false);
-    // …and still counts in the column the parent is NOT drawn in.
-    expect(
-      countedForProgress(child, index([child, parent]), {
-        project: "engineering",
-        epic: "Ingress",
-      }),
-    ).toBe(true);
-  });
-
   it("counts an ordinary card always", () => {
     const plain = mk({ itemId: "x", project: "engineering", epic: "Cozystack" });
     expect(countedForProgress(plain, index([plain]), { project: "engineering" })).toBe(true);
@@ -238,48 +188,25 @@ describe("placementTargets", () => {
     projectDomains: undefined,
   };
 
-  it("offers mirrors to a card already in a column", () => {
+  it("offers a card already in a column nothing: it is re-filed on the Project board", () => {
     const got = placementTargets(mk({ project: "engineering", epic: "Cozystack" }), board);
-    expect(got.mirror).toEqual([]);
     expect(got.attach).toBeUndefined();
+    // A no-project column is a column like any other.
+    expect(placementTargets(mk({ epic: "Inbox" }), board).attach).toBeUndefined();
   });
 
-  it("offers a SUBTASK a column to attach to, but never a second one", () => {
+  it("offers a SUBTASK a column to attach to", () => {
     // A subtask may carry ONE column of its own (G14, G57) — so the × that
     // takes the column away must have a way back, or the Project board
-    // hands out a one-way door. What it may not have is a SECOND placement:
-    // its file rides its parent, and the second column would be stranded the
-    // moment the parent changes repository.
+    // hands out a one-way door.
+    const loose = placementTargets(mk({ parent: "p1", stage: "recurrent" }), board);
+    expect(loose.attach).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
+    // One it already carries is enough: nothing more is offered.
     const inColumn = placementTargets(
       mk({ project: "engineering", epic: "Cozystack", parent: "p1" }),
       board,
     );
-    expect(inColumn.mirror).toBeUndefined();
-
-    const loose = placementTargets(mk({ parent: "p1", stage: "recurrent" }), board);
-    expect(loose.attach).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
-  });
-
-  it("offers a subtask already in a column nothing more", () => {
-    // It has its column; a second one is refused by the server
-    // (ErrSubtaskMirror), so no board offers it. The Me and Team boards
-    // each remembered this separately — the rule belongs here, where the
-    // module promises "only what the server would accept".
-    const got = placementTargets(
-      mk({ project: "engineering", epic: "Cozystack", parent: "p1" }),
-      board,
-    );
-    expect(got.mirror).toBeUndefined();
-    expect(got.attach).toBeUndefined();
-  });
-
-  it("offers a card in a no-project column the mirrors of its repository", () => {
-    // A no-project column is a home like any other: it names a repository
-    // (its own), so the card mirrors inside it. The refusal this case used
-    // to pin was the PROJECT's answer to the column's question.
-    const got = placementTargets(mk({ epic: "Inbox" }), board);
-    expect(got.mirror).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
-    expect(got.attach).toBeUndefined();
+    expect(inColumn.attach).toBeUndefined();
   });
 
   // A recurrent card is a card like any other here: it comes round by
@@ -288,7 +215,6 @@ describe("placementTargets", () => {
   it("offers projects to a recurrent card", () => {
     const got = placementTargets(mk({ stage: "recurrent" }), board);
     expect(got.attach).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
-    expect(got.mirror).toBeUndefined();
   });
 
   it("offers projects to everything else", () => {
@@ -297,146 +223,23 @@ describe("placementTargets", () => {
   });
 });
 
-// Dragging a slot acts on the placement it was grabbed in. The everyday
-// gesture — nudging a mirror copy a week down without leaving its column —
-// used to re-file the card's home into the mirror column, collapsing two
-// placements into one with no question asked.
+// Dragging a slot: a vertical move inside its column is a date change and
+// nothing else; a drop on another column re-files the card there.
 describe("slotDragPlan", () => {
-  const card = mk({ project: "engineering", epic: "Cozystack" });
   const home = { project: "engineering", epic: "Cozystack" };
-  const mirror = { project: "freedom", epic: "Launch" };
-  const third = { project: "freedom", epic: "Ship" };
+  const other = { project: "freedom", epic: "Launch" };
 
-  it("a vertical move — in any column — is a date change only", () => {
-    expect(slotDragPlan(card, home, home)).toEqual({ kind: "dates" });
-    expect(slotDragPlan(card, mirror, mirror)).toEqual({ kind: "dates" });
+  it("a vertical move is a date change only", () => {
+    expect(slotDragPlan(home, home)).toEqual({ kind: "dates" });
   });
 
-  it("dragging the home into another column re-files the home", () => {
-    expect(slotDragPlan(card, home, mirror)).toEqual({ kind: "refileHome" });
-  });
-
-  it("dragging a mirror copy moves the mirror, not the home", () => {
-    expect(slotDragPlan(card, mirror, third)).toEqual({ kind: "moveMirror" });
-  });
-
-  it("dropping a mirror onto the home collapses it into the home", () => {
-    expect(slotDragPlan(card, mirror, home)).toEqual({ kind: "collapseMirror" });
+  it("dragging into another column re-files the card", () => {
+    expect(slotDragPlan(home, other)).toEqual({ kind: "refileHome" });
   });
 });
 
-// The optimistic mirror list is the one the server converges on — a drag
-// must never draw one slot twice in a column while the round trip runs.
-describe("slotDropMirrors", () => {
-  const grabbed = { project: "freedom", epic: "Launch" };
-
-  it("folds a mirror dragged onto a column the card already mirrors", () => {
-    const card = {
-      mirrors: [grabbed, { project: "freedom", epic: "Ship" }],
-    } as Card;
-    expect(
-      slotDropMirrors(card, grabbed, { project: "freedom", epic: "Ship" }, "moveMirror"),
-    ).toEqual([{ project: "freedom", epic: "Ship" }]);
-  });
-
-  it("drops the mirror the re-filed home lands on", () => {
-    const card = mk({ mirrors: [grabbed] });
-    expect(
-      slotDropMirrors(card, { project: "engineering", epic: "Cozystack" }, grabbed, "refileHome"),
-    ).toEqual([]);
-  });
-
-  it("keeps the standing order when a drop folds into an existing mirror", () => {
-    // The server keeps the standing entry where it is, and the FIRST
-    // mirror is the promotion heir — reordering optimistically would show
-    // the wrong heir until the re-list.
-    const card = {
-      mirrors: [
-        { project: "freedom", epic: "A" },
-        { project: "freedom", epic: "B" },
-        { project: "freedom", epic: "C" },
-      ],
-    } as Card;
-    expect(
-      slotDropMirrors(card, { project: "freedom", epic: "C" }, { project: "freedom", epic: "A" }, "moveMirror"),
-    ).toEqual([
-      { project: "freedom", epic: "A" },
-      { project: "freedom", epic: "B" },
-    ]);
-  });
-
-  it("moves and collapses as the plain cases say", () => {
-    const card = mk({ mirrors: [grabbed] });
-    expect(
-      slotDropMirrors(card, grabbed, { project: "freedom", epic: "Ship" }, "moveMirror"),
-    ).toEqual([{ project: "freedom", epic: "Ship" }]);
-    expect(
-      slotDropMirrors(card, grabbed, { project: "engineering", epic: "Cozystack" }, "collapseMirror"),
-    ).toEqual([]);
-  });
-});
-
-// A mirror drop is up to three requests. A failure in the middle leaves the
-// server holding a state the pre-drag snapshot does not describe, so the
-// error path must re-list — a silent local restore showed a board the
-// server did not hold until something else touched the card.
-describe("settleMirrorDrop", () => {
-  const grabbed = { project: "freedom", epic: "Launch" };
-  const target = { project: "freedom", epic: "Ship" };
-  const ui = () => {
-    const calls: string[] = [];
-    return {
-      calls,
-      restore: () => calls.push("restore"),
-      reload: () => calls.push("reload"),
-      onError: (m: string) => calls.push(`error:${m}`),
-      errMessage: (e: unknown) => String(e),
-    };
-  };
-
-  it("re-lists after a failure half-way through the chain", async () => {
-    const u = ui();
-    await settleMirrorDrop(
-      {
-        mirrorCard: () => Promise.resolve(),
-        unmirrorCard: () => Promise.reject(new Error("boom")),
-        patchCard: () => Promise.resolve(),
-      },
-      "c1",
-      grabbed,
-      target,
-      "moveMirror",
-      { start: "2026-08-24", end: "2026-08-28" },
-      u,
-    );
-    expect(u.calls).toEqual(["restore", "error:Error: boom", "reload"]);
-  });
-
-  it("re-lists once on success and never restores", async () => {
-    const u = ui();
-    const seen: string[] = [];
-    await settleMirrorDrop(
-      {
-        mirrorCard: (_, p, e) => (seen.push(`mirror:${p}/${e}`), Promise.resolve()),
-        unmirrorCard: (_, p, e) => (seen.push(`unmirror:${p}/${e}`), Promise.resolve()),
-        patchCard: () => (seen.push("dates"), Promise.resolve()),
-      },
-      "c1",
-      grabbed,
-      target,
-      "moveMirror",
-      { start: "2026-08-24", end: "2026-08-28" },
-      u,
-    );
-    // The new placement lands before the old one goes.
-    expect(seen).toEqual(["mirror:freedom/Ship", "unmirror:freedom/Launch", "dates"]);
-    expect(u.calls).toEqual(["reload"]);
-  });
-});
-
-// A mirrored card renders once per column; while one copy is dragged, only
-// THAT placement dims — dimming by card id alone dimmed the home copy
-// whenever a mirror copy moved.
+// While a slot is dragged, only THAT slot dims: the question is asked of
+// the slot's column as well as its card.
 describe("movingSlot", () => {
   const move = {
     card: { itemId: "c1" },
@@ -470,8 +273,6 @@ describe("makeCardPlacements onAttachProject", () => {
     const deps = {
       provider: {
         patchCard: () => Promise.resolve(undefined),
-        mirrorCard: () => Promise.resolve(),
-        unmirrorCard: () => Promise.resolve(),
       },
       patchCard: (_: string, patch: Partial<Card>) => {
         patches.push(patch);
@@ -493,16 +294,6 @@ describe("makeCardPlacements onAttachProject", () => {
     const patch = run(mk({ itemId: "c1", week: "2026-08-24" }));
     expect(patch.startDate).toBe("2026-08-24");
     expect(patch.day).toBe("2026-08-28");
-  });
-
-  it("adds the placement optimistically when mirroring", () => {
-    // The Project board draws one slot per placement, so the patch is what
-    // puts the card in the second column before the round trip returns.
-    const patch = run(
-      mk({ itemId: "c1", project: "engineering", epic: "Cozystack" }),
-      (p) => p.onMirror("freedom", "Launch"),
-    );
-    expect(patch.mirrors).toEqual([{ project: "freedom", epic: "Launch" }]);
   });
 
   it("keeps a dated card's chosen schedule", () => {
@@ -542,24 +333,11 @@ describe("drawnOnProjectBoard", () => {
     expect(drawnOnProjectBoard(mk({ project: "engineering" }), shown)).toBe(false);
   });
 
-  it("draws a card whose MIRROR names a shown column", () => {
-    expect(
-      drawnOnProjectBoard(
-        {
-          project: "strategy",
-          epic: "Fundraising",
-          mirrors: [{ project: "freedom", epic: "Launch" }],
-        } as Card,
-        shown,
-      ),
-    ).toBe(true);
-  });
 });
 
 // the slot menu must stay reachable: a subtask's team follows its
 // parent, but that is a reason to show the team read-only, not to take the
-// menu's handle away — the same menu carries "Mark as done" and "Mirror
-// to…".
+// menu's handle away — the same menu carries "Mark as done".
 describe("teamFollowsParent", () => {
   it("is true for a subtask and false for a standalone card", () => {
     expect(teamFollowsParent(mk({ parent: "p1" }))).toBe(true);
@@ -624,19 +402,11 @@ describe("targets on an alias project", () => {
     expect(got.attach).toEqual([{ name: "portal", epics: ["Bugs"] }]);
   });
 
-  it("mirrors within the card's own repository", () => {
-    const got = placementTargets(
-      mk({ project: "portal", epic: "Bugs", domain: "" }),
-      board,
-    );
-    expect(got.mirror).toEqual([]);
-  });
 });
 
 // The origin block draws what the card IS, not what the menu can offer.
-// Asking the offer instead left a card in a no-project column — newly
-// mirrorable — with an empty block: a stray divider line, the artefact
-// the origin rule exists to prevent.
+// Asking the offer instead left a card with an empty block: a stray
+// divider line, the artefact the origin rule exists to prevent.
 describe("hasOriginToShow", () => {
   it("is what the block asks — the menus are its siblings, not its children", () => {
     // A fresh unattached card has attach targets and no origin: asking the
@@ -648,13 +418,6 @@ describe("hasOriginToShow", () => {
 
   it("counts a column of no project", () => {
     expect(hasOriginToShow(mk({ epic: "Inbox" }))).toBe(true);
-  });
-
-  it("counts a project and a mirror", () => {
-    expect(hasOriginToShow(mk({ project: "engineering" }))).toBe(true);
-    expect(
-      hasOriginToShow({ mirrors: [{ project: "freedom", epic: "Launch" }] } as Card),
-    ).toBe(true);
   });
 
   it("is false for a card that came from nowhere", () => {
@@ -810,23 +573,9 @@ describe("attachTargets and the card's binding", () => {
   });
 });
 
-// A column's bar counts what the column DRAWS, mirrors included: keying by
-// the home pair left a mirror column reporting nothing while showing
-// slots, so the header and the columns disagreed on one screen.
+// A column's bar counts exactly what the column DRAWS: the card's own pair,
+// and nothing for a card outside every column.
 describe("columnsOf", () => {
-  it("lists the home and every mirror", () => {
-    expect(
-      columnsOf({
-        project: "engineering",
-        epic: "Cozystack",
-        mirrors: [{ project: "freedom", epic: "Launch" }],
-      } as Card),
-    ).toEqual([
-      { project: "engineering", epic: "Cozystack" },
-      { project: "freedom", epic: "Launch" },
-    ]);
-  });
-
   it("lists nothing for a card in no column", () => {
     expect(columnsOf(mk({}))).toEqual([]);
   });
@@ -889,61 +638,6 @@ describe("projectsWithColumns", () => {
     expect(
       projectsWithColumns(["engineering"], [{ name: "Cozystack", project: "engineering" }]),
     ).toEqual(["engineering"]);
-  });
-});
-
-// The optimistic side of unmirroring, which had no test while its two
-// siblings did: the placement must leave the card at once, or the slot it
-// draws stays on the grid until the re-list.
-describe("makeCardPlacements onUnmirror", () => {
-  it("drops the placement from the card at once", () => {
-    const patches: Partial<Card>[] = [];
-    const card = {
-      itemId: "c1",
-      project: "engineering",
-      epic: "Cozystack",
-      mirrors: [
-        { project: "freedom", epic: "Launch" },
-        { project: "freedom", epic: "Ship" },
-      ],
-    } as Card;
-    makeCardPlacements(
-      card,
-      { projects: ["engineering", "freedom"], epics: [] },
-      {
-        provider: {
-          patchCard: () => Promise.resolve(undefined),
-          mirrorCard: () => Promise.resolve(),
-          unmirrorCard: () => Promise.resolve(),
-        },
-        patchCard: (_: string, patch: Partial<Card>) => {
-          patches.push(patch);
-        },
-        reload: () => {},
-        onError: () => {},
-        errMessage: () => "",
-      },
-    ).onUnmirror("freedom", "Launch");
-    expect(patches[0].mirrors).toEqual([{ project: "freedom", epic: "Ship" }]);
-  });
-});
-
-// A subtask carries at most ONE column (G57), so no drag of its slot can
-// ever ask for a second: the grid draws a subtask once, and the plans that
-// move or fold a MIRROR cannot arise from it.
-describe("dragging a subtask's slot", () => {
-  it("never asks for a mirror move", () => {
-    const kid = mk({
-      parent: "p",
-      project: "engineering",
-      epic: "Cozystack",
-      mirrors: [],
-    });
-    const grabbed = { project: "engineering", epic: "Cozystack" };
-    expect(slotDragPlan(kid, grabbed, { project: "freedom", epic: "Launch" }).kind).toBe(
-      "refileHome",
-    );
-    expect(slotDragPlan(kid, grabbed, grabbed).kind).toBe("dates");
   });
 });
 
@@ -1032,25 +726,6 @@ describe("a board of one repository", () => {
     ).toBe(true);
   });
 
-  // The two rules that reached the payload's stamps without the one
-  // comparison: a card the store stamped and a picker reading the roster
-  // raw agreed only while both happened to carry the same string.
-  it("offers the mirrors of its own repository", () => {
-    const card = mk({ project: "engineering", epic: "Cozystack", mirrors: [] });
-    const board = {
-      projects: ["engineering"],
-      epics,
-      projectDomains: { engineering: "aeman" },
-      domains: [{ name: "aeman", writable: true, members: [] }],
-    };
-    // A card with NO stamp of its own — the shape a hand-built board and an
-    // older payload both produce — belongs to the primary, which is where
-    // the columns are.
-    expect(placementTargets(card, board).mirror).toEqual([
-      { name: "", epics: ["Inbox"] },
-    ]);
-  });
-
   it("offers every column to attach to", () => {
     expect(
       attachTargets(["engineering"], epics, "aeman", true, roster).map((p) => p.name),
@@ -1078,8 +753,8 @@ describe("a board of one repository", () => {
 // A figure that spans columns — the board header's total, a project's line
 // — de-duplicates by IDENTITY: the parent is either drawn in it or not.
 // Asking about the child's HOME project instead named a project nobody was
-// looking at, and a mirrored child was counted beside the parent whose bar
-// already derives from it.
+// looking at, and a child was counted beside the parent whose bar already
+// derives from it.
 describe("countedAmong", () => {
   it("skips a subtask whose parent is drawn in the same figure", () => {
     expect(countedAmong(mk({ parent: "p1" }), new Set(["p1", "c1"]))).toBe(false);
