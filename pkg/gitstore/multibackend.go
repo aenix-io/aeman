@@ -102,10 +102,9 @@ func (mb *MultiBackend) LoadBoard(_ context.Context, boardID string) (board.Boar
 	}
 	// The board's own repository, by NAME, and before the assembly runs:
 	// the snapshot stamps every entry with its domain's name, the primary
-	// included, and the assembly's own domain rules (declaredMirrors) ask
-	// "the same repository?" while they run — setting the name on the
-	// finished board would answer them in the wrong namespace and drop the
-	// mirrors the service had just written.
+	// included, and the rules that read the board (HomeDomain, ColumnDomain)
+	// ask "the same repository?" in that one namespace — setting the name
+	// on the finished board would answer them in the wrong namespace.
 	bd := boardFromSnapshotIn(mb.primary(), s)
 	bd.Board = boardID
 	return bd, nil
@@ -815,16 +814,6 @@ func (mb *MultiBackend) checkName(kind, name string) error {
 // SetEpic may move a card into another project's domain.
 func (mb *MultiBackend) SetEpic(ctx context.Context, bd board.Board, card board.Card, epic string) error {
 	return mb.refile(ctx, "epic", card, func(c *board.Card) { c.Epic = epic }, func(be *Backend) error { return be.SetEpic(ctx, bd, card, epic) })
-}
-
-// SetMirrors writes in the card's own domain: mirrors never move a card
-// (same-repository by the service's guard), so no refile is involved.
-func (mb *MultiBackend) SetMirrors(ctx context.Context, bd board.Board, card board.Card, mirrors []board.Placement) error {
-	be, err := mb.route(ctx, card)
-	if err != nil {
-		return err
-	}
-	return be.SetMirrors(ctx, bd, card, mirrors)
 }
 
 // SetProject may move a card into another project's domain.

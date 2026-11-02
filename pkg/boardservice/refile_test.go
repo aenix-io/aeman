@@ -8,10 +8,10 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// mirrorBoard: two projects in the primary repository (engineering with the
+// columnBoard: two projects in the primary repository (engineering with the
 // column Cozystack, freedom with Launch), one in another (strategy with
 // Fundraising).
-func mirrorBoard(cards []board.Card) *fakeBackend {
+func columnBoard(cards []board.Card) *fakeBackend {
 	roster := []board.Card{
 		{ItemID: "pr-e", Title: board.ProjectStateTitle, Project: "engineering"},
 		{ItemID: "pr-f", Title: board.ProjectStateTitle, Project: "freedom"},
@@ -25,126 +25,6 @@ func mirrorBoard(cards []board.Card) *fakeBackend {
 	})
 }
 
-// Mirror adds a second column to a card: the same card, one file and one
-// log, shown in two projects — so shared work is one card on one person,
-// not a duplicate per project drifting apart.
-func TestMirrorAddsASecondColumn(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "shared", Team: "platform", Project: "engineering", Epic: "Cozystack",
-			StartDate: "2026-08-24", Day: "2026-08-28", Week: "2026-08-24"},
-	})
-	svc := New(f)
-	if err := svc.Mirror(ctx, "acme", "c1", "freedom", "Launch"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if !board.Mirrored(c, "freedom", "Launch") {
-		t.Fatalf("the mirror was not recorded: %+v", c.Mirrors)
-	}
-	if c.Project != "engineering" || c.Epic != "Cozystack" {
-		t.Fatalf("the home column must not move: %+v", c)
-	}
-	if !board.InEpic(c, "freedom", "Launch") || !board.InEpic(c, "engineering", "Cozystack") {
-		t.Fatal("the card stands in both columns")
-	}
-	// Idempotent: mirroring where it already stands changes nothing.
-	if err := svc.Mirror(ctx, "acme", "c1", "freedom", "Launch"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ = f.LoadBoard(ctx, "acme")
-	c, _ = findCard(b, "c1")
-	if len(c.Mirrors) != 1 {
-		t.Fatalf("mirroring twice must not duplicate: %+v", c.Mirrors)
-	}
-}
-
-// The guards: no mirror without a home column, no mirror onto the home
-// itself, no mirror into a column that does not exist, and no mirror across
-// repositories — a card is one file in one repository, and a column
-// elsewhere cannot show a file its readers may not have (G15).
-func TestMirrorGuards(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "shared", Team: "platform", Project: "engineering", Epic: "Cozystack"},
-		{ItemID: "plain", Title: "no column", Team: "platform"},
-	})
-	svc := New(f)
-	if err := svc.Mirror(ctx, "acme", "plain", "freedom", "Launch"); err == nil {
-		t.Fatal("a card without a home column cannot be mirrored — attach it first")
-	}
-	if err := svc.Mirror(ctx, "acme", "c1", "engineering", "Cozystack"); err == nil {
-		t.Fatal("the home column is not a mirror target")
-	}
-	if err := svc.Mirror(ctx, "acme", "c1", "freedom", "Nope"); !errors.Is(err, ErrEpicNotFound) {
-		t.Fatalf("a column that does not exist: %v", err)
-	}
-	if err := svc.Mirror(ctx, "acme", "c1", "strategy", "Fundraising"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("a column in another repository: %v, want ErrCrossDomain", err)
-	}
-}
-
-// Unmirror takes one column away and touches nothing else.
-func TestUnmirrorRemovesOnePlacement(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "shared", Team: "platform", Project: "engineering", Epic: "Cozystack",
-			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
-	})
-	svc := New(f)
-	if err := svc.Unmirror(ctx, "acme", "c1", "freedom", "Launch"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if len(c.Mirrors) != 0 || c.Project != "engineering" || c.Epic != "Cozystack" {
-		t.Fatalf("only the mirror goes: %+v", c)
-	}
-	if err := svc.Unmirror(ctx, "acme", "c1", "freedom", "Launch"); err == nil {
-		t.Fatal("unmirroring a column the card does not mirror is an error")
-	}
-}
-
-// The Project board's × removes the card FROM THAT COLUMN, and what that
-// means depends on which column it is: a mirror just goes; the home, with
-// mirrors left, hands the home role to the first mirror; the last column
-// drops the card from the weekly plan ALWAYS, and the card survives only in
-// the working area — only when it was worked on. An untouched card with no
-// other column is deleted outright.
-func TestRemoveFromProjectMirrorGoesHomeStays(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "shared", Team: "platform", Project: "engineering", Epic: "Cozystack",
-			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
-	})
-	svc := New(f)
-	if err := svc.RemoveFromProject(ctx, "acme", "c1", "freedom", "Launch"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if len(c.Mirrors) != 0 || c.Project != "engineering" {
-		t.Fatalf("the mirror goes, the home stays: %+v", c)
-	}
-}
-
-func TestRemoveFromProjectPromotesTheFirstMirror(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "shared", Team: "platform", Project: "engineering", Epic: "Cozystack",
-			StartDate: "2026-08-24", Day: "2026-08-28", Week: "2026-08-24",
-			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
-	})
-	svc := New(f)
-	if err := svc.RemoveFromProject(ctx, "acme", "c1", "engineering", "Cozystack"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Project != "freedom" || c.Epic != "Launch" || len(c.Mirrors) != 0 {
-		t.Fatalf("the first mirror becomes the home: %+v", c)
-	}
-	if c.StartDate != "2026-08-24" || c.Week != "2026-08-24" {
-		t.Fatalf("the dates are shared and stay: %+v", c)
-	}
-}
-
 func TestRemoveFromLastProjectDropsTheWeekAndKeepsOnlyWorkedCards(t *testing.T) {
 	worked := board.Card{ItemID: "w", Title: "worked", Team: "platform", Project: "engineering", Epic: "Cozystack",
 		Assignees: []string{"kvaps"}, Progress: 40, Week: "2026-08-24",
@@ -152,7 +32,7 @@ func TestRemoveFromLastProjectDropsTheWeekAndKeepsOnlyWorkedCards(t *testing.T) 
 	idle := board.Card{ItemID: "i", Title: "idle", Team: "platform", Project: "engineering", Epic: "Cozystack",
 		Week:        "2026-08-24",
 		SprintStart: board.TodayIso(), StartDate: board.TodayIso(), Day: board.TodayIso()}
-	f := mirrorBoard([]board.Card{worked, idle})
+	f := columnBoard([]board.Card{worked, idle})
 	svc := New(f)
 
 	if err := svc.RemoveFromProject(ctx, "acme", "w", "engineering", "Cozystack"); err != nil {
@@ -188,7 +68,7 @@ func TestRemoveFromLastProjectDropsTheWeekAndKeepsOnlyWorkedCards(t *testing.T) 
 }
 
 func TestRemoveFromProjectRefusesAColumnTheCardIsNotIn(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "c1", Title: "x", Team: "platform", Project: "engineering", Epic: "Cozystack"},
 	})
 	if err := New(f).RemoveFromProject(ctx, "acme", "c1", "freedom", "Launch"); err == nil {
@@ -205,7 +85,7 @@ func TestRemoveFromProjectRefusesAColumnTheCardIsNotIn(t *testing.T) {
 // validating, and an agent calling remove_from_project with empty halves
 // on a column-less card is the most expectable mistake there is.
 func TestRemoveFromProjectRefusesTheEmptyPair(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "c1", Title: "no column", Team: "platform"},
 	})
 	svc := New(f)
@@ -227,7 +107,7 @@ func TestRemoveFromProjectRefusesTheEmptyPair(t *testing.T) {
 // removal from it follows the same last-column rules: an untouched card is
 // deleted, a worked card survives as a working-area orphan.
 func TestRemoveFromANoProjectColumnWorks(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "ep-inbox", Title: board.EpicStateTitle, Epic: "Inbox"},
 		{ItemID: "cold", Title: "untouched", Team: "platform", Epic: "Inbox"},
 		{ItemID: "warm", Title: "worked", Team: "platform", Epic: "Inbox",
@@ -251,58 +131,12 @@ func TestRemoveFromANoProjectColumnWorks(t *testing.T) {
 	}
 }
 
-// A no-project column is a home like any other: it names a repository —
-// its own, the one its stub was declared in — so a card standing in it
-// mirrors freely INSIDE that repository and not out of it. The refusal
-// this test used to pin ("a no-project home cannot mirror at all") was the
-// PROJECT's answer to a question that belongs to the column.
-func TestACardInANoProjectColumnMirrorsWithinItsRepository(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "ep-inbox", Title: board.EpicStateTitle, Epic: "Inbox"},
-		{ItemID: "c1", Title: "unbound", Team: "platform", Epic: "Inbox"},
-	})
-	svc := New(f)
-	if err := svc.Mirror(ctx, "acme", "c1", "freedom", "Launch"); err != nil {
-		t.Fatalf("both columns are of the primary repository: %v", err)
-	}
-	if err := svc.Mirror(ctx, "acme", "c1", "strategy", "Fundraising"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the closed repository's column still cannot show it: %v", err)
-	}
-}
-
-// A review link inside ONE repository moves nothing, so a mirrored card
-// keeps its mirrors through it — the refusal is for a link that would
-// carry the card out, and this rule had no test on either side. The board
-// NAMES its primary here, the way a real store hands it over: the two
-// sides of the question are read through HomeDomain, in one namespace, so
-// that an unstamped entry beside a stamped one cannot make a link that
-// moves nothing look like a move.
-func TestLinkingAMirroredCardAsAReviewInsideOneRepositoryIsAllowed(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "orig", Title: "the work", Team: "platform"},
-		{ItemID: "rev", Title: "review", Team: "platform", Project: "engineering", Epic: "Cozystack",
-			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
-	})
-	f.b.Primary = "aeman-db"
-	if err := New(f).SetReviewOf(ctx, "acme", "rev", "orig"); err != nil {
-		t.Fatalf("both cards live in the primary; nothing is stranded: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "rev")
-	if c.ReviewOf != "orig" {
-		t.Fatalf("the link is written: %+v", c)
-	}
-	if len(c.Mirrors) != 1 {
-		t.Fatalf("and the mirrors stand: %+v", c.Mirrors)
-	}
-}
-
 // Grouping hands a card's WEEK to its parent, which stands for it from then
 // on — but not the week of a card that stands in a COLUMN: there the week is
 // the row the Project board draws it in, and clearing it took the card's row
 // away, to be re-derived from dates the client is not shown.
 func TestGroupingKeepsTheWeekOfACardInAColumn(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 		{ItemID: "slot", Title: "a card in a column", Team: "platform",
 			Project: "engineering", Epic: "Cozystack",
@@ -332,60 +166,11 @@ func TestGroupingKeepsTheWeekOfACardInAColumn(t *testing.T) {
 	}
 }
 
-// Renames follow the mirrors. The rename loops match cards through InEpic,
-// which now sees mirrors — rewriting the card's HOME fields for a mirror
-// match would corrupt it, and not rewriting the mirror would strand it
-// under a name that no longer exists (issue #124's lesson, again).
-func TestRenameEpicRewritesMirrorsAndLeavesTheHomeAlone(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "shared", Team: "platform", Project: "engineering", Epic: "Cozystack",
-			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
-	})
-	svc := New(f)
-	if err := svc.RenameEpic(ctx, "acme", "freedom", "Launch", "Liftoff"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Project != "engineering" || c.Epic != "Cozystack" {
-		t.Fatalf("the home fields must survive a mirror's rename: %+v", c)
-	}
-	if !board.Mirrored(c, "freedom", "Liftoff") || board.Mirrored(c, "freedom", "Launch") {
-		t.Fatalf("the mirror follows the rename: %+v", c.Mirrors)
-	}
-}
-
-func TestRenameProjectRewritesMirrors(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "shared", Team: "platform", Project: "engineering", Epic: "Cozystack",
-			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
-	})
-	svc := New(f)
-	if err := svc.RenameProject(ctx, "acme", "freedom", "liberty"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if !board.Mirrored(c, "liberty", "Launch") {
-		t.Fatalf("the mirror follows the project rename: %+v", c.Mirrors)
-	}
-	if c.Project != "engineering" {
-		t.Fatalf("the home is untouched: %+v", c)
-	}
-	// A project rename is roster metadata: the home side writes no per-card
-	// line, and the mirror side stays symmetric — no EventMirror either.
-	for _, e := range f.eventsOf("c1") {
-		if e.Kind == board.EventMirror {
-			t.Fatalf("a project rename must not log per card: %+v", e)
-		}
-	}
-}
-
 // A card scheduled for a WEEK and attached to a project takes the slot of
 // that week: Monday to Friday, the whole of the week it was owed in, so the
 // card does not jump to another week on the way to the Project board.
 func TestAttachingACardOfAWeekTakesThatWeeksSlot(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "c1", Title: "planned", Team: "platform", Week: "2026-08-24"},
 	})
 	svc := New(f)
@@ -407,7 +192,7 @@ func TestAttachingACardOfAWeekTakesThatWeeksSlot(t *testing.T) {
 // never rewrites a schedule someone chose — the card keeps its dates, and
 // its row is wherever those dates put it.
 func TestAttachingADatedCardKeepsItsDates(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "c1", Title: "scheduled", Team: "platform", Week: "2026-08-24",
 			StartDate: "2026-09-07", Day: "2026-09-09"},
 	})
@@ -423,269 +208,13 @@ func TestAttachingADatedCardKeepsItsDates(t *testing.T) {
 	}
 }
 
-// The mirror invariant must survive the OLD ways a card is re-filed, not
-// only the new actions. Three collisions, each reachable from the UI or a
-// plain PATCH before this test existed:
-//
-//   - the home dragged onto a column the card already mirrors left a
-//     mirror entry EQUAL to the home — Mirrored(home) turned true, the ×
-//     unmirrored instead of removing, and the Project board drew the slot
-//     twice under one key;
-//   - clearing the epic left mirrors on a card outside every project —
-//     invisible on the Project board, yet counted by InEpic, so DeleteEpic
-//     refused for cards nobody could see;
-//   - re-filing a teamless card into a project of another repository (or
-//     moving a whole column there) carried the home across while the
-//     mirrors stayed behind: the very state ErrCrossDomain exists to
-//     forbid.
-func TestReFilingTheHomeOntoAMirrorDropsTheDuplicate(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "shared", Team: "platform", Project: "engineering", Epic: "Cozystack",
-			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
-	})
-	svc := New(f)
-	project := "freedom"
-	if err := svc.SetEpic(ctx, "acme", "c1", "Launch", &project); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Project != "freedom" || c.Epic != "Launch" {
-		t.Fatalf("the home moved: %+v", c)
-	}
-	if len(c.Mirrors) != 0 {
-		t.Fatalf("a mirror equal to the home is no mirror — it is dropped: %+v", c.Mirrors)
-	}
-}
-
-func TestClearingTheEpicClearsTheMirrorsToo(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "shared", Team: "platform", Project: "engineering", Epic: "Cozystack",
-			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
-	})
-	svc := New(f)
-	if err := svc.SetEpic(ctx, "acme", "c1", "", nil); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Epic != "" || c.Project != "" {
-		t.Fatalf("the column is cleared: %+v", c)
-	}
-	if len(c.Mirrors) != 0 {
-		t.Fatalf("a card outside every project has no mirrors: %+v", c.Mirrors)
-	}
-}
-
-func TestReFilingAMirroredCardIntoAnotherRepositoryIsRefused(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "teamless", Project: "engineering", Epic: "Cozystack",
-			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
-	})
-	svc := New(f)
-	project := "strategy"
-	err := svc.SetEpic(ctx, "acme", "c1", "Fundraising", &project)
-	if !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the home cannot leave its mirrors' repository: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Project != "engineering" {
-		t.Fatalf("a refused move changes nothing: %+v", c)
-	}
-}
-
-func TestMovingAColumnToAnotherRepositoryIsRefusedWhileCardsMirrorIt(t *testing.T) {
-	// The card is teamless on purpose: a team of the primary repository
-	// would refuse the move first (G46), before the mirror rule gets a say.
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "shared", Project: "engineering", Epic: "Cozystack",
-			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
-	})
-	svc := New(f)
-	// Moving Launch's column into the founders repository would leave c1's
-	// mirror pointing across repositories: refused, not rewritten.
-	if err := svc.SetEpicProject(ctx, "acme", "freedom", "Launch", "strategy"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("a column with cross-repo mirrors on it cannot move there: %v", err)
-	}
-	// And refused BEFORE anything moves: a guard that fires after the
-	// column's stub has been re-parented leaves the stub in one project and
-	// every card in another — half a column gone.
-	b, _ := f.LoadBoard(ctx, "acme")
-	if _, ok := board.FindEpic(b, "freedom", "Launch"); !ok {
-		t.Fatal("the refused move re-parented the column's stub anyway")
-	}
-}
-
-// The other direction of the same rule: a card whose HOME is in the moved
-// column, with mirrors elsewhere, must not be carried into another
-// repository while its mirrors stay behind. (Teamless on purpose: a team
-// would trip G46 first.)
-func TestMovingAColumnCannotCarryAHomeAwayFromItsMirrors(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "shared", Project: "engineering", Epic: "Cozystack",
-			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
-	})
-	svc := New(f)
-	if err := svc.SetEpicProject(ctx, "acme", "engineering", "Cozystack", "strategy"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the home cannot leave its mirrors' repository by a column move: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	if _, ok := board.FindEpic(b, "engineering", "Cozystack"); !ok {
-		t.Fatal("a refused move changes nothing")
-	}
-	c, _ := findCard(b, "c1")
-	if c.Project != "engineering" {
-		t.Fatalf("the card stays put: %+v", c)
-	}
-}
-
-// Unbinding a column into the no-project bucket while mirrored cards stand
-// on it is refused with a reason a person can act on — not a sentence about
-// the repository of "".
-func TestUnbindingAMirroredColumnSaysUnmirrorFirst(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "shared", Project: "engineering", Epic: "Cozystack",
-			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
-	})
-	svc := New(f)
-	err := svc.SetEpicProject(ctx, "acme", "engineering", "Cozystack", "")
-	if !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("unbinding under mirrors: %v", err)
-	}
-	if !strings.Contains(err.Error(), "unmirror") {
-		t.Fatalf("the refusal must say what to do: %v", err)
-	}
-}
-
-// A subtask carries at most ONE column of its own (G57), which the Project
-// board draws and counts like any other slot. A second placement it may
-// not have: its file rides its parent, so every mirror would be stranded
-// the moment the parent changes repository — naming a column of a
-// repository that no longer holds the card. Mirroring a subtask is refused, and grouping a
-// mirrored card clears its mirrors the way it clears its plan slot; the
-// home column stays (G14 blesses a subtask carrying its own column), so the
-// emptied column can then be deleted.
-func TestSubtasksCarryNoMirrors(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "c1", Title: "child-to-be", Team: "platform", Parent: "p",
-			Project: "engineering", Epic: "Cozystack"},
-	})
-	svc := New(f)
-	if err := svc.Mirror(ctx, "acme", "c1", "freedom", "Launch"); !errors.Is(err, ErrSubtaskMirror) {
-		t.Fatalf("a subtask cannot be mirrored: %v", err)
-	}
-
-	f2 := mirrorBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "c1", Title: "mirrored", Team: "platform",
-			Project: "engineering", Epic: "Cozystack",
-			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
-	})
-	svc = New(f2)
-	// While the mirror stands, the column it points at is OCCUPIED — by a
-	// placement no board draws — and must refuse deletion: the negative
-	// half, the one that fails without a mirrors-aware InEpic. (DeleteEpic
-	// takes the column's NAME first, then its project — swapped once, this
-	// whole test proved a no-op on a column that does not exist.)
-	if err := svc.DeleteEpic(ctx, "acme", "Launch", "freedom"); !errors.Is(err, ErrEpicInUse) {
-		t.Fatalf("a column held only by a mirror is still held: %v", err)
-	}
-	if err := svc.SetParent(ctx, "acme", "c1", "p"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f2.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if len(c.Mirrors) != 0 {
-		t.Fatalf("grouping clears the mirrors: %+v", c.Mirrors)
-	}
-	if c.Epic != "Cozystack" {
-		t.Fatalf("the home column stays: %+v", c)
-	}
-	// And the column the mirror pointed at is deletable again: nothing
-	// invisible stands in it.
-	if err := svc.DeleteEpic(ctx, "acme", "Launch", "freedom"); err != nil {
-		t.Fatalf("the emptied column must be deletable: %v", err)
-	}
-}
-
-// The review link decides the card's repository before its project (linked
-// cards first, G14), so SetReviewOf is a re-file in disguise: pointing a
-// mirrored review card at an original in another repository would carry
-// the file away and leave the mirrors naming columns of the repository it
-// left — for whose readers the column looks empty while DeleteEpic refuses
-// "occupied". Refused, symmetric with SetEpic; a same-repository original
-// moves nothing and links freely; and clearing a link that holds the card
-// elsewhere is the same move in reverse, refused the same way.
-func TestTheReviewLinkCannotCarryAMirroredCardAway(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "review", Team: "platform", Project: "engineering", Epic: "Cozystack",
-			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
-		{ItemID: "orig", Title: "original", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
-		{ItemID: "near", Title: "neighbour", Team: "platform", Project: "freedom", Epic: "Launch"},
-	})
-	svc := New(f)
-	if err := svc.SetReviewOf(ctx, "acme", "c1", "orig"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the link would re-file the card into another repository: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.ReviewOf != "" {
-		t.Fatalf("the refused link must not land: %+v", c)
-	}
-	if err := svc.SetReviewOf(ctx, "acme", "c1", "near"); err != nil {
-		t.Fatalf("a same-repository original links freely: %v", err)
-	}
-	if err := svc.SetReviewOf(ctx, "acme", "c1", ""); err != nil {
-		t.Fatalf("clearing a same-repository link moves nothing: %v", err)
-	}
-}
-
-// The other door of the same room: a review card whose link already points
-// into another repository LIVES there (its file follows the original), so
-// no column of its home project's repository may show it.
-func TestACardLinkedIntoAnotherRepositoryCannotBeMirrored(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "orig", Title: "original", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
-		{ItemID: "rev", Title: "review", Team: "platform", Project: "engineering", Epic: "Cozystack",
-			ReviewOf: "orig", Domain: "founders"},
-	})
-	if err := New(f).Mirror(ctx, "acme", "rev", "freedom", "Launch"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the card's file lives where its original does: %v", err)
-	}
-}
-
-// A rewritten mirror entry leaves the same trace a home rename does: the
-// activity log is the second documentation, and a mirror that silently
-// changed columns read as one appearing from nowhere.
-func TestARenamedMirrorLandsInTheCardsLog(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "shared", Team: "platform", Project: "engineering", Epic: "Cozystack",
-			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
-	})
-	svc := New(f)
-	if err := svc.RenameEpic(ctx, "acme", "freedom", "Launch", "Liftoff"); err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, e := range f.eventsOf("c1") {
-		if e.Kind == board.EventMirror && e.From == "freedom / Launch" && e.To == "freedom / Liftoff" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("the rewrite must be logged: %+v", f.eventsOf("c1"))
-	}
-}
-
 // A SUBTASK has another home: its parent. The Project board draws it in
 // the column it carries (G14 blesses that), so the × must be able to take
 // it out of the column — but never to delete it, however untouched it is.
 // Deleting here would destroy a card that is still riding its parent on
 // every other board, which is the two-homes rule the × exists to honour.
 func TestRemoveFromColumnNeverDeletesASubtask(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 		{ItemID: "c1", Title: "untouched child", Team: "platform", Parent: "p",
 			Project: "engineering", Epic: "Cozystack"},
@@ -707,43 +236,6 @@ func TestRemoveFromColumnNeverDeletesASubtask(t *testing.T) {
 	}
 }
 
-// A card's column names a repository, and that repository must be the one
-// that HOLDS the card's file. For an ordinary card the two agree by
-// construction — the project decides the domain — but when a LINK outranks
-// the project (a subtask riding its parent, a review card following its
-// original, G14) the file stays put while the column can be dragged
-// anywhere. The result is the state ErrSubtaskMirror was written against:
-// a column of one repository counting a card whose file another repository
-// holds, so DeleteEpic refuses for a card nobody there can see.
-func TestAColumnCannotNameARepositoryThatDoesNotHoldTheCard(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Project: "engineering", Epic: "Cozystack"},
-		{ItemID: "c1", Title: "child", Parent: "p"},
-		{ItemID: "rev", Title: "review", ReviewOf: "p"},
-		// Teamless on purpose: a team of the primary repository would refuse
-		// the move first (G46), before this rule gets a say.
-		{ItemID: "plain", Title: "ordinary", Project: "engineering", Epic: "Cozystack"},
-	})
-	svc := New(f)
-	strategy := "strategy"
-	if err := svc.SetEpic(ctx, "acme", "c1", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the subtask's file rides its parent, in the primary repository: %v", err)
-	}
-	if err := svc.SetEpic(ctx, "acme", "rev", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the review card's file follows its original: %v", err)
-	}
-	// The same repository is free — a subtask may carry its own column (G14).
-	freedom := "freedom"
-	if err := svc.SetEpic(ctx, "acme", "c1", "Launch", &freedom); err != nil {
-		t.Fatalf("a column of its own repository is a subtask's right: %v", err)
-	}
-	// And an ordinary teamless card still moves BETWEEN repositories freely:
-	// there the project is what decides, so the file follows the column.
-	if err := svc.SetEpic(ctx, "acme", "plain", "Fundraising", &strategy); err != nil {
-		t.Fatalf("an ordinary card's file follows its project: %v", err)
-	}
-}
-
 // The column-holds-the-file rule has a second door: GROUPING. A subtask's
 // file follows its parent, so grouping a columned card under a parent of
 // another repository would leave its column naming a repository that no
@@ -751,7 +243,7 @@ func TestAColumnCannotNameARepositoryThatDoesNotHoldTheCard(t *testing.T) {
 // instead of a menu. The Project board draws such a card and counts it,
 // so the stale column is load-bearing, not merely untidy.
 func TestGroupingUnderAParentInAnotherRepositoryIsRefused(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
 		{ItemID: "near", Title: "parent here", Project: "engineering", Epic: "Cozystack"},
 		{ItemID: "c1", Title: "columned child", Project: "engineering", Epic: "Cozystack"},
@@ -781,7 +273,7 @@ func TestGroupingUnderAParentInAnotherRepositoryIsRefused(t *testing.T) {
 // behind. The guard has to look at the children, not only at the card the
 // caller named.
 func TestReFilingAParentCannotStrandItsSubtasksColumn(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Project: "engineering", Epic: "Cozystack"},
 		{ItemID: "c1", Title: "child", Parent: "p", Project: "engineering", Epic: "Cozystack"},
 	})
@@ -808,7 +300,7 @@ func TestReFilingAParentCannotStrandItsSubtasksColumn(t *testing.T) {
 // project to ask: reading the project made every card in it ungroupable,
 // because ProjectStates never holds "" and the lookup always missed.
 func TestGroupingACardFromANoProjectColumnIsFree(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "ep-loose", Title: board.EpicStateTitle, Epic: "Loose"},
 		{ItemID: "p", Title: "parent", Team: "platform"},
 		{ItemID: "c1", Title: "loose column child", Team: "platform", Epic: "Loose"},
@@ -828,7 +320,7 @@ func TestGroupingACardFromANoProjectColumnIsFree(t *testing.T) {
 // of ANOTHER repository is refused whether or not that column has a
 // project — the two guards must answer alike, or one of them is a way in.
 func TestAttachingToAForeignNoProjectColumnIsRefused(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "ep-far", Title: board.EpicStateTitle, Epic: "Far", Domain: "founders"},
 		{ItemID: "p", Title: "parent", Team: "platform"},
 		{ItemID: "c1", Title: "child", Team: "platform", Parent: "p"},
@@ -844,7 +336,7 @@ func TestAttachingToAForeignNoProjectColumnIsRefused(t *testing.T) {
 // and gave it to the parent — in the cache only, since the commit never
 // happened: the board then showed a state git had never held.
 func TestARefusedGroupingLeavesTheWeekAlone(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
 		{ItemID: "c1", Title: "planned child", Project: "engineering", Epic: "Cozystack",
 			Week: "2026-08-24"},
@@ -868,7 +360,7 @@ func TestARefusedGroupingLeavesTheWeekAlone(t *testing.T) {
 // cascade), so a columned REVIEW CARD is stranded by moving its original
 // exactly as a subtask is stranded by moving its parent.
 func TestReFilingAnOriginalCannotStrandItsReviewCardsColumn(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "orig", Title: "original", Project: "engineering", Epic: "Cozystack"},
 		{ItemID: "rev", Title: "review", ReviewOf: "orig", Project: "engineering", Epic: "Cozystack"},
 	})
@@ -887,7 +379,7 @@ func TestReFilingAnOriginalCannotStrandItsReviewCardsColumn(t *testing.T) {
 // Grouping moves the card's file, and the cascade drags its review card
 // along: the review card's own column stays behind.
 func TestGroupingCannotStrandAReviewCardsColumn(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
 		{ItemID: "orig", Title: "original", Team: "platform"},
 		{ItemID: "rev", Title: "review", ReviewOf: "orig", Project: "engineering", Epic: "Cozystack"},
@@ -900,7 +392,7 @@ func TestGroupingCannotStrandAReviewCardsColumn(t *testing.T) {
 // Pulling a subtask back out is a re-file too: the child leaves its
 // parent's repository for whatever its own project or team names.
 func TestUngroupingCannotStrandAFollowersColumn(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
 		{ItemID: "kid", Title: "child", Team: "platform", Parent: "far"},
 		{ItemID: "rev", Title: "review of the child", ReviewOf: "kid",
@@ -914,7 +406,7 @@ func TestUngroupingCannotStrandAFollowersColumn(t *testing.T) {
 // A card with no project follows its TEAM, and the no-project bucket is a
 // real column — re-teaming across repositories leaves that column behind.
 func TestReTeamingCannotStrandTheCardsOwnColumn(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "ep-loose", Title: board.EpicStateTitle, Epic: "Loose"},
 		{ItemID: "c1", Title: "loose column card", Team: "platform", Epic: "Loose"},
 	})
@@ -934,7 +426,7 @@ func TestReTeamingCannotStrandTheCardsOwnColumn(t *testing.T) {
 // The review link re-files the card to the original's repository (linked
 // cards first), and its own column does not follow.
 func TestSettingTheReviewLinkCannotStrandTheCardsOwnColumn(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "orig", Title: "original", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
 		{ItemID: "c1", Title: "review", Project: "engineering", Epic: "Cozystack"},
 	})
@@ -948,7 +440,7 @@ func TestSettingTheReviewLinkCannotStrandTheCardsOwnColumn(t *testing.T) {
 // was enough to blind it: a columnless child hides the columned review
 // card hanging off it.
 func TestTheGuardFollowsTheCascadeAllTheWayDown(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "grandparent", Project: "engineering", Epic: "Cozystack"},
 		{ItemID: "kid", Title: "child", Parent: "p"},
 		{ItemID: "rev", Title: "review of the child", ReviewOf: "kid",
@@ -965,7 +457,7 @@ func TestTheGuardFollowsTheCascadeAllTheWayDown(t *testing.T) {
 // stays where it is — and its project field is rewritten to name the
 // column that just left.
 func TestMovingAColumnCannotStrandALinkedCardStandingInIt(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent"},
 		{ItemID: "c1", Title: "subtask", Parent: "p", Project: "engineering", Epic: "Cozystack"},
 	})
@@ -984,30 +476,6 @@ func TestMovingAColumnCannotStrandALinkedCardStandingInIt(t *testing.T) {
 	}
 }
 
-// A project NAME can be declared in two repositories, and then its columns
-// are merged under one entry (G13) while each column keeps the repository
-// it was declared in. The question "may this card stand in this column" is
-// therefore the COLUMN's to answer, never the project's — reading the
-// project's offered a column the store could not hold the card in.
-func TestAColumnOfAnAliasProjectAnswersForItself(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		// "engineering" is declared in the primary; the same NAME is
-		// declared again in founders, carrying its own column.
-		{ItemID: "pr-e2", Title: board.ProjectStateTitle, Project: "engineering", Domain: "founders"},
-		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed work",
-			Project: "engineering", Domain: "founders"},
-		{ItemID: "c1", Title: "primary card", Project: "engineering", Epic: "Cozystack"},
-	})
-	svc := New(f)
-	if err := svc.Mirror(ctx, "acme", "c1", "engineering", "Closed work"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the column lives in founders, the card does not: %v", err)
-	}
-	none := "engineering"
-	if err := svc.SetEpic(ctx, "acme", "c1", "Closed work", &none); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("and attaching to it is the same question: %v", err)
-	}
-}
-
 // A column cannot be moved to a project of ANOTHER repository, because its
 // stub cannot follow: the store hands a stub back to the backend that
 // holds it (isStub), so the column would stay declared where it was while
@@ -1016,7 +484,7 @@ func TestAColumnOfAnAliasProjectAnswersForItself(t *testing.T) {
 // it stands in. That is the state G57 forbids, and it is a trap: from then
 // on every guard refuses the card, and no gesture in the product frees it.
 func TestAColumnCannotMoveToAProjectOfAnotherRepository(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		// Teamless: a team of the primary would refuse the move first (G46),
 		// and this is exactly the card that would be stranded.
 		{ItemID: "plain", Title: "plain card", Project: "engineering", Epic: "Cozystack"},
@@ -1043,7 +511,7 @@ func TestAColumnCannotMoveToAProjectOfAnotherRepository(t *testing.T) {
 // repository through their team. Comparing against the target PROJECT's
 // repository (the primary, for the no-project bucket) refused this.
 func TestUnbindingANonPrimaryColumnKeepsItsCards(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "c1", Title: "closed card", Team: "founders",
 			Project: "strategy", Epic: "Fundraising", Domain: "founders"},
 	})
@@ -1059,7 +527,7 @@ func TestUnbindingANonPrimaryColumnKeepsItsCards(t *testing.T) {
 // carries one is now a drawn, counted slot in someone else's planner, so
 // deleting it there destroys work that is visibly planned elsewhere.
 func TestTheGridRemoveKeepsAColumnedSubtask(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 		{ItemID: "c1", Title: "columned child", Team: "platform", Parent: "p",
 			Project: "engineering", Epic: "Cozystack",
@@ -1102,7 +570,7 @@ func TestTheGridRemoveKeepsAColumnedSubtask(t *testing.T) {
 // A subtask with nowhere else to be is still deleted: there is no column to
 // release it into, and leaving it grouped would be an × that did nothing.
 func TestTheGridRemoveStillDeletesAColumnlessSubtask(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 		{ItemID: "c1", Title: "plain child", Team: "platform", Parent: "p",
 			SprintStart: board.TodayIso()},
@@ -1121,7 +589,7 @@ func TestTheGridRemoveStillDeletesAColumnlessSubtask(t *testing.T) {
 // caller asked for a child and got a top-level card, which on the Project
 // board is a slot in the wrong place with no way to tell.
 func TestCreatingACardWithBothAParentAndAColumnKeepsBoth(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 	})
 	c, err := New(f).CreateCard(ctx, "acme", CreateCardArgs{
@@ -1141,41 +609,11 @@ func TestCreatingACardWithBothAParentAndAColumnKeepsBoth(t *testing.T) {
 	}
 }
 
-// A column move INSIDE one repository strands nothing, mirrors or not.
-// The guard asked ColumnDomain(to, epic) — a column that cannot exist yet,
-// since epicNameFree has just proved the name free there — so it answered
-// "no such repository" every time and refused every move. The question is
-// the domain the column will HAVE once it lands: its new project's.
-func TestMovingAColumnInsideOneRepositoryIsFreeWhileCardsMirrorIt(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "mirrored into the column", Team: "platform",
-			Project: "engineering", Epic: "Cozystack",
-			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
-	})
-	// c1's HOME is the column being moved, and it mirrors elsewhere in the
-	// same repository: the move takes it along, and both placements stay
-	// inside the primary.
-	if err := New(f).SetEpicProject(ctx, "acme", "engineering", "Cozystack", "freedom"); err != nil {
-		t.Fatalf("nothing crosses a boundary here: %v", err)
-	}
-}
-
-func TestMovingAColumnInsideOneRepositoryIsFreeWhenACardMirrorsIntoIt(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "mirrors this column", Team: "platform",
-			Project: "freedom", Epic: "Launch",
-			Mirrors: []board.Placement{{Project: "engineering", Epic: "Cozystack"}}},
-	})
-	if err := New(f).SetEpicProject(ctx, "acme", "engineering", "Cozystack", "freedom"); err != nil {
-		t.Fatalf("the mirror and its home stay in one repository: %v", err)
-	}
-}
-
 // The create door validates the parent BEFORE writing anything: a card
 // born and then deleted because its parent was never findable is a stray
 // ADDED broadcast and a created event for a card that should not exist.
 func TestCreatingUnderAnImpossibleParentCreatesNothing(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
 	})
 	svc := New(f)
@@ -1208,7 +646,7 @@ func TestCreatingUnderAnImpossibleParentCreatesNothing(t *testing.T) {
 // too, BOTH reasons travel. One of the two create paths used to swallow
 // the second and hand back the card it had just tried to delete.
 func TestAFailedGroupingUndoesTheCreateAndReportsWhatItCannot(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 	})
 	f.parentErr = errors.New("the grouping would not take")
@@ -1238,7 +676,7 @@ func TestAFailedGroupingUndoesTheCreateAndReportsWhatItCannot(t *testing.T) {
 // project of another repository (G46), but "it follows from two other
 // rules" is exactly the kind of claim that stops being true quietly.
 func TestAFreedSubtasksColumnStillNamesItsRepository(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform", Assignees: []string{"kvaps"}},
 		{ItemID: "kid", Title: "columned child", Team: "platform", Parent: "p",
 			Project: "engineering", Epic: "Cozystack"},
@@ -1266,7 +704,7 @@ func TestAFreedSubtasksColumnStillNamesItsRepository(t *testing.T) {
 
 // The review link the same way, on the epic path.
 func TestCreatingAColumnedReviewCardKeepsTheLink(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "orig", Title: "original", Team: "platform"},
 	})
 	c, err := New(f).CreateCard(ctx, "acme", CreateCardArgs{
@@ -1289,7 +727,7 @@ func TestCreatingAColumnedReviewCardKeepsTheLink(t *testing.T) {
 // refused at every door with nothing in the product to free them. The
 // name has to be free, exactly as it must be for any other destination.
 func TestUnbindingACollidingColumnIsRefused(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "ep-loose", Title: board.EpicStateTitle, Epic: "Launch"},
 	})
 	if err := New(f).SetEpicProject(ctx, "acme", "freedom", "Launch", ""); err == nil {
@@ -1302,7 +740,7 @@ func TestUnbindingACollidingColumnIsRefused(t *testing.T) {
 // with reviewOf in one repository and a column in another was born into
 // the state every other door refuses — file here, column there.
 func TestCreatingAColumnedReviewCardAcrossRepositoriesIsRefused(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "orig", Title: "original", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
 	})
 	svc := New(f)
@@ -1323,7 +761,7 @@ func TestCreatingAColumnedReviewCardAcrossRepositoriesIsRefused(t *testing.T) {
 // and the real refusal came from inside SetParent: after the create, with
 // the stray ADDED broadcast and created event that probe exists to avoid.
 func TestTheCreateProbeReadsTheLinkBeforeTheParent(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 		{ItemID: "orig", Title: "original", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
 	})
@@ -1345,7 +783,7 @@ func TestTheCreateProbeReadsTheLinkBeforeTheParent(t *testing.T) {
 // could still write "file here, column there" was the one that makes the
 // card. Both of the shapes the rest of the branch refuses elsewhere.
 func TestCreatingIntoAColumnOfAnotherRepositoryIsRefused(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "ep-loose", Title: board.EpicStateTitle, Epic: "Loose"},
 		{ItemID: "ep-far", Title: board.EpicStateTitle, Epic: "Far", Project: "engineering", Domain: "founders"},
 	})
@@ -1379,7 +817,7 @@ func TestCreatingIntoAColumnOfAnotherRepositoryIsRefused(t *testing.T) {
 // primary while its column stays behind. The freed card keeps its column
 // only while that column still names the repository that holds it.
 func TestFreeingASubtaskDropsAColumnItsRepositoryNoLongerHolds(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
 		{ItemID: "orig", Title: "original", Team: "founders"},
 		{ItemID: "rev", Title: "review", ReviewOf: "orig"},
@@ -1407,7 +845,7 @@ func TestFreeingASubtaskDropsAColumnItsRepositoryNoLongerHolds(t *testing.T) {
 // be answered by scheduling THE PARENT for the week the request named for
 // the child: a mutation of a card nobody asked about.
 func TestCreatingACardOfAWeekUnderAParentIsRefused(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 	})
 	svc := New(f)
@@ -1433,7 +871,7 @@ func TestCreatingACardOfAWeekUnderAParentIsRefused(t *testing.T) {
 // so a card dropped under the wrong parent could not be freed at all. It is
 // pulled out, and the week lands on the card that comes back.
 func TestGivingAStandingSubtaskAWeekTakesItOutOfTheGroup(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 		{ItemID: "kid", Title: "child", Team: "platform", Parent: "p"},
 	})
@@ -1462,7 +900,7 @@ func TestGivingAStandingSubtaskAWeekTakesItOutOfTheGroup(t *testing.T) {
 // The CREATE door still refuses the pair: a card born as both is a request
 // for two contradictory things, and there is no gesture to interpret.
 func TestCreatingACardThatIsBothIsStillRefused(t *testing.T) {
-	f := mirrorBoard([]board.Card{{ItemID: "p", Title: "parent", Team: "platform"}})
+	f := columnBoard([]board.Card{{ItemID: "p", Title: "parent", Team: "platform"}})
 	if _, err := New(f).CreateCard(ctx, "acme", CreateCardArgs{
 		Title: "both", Team: "platform", Parent: "p", Week: "2026-08-24",
 	}); !errors.Is(err, ErrSubtaskWeek) {
@@ -1474,7 +912,7 @@ func TestCreatingACardThatIsBothIsStillRefused(t *testing.T) {
 // undo, and the case the double-failure test cannot show, since there the
 // undo fails too.
 func TestAFailedGroupingLeavesNoCardBehind(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 	})
 	f.parentErr = errors.New("the grouping would not take")
@@ -1498,7 +936,7 @@ func TestAFailedGroupingLeavesNoCardBehind(t *testing.T) {
 // a column that disappears from a card without a line in its history is a
 // card nobody can account for afterwards.
 func TestTheDroppedColumnOfAFreedSubtaskIsLogged(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
 		{ItemID: "orig", Title: "original", Team: "founders"},
 		{ItemID: "rev", Title: "review", ReviewOf: "orig"},
@@ -1544,33 +982,6 @@ func stampedBoard(cards []board.Card) *fakeBackend {
 	return f
 }
 
-// A card in a no-project column of the PRIMARY, placed by nothing else:
-// the column is stamped "aeman-db", the placement rule says "nothing
-// places this", and the two must still mean the same repository.
-func TestTheRulesReadOneNamespaceOnAStampedBoard(t *testing.T) {
-	f := stampedBoard([]board.Card{
-		{ItemID: "c1", Title: "in the bucket", Epic: "Inbox"},
-	})
-	svc := New(f)
-
-	// Creating into that column is not a cross-repository move.
-	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{Title: "another", Epic: "Inbox"}); err != nil {
-		t.Fatalf("the bucket is a column of this very board: %v", err)
-	}
-	// Nor is mirroring within it, nor attaching to a sibling column.
-	if err := svc.Mirror(ctx, "acme", "c1", "", "Other"); err != nil {
-		t.Fatalf("both columns are of the primary: %v", err)
-	}
-	none := ""
-	if err := svc.SetEpic(ctx, "acme", "c1", "Other", &none); err != nil {
-		t.Fatalf("and the card may be re-filed between them: %v", err)
-	}
-	// The closed repository is still closed to it.
-	if err := svc.Mirror(ctx, "acme", "c1", "strategy", "Fundraising"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("a column of another repository still cannot show it: %v", err)
-	}
-}
-
 // The repair must not fire on a card whose column was fine: deleting a
 // parent freed the child and stripped its column, because the column read
 // "aeman-db" and the freed card read "".
@@ -1600,7 +1011,7 @@ func TestAStampedBoardKeepsAFreedSubtasksLawfulColumn(t *testing.T) {
 // commit the request never makes, kept by the server's cache until
 // something else reloads the card.
 func TestTheGridRemoveWritesNothingWhenItRefusesOverAFollower(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
 		{ItemID: "p", Title: "parent in the closed repository", Team: "founders", Domain: "founders"},
 		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Epic: "Closed",
@@ -1634,7 +1045,7 @@ func TestTheGridRemoveWritesNothingWhenItRefusesOverAFollower(t *testing.T) {
 // open, findable only by id by someone who already knows it exists. The
 // day it stood on keeps it (G60).
 func TestAStrandedColumnDoesNotLeaveACardNowhere(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
 		{ItemID: "p", Title: "parent in the closed repository", Team: "founders"},
 		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Epic: "Closed",
@@ -1656,7 +1067,7 @@ func TestAStrandedColumnDoesNotLeaveACardNowhere(t *testing.T) {
 // empties — deletion. The alternative is the state above, kept alive for
 // the sake of not deleting it.
 func TestAStrandedColumnWithNoSprintToDemoteIntoDeletesTheCard(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
 		{ItemID: "st-n", Title: board.SprintStateTitle, Team: "newcomers"},
 		{ItemID: "p", Title: "parent in the closed repository", Team: "founders"},
@@ -1681,7 +1092,7 @@ func TestAStrandedColumnWithNoSprintToDemoteIntoDeletesTheCard(t *testing.T) {
 // repaired — the same repair a deleted parent's release makes — and the
 // card, now an ordinary columnless one, is deleted like any other.
 func TestTheGridRemoveCompletesWhenUngroupingStrandsTheColumn(t *testing.T) {
-	f := mirrorBoard([]board.Card{
+	f := columnBoard([]board.Card{
 		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
 		{ItemID: "p", Title: "parent in the closed repository", Team: "founders"},
 		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Epic: "Closed",
@@ -1700,5 +1111,77 @@ func TestTheGridRemoveCompletesWhenUngroupingStrandsTheColumn(t *testing.T) {
 	// never fired, and the × did not stop half way.
 	if f.count("SetEpic") == 0 {
 		t.Fatalf("the stranded column is repaired on the way out: %v", f.log)
+	}
+}
+
+// A card's own column must name the repository that HOLDS the card's file,
+// which is not always the project's: a subtask's file rides its parent and a
+// review card's follows its original, so a column of another repository on
+// either is refused, while an ordinary teamless card follows its project.
+func TestAColumnCannotNameARepositoryThatDoesNotHoldTheCard(t *testing.T) {
+	f := columnBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "c1", Title: "child", Parent: "p"},
+		{ItemID: "rev", Title: "review", ReviewOf: "p"},
+		// Teamless on purpose: a team of the primary repository would refuse
+		// the move first (G46), before this rule gets a say.
+		{ItemID: "plain", Title: "ordinary", Project: "engineering", Epic: "Cozystack"},
+	})
+	svc := New(f)
+	strategy := "strategy"
+	if err := svc.SetEpic(ctx, "acme", "c1", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the subtask's file rides its parent, in the primary repository: %v", err)
+	}
+	if err := svc.SetEpic(ctx, "acme", "rev", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the review card's file follows its original: %v", err)
+	}
+	// The same repository is free — a subtask may carry its own column (G14).
+	freedom := "freedom"
+	if err := svc.SetEpic(ctx, "acme", "c1", "Launch", &freedom); err != nil {
+		t.Fatalf("a column of its own repository is a subtask's right: %v", err)
+	}
+	// And an ordinary teamless card still moves BETWEEN repositories freely:
+	// there the project is what decides, so the file follows the column.
+	if err := svc.SetEpic(ctx, "acme", "plain", "Fundraising", &strategy); err != nil {
+		t.Fatalf("an ordinary card's file follows its project: %v", err)
+	}
+}
+
+// A project NAME may be declared in two repositories (G13); a column answers
+// for the repository of its OWN stub, so attaching a primary card to the
+// alias project's column is a cross-repository move, refused.
+func TestAColumnOfAnAliasProjectAnswersForItself(t *testing.T) {
+	f := columnBoard([]board.Card{
+		// "engineering" is declared in the primary; the same NAME is
+		// declared again in founders, carrying its own column.
+		{ItemID: "pr-e2", Title: board.ProjectStateTitle, Project: "engineering", Domain: "founders"},
+		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed work",
+			Project: "engineering", Domain: "founders"},
+		{ItemID: "c1", Title: "primary card", Project: "engineering", Epic: "Cozystack"},
+	})
+	svc := New(f)
+	none := "engineering"
+	if err := svc.SetEpic(ctx, "acme", "c1", "Closed work", &none); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the column lives in founders, the card does not: %v", err)
+	}
+}
+
+// On a board whose entries are stamped with their domain's name — the
+// primary included — the rules compare in ONE namespace: a column of the
+// primary and an unstamped card are the same repository.
+func TestTheRulesReadOneNamespaceOnAStampedBoard(t *testing.T) {
+	f := stampedBoard([]board.Card{
+		{ItemID: "c1", Title: "in the bucket", Epic: "Inbox"},
+	})
+	svc := New(f)
+
+	// Creating into that column is not a cross-repository move.
+	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{Title: "another", Epic: "Inbox"}); err != nil {
+		t.Fatalf("the bucket is a column of this very board: %v", err)
+	}
+	// Nor is attaching to a sibling column.
+	none := ""
+	if err := svc.SetEpic(ctx, "acme", "c1", "Other", &none); err != nil {
+		t.Fatalf("the card may be re-filed between columns of the primary: %v", err)
 	}
 }

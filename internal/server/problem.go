@@ -129,9 +129,6 @@ var sentinels = []struct {
 	{boardservice.ErrEndBeforeStart, http.StatusUnprocessableEntity, "endBeforeStart"},
 	{boardservice.ErrDomainConflict, http.StatusUnprocessableEntity, "domainConflict"},
 	{boardservice.ErrCrossDomain, http.StatusUnprocessableEntity, "crossDomain"},
-	{boardservice.ErrNoColumn, http.StatusUnprocessableEntity, "noColumn"},
-	{boardservice.ErrOwnColumn, http.StatusUnprocessableEntity, "ownColumn"},
-	{boardservice.ErrSubtaskMirror, http.StatusUnprocessableEntity, "subtaskMirror"},
 	{boardservice.ErrNotInProject, http.StatusUnprocessableEntity, "notInProject"},
 }
 

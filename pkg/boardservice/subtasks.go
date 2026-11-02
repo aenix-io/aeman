@@ -112,14 +112,9 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 	// weekly-plan handover below hands the child's slot to the parent, and
 	// a guard speaking after it left the cache holding a state the commit
 	// never made (the refusal aborts the write, not the cache mutation).
-	// The closure models what grouping PRODUCES, riders and all: it clears
-	// the mirrors (clearRiders below), so the guard must not refuse over
-	// them — only over what grouping keeps, the card's own column and the
-	// columns of everything that follows it.
-	if err := refileGuard(b, card, func(a *board.Card) {
-		a.Parent = parent
-		a.Mirrors = nil
-	}); err != nil {
+	// The guard asks about what grouping keeps: the card's own column and
+	// the columns of everything that follows it.
+	if err := refileGuard(b, card, func(a *board.Card) { a.Parent = parent }); err != nil {
 		return err
 	}
 	// A card scheduled for a WEEK hands that week to the parent, which stands
@@ -149,13 +144,6 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 				return err
 			}
 		}
-	}
-	// A subtask keeps the ONE column it carries — G14 blesses that, and the
-	// Project board draws it there (G57) — but not a SECOND placement or a
-	// process tie: its file follows its parent, so both would be stranded
-	// the moment the parent changes repository. See clearRiders.
-	if err := s.clearRiders(ctx, b, card); err != nil {
-		return err
 	}
 	// A subtask always belongs to its parent's PERSON: grouping hands the
 	// child over, so a family is never split across two people's Me boards.
@@ -268,22 +256,6 @@ func (s *Service) syncParentProgress(ctx context.Context, b board.Board, parentI
 	}
 	s.logEvent(ctx, b, p, board.EventProgress,
 		strconv.Itoa(p.Progress), strconv.Itoa(derived))
-	return nil
-}
-
-// clearRiders strips what a subtask cannot carry — its mirrors — when a
-// card is grouped. A subtask keeps the ONE column it carries (G14, and the
-// Project board draws it there, G57); what it may not keep is a SECOND
-// placement, because its file follows its parent: a parent in another
-// repository would carry the card away from it, which is the state
-// ErrCrossDomain exists to prevent. The mirrors go silently on purpose —
-// like the plan slot, they are placements of the parentless life, not work.
-func (s *Service) clearRiders(ctx context.Context, b board.Board, card board.Card) error {
-	if len(card.Mirrors) > 0 {
-		if err := s.backend.SetMirrors(ctx, b, card, nil); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 

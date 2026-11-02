@@ -141,36 +141,6 @@ func TestTheFakeCanModelAStampedBoard(t *testing.T) {
 	}
 }
 
-// The stamps have to be there BEFORE the assembly runs, not after it: the
-// assembly's own rules read them. declaredMirrors is the sharpest of them
-// — it keeps a mirror only while the column it names is in the repository
-// that holds the card — so a fake that stamped afterwards judged every
-// mirror in an empty namespace, where all columns agree, and kept the very
-// placement the store drops on the next load.
-func TestTheFakeAppliesItsStampsBeforeTheAssembly(t *testing.T) {
-	f := New([]board.Card{
-		{ItemID: "ep-inbox", Title: board.EpicStateTitle, Epic: "Inbox"},
-		{ItemID: "ep-fund", Title: board.EpicStateTitle, Epic: "Fundraising", Project: "strategy"},
-		{ItemID: "c1", Title: "shared", Epic: "Inbox", Mirrors: []board.Placement{
-			{Project: "strategy", Epic: "Fundraising"},
-		}},
-	}, nil).InRepository("aeman-db", map[string]string{
-		"ep-inbox": "aeman-db",
-		"ep-fund":  "founders",
-	})
-	b, err := f.LoadBoard(t.Context(), "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	c, ok := findCard(b, "c1")
-	if !ok {
-		t.Fatal("the card is on the board")
-	}
-	if board.Mirrored(c, "strategy", "Fundraising") {
-		t.Fatalf("a mirror onto another repository's column is not a placement this card can have: %+v", c.Mirrors)
-	}
-}
-
 // The store stamps CARDS with their repository's name too, the primary's
 // included (gitstore.stamp), and rules that ask where a card's own file
 // lives read that stamp raw — the process tie is one. A fake that left the

@@ -567,68 +567,15 @@ paths:
                 $ref: '#/components/schemas/Card'
         default:
           $ref: '#/components/responses/Problem'
-  /cards/{uid}/actions/mirror:
-    post:
-      operationId: mirrorCard
-      tags: [Cards]
-      summary: Show the card in a second Project-board column.
-      description: >-
-        One card, one file and one log, standing in both plans. The card must
-        already be in a column; the target must exist, in the card's own
-        repository, and must not be the card's own column; a subtask cannot be
-        mirrored (all 422). Mirroring where it already stands is a no-op. The
-        EPIC half is required — a column is named by its epic — while the
-        project half may be empty, since the no-project bucket is a mirror home
-        like any other.
-      parameters:
-        - $ref: '#/components/parameters/Uid'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PlacementBody'
-      responses:
-        '200':
-          description: The card after the change.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Card'
-        default:
-          $ref: '#/components/responses/Problem'
-  /cards/{uid}/actions/unmirror:
-    post:
-      operationId: unmirrorCard
-      tags: [Cards]
-      summary: Take one mirror column away; the home and everything else stay.
-      parameters:
-        - $ref: '#/components/parameters/Uid'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PlacementBody'
-      responses:
-        '200':
-          description: The card after the change.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Card'
-        default:
-          $ref: '#/components/responses/Problem'
   /cards/{uid}/actions/remove-from-project:
     post:
       operationId: removeFromProject
       tags: [Cards]
-      summary: The Project board's × — take the card out of one column.
+      summary: The Project board's × — take the card out of its column.
       description: >-
-        A mirror goes; the home with mirrors left hands its role to the first
-        mirror; the last column drops the WEEK that was the slot's row, keeps a
-        worked card (assignee and progress) as an orphan of the working area,
-        and deletes the rest, cascading the linked review card. A SUBTASK is
+        The WEEK that was the slot's row goes with it; a worked card (assignee
+        and progress) stays as an orphan of the working area, and the rest is
+        deleted, cascading the linked review card. A SUBTASK is
         never deleted here — its other home is its parent, so the × only takes
         the column away. It answers 204 rather than the card, which may no
         longer exist.
@@ -1466,7 +1413,6 @@ components:
             - invalidSelector
             - invalidStage
             - nameTaken
-            - noColumn
             - noEarlierSprint
             - noHistory
             - noPlaceOfItsOwn
@@ -1485,7 +1431,6 @@ components:
             - noteTooLong
             - nowhereToLeaveIt
             - openSubtasks
-            - ownColumn
             - parentNotFound
             - pointsRequired
             - projectExists
@@ -1493,7 +1438,6 @@ components:
             - projectNotFound
             - setupRequired
             - subtaskDepth
-            - subtaskMirror
             - subtaskWeek
             - teamExists
             - teamInUse
@@ -1652,13 +1596,6 @@ components:
             halves.
         project:
           type: string
-        mirrors:
-          type: array
-          description: >-
-            The additional columns the same card stands in — one file, one log,
-            one set of dates — always in the card's own repository.
-          items:
-            $ref: '#/components/schemas/Placement'
         reviewOf:
           type: string
         parent:
@@ -1781,19 +1718,6 @@ components:
           type: string
         number:
           type: integer
-    Placement:
-      type: object
-      additionalProperties: false
-      x-go-type: board.Placement
-      x-go-type-import:
-        path: github.com/aenix-io/aeman/pkg/board
-      description: A Project-board column — the (project, epic) pair.
-      required: [project, epic]
-      properties:
-        project:
-          type: string
-        epic:
-          type: string
     CardList:
       type: object
       additionalProperties: false

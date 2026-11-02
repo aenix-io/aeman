@@ -439,7 +439,6 @@ func detachedCards(cards []board.Card) []board.Card {
 	for i := range out {
 		out[i].Assignees = slices.Clone(out[i].Assignees)
 		out[i].Notes = slices.Clone(out[i].Notes)
-		out[i].Mirrors = slices.Clone(out[i].Mirrors)
 	}
 	return out
 }
@@ -2050,39 +2049,6 @@ func (b *storeBackend) SetEpic(ctx context.Context, bd board.Board, card board.C
 		return b.inner.SetEpic(ctx, bd, card, epic)
 	})
 	return nil
-}
-
-// SetMirrors replaces the card's mirror placements.
-func (b *storeBackend) SetMirrors(ctx context.Context, bd board.Board, card board.Card, mirrors []board.Placement) error {
-	b.mutateCard(ctx, bd, card.ItemID, "mirrors", mirrorsDesc(card, mirrors), func(c *board.Card) {
-		c.Mirrors = mirrors
-	}, func(ctx context.Context) error {
-		return b.inner.SetMirrors(ctx, bd, card, mirrors)
-	})
-	return nil
-}
-
-// tieDesc words the queued tie write by its direction, like mirrorsDesc:
-// the sync log must not report an untie as a tie.
-func tieDesc(card board.Card, process string) string {
-	if process == "" {
-		return "untie " + cardRef(card) + " from its process"
-	}
-	return "tie " + cardRef(card) + " to its process"
-}
-
-// mirrorsDesc words the queued write by its direction — "unmirror" for a
-// shrinking list, "mirror" for a growing one, "rewrite" for a same-length
-// replacement (a renamed column's entries) — so the sync log does not
-// report a removal or a rename as an addition.
-func mirrorsDesc(card board.Card, next []board.Placement) string {
-	switch {
-	case len(next) < len(card.Mirrors):
-		return "unmirror " + cardRef(card)
-	case len(next) == len(card.Mirrors):
-		return "rewrite the mirrors of " + cardRef(card)
-	}
-	return "mirror " + cardRef(card)
 }
 
 // SetProject rebinds an epic column to a project. The target is a hidden

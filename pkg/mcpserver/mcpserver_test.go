@@ -133,7 +133,7 @@ func TestMCPListsTools(t *testing.T) {
 		"add_project", "delete_project", "reorder_projects", "rename_project", "rename_team",
 		"add_deadline", "delete_deadline", "move_deadline",
 		"reopen_card",
-		"mirror_card", "unmirror_card", "remove_from_project",
+		"remove_from_project",
 		"set_capacity", "set_team_capacity",
 		// The gestures and reads the boards have and the tool set did not.
 		"place_card", "untriage_card", "finished_earlier", "list_sprints",
@@ -529,8 +529,7 @@ func TestTheToolSetHoldsWhatTheBoardsDo(t *testing.T) {
 	for _, name := range []string{
 		// The day boards' own answers.
 		"finished_earlier",
-		// The Triage board's, beside place (mirror_card's neighbour on the
-		// grid): a card pulled back out of every week into the strip.
+		// The Triage board's, beside place: a card pulled back out of every week into the strip.
 		"untriage_card", "place_card",
 		// The roster gestures the manage dialogs make.
 		"reorder_teams", "reorder_epics", "delete_team", "set_sprint_state",

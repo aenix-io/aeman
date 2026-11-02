@@ -88,13 +88,9 @@ type CardSpec struct {
 	// Epic and Project are the column the card is filed under ("" = none) —
 	// the pair, since epic names repeat across projects. The card's Week is
 	// the row, and Dates span the weeks its slot stretches over.
-	Epic    string `json:"epic,omitempty"`
-	Project string `json:"project,omitempty"`
-	// Mirrors are the additional columns the same card stands in — one
-	// file, one log, one set of dates, shown in every listed project too.
-	// Always the card's own repository (the service admits nothing else).
-	Mirrors  []board.Placement `json:"mirrors,omitempty"`
-	ReviewOf string            `json:"reviewOf,omitempty"`
+	Epic     string `json:"epic,omitempty"`
+	Project  string `json:"project,omitempty"`
+	ReviewOf string `json:"reviewOf,omitempty"`
 	// Parent, on a subtask, is the uid of the card it is grouped under.
 	Parent string `json:"parent,omitempty"`
 }
@@ -389,7 +385,6 @@ func CardResource(b board.Board, c board.Card) Card {
 		Parked:      c.Parked,
 		Epic:        c.Epic,
 		Project:     c.Project,
-		Mirrors:     append([]board.Placement{}, c.Mirrors...),
 		ReviewOf:    c.ReviewOf,
 		Parent:      c.Parent,
 	}

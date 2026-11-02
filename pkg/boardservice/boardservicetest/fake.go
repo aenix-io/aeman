@@ -171,8 +171,8 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	}
 	cards := append([]board.Card{}, f.board.Cards...)
 	// A state seeded in the map becomes a state CARD before the assembly
-	// runs — declaredMirrors reads team domains, so an overlay applied
-	// afterwards judged the mirrors against a board with no teams. A team
+	// runs — the domain rules read team domains, so an overlay applied
+	// afterwards judged them against a board with no teams. A team
 	// whose card is already among the seeded cards keeps that card: two
 	// stubs for one team would let the emptier one win the assembly.
 	seeded := map[string]bool{}
@@ -209,7 +209,7 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	// The stamps InRepository was given are written ON THE CARDS, before
 	// the assembly, the way a real store hands them over (gitstore.stamp):
 	// NewBoardIn reads a state card's own Domain field and the rules it
-	// runs — declaredMirrors above all — read the map it builds. Applied
+	// runs — HomeDomain and ColumnDomain above all — read the map it builds. Applied
 	// afterwards, the stamps arrived too late to be seen by them, and the
 	// published fake answered the domain rules differently from the store
 	// it stands in for, which is the one thing it must not do.
@@ -607,17 +607,6 @@ func (f *Backend) SetEpic(_ context.Context, _ board.Board, card board.Card, epi
 	f.rec("SetEpic %s %s", card.ItemID, epic)
 	if c := f.card(card.ItemID); c != nil {
 		c.Epic = epic
-	}
-	return nil
-}
-
-// SetMirrors replaces the card's mirror placements.
-func (f *Backend) SetMirrors(_ context.Context, _ board.Board, card board.Card, mirrors []board.Placement) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetMirrors %s %d", card.ItemID, len(mirrors))
-	if c := f.card(card.ItemID); c != nil {
-		c.Mirrors = mirrors
 	}
 	return nil
 }

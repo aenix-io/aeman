@@ -157,11 +157,6 @@ type Card struct {
 	// GitHubID is the Projects v2 item id a migrated card came from, kept so
 	// the id can still be resolved for a while; empty on cards born later.
 	GitHubID string `json:"githubId,omitempty"`
-	// Mirrors are additional Project-board columns the card stands in — the
-	// same card, one file and one log, shown in more than one project. The
-	// (Project, Epic) pair above stays its home: DomainOf reads it, mirrors
-	// never move the card. See mirrors.go.
-	Mirrors []Placement `json:"mirrors,omitempty"`
 	// Domain names the repository the card lives in ("" = the primary or a
 	// single-domain board). MovedFrom/MovedAt record a cross-domain move,
 	// so a torn move resolves from the tree alone.
@@ -299,9 +294,9 @@ func NewBoard(cards []Card) Board { return NewBoardIn("", cards) }
 
 // NewBoardIn is NewBoard for a board whose entries are STAMPED with their
 // domain's name — which is every board the store hands over, the primary
-// included. The assembly's own rules ask "the same repository?" while it
-// runs (declaredMirrors), so the primary's name has to arrive with the
-// cards rather than be set on the result afterwards.
+// included. The rules that read the board (HomeDomain, ColumnDomain) ask
+// "the same repository?" in that one namespace, so the primary's name
+// arrives with the cards rather than being set on the result afterwards.
 func NewBoardIn(primary string, cards []Card) Board {
 	b := Board{Primary: primary,
 		Cards:        make([]Card, 0, len(cards)),
@@ -411,16 +406,6 @@ func NewBoardIn(primary string, cards []Card) Board {
 			ItemID:   c.ItemID,
 		}
 	}
-
-	// The decoder drops what one file can prove wrong (half pairs,
-	// duplicates, home twins, subtask mirrors); a mirror into another
-	// repository or onto a column nobody declared needs the ROSTER, so it
-	// is dropped here — a writer producing one is silently corrected, not
-	// honoured (G15), and the x's promotion never inherits a home the
-	// service would have refused to mirror to.
-	for i := range b.Cards {
-		b.Cards[i].Mirrors = declaredMirrors(b, b.Cards[i])
-	}
 	return b
 }
 
@@ -460,28 +445,12 @@ func FindEpic(b Board, project, name string) (EpicCol, bool) {
 // InEpic reports whether a card is filed under a column. Both halves have to
 // match: the same epic name in another project is a different column.
 func InEpic(c Card, project, name string) bool {
-	if c.Epic == name && c.Project == project {
-		return true
-	}
-	// A mirrored card stands in every one of its columns alike; only the
-	// home pair decides anything beyond being shown (DomainOf, promotion).
-	return Mirrored(c, project, name)
+	return c.Epic == name && c.Project == project
 }
 
-// InProject reports whether a card stands in one project's columns — its
-// home pair, or ANY mirror it carries. A mirror is the same card standing
-// in a second column (G15), so a project's listing that read only the home
-// pair answered with less than the board it draws.
+// InProject reports whether a card stands in one project's columns.
 func InProject(c Card, project string) bool {
-	if c.Project == project {
-		return true
-	}
-	for _, m := range c.Mirrors {
-		if m.Project == project {
-			return true
-		}
-	}
-	return false
+	return c.Project == project
 }
 
 // FindDeadline looks a deadline up by its identity — the (project, week) pair.
@@ -492,37 +461,4 @@ func FindDeadline(b Board, project, week string) (Deadline, bool) {
 		}
 	}
 	return Deadline{}, false
-}
-
-// declaredMirrors keeps the mirror entries the service itself would have
-// admitted: the column exists on the roster and belongs to the repository
-// that holds this card. It asks the COLUMN, exactly as Mirror does — a
-// project name may be declared in two repositories with its columns merged
-// (G13), and the no-project bucket has no project to ask at all, so the
-// project-based answer dropped placements the service had just written.
-// Everything else is a hand edit the decoder could not judge without the
-// roster.
-func declaredMirrors(b Board, c Card) []Placement {
-	if len(c.Mirrors) == 0 {
-		return c.Mirrors
-	}
-	// A fresh slice on purpose: filtering into c.Mirrors[:0] would write
-	// through to the caller's backing array, and NewBoard does not own
-	// the cards it is handed.
-	// Which repository holds this CARD — the question Mirror asks, and the
-	// only one that is the same on both sides. The home COLUMN is a
-	// different question wherever the two disagree (an older write, an
-	// outside writer), and answering it here kept mirrors Mirror refuses.
-	mine := HomeDomain(b, c)
-	kept := make([]Placement, 0, len(c.Mirrors))
-	for _, m := range c.Mirrors {
-		if d, ok := ColumnDomain(b, m.Project, m.Epic); !ok || d != mine {
-			continue
-		}
-		kept = append(kept, m)
-	}
-	if len(kept) == 0 {
-		return nil
-	}
-	return kept
 }

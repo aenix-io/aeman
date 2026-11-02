@@ -88,9 +88,6 @@ type Backend interface {
 	SetTeam(ctx context.Context, b board.Board, card board.Card, team string) error
 	// SetEpic files the card under a Project-board column ("" clears).
 	SetEpic(ctx context.Context, b board.Board, card board.Card, epic string) error
-	// SetMirrors replaces the card's mirror placements — the additional
-	// Project-board columns the card stands in (board/mirrors.go).
-	SetMirrors(ctx context.Context, b board.Board, card board.Card, mirrors []board.Placement) error
 	// SetProject writes the Project field of a hidden state card: a
 	// project-state card's own name, or the project an epic belongs to.
 	SetProject(ctx context.Context, b board.Board, card board.Card, project string) error

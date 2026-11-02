@@ -1487,24 +1487,8 @@ func (s *Service) SetReviewOf(ctx context.Context, boardID string, itemID, revie
 	}
 	// The review link decides the card's repository before its project
 	// (linked cards first, G14), so setting or clearing it is a re-file in
-	// disguise — and a re-file that carries a mirrored card into another
-	// repository leaves the mirrors naming columns of the one it left:
-	// G15's forbidden state. Refused while mirrors stand, symmetric with
-	// SetEpic: unmirror first.
-	if len(card.Mirrors) > 0 {
-		after := card
-		after.ReviewOf = reviewOf
-		// Through HomeDomain, which reads BOTH sides in the board's one
-		// namespace. A resolver of its own answered "" for an unstamped
-		// team and the primary's NAME for a card the store stamped — two
-		// names for one repository inside a single comparison, so a link
-		// that moved nothing looked like a move and was refused.
-		if board.HomeDomain(b, after) != board.HomeDomain(b, card) {
-			return fmt.Errorf("%w: the review link would move the card — unmirror it first", ErrCrossDomain)
-		}
-	}
-	// The tie is pinned the same way the mirrors are: a link that re-files
-	// the card into another repository would strand it.
+	// disguise: a link that carries the card into another repository would
+	// strand the columns of what follows it.
 	if err := refileGuard(b, card, func(a *board.Card) { a.ReviewOf = reviewOf }); err != nil {
 		return err
 	}

@@ -1115,12 +1115,6 @@ func (b *Backend) SetEpic(ctx context.Context, _ board.Board, card board.Card, e
 	return b.editCard(ctx, "epic", card, func(f *CardFile) { f.Card.Epic = epic })
 }
 
-// SetMirrors replaces the card's mirror placements — the additional
-// Project-board columns the same card stands in.
-func (b *Backend) SetMirrors(ctx context.Context, _ board.Board, card board.Card, mirrors []board.Placement) error {
-	return b.editCard(ctx, "mirrors", card, func(f *CardFile) { f.Card.Mirrors = mirrors })
-}
-
 // SetProject renames a project stub, re-parents an epic stub, or files a
 // card under a project.
 func (b *Backend) SetProject(ctx context.Context, _ board.Board, card board.Card, project string) error {

@@ -197,7 +197,6 @@ const (
 	InvalidSelector      ProblemCode = "invalidSelector"
 	InvalidStage         ProblemCode = "invalidStage"
 	NameTaken            ProblemCode = "nameTaken"
-	NoColumn             ProblemCode = "noColumn"
 	NoEarlierSprint      ProblemCode = "noEarlierSprint"
 	NoHistory            ProblemCode = "noHistory"
 	NoPlaceOfItsOwn      ProblemCode = "noPlaceOfItsOwn"
@@ -216,7 +215,6 @@ const (
 	NoteTooLong          ProblemCode = "noteTooLong"
 	NowhereToLeaveIt     ProblemCode = "nowhereToLeaveIt"
 	OpenSubtasks         ProblemCode = "openSubtasks"
-	OwnColumn            ProblemCode = "ownColumn"
 	ParentNotFound       ProblemCode = "parentNotFound"
 	PointsRequired       ProblemCode = "pointsRequired"
 	ProjectExists        ProblemCode = "projectExists"
@@ -224,7 +222,6 @@ const (
 	ProjectNotFound      ProblemCode = "projectNotFound"
 	SetupRequired        ProblemCode = "setupRequired"
 	SubtaskDepth         ProblemCode = "subtaskDepth"
-	SubtaskMirror        ProblemCode = "subtaskMirror"
 	SubtaskWeek          ProblemCode = "subtaskWeek"
 	TeamExists           ProblemCode = "teamExists"
 	TeamInUse            ProblemCode = "teamInUse"
@@ -307,8 +304,6 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case NameTaken:
 		return true
-	case NoColumn:
-		return true
 	case NoEarlierSprint:
 		return true
 	case NoHistory:
@@ -345,8 +340,6 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case OpenSubtasks:
 		return true
-	case OwnColumn:
-		return true
 	case ParentNotFound:
 		return true
 	case PointsRequired:
@@ -360,8 +353,6 @@ func (e ProblemCode) Valid() bool {
 	case SetupRequired:
 		return true
 	case SubtaskDepth:
-		return true
-	case SubtaskMirror:
 		return true
 	case SubtaskWeek:
 		return true
@@ -718,9 +709,6 @@ type PlaceCardBody struct {
 	// Week The Monday of the week the card is placed in.
 	Week *string `json:"week,omitempty"`
 }
-
-// Placement A Project-board column — the (project, epic) pair.
-type Placement = board.Placement
 
 // PlacementBody A column, named by its EPIC. The project half may be empty — the no-project bucket is a column like any other, and a column's repository is read off the column's own stub.
 type PlacementBody struct {
@@ -1188,9 +1176,6 @@ type PatchCardJSONRequestBody = CardPatch
 // DeferCardJSONRequestBody defines body for DeferCard for application/json ContentType.
 type DeferCardJSONRequestBody = DeferCardBody
 
-// MirrorCardJSONRequestBody defines body for MirrorCard for application/json ContentType.
-type MirrorCardJSONRequestBody = PlacementBody
-
 // MoveCardJSONRequestBody defines body for MoveCard for application/json ContentType.
 type MoveCardJSONRequestBody = MoveCardBody
 
@@ -1199,9 +1184,6 @@ type RemoveFromProjectJSONRequestBody = PlacementBody
 
 // SendToReviewJSONRequestBody defines body for SendToReview for application/json ContentType.
 type SendToReviewJSONRequestBody = SendToReviewBody
-
-// UnmirrorCardJSONRequestBody defines body for UnmirrorCard for application/json ContentType.
-type UnmirrorCardJSONRequestBody = PlacementBody
 
 // AddNoteJSONRequestBody defines body for AddNote for application/json ContentType.
 type AddNoteJSONRequestBody = NoteBody
@@ -1298,13 +1280,10 @@ type ServerInterface interface {
 	// SetInProgress Move the card to the implicit In Progress status.
 	// (POST /cards/{uid}/actions/in-progress)
 	SetInProgress(w http.ResponseWriter, r *http.Request, uid UID)
-	// MirrorCard Show the card in a second Project-board column.
-	// (POST /cards/{uid}/actions/mirror)
-	MirrorCard(w http.ResponseWriter, r *http.Request, uid UID)
 	// MoveCard Reorder the card after (or before) another one.
 	// (POST /cards/{uid}/actions/move)
 	MoveCard(w http.ResponseWriter, r *http.Request, uid UID)
-	// RemoveFromProject The Project board's × — take the card out of one column.
+	// RemoveFromProject The Project board's × — take the card out of its column.
 	// (POST /cards/{uid}/actions/remove-from-project)
 	RemoveFromProject(w http.ResponseWriter, r *http.Request, uid UID)
 	// RemoveReviewer Delete the linked review card.
@@ -1316,9 +1295,6 @@ type ServerInterface interface {
 	// SendToReview Send the card to a reviewer, or reassign the review that exists.
 	// (POST /cards/{uid}/actions/send-to-review)
 	SendToReview(w http.ResponseWriter, r *http.Request, uid UID)
-	// UnmirrorCard Take one mirror column away; the home and everything else stay.
-	// (POST /cards/{uid}/actions/unmirror)
-	UnmirrorCard(w http.ResponseWriter, r *http.Request, uid UID)
 	// ListLinks The URLs found in the card's description, GitHub refs resolved and listed first.
 	// (GET /cards/{uid}/links)
 	ListLinks(w http.ResponseWriter, r *http.Request, uid UID)
@@ -1627,32 +1603,6 @@ func (siw *ServerInterfaceWrapper) SetInProgress(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
-// MirrorCard operation middleware
-func (siw *ServerInterfaceWrapper) MirrorCard(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "uid" -------------
-	var uid UID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "uid", r.PathValue("uid"), &uid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uid", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.MirrorCard(w, r, uid)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // MoveCard operation middleware
 func (siw *ServerInterfaceWrapper) MoveCard(w http.ResponseWriter, r *http.Request) {
 
@@ -1774,32 +1724,6 @@ func (siw *ServerInterfaceWrapper) SendToReview(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendToReview(w, r, uid)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UnmirrorCard operation middleware
-func (siw *ServerInterfaceWrapper) UnmirrorCard(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "uid" -------------
-	var uid UID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "uid", r.PathValue("uid"), &uid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uid", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UnmirrorCard(w, r, uid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3596,8 +3520,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/in-progress", wrapper.SetInProgress)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/reopen", wrapper.ReopenCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/send-to-review", wrapper.SendToReview)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/mirror", wrapper.MirrorCard)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/unmirror", wrapper.UnmirrorCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/remove-from-project", wrapper.RemoveFromProject)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/remove-reviewer", wrapper.RemoveReviewer)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cards/{uid}/links", wrapper.ListLinks)
@@ -3865,46 +3787,6 @@ func (response SetInProgressdefaultApplicationProblemPlusJSONResponse) VisitSetI
 	return err
 }
 
-type MirrorCardRequestObject struct {
-	UID  UID `json:"uid"`
-	Body *MirrorCardJSONRequestBody
-}
-
-type MirrorCardResponseObject interface {
-	VisitMirrorCardResponse(w http.ResponseWriter) error
-}
-
-type MirrorCard200JSONResponse Card
-
-func (response MirrorCard200JSONResponse) VisitMirrorCardResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type MirrorCarddefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response MirrorCarddefaultApplicationProblemPlusJSONResponse) VisitMirrorCardResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type MoveCardRequestObject struct {
 	UID  UID `json:"uid"`
 	Body *MoveCardJSONRequestBody
@@ -4080,46 +3962,6 @@ type SendToReviewdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response SendToReviewdefaultApplicationProblemPlusJSONResponse) VisitSendToReviewResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type UnmirrorCardRequestObject struct {
-	UID  UID `json:"uid"`
-	Body *UnmirrorCardJSONRequestBody
-}
-
-type UnmirrorCardResponseObject interface {
-	VisitUnmirrorCardResponse(w http.ResponseWriter) error
-}
-
-type UnmirrorCard200JSONResponse Card
-
-func (response UnmirrorCard200JSONResponse) VisitUnmirrorCardResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type UnmirrorCarddefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response UnmirrorCarddefaultApplicationProblemPlusJSONResponse) VisitUnmirrorCardResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -5462,13 +5304,10 @@ type StrictServerInterface interface {
 	// SetInProgress Move the card to the implicit In Progress status.
 	// (POST /cards/{uid}/actions/in-progress)
 	SetInProgress(ctx context.Context, request SetInProgressRequestObject) (SetInProgressResponseObject, error)
-	// MirrorCard Show the card in a second Project-board column.
-	// (POST /cards/{uid}/actions/mirror)
-	MirrorCard(ctx context.Context, request MirrorCardRequestObject) (MirrorCardResponseObject, error)
 	// MoveCard Reorder the card after (or before) another one.
 	// (POST /cards/{uid}/actions/move)
 	MoveCard(ctx context.Context, request MoveCardRequestObject) (MoveCardResponseObject, error)
-	// RemoveFromProject The Project board's × — take the card out of one column.
+	// RemoveFromProject The Project board's × — take the card out of its column.
 	// (POST /cards/{uid}/actions/remove-from-project)
 	RemoveFromProject(ctx context.Context, request RemoveFromProjectRequestObject) (RemoveFromProjectResponseObject, error)
 	// RemoveReviewer Delete the linked review card.
@@ -5480,9 +5319,6 @@ type StrictServerInterface interface {
 	// SendToReview Send the card to a reviewer, or reassign the review that exists.
 	// (POST /cards/{uid}/actions/send-to-review)
 	SendToReview(ctx context.Context, request SendToReviewRequestObject) (SendToReviewResponseObject, error)
-	// UnmirrorCard Take one mirror column away; the home and everything else stay.
-	// (POST /cards/{uid}/actions/unmirror)
-	UnmirrorCard(ctx context.Context, request UnmirrorCardRequestObject) (UnmirrorCardResponseObject, error)
 	// ListLinks The URLs found in the card's description, GitHub refs resolved and listed first.
 	// (GET /cards/{uid}/links)
 	ListLinks(ctx context.Context, request ListLinksRequestObject) (ListLinksResponseObject, error)
@@ -5802,39 +5638,6 @@ func (sh *strictHandler) SetInProgress(w http.ResponseWriter, r *http.Request, u
 	}
 }
 
-// MirrorCard operation middleware
-func (sh *strictHandler) MirrorCard(w http.ResponseWriter, r *http.Request, uid UID) {
-	var request MirrorCardRequestObject
-
-	request.UID = uid
-
-	var body MirrorCardJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.MirrorCard(ctx, request.(MirrorCardRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "MirrorCard")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(MirrorCardResponseObject); ok {
-		if err := validResponse.VisitMirrorCardResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // MoveCard operation middleware
 func (sh *strictHandler) MoveCard(w http.ResponseWriter, r *http.Request, uid UID) {
 	var request MoveCardRequestObject
@@ -5979,39 +5782,6 @@ func (sh *strictHandler) SendToReview(w http.ResponseWriter, r *http.Request, ui
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SendToReviewResponseObject); ok {
 		if err := validResponse.VisitSendToReviewResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// UnmirrorCard operation middleware
-func (sh *strictHandler) UnmirrorCard(w http.ResponseWriter, r *http.Request, uid UID) {
-	var request UnmirrorCardRequestObject
-
-	request.UID = uid
-
-	var body UnmirrorCardJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.UnmirrorCard(ctx, request.(UnmirrorCardRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "UnmirrorCard")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(UnmirrorCardResponseObject); ok {
-		if err := validResponse.VisitUnmirrorCardResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

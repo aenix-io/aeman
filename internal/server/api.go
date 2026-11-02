@@ -733,42 +733,9 @@ func (a surface) placement(in apiv1.PlacementBody,
 	return svc, boardID, nil
 }
 
-// MirrorCard adds a second Project-board column to the card — the same card
-// shown in both projects, one file and one log.
-func (a surface) MirrorCard(ctx context.Context, req apiv1.MirrorCardRequestObject) (apiv1.MirrorCardResponseObject, error) {
-	svc, boardID, err := a.placement(*req.Body,
-		func(svc *boardservice.Service, boardID, project, epic string) error {
-			return svc.Mirror(ctx, boardID, req.UID, project, epic)
-		})
-	if err != nil {
-		return nil, err
-	}
-	card, err := a.s.cardOf(ctx, svc, boardID, req.UID)
-	if err != nil {
-		return nil, err
-	}
-	return apiv1.MirrorCard200JSONResponse(card), nil
-}
-
-// UnmirrorCard takes one mirror column away.
-func (a surface) UnmirrorCard(ctx context.Context, req apiv1.UnmirrorCardRequestObject) (apiv1.UnmirrorCardResponseObject, error) {
-	svc, boardID, err := a.placement(*req.Body,
-		func(svc *boardservice.Service, boardID, project, epic string) error {
-			return svc.Unmirror(ctx, boardID, req.UID, project, epic)
-		})
-	if err != nil {
-		return nil, err
-	}
-	card, err := a.s.cardOf(ctx, svc, boardID, req.UID)
-	if err != nil {
-		return nil, err
-	}
-	return apiv1.UnmirrorCard200JSONResponse(card), nil
-}
-
-// RemoveFromProject is the Project board's ×: remove the card from one column,
-// with the mirror/promote/last-column rules of the service. It cannot answer
-// with the card the way mirror and unmirror do — its card may no longer exist.
+// RemoveFromProject is the Project board's ×: take the card out of its
+// column, with the last-column rules of the service. It answers 204 rather
+// than the card, which may no longer exist.
 func (a surface) RemoveFromProject(ctx context.Context, req apiv1.RemoveFromProjectRequestObject) (apiv1.RemoveFromProjectResponseObject, error) {
 	if _, _, err := a.placement(*req.Body,
 		func(svc *boardservice.Service, boardID, project, epic string) error {

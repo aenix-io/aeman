@@ -295,43 +295,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/cards/{uid}/actions/mirror": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Show the card in a second Project-board column.
-         * @description One card, one file and one log, standing in both plans. The card must already be in a column; the target must exist, in the card's own repository, and must not be the card's own column; a subtask cannot be mirrored (all 422). Mirroring where it already stands is a no-op. The EPIC half is required — a column is named by its epic — while the project half may be empty, since the no-project bucket is a mirror home like any other.
-         */
-        post: operations["mirrorCard"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/cards/{uid}/actions/unmirror": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Take one mirror column away; the home and everything else stay. */
-        post: operations["unmirrorCard"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/cards/{uid}/actions/remove-from-project": {
         parameters: {
             query?: never;
@@ -342,8 +305,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * The Project board's × — take the card out of one column.
-         * @description A mirror goes; the home with mirrors left hands its role to the first mirror; the last column drops the WEEK that was the slot's row, keeps a worked card (assignee and progress) as an orphan of the working area, and deletes the rest, cascading the linked review card. A SUBTASK is never deleted here — its other home is its parent, so the × only takes the column away. It answers 204 rather than the card, which may no longer exist.
+         * The Project board's × — take the card out of its column.
+         * @description The WEEK that was the slot's row goes with it; a worked card (assignee and progress) stays as an orphan of the working area, and the rest is deleted, cascading the linked review card. A SUBTASK is never deleted here — its other home is its parent, so the × only takes the column away. It answers 204 rather than the card, which may no longer exist.
          */
         post: operations["removeFromProject"];
         delete?: never;
@@ -886,7 +849,7 @@ export interface components {
              * @description The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
              * @enum {string}
              */
-            code: "accessUndecided" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "dayIsARecord" | "descriptionTooLong" | "domainConflict" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "epicExists" | "epicInUse" | "epicNotFound" | "epicRequired" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "noColumn" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAMonday" | "notAuthenticated" | "notFinished" | "notInProject" | "notOnThisBoard" | "notYoursToDestroy" | "notYoursToPark" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "nowhereToLeaveIt" | "openSubtasks" | "ownColumn" | "parentNotFound" | "pointsRequired" | "projectExists" | "projectInUse" | "projectNotFound" | "setupRequired" | "subtaskDepth" | "subtaskMirror" | "subtaskWeek" | "teamExists" | "teamInUse" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownZone" | "upstreamFailed" | "viewNeedsField" | "weekDerived";
+            code: "accessUndecided" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "dayIsARecord" | "descriptionTooLong" | "domainConflict" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "epicExists" | "epicInUse" | "epicNotFound" | "epicRequired" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAMonday" | "notAuthenticated" | "notFinished" | "notInProject" | "notOnThisBoard" | "notYoursToDestroy" | "notYoursToPark" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "nowhereToLeaveIt" | "openSubtasks" | "parentNotFound" | "pointsRequired" | "projectExists" | "projectInUse" | "projectNotFound" | "setupRequired" | "subtaskDepth" | "subtaskWeek" | "teamExists" | "teamInUse" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownZone" | "upstreamFailed" | "viewNeedsField" | "weekDerived";
             /** @description Where the person can go to fix the refusal — installing the board's app — for a client to offer as a button. */
             actionUrl?: string;
         };
@@ -935,8 +898,6 @@ export interface components {
             /** @description The card's column, which is the (project, epic) PAIR — epic names repeat across projects, so anything acting on a column names both halves. */
             epic?: string;
             project?: string;
-            /** @description The additional columns the same card stands in — one file, one log, one set of dates — always in the card's own repository. */
-            mirrors?: components["schemas"]["Placement"][];
             reviewOf?: string;
             /** @description On a subtask, the uid of the card it is grouped under. */
             parent?: string;
@@ -984,11 +945,6 @@ export interface components {
             owner?: string;
             repo?: string;
             number?: number;
-        };
-        /** @description A Project-board column — the (project, epic) pair. */
-        Placement: {
-            project: string;
-            epic: string;
         };
         CardList: {
             /** @enum {string} */
@@ -2103,62 +2059,6 @@ export interface operations {
         responses: {
             /** @description The review card. */
             201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Card"];
-                };
-            };
-            default: components["responses"]["Problem"];
-        };
-    };
-    mirrorCard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The card's own address, a ULID assigned at creation. */
-                uid: components["parameters"]["Uid"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PlacementBody"];
-            };
-        };
-        responses: {
-            /** @description The card after the change. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Card"];
-                };
-            };
-            default: components["responses"]["Problem"];
-        };
-    };
-    unmirrorCard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The card's own address, a ULID assigned at creation. */
-                uid: components["parameters"]["Uid"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PlacementBody"];
-            };
-        };
-        responses: {
-            /** @description The card after the change. */
-            200: {
                 headers: {
                     [name: string]: unknown;
                 };

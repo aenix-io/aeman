@@ -19,7 +19,6 @@ func fullBoard() board.Board {
 			Title:     id,
 			Assignees: []string{"ann"},
 			Notes:     []board.Note{{ID: "n1", Body: "first"}},
-			Mirrors:   []board.Placement{{Project: "p"}},
 		}
 	}
 	return board.Board{
@@ -87,7 +86,7 @@ func TestDetachedSharesNoContainerWithTheCache(t *testing.T) {
 
 	// Every []Card field of Board, derived rather than listed. A third one
 	// added later is caught above as a container, but its cards' own
-	// Assignees, Notes and Mirrors would stay shared, and a hardcoded pair
+	// Assignees and Notes would stay shared, and a hardcoded pair
 	// of call sites would pass while they did.
 	cards := reflect.TypeFor[[]board.Card]()
 	for i := range bv.NumField() {

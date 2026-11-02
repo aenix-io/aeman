@@ -97,24 +97,6 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	}
 	w("project", c.Project)
 	w("epic", c.Epic)
-	if len(c.Mirrors) > 0 {
-		// Structured YAML, not a joined string: project and epic names are
-		// user text and no separator survives them (#124's lesson).
-		seq := &yaml.Node{Kind: yaml.SequenceNode}
-		for _, m := range c.Mirrors {
-			seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.MappingNode, Style: yaml.FlowStyle, Content: []*yaml.Node{
-				{Kind: yaml.ScalarNode, Value: "project"}, {Kind: yaml.ScalarNode, Value: m.Project},
-				{Kind: yaml.ScalarNode, Value: "epic"}, {Kind: yaml.ScalarNode, Value: m.Epic},
-			}})
-		}
-		out, err := yaml.Marshal(&yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
-			{Kind: yaml.ScalarNode, Value: "mirrors"}, seq,
-		}})
-		if err != nil {
-			return nil, fmt.Errorf("gitstore: encode mirrors: %w", err)
-		}
-		b.Write(out)
-	}
 	w("parent", c.Parent)
 	w("reviewOf", c.ReviewOf)
 	wi("reviewRound", c.ReviewRound)
@@ -212,33 +194,6 @@ func DecodeCard(id string, data []byte) (CardFile, error) {
 	if err := decodeFront(&f, front); err != nil {
 		return f, err
 	}
-	// A hand-written mirror equal to the home pair, or written twice, is
-	// the state the x bug lives in: the slot drawn twice, the x
-	// unmirroring instead of removing. Dropped in a post-pass — post-pass
-	// because a hand-written file guarantees no key order, so the home may
-	// be read after the mirrors.
-	// A subtask carries at most the ONE column of its own (G57, which the
-	// Project board draws); a SECOND placement it may not have, because
-	// its file follows its parent and every mirror would be stranded the
-	// moment the parent changes repository.
-	if f.Card.Parent != "" {
-		f.Card.Mirrors = nil
-	}
-	if len(f.Card.Mirrors) > 0 {
-		seen := map[board.Placement]bool{}
-		kept := f.Card.Mirrors[:0]
-		for _, m := range f.Card.Mirrors {
-			if (m.Project == f.Card.Project && m.Epic == f.Card.Epic) || seen[m] {
-				continue
-			}
-			seen[m] = true
-			kept = append(kept, m)
-		}
-		f.Card.Mirrors = kept
-		if len(f.Card.Mirrors) == 0 {
-			f.Card.Mirrors = nil
-		}
-	}
 	desc, notes := splitBody(string(body))
 	f.Card.Description = desc
 	f.Card.Notes = notes
@@ -306,10 +261,10 @@ func resolveNode(n *yaml.Node, seen map[*yaml.Node]bool) *yaml.Node {
 
 // setKnown stores one front-matter key on the card; false means the key is
 // not one of ours. The keys of a retired feature — `process`, `task`,
-// `accumulate` (schema 1) — are deliberately NOT ours any more: on a file
-// written before the migration they ride through as Extra, so a record of
-// that day still shows the card as it stood, and the migration strips them
-// once rather than every reader forgetting them.
+// `accumulate` and `mirrors` (schema 1) — are deliberately NOT ours any
+// more: on a file written before the migration they ride through as Extra,
+// so a record of that day still shows the card as it stood, and the
+// migration strips them once rather than every reader forgetting them.
 func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 	num := func() int { n, _ := strconv.Atoi(val.Value); return n }
 	strs := map[string]*string{
@@ -327,27 +282,6 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 	case "assignees":
 		for _, it := range val.Content {
 			c.Assignees = append(c.Assignees, it.Value)
-		}
-	case "mirrors":
-		for _, it := range val.Content {
-			var m board.Placement
-			for i := 0; i+1 < len(it.Content); i += 2 {
-				switch it.Content[i].Value {
-				case "project":
-					m.Project = it.Content[i+1].Value
-				case "epic":
-					m.Epic = it.Content[i+1].Value
-				}
-			}
-			// A hand-written scalar (`mirrors: [foo]`) decodes to an empty
-			// pair. A column is named by its EPIC, though: the no-project
-			// bucket is a lawful mirror home (G15), so only the epic half
-			// is required — dropping every project-less entry erased the
-			// very placements the service had just accepted.
-			if m.Epic == "" {
-				continue
-			}
-			c.Mirrors = append(c.Mirrors, m)
 		}
 	case "zone":
 		c.Zone = board.ZoneKey(val.Value)

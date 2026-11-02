@@ -93,13 +93,13 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string) (board.Board, error
 	f.rec("LoadBoard")
 	// Assembled the way the real board is. A fake that reproduced the
 	// state-card split by hand never ran the assembly's own rules — the
-	// derived week, the adopted epic, declaredMirrors — so the service was
+	// derived week, the adopted epic, the domain stamps — so the service was
 	// tested against a board nobody has, and the branch's whole claim is
 	// that the assembly and the service must answer alike.
 	cards := append([]board.Card{}, f.b.Cards...)
 	// A state seeded in the map becomes a state CARD before the assembly
-	// runs — declaredMirrors reads team domains, so an overlay applied
-	// afterwards judged the mirrors against a board with no teams. A team
+	// runs — the domain rules read team domains, so an overlay applied
+	// afterwards judged them against a board with no teams. A team
 	// whose card is already among the seeded cards keeps that card: two
 	// stubs for one team would let the emptier one win the assembly.
 	seeded := map[string]bool{}
@@ -463,16 +463,6 @@ func (f *fakeBackend) SetTeam(_ context.Context, _ board.Board, card board.Card,
 	}
 	if c := f.get(card.ItemID); c != nil {
 		c.Team = team
-	}
-	return nil
-}
-
-func (f *fakeBackend) SetMirrors(_ context.Context, _ board.Board, card board.Card, mirrors []board.Placement) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetMirrors %s %d", card.ItemID, len(mirrors))
-	if c := f.get(card.ItemID); c != nil {
-		c.Mirrors = mirrors
 	}
 	return nil
 }

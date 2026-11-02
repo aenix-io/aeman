@@ -116,15 +116,6 @@ func (s *Service) RenameEpic(ctx context.Context, boardID string, projectName, f
 		if !board.InEpic(c, projectName, from) {
 			continue
 		}
-		// InEpic sees mirrors too: a mirrored card follows the rename in its
-		// MIRROR entry — rewriting its home fields here would tear the card
-		// out of its own column.
-		if board.Mirrored(c, projectName, from) {
-			if err := s.renameMirror(ctx, b, c, projectName, from, projectName, to); err != nil {
-				return err
-			}
-			continue
-		}
 		if err := s.backend.SetEpic(ctx, b, c, to); err != nil {
 			return err
 		}
@@ -193,48 +184,13 @@ func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic stri
 	}
 	// One guard for every reference this re-file could strand: the card's
 	// own column (it must name the repository that HOLDS the file — when a
-	// LINK outranks the project, the file stays put while the column moves),
-	// its process tie, and the columns of the cards whose files follow it.
+	// LINK outranks the project, the file stays put while the column moves)
+	// and the columns of the cards whose files follow it.
 	if err := refileGuard(b, card, func(a *board.Card) {
 		a.Project = projectName
 		a.Epic = epic
 	}); err != nil {
 		return err
-	}
-	// The mirrors ride the re-file, and the invariant holds through it:
-	//   - the home moving where the card already mirrors drops that mirror
-	//     (a mirror equal to the home drew the slot twice and made the ×
-	//     unmirror instead of remove);
-	//   - a cleared column clears the mirrors — a card outside every
-	//     project has none, or DeleteEpic refuses for cards nobody sees;
-	//   - the home cannot leave its mirrors' repository (G15): unmirror
-	//     first, then move.
-	if len(card.Mirrors) > 0 {
-		if epic == "" {
-			if err := s.backend.SetMirrors(ctx, b, card, nil); err != nil {
-				return err
-			}
-			card.Mirrors = nil
-		} else {
-			if projectName != card.Project &&
-				!columnsAgree(b, projectName, epic, card.Mirrors[0].Project, card.Mirrors[0].Epic) {
-				return fmt.Errorf("%w: the card mirrors %q — unmirror it before moving to %q",
-					ErrCrossDomain, card.Mirrors[0].Project, projectName)
-			}
-			if board.Mirrored(card, projectName, epic) {
-				kept := make([]board.Placement, 0, len(card.Mirrors)-1)
-				for _, m := range card.Mirrors {
-					if m.Project == projectName && m.Epic == epic {
-						continue
-					}
-					kept = append(kept, m)
-				}
-				if err := s.backend.SetMirrors(ctx, b, card, kept); err != nil {
-					return err
-				}
-				card.Mirrors = kept
-			}
-		}
 	}
 	if card.Epic != epic {
 		if err := s.backend.SetEpic(ctx, b, card, epic); err != nil {
@@ -279,5 +235,69 @@ func epicNameFree(b board.Board, project, name, except string) error {
 			return fmt.Errorf("%w in %q: %q", ErrEpicExists, project, e.Name)
 		}
 	}
+	return nil
+}
+
+// ErrNotInProject is removing a card from a column it does not stand in.
+var ErrNotInProject = errors.New("the card does not stand in that column")
+
+// RemoveFromProject is the Project board's ×: it takes the card out of its
+// column, and off the weekly plan ALWAYS — a plan entry was this project's
+// work, and the project just let go of it. The card survives only in the
+// working area, and only when it was worked on (someone had it and moved
+// it); an untouched card is deleted outright. The UI asks first when work
+// would go (deleteWarning). A SUBTASK is never deleted here, however
+// untouched: its other home is its parent, so the × only takes the column
+// away (G57).
+func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID, project, epic string) error {
+	// A column is named by its EPIC — an empty epic is no column: without
+	// this, a card standing in no column "matched" ("", "") and fell
+	// through to the deletion branch, deleted outright by the very call
+	// that asked to remove it from nowhere. The PROJECT half may be empty:
+	// the no-project bucket is a real column with a working ×, and a card
+	// outside every column has an empty epic, so ("", epic) on it honestly
+	// mismatches below. This package is a public contract and the MCP tool
+	// feeds it directly, so the guard lives here.
+	if epic == "" {
+		return fmt.Errorf("%w: a column is named by its epic — the epic half is required", ErrNotInProject)
+	}
+	b, c, err := s.loadCard(ctx, boardID, itemID)
+	if err != nil {
+		return err
+	}
+	if c.Project != project || c.Epic != epic {
+		return fmt.Errorf("%w: %q / %q", ErrNotInProject, project, epic)
+	}
+	// A SUBTASK has another home — its parent — so the × only takes the
+	// column away, however untouched the card is: deleting would destroy
+	// work that still rides the parent on every other board (the two-homes
+	// rule the × exists to honour).
+	worked := len(c.Assignees) > 0 && c.Progress > 0
+	if !worked && c.Parent == "" {
+		// The whole card goes — a deletion moves nothing — and clearing its
+		// plan first would be a dead write into the very commit that removes
+		// the file.
+		return s.deleteWithCascade(ctx, b, c)
+	}
+	// ORPHANING clears the pair, and for a teamless card that is a
+	// repository move (the domain falls through to the primary) — refused
+	// before anything is written, like every other door.
+	if err := refileGuard(b, c, func(a *board.Card) { a.Project = ""; a.Epic = "" }); err != nil {
+		return err
+	}
+	// The week goes with it, always: it was the slot's row, not a placement
+	// anyone made for the card itself.
+	if c.Week != "" {
+		if err := s.backend.SetWeek(ctx, b, c, ""); err != nil {
+			return err
+		}
+	}
+	if err := s.backend.SetEpic(ctx, b, c, ""); err != nil {
+		return err
+	}
+	if err := s.backend.SetProject(ctx, b, c, ""); err != nil {
+		return err
+	}
+	s.logEvent(ctx, b, c, board.EventEpic, project+" / "+epic, "")
 	return nil
 }

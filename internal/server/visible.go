@@ -358,15 +358,6 @@ func (v *visibleBackend) SetEpic(ctx context.Context, bd board.Board, card board
 	return v.Backend.SetEpic(ctx, bd, card, epic)
 }
 
-func (v *visibleBackend) SetMirrors(ctx context.Context, bd board.Board, card board.Card, mirrors []board.Placement) error {
-	// Mirrors stay in the card's own domain (the service admits nothing
-	// else), so plain write access to it is the whole question.
-	if err := v.write(ctx, bd, card); err != nil {
-		return err
-	}
-	return v.Backend.SetMirrors(ctx, bd, card, mirrors)
-}
-
 func (v *visibleBackend) SetProject(ctx context.Context, bd board.Board, card board.Card, project string) error {
 	if err := v.writeMove(ctx, bd, card, func(c *board.Card) { c.Project = project }); err != nil {
 		return err

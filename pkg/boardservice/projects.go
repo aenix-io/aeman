@@ -145,8 +145,7 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 	// card standing here must be able to FOLLOW: an ordinary card does (its
 	// project decides where it lives), one whose file a link holds does not.
 	// The cross-repository question is settled above, for the column as a
-	// whole. Unbinding to the no-project bucket under mirrors is refused
-	// with the act that fixes it.
+	// whole.
 	for _, c := range b.Cards {
 		if !board.InEpic(c, from, epic) {
 			continue
@@ -154,31 +153,24 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 		if err := guardRoster(b, c.Team, to); err != nil {
 			return err
 		}
-		if c.Project == from && c.Epic == epic {
-			// A HOME card's process tie must not leave its repository with
-			// the column: the move re-files the card, and the tie would
-			// stay behind — refused before the stub is re-parented, like
-			// the mirror guards below.
-			if err := refileGuard(b, c, func(a *board.Card) { a.Project = to }); err != nil {
-				return fmt.Errorf("%w (card %q)", err, c.Title)
-			}
-			// And the card must be able to FOLLOW the column. An ordinary
-			// card does — its project decides where it lives — but one
-			// whose file is held by a link (a subtask riding its parent, a
-			// review card its original) stays behind while its project
-			// field is rewritten to name a column that has left: the state
-			// G57 refuses at every other door. refileGuard cannot see this
-			// one, because the move changes nothing about THIS card's
-			// domain and the target column does not exist yet.
-			after := c
-			after.Project = to
-			if board.HomeDomain(b, after) != colDomain {
-				return fmt.Errorf("%w: %q would leave this column's repository — its team or its links decide where it lives, not its project",
-					ErrCrossDomain, c.Title)
-			}
+		// The columns of the cards that FOLLOW this one must not be left
+		// behind by the move: refused before the stub is re-parented.
+		if err := refileGuard(b, c, func(a *board.Card) { a.Project = to }); err != nil {
+			return fmt.Errorf("%w (card %q)", err, c.Title)
 		}
-		if len(c.Mirrors) > 0 && to == "" {
-			return fmt.Errorf("%w: %q is mirrored — unmirror it before unbinding the column", ErrCrossDomain, c.Title)
+		// And the card must be able to FOLLOW the column. An ordinary card
+		// does — its project decides where it lives — but one whose file is
+		// held by a link (a subtask riding its parent, a review card its
+		// original) stays behind while its project field is rewritten to
+		// name a column that has left: the state G57 refuses at every other
+		// door. refileGuard cannot see this one, because the move changes
+		// nothing about THIS card's domain and the target column does not
+		// exist yet.
+		after := c
+		after.Project = to
+		if board.HomeDomain(b, after) != colDomain {
+			return fmt.Errorf("%w: %q would leave this column's repository — its team or its links decide where it lives, not its project",
+				ErrCrossDomain, c.Title)
 		}
 	}
 	stub := board.Card{ItemID: col.ItemID, Title: board.EpicStateTitle, Epic: epic, Project: from}
@@ -187,12 +179,6 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 	}
 	for _, c := range b.Cards {
 		if !board.InEpic(c, from, epic) {
-			continue
-		}
-		if board.Mirrored(c, from, epic) {
-			if err := s.renameMirror(ctx, b, c, from, epic, to, epic); err != nil {
-				return err
-			}
 			continue
 		}
 		if err := s.backend.SetProject(ctx, b, c, to); err != nil {
@@ -237,21 +223,6 @@ func (s *Service) RenameProject(ctx context.Context, boardID string, from, to st
 		}
 	}
 	for _, c := range b.Cards {
-		// A mirror under the renamed project follows it — independently of
-		// where the card's home is (issue #124: a rename must not strand a
-		// reference).
-		mirrored := false
-		for _, m := range c.Mirrors {
-			if m.Project == from {
-				mirrored = true
-				break
-			}
-		}
-		if mirrored {
-			if err := s.renameMirror(ctx, b, c, from, "", to, ""); err != nil {
-				return err
-			}
-		}
 		if c.Project != from {
 			continue
 		}
