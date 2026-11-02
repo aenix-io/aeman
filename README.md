@@ -57,7 +57,6 @@ Beside the day boards sits **Triage**: the weeks laid out side by side, a column
 board.yaml                        # schema, title
 teams/<id>.yaml                   # a team and its sprint pointer (teams/_.yaml = no team)
 projects/<id>/project.yaml        # a project; its epic columns and deadlines beside it
-processes/<id>/process.yaml       # recurring work; its tasks beside it
 cards/<a>/<b>/<id>.md             # a card: YAML front-matter, description, ## Notes
 ```
 

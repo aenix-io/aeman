@@ -132,7 +132,7 @@ working area and leaves the card in the week or column that still holds it,
 `boardservice.OffBoard` takes it away with the subtask pieces that went with
 it, and `RemoveAuto` (the empty value) lets the gesture decide as it always
 did — so a call that passes `""` reads exactly as before. Each is taken at its
-word: `OffBoard` on a Project-board slot or a process turn is refused
+word: `OffBoard` on a Project-board slot is refused
 (`ErrNotYoursToDestroy`), and `Unassign` with nowhere to leave the card is
 refused (`ErrNowhereToLeaveIt`) rather than stranding it. Beware the shape of
 the break: `RemoveIntent` is a string type, so an old call passing an untyped
@@ -146,7 +146,7 @@ Added in the same line: `board.Board.Primary` (the repository a board's own entr
 
 **Reading a past day is opt-in for a backend.** `boardservice.AsOfReader` — one method, `LoadBoardAsOf(ctx, boardID, at) (board.Board, bool, error)` — is what `Service.BoardAsOf` looks for; storage that keeps history implements it (both gitstore backends do, by reading the tree at the last commit before that moment), and storage that holds only the present simply does not. `ok=false` means the moment is behind what the storage still holds, which the service reports as `ErrHistoryTruncated`; a backend that does not implement the interface at all yields `ErrNoHistory`. Neither is an error your writes have to handle: a board with no history just has no past days (G60).
 
-**The one silent break**: `board.TeamDomain`, `board.ProjectDomain` and `board.ProcessDomain` kept their signatures and changed their answers. They used to return the raw stamp, so an entry of the primary answered `""`; they now answer in the board's one namespace, which means **the primary's NAME** whenever `Primary` is set (`""` only on a board that names none). `ColumnDomain` does the same. Code that tested those answers for emptiness to mean "the primary" reads every entry as foreign the moment the board names its primary — compare against `b.Primary`, or against another reader's answer, never against `""`. "Nothing declares this" is still `""`, and still decides nothing: `TeamDomain` of a team the roster does not carry, and `ColumnDomain`'s `false`.
+**The one silent break**: `board.TeamDomain` and `board.ProjectDomain` kept their signatures and changed their answers. They used to return the raw stamp, so an entry of the primary answered `""`; they now answer in the board's one namespace, which means **the primary's NAME** whenever `Primary` is set (`""` only on a board that names none). `ColumnDomain` does the same. Code that tested those answers for emptiness to mean "the primary" reads every entry as foreign the moment the board names its primary — compare against `b.Primary`, or against another reader's answer, never against `""`. "Nothing declares this" is still `""`, and still decides nothing: `TeamDomain` of a team the roster does not carry, and `ColumnDomain`'s `false`.
 
 **If you build a `board.Board` by hand**, either leave every domain blank or set `Primary` to the name your entries are stamped with. A board that stamps its entries while leaving `Primary` empty puts two namespaces in one struct — a card that nothing places resolves to `""` while its column resolves to `"your-repo"` — and every domain rule then answers "another repository". The store stamps CARDS too, the primary's included, so a hand-built board that stamps only its roster leaves `FileDomain` answering for the wrong repository (G59).
 

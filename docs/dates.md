@@ -104,10 +104,10 @@ A week is a **Monday** everywhere it is written — the board's own drag, the pa
 The rules above place TODAY's cards on a day. That is what a day-lens is: dates decide where a card belongs, and a card finished this morning reads finished on every day you flip to. Going BACK on the Me or Team board answers a different question — what did the board look like then — and gets a different answer: the board **as it stood** when that day ended, read from the repositories' own history (the tree at that day's last commit). Every field is the day's own; a card created since is simply absent.
 
 - **Whether a day is over is each TEAM's own answer**, not the calendar's. A sprint lays itself out on its own day — that is where the lead works it from, and where a card created today lands (its `sprintStart` may be days old) — so a team still inside that sprint keeps the live board, while a team whose sprint has moved past the day shows what it held that evening. One day, one screen, two moments: on a board of several teams the columns of the settled teams are records and the rest is today's work, and each card says which it is (`status.asOf`). A team whose sprint has stood since July therefore keeps every day since July live for itself alone — that sprint IS open, and Carry Over is what closes it.
-- Only a **past** day, and only the day boards (Me, Team). Today is still happening, tomorrow has not, and the Project and Process boards are not day boards.
+- Only a **past** day, and only the day boards (Me, Team). Today is still happening, tomorrow has not, and the Project board is not a day board.
 - A record is not a workspace, and it looks like one: flat and grey, with no control on it, and the detail pane opens it read-only. It does not drag; a write to it is refused in the browser AND by the server (409 on `X-Aeman-As-Of`), so a UI path that forgets never writes today's board from a picture; today's traffic is not applied over it. The live cards beside it stay entirely workable, and so is ADDING to a team whose sprint is still open: every day of an open sprint is that team's to add to — the day it began included — and only a team the day is over for loses its add box. **Reaching for it anyway takes you off it**: the day jumps to today and the team whose card was touched is offered its carry-over (the same confirm the button shows, quiet when that sprint is already today) — a lead reaching into a day that is over usually has a sprint that was never closed. The write is not replayed onto today: it was aimed at a picture of the past.
 - **A day gives back what the × took off it.** The × on a team card DELETES it — the file goes — and the day it stood on holds it all the same, in the state it went in: the record of a day is the tree that day ended with **plus every card the day itself removed**, read from the commit that removed it. Today's board is unchanged: taking the card off today is exactly what the × is for. (The × used to DEMOTE a worked card into the previous sprint instead, and the record then gave it back by `leftAt`, the day it was taken off. Cards demoted before this shipped are still where that left them — alive in an old sprint — and are still given back by that mark; nothing writes it on a team card any more.)
-- The record carries that day's **sprint pointers** with its cards — the view rules place a card by its team's pointer. The **roster** (projects, columns, processes, deadlines) stays today's: a column created since shows on the record of an older day.
+- The record carries that day's **sprint pointers** with its cards — the view rules place a card by its team's pointer. The **roster** (projects, columns, deadlines) stays today's: a column created since shows on the record of an older day.
 - **A day says which of its cards were finished on it.** A day board draws finished work on the day it recorded (`doneAt`) and no other — and the record of a day can supply that day where the card's own writer did not: the day **opened** with the card unfinished and **closed** with it done, so the work was finished inside it. It is filled in on the way out of the history, never stored, and what the card says itself always wins. The evidence is that change and not the day's list of names — a commit names what it touched, and a rank rebalance or a carry-over touches cards by the hundred without finishing any of them. A day whose own morning cannot be seen — the boundary day of a clone whose history is cut — claims nothing: "I do not know when this was closed" is a true answer where an invented day is not.
 - The history has an edge. The server keeps a horizon (`--history`, two weeks by default) and deepens on demand up to `--history-max` (a year); a day behind that is refused (410) rather than answered with the oldest state at hand.
 
@@ -216,16 +216,14 @@ open past it is a **debt**. A debt is never moved: the week it was owed in is
 the record of what was missed, and the day boards go on drawing the work until
 it is finished.
 
-The overdue **mark** is narrower than the debt. Only a Project-board slot and a
-process turn wear it (`board.Overdue`), because only they carry a promise
-somebody ELSE is holding — a row drawn to an end date on another board, a turn
-a process filed. A week the Triage board gave a card is that board's own
-planning, and planning is what the next sync redoes: marking it late for still
-being open on Monday paints most of a normal board red, and a mark that is
-everywhere says nothing where it matters.
+The overdue **mark** is narrower than the debt. Only a Project-board slot
+wears it (`board.Overdue`), because only it carries a promise somebody ELSE is
+holding — a row drawn to an end date on another board. A week the Triage board
+gave a card is that board's own planning, and planning is what the next sync
+redoes: marking it late for still being open on Monday paints most of a normal
+board red, and a mark that is everywhere says nothing where it matters.
 
 - a Project-board **slot** is owed by its end date;
-- a process **turn** by the end of the week it was filed in;
 - a card scheduled for a **week** by that week's Friday — or, stretched over
   several weeks, by the end of its reach, since stretching it is saying it
   takes longer;
