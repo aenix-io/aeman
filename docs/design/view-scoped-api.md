@@ -8,7 +8,7 @@ This is the second half of what [api-redesign.md](api-redesign.md) set out to do
 
 ADR 0002 says the API and MCP mirror the frontend, not the backend. Two audits of the live tool set found where that stopped being true, and the pattern in both is the same: **the board's vocabulary is views and gestures, and the API's vocabulary is fields.**
 
-A person creating a card does it on a board, and the board is what makes the card what it is: typed into the Me board it is theirs, today, in this sprint; typed into a Triage week it is scheduled for that week and stands on no day; typed into the drawer it is parked; typed into a Project column it is a slot whose row is its start date. An agent creating the same cards sends `week`, `parked`, `epic`+`project` — flags that encode the boards, and nothing tells it which combinations are boards and which are states no board draws: `parked` with a `week` is a card in the drawer and in the plan at once, which the service now refuses.
+A person creating a card does it on a board, and the board is what makes the card what it is: typed into the Me board it is theirs, today, in this sprint; typed into a Triage week it is scheduled for that week and stands on no day; typed into the drawer it is parked; typed into a Project column it is a slot whose row is its start date. An agent creating the same cards sends `week`, `parked`, `scope`+`project` — flags that encode the boards, and nothing tells it which combinations are boards and which are states no board draws: `parked` with a `week` is a card in the drawer and in the plan at once, which the service now refuses.
 
 The same split runs through the × — one gesture that means four different things and is answered by `intent` — and through listing, where `view=` is one selector among fifteen, so `view=me&team=platform&zone=urgent&focus=true` reads as a database query rather than as "open my board".
 
@@ -67,11 +67,11 @@ Three things, in the order they bite.
 
 | create in | the card that comes out | refused |
 | --- | --- | --- |
-| `me` | on the caller, `day` (today by default), the team's current sprint, in the UNPLANNED band (a subtask takes its parent's instead) | `epic`, `parked`, `week`, any other band |
-| `team` | on `team=`, `day`, that team's current sprint, in any band; `assignee` optional (the Unassigned column) | `epic`, `parked`, `week` |
-| `triage` | scheduled for `week`; no dates and no sprint, unless the week is the one being WORKED — a card started in the current row belongs to today too | `parked`, `epic`, and a `day` in any other week |
-| `backlog` | on `team=`'s shelf: parked, no week, no dates, no sprint | `week`, a `day`, `epic` |
-| `project` | a slot under `epic` (+`project`): its row is the week of `dates.start`, no sprint | `parked` |
+| `me` | on the caller, `day` (today by default), the team's current sprint, in the UNPLANNED band (a subtask takes its parent's instead) | `scope`, `parked`, `week`, any other band |
+| `team` | on `team=`, `day`, that team's current sprint, in any band; `assignee` optional (the Unassigned column) | `scope`, `parked`, `week` |
+| `triage` | scheduled for `week`; no dates and no sprint, unless the week is the one being WORKED — a card started in the current row belongs to today too | `parked`, `scope`, and a `day` in any other week |
+| `backlog` | on `team=`'s shelf: parked, no week, no dates, no sprint | `week`, a `day`, `scope` |
+| `project` | a slot under `scope` (+`project`): its row is the week of `dates.start`, no sprint | `parked` |
 | `all` | exactly what the fields say, as today | nothing |
 
 `parked` stops being a flag: it was a board wearing a field's clothes, and the board is now in the address. `noSprint` stays a field of the `me` and `team` creates, because it is a real question the board asks — the dialog that offers "this sprint" or "the next one" when a card is typed for a day ahead — and a question is not a board.
@@ -97,7 +97,7 @@ The board's structure: the roster and the pointers, one per board, owned by no v
 
 ```
 /api/v1/board            /api/v1/sprints          /api/v1/people/{login}
-/api/v1/teams/…          /api/v1/projects/…       /api/v1/epics/…
+/api/v1/teams/…          /api/v1/projects/…       /api/v1/scopes/…
 /api/v1/processes/…      /api/v1/processes/tasks/…  /api/v1/deadlines/…
 /api/v1/presence         /api/healthz
 ```
@@ -112,7 +112,7 @@ These are the cluster-scoped half of the analogy, and it holds better here than 
 
 The GESTURES take one too, and here the default is the escape hatch, deliberately: an agent is not standing anywhere. It reaches a card by uid — from a listing, from a title search — and making it work out which board draws that card would be friction with no safety in it, since the rules that matter (whose card it is, what the × may do to it) live in the service and answer every caller alike. Naming a board is how an agent ASKS to be held to one, and then it is refused exactly as the SPA would be.
 
-The tools the boards have and MCP did not are added in the same pass, since "what the UI can do" is the list MCP is measured against: `place_card`, `untriage_card`, `finished_earlier`, `reorder_teams`, `reorder_epics`, `delete_team`, `set_sprint_state`, `list_day_logs`, and `list_sprints` — when each team's sprint began, which every date rule is reckoned against and nothing answered. The parameter gaps go with them: `send_to_review`'s zone, `create_card`'s parent, `list_cards`'s `reviews`, `from` and `weeks`.
+The tools the boards have and MCP did not are added in the same pass, since "what the UI can do" is the list MCP is measured against: `place_card`, `untriage_card`, `finished_earlier`, `reorder_teams`, `reorder_scopes`, `delete_team`, `set_sprint_state`, `list_day_logs`, and `list_sprints` — when each team's sprint began, which every date rule is reckoned against and nothing answered. The parameter gaps go with them: `send_to_review`'s zone, `create_card`'s parent, `list_cards`'s `reviews`, `from` and `weeks`.
 
 ## The frontend
 

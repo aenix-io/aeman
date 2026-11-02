@@ -40,7 +40,7 @@ Rules of thumb:
 - `[P1]` / `[Bug]` prefixes describe priority, not size.
 - A card that lists several distinct deliverables is at least L.
 - A recurring chore — "засинкать", "снять метрики", "пропинговать", "разослать" — is S unless its description says otherwise.
-- A Project-board slot (a card with `spec.epic`) with only a title is L: a planned deliverable of a few days. XL only when it visibly holds more — subtasks, phases, an explicit estimate of a week or more.
+- A Project-board slot (a card with `spec.scope`) with only a title is L: a planned deliverable of a few days. XL only when it visibly holds more — subtasks, phases, an explicit estimate of a week or more.
 - A card with subtasks does not need a careful size of its own: the board weighs it as the sum of its sized subtasks. Size the subtasks.
 - Do not drift to M because M feels safe. S is the default for a one-line card.
 
