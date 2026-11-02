@@ -176,6 +176,10 @@ export interface NewCardInput {
    *  create is the Roadmap's (views.ts createView) whatever board is open;
    *  absent, a task. Fixed for the card's life. */
   type?: CardType | null;
+  /** A TASK made under a planning card (the add in an epic's pane): the
+   *  create is the Roadmap's, whatever board is open — the task lands in the
+   *  Triage strip until planned. Client-side only; never sent. */
+  underPlanning?: boolean | null;
   /** Force the team's sprint pointer to (re)start on the card's day. */
   startNewSprint?: boolean;
   /** Schedule the card for its day without joining any sprint (a "next

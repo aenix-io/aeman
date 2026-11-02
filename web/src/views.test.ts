@@ -14,6 +14,15 @@ describe("which board a create belongs to", () => {
     expect(createView({ parked: true })).toBe("backlog");
   });
 
+  // A planning card is the Roadmap's whatever board is open, and so is a task
+  // born under one from its parent's own pane: no day board takes a create
+  // with no day and a parent of that kind (H7).
+  it("is the Roadmap for a planning card, and for a task born under one", () => {
+    expect(createView({ type: "epic" }, "me")).toBe("roadmap");
+    expect(createView({ underPlanning: true }, "team")).toBe("roadmap");
+    expect(createView({ underPlanning: false })).toBe("team");
+  });
+
   // The week is that board's whole gesture, days or no days: a card started
   // in the row that IS NOW carries today's dates as well and is still a card
   // of the Triage board (the server takes them for the current week alone).

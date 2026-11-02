@@ -1649,6 +1649,8 @@ export function App() {
           onClose={() => setDetailCard(null)}
           reload={reload}
           patchCard={patchCard}
+          addCard={addCard}
+          removeCard={removeCard}
           onReveal={revealOnRoadmap}
           onOpenCard={(c) => setDetailCard(c)}
           onError={onError}

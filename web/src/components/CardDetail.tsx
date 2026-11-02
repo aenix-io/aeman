@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   Board,
   Card as CardModel,
   CardEvent,
   CardLog,
+  CardType,
   Note,
   Provider,
   SizeKey,
@@ -11,19 +12,27 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER } from "../zones";
 import { SIZES, SIZE_ORDER } from "../size";
+import { STAGES } from "../stages";
 import { Dropdown } from "./Dropdown";
 import { eventLabel } from "../eventlog";
 import { localDateIso } from "../date";
+import { removeFromProjectOutcome } from "../placements";
 import {
-  GLYPH,
   KIND_LABEL,
   STATUS_LABEL,
   allowedParentKinds,
+  childrenNote,
+  hierarchyChoices,
   kindOf,
+  planningRemoval,
   statusOf,
+  type HierarchyChoice,
   type RoadmapKind,
 } from "../roadmap";
 import { isPlanning, isSubtask } from "../subtasks";
+import { KindIcon } from "./KindIcon";
+import { ParentPicker } from "./ParentPicker";
+import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
 interface CardDetailProps {
   card: CardModel;
@@ -35,6 +44,10 @@ interface CardDetailProps {
     itemId: string,
     patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
   ) => void;
+  /** The board's own card list, for a child made or removed here. Absent,
+   *  the pane keeps its own list until the watch catches up. */
+  addCard?: (card: CardModel) => void;
+  removeCard?: (itemId: string) => void;
   /** A breadcrumb was followed: show that card on the Roadmap. */
   onReveal?: (uid: string) => void;
   /** A row under a planning card was clicked: open that card here. */
@@ -46,7 +59,31 @@ interface CardDetailProps {
 
 const errMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-/** CardDetail is a centered modal for editing a card's title and details.
+/** childLevels is what a planning card's pane may make under it: the levels
+ *  below its own, and under an epic a TASK — born here with no team and no
+ *  day, it stands in the Triage strip until somebody plans it (H7). */
+function childLevels(kind: RoadmapKind): (CardType | "task")[] {
+  if (kind === "goal") {
+    return ["initiative", "epic"];
+  }
+  if (kind === "initiative") {
+    return ["epic"];
+  }
+  if (kind === "epic") {
+    return ["task"];
+  }
+  return [];
+}
+
+/** CardDetail is the card's pane: a drawer that slides in from the right and
+ *  stands over whichever board the card was met on, laid out like an issue
+ *  page — the title and its breadcrumb up top, the description and the
+ *  activity down the main column, every field the card has in a sidebar of
+ *  labelled rows, and the actions that act on the whole card at the bottom
+ *  of it. Which rows there are is the card's KIND's to say: a task has a
+ *  band and a size, a planning card a level and a standing, a project card a
+ *  column — the server refuses the rest, so the pane does not offer it.
+ *
  *  On a RECORD — a card as it stood on a day its team has moved past — it
  *  reads instead: the boxes are disabled and there is nothing to save, since
  *  a change made from there would land on today's card while the reader is
@@ -58,6 +95,8 @@ export function CardDetail({
   onClose,
   reload,
   patchCard,
+  addCard,
+  removeCard,
   onReveal,
   onOpenCard,
   onError,
@@ -65,22 +104,25 @@ export function CardDetail({
   // A record: what the card was on a day its team has moved past. Nothing
   // here is editable, and the pane says so rather than pretending.
   const isRecord = !!card.asOf;
+  const temp = card.itemId.startsWith("tmp-");
   const [title, setTitle] = useState(card.title);
   const planning = isPlanning(card);
   const kind = kindOf(card);
+  const project = kind === "project";
+  const task = !planning && !project;
+  const subtask = isSubtask(card);
 
   // The hierarchy around this card: what it may sit under, and what sits
   // under it. Both come from the roadmap listing, which holds every planning
   // card and every card under one — the day boards never deliver a planning
-  // card, so a detail pane opened from one has only the lineage until this
+  // card, so a pane opened from one has only the lineage until this
   // arrives. Fetched once per card, when the pane needs it: a planning
   // card's children at once, a task's parent options when the picker opens.
   const [hierarchy, setHierarchy] = useState<{ forCard: string; cards: CardModel[] } | null>(null);
-  const [parentOpen, setParentOpen] = useState(false);
-  const parentRef = useRef<HTMLSpanElement | null>(null);
-  const wantsHierarchy = planning || parentOpen;
+  const [wantsOptions, setWantsOptions] = useState(false);
+  const wantsHierarchy = planning || wantsOptions;
   useEffect(() => {
-    if (!wantsHierarchy || card.itemId.startsWith("tmp-") || hierarchy?.forCard === card.itemId) {
+    if (!wantsHierarchy || temp || hierarchy?.forCard === card.itemId) {
       return;
     }
     let dropped = false;
@@ -99,31 +141,26 @@ export function CardDetail({
     return () => {
       dropped = true;
     };
-  }, [wantsHierarchy, card.itemId, provider, hierarchy?.forCard]);
+  }, [wantsHierarchy, card.itemId, provider, hierarchy?.forCard, temp]);
   const around = hierarchy?.forCard === card.itemId ? hierarchy.cards : null;
+  // What the board itself holds is fresher than the fetched listing for the
+  // cards it has (the watch keeps it so); the listing fills in the rest.
+  const known = useMemo(() => {
+    const byId = new Map<string, CardModel>();
+    for (const c of around ?? []) {
+      byId.set(c.itemId, c);
+    }
+    for (const c of board.cards) {
+      byId.set(c.itemId, c);
+    }
+    return [...byId.values()];
+  }, [around, board.cards]);
 
   // The parent as the pane shows it: the last crumb of the lineage.
   const parentCrumb = card.lineage?.[card.lineage.length - 1];
-  // What this card may be filed under (H2): planning cards of a higher
-  // level, never itself or anything under it. A goal is under nothing; a
-  // subtask's parent is the group gesture's, not this picker's.
-  const parentKinds = allowedParentKinds(kind);
-  const offersParent = !isRecord && parentKinds.length > 0 && !isSubtask(card);
-  const parentOptions = useMemo(() => {
-    if (!around) {
-      return null;
-    }
-    return around.filter(
-      (c) =>
-        isPlanning(c) &&
-        parentKinds.includes(kindOf(c)) &&
-        c.itemId !== card.itemId &&
-        !(c.lineage ?? []).some((up) => up.uid === card.itemId),
-    );
-  }, [around, parentKinds, card.itemId]);
+  const offersParent = !isRecord && allowedParentKinds(kind).length > 0 && !subtask;
 
   const setParent = (next: CardModel | null) => {
-    setParentOpen(false);
     const nextId = next?.itemId ?? "";
     if ((card.parent ?? "") === nextId) {
       return;
@@ -144,9 +181,10 @@ export function CardDetail({
       });
   };
 
-  // A planning card's dates are its bar on the Roadmap; nothing else about
-  // its placement is its own (the server refuses the rest), so this is the
-  // one pair of boxes the pane offers it.
+  // A planning card's dates are its bar on the Roadmap, a project card's its
+  // row on the Project board; a task's are its placement on the day boards
+  // and are moved there, so here they only read.
+  const editsDates = !isRecord && !task;
   const setDates = (start: string, end: string) => {
     if (start === (card.startDate ?? "") && end === (card.day ?? "")) {
       return;
@@ -164,7 +202,7 @@ export function CardDetail({
 
   // What sits under a planning card, grouped as the pane lists it.
   const children = useMemo(() => {
-    const under = (around ?? board.cards).filter((c) => c.parent === card.itemId);
+    const under = known.filter((c) => c.parent === card.itemId);
     const groups: { label: string; kinds: RoadmapKind[]; cards: CardModel[] }[] = [
       { label: "Planning", kinds: ["goal", "initiative", "epic"], cards: [] },
       { label: "Tasks", kinds: ["task", "subtask"], cards: [] },
@@ -175,7 +213,115 @@ export function CardDetail({
       groups.find((g) => g.kinds.includes(k))?.cards.push(c);
     }
     return groups.filter((g) => g.cards.length > 0);
-  }, [around, board.cards, card.itemId]);
+  }, [known, card.itemId]);
+
+  // ---- making something under a planning card ----
+  const levels = childLevels(kind);
+  const [adding, setAdding] = useState(false);
+  const [addTitle, setAddTitle] = useState("");
+  const [addLevel, setAddLevel] = useState<CardType | "task">(levels[0] ?? "task");
+  const [pendingAdds, setPendingAdds] = useState<string[]>([]);
+  const addChild = () => {
+    const t = addTitle.trim();
+    if (!t) {
+      setAdding(false);
+      return;
+    }
+    setAddTitle("");
+    setPendingAdds((p) => [...p, t]);
+    const type = addLevel === "task" ? undefined : addLevel;
+    void provider
+      .createCard({ title: t, type, parent: card.itemId, underPlanning: addLevel === "task" })
+      .then((made) => {
+        setPendingAdds((p) => p.filter((x) => x !== t));
+        setHierarchy((h) => (h && h.forCard === card.itemId ? { ...h, cards: [...h.cards, made] } : h));
+        addCard?.(made);
+      })
+      .catch((err: unknown) => {
+        setPendingAdds((p) => p.filter((x) => x !== t));
+        onError?.(errMessage(err));
+      });
+  };
+
+  // ---- the × on a child, and the actions on the card itself ----
+  // One dialog for all of it: the Team board's own, with the hierarchy's two
+  // answers — delete, or only unlink (roadmap.hierarchyChoices).
+  const [choosing, setChoosing] = useState<{ card: CardModel; detachable: boolean } | null>(null);
+  const answer = (target: CardModel, choice: HierarchyChoice) => {
+    if (choice === "detach") {
+      const before = { parent: target.parent, lineage: target.lineage };
+      patchCard(target.itemId, { parent: undefined, lineage: undefined });
+      setHierarchy((h) =>
+        h ? { ...h, cards: h.cards.map((c) => (c.itemId === target.itemId ? { ...c, parent: undefined, lineage: undefined } : c)) } : h,
+      );
+      void provider.patchCard(target.itemId, { parent: "" }).catch((err: unknown) => {
+        patchCard(target.itemId, before);
+        onError?.(errMessage(err));
+      });
+      return;
+    }
+    // Delete: a planning card's children move up to its own parent, as the
+    // server does (reparentChildren); a task's subtasks go with it.
+    for (const m of planningRemoval(known, target.itemId)) {
+      patchCard(m.itemId, { parent: m.parent, lineage: m.parent ? target.lineage : undefined });
+    }
+    removeCard?.(target.itemId);
+    setHierarchy((h) => (h ? { ...h, cards: h.cards.filter((c) => c.itemId !== target.itemId) } : h));
+    void provider.deleteCard(target.itemId).catch((err: unknown) => {
+      onError?.(errMessage(err));
+      reload();
+    });
+    if (target.itemId === card.itemId) {
+      onClose();
+    }
+  };
+
+  // Done and back, the way the Project board does it: done clears the stage
+  // and fills 100; the way back restores what done overwrote — the server
+  // reads the pre-done progress from the card's own log.
+  const complete = statusOf(card) === "done";
+  const setDone = (done: boolean) => {
+    const prev = { stage: card.stage, progress: card.progress };
+    if (done) {
+      patchCard(card.itemId, { stage: card.stage === "recurrent" ? "recurrent" : undefined, progress: 100 });
+      void provider
+        .patchCard(card.itemId, { stage: "done" })
+        .then((updated) => patchCard(card.itemId, { stage: updated.stage, progress: updated.progress }))
+        .catch((err: unknown) => {
+          patchCard(card.itemId, prev);
+          onError?.(errMessage(err));
+        });
+      return;
+    }
+    patchCard(card.itemId, { stage: undefined });
+    void provider
+      .reopen(card.itemId)
+      .then((updated) => patchCard(card.itemId, { stage: updated.stage, progress: updated.progress }))
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
+        onError?.(errMessage(err));
+      });
+  };
+
+  const removeFromProject = () => {
+    const outcome = removeFromProjectOutcome(card, card.project ?? "", card.scope ?? "");
+    if (outcome === "refused") {
+      reload();
+      return;
+    }
+    const before = { project: card.project, scope: card.scope };
+    if (outcome === "delete") {
+      removeCard?.(card.itemId);
+      onClose();
+    } else {
+      patchCard(card.itemId, { scope: undefined });
+    }
+    void provider.removeFromProject(card.itemId, card.project ?? "", card.scope ?? "").catch((err: unknown) => {
+      patchCard(card.itemId, before);
+      onError?.(errMessage(err));
+      reload();
+    });
+  };
 
   const [editingTitle, setEditingTitle] = useState(false);
   // Esc closes this card — the pane is a reader as often as an editor, and
@@ -207,7 +353,7 @@ export function CardDetail({
     patchCard(card.itemId, { zone });
     void provider.patchCard(card.itemId, { zone }).catch((err: unknown) => {
       patchCard(card.itemId, { zone: before });
-      fail(err);
+      onError?.(errMessage(err));
     });
   };
 
@@ -219,7 +365,7 @@ export function CardDetail({
     patchCard(card.itemId, { size: next || undefined });
     void provider.patchCard(card.itemId, { size: next }).catch((err: unknown) => {
       patchCard(card.itemId, { size: before });
-      fail(err);
+      onError?.(errMessage(err));
     });
   };
 
@@ -234,7 +380,7 @@ export function CardDetail({
   const bodyLoaded = card.description !== undefined;
 
   // Reset local edit state ONLY when a different card is opened — the card
-  // object itself churns underneath the dialog (watch frames, re-lists, the
+  // object itself churns underneath the pane (watch frames, re-lists, the
   // body fetch below), and none of that may wipe what the user is typing.
   useEffect(() => {
     setTitle(card.title);
@@ -244,15 +390,19 @@ export function CardDetail({
     setEditingTitle(false);
     setTab("details");
     setLog(null);
+    setAdding(false);
+    setAddTitle("");
+    setAddLevel(childLevels(kindOf(card))[0] ?? "task");
+    setWantsOptions(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card.itemId]);
 
-  // Listings are board rows without the body: fetch it when the dialog opens
+  // Listings are board rows without the body: fetch it when the pane opens
   // on one. The result lands in the board (so every pane agrees) and into the
   // draft — unless the user already typed. A failure surfaces and keeps Save
   // locked instead of silently offering to save "" over the real text.
   useEffect(() => {
-    if (bodyLoaded || card.itemId.startsWith("tmp-")) {
+    if (bodyLoaded || temp) {
       return;
     }
     let dropped = false;
@@ -275,7 +425,7 @@ export function CardDetail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card.itemId, bodyLoaded]);
 
-  // The body arriving (or changing under an untouched dialog — a teammate
+  // The body arriving (or changing under an untouched pane — a teammate
   // edited it) refreshes the draft; a dirty draft is the user's and stays.
   useEffect(() => {
     if (!dirty && card.description !== undefined) {
@@ -287,7 +437,7 @@ export function CardDetail({
   // The card's full activity feed (events + notes) loads on demand — fetched
   // fresh every time the Activity tab is opened, so the timeline is current.
   useEffect(() => {
-    if (tab !== "activity" || card.itemId.startsWith("tmp-")) {
+    if (tab !== "activity" || temp) {
       return;
     }
     let cancelled = false;
@@ -331,15 +481,6 @@ export function CardDetail({
     return [...days.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   }, [log]);
 
-  const fail = (err: unknown) => {
-    onClose();
-    reload();
-    // Surface the error via the same banner channel as the boards.
-    if (err instanceof Error) {
-      console.error(err);
-    }
-  };
-
   const commitTitle = () => {
     const next = title.trim();
     setEditingTitle(false);
@@ -348,16 +489,14 @@ export function CardDetail({
       return;
     }
     patchCard(card.itemId, { title: next });
-    void provider
-      .patchCard(card.itemId, { title: next })
-      .catch((err: unknown) => {
-        patchCard(card.itemId, { title: card.title });
-        setTitle(card.title);
-        fail(err);
-      });
+    void provider.patchCard(card.itemId, { title: next }).catch((err: unknown) => {
+      patchCard(card.itemId, { title: card.title });
+      setTitle(card.title);
+      onError?.(errMessage(err));
+    });
   };
 
-  const handleSave = () => {
+  const saveDescription = () => {
     const next = description;
     // The description live-syncs with the linked counterpart (original <->
     // review card) server-side; mirror it locally, since our own watch echo
@@ -365,135 +504,127 @@ export function CardDetail({
     const counterpart = board.cards.find((c) =>
       card.reviewOf ? c.itemId === card.reviewOf : c.reviewOf === card.itemId,
     );
-    // Apply immediately and close; the backend runs in the background. The
-    // stale server-derived linkRefs drop so the row falls back to parsing the
-    // new text — the links icon follows the edit. A failed write restores
-    // exactly what was there, including a counterpart body that was never
-    // loaded (undefined stays undefined — never invented as "empty").
+    // Apply at once and keep the pane open; the write runs behind it. The
+    // stale server-derived linkRefs drop so the row falls back to parsing
+    // the new text — the links icon follows the edit. A failed write
+    // restores exactly what was there, including a counterpart body that
+    // was never loaded (undefined stays undefined — never invented as "").
     patchCard(card.itemId, { description: next, linkRefs: undefined });
     if (counterpart) {
       patchCard(counterpart.itemId, { description: next, linkRefs: undefined });
     }
-    onClose();
-    void provider
-      .patchCard(card.itemId, { description: next })
-      .catch((err: unknown) => {
-        patchCard(card.itemId, {
-          description: card.description,
-          linkRefs: card.linkRefs,
-        });
-        if (counterpart) {
-          patchCard(counterpart.itemId, {
-            description: counterpart.description,
-            linkRefs: counterpart.linkRefs,
-          });
-        }
-        if (err instanceof Error) {
-          console.error(err);
-        }
-      });
+    setDirty(false);
+    void provider.patchCard(card.itemId, { description: next }).catch((err: unknown) => {
+      patchCard(card.itemId, { description: card.description, linkRefs: card.linkRefs });
+      if (counterpart) {
+        patchCard(counterpart.itemId, { description: counterpart.description, linkRefs: counterpart.linkRefs });
+      }
+      onError?.(errMessage(err));
+    });
   };
+
+  const time = (at: string) =>
+    new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  const status = statusOf(card);
+  const stageLabel = card.stage && card.stage !== "done" ? STAGES[card.stage].label : null;
+
+  const row = (label: string, value: ReactNode, key = label) => (
+    <div className="drawer-row" key={key}>
+      <span className="drawer-label">{label}</span>
+      <span className="drawer-value">{value}</span>
+    </div>
+  );
 
   return (
     <div
-      className="modal-backdrop"
+      className="drawer-backdrop"
       onClick={onClose}
       ref={backdropRef}
       tabIndex={-1}
       onKeyDown={(e) => {
-        if (e.key === "Escape" && !editingTitle) {
+        if (e.key === "Escape" && !editingTitle && !choosing) {
           e.stopPropagation();
           onClose();
         }
       }}
     >
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Where this card stands in the hierarchy, root first: the goal,
-            the initiative, the epic — and for a subtask, its task. A
-            planning crumb leads to the Roadmap, which is the one board that
-            draws it; a task crumb is a name, since the day boards are where a
-            task is met. */}
-        {card.lineage && card.lineage.length > 0 && (
-          <nav className="modal-crumbs" aria-label="Hierarchy">
-            {card.lineage.map((up, i) => (
-              <span key={up.uid} className="modal-crumb">
-                {i > 0 && (
-                  <span className="modal-crumb-sep" aria-hidden="true">
-                    ›
+      <aside className="drawer card-drawer" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <header className="drawer-head">
+          {/* Where this card stands in the hierarchy, root first: the goal,
+              the initiative, the epic — and for a subtask, its task. A
+              planning crumb leads to the Roadmap, which is the one board that
+              draws it; a task crumb is a name, since the day boards are where
+              a task is met. */}
+          {card.lineage && card.lineage.length > 0 && (
+            <nav className="modal-crumbs drawer-crumbs" aria-label="Hierarchy">
+              {card.lineage.map((up, i) => (
+                <span key={up.uid} className="modal-crumb">
+                  {i > 0 && (
+                    <span className="modal-crumb-sep" aria-hidden="true">
+                      ›
+                    </span>
+                  )}
+                  <KindIcon kind={(up.type ?? "task") as RoadmapKind} />
+                  {up.type && onReveal ? (
+                    <button
+                      type="button"
+                      className="modal-crumb-link"
+                      title={`Show «${up.title}» on the Roadmap`}
+                      onClick={() => onReveal(up.uid)}
+                    >
+                      {up.title}
+                    </button>
+                  ) : (
+                    <span className="modal-crumb-name">{up.title}</span>
+                  )}
+                </span>
+              ))}
+            </nav>
+          )}
+          <div className="drawer-title-row">
+            <KindIcon kind={kind} size={18} className="drawer-kind" label />
+            {editingTitle && !isRecord ? (
+              <input
+                type="text"
+                className="modal-title-input drawer-title-input"
+                autoFocus
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    commitTitle();
+                  } else if (e.key === "Escape") {
+                    setTitle(card.title);
+                    setEditingTitle(false);
+                  }
+                }}
+                onBlur={commitTitle}
+              />
+            ) : (
+              <h2
+                className={isRecord ? "drawer-title" : "drawer-title modal-title-click"}
+                onClick={() => {
+                  if (isRecord) {
+                    return;
+                  }
+                  setTitle(card.title);
+                  setEditingTitle(true);
+                }}
+                title={isRecord ? undefined : "Click to rename"}
+              >
+                {card.title}
+                {!isRecord && (
+                  <span className="modal-title-edit" aria-hidden="true">
+                    ✎
                   </span>
                 )}
-                <span className={`roadmap-glyph roadmap-glyph-${up.type ?? "task"}`} aria-hidden="true">
-                  {GLYPH[up.type ?? "task"]}
-                </span>
-                {up.type && onReveal ? (
-                  <button
-                    type="button"
-                    className="modal-crumb-link"
-                    title={`Show «${up.title}» on the Roadmap`}
-                    onClick={() => onReveal(up.uid)}
-                  >
-                    {up.title}
-                  </button>
-                ) : (
-                  <span className="modal-crumb-name">{up.title}</span>
-                )}
-              </span>
-            ))}
-          </nav>
-        )}
-        <div className="modal-header">
-          {editingTitle && !isRecord ? (
-            <input
-              type="text"
-              className="modal-title-input"
-              autoFocus
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  commitTitle();
-                } else if (e.key === "Escape") {
-                  setTitle(card.title);
-                  setEditingTitle(false);
-                }
-              }}
-              onBlur={commitTitle}
-            />
-          ) : (
-            <h2
-              className={isRecord ? "modal-title" : "modal-title modal-title-click"}
-              onClick={() => {
-                if (isRecord) {
-                  return;
-                }
-                setTitle(card.title);
-                setEditingTitle(true);
-              }}
-              title="Click to rename"
-            >
-              {card.title}
-              <span className="modal-title-edit" aria-hidden="true">
-                ✎
-              </span>
-            </h2>
-          )}
-          <button
-            type="button"
-            className="modal-close"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className="modal-toolbar">
-          <div className="modal-tabs" role="tablist" aria-label="Card sections">
+              </h2>
+            )}
+            <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+              ✕
+            </button>
+          </div>
+          <div className="modal-tabs drawer-tabs" role="tablist" aria-label="Card sections">
             <button
               type="button"
               role="tab"
@@ -512,323 +643,378 @@ export function CardDetail({
             >
               Activity
             </button>
+            {isRecord && <span className="drawer-record">A record of {card.asOf}: read only</span>}
           </div>
-          {/* Where this card comes from. A slot of a project looks like an
-              ordinary card on a day board, and the first question about one
-              is always "what is this part of?". */}
-          <div className="modal-origin">
-            {/* A planning card's level and standing: a goal, an initiative or
-                an epic, and what the tasks under it add up to (H5). */}
-            {planning && (
-              <span className="modal-origin-item modal-level" title={KIND_LABEL[kind]}>
-                <span className="modal-origin-kind">{KIND_LABEL[kind].toLowerCase()}</span>
-                <span className={`roadmap-status roadmap-status-${statusOf(card)}`}>
-                  {STATUS_LABEL[statusOf(card)]}
-                </span>
-                {card.hierarchy && card.hierarchy.total > 0 && (
+        </header>
+
+        <div className="drawer-body">
+          <main className="drawer-main">
+            {tab === "details" && (
+              <>
+                <div className="drawer-section-title">Description</div>
+                <textarea
+                  className="modal-textarea drawer-textarea"
+                  value={description}
+                  placeholder={
+                    bodyLoaded || temp
+                      ? "Add a description…"
+                      : bodyFailed
+                        ? "Failed to load the description — close and reopen to retry."
+                        : "Loading the description…"
+                  }
+                  maxLength={16384}
+                  readOnly={isRecord}
+                  disabled={isRecord || (!bodyLoaded && !temp)}
+                  onChange={(e) => {
+                    setDirty(true);
+                    setDescription(e.target.value);
+                  }}
+                />
+                {!isRecord && (
+                  <div className="drawer-desc-actions">
+                    {dirty && (
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() => {
+                          setDescription(card.description ?? "");
+                          setDirty(false);
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={saveDescription}
+                      // Saving over a body that never arrived would write ""
+                      // over the real text for everyone.
+                      disabled={!dirty || (!bodyLoaded && !temp)}
+                    >
+                      Save
+                    </button>
+                  </div>
+                )}
+
+                {/* What sits under a planning card, as the Roadmap groups it:
+                    the levels below, the tasks, the project cards. A row opens
+                    that card here; its × asks the Team board's question. */}
+                {planning && (
+                  <section className="drawer-children" aria-label="Under this card">
+                    <div className="drawer-section-title">
+                      Under it
+                      {card.hierarchy && card.hierarchy.total > 0 && (
+                        <span className="modal-level-count"> {card.hierarchy.done}/{card.hierarchy.total} tasks done</span>
+                      )}
+                    </div>
+                    {around === null && !temp && <p className="drawer-hint">Loading what sits under it…</p>}
+                    {around !== null && children.length === 0 && pendingAdds.length === 0 && (
+                      <p className="drawer-hint">Nothing under it yet.</p>
+                    )}
+                    {children.map((g) => (
+                      <div key={g.label} className="drawer-children-group">
+                        <div className="drawer-children-label">
+                          {g.label} <span className="modal-level-count">{g.cards.length}</span>
+                        </div>
+                        {g.cards.map((c) => (
+                          <div key={c.itemId} className="drawer-child">
+                            <button
+                              type="button"
+                              className="drawer-child-open"
+                              onClick={() => onOpenCard?.(c)}
+                              disabled={!onOpenCard}
+                              title={c.title}
+                            >
+                              <KindIcon kind={kindOf(c)} />
+                              <span className="drawer-child-title">{c.title}</span>
+                              <span className={`roadmap-status roadmap-status-${statusOf(c)}`}>{STATUS_LABEL[statusOf(c)]}</span>
+                            </button>
+                            {!isRecord && (
+                              <button
+                                type="button"
+                                className="drawer-child-x"
+                                title={`Delete «${c.title}», or take it out from under here`}
+                                aria-label={`Remove ${c.title}`}
+                                onClick={() => setChoosing({ card: c, detachable: true })}
+                              >
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                    {pendingAdds.map((t) => (
+                      <div key={`pending-${t}`} className="drawer-child drawer-child-pending">
+                        <span className="drawer-child-title">{t}</span>
+                        <span className="drawer-hint">adding…</span>
+                      </div>
+                    ))}
+                    {!isRecord && !temp && levels.length > 0 && (
+                      adding ? (
+                        <form
+                          className="drawer-add"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            addChild();
+                          }}
+                        >
+                          {levels.length > 1 && (
+                            <select
+                              className="drawer-add-level"
+                              value={addLevel}
+                              onChange={(e) => setAddLevel(e.target.value as CardType | "task")}
+                              aria-label="Level"
+                            >
+                              {levels.map((l) => (
+                                <option key={l} value={l}>
+                                  {KIND_LABEL[l]}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          <input
+                            type="text"
+                            className="drawer-add-input"
+                            autoFocus
+                            value={addTitle}
+                            placeholder={`New ${KIND_LABEL[addLevel].toLowerCase()} under «${card.title}»…`}
+                            onChange={(e) => setAddTitle(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") {
+                                setAdding(false);
+                                setAddTitle("");
+                              }
+                            }}
+                          />
+                          <button type="submit" className="btn btn-primary" disabled={!addTitle.trim()}>
+                            Add
+                          </button>
+                          {addLevel === "task" && (
+                            <span className="drawer-hint drawer-add-hint">
+                              A task made here has no team and no day: it lands in Triage until somebody plans it.
+                            </span>
+                          )}
+                        </form>
+                      ) : (
+                        <button type="button" className="drawer-add-open" onClick={() => setAdding(true)}>
+                          + Add {levels.map((l) => KIND_LABEL[l].toLowerCase()).join(" or ")}
+                        </button>
+                      )
+                    )}
+                  </section>
+                )}
+              </>
+            )}
+
+            {tab === "activity" && (
+              <div className="modal-log drawer-log">
+                {log === null && <p className="notes-empty">Loading…</p>}
+                {log !== null && timeline.length === 0 && <p className="notes-empty">No activity yet.</p>}
+                {timeline.map(([day, entries]) => (
+                  <div className="modal-log-day" key={day}>
+                    <div className="modal-log-date">{day}</div>
+                    {entries.map((e) =>
+                      e.event ? (
+                        <div className="modal-log-row modal-log-event" key={e.event.id}>
+                          <span className="modal-log-time">{time(e.at)}</span>
+                          {e.event.actor ? `@${e.event.actor} · ` : ""}
+                          {eventLabel(e.event)}
+                        </div>
+                      ) : (
+                        <div className="modal-log-row" key={e.note?.id}>
+                          <span className="modal-log-time">{time(e.at)}</span>
+                          {e.note?.author ? `@${e.note.author} · ` : ""}
+                          {e.note?.body}
+                        </div>
+                      ),
+                    )}
+                  </div>
+                ))}
+                {/* The server's clone reaches only so far back: what is shown is
+                    everything it has, not everything that happened. */}
+                {log?.truncatedBefore && (
+                  <p className="notes-empty modal-log-notice">
+                    Older history before {localDateIso(log.truncatedBefore)} is not loaded.
+                  </p>
+                )}
+              </div>
+            )}
+          </main>
+
+          <aside className="drawer-side">
+            {/* The rows are the card's kind's: a planning card has a level and
+                a standing; a task a band, a size, its people; a project card
+                its column. What the server refuses is not offered. */}
+            {planning &&
+              row(
+                "Level",
+                <>
+                  <KindIcon kind={kind} />
+                  {KIND_LABEL[kind]}
+                </>,
+              )}
+            {row(
+              "Status",
+              <>
+                <span className={`roadmap-status roadmap-status-${status}`}>{STATUS_LABEL[status]}</span>
+                {planning && card.hierarchy && card.hierarchy.total > 0 && (
                   <span className="modal-level-count" title="Tasks done, of those under it">
                     {card.hierarchy.done}/{card.hierarchy.total}
                   </span>
                 )}
-              </span>
+                {!planning && stageLabel && <span className="drawer-chip">{stageLabel}</span>}
+              </>,
             )}
-            {/* What kind of work it is, and the one thing here that can be
-                said from anywhere: a card met on a board with no zone areas
-                still has a zone, and this is where it is given one. A
-                planning card has no band (the server refuses one). */}
-            {!planning && (
-            <span className="modal-origin-item modal-zone" ref={zoneRef}>
-              <span className="modal-origin-kind">zone</span>
-              <button
-                type="button"
-                className="modal-zone-btn"
-                disabled={isRecord}
-                onClick={() => setZoneOpen((o) => !o)}
-                title="What kind of work this is"
-              >
-                {card.zone && (
-                  <span
-                    className="team-dot"
-                    style={{ background: ZONES[card.zone].accent }}
-                  />
-                )}
-                {card.zone ? ZONES[card.zone].spine.toLowerCase() : "none"}
-                {!isRecord && <span className="add-card-team-caret">▾</span>}
-              </button>
-              <Dropdown
-                open={zoneOpen}
-                anchorRef={zoneRef}
-                onClose={() => setZoneOpen(false)}
-                className="add-card-team-menu"
-              >
-                {ZONE_ORDER.map((z) => (
-                  <button
-                    key={z}
-                    type="button"
-                    className="add-card-team-item"
-                    onClick={() => setZone(z)}
-                  >
-                    <span className="team-dot" style={{ background: ZONES[z].accent }} />
-                    {ZONES[z].spine.toLowerCase()}
-                  </button>
-                ))}
-              </Dropdown>
-            </span>
-            )}
-            {/* What the card weighs. Four chips, one lit: the decision a daily
-                sync makes so the person leaves with a plan that fits their
-                week, and the number the board sums against their capacity. */}
-            <span className="modal-origin-item modal-size" title="What the card weighs">
-              <span className="modal-origin-kind">size</span>
-              <span className="modal-size-chips" role="group" aria-label="Size">
-                {SIZE_ORDER.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    className={`modal-size-chip${card.size === s ? " modal-size-chip-on" : ""}`}
-                    disabled={isRecord}
-                    aria-pressed={card.size === s}
-                    title={`${s} — ${SIZES[s].hint} (${SIZES[s].points} pt)`}
-                    onClick={() => setSize(s)}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </span>
-            </span>
-              {card.project && (
-                <span className="modal-origin-item" title="Part of this project">
-                  <span className="modal-origin-kind">project</span>
-                  {card.project}
-                </span>
+            {task &&
+              row(
+                "Assignees",
+                card.assignees.length > 0 ? (
+                  card.assignees.map((a) => (
+                    <span key={a} className="drawer-chip">
+                      {a}
+                    </span>
+                  ))
+                ) : (
+                  <span className="drawer-none">Nobody yet</span>
+                ),
               )}
-            {card.scope && (
-              <span className="modal-origin-item" title="In this column of the plan">
-                <span className="modal-origin-kind">scope</span>
-                {card.scope}
-              </span>
-            )}
+            {task && row("Team", card.team ? card.team : <span className="drawer-none">No team</span>)}
+            {task &&
+              row(
+                "Zone",
+                <span className="modal-zone drawer-zone" ref={zoneRef}>
+                  <button
+                    type="button"
+                    className="drawer-pick modal-zone-btn"
+                    disabled={isRecord}
+                    onClick={() => setZoneOpen((o) => !o)}
+                    title="What kind of work this is"
+                  >
+                    {card.zone && <span className="team-dot" style={{ background: ZONES[card.zone].accent }} />}
+                    <span className="drawer-pick-text">{card.zone ? ZONES[card.zone].spine.toLowerCase() : "none"}</span>
+                    {!isRecord && <span className="add-card-team-caret">▾</span>}
+                  </button>
+                  <Dropdown open={zoneOpen} anchorRef={zoneRef} onClose={() => setZoneOpen(false)} className="add-card-team-menu">
+                    {ZONE_ORDER.map((z) => (
+                      <button key={z} type="button" className="add-card-team-item" onClick={() => setZone(z)}>
+                        <span className="team-dot" style={{ background: ZONES[z].accent }} />
+                        {ZONES[z].spine.toLowerCase()}
+                      </button>
+                    ))}
+                  </Dropdown>
+                </span>,
+              )}
+            {task &&
+              row(
+                "Size",
+                <span className="modal-size-chips" role="group" aria-label="Size">
+                  {SIZE_ORDER.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className={`modal-size-chip${card.size === s ? " modal-size-chip-on" : ""}`}
+                      disabled={isRecord}
+                      aria-pressed={card.size === s}
+                      title={`${s} — ${SIZES[s].hint} (${SIZES[s].points} pt)`}
+                      onClick={() => setSize(s)}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </span>,
+              )}
+            {editsDates
+              ? row(
+                  "Dates",
+                  <span className="drawer-dates" role="group" aria-label="Dates">
+                    <input
+                      type="date"
+                      value={card.startDate ?? ""}
+                      aria-label="Start"
+                      onChange={(e) => setDates(e.target.value, card.day ?? "")}
+                    />
+                    <span className="drawer-dates-sep">→</span>
+                    <input
+                      type="date"
+                      value={card.day ?? ""}
+                      aria-label="End"
+                      onChange={(e) => setDates(card.startDate ?? "", e.target.value)}
+                    />
+                  </span>,
+                )
+              : (card.startDate || card.day) &&
+                row(
+                  "Dates",
+                  <>
+                    {card.startDate ?? "…"} → {card.day ?? "…"}
+                  </>,
+                )}
+            {task && card.sprintStart && row("Sprint", card.sprintStart)}
+            {task && card.week && row("Week", card.week)}
+            {subtask && parentCrumb && row("Subtask of", parentCrumb.title)}
             {/* What this card sits UNDER — the one link of the hierarchy. A
                 subtask's parent is its task and is changed by the group
                 gesture on the boards; everything else picks a planning card
-                of a higher level here, or none. The server holds the rule
-                (H2, H6) and says so in its own words when it refuses. */}
-            {isSubtask(card) && parentCrumb && (
-              <span className="modal-origin-item" title="A subtask of this card">
-                <span className="modal-origin-kind">subtask of</span>
-                {parentCrumb.title}
-              </span>
-            )}
-            {offersParent && (
-              <span className="modal-origin-item modal-parent" ref={parentRef}>
-                <span className="modal-origin-kind">under</span>
+                of a higher level here, or none. */}
+            {offersParent &&
+              row(
+                "Under",
+                <ParentPicker
+                  kind={kind}
+                  current={parentCrumb}
+                  options={around}
+                  self={card.itemId}
+                  disabled={isRecord || temp}
+                  onOpen={() => setWantsOptions(true)}
+                  onPick={setParent}
+                />,
+              )}
+            {card.project && row("Project", card.project)}
+            {card.scope && row("Scope", card.scope)}
+            {card.domain && board.domains && board.domains.length > 1 && row("Stored in", card.domain)}
+
+            {!isRecord && !temp && (
+              <div className="drawer-actions">
+                {!planning && (
+                  <button type="button" className="drawer-action" onClick={() => setDone(!complete)}>
+                    {complete ? "Reopen" : "Mark as done"}
+                  </button>
+                )}
+                {project && (
+                  <button type="button" className="drawer-action" onClick={removeFromProject}>
+                    Remove from project
+                  </button>
+                )}
                 <button
                   type="button"
-                  className="modal-zone-btn"
-                  onClick={() => setParentOpen((o) => !o)}
-                  title="The goal, initiative or epic this card is filed under"
+                  className="drawer-action drawer-action-danger"
+                  onClick={() => setChoosing({ card, detachable: !!card.parent && !subtask })}
                 >
-                  {parentCrumb ? (
-                    <>
-                      <span className={`roadmap-glyph roadmap-glyph-${parentCrumb.type ?? "task"}`} aria-hidden="true">
-                        {GLYPH[parentCrumb.type ?? "task"]}
-                      </span>
-                      {parentCrumb.title}
-                    </>
-                  ) : (
-                    "none"
-                  )}
-                  <span className="add-card-team-caret">▾</span>
+                  {card.parent && !subtask ? "Delete or unlink…" : "Delete…"}
                 </button>
-                <Dropdown
-                  open={parentOpen}
-                  anchorRef={parentRef}
-                  onClose={() => setParentOpen(false)}
-                  className="add-card-team-menu modal-parent-menu"
-                >
-                  <button type="button" className="add-card-team-item" onClick={() => setParent(null)}>
-                    none
-                  </button>
-                  {parentOptions === null && <span className="add-card-team-item modal-parent-loading">Loading…</span>}
-                  {parentOptions?.map((c) => (
-                    <button
-                      key={c.itemId}
-                      type="button"
-                      className="add-card-team-item"
-                      title={KIND_LABEL[kindOf(c)]}
-                      onClick={() => setParent(c)}
-                    >
-                      <span className={`roadmap-glyph roadmap-glyph-${kindOf(c)}`} aria-hidden="true">
-                        {GLYPH[kindOf(c)]}
-                      </span>
-                      {c.title}
-                    </button>
-                  ))}
-                  {parentOptions && parentOptions.length === 0 && (
-                    <span className="add-card-team-item modal-parent-loading">
-                      Nothing of a higher level on the roadmap yet
-                    </span>
-                  )}
-                </Dropdown>
-              </span>
+              </div>
             )}
-          </div>
+          </aside>
         </div>
+      </aside>
 
-        {tab === "details" && (
-          <div className="modal-body">
-            {planning && (
-              <div className="modal-dates" role="group" aria-label="Dates">
-                <label className="modal-date">
-                  <span>Start</span>
-                  <input
-                    type="date"
-                    value={card.startDate ?? ""}
-                    disabled={isRecord}
-                    onChange={(e) => setDates(e.target.value, card.day ?? "")}
-                  />
-                </label>
-                <label className="modal-date">
-                  <span>End</span>
-                  <input
-                    type="date"
-                    value={card.day ?? ""}
-                    disabled={isRecord}
-                    onChange={(e) => setDates(card.startDate ?? "", e.target.value)}
-                  />
-                </label>
-              </div>
-            )}
-            <label className="modal-field">
-              <span>Details</span>
-              <textarea
-                className="modal-textarea"
-                value={description}
-                placeholder={
-                  bodyLoaded || card.itemId.startsWith("tmp-")
-                    ? "Card details…"
-                    : bodyFailed
-                      ? "Failed to load the description — close and reopen to retry."
-                      : "Loading the description…"
-                }
-                maxLength={16384}
-                readOnly={isRecord}
-                disabled={isRecord || (!bodyLoaded && !card.itemId.startsWith("tmp-"))}
-                onChange={(e) => {
-                  setDirty(true);
-                  setDescription(e.target.value);
-                }}
-              />
-            </label>
-            {/* What sits under a planning card, as the Roadmap groups it: the
-                levels below, the tasks, the project cards. A row opens that
-                card here. */}
-            {planning && (
-              <div className="modal-children">
-                {around === null && !card.itemId.startsWith("tmp-") && (
-                  <p className="notes-empty">Loading what sits under it…</p>
-                )}
-                {around !== null && children.length === 0 && (
-                  <p className="notes-empty">
-                    Nothing under it yet. File a card here from its own detail pane, or add a level
-                    under it on the Roadmap.
-                  </p>
-                )}
-                {children.map((g) => (
-                  <div key={g.label} className="modal-children-group">
-                    <div className="modal-children-label">
-                      {g.label} <span className="modal-level-count">{g.cards.length}</span>
-                    </div>
-                    {g.cards.map((c) => (
-                      <button
-                        key={c.itemId}
-                        type="button"
-                        className="modal-child"
-                        onClick={() => onOpenCard?.(c)}
-                        disabled={!onOpenCard}
-                      >
-                        <span className={`roadmap-glyph roadmap-glyph-${kindOf(c)}`} aria-hidden="true">
-                          {GLYPH[kindOf(c)]}
-                        </span>
-                        <span className="modal-child-title">{c.title}</span>
-                        <span className={`roadmap-status roadmap-status-${statusOf(c)}`}>
-                          {STATUS_LABEL[statusOf(c)]}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {tab === "activity" && (
-          <div className="modal-log">
-            {log === null && <p className="notes-empty">Loading…</p>}
-            {log !== null && timeline.length === 0 && (
-              <p className="notes-empty">No activity yet.</p>
-            )}
-            {timeline.map(([day, entries]) => (
-              <div className="modal-log-day" key={day}>
-                <div className="modal-log-date">{day}</div>
-                {entries.map((e) =>
-                  e.event ? (
-                    <div className="modal-log-row modal-log-event" key={e.event.id}>
-                      <span className="modal-log-time">
-                        {new Date(e.at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          hour12: false,
-                        })}
-                      </span>
-                      {e.event.actor ? `@${e.event.actor} · ` : ""}
-                      {eventLabel(e.event)}
-                    </div>
-                  ) : (
-                    <div className="modal-log-row" key={e.note?.id}>
-                      <span className="modal-log-time">
-                        {new Date(e.at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          hour12: false,
-                        })}
-                      </span>
-                      {e.note?.author ? `@${e.note.author} · ` : ""}
-                      {e.note?.body}
-                    </div>
-                  ),
-                )}
-              </div>
-            ))}
-            {/* The server's clone reaches only so far back: what is shown is
-                everything it has, not everything that happened. */}
-            {log?.truncatedBefore && (
-              <p className="notes-empty modal-log-notice">
-                Older history before {localDateIso(log.truncatedBefore)} is not loaded.
-              </p>
-            )}
-          </div>
-        )}
-
-        <div className="modal-footer">
-          <button type="button" className="btn" onClick={onClose}>
-            Close
-          </button>
-          {tab === "details" && !isRecord && (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleSave}
-              // Saving over a body that never arrived would write "" over the
-              // real text for everyone (and its review counterpart).
-              disabled={!bodyLoaded && !card.itemId.startsWith("tmp-")}
-            >
-              Save
-            </button>
-          )}
-        </div>
-      </div>
+      {choosing && (
+        <RemoveChoiceDialog
+          title={choosing.card.title}
+          progress={
+            choosing.card.hierarchy
+              ? Math.round((100 * choosing.card.hierarchy.done) / Math.max(choosing.card.hierarchy.total, 1))
+              : (choosing.card.progress ?? 0)
+          }
+          choices={choosing.detachable ? hierarchyChoices(choosing.card) : (["delete"] as HierarchyChoice[])}
+          subtasks={0}
+          note={childrenNote(known, choosing.card.itemId)}
+          onClose={() => setChoosing(null)}
+          onSubmit={(choice) => answer(choosing.card, choice as HierarchyChoice)}
+        />
+      )}
     </div>
   );
 }

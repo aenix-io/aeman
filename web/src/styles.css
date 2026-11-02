@@ -5534,3 +5534,511 @@ button.card-age {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---- kind pictograms ----
+   One mark per level of the hierarchy, drawn wherever it is (KindIcon):
+   a Roadmap row, a crumb, a parent picker, a child row. The colour is the
+   kind's, the same as the Roadmap's bars. */
+.kind-icon {
+  flex: none;
+  vertical-align: -2px;
+}
+
+.kind-icon-goal {
+  color: var(--accent-emphasis);
+}
+
+.kind-icon-initiative {
+  color: var(--accent);
+}
+
+.kind-icon-epic {
+  color: var(--project-mark);
+}
+
+.kind-icon-task {
+  color: var(--muted);
+}
+
+.kind-icon-subtask {
+  color: var(--faint);
+}
+
+.kind-icon-project {
+  color: var(--muted);
+}
+
+/* ---- the card drawer ----
+   The card's pane slides in from the right and stands over the board the
+   card was met on, laid out like an issue page: the title up top, the
+   description and activity down the main column, the fields in a sidebar
+   of labelled rows, the actions at its foot. */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 90;
+  outline: none;
+}
+
+.drawer {
+  width: 720px;
+  max-width: 100vw;
+  height: 100%;
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+  box-shadow: -16px 0 48px var(--elev-3);
+  display: flex;
+  flex-direction: column;
+  animation: drawer-in 160ms ease-out;
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(32px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer {
+    animation: none;
+  }
+}
+
+.drawer-head {
+  padding: 14px 20px 0;
+  border-bottom: 1px solid var(--line-soft);
+  flex: none;
+}
+
+.drawer-crumbs {
+  margin-bottom: 8px;
+}
+
+.drawer-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.drawer-kind {
+  margin-top: 4px;
+}
+
+.drawer-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.drawer-title .modal-title-edit {
+  font-size: 13px;
+  opacity: 0;
+  flex: none;
+}
+
+.drawer-title.modal-title-click:hover .modal-title-edit {
+  opacity: 0.7;
+}
+
+.drawer-title-input {
+  font-size: 18px;
+}
+
+.drawer-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.drawer-record {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--amber);
+}
+
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+}
+
+.drawer-main {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 14px 20px 24px;
+  border-right: 1px solid var(--line-soft);
+}
+
+.drawer-side {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 6px 16px 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 10px 0 6px;
+}
+
+.drawer-textarea {
+  min-height: 160px;
+}
+
+.drawer-desc-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.drawer-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12.5px;
+}
+
+.drawer-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.drawer-value {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 22px;
+  color: var(--fg);
+}
+
+.drawer-none {
+  color: var(--faint);
+}
+
+.drawer-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line-soft);
+  font-size: 12px;
+}
+
+.drawer-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin-left: -6px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.drawer-pick:hover:not(:disabled) {
+  border-color: var(--line);
+  background: var(--bg-soft);
+}
+
+.drawer-pick:disabled {
+  cursor: default;
+}
+
+.drawer-pick-empty .drawer-pick-text {
+  color: var(--faint);
+}
+
+.drawer-pick-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-pick-menu {
+  min-width: 260px;
+  max-width: 360px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.drawer-pick-search {
+  width: calc(100% - 12px);
+  margin: 6px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12.5px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.drawer-pick-group-label {
+  padding: 6px 10px 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.drawer-pick-on {
+  font-weight: 600;
+}
+
+.drawer-pick-none {
+  color: var(--muted);
+}
+
+.drawer-dates {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.drawer-dates input {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 4px;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  max-width: 100%;
+}
+
+.drawer-dates-sep {
+  color: var(--faint);
+}
+
+.drawer-actions {
+  margin-top: auto;
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.drawer-action {
+  text-align: left;
+  padding: 6px 6px;
+  margin-left: -6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.drawer-action:hover {
+  background: var(--hover-overlay-soft, var(--bg-soft));
+}
+
+.drawer-action-danger {
+  color: var(--danger);
+}
+
+.drawer-hint {
+  margin: 4px 0;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.drawer-children {
+  margin-top: 18px;
+}
+
+.drawer-children-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 10px 0 2px;
+}
+
+.drawer-child {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 5px;
+}
+
+.drawer-child:hover {
+  background: var(--hover-overlay-soft, var(--bg-soft));
+}
+
+.drawer-child-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.drawer-child-open:disabled {
+  cursor: default;
+}
+
+.drawer-child-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-child-x {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px 8px;
+  cursor: pointer;
+  opacity: 0;
+  border-radius: 4px;
+}
+
+.drawer-child:hover .drawer-child-x,
+.drawer-child-x:focus-visible {
+  opacity: 1;
+}
+
+.drawer-child-x:hover {
+  color: var(--danger);
+}
+
+.drawer-child-pending {
+  padding: 5px 6px;
+  color: var(--faint);
+  font-size: 12.5px;
+  gap: 8px;
+}
+
+.drawer-add {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.drawer-add-level,
+.drawer-add-input {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.drawer-add-input {
+  flex: 1;
+  min-width: 160px;
+}
+
+.drawer-add-hint {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.drawer-add-open {
+  margin-top: 8px;
+  padding: 5px 6px;
+  margin-left: -6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.drawer-add-open:hover {
+  background: var(--hover-overlay-soft, var(--bg-soft));
+}
+
+/* The four standings a planning card can have (H5); a task's own read the
+   same way. Done and in progress were there; to do and no items were not. */
+.roadmap-status-todo {
+  background: var(--bg-soft);
+  color: var(--muted);
+}
+
+.roadmap-status-no-items {
+  background: transparent;
+  color: var(--faint);
+  border: 1px dashed var(--line);
+}
+
+@media (max-width: 760px) {
+  .drawer {
+    width: 100vw;
+  }
+
+  .drawer-body {
+    display: block;
+    overflow-y: auto;
+  }
+
+  .drawer-main {
+    border-right: none;
+    overflow: visible;
+  }
+
+  .drawer-side {
+    border-top: 1px solid var(--line-soft);
+    overflow: visible;
+  }
+}

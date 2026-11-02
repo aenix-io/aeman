@@ -36,10 +36,15 @@ export function createView(input: {
   start?: string | null;
   day?: string | null;
   type?: string | null;
+  underPlanning?: boolean | null;
 }, standing?: ViewName): ViewName {
   // A TYPE is the Roadmap's whole gesture: a goal, an initiative or an epic
-  // is a planning card, and no other board makes one (H7).
-  if (input.type) {
+  // is a planning card, and no other board makes one (H7). A TASK born
+  // under a planning card — the "add" in an epic's own pane — is the
+  // Roadmap's too: it lands in the Triage strip until somebody plans it,
+  // and no day board would accept a create with no day and a parent of
+  // that kind.
+  if (input.type || input.underPlanning) {
     return "roadmap";
   }
   if (input.scope) {
