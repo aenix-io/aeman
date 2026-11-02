@@ -9,6 +9,7 @@ import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { TriageBoard } from "./components/TriageBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
+import { RoadmapBoard } from "./components/RoadmapBoard";
 import { TeamsModal } from "./components/TeamsModal";
 import { readProjectFilter, writeProjectFilter } from "./projectFilter";
 import {
@@ -305,6 +306,14 @@ export function App() {
   // watch frames; purely ephemeral shared-cursor state.
   const [presence, setPresenceMap] = useState<Record<string, string>>({});
   const [detailCard, setDetailCard] = useState<CardModel | null>(null);
+  // A card the Roadmap is asked to REVEAL — a breadcrumb followed from a
+  // detail pane: the tab switches and the row is unfolded and marked.
+  const [roadmapFocus, setRoadmapFocus] = useState<string | null>(null);
+  const revealOnRoadmap = (uid: string) => {
+    setDetailCard(null);
+    setRoadmapFocus(uid);
+    setView("roadmap");
+  };
 
   // Teams are the server's (board.teams). The only team state here is the
   // just-added ones whose create is in flight — shown at once, and gone from
@@ -1551,6 +1560,22 @@ export function App() {
             onOpen={(c) => setDetailCard(c)}
           />
         )}
+        {board && view === "roadmap" && (
+          <RoadmapBoard
+            board={board}
+            provider={provider}
+            roster={roster}
+            patchCard={patchCard}
+            addCard={addCard}
+            replaceCard={replaceCard}
+            removeCard={removeCard}
+            reload={reload}
+            onError={onError}
+            onOpen={(c) => setDetailCard(c)}
+            focusId={roadmapFocus}
+            onFocused={() => setRoadmapFocus(null)}
+          />
+        )}
         {board && view === "triage" && (
           <TriageBoard
             board={board}
@@ -1624,6 +1649,9 @@ export function App() {
           onClose={() => setDetailCard(null)}
           reload={reload}
           patchCard={patchCard}
+          onReveal={revealOnRoadmap}
+          onOpenCard={(c) => setDetailCard(c)}
+          onError={onError}
         />
       )}
 

@@ -14,6 +14,16 @@ import { SIZES, SIZE_ORDER } from "../size";
 import { Dropdown } from "./Dropdown";
 import { eventLabel } from "../eventlog";
 import { localDateIso } from "../date";
+import {
+  GLYPH,
+  KIND_LABEL,
+  STATUS_LABEL,
+  allowedParentKinds,
+  kindOf,
+  statusOf,
+  type RoadmapKind,
+} from "../roadmap";
+import { isPlanning, isSubtask } from "../subtasks";
 
 interface CardDetailProps {
   card: CardModel;
@@ -25,7 +35,16 @@ interface CardDetailProps {
     itemId: string,
     patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
   ) => void;
+  /** A breadcrumb was followed: show that card on the Roadmap. */
+  onReveal?: (uid: string) => void;
+  /** A row under a planning card was clicked: open that card here. */
+  onOpenCard?: (card: CardModel) => void;
+  /** A write the server refused, in its own words (a parent of the wrong
+   *  level, another repository, a project card). */
+  onError?: (message: string) => void;
 }
+
+const errMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** CardDetail is a centered modal for editing a card's title and details.
  *  On a RECORD — a card as it stood on a day its team has moved past — it
@@ -39,11 +58,124 @@ export function CardDetail({
   onClose,
   reload,
   patchCard,
+  onReveal,
+  onOpenCard,
+  onError,
 }: CardDetailProps) {
   // A record: what the card was on a day its team has moved past. Nothing
   // here is editable, and the pane says so rather than pretending.
   const isRecord = !!card.asOf;
   const [title, setTitle] = useState(card.title);
+  const planning = isPlanning(card);
+  const kind = kindOf(card);
+
+  // The hierarchy around this card: what it may sit under, and what sits
+  // under it. Both come from the roadmap listing, which holds every planning
+  // card and every card under one — the day boards never deliver a planning
+  // card, so a detail pane opened from one has only the lineage until this
+  // arrives. Fetched once per card, when the pane needs it: a planning
+  // card's children at once, a task's parent options when the picker opens.
+  const [hierarchy, setHierarchy] = useState<{ forCard: string; cards: CardModel[] } | null>(null);
+  const [parentOpen, setParentOpen] = useState(false);
+  const parentRef = useRef<HTMLSpanElement | null>(null);
+  const wantsHierarchy = planning || parentOpen;
+  useEffect(() => {
+    if (!wantsHierarchy || card.itemId.startsWith("tmp-") || hierarchy?.forCard === card.itemId) {
+      return;
+    }
+    let dropped = false;
+    void provider
+      .listCards({ view: "roadmap" })
+      .then((l) => {
+        if (!dropped) {
+          setHierarchy({ forCard: card.itemId, cards: l.cards });
+        }
+      })
+      .catch(() => {
+        if (!dropped) {
+          setHierarchy({ forCard: card.itemId, cards: [] });
+        }
+      });
+    return () => {
+      dropped = true;
+    };
+  }, [wantsHierarchy, card.itemId, provider, hierarchy?.forCard]);
+  const around = hierarchy?.forCard === card.itemId ? hierarchy.cards : null;
+
+  // The parent as the pane shows it: the last crumb of the lineage.
+  const parentCrumb = card.lineage?.[card.lineage.length - 1];
+  // What this card may be filed under (H2): planning cards of a higher
+  // level, never itself or anything under it. A goal is under nothing; a
+  // subtask's parent is the group gesture's, not this picker's.
+  const parentKinds = allowedParentKinds(kind);
+  const offersParent = !isRecord && parentKinds.length > 0 && !isSubtask(card);
+  const parentOptions = useMemo(() => {
+    if (!around) {
+      return null;
+    }
+    return around.filter(
+      (c) =>
+        isPlanning(c) &&
+        parentKinds.includes(kindOf(c)) &&
+        c.itemId !== card.itemId &&
+        !(c.lineage ?? []).some((up) => up.uid === card.itemId),
+    );
+  }, [around, parentKinds, card.itemId]);
+
+  const setParent = (next: CardModel | null) => {
+    setParentOpen(false);
+    const nextId = next?.itemId ?? "";
+    if ((card.parent ?? "") === nextId) {
+      return;
+    }
+    const before = { parent: card.parent, lineage: card.lineage };
+    // The optimistic lineage: the parent's own plus the parent, so the
+    // breadcrumb and the Roadmap's tree read right before the server answers.
+    patchCard(card.itemId, {
+      parent: nextId || undefined,
+      lineage: next ? [...(next.lineage ?? []), { uid: next.itemId, type: next.type, title: next.title }] : undefined,
+    });
+    void provider
+      .patchCard(card.itemId, { parent: nextId })
+      .then((updated) => patchCard(card.itemId, { parent: updated.parent, lineage: updated.lineage }))
+      .catch((err: unknown) => {
+        patchCard(card.itemId, before);
+        onError?.(errMessage(err));
+      });
+  };
+
+  // A planning card's dates are its bar on the Roadmap; nothing else about
+  // its placement is its own (the server refuses the rest), so this is the
+  // one pair of boxes the pane offers it.
+  const setDates = (start: string, end: string) => {
+    if (start === (card.startDate ?? "") && end === (card.day ?? "")) {
+      return;
+    }
+    const before = { startDate: card.startDate, day: card.day };
+    patchCard(card.itemId, { startDate: start || undefined, day: end || undefined });
+    void provider
+      .patchCard(card.itemId, { dates: { start, end } })
+      .then((updated) => patchCard(card.itemId, { startDate: updated.startDate, day: updated.day }))
+      .catch((err: unknown) => {
+        patchCard(card.itemId, before);
+        onError?.(errMessage(err));
+      });
+  };
+
+  // What sits under a planning card, grouped as the pane lists it.
+  const children = useMemo(() => {
+    const under = (around ?? board.cards).filter((c) => c.parent === card.itemId);
+    const groups: { label: string; kinds: RoadmapKind[]; cards: CardModel[] }[] = [
+      { label: "Planning", kinds: ["goal", "initiative", "epic"], cards: [] },
+      { label: "Tasks", kinds: ["task", "subtask"], cards: [] },
+      { label: "Project cards", kinds: ["project"], cards: [] },
+    ];
+    for (const c of under) {
+      const k = kindOf(c);
+      groups.find((g) => g.kinds.includes(k))?.cards.push(c);
+    }
+    return groups.filter((g) => g.cards.length > 0);
+  }, [around, board.cards, card.itemId]);
 
   const [editingTitle, setEditingTitle] = useState(false);
   // Esc closes this card — the pane is a reader as often as an editor, and
@@ -281,6 +413,39 @@ export function CardDetail({
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Where this card stands in the hierarchy, root first: the goal,
+            the initiative, the epic — and for a subtask, its task. A
+            planning crumb leads to the Roadmap, which is the one board that
+            draws it; a task crumb is a name, since the day boards are where a
+            task is met. */}
+        {card.lineage && card.lineage.length > 0 && (
+          <nav className="modal-crumbs" aria-label="Hierarchy">
+            {card.lineage.map((up, i) => (
+              <span key={up.uid} className="modal-crumb">
+                {i > 0 && (
+                  <span className="modal-crumb-sep" aria-hidden="true">
+                    ›
+                  </span>
+                )}
+                <span className={`roadmap-glyph roadmap-glyph-${up.type ?? "task"}`} aria-hidden="true">
+                  {GLYPH[up.type ?? "task"]}
+                </span>
+                {up.type && onReveal ? (
+                  <button
+                    type="button"
+                    className="modal-crumb-link"
+                    title={`Show «${up.title}» on the Roadmap`}
+                    onClick={() => onReveal(up.uid)}
+                  >
+                    {up.title}
+                  </button>
+                ) : (
+                  <span className="modal-crumb-name">{up.title}</span>
+                )}
+              </span>
+            ))}
+          </nav>
+        )}
         <div className="modal-header">
           {editingTitle && !isRecord ? (
             <input
@@ -352,9 +517,26 @@ export function CardDetail({
               ordinary card on a day board, and the first question about one
               is always "what is this part of?". */}
           <div className="modal-origin">
+            {/* A planning card's level and standing: a goal, an initiative or
+                an epic, and what the tasks under it add up to (H5). */}
+            {planning && (
+              <span className="modal-origin-item modal-level" title={KIND_LABEL[kind]}>
+                <span className="modal-origin-kind">{KIND_LABEL[kind].toLowerCase()}</span>
+                <span className={`roadmap-status roadmap-status-${statusOf(card)}`}>
+                  {STATUS_LABEL[statusOf(card)]}
+                </span>
+                {card.hierarchy && card.hierarchy.total > 0 && (
+                  <span className="modal-level-count" title="Tasks done, of those under it">
+                    {card.hierarchy.done}/{card.hierarchy.total}
+                  </span>
+                )}
+              </span>
+            )}
             {/* What kind of work it is, and the one thing here that can be
                 said from anywhere: a card met on a board with no zone areas
-                still has a zone, and this is where it is given one. */}
+                still has a zone, and this is where it is given one. A
+                planning card has no band (the server refuses one). */}
+            {!planning && (
             <span className="modal-origin-item modal-zone" ref={zoneRef}>
               <span className="modal-origin-kind">zone</span>
               <button
@@ -392,6 +574,7 @@ export function CardDetail({
                 ))}
               </Dropdown>
             </span>
+            )}
             {/* What the card weighs. Four chips, one lit: the decision a daily
                 sync makes so the person leaves with a plan that fits their
                 week, and the number the board sums against their capacity. */}
@@ -425,11 +608,97 @@ export function CardDetail({
                 {card.scope}
               </span>
             )}
+            {/* What this card sits UNDER — the one link of the hierarchy. A
+                subtask's parent is its task and is changed by the group
+                gesture on the boards; everything else picks a planning card
+                of a higher level here, or none. The server holds the rule
+                (H2, H6) and says so in its own words when it refuses. */}
+            {isSubtask(card) && parentCrumb && (
+              <span className="modal-origin-item" title="A subtask of this card">
+                <span className="modal-origin-kind">subtask of</span>
+                {parentCrumb.title}
+              </span>
+            )}
+            {offersParent && (
+              <span className="modal-origin-item modal-parent" ref={parentRef}>
+                <span className="modal-origin-kind">under</span>
+                <button
+                  type="button"
+                  className="modal-zone-btn"
+                  onClick={() => setParentOpen((o) => !o)}
+                  title="The goal, initiative or epic this card is filed under"
+                >
+                  {parentCrumb ? (
+                    <>
+                      <span className={`roadmap-glyph roadmap-glyph-${parentCrumb.type ?? "task"}`} aria-hidden="true">
+                        {GLYPH[parentCrumb.type ?? "task"]}
+                      </span>
+                      {parentCrumb.title}
+                    </>
+                  ) : (
+                    "none"
+                  )}
+                  <span className="add-card-team-caret">▾</span>
+                </button>
+                <Dropdown
+                  open={parentOpen}
+                  anchorRef={parentRef}
+                  onClose={() => setParentOpen(false)}
+                  className="add-card-team-menu modal-parent-menu"
+                >
+                  <button type="button" className="add-card-team-item" onClick={() => setParent(null)}>
+                    none
+                  </button>
+                  {parentOptions === null && <span className="add-card-team-item modal-parent-loading">Loading…</span>}
+                  {parentOptions?.map((c) => (
+                    <button
+                      key={c.itemId}
+                      type="button"
+                      className="add-card-team-item"
+                      title={KIND_LABEL[kindOf(c)]}
+                      onClick={() => setParent(c)}
+                    >
+                      <span className={`roadmap-glyph roadmap-glyph-${kindOf(c)}`} aria-hidden="true">
+                        {GLYPH[kindOf(c)]}
+                      </span>
+                      {c.title}
+                    </button>
+                  ))}
+                  {parentOptions && parentOptions.length === 0 && (
+                    <span className="add-card-team-item modal-parent-loading">
+                      Nothing of a higher level on the roadmap yet
+                    </span>
+                  )}
+                </Dropdown>
+              </span>
+            )}
           </div>
         </div>
 
         {tab === "details" && (
           <div className="modal-body">
+            {planning && (
+              <div className="modal-dates" role="group" aria-label="Dates">
+                <label className="modal-date">
+                  <span>Start</span>
+                  <input
+                    type="date"
+                    value={card.startDate ?? ""}
+                    disabled={isRecord}
+                    onChange={(e) => setDates(e.target.value, card.day ?? "")}
+                  />
+                </label>
+                <label className="modal-date">
+                  <span>End</span>
+                  <input
+                    type="date"
+                    value={card.day ?? ""}
+                    disabled={isRecord}
+                    onChange={(e) => setDates(card.startDate ?? "", e.target.value)}
+                  />
+                </label>
+              </div>
+            )}
             <label className="modal-field">
               <span>Details</span>
               <textarea
@@ -451,6 +720,46 @@ export function CardDetail({
                 }}
               />
             </label>
+            {/* What sits under a planning card, as the Roadmap groups it: the
+                levels below, the tasks, the project cards. A row opens that
+                card here. */}
+            {planning && (
+              <div className="modal-children">
+                {around === null && !card.itemId.startsWith("tmp-") && (
+                  <p className="notes-empty">Loading what sits under it…</p>
+                )}
+                {around !== null && children.length === 0 && (
+                  <p className="notes-empty">
+                    Nothing under it yet. File a card here from its own detail pane, or add a level
+                    under it on the Roadmap.
+                  </p>
+                )}
+                {children.map((g) => (
+                  <div key={g.label} className="modal-children-group">
+                    <div className="modal-children-label">
+                      {g.label} <span className="modal-level-count">{g.cards.length}</span>
+                    </div>
+                    {g.cards.map((c) => (
+                      <button
+                        key={c.itemId}
+                        type="button"
+                        className="modal-child"
+                        onClick={() => onOpenCard?.(c)}
+                        disabled={!onOpenCard}
+                      >
+                        <span className={`roadmap-glyph roadmap-glyph-${kindOf(c)}`} aria-hidden="true">
+                          {GLYPH[kindOf(c)]}
+                        </span>
+                        <span className="modal-child-title">{c.title}</span>
+                        <span className={`roadmap-status roadmap-status-${statusOf(c)}`}>
+                          {STATUS_LABEL[statusOf(c)]}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
