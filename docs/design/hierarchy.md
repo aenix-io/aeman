@@ -273,10 +273,15 @@ each level and a chevron on a row that has rows under it, one
 **pictogram** per kind (`KindIcon`: a target for a goal, a flag for an
 initiative, a stack for an epic, a ticked box for a task, a branch for a
 subtask, a dashed card for a project card — the same mark wherever the
-hierarchy is drawn), the card's title, its start, its end (`day`) and its
-status — derived for a planning card (`hierarchy.status`: no items, to
-do, in progress, done, with `done/total` beside it), and for a task its
-own: done, in progress, to do. Right, a timeline: one bar per card from
+hierarchy is drawn), the card's title, its **owner** (a task's team and
+the person on it — the cell opens the owner picker, below; a planning
+card and a project card have none and an empty cell), its start, its end
+(`day`) and its status — derived for a planning card (`hierarchy.status`:
+no items, to do, in progress, done, with `done/total` beside it), and for
+a task its own, in this order: done when complete; else the stage that
+holds it — review, locked, refused — which says who it waits on; else to
+do while nothing has started (its bar at zero); else in progress. The
+drawer's Status row reads the same answer. Right, a timeline: one bar per card from
 `start` to `day`, every type by the same rule; a card with one date is a
 point, with none a row without a bar; a done bar is drawn distinct, and a
 bar that runs past the window is cut square at its edge. Rows and lanes
@@ -290,6 +295,21 @@ the window's dates and a person filter — a filter keeps the matching
 cards and every card above them, so the tree keeps its shape. There is no
 team filter: a planning card has no team. The depth, the zoom and which
 rows are folded are the reader's own, kept in the browser.
+
+**Below the tree, after everything else, the loose work** (H9): the open
+cards with no planning card above them, in three sections — **In work**
+(what the day boards draw: a card with a day, a week or a sprint),
+**Backlog** (the shelves, one per team, as the Triage board draws them;
+the no-team shelf among them), **Unsorted** (the strip: no plan, no team,
+nobody's yet). A section is a header line and its rows, drawn on both
+panes so the lanes stay in step; its rows show the task's owner and
+subtasks like the tree's, and a row there **drags into the tree** under
+a planning card by the same rule and with the same preview — dragging
+within the sections does nothing, and nothing is dropped onto a section
+row. The person filter applies to them too. (`sectionOf` / `sectionsOf`
+in `roadmap.ts`: a root with a planning crumb in its lineage stays in the
+tree even when its parent is not in the listing — a hole is worse than a
+flat row.)
 
 The board's gestures: the add box makes a planning card at the top; the
 `+` on a goal or an initiative makes one under it, the `+` on an epic a
@@ -307,9 +327,13 @@ either, a task under any of them — or onto a task, which makes it a
 subtask, one level deep — a project card under planning cards only, and
 the top of the tree for planning cards only (a task dropped there would
 leave the Roadmap, which is the ×'s detach, not a drop). The rows are the
-**preview**: while the drag stands over a place it may land, the list
-reads as it would after the drop, the moved subtree dimmed; over a place
-it may not, the hovered row says so and nothing moves. The drop writes
+**preview**, and the whole of it: while the drag stands over a place it
+may land, the list reads as it would after the drop, the moved subtree
+dimmed — the hovered row wears no outline and the gap no line, since the
+moved rows already say where the card lands; over a place it may not,
+the cursor says so and nothing moves. A leaf row keeps a spacer the
+chevron's width and no button, so nothing lights up where there is
+nothing to unfold. The drop writes
 one parent and one ordering move, applied at once and undone with the
 server's own words if it refuses. Dates are changed in the card's pane;
 nothing is dragged on the timeline in this version. The Roadmap keeps
@@ -318,37 +342,68 @@ planning card reaches the card's ancestors too (H5), so counts and
 standings move without a reload.
 
 The card's pane is a **drawer**: it slides in from the right over the
-board the card was met on, laid out like an issue page — the title and
-its **breadcrumb** up top (ancestors root first; a planning crumb leads
-to the Roadmap with that row unfolded and marked, a subtask's task is a
-name), the description and the activity down the main column, the card's
-fields in a sidebar of labelled rows, and the actions that act on the
-whole card at its foot. Which rows there are is the card's kind's to say,
-matching what the server refuses: a task has Status, Assignees, Team,
-Zone, Size, its dates read-only, Sprint and Week where set, and Under; a
-planning card has Level, Status with `done/total`, its dates (editable),
-and Under — no people, no band, no size; a project card has Status, its
-dates (editable), Under, Project and Scope — no people, no band, no size.
-**Under** is one prominent, searchable picker, grouped by level, offering
-planning cards of a higher level only (`allowedParentKinds`, the mirror
-of the level rule) and nothing on a goal or a subtask (a subtask's task
-is the group gesture's); the same list is what the Project board's "…"
-menu attaches a card with. A planning card's pane lists what sits under
-it, grouped as planning cards, tasks and project cards, each row opening
-that card; it can add under it (a goal an initiative or an epic, an
-initiative an epic, an epic a task) and take a child away with the same
-choice dialog — delete, or only detach. The actions: mark as done and
-reopen (a task or a project card), remove from project (a project card),
-delete — or delete-or-unlink on a card that sits under something. The
-options and the children come from the roadmap listing, fetched once per
-card when the pane needs it: the day boards never deliver a planning card
-to look up. The rules live in `web/src/roadmap.ts` with their cases in
-`roadmap.test.ts`; the components draw them.
+board the card was met on, as wide as an issue page's panel (the whole
+width on a phone), laid out like one — the title and its **breadcrumb**
+up top, the tabs (Details, Activity) at the top of the main column and
+as wide as it, the description and the activity down that column, which
+takes two thirds, the card's fields in a sidebar of labelled rows that
+takes the third and never cuts a value short, and the actions that act on
+the whole card at its foot. Every crumb **opens that card** in the same
+drawer — ancestors root first, a subtask's task among them — with a way
+back to the card it was opened from (the pane keeps a stack); a planning
+crumb also offers the Roadmap, with that row unfolded and marked. A child
+row and the "Subtask of" row open their card the same way.
+
+The **description** is Markdown and is edited in place: the text reads as
+the page it renders to, a click anywhere in it puts the caret there, the
+syntax (`**bold**`, lists, links, code, headings) renders as it is typed,
+the clipboard carries Markdown both ways, and leaving the editor or
+Ctrl/Cmd+Enter saves the draft beside the Save button (Milkdown over
+ProseMirror, `MarkdownEditor`; a chunk of its own, fetched when a pane
+first opens, with a plain box editing the same draft until it is there
+or if it never comes). The box fills the column's height.
+
+Which rows there are is the card's kind's to say, matching what the
+server refuses: a task has Status, **Owner** (its team and the person on
+it, in the owner picker — a subtask's reads its task's), **Reviewer**
+when it is on review (the person on the linked review card, chosen from
+those who can read the card's repository, through the review link's own
+doors), Zone, Size, its dates read-only, Sprint and Week where set, and
+Under; a planning card has Level, Status with `done/total`, its dates
+(editable), and Under — no owner, no band, no size; a project card has
+Status, its dates (editable), Under, Project and Scope — no owner, no
+band, no size. **Under** is one prominent, searchable picker, grouped by
+level, offering planning cards of a higher level only
+(`allowedParentKinds`, the mirror of the level rule) and nothing on a
+goal or a subtask (a subtask's task is the group gesture's); the same
+list is what the Project board's "…" menu attaches a card with, as a
+popover where the menu was, without opening the pane. A task's pane
+lists its **subtasks** and takes one more, grouped under it the way the
+Team and Me boards group a card (the parent's team, band and person come
+along; the day is the parent's or today), from whichever board the pane
+was opened on — Team, Me, Triage or the Roadmap, where the new row stands
+under its task at once. A planning card's pane lists what sits under it,
+grouped as planning cards, tasks and project cards, each row opening that
+card; it can add under it (a goal an initiative or an epic, an initiative
+an epic, an epic a task). One × on every child, and on the card itself,
+asks the Team board's own question in the Team board's own dialog, with
+the hierarchy's answers: delete, or only detach (ungroup, for a subtask).
+The actions: mark as done and reopen (a task or a project card), delete
+— or delete-or-unlink on a card that sits under something. A project card
+lives and dies in its column: nothing takes it out of its project, Delete
+is the one way off the board. The options and the children come from the
+roadmap listing, fetched once per card when the pane needs it: the day
+boards never deliver a planning card to look up. The rules live in
+`web/src/roadmap.ts`, `web/src/owner.ts` and `web/src/projectmenu.ts`
+with their cases beside them; the components draw them.
 
 Every board opens the drawer the same way: a click on a card (the Project
 board's cards included, where a double click used to be the only way in).
-The Triage board draws no deadline markers any more — the project cards
-they marked are off it, and the lines stay on the Project board.
+The Project board's card has no × of its own — its "…" menu opens,
+attaches, marks done, and deletes at once (the pick is the confirmation);
+the pane's Delete still asks. The Triage board draws no deadline markers
+any more — the project cards they marked are off it, and the lines stay
+on the Project board.
 
 ## Owner
 
