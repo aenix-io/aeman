@@ -213,6 +213,7 @@ const (
 	OpenSubtasks         ProblemCode = "openSubtasks"
 	ParentNotFound       ProblemCode = "parentNotFound"
 	PointsRequired       ProblemCode = "pointsRequired"
+	ProjectCard          ProblemCode = "projectCard"
 	ProjectExists        ProblemCode = "projectExists"
 	ProjectInUse         ProblemCode = "projectInUse"
 	ProjectNotFound      ProblemCode = "projectNotFound"
@@ -236,7 +237,6 @@ const (
 	UnknownZone          ProblemCode = "unknownZone"
 	UpstreamFailed       ProblemCode = "upstreamFailed"
 	ViewNeedsField       ProblemCode = "viewNeedsField"
-	WeekDerived          ProblemCode = "weekDerived"
 )
 
 // Valid indicates whether the value is a known member of the ProblemCode enum.
@@ -336,6 +336,8 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case PointsRequired:
 		return true
+	case ProjectCard:
+		return true
 	case ProjectExists:
 		return true
 	case ProjectInUse:
@@ -381,8 +383,6 @@ func (e ProblemCode) Valid() bool {
 	case UpstreamFailed:
 		return true
 	case ViewNeedsField:
-		return true
-	case WeekDerived:
 		return true
 	default:
 		return false

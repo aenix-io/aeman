@@ -388,43 +388,6 @@ func TestDoneOnRecurrentKeepsRecurrence(t *testing.T) {
 	}
 }
 
-// Grouping a card scheduled for a WEEK under a Project-board SLOT: the
-// hand-off must not write the subtask's week onto the parent — a slot's week
-// derives from its start date, the conflicting write is refused, and the
-// refusal killed the whole grouping. A slot has a row of its own already;
-// the subtask's week simply clears.
-func TestGroupACardOfAWeekUnderASlot(t *testing.T) {
-	fake := newFake([]board.Card{
-		{ItemID: "slot", Title: "the slot", Scope: "E", Project: "P", Team: "t",
-			StartDate: "2026-08-25", Week: "2026-08-24", Day: "2026-09-11"},
-		{ItemID: "c1", Title: "a card of a week", Team: "t", Week: "2026-08-31"},
-	}, nil)
-	svc := New(fake)
-	ctx := t.Context()
-	if err := svc.SetParent(ctx, "o", "c1", "slot"); err != nil {
-		t.Fatalf("grouping under a slot: %v", err)
-	}
-	b, _ := fake.LoadBoard(ctx, "o")
-	var child, parent board.Card
-	for _, c := range b.Cards {
-		switch c.ItemID {
-		case "c1":
-			child = c
-		case "slot":
-			parent = c
-		}
-	}
-	if child.Parent != "slot" {
-		t.Fatalf("child parent = %q, want slot", child.Parent)
-	}
-	if child.Week != "" {
-		t.Fatalf("the subtask kept a week of its own: %q", child.Week)
-	}
-	if parent.Week != "2026-08-24" {
-		t.Fatalf("the slot's row was rewritten: week %q", parent.Week)
-	}
-}
-
 // Pulling a subtask out of its parent must not make it ownerless. A subtask
 // usually has no assignee of its own — it rides the parent's — so ungrouping
 // dropped it into Unassigned and off every Me board: from the person

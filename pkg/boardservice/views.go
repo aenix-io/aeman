@@ -103,7 +103,14 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 		// nobody put it.
 		args.Parked = true
 	case board.ViewProject:
-		refusals = []viewRefusal{{args.Parked, "parked"}}
+		// A card made here is a PROJECT CARD (H4): the plan, not work in
+		// hand. It takes no team, no owner, no parent, no review link and no
+		// week — those are the day boards' and the Triage board's to give.
+		refusals = []viewRefusal{
+			{args.Parked, "parked"}, {args.Team != "", "team"},
+			{args.Assignee != "", "assignee"}, {args.Parent != "", "parent"},
+			{args.ReviewOf != "", "reviewOf"}, {args.Week != "", "week"},
+		}
 		if args.Scope == "" {
 			return args, fmt.Errorf("%w: a card of the Project board stands in a column", ErrViewNeedsField)
 		}

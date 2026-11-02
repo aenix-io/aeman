@@ -400,6 +400,16 @@ func createdAt(c board.Card) time.Time {
 func (m *mapper) convert() {
 	all := append([]board.Card(nil), m.b.Cards...)
 	ranks, _ := board.RankRebalance("", "", len(m.b.Cards))
+	// A card in a column is a PROJECT CARD (H4, docs/design/hierarchy.md) and
+	// comes in as one: no team, no owner, no parent — and a card grouped under
+	// one comes in ungrouped, since a project card has no subtasks. Projects v2
+	// let a column entry carry all of those.
+	scoped := map[string]bool{}
+	for _, c := range m.b.Cards {
+		if c.Scope != "" {
+			scoped[c.ItemID] = true
+		}
+	}
 	for i := range all {
 		src := all[i]
 		c := src
@@ -412,6 +422,12 @@ func (m *mapper) convert() {
 		}
 		c.Parent = m.ref(src.ItemID, "parent", src.Parent)
 		c.ReviewOf = m.ref(src.ItemID, "reviewOf", src.ReviewOf)
+		switch {
+		case c.Scope != "":
+			c.Team, c.Assignees, c.Parent = "", nil, ""
+		case scoped[src.Parent]:
+			c.Parent = ""
+		}
 		c.Rank = ranks[i]
 		c.Notes = nil
 		for j, n := range src.Notes {

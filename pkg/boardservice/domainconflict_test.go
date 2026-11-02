@@ -28,13 +28,15 @@ func twoRepoBoard(cards []board.Card) *fakeBackend {
 	return fake
 }
 
-// Handing a project card to a team of another repository used to be
+// Handing a card of a project to a team of another repository used to be
 // accepted and then quietly ignored: the project decides where the card
 // lives, so the card stayed in the primary carrying the name of a team
 // whose people cannot even read it. The pair is refused where it is made.
+// (The card carries the project's NAME: a card in a COLUMN has no team at
+// all, H4, and is refused one before this question is asked.)
 func TestATeamFromAnotherRepositoryIsRefusedOnAProjectCard(t *testing.T) {
 	fake := twoRepoBoard([]board.Card{
-		{ItemID: "c1", Title: "SAFE #2", Team: "backoffice", Project: "backoffice", Scope: "Contracts"},
+		{ItemID: "c1", Title: "SAFE #2", Team: "backoffice", Project: "backoffice"},
 	})
 	svc := New(fake)
 	err := svc.SetTeam(t.Context(), "o", "c1", "founders", "2026-08-28")
@@ -55,8 +57,9 @@ func TestATeamFromAnotherRepositoryIsRefusedOnAProjectCard(t *testing.T) {
 }
 
 // The same pair the other way round: a card of the founders team must not be
-// filed under a project of the primary repository, which would move it out
-// from under the team that owns it.
+// filed under a column of the primary repository. It is refused one step
+// earlier than the repository question — a card in a column has no team at
+// all (H4) — and either way nothing is written.
 func TestAProjectFromAnotherRepositoryIsRefusedOnATeamCard(t *testing.T) {
 	fake := twoRepoBoard([]board.Card{
 		{ItemID: "c1", Title: "Стратегия", Team: "founders"},
@@ -64,8 +67,8 @@ func TestAProjectFromAnotherRepositoryIsRefusedOnATeamCard(t *testing.T) {
 	svc := New(fake)
 	project := "backoffice"
 	err := svc.SetScope(t.Context(), "o", "c1", "Contracts", &project)
-	if !errors.Is(err, ErrDomainConflict) {
-		t.Fatalf("SetScope across repositories = %v, want ErrDomainConflict", err)
+	if !errors.Is(err, ErrProjectCard) {
+		t.Fatalf("SetScope on a team's card = %v, want ErrProjectCard", err)
 	}
 	if c, _ := findCard(fake.b, "c1"); c.Project != "" || c.Scope != "" {
 		t.Fatalf("the card was filed anyway: project %q scope %q", c.Project, c.Scope)
@@ -76,7 +79,7 @@ func TestAProjectFromAnotherRepositoryIsRefusedOnATeamCard(t *testing.T) {
 // repositories disagreeing, not about secondary repositories being special.
 func TestATeamAndAProjectInTheSameRepositoryArePermitted(t *testing.T) {
 	fake := twoRepoBoard([]board.Card{
-		{ItemID: "c1", Title: "Стратегия", Team: "founders", Project: "strategy", Scope: "Fundraising"},
+		{ItemID: "c1", Title: "Стратегия", Team: "founders", Project: "strategy"},
 		{ItemID: "c2", Title: "no project", Team: "backoffice"},
 	})
 	svc := New(fake)
@@ -98,7 +101,7 @@ func TestCreatingACardWithATeamAndProjectFromDifferentRepositoriesIsRefused(t *t
 	fake := twoRepoBoard(nil)
 	svc := New(fake)
 	_, err := svc.CreateCard(t.Context(), "o", CreateCardArgs{
-		Title: "new", Team: "founders", Project: "backoffice", Scope: "Contracts", Week: "2026-08-24",
+		Title: "new", Team: "founders", Project: "backoffice", Week: "2026-08-24",
 	})
 	if !errors.Is(err, ErrDomainConflict) {
 		t.Fatalf("create across repositories = %v, want ErrDomainConflict", err)
@@ -126,7 +129,7 @@ func TestANewTeamNameIsNotAConflict(t *testing.T) {
 // way. Only a write that would leave the pair conflicting is refused.
 func TestALegacyConflictDoesNotFreezeTheCard(t *testing.T) {
 	fake := twoRepoBoard([]board.Card{
-		{ItemID: "c1", Title: "SAFE #2", Team: "founders", Project: "backoffice", Scope: "Contracts", Progress: 40},
+		{ItemID: "c1", Title: "SAFE #2", Team: "founders", Project: "backoffice", Progress: 40},
 	})
 	svc := New(fake)
 	if err := svc.SetProgress(t.Context(), "o", "c1", 60); err != nil {

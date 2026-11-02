@@ -115,7 +115,7 @@ var sentinels = []struct {
 	{boardservice.ErrProjectInUse, http.StatusUnprocessableEntity, "projectInUse"},
 	{boardservice.ErrProjectExists, http.StatusUnprocessableEntity, "projectExists"},
 	{boardservice.ErrProjectNotFound, http.StatusUnprocessableEntity, "projectNotFound"},
-	{boardservice.ErrWeekDerived, http.StatusUnprocessableEntity, "weekDerived"},
+	{boardservice.ErrProjectCard, http.StatusUnprocessableEntity, "projectCard"},
 	{boardservice.ErrNotAMonday, http.StatusUnprocessableEntity, "notAMonday"},
 	{boardservice.ErrUnknownSize, http.StatusUnprocessableEntity, "unknownSize"},
 	{boardservice.ErrBadCapacity, http.StatusUnprocessableEntity, "badCapacity"},

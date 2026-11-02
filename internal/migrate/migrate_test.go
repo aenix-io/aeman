@@ -52,7 +52,9 @@ func fixture() *boardservicetest.Backend {
 				{ID: "PVTI_a:6", Body: "legacy note, nobody signed it", CreatedAt: "2026-08-24T11:00:00Z", Source: "draft"},
 			}},
 		{ItemID: "PVTI_b", Title: "done without a jump", Team: "portal", Zone: board.ZoneGray, Progress: 100, CreatedAt: "2026-08-20T09:00:00Z"},
-		{ItemID: "PVTI_sub", Title: "a subtask", Team: "portal", Parent: "PVTI_a", Zone: board.ZoneYellow, CreatedAt: "2026-08-24T12:00:00Z"},
+		// Grouped under the plain card: a card in a column has no subtasks
+		// (H4), and the importer ungroups one that Projects v2 put there.
+		{ItemID: "PVTI_sub", Title: "a subtask", Team: "portal", Parent: "PVTI_b", Zone: board.ZoneYellow, CreatedAt: "2026-08-24T12:00:00Z"},
 		{ItemID: "PVTI_rev", Title: "review: leak", Team: "portal", ReviewOf: "PVTI_a", Assignees: []string{"timur"}, Zone: board.ZoneRed, CreatedAt: "2026-08-26T10:00:00Z"},
 		{ItemID: "PVTI_orphan", Title: "points at a deleted parent", Team: "portal", Parent: "PVTI_gone", CreatedAt: "2026-08-25T09:00:00Z"},
 		{ItemID: "PVTI_issue", Title: "an issue card", Team: "portal", CreatedAt: "2026-08-22T09:00:00Z"},
@@ -133,6 +135,11 @@ func TestFinalTreeEqualsSnapshot(t *testing.T) {
 	}
 	if leak.Progress != 100 || leak.Zone != board.ZoneYellow || leak.Scope != "Bugs" || leak.Project != "portal" || leak.GitHubID != "PVTI_a" {
 		t.Fatalf("leak = %+v", leak)
+	}
+	// A column entry comes in as a PROJECT CARD (H4): the team and the owner
+	// Projects v2 let it carry are not written.
+	if leak.Team != "" || len(leak.Assignees) != 0 {
+		t.Fatalf("a card in a column is imported with no team and no owner: %+v", leak)
 	}
 	// doneFrom seeded by the walk Reopen does today: the last jump to ≥100
 	// came from 40.
@@ -220,8 +227,8 @@ func TestDeterministicIDsAndRemappedReferences(t *testing.T) {
 	for _, c := range s.Cards {
 		byGH[c.GitHubID] = c
 	}
-	if byGH["PVTI_sub"].Parent != byGH["PVTI_a"].ItemID || byGH["PVTI_rev"].ReviewOf != byGH["PVTI_a"].ItemID {
-		t.Fatalf("references not remapped: sub.parent=%s rev.reviewOf=%s a=%s", byGH["PVTI_sub"].Parent, byGH["PVTI_rev"].ReviewOf, byGH["PVTI_a"].ItemID)
+	if byGH["PVTI_sub"].Parent != byGH["PVTI_b"].ItemID || byGH["PVTI_rev"].ReviewOf != byGH["PVTI_a"].ItemID {
+		t.Fatalf("references not remapped: sub.parent=%s rev.reviewOf=%s b=%s a=%s", byGH["PVTI_sub"].Parent, byGH["PVTI_rev"].ReviewOf, byGH["PVTI_b"].ItemID, byGH["PVTI_a"].ItemID)
 	}
 	if byGH["PVTI_orphan"].Parent != "" {
 		t.Fatalf("dangling parent kept: %q", byGH["PVTI_orphan"].Parent)

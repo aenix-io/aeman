@@ -3,6 +3,7 @@ package boardservice
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -106,25 +107,23 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 	if p.Parent != "" || len(board.Children(b, card.ItemID)) > 0 {
 		return ErrSubtaskDepth
 	}
-	// Grouping moves the card's file to its parent's repository, so it is a
-	// re-file like any other: the same guard, the same references it could
-	// strand. EVERY refusal fires before anything is written — the
-	// weekly-plan handover below hands the child's slot to the parent, and
-	// a guard speaking after it left the cache holding a state the commit
-	// never made (the refusal aborts the write, not the cache mutation).
-	// The guard asks about what grouping keeps: the card's own column and
-	// the columns of everything that follows it.
-	if err := refileGuard(b, card, func(a *board.Card) { a.Parent = parent }); err != nil {
-		return err
+	// A card in a column is nobody's subtask and has none (H4): a subtask
+	// rides its parent's team, person and sprint onto the day boards, and a
+	// project card has none of those to give or to take. EVERY refusal fires
+	// before anything is written — the weekly-plan handover below writes on
+	// the parent, and a refusal after it would leave the cache holding a
+	// state the commit never made.
+	if card.Scope != "" {
+		return fmt.Errorf("%w: %q stands in a column and is nobody's subtask", ErrProjectCard, card.Title)
+	}
+	if p.Scope != "" {
+		return fmt.Errorf("%w: %q stands in a column and groups nothing under it", ErrProjectCard, p.Title)
 	}
 	// A card scheduled for a WEEK hands that week to the parent, which stands
 	// for it from then on; a parent that has a week of its own keeps it and
-	// the subtask's simply clears. A SLOT parent receives nothing: its row is
-	// its span already, and writing the subtask's week onto it is the
-	// conflicting write SetWeek refuses — the refusal used to kill the whole
-	// grouping.
+	// the subtask's simply clears.
 	if card.Week != "" {
-		if p.Week == "" && p.Scope == "" {
+		if p.Week == "" {
 			if err := s.backend.SetWeek(ctx, b, p, card.Week); err != nil {
 				return err
 			}
@@ -135,14 +134,8 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 				return err
 			}
 		}
-		// The WEEK stays for a card that stands in a COLUMN. There it is the
-		// row the Project board draws the card in — its span speaks for it —
-		// and clearing it took the card's row away, to be re-derived from
-		// dates the client cannot see.
-		if !hasColumn(card) {
-			if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {
-				return err
-			}
+		if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {
+			return err
 		}
 	}
 	// A subtask always belongs to its parent's PERSON: grouping hands the
@@ -268,24 +261,18 @@ func (s *Service) ungroup(ctx context.Context, b board.Board, card board.Card) e
 // ungroupKeeping is the plain pull-out: the person is handed over (an
 // ownerless child takes its parent's login, S8) and the card's own column
 // must survive it. The grid's × wants neither — it clears the assignee on
-// the way out, and it repairs the column itself — so it calls ungroupWith
-// directly rather than through here.
+// the way out — so it calls ungroupWith directly rather than through here.
 func (s *Service) ungroupKeeping(ctx context.Context, b board.Board, card board.Card) error {
-	return s.ungroupWith(ctx, b, card, true, true)
+	return s.ungroupWith(ctx, b, card, true)
 }
 
-// ungroupWith is ungroupKeeping with a say over the card's own column:
-// the grid's × repairs that column itself, so it asks the guard about
-// everything else and answers for the column afterwards.
-func (s *Service) ungroupWith(ctx context.Context, b board.Board, card board.Card, handOver, ownColumn bool) error {
+// ungroupWith is ungroupKeeping with a say over the hand-over of the
+// parent's person. A pull-out is a re-file — the card leaves its parent's
+// repository for whatever its own project or team names — and strands
+// nothing on the way: a subtask carries no column (H4).
+func (s *Service) ungroupWith(ctx context.Context, b board.Board, card board.Card, handOver bool) error {
 	if card.Parent == "" {
 		return nil
-	}
-	// A pull-out is a re-file too: the card leaves its parent's repository
-	// for whatever its own project or team names, and takes its followers'
-	// files with it.
-	if err := refileGuardOpts(b, card, func(a *board.Card) { a.Parent = "" }, ownColumn); err != nil {
-		return err
 	}
 	if err := s.backend.SetParent(ctx, b, card, ""); err != nil {
 		return err

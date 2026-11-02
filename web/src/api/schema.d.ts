@@ -124,7 +124,7 @@ export interface paths {
         put?: never;
         /**
          * The Triage board's drop — put the card in a week, which is what triaging it means.
-         * @description `week` is a Monday; any other day is refused (422), since a week that is not a Monday matches no column the board draws. A week AHEAD of this one also empties the working area — the card is on no day board until that Monday — while the CURRENT week joins the team's sprint instead. A Project-board slot is not refused: its week IS its start date's week, so its DATES are what move — the whole span shifts by the distance to the week asked for, and the row follows. It is not the same as PATCH {"week": …}, which writes the week and nothing else and refuses a slot outright (422 `weekDerived`).
+         * @description `week` is a Monday; any other day is refused (422), since a week that is not a Monday matches no column the board draws. A week AHEAD of this one also empties the working area — the card is on no day board until that Monday — while the CURRENT week joins the team's sprint instead. A PROJECT card — one in a Scope column — is refused (422 `projectCard`): it is not on this board, and its weeks are the Project board's rows, moved there by its dates. It is not the same as PATCH {"week": …}, which writes the week and nothing else (and refuses a project card the same way).
          */
         post: operations["placeCard"];
         delete?: never;
@@ -144,7 +144,7 @@ export interface paths {
         put?: never;
         /**
          * The Triage board's opposite — take the card's week away, back to the strip.
-         * @description A Project-board slot is refused (422 `weekDerived`): its week is its row, derived from its dates, so there is no week to take away — taking it off the column is the gesture that means this. A card that is in no week already is left as it is.
+         * @description A PROJECT card is refused (422 `projectCard`): it is not on this board and has no week to take away — taking it off the column is the gesture that means this. A card that is in no week already is left as it is.
          */
         post: operations["untriageCard"];
         delete?: never;
@@ -849,7 +849,7 @@ export interface components {
              * @description The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
              * @enum {string}
              */
-            code: "accessUndecided" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "dayIsARecord" | "descriptionTooLong" | "domainConflict" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "scopeExists" | "scopeInUse" | "scopeNotFound" | "scopeRequired" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAMonday" | "notAuthenticated" | "notFinished" | "notInProject" | "notOnThisBoard" | "notYoursToDestroy" | "notYoursToPark" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "nowhereToLeaveIt" | "openSubtasks" | "parentNotFound" | "pointsRequired" | "projectExists" | "projectInUse" | "projectNotFound" | "setupRequired" | "subtaskDepth" | "subtaskWeek" | "teamExists" | "teamInUse" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownZone" | "upstreamFailed" | "viewNeedsField" | "weekDerived";
+            code: "accessUndecided" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "dayIsARecord" | "descriptionTooLong" | "domainConflict" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "scopeExists" | "scopeInUse" | "scopeNotFound" | "scopeRequired" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAMonday" | "notAuthenticated" | "notFinished" | "notInProject" | "notOnThisBoard" | "notYoursToDestroy" | "notYoursToPark" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "nowhereToLeaveIt" | "openSubtasks" | "parentNotFound" | "pointsRequired" | "projectExists" | "projectInUse" | "projectNotFound" | "setupRequired" | "subtaskDepth" | "subtaskWeek" | "teamExists" | "teamInUse" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownZone" | "upstreamFailed" | "viewNeedsField" | "projectCard";
             /** @description Where the person can go to fix the refusal — installing the board's app — for a client to offer as a button. */
             actionUrl?: string;
         };

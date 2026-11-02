@@ -148,11 +148,13 @@ func TestCreateCardUnderScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if card.Scope != "Infra" || card.Week != "2026-09-14" {
-		t.Fatalf("scope/week = %q/%q", card.Scope, card.Week)
+	if card.Scope != "Infra" {
+		t.Fatalf("scope = %q", card.Scope)
 	}
-	if card.SprintStart != "" {
-		t.Fatalf("an scope card must join no sprint, got %q", card.SprintStart)
+	// A project card's dates are its row; it takes no week and joins no
+	// sprint, since neither the weekly plan nor a day board draws it (H4).
+	if card.Week != "" || card.SprintStart != "" {
+		t.Fatalf("a project card is on no weekly plan and in no sprint, got week %q sprint %q", card.Week, card.SprintStart)
 	}
 	if card.StartDate != "2026-09-14" || card.Day != "2026-09-25" {
 		t.Fatalf("span = %q..%q", card.StartDate, card.Day)
@@ -163,18 +165,18 @@ func TestCreateCardUnderScope(t *testing.T) {
 		t.Fatal("an unknown scope must be refused on create")
 	}
 
-	// A slot stands on the day board from the week it starts in, sprint or no
-	// sprint — the day board shows what is in hand, and a slot whose week has
-	// come is. Before that week it is the Project board's alone.
+	// And it is the Project board's alone: on no day of the day grid, whether
+	// its span covers the day or not.
 	b, err := svc.Board(context.Background(), "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := board.TeamGrid(b, "", "2026-09-15"); len(got) != 1 {
-		t.Fatalf("a slot whose week has come stands on the day grid, got %+v", got)
-	}
-	if got := board.TeamGrid(b, "", "2026-09-07"); len(got) != 0 {
-		t.Fatalf("and not before it, got %+v", got)
+	for _, day := range []string{"2026-09-07", "2026-09-15", "2026-09-25"} {
+		for _, c := range board.TeamGrid(b, "", day) {
+			if c.ItemID == card.ItemID {
+				t.Fatalf("a project card stands on the day grid on %s; it is the Project board's", day)
+			}
+		}
 	}
 }
 
@@ -228,44 +230,187 @@ func TestBoardParsesProjectsAndScopes(t *testing.T) {
 // Handing an scope card to a team files it into the team's WEEKLY plan (band +
 // week carry it there); it must NOT join today's sprint — a multi-week slot
 // in the current sprint would smear across the team's whole day grid.
-func TestSetTeamKeepsScopeCardPlanLevel(t *testing.T) {
+// A PROJECT card stands in its column alone (H4, docs/design/hierarchy.md):
+// every door that would make it somebody's work in hand — a team, an owner,
+// a week of the weekly plan, a place on the Triage grid, a review — is
+// refused, and refused before anything is written. Taking a stale team or
+// owner OFF one (a card written before schema 2) is allowed: that is the
+// state the migration produces, reached by hand.
+func TestAProjectCardTakesNoTeamNoOwnerNoWeek(t *testing.T) {
 	today := board.TodayIso()
+	week := board.MondayOf(today)
 	fake := newFake([]board.Card{
+		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "Cozystack"},
 		{ItemID: "e1", Title: board.ScopeStateTitle, Scope: "Infra", Project: "Cozystack"},
-		{ItemID: "slot", Title: "vGPU rollout", Scope: "Infra", Project: "Cozystack", Week: board.MondayOf(today),
-			StartDate: board.MondayOf(today), Day: board.AddDays(board.MondayOf(today), 18)},
-		{ItemID: "day", Title: "ordinary", Team: "", StartDate: today, Day: today, SprintStart: today},
+		{ItemID: "plan", Title: "vGPU rollout", Scope: "Infra", Project: "Cozystack",
+			StartDate: week, Day: board.AddDays(week, 18)},
+		// Written before schema 2: a team, an owner and a week it may no
+		// longer carry.
+		{ItemID: "legacy", Title: "an old slot", Scope: "Infra", Project: "Cozystack",
+			Team: "alpha", Assignees: []string{"kvaps"}, Week: week, StartDate: week, Day: week},
+		{ItemID: "task", Title: "ordinary", Team: "alpha", StartDate: today, Day: today, SprintStart: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	svc := New(fake)
 
-	if err := svc.SetTeam(context.Background(), "acme", "slot", "alpha", ""); err != nil {
-		t.Fatal(err)
+	refused := map[string]error{
+		"a team":      svc.SetTeam(ctx, "acme", "plan", "alpha", ""),
+		"an owner":    svc.SetAssignee(ctx, "acme", "plan", "kvaps"),
+		"a week":      svc.SetWeek(ctx, "acme", "plan", week),
+		"a place":     svc.Place(ctx, "acme", "plan", week),
+		"an untriage": svc.Untriage(ctx, "acme", "plan"),
+		"a review":    func() error { _, err := svc.SendToReview(ctx, "acme", "plan", "bob", "", ""); return err }(),
+		"a reviewOf":  svc.SetReviewOf(ctx, "acme", "plan", "task"),
+		"the shelf":   svc.SetBacklog(ctx, "acme", "plan", true),
 	}
-	got := fake.get("slot")
-	if got.Team != "alpha" {
-		t.Fatalf("team = %q", got.Team)
+	for what, err := range refused {
+		if what == "the shelf" {
+			if !errors.Is(err, ErrNotYoursToPark) {
+				t.Errorf("parking a project card = %v, want ErrNotYoursToPark", err)
+			}
+			continue
+		}
+		if !errors.Is(err, ErrProjectCard) {
+			t.Errorf("giving a project card %s = %v, want ErrProjectCard", what, err)
+		}
 	}
-	if got.SprintStart != "" {
-		t.Fatalf("an scope card must stay out of the sprint on team assignment, got %q", got.SprintStart)
+	got := fake.get("plan")
+	if got.Team != "" || len(got.Assignees) != 0 || got.Week != "" || got.SprintStart != "" || got.ReviewOf != "" {
+		t.Fatalf("a refused write still landed: %+v", got)
 	}
 
-	// An ordinary card still joins the team's sprint — the old behaviour.
-	if err := svc.SetTeam(context.Background(), "acme", "day", "alpha", ""); err != nil {
+	// Clearing is the other direction, and is allowed.
+	if err := svc.SetTeam(ctx, "acme", "legacy", "", ""); err != nil {
+		t.Fatalf("taking a stale team off a project card: %v", err)
+	}
+	if err := svc.SetAssignee(ctx, "acme", "legacy", ""); err != nil {
+		t.Fatalf("taking a stale owner off a project card: %v", err)
+	}
+	if err := svc.SetWeek(ctx, "acme", "legacy", ""); err != nil {
+		t.Fatalf("taking a stale week off a project card: %v", err)
+	}
+	if got := fake.get("legacy"); got.Team != "" || len(got.Assignees) != 0 || got.Week != "" || got.SprintStart != "" {
+		t.Fatalf("the stale fields stayed: %+v", got)
+	}
+
+	// An ordinary card still joins the team's sprint on assignment.
+	if err := svc.SetTeam(ctx, "acme", "task", "alpha", ""); err != nil {
 		t.Fatal(err)
 	}
-	if got := fake.get("day"); got.SprintStart != today {
+	if got := fake.get("task"); got.SprintStart != today {
 		t.Fatalf("an ordinary card joins the team sprint, got %q", got.SprintStart)
 	}
+}
 
-	// An scope card ALREADY in work follows the normal rule (it has a sprint).
-	if err := svc.SetSprintStart(context.Background(), "acme", "slot", today); err != nil {
+// A project card is BORN that way: the create door refuses a team, an owner,
+// a parent or a review link together with a column, whichever board asked
+// (the Project board's own add-box through CreateInView, a raw CreateCard
+// from an embedder or an agent).
+func TestAProjectCardIsMadeWithoutATeamOrAnOwner(t *testing.T) {
+	fake := scopeBoard()
+	svc := New(fake)
+	base := CreateCardArgs{Title: "KMS encryption", Scope: "Infra", Project: "Cozystack", Start: "2026-09-14"}
+	for what, args := range map[string]CreateCardArgs{
+		"a team":   with(base, func(a *CreateCardArgs) { a.Team = "alpha" }),
+		"an owner": with(base, func(a *CreateCardArgs) { a.Assignee = "kvaps" }),
+		"a parent": with(base, func(a *CreateCardArgs) { a.Parent = "c1" }),
+		"a review": with(base, func(a *CreateCardArgs) { a.ReviewOf = "c1" }),
+	} {
+		if _, err := svc.CreateCard(ctx, "acme", args); !errors.Is(err, ErrProjectCard) {
+			t.Errorf("creating a project card with %s = %v, want ErrProjectCard", what, err)
+		}
+		if _, err := svc.CreateInView(ctx, "acme", board.ViewProject, args); !errors.Is(err, ErrNotOnThisBoard) {
+			t.Errorf("the Project board's add-box with %s = %v, want ErrNotOnThisBoard", what, err)
+		}
+	}
+	card, err := svc.CreateCard(ctx, "acme", base)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.SetTeam(context.Background(), "acme", "slot", "alpha", ""); err != nil {
+	if card.Team != "" || len(card.Assignees) != 0 || card.Parent != "" || card.Week != "" || card.SprintStart != "" {
+		t.Fatalf("a project card is born with none of those: %+v", card)
+	}
+}
+
+func with[T any](v T, f func(*T)) T {
+	f(&v)
+	return v
+}
+
+// Filing a card INTO a column takes it off the plans it was on: a card
+// scheduled for a week and nothing else takes that week's span as its dates
+// — Monday to Friday, the whole of the week it was owed in, so it lands in
+// the column with a row — and its week and sprint go, since neither the
+// weekly plan nor a day board draws a project card (H4). A card that has
+// dates of its own keeps them. One that carries a team, an owner or a
+// parent is refused: it is somebody's work in hand, and the person takes
+// those off first.
+func TestFilingACardIntoAColumnTakesItOffThePlansItWasOn(t *testing.T) {
+	today := board.TodayIso()
+	fake := newFake([]board.Card{
+		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "Cozystack"},
+		{ItemID: "e1", Title: board.ScopeStateTitle, Scope: "Infra", Project: "Cozystack"},
+		{ItemID: "planned", Title: "of a week", Week: "2026-08-24"},
+		{ItemID: "dated", Title: "with dates", Week: "2026-08-24", StartDate: "2026-09-07", Day: "2026-09-09", SprintStart: today},
+		{ItemID: "teamed", Title: "a team's", Team: "alpha", Week: "2026-08-24"},
+		{ItemID: "owned", Title: "somebody's", Assignees: []string{"kvaps"}, Week: "2026-08-24"},
+		{ItemID: "parent", Title: "a parent"},
+		{ItemID: "child", Title: "a subtask", Parent: "parent"},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	svc := New(fake)
+	project := "Cozystack"
+
+	if err := svc.SetScope(ctx, "acme", "planned", "Infra", &project); err != nil {
 		t.Fatal(err)
 	}
-	if got := fake.get("slot"); got.SprintStart != today {
-		t.Fatalf("an in-work scope card keeps sprint semantics, got %q", got.SprintStart)
+	if c := fake.get("planned"); c.StartDate != "2026-08-24" || c.Day != "2026-08-28" || c.Week != "" {
+		t.Fatalf("a card of a week takes that week's span and leaves the plan: %+v", c)
+	}
+	if err := svc.SetScope(ctx, "acme", "dated", "Infra", &project); err != nil {
+		t.Fatal(err)
+	}
+	if c := fake.get("dated"); c.StartDate != "2026-09-07" || c.Day != "2026-09-09" || c.Week != "" || c.SprintStart != "" {
+		t.Fatalf("a dated card keeps its dates and leaves the week and the sprint: %+v", c)
+	}
+	for _, id := range []string{"teamed", "owned", "child"} {
+		if err := svc.SetScope(ctx, "acme", id, "Infra", &project); !errors.Is(err, ErrProjectCard) {
+			t.Errorf("filing %s into a column = %v, want ErrProjectCard", id, err)
+		}
+		if c := fake.get(id); c.Scope != "" {
+			t.Errorf("the refused filing still landed on %s", id)
+		}
+	}
+}
+
+// A project card is NOBODY'S subtask and HAS none (H4): a subtask rides its
+// parent's team, person and sprint onto the day boards, and a project card
+// has none of those to give or to take. Both directions are refused at the
+// group door and at the create door.
+func TestAProjectCardIsNobodysSubtaskAndHasNone(t *testing.T) {
+	fake := newFake([]board.Card{
+		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "Cozystack"},
+		{ItemID: "e1", Title: board.ScopeStateTitle, Scope: "Infra", Project: "Cozystack"},
+		{ItemID: "plan", Title: "the plan", Scope: "Infra", Project: "Cozystack", StartDate: "2026-08-24", Day: "2026-08-28"},
+		{ItemID: "task", Title: "a task", Team: "alpha"},
+		{ItemID: "other", Title: "another task", Team: "alpha"},
+	}, nil)
+	svc := New(fake)
+	if err := svc.SetParent(ctx, "acme", "plan", "task"); !errors.Is(err, ErrProjectCard) {
+		t.Fatalf("grouping a project card under a task = %v, want ErrProjectCard", err)
+	}
+	if err := svc.SetParent(ctx, "acme", "task", "plan"); !errors.Is(err, ErrProjectCard) {
+		t.Fatalf("grouping a task under a project card = %v, want ErrProjectCard", err)
+	}
+	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{Title: "a piece", Parent: "plan", Team: "alpha"}); !errors.Is(err, ErrProjectCard) {
+		t.Fatalf("creating a card under a project card = %v, want ErrProjectCard", err)
+	}
+	for _, id := range []string{"plan", "task"} {
+		if c := fake.get(id); c.Parent != "" {
+			t.Fatalf("a refused grouping still landed on %s", id)
+		}
+	}
+	// Ordinary grouping is untouched.
+	if err := svc.SetParent(ctx, "acme", "other", "task"); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -411,14 +556,15 @@ func TestDeadlines(t *testing.T) {
 	}
 }
 
-// The row of a Project-board slot is its start date's week — always, and
-// without anyone having to say so twice. This is the bug that prompted the
-// rule: cards created in one week, re-dated to another, stayed in the row they
-// were created in because the week was a second value nobody updated.
-func TestSlotWeekFollowsItsStart(t *testing.T) {
+// Re-dating a project card moves its row on the Project board and nothing
+// else: it takes no week (no weekly plan draws it) and joins no sprint (no
+// day board does), through every door that moves dates — the calendar, the
+// single-date path and a defer. The week used to be derived from the start
+// and synced on every re-date; with no board reading it there is nothing to
+// keep in step.
+func TestReDatingAProjectCardMovesItsRowAndNothingElse(t *testing.T) {
 	fake := scopeBoard()
 	svc := New(fake)
-	ctx := context.Background()
 	card, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
 		Title: "Workshop", Scope: "Infra", Project: "Cozystack",
 		Start: "2026-08-24", Day: "2026-08-28",
@@ -426,110 +572,22 @@ func TestSlotWeekFollowsItsStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if card.Week != "2026-08-24" {
-		t.Fatalf("created week = %q, want the start's Monday", card.Week)
-	}
-
-	// Re-date it to an earlier week: the row must move with the dates.
 	if err := svc.SetDates(ctx, "acme", card.ItemID, "2026-08-06", "2026-08-06"); err != nil {
 		t.Fatal(err)
 	}
-	got := fake.get(card.ItemID)
-	if got.Week != "2026-08-03" {
-		t.Fatalf("week = %q, want the Monday of 2026-08-06", got.Week)
+	if got := fake.get(card.ItemID); got.StartDate != "2026-08-06" || got.Week != "" || got.SprintStart != "" {
+		t.Fatalf("the calendar moves the dates alone: %+v", got)
 	}
-	// ...and re-dating a plan slot must not drag it into a sprint.
-	if got.SprintStart != "" {
-		t.Fatalf("a slot that was never taken into work joined sprint %q", got.SprintStart)
-	}
-
-	// The same through the single-date path.
 	if err := svc.SetStart(ctx, "acme", card.ItemID, "2026-09-16"); err != nil {
 		t.Fatal(err)
 	}
-	if got := fake.get(card.ItemID); got.Week != "2026-09-14" {
-		t.Fatalf("week = %q after SetStart, want 2026-09-14", got.Week)
+	if got := fake.get(card.ItemID); got.StartDate != "2026-09-16" || got.Week != "" {
+		t.Fatalf("SetStart moves the start alone: %+v", got)
 	}
-}
-
-// Setting a slot's week by hand is refused: there is nothing to set, and
-// accepting a value here is how the two came to disagree. A card that has no
-// dates at all — one the Triage board scheduled — still moves between weeks.
-func TestSlotWeekIsNotSettable(t *testing.T) {
-	today := board.TodayIso()
-	fake := newFake([]board.Card{
-		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "Cozystack"},
-		{ItemID: "e1", Title: board.ScopeStateTitle, Scope: "Infra", Project: "Cozystack"},
-		{ItemID: "slot", Title: "a slot", Scope: "Infra", Project: "Cozystack",
-			StartDate: "2026-08-24", Day: "2026-08-28", Week: "2026-08-24"},
-		{ItemID: "plan", Title: "a card of a week", Team: "alpha",
-			Week: board.MondayOf(today)},
-	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
-	svc := New(fake)
-	ctx := context.Background()
-
-	err := svc.SetWeek(ctx, "acme", "slot", "2026-09-07")
-	if !errors.Is(err, ErrWeekDerived) {
-		t.Fatalf("SetWeek on a slot = %v, want ErrWeekDerived", err)
+	if err := svc.Defer(ctx, "acme", card.ItemID, 7); err != nil {
+		t.Fatal(err)
 	}
-	if got := fake.get("slot"); got.Week != "2026-08-24" {
-		t.Fatalf("the refused write still landed: week = %q", got.Week)
-	}
-	if err := svc.SetWeek(ctx, "acme", "plan", "2026-09-07"); err != nil {
-		t.Fatalf("a weekly-plan card must still move between weeks: %v", err)
-	}
-	if got := fake.get("plan"); got.Week != "2026-09-07" {
-		t.Fatalf("plan card week = %q", got.Week)
-	}
-}
-
-// A board read repairs the rows of cards written before the rule, so nobody
-// has to migrate anything: the dates are the truth, whatever is stored.
-func TestBoardRepairsStaleSlotWeeks(t *testing.T) {
-	b := board.NewBoard([]board.Card{
-		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "P"},
-		{ItemID: "e1", Title: board.ScopeStateTitle, Scope: "E", Project: "P"},
-		// Written by the old code: dates moved, the week stayed behind.
-		{ItemID: "c1", Title: "stale", Scope: "E", Project: "P",
-			StartDate: "2026-08-06", Day: "2026-08-07", Week: "2026-08-24"},
-		// No start at all: nothing to derive from, so the week stands.
-		{ItemID: "c2", Title: "dateless", Scope: "E", Project: "P", Week: "2026-08-24"},
-		// Not a slot: a card scheduled for a week keeps its own.
-		{ItemID: "c3", Title: "plan", Week: "2026-08-24"},
-	})
-	byID := map[string]board.Card{}
-	for _, c := range b.Cards {
-		byID[c.ItemID] = c
-	}
-	if got := byID["c1"].Week; got != "2026-08-03" {
-		t.Fatalf("stale slot week = %q, want the Monday of its start", got)
-	}
-	if got := byID["c2"].Week; got != "2026-08-24" {
-		t.Fatalf("a slot with no start keeps its week, got %q", got)
-	}
-	if got := byID["c3"].Week; got != "2026-08-24" {
-		t.Fatalf("a weekly-plan card must be left alone, got %q", got)
-	}
-}
-
-// SetWeek on a slot: re-asserting the week the slot already derives from its
-// start date is a harmless no-op — the SPA and API writers echo the visible
-// week back — while a CONFLICTING week is refused; accepting it is exactly
-// how a slot's week and dates came to disagree. Ungrouping a slot subtask
-// used to die on this: the pull-out wrote the PARENT's week.
-func TestSetWeekOnASlot(t *testing.T) {
-	fake := newFake([]board.Card{
-		{ItemID: "s1", Title: "slot", Scope: "E", Project: "P", Team: "t",
-			StartDate: "2026-08-25", Week: "2026-08-24", Day: "2026-08-28"},
-	}, nil)
-	svc := New(fake)
-	ctx := context.Background()
-	// The derived week (the start date's Monday) is accepted silently.
-	if err := svc.SetWeek(ctx, "o", "s1", "2026-08-24"); err != nil {
-		t.Fatalf("re-asserting the derived week: %v", err)
-	}
-	// Any other week is refused.
-	if err := svc.SetWeek(ctx, "o", "s1", "2026-08-03"); !errors.Is(err, ErrWeekDerived) {
-		t.Fatalf("a conflicting week got %v, want ErrWeekDerived", err)
+	if got := fake.get(card.ItemID); got.Week != "" || got.SprintStart != "" {
+		t.Fatalf("a defer joins a project card to no sprint: %+v", got)
 	}
 }

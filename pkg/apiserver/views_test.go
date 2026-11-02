@@ -83,102 +83,66 @@ func TestListCardsSummaryOmitsBodies(t *testing.T) {
 	}
 }
 
-// The Project board draws a subtask that carries its own column (G57), so
-// the view has to deliver it — and deliver it on its OWN merit, not as a
-// rider of a delivered parent: the case the rule exists for is a parent
-// that lives elsewhere entirely (the weekly plan, the working area) and is
-// therefore in no project view at all. Filtering every parented card out
-// left the whole group visible nowhere.
-func TestProjectViewDeliversSubtasksThatCarryAColumn(t *testing.T) {
+// The Project board is the ONE board that draws a project card, and it draws
+// what stands in a column and nothing else (H4). A card in a column is
+// nobody's subtask and has none, so nothing rides in with it: a child the
+// subtask rider appended — a group written before schema 2 — belongs to no
+// Project board, and the day boards no longer draw a card in a column either.
+func TestProjectViewDeliversWhatStandsInAColumnAndNothingElse(t *testing.T) {
+	today := board.TodayIso()
 	b := board.NewBoard([]board.Card{
 		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "freedom"},
 		{ItemID: "ep", Title: board.ScopeStateTitle, Scope: "Redis App", Project: "freedom"},
-		// The parent has only a week: no column, so no project view holds it.
-		{ItemID: "parent", Title: "TLS for DBaaS", Week: "2026-08-24"},
-		{ItemID: "child", Title: "TLS for Redis", Parent: "parent",
-			Project: "freedom", Scope: "Redis App"},
-		{ItemID: "loose", Title: "no column", Parent: "parent"},
+		{ItemID: "plan", Title: "TLS for DBaaS", Project: "freedom", Scope: "Redis App",
+			StartDate: today, Day: today},
+		// Written before schema 2: a task grouped under a card in a column.
+		{ItemID: "loose", Title: "a piece of it", Parent: "plan", Team: "alpha"},
+		// A project NAME alone is no column.
+		{ItemID: "named", Title: "merely of the project", Project: "freedom", Team: "alpha",
+			StartDate: today, Day: today, SprintStart: today},
 	})
-	got := FilterCards(b, Selector{View: "project"})
+	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today}}
 	var seen []string
-	for _, c := range got {
+	for _, c := range FilterCards(b, Selector{View: "project"}) {
 		seen = append(seen, c.ItemID)
 	}
-	if !slices.Contains(seen, "child") {
-		t.Fatalf("the subtask carries the column and must be delivered: %v", seen)
+	if !slices.Equal(seen, []string{"plan"}) {
+		t.Fatalf("the Project board delivers the card in the column alone, got %v", seen)
 	}
-	if slices.Contains(seen, "loose") {
-		t.Fatalf("a subtask without a column belongs to no Project board: %v", seen)
-	}
-	// The parent RIDES ALONG even without a column of its own: the slot is
-	// marked with its title, and the client has no other query to find it
-	// in. It is not drawn — the grid draws what carries a column.
-	if !slices.Contains(seen, "parent") {
-		t.Fatalf("the parent of a delivered subtask names the slot: %v", seen)
-	}
-}
-
-// The subtask rider must not smuggle columnless children in through a
-// parent that DOES have a column: they belong to no Project board, and
-// the client would count them into a progress bar that draws nothing.
-func TestProjectViewDropsColumnlessChildrenOfAColumnedParent(t *testing.T) {
-	b := board.NewBoard([]board.Card{
-		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "freedom"},
-		{ItemID: "ep", Title: board.ScopeStateTitle, Scope: "Redis App", Project: "freedom"},
-		{ItemID: "parent", Title: "parent in a column", Project: "freedom", Scope: "Redis App"},
-		{ItemID: "loose", Title: "child without one", Parent: "parent"},
-	})
-	for _, c := range FilterCards(b, Selector{View: "project"}) {
-		if c.ItemID == "loose" {
-			t.Fatal("a columnless subtask is on no Project board, rider or not")
+	// And the day boards leave it to the Project board.
+	for _, sel := range []Selector{
+		{View: "team", Team: "alpha", Day: today},
+		{View: "me", Day: today},
+		{View: "triage", Team: "alpha", From: board.MondayOf(today), Weeks: 6},
+	} {
+		for _, c := range FilterCards(b, sel) {
+			if c.ItemID == "plan" {
+				t.Fatalf("view=%s draws a project card; it is the Project board's alone", sel.View)
+			}
 		}
 	}
+	if got := FilterCards(b, Selector{View: "team", Team: "alpha", Day: today}); len(got) != 1 || got[0].ItemID != "named" {
+		t.Fatalf("a card that merely names a project is an ordinary task: %v", got)
+	}
 }
 
-// ?view=project&project=X is ONE project's columns. A subtask is delivered
-// on its own merit — its scope — so a child filed under another project is
-// no more welcome than any other card of it, however its parent is filed.
+// ?view=project&project=X is ONE project's columns: a card standing in
+// another project's column is not delivered, whatever else is true of it.
 func TestProjectViewKeepsToTheProjectItWasAskedFor(t *testing.T) {
 	b := board.NewBoard([]board.Card{
 		{ItemID: "pr-e", Title: board.ProjectStateTitle, Project: "engineering"},
 		{ItemID: "pr-m", Title: board.ProjectStateTitle, Project: "marketing"},
 		{ItemID: "ep-c", Title: board.ScopeStateTitle, Scope: "Cozy", Project: "engineering"},
 		{ItemID: "ep-l", Title: board.ScopeStateTitle, Scope: "Launch", Project: "marketing"},
-		{ItemID: "p", Title: "parent", Project: "engineering", Scope: "Cozy"},
-		{ItemID: "kid", Title: "child elsewhere", Parent: "p", Project: "marketing", Scope: "Launch"},
+		{ItemID: "ours", Title: "in our column", Project: "engineering", Scope: "Cozy"},
+		{ItemID: "theirs", Title: "in theirs", Project: "marketing", Scope: "Launch"},
 	})
+	var seen []string
 	for _, c := range FilterCards(b, Selector{View: "project", Project: "engineering"}) {
-		if c.ItemID == "kid" {
-			t.Fatal("another project's card rides in on nobody's ticket")
-		}
+		seen = append(seen, c.ItemID)
 	}
-}
-
-// The riding parent is placed in BOARD ORDER, not appended as a tail: a
-// listing whose rows reshuffle on every refetch is what withSubtasks goes
-// out of its way to avoid for children, and the same must hold here.
-func TestTheProjectViewKeepsBoardOrderWithARidingParent(t *testing.T) {
-	b := board.NewBoard([]board.Card{
-		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "freedom"},
-		{ItemID: "ep", Title: board.ScopeStateTitle, Scope: "Redis App", Project: "freedom"},
-		{ItemID: "first", Title: "a columned card", Project: "freedom", Scope: "Redis App"},
-		{ItemID: "parent", Title: "the parent, no column of its own"},
-		{ItemID: "child", Title: "a subtask with one", Parent: "parent",
-			Project: "freedom", Scope: "Redis App"},
-		{ItemID: "last", Title: "another columned card", Project: "freedom", Scope: "Redis App"},
-	})
-	var got []string
-	for _, c := range FilterCards(b, Selector{View: "project"}) {
-		got = append(got, c.ItemID)
-	}
-	want := []string{"first", "parent", "child", "last"}
-	if len(got) != len(want) {
-		t.Fatalf("delivered %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("board order: delivered %v, want %v", got, want)
-		}
+	if !slices.Equal(seen, []string{"ours"}) {
+		t.Fatalf("one project's columns, got %v", seen)
 	}
 }
 

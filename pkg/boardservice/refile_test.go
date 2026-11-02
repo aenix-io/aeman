@@ -131,199 +131,15 @@ func TestRemoveFromANoProjectColumnWorks(t *testing.T) {
 	}
 }
 
-// Grouping hands a card's WEEK to its parent, which stands for it from then
-// on — but not the week of a card that stands in a COLUMN: there the week is
-// the row the Project board draws it in, and clearing it took the card's row
-// away, to be re-derived from dates the client is not shown.
-func TestGroupingKeepsTheWeekOfACardInAColumn(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "slot", Title: "a card in a column", Team: "platform",
-			Project: "engineering", Scope: "Cozystack",
-			Week: "2026-08-31", StartDate: "2026-08-31", Day: "2026-09-04"},
-		{ItemID: "plain", Title: "a card of a week", Team: "platform", Week: "2026-08-31"},
-	})
-	svc := New(f)
-	if err := svc.SetParent(ctx, "acme", "slot", "p"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "slot")
-	if c.Week != "2026-08-31" {
-		t.Fatalf("the week stays — it is the row the card is drawn in: %+v", c)
-	}
-	// A card with no column has no row of its own: the week goes to the parent.
-	if err := svc.SetParent(ctx, "acme", "plain", "p"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ = f.LoadBoard(ctx, "acme")
-	c, _ = findCard(b, "plain")
-	if c.Week != "" {
-		t.Fatalf("the week goes to the parent: %+v", c)
-	}
-	if parent, _ := findCard(b, "p"); parent.Week != "2026-08-31" {
-		t.Fatalf("and the parent stands for it: %+v", parent)
-	}
-}
-
-// A card scheduled for a WEEK and attached to a project takes the slot of
-// that week: Monday to Friday, the whole of the week it was owed in, so the
-// card does not jump to another week on the way to the Project board.
-func TestAttachingACardOfAWeekTakesThatWeeksSlot(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "c1", Title: "planned", Team: "platform", Week: "2026-08-24"},
-	})
-	svc := New(f)
-	project := "engineering"
-	if err := svc.SetScope(ctx, "acme", "c1", "Cozystack", &project); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.StartDate != "2026-08-24" || c.Day != "2026-08-28" {
-		t.Fatalf("it spans the week it came from, Monday to Friday: %+v", c)
-	}
-	if c.Week != "2026-08-24" {
-		t.Fatalf("the slot's row is the week it came from: %+v", c)
-	}
-}
-
-// The slot rule applies only to a card with NO dates of its own: an attach
-// never rewrites a schedule someone chose — the card keeps its dates, and
-// its row is wherever those dates put it.
-func TestAttachingADatedCardKeepsItsDates(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "c1", Title: "scheduled", Team: "platform", Week: "2026-08-24",
-			StartDate: "2026-09-07", Day: "2026-09-09"},
-	})
-	svc := New(f)
-	project := "engineering"
-	if err := svc.SetScope(ctx, "acme", "c1", "Cozystack", &project); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.StartDate != "2026-09-07" || c.Day != "2026-09-09" {
-		t.Fatalf("the chosen schedule survives the attach: %+v", c)
-	}
-}
-
-// A SUBTASK has another home: its parent. The Project board draws it in
-// the column it carries (G14 blesses that), so the × must be able to take
-// it out of the column — but never to delete it, however untouched it is.
-// Deleting here would destroy a card that is still riding its parent on
-// every other board, which is the two-homes rule the × exists to honour.
-func TestRemoveFromColumnNeverDeletesASubtask(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "c1", Title: "untouched child", Team: "platform", Parent: "p",
-			Project: "engineering", Scope: "Cozystack"},
-	})
-	svc := New(f)
-	if err := svc.RemoveFromProject(ctx, "acme", "c1", "engineering", "Cozystack"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, ok := findCard(b, "c1")
-	if !ok {
-		t.Fatal("a subtask survives its column: its home is the parent")
-	}
-	if c.Scope != "" || c.Project != "" {
-		t.Fatalf("the column is gone: %+v", c)
-	}
-	if c.Parent != "p" {
-		t.Fatalf("the parent is untouched: %+v", c)
-	}
-}
-
-// The column-holds-the-file rule has a second door: GROUPING. A subtask's
-// file follows its parent, so grouping a columned card under a parent of
-// another repository would leave its column naming a repository that no
-// longer holds it — the state SetScope now refuses, reached by a drag
-// instead of a menu. The Project board draws such a card and counts it,
-// so the stale column is load-bearing, not merely untidy.
-func TestGroupingUnderAParentInAnotherRepositoryIsRefused(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Scope: "Fundraising", Domain: "founders"},
-		{ItemID: "near", Title: "parent here", Project: "engineering", Scope: "Cozystack"},
-		{ItemID: "c1", Title: "columned child", Project: "engineering", Scope: "Cozystack"},
-	})
-	svc := New(f)
-	if err := svc.SetParent(ctx, "acme", "c1", "far"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the column would name a repository that no longer holds the file: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Parent != "" {
-		t.Fatalf("the refused grouping must not land: %+v", c)
-	}
-	// Within the repository, grouping is free and the column stays (G14).
-	if err := svc.SetParent(ctx, "acme", "c1", "near"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ = f.LoadBoard(ctx, "acme")
-	c, _ = findCard(b, "c1")
-	if c.Scope != "Cozystack" {
-		t.Fatalf("a subtask keeps the one column it carries: %+v", c)
-	}
-}
-
-// And the mirror image: moving the PARENT drags every child's file with it
-// (MultiBackend cascades the re-file), while each child's own column stays
-// behind. The guard has to look at the children, not only at the card the
-// caller named.
-func TestReFilingAParentCannotStrandItsSubtasksColumn(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Project: "engineering", Scope: "Cozystack"},
-		{ItemID: "c1", Title: "child", Parent: "p", Project: "engineering", Scope: "Cozystack"},
-	})
-	svc := New(f)
-	strategy := "strategy"
-	if err := svc.SetScope(ctx, "acme", "p", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the child's column would be stranded: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "p")
-	if c.Project != "engineering" {
-		t.Fatalf("the refused move must not land: %+v", c)
-	}
-	// A move within the repository leaves every child's column valid.
-	freedom := "freedom"
-	if err := svc.SetScope(ctx, "acme", "p", "Launch", &freedom); err != nil {
-		t.Fatalf("a move inside the repository is free: %v", err)
-	}
-}
-
-// A column's repository is the column's OWN — the domain of the scope stub
-// that declares it — not its project's. The two agree wherever a project
-// owns the column, but the NO-PROJECT bucket is a real column with no
-// project to ask: reading the project made every card in it ungroupable,
-// because ProjectStates never holds "" and the lookup always missed.
-func TestGroupingACardFromANoProjectColumnIsFree(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "ep-loose", Title: board.ScopeStateTitle, Scope: "Loose"},
-		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "c1", Title: "loose column child", Team: "platform", Scope: "Loose"},
-	})
-	svc := New(f)
-	if err := svc.SetParent(ctx, "acme", "c1", "p"); err != nil {
-		t.Fatalf("a no-project column of this repository strands nothing: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Scope != "Loose" || c.Parent != "p" {
-		t.Fatalf("the column survives the grouping (G14): %+v", c)
-	}
-}
-
-// The same question through the other door: attaching a card to a column
-// of ANOTHER repository is refused whether or not that column has a
-// project — the two guards must answer alike, or one of them is a way in.
+// Attaching a card to a column of ANOTHER repository is refused whether or
+// not that column has a project: a card with no project and no team lives in
+// the primary, and a no-project column declared in the closed repository
+// cannot hold a file its readers may not have. The create door and this one
+// must answer alike, or one of them is a way in.
 func TestAttachingToAForeignNoProjectColumnIsRefused(t *testing.T) {
 	f := columnBoard([]board.Card{
 		{ItemID: "ep-far", Title: board.ScopeStateTitle, Scope: "Far", Domain: "founders"},
-		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "c1", Title: "child", Team: "platform", Parent: "p"},
+		{ItemID: "c1", Title: "a card of the primary"},
 	})
 	none := ""
 	if err := New(f).SetScope(ctx, "acme", "c1", "Far", &none); !errors.Is(err, ErrCrossDomain) {
@@ -334,15 +150,17 @@ func TestAttachingToAForeignNoProjectColumnIsRefused(t *testing.T) {
 // Every refusal fires BEFORE anything is written. The grouping's week
 // handover ran first, so a refused grouping still took the child's week away
 // and gave it to the parent — in the cache only, since the commit never
-// happened: the board then showed a state git had never held.
+// happened: the board then showed a state git had never held. The refusal
+// here is H4's (a card in a column is nobody's subtask); the rule it pins is
+// the order.
 func TestARefusedGroupingLeavesTheWeekAlone(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Scope: "Fundraising", Domain: "founders"},
+		{ItemID: "far", Title: "parent elsewhere", Team: "platform"},
 		{ItemID: "c1", Title: "planned child", Project: "engineering", Scope: "Cozystack",
 			Week: "2026-08-24"},
 	})
 	svc := New(f)
-	if err := svc.SetParent(ctx, "acme", "c1", "far"); !errors.Is(err, ErrCrossDomain) {
+	if err := svc.SetParent(ctx, "acme", "c1", "far"); !errors.Is(err, ErrProjectCard) {
 		t.Fatalf("the grouping is refused: %v", err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
@@ -356,101 +174,10 @@ func TestARefusedGroupingLeavesTheWeekAlone(t *testing.T) {
 	}
 }
 
-// The file cascade follows reviewOf as well as parent (MultiBackend
-// cascade), so a columned REVIEW CARD is stranded by moving its original
-// exactly as a subtask is stranded by moving its parent.
-func TestReFilingAnOriginalCannotStrandItsReviewCardsColumn(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "orig", Title: "original", Project: "engineering", Scope: "Cozystack"},
-		{ItemID: "rev", Title: "review", ReviewOf: "orig", Project: "engineering", Scope: "Cozystack"},
-	})
-	svc := New(f)
-	strategy := "strategy"
-	if err := svc.SetScope(ctx, "acme", "orig", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the review card's column would be stranded: %v", err)
-	}
-}
-
 // The remaining doors onto G57's invariant. A card's column must name the
 // repository that holds its file, and EVERY act that moves the file has to
 // say so — the guard that knows the rule was reached from three of them
 // and not from the other four.
-
-// Grouping moves the card's file, and the cascade drags its review card
-// along: the review card's own column stays behind.
-func TestGroupingCannotStrandAReviewCardsColumn(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Scope: "Fundraising", Domain: "founders"},
-		{ItemID: "orig", Title: "original", Team: "platform"},
-		{ItemID: "rev", Title: "review", ReviewOf: "orig", Project: "engineering", Scope: "Cozystack"},
-	})
-	if err := New(f).SetParent(ctx, "acme", "orig", "far"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the review card follows the original and would be stranded: %v", err)
-	}
-}
-
-// Pulling a subtask back out is a re-file too: the child leaves its
-// parent's repository for whatever its own project or team names.
-func TestUngroupingCannotStrandAFollowersColumn(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Scope: "Fundraising", Domain: "founders"},
-		{ItemID: "kid", Title: "child", Team: "platform", Parent: "far"},
-		{ItemID: "rev", Title: "review of the child", ReviewOf: "kid",
-			Project: "strategy", Scope: "Fundraising", Domain: "founders"},
-	})
-	if err := New(f).SetParent(ctx, "acme", "kid", ""); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the pull-out takes the review card's file out of its column's repository: %v", err)
-	}
-}
-
-// A card with no project follows its TEAM, and the no-project bucket is a
-// real column — re-teaming across repositories leaves that column behind.
-func TestReTeamingCannotStrandTheCardsOwnColumn(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "ep-loose", Title: board.ScopeStateTitle, Scope: "Loose"},
-		{ItemID: "c1", Title: "loose column card", Team: "platform", Scope: "Loose"},
-	})
-	f.b.SprintStates["board"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-b"}
-	f.b.Domains = map[string]string{"st-b": "founders"}
-	svc := New(f)
-	if err := svc.SetTeam(ctx, "acme", "c1", "board", ""); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the card's column stays in the primary repository: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Team != "platform" {
-		t.Fatalf("the refused move must not land: %+v", c)
-	}
-}
-
-// The review link re-files the card to the original's repository (linked
-// cards first), and its own column does not follow.
-func TestSettingTheReviewLinkCannotStrandTheCardsOwnColumn(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "orig", Title: "original", Project: "strategy", Scope: "Fundraising", Domain: "founders"},
-		{ItemID: "c1", Title: "review", Project: "engineering", Scope: "Cozystack"},
-	})
-	if err := New(f).SetReviewOf(ctx, "acme", "c1", "orig"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the card would live in founders while its column names the primary: %v", err)
-	}
-}
-
-// The file cascade is TRANSITIVE — it moves a card's followers, and
-// theirs — so the guard has to walk as far as the cascade does. One hop
-// was enough to blind it: a columnless child hides the columned review
-// card hanging off it.
-func TestTheGuardFollowsTheCascadeAllTheWayDown(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "p", Title: "grandparent", Project: "engineering", Scope: "Cozystack"},
-		{ItemID: "kid", Title: "child", Parent: "p"},
-		{ItemID: "rev", Title: "review of the child", ReviewOf: "kid",
-			Project: "engineering", Scope: "Cozystack"},
-	})
-	strategy := "strategy"
-	if err := New(f).SetScope(ctx, "acme", "p", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the review card two hops down would be stranded: %v", err)
-	}
-}
 
 // Moving a COLUMN is the seventh door: the stub is re-filed into the
 // target project's repository while a card whose file is held by a link
@@ -522,51 +249,6 @@ func TestUnbindingANonPrimaryColumnKeepsItsCards(t *testing.T) {
 	}
 }
 
-// The grid × obeys the same two-homes rule the Project board's does: a
-// card standing in a COLUMN is never deleted by it — and a subtask that
-// carries one is now a drawn, counted slot in someone else's planner, so
-// deleting it there destroys work that is visibly planned elsewhere.
-func TestTheGridRemoveKeepsAColumnedSubtask(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "c1", Title: "columned child", Team: "platform", Parent: "p",
-			Project: "engineering", Scope: "Cozystack",
-			StartDate: board.TodayIso(), Day: board.TodayIso(), SprintStart: board.TodayIso()},
-	})
-	if err := New(f).Remove(ctx, "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, ok := findCard(b, "c1")
-	if !ok {
-		t.Fatal("a card filed under a column is never deleted by either ×")
-	}
-	if c.Scope != "Cozystack" {
-		t.Fatalf("the work stays planned in its column: %+v", c)
-	}
-	// It LEAVES THE GROUP. A subtask's person and sprint must equal its
-	// parent's (S9, syncChildrenSprint), so a card released from the grid
-	// while still a subtask would either break that pair or be dragged
-	// back by the next carry-over (carryFollowers takes every open child).
-	// Leaving the family is what makes the × mean something here.
-	if c.Parent != "" {
-		t.Fatalf("the × takes it out of the group: %+v", c)
-	}
-	// Off the day grid: an scope card out of the sprint is skipped there
-	// (TeamGrid). Its DATES stay — for a card in a column they are its row
-	// on the Project board, not a working-area life.
-	if c.SprintStart != "" {
-		t.Fatalf("and out of the sprint: %+v", c)
-	}
-	if c.StartDate == "" || c.Day == "" {
-		t.Fatalf("its Project-board row is its dates and must survive: %+v", c)
-	}
-	// The parent keeps its own life.
-	if p, _ := findCard(b, "p"); p.Team != "platform" {
-		t.Fatalf("the parent is untouched: %+v", p)
-	}
-}
-
 // A subtask with nowhere else to be is still deleted: there is no column to
 // release it into, and leaving it grouped would be an × that did nothing.
 func TestTheGridRemoveStillDeletesAColumnlessSubtask(t *testing.T) {
@@ -581,31 +263,6 @@ func TestTheGridRemoveStillDeletesAColumnlessSubtask(t *testing.T) {
 	b, _ := f.LoadBoard(ctx, "acme")
 	if _, ok := findCard(b, "c1"); ok {
 		t.Fatal("nowhere else to be: the × deletes it")
-	}
-}
-
-// A subtask standing in a column is a first-class state now (G57), so the
-// create door must produce it rather than silently drop the parent: the
-// caller asked for a child and got a top-level card, which on the Project
-// board is a slot in the wrong place with no way to tell.
-func TestCreatingACardWithBothAParentAndAColumnKeepsBoth(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform"},
-	})
-	c, err := New(f).CreateCard(ctx, "acme", CreateCardArgs{
-		Title: "child in a column", Team: "platform", Parent: "p",
-		Project: "engineering", Scope: "Cozystack",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	got, _ := findCard(b, c.ItemID)
-	if got.Parent != "p" {
-		t.Fatalf("the parent was asked for and must land: %+v", got)
-	}
-	if got.Scope != "Cozystack" {
-		t.Fatalf("and the column with it: %+v", got)
 	}
 }
 
@@ -626,9 +283,8 @@ func TestCreatingUnderAnImpossibleParentCreatesNothing(t *testing.T) {
 	}
 	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
 		Title: "child", Team: "platform", Parent: "far",
-		Project: "engineering", Scope: "Cozystack",
-	}); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("a parent whose repository the column is not in: %v", err)
+	}); !errors.Is(err, ErrProjectCard) {
+		t.Fatalf("a parent that stands in a column groups nothing (H4): %v", err)
 	}
 	after, _ := f.LoadBoard(ctx, "acme")
 	if len(after.Cards) != len(before.Cards) {
@@ -702,25 +358,6 @@ func TestAFreedSubtasksColumnStillNamesItsRepository(t *testing.T) {
 	}
 }
 
-// The review link the same way, on the scope path.
-func TestCreatingAColumnedReviewCardKeepsTheLink(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "orig", Title: "original", Team: "platform"},
-	})
-	c, err := New(f).CreateCard(ctx, "acme", CreateCardArgs{
-		Title: "review", Team: "platform", ReviewOf: "orig",
-		Project: "engineering", Scope: "Cozystack",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	got, _ := findCard(b, c.ItemID)
-	if got.ReviewOf != "orig" {
-		t.Fatalf("a review card was asked for: %+v", got)
-	}
-}
-
 // Unbinding a column into the no-project bucket is a rename into a shared
 // namespace: two columns of the same name merge under one entry there
 // (NewBoard dedups by the pair), and the losing stub's cards are then
@@ -735,67 +372,27 @@ func TestUnbindingACollidingColumnIsRefused(t *testing.T) {
 	}
 }
 
-// The create door's guard ran only when a PARENT was named, and a review
-// link outranks the project just as a parent does (G14): a card created
-// with reviewOf in one repository and a column in another was born into
-// the state every other door refuses — file here, column there.
-func TestCreatingAColumnedReviewCardAcrossRepositoriesIsRefused(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "orig", Title: "original", Project: "strategy", Scope: "Fundraising", Domain: "founders"},
-	})
-	svc := New(f)
-	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
-		Title: "review", ReviewOf: "orig",
-		Project: "engineering", Scope: "Cozystack",
-	}); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the card would live in founders while its column names the primary: %v", err)
-	}
-	if n := f.count("CreateCard"); n != 0 {
-		t.Fatalf("and the refusal comes before the write: %d creates", n)
-	}
-}
-
-// The probe that answers before the write must model the card the request
-// actually asks for. It carried the parent but not the review link, and
-// DomainOf reads the link FIRST — so the two disagreed, the guard passed,
-// and the real refusal came from inside SetParent: after the create, with
-// the stray ADDED broadcast and created event that probe exists to avoid.
-func TestTheCreateProbeReadsTheLinkBeforeTheParent(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "orig", Title: "original", Project: "strategy", Scope: "Fundraising", Domain: "founders"},
-	})
-	svc := New(f)
-	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
-		Title: "review of an original elsewhere", Team: "platform",
-		Parent: "p", ReviewOf: "orig",
-		Project: "engineering", Scope: "Cozystack",
-	}); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the link decides where this card lives: %v", err)
-	}
-	if n := f.count("CreateCard"); n != 0 {
-		t.Fatalf("nothing may be written before the refusal: %d creates", n)
-	}
-}
-
-// Create is a door like any other, and a COLUMN is what G57 is about: the
-// guard skipped every request that named no link, so the one gesture that
-// could still write "file here, column there" was the one that makes the
-// card. Both of the shapes the rest of the branch refuses elsewhere.
+// Create is a door like any other: the guard used to skip every request
+// that named no link, so the one gesture that could still write "file here,
+// column there" was the one that makes the card. Both of the shapes the rest
+// of the branch refuses elsewhere — a project card has no team and no link,
+// so what decides where it lives is its project, or the primary when the
+// column has none.
 func TestCreatingIntoAColumnOfAnotherRepositoryIsRefused(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "ep-loose", Title: board.ScopeStateTitle, Scope: "Loose"},
+		{ItemID: "ep-closed-loose", Title: board.ScopeStateTitle, Scope: "ClosedLoose", Domain: "founders"},
 		{ItemID: "ep-far", Title: board.ScopeStateTitle, Scope: "Far", Project: "engineering", Domain: "founders"},
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
-	f.b.Domains = map[string]string{"st-f": "founders", "ep-far": "founders"}
+	f.b.Domains = map[string]string{"st-f": "founders", "ep-far": "founders", "ep-closed-loose": "founders"}
 	svc := New(f)
 
-	// The team holds this card in founders; the column is of the primary.
+	// A card with no project lives in the primary; the no-project column is
+	// declared in founders.
 	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
-		Title: "closed card in a primary column", Team: "founders", Scope: "Loose",
+		Title: "primary card in a closed no-project column", Scope: "ClosedLoose",
 	}); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("a no-project column of the primary cannot hold it: %v", err)
+		t.Fatalf("a no-project column of the closed repository cannot hold it: %v", err)
 	}
 	// The same project NAME declared twice (G13): the COLUMN decides, and
 	// this one was declared in founders.
@@ -806,37 +403,6 @@ func TestCreatingIntoAColumnOfAnotherRepositoryIsRefused(t *testing.T) {
 	}
 	if n := f.count("CreateCard"); n != 0 {
 		t.Fatalf("and both refusals come before the write: %d creates", n)
-	}
-}
-
-// Freeing a subtask is the one ungroup that cannot ask the guard — its
-// parent is being deleted — and the invariant does NOT simply follow from
-// the other rules when the parent's domain comes from a LINK: a review
-// card takes its original's repository, a child grouped under it is
-// lawful there, and deleting the original drops the child into the
-// primary while its column stays behind. The freed card keeps its column
-// only while that column still names the repository that holds it.
-func TestFreeingASubtaskDropsAColumnItsRepositoryNoLongerHolds(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "ep-closed", Title: board.ScopeStateTitle, Scope: "Closed", Domain: "founders"},
-		{ItemID: "orig", Title: "original", Team: "founders"},
-		{ItemID: "rev", Title: "review", ReviewOf: "orig"},
-		{ItemID: "kid", Title: "child", Parent: "rev", Scope: "Closed"},
-	})
-	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
-	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
-	if err := New(f).DeleteCard(ctx, "acme", "orig"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, ok := findCard(b, "kid")
-	if !ok {
-		t.Fatal("a subtask is freed, not deleted, with its parent")
-	}
-	if c.Scope != "" {
-		cd, _ := board.ColumnDomain(b, c.Project, c.Scope)
-		t.Fatalf("the column names %q, the card lives in %q: %+v",
-			cd, board.DomainOf(c, board.Resolver(b, "")), c)
 	}
 }
 
@@ -932,32 +498,6 @@ func TestAFailedGroupingLeavesNoCardBehind(t *testing.T) {
 	}
 }
 
-// The one state this codebase repairs instead of refusing is RECORDED —
-// a column that disappears from a card without a line in its history is a
-// card nobody can account for afterwards.
-func TestTheDroppedColumnOfAFreedSubtaskIsLogged(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "ep-closed", Title: board.ScopeStateTitle, Scope: "Closed", Domain: "founders"},
-		{ItemID: "orig", Title: "original", Team: "founders"},
-		{ItemID: "rev", Title: "review", ReviewOf: "orig"},
-		{ItemID: "kid", Title: "child", Parent: "rev", Scope: "Closed"},
-	})
-	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
-	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
-	if err := New(f).DeleteCard(ctx, "acme", "orig"); err != nil {
-		t.Fatal(err)
-	}
-	var found bool
-	for _, e := range f.eventsOf("kid") {
-		if e.Kind == board.EventScope && e.From == " / Closed" && e.To == "" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("the repair must be in the card's history: %+v", f.eventsOf("kid"))
-	}
-}
-
 // stampedBoard is the board the STORE hands over: every roster entry
 // carries its domain's name, the primary included (gitstore stamps domain
 // zero like any other), and the board names that primary. Fixtures that
@@ -1000,41 +540,6 @@ func TestAStampedBoardKeepsAFreedSubtasksLawfulColumn(t *testing.T) {
 	}
 	if c.Scope != "Inbox" {
 		t.Fatalf("its column was never stranded and must survive: %+v", c)
-	}
-}
-
-// Every refusal fires BEFORE anything is written. The × above repairs the
-// card's own stranded column rather than refusing over it — but a REVIEW
-// CARD standing in a column of the parent's repository follows the subtask
-// out and cannot, so the gesture is refused. Repairing first and asking
-// afterwards left the refusal on top of a write: an emptied column in a
-// commit the request never makes, kept by the server's cache until
-// something else reloads the card.
-func TestTheGridRemoveWritesNothingWhenItRefusesOverAFollower(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "ep-closed", Title: board.ScopeStateTitle, Scope: "Closed", Domain: "founders"},
-		{ItemID: "p", Title: "parent in the closed repository", Team: "founders", Domain: "founders"},
-		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Scope: "Closed",
-			SprintStart: board.TodayIso()},
-		{ItemID: "rev", Title: "review of the child", ReviewOf: "kid", Team: "founders",
-			Scope: "Closed", Domain: "founders"},
-	})
-	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
-	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
-	err := New(f).Remove(ctx, "acme", "kid", board.ViewAll, RemoveAuto)
-	if !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the follower's column refuses the pull-out: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, ok := findCard(b, "kid")
-	if !ok {
-		t.Fatal("a refused × deletes nothing")
-	}
-	if c.Parent != "p" || c.Scope != "Closed" {
-		t.Fatalf("a refused × writes nothing: %+v", c)
-	}
-	if f.count("SetScope") > 0 {
-		t.Fatalf("not even the repair: %v", f.log)
 	}
 }
 
@@ -1082,68 +587,6 @@ func TestAStrandedColumnWithNoSprintToDemoteIntoDeletesTheCard(t *testing.T) {
 	b, _ := f.LoadBoard(ctx, "acme")
 	if _, ok := findCard(b, "kid"); ok {
 		t.Fatal("nowhere left to be, and nothing keeping it: the card is deleted")
-	}
-}
-
-// The grid × on a subtask whose column belongs to its PARENT's repository
-// completes: ungrouping re-files the card by its own team, so the column is
-// stranded by the gesture itself, and refusing over it would name a column
-// the person did not touch in answer to a move they did. The column is
-// repaired — the same repair a deleted parent's release makes — and the
-// card, now an ordinary columnless one, is deleted like any other.
-func TestTheGridRemoveCompletesWhenUngroupingStrandsTheColumn(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "ep-closed", Title: board.ScopeStateTitle, Scope: "Closed", Domain: "founders"},
-		{ItemID: "p", Title: "parent in the closed repository", Team: "founders"},
-		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Scope: "Closed",
-			SprintStart: board.TodayIso()},
-	})
-	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
-	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
-	if err := New(f).Remove(ctx, "acme", "kid", board.ViewAll, RemoveAuto); err != nil {
-		t.Fatalf("the × must complete: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	if c, ok := findCard(b, "kid"); ok {
-		t.Fatalf("the gesture completes and the card is gone: %+v", c)
-	}
-	// The repair happened all the same: the refusal it exists to prevent
-	// never fired, and the × did not stop half way.
-	if f.count("SetScope") == 0 {
-		t.Fatalf("the stranded column is repaired on the way out: %v", f.log)
-	}
-}
-
-// A card's own column must name the repository that HOLDS the card's file,
-// which is not always the project's: a subtask's file rides its parent and a
-// review card's follows its original, so a column of another repository on
-// either is refused, while an ordinary teamless card follows its project.
-func TestAColumnCannotNameARepositoryThatDoesNotHoldTheCard(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Project: "engineering", Scope: "Cozystack"},
-		{ItemID: "c1", Title: "child", Parent: "p"},
-		{ItemID: "rev", Title: "review", ReviewOf: "p"},
-		// Teamless on purpose: a team of the primary repository would refuse
-		// the move first (G46), before this rule gets a say.
-		{ItemID: "plain", Title: "ordinary", Project: "engineering", Scope: "Cozystack"},
-	})
-	svc := New(f)
-	strategy := "strategy"
-	if err := svc.SetScope(ctx, "acme", "c1", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the subtask's file rides its parent, in the primary repository: %v", err)
-	}
-	if err := svc.SetScope(ctx, "acme", "rev", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the review card's file follows its original: %v", err)
-	}
-	// The same repository is free — a subtask may carry its own column (G14).
-	freedom := "freedom"
-	if err := svc.SetScope(ctx, "acme", "c1", "Launch", &freedom); err != nil {
-		t.Fatalf("a column of its own repository is a subtask's right: %v", err)
-	}
-	// And an ordinary teamless card still moves BETWEEN repositories freely:
-	// there the project is what decides, so the file follows the column.
-	if err := svc.SetScope(ctx, "acme", "plain", "Fundraising", &strategy); err != nil {
-		t.Fatalf("an ordinary card's file follows its project: %v", err)
 	}
 }
 

@@ -29,6 +29,11 @@ func NeedsTriage(_ Board, c Card, _ string) bool {
 	if c.Parent != "" || c.ReviewOf != "" || c.Week != "" {
 		return false
 	}
+	// A card in a Scope column is the Project board's plan (H4): somebody
+	// HAS said when — its row there — and the strip is not where it waits.
+	if c.Scope != "" {
+		return false
+	}
 	// A card PARKED on a list is out of the strip. The strip is the inbox —
 	// work that arrived and nobody has looked at — and putting a card on a
 	// list is the act of looking: somebody read it and said "not now, and
@@ -55,6 +60,12 @@ func NeedsTriage(_ Board, c Card, _ string) bool {
 // shelf wins, because the drawer is where such a card can be dealt with.
 func TriageWeekOf(_ Board, c Card, _ string) string {
 	if InBacklog(c) {
+		return ""
+	}
+	// A PROJECT card stands in no column of this grid, week or no week: its
+	// weeks are the Project board's rows (H4). It used to be pinned here by
+	// its dates, a commitment the catch had to be lifted to touch.
+	if c.Scope != "" {
 		return ""
 	}
 	if c.Week != "" {

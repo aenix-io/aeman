@@ -142,10 +142,12 @@ func (s *Service) SetScopeProject(ctx context.Context, boardID string, from, sco
 	// after the column's stub has moved leaves the stub in one project and
 	// the cards in another — half a column gone. The destination must not
 	// put a card in a repository its team does not live in (G46), and every
-	// card standing here must be able to FOLLOW: an ordinary card does (its
-	// project decides where it lives), one whose file a link holds does not.
-	// The cross-repository question is settled above, for the column as a
-	// whole.
+	// card standing here must be able to FOLLOW the column: a project card
+	// does — its project decides where it lives — and one written before
+	// schema 2 that still carries a link or a team may not. refileGuard
+	// cannot see this one, because the move changes nothing about THIS
+	// card's domain and the target column does not exist yet. The
+	// cross-repository question is settled above, for the column as a whole.
 	for _, c := range b.Cards {
 		if !board.InScope(c, from, scope) {
 			continue
@@ -153,19 +155,6 @@ func (s *Service) SetScopeProject(ctx context.Context, boardID string, from, sco
 		if err := guardRoster(b, c.Team, to); err != nil {
 			return err
 		}
-		// The columns of the cards that FOLLOW this one must not be left
-		// behind by the move: refused before the stub is re-parented.
-		if err := refileGuard(b, c, func(a *board.Card) { a.Project = to }); err != nil {
-			return fmt.Errorf("%w (card %q)", err, c.Title)
-		}
-		// And the card must be able to FOLLOW the column. An ordinary card
-		// does — its project decides where it lives — but one whose file is
-		// held by a link (a subtask riding its parent, a review card its
-		// original) stays behind while its project field is rewritten to
-		// name a column that has left: the state G57 refuses at every other
-		// door. refileGuard cannot see this one, because the move changes
-		// nothing about THIS card's domain and the target column does not
-		// exist yet.
 		after := c
 		after.Project = to
 		if board.HomeDomain(b, after) != colDomain {

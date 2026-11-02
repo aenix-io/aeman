@@ -181,3 +181,23 @@ func TestFinishedWorkNobodyPlannedStandsInTheWeekItWasDoneIn(t *testing.T) {
 		t.Errorf("nothing says which week finished it, got %q", got)
 	}
 }
+
+// A card in a Scope column is the Project board's plan (H4,
+// docs/design/hierarchy.md): it is not in the strip, whatever its week says,
+// and it stands in no column of the Triage grid. It used to be pinned there
+// by its dates — a commitment the catch had to be lifted to touch — and sat
+// in the strip while it had no week.
+func TestAProjectCardIsNotOnTheTriageBoard(t *testing.T) {
+	t.Parallel()
+	today := TodayIso()
+	b := Board{}
+	noWeek := Card{ItemID: "c1", Title: "a plan", Scope: "E", Project: "P"}
+	if NeedsTriage(b, noWeek, today) {
+		t.Fatal("a project card with no week is not in the strip: its row on the Project board says when")
+	}
+	dated := Card{ItemID: "c2", Title: "a plan", Scope: "E", Project: "P",
+		Week: MondayOf(today), StartDate: today, Day: today}
+	if w := TriageWeekOf(b, dated, today); w != "" {
+		t.Fatalf("a project card stands in no week of the Triage grid, got %q", w)
+	}
+}

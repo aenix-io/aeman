@@ -43,6 +43,14 @@ func TeamGrid(b Board, team, day string) []Card {
 		if c.Parent != "" || c.Team != team || InBacklog(c) {
 			continue
 		}
+		// A card in a Scope column is a PROJECT CARD: the Project board's
+		// plan, not work in hand, whatever its week or dates say (H4,
+		// docs/design/hierarchy.md). It used to stand in its owner's column
+		// once its week came, which put planning placeholders among the
+		// day's work; the two boards are disjoint now.
+		if c.Scope != "" {
+			continue
+		}
 		// Somebody has to have said WHEN, one way or another: a week, a date,
 		// or a sprint. A card with none of the three is the Triage strip —
 		// "nobody has said" — and the strip is the one thing a day board must
@@ -207,14 +215,11 @@ func MeView(b Board, user, day string) []Card {
 		if c.Parent != "" {
 			continue
 		}
-		// An scope card lives on the Project board until it joins a sprint: its
-		// week-spanning dates would otherwise smear it across the day boards.
-		// The column is what holds it, and a column needs the scope side —
-		// TeamGrid draws the same line. Unless someone owns it: then it is
-		// that person's work, and their day board is where they look for it;
-		// it shows across the days its own dates cover, like any other dated
-		// card.
-		if c.Scope != "" && c.SprintStart == "" && len(c.Assignees) == 0 {
+		// A card in a Scope column is a PROJECT CARD and is drawn on the
+		// Project board alone (H4): it has no owner to look for it here, and
+		// one written before schema 2 that still names one is a plan all the
+		// same. TeamGrid draws the same line.
+		if c.Scope != "" {
 			continue
 		}
 		if user != "" && !slices.Contains(c.Assignees, user) && !childAssigned(b, c.ItemID, user) {

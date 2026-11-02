@@ -66,10 +66,11 @@ func TestAStretchedCardIsOwedByItsEnd(t *testing.T) {
 // calling it late for still being open on Monday paints most of a normal
 // board red and makes the mark mean nothing where it does matter.
 //
-// Not marked is not the same as not shown. The card goes on standing on the
-// day boards until it is finished — the week gate holds back the weeks AHEAD,
-// never the ones behind — and its own week keeps it on the Triage board, as
-// the record of what was missed.
+// Not marked is not the same as not shown. A card of a week goes on standing
+// on the day boards until it is finished — the week gate holds back the weeks
+// AHEAD, never the ones behind — and its own week keeps it on the Triage
+// board, as the record of what was missed. A project slot is late on the
+// Project board, the one board that draws it (H4).
 func TestOnlyAPromiseMadeElsewhereGoesOverdue(t *testing.T) {
 	today := "2026-09-09" // Wednesday; this week began 2026-09-07
 	last := "2026-08-31"  // the Monday before
@@ -96,16 +97,20 @@ func TestOnlyAPromiseMadeElsewhereGoesOverdue(t *testing.T) {
 		}
 	}
 
-	// All three are still WORK, so the day board goes on drawing them.
+	// The two cards of a week are still WORK, so the day board goes on
+	// drawing them; the slot is the Project board's and is late there.
 	b := NewBoard([]Card{slot, turn, plain})
 	on := map[string]bool{}
 	for _, c := range TeamGrid(b, "t", today) {
 		on[c.ItemID] = true
 	}
-	for _, id := range []string{"slot", "turn", "plain"} {
+	for _, id := range []string{"turn", "plain"} {
 		if !on[id] {
 			t.Errorf("work owed in a week gone by does not leave the board: %s", id)
 		}
+	}
+	if on["slot"] {
+		t.Error("a project slot is late on the Project board, not in hand on a day")
 	}
 	// And finished work is not late.
 	done := plain

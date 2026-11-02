@@ -41,7 +41,7 @@ func TestServiceRosterThroughTheBackend(t *testing.T) {
 	if err := svc.AddScope(ctx, "acme", "Bugs", "portal"); err == nil {
 		t.Fatal("a duplicate column must be refused by the service")
 	}
-	card, err := svc.CreateCard(ctx, "acme", boardservice.CreateCardArgs{Title: "leak", Team: "portal", Scope: "Bugs", Project: "portal", Start: "2026-08-24", Day: "2026-08-28"})
+	card, err := svc.CreateCard(ctx, "acme", boardservice.CreateCardArgs{Title: "leak", Scope: "Bugs", Project: "portal", Start: "2026-08-24", Day: "2026-08-28"})
 	if err != nil {
 		t.Fatal(err)
 	}

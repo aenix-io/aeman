@@ -33,7 +33,11 @@ func gitRemoteN(t *testing.T, name string) gitstore.Remote {
 }
 
 // seedClosedRemote pushes a closed domain: the project "secret" and its
-// column "Risk", no teams.
+// column "Risk", no teams, and one card of the project — a task carrying
+// the project's NAME (the shared team "portal" and an owner), which the
+// project rule places in this domain. It stands in no column: a card in a
+// column has no team and no owner (H4), and the access tests need a closed
+// card that can be assigned.
 func seedClosedRemote(t *testing.T, remote gitstore.Remote) {
 	t.Helper()
 	r, err := gitstore.Init(memory.NewStorage(), gitTestOpts)
@@ -44,7 +48,7 @@ func seedClosedRemote(t *testing.T, remote gitstore.Remote) {
 		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: closed\n")},
 		{Path: gitstore.ProjectPath("01JB4PROJSECRET"), Data: []byte("name: secret\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
 		{Path: gitstore.ScopePath("01JB4PROJSECRET", "01JB4SCOPERISK"), Data: []byte("name: Risk\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
-		{Path: "cards/c/3/01JB4K2E7QZMX3R8V0N5T9WYC3.md", Data: []byte("---\ntitle: three-closed\nteam: portal\nproject: secret\nscope: Risk\nzone: yellow\nassignees:\n  - zoe\nprogress: 20\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n")},
+		{Path: "cards/c/3/01JB4K2E7QZMX3R8V0N5T9WYC3.md", Data: []byte("---\ntitle: three-closed\nteam: portal\nproject: secret\nzone: yellow\nassignees:\n  - zoe\nprogress: 20\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n")},
 	})
 	if err != nil {
 		t.Fatal(err)

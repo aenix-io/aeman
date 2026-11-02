@@ -1,6 +1,7 @@
 package boardservice
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -74,11 +75,11 @@ func TestPlacingBackLeavesDatesThatStillReachThisWeek(t *testing.T) {
 	}
 }
 
-// A Project-board SLOT is not re-dated by this either: its dates ARE its row,
-// and Place moves them by the delta of the drag (the branch above), which is
-// the Project board's own rule. A dated slot dragged from a week whose days
-// ran out must keep that arithmetic, not be dropped into today.
-func TestPlacingBackASlotStillMovesItsRow(t *testing.T) {
+// A PROJECT card is not on the Triage board to be placed at all (H4): its
+// weeks are the Project board's rows, moved there by its dates. Placing one
+// is refused, and nothing on it moves. (It used to be re-dated by the drag's
+// delta, back when its dates pinned it to this grid.)
+func TestPlacingAProjectCardIsRefused(t *testing.T) {
 	today := board.TodayIso()
 	thisWeek := board.MondayOf(today)
 	oldWeek := board.AddDays(thisWeek, -14)
@@ -86,16 +87,15 @@ func TestPlacingBackASlotStillMovesItsRow(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "P"},
 		{ItemID: "e1", Title: board.ScopeStateTitle, Scope: "E", Project: "P"},
-		{ItemID: "slot", Team: "alpha", Scope: "E", Project: "P", Week: oldWeek,
-			StartDate: oldWeek, Day: board.AddDays(oldWeek, 13)},
+		{ItemID: "plan", Scope: "E", Project: "P", StartDate: oldWeek, Day: board.AddDays(oldWeek, 13)},
 	}, map[string]board.SprintState{"alpha": {Current: thisWeek}})
 	svc := f2svc(f)
 
-	if err := svc.Place(ctx, "acme", "slot", thisWeek); err != nil {
-		t.Fatal(err)
+	if err := svc.Place(ctx, "acme", "plan", thisWeek); !errors.Is(err, ErrProjectCard) {
+		t.Fatalf("placing a project card = %v, want ErrProjectCard", err)
 	}
-	c := f.get("slot")
-	if c.StartDate != thisWeek || c.Day != board.AddDays(thisWeek, 13) {
-		t.Fatalf("a slot's row moves by the drag's delta, got %s…%s", c.StartDate, c.Day)
+	c := f.get("plan")
+	if c.StartDate != oldWeek || c.Day != board.AddDays(oldWeek, 13) || c.Week != "" {
+		t.Fatalf("the refusal moved something: %+v", c)
 	}
 }

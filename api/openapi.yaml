@@ -287,11 +287,11 @@ paths:
         not a Monday matches no column the board draws. A week AHEAD of this one
         also empties the working area — the card is on no day board until that
         Monday — while the CURRENT week joins the team's sprint instead. A
-        Project-board slot is not refused: its week IS its start date's week,
-        so its DATES are what move — the whole span shifts by the distance to
-        the week asked for, and the row follows. It is not the same as
-        PATCH {"week": …}, which writes the week and nothing else and refuses a
-        slot outright (422 `weekDerived`).
+        PROJECT card — one in a Scope column — is refused (422 `projectCard`):
+        it is not on this board, and its weeks are the Project board's rows,
+        moved there by its dates. It is not the same as PATCH {"week": …},
+        which writes the week and nothing else (and refuses a project card the
+        same way).
       parameters:
         - $ref: '#/components/parameters/View'
         - $ref: '#/components/parameters/Uid'
@@ -329,10 +329,9 @@ paths:
       tags: [Cards]
       summary: The Triage board's opposite — take the card's week away, back to the strip.
       description: >-
-        A Project-board slot is refused (422 `weekDerived`): its week is its
-        row, derived from its dates, so there is no week to take away — taking
-        it off the column is the gesture that means this. A card that is in no
-        week already is left as it is.
+        A PROJECT card is refused (422 `projectCard`): it is not on this board
+        and has no week to take away — taking it off the column is the gesture
+        that means this. A card that is in no week already is left as it is.
       parameters:
         - $ref: '#/components/parameters/View'
         - $ref: '#/components/parameters/Uid'
@@ -1452,7 +1451,7 @@ components:
             - unknownZone
             - upstreamFailed
             - viewNeedsField
-            - weekDerived
+            - projectCard
         actionUrl:
           type: string
           description: >-

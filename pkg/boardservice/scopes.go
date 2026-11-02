@@ -18,10 +18,14 @@ var ErrScopeInUse = errors.New("scope still has cards")
 // repeat across projects on purpose — every project has its own "Docs".
 var ErrScopeExists = errors.New("scope already exists")
 
-// ErrWeekDerived is setting the week of a Project-board slot by hand: it is
-// derived from the card's start date, so there is nothing to set. A rejected
-// input (422), not an upstream failure.
-var ErrWeekDerived = errors.New("a slot's week is derived from its dates")
+// ErrProjectCard is asking a PROJECT CARD — a card in a Scope column — to be
+// something it is not (H4, docs/design/hierarchy.md). It is the Project
+// board's plan and stands there alone: no team, no owner, no week of the
+// weekly plan, no parent and no subtasks, never sent to review. Giving it
+// any of those, or filing a card that carries one into a column, is refused:
+// a rejected input (422), not an upstream failure. The project card's dates
+// are its row; those it keeps.
+var ErrProjectCard = errors.New("a project card stands in its column alone: no team, no owner, no week, no parent, no review")
 
 // ErrScopeNotFound is filing a card under a column that does not exist — a
 // typo must not mint a phantom column the way a stray team value used to
@@ -179,13 +183,22 @@ func (s *Service) SetScope(ctx context.Context, boardID string, itemID, scope st
 	if card.Scope == scope && card.Project == projectName {
 		return nil
 	}
+	// A card in a column is a PROJECT CARD and stands there alone (H4): one
+	// that carries a team, an owner, a parent or a review link is somebody's
+	// work in hand, and filing it into a column would make one card answer
+	// two questions. The person takes those off first — or, more often,
+	// makes a card in the column and links the work under the hierarchy.
+	if scope != "" {
+		if err := projectCardCannotCarry(card, "into a column"); err != nil {
+			return err
+		}
+	}
 	if err := guardRoster(b, card.Team, projectName); err != nil {
 		return err
 	}
-	// One guard for every reference this re-file could strand: the card's
-	// own column (it must name the repository that HOLDS the file — when a
-	// LINK outranks the project, the file stays put while the column moves)
-	// and the columns of the cards whose files follow it.
+	// The card's own column must name the repository that will hold the
+	// file: a project card lives where its project lives, and a column of
+	// the no-project bucket declared elsewhere cannot hold it.
 	if err := refileGuard(b, card, func(a *board.Card) {
 		a.Project = projectName
 		a.Scope = scope
@@ -203,26 +216,55 @@ func (s *Service) SetScope(ctx context.Context, boardID string, itemID, scope st
 			return err
 		}
 	}
-	// Filing a card under a column makes it a slot, and a slot's row is its
-	// start date's week. A card scheduled for a WEEK has no dates of its own
-	// — the week is its whole place — so it takes the SLOT OF THAT WEEK on
-	// the way: Monday to Friday, the whole of the week it was owed in.
-	// Without this it would land in the column with no row at all and jump to
-	// another week on the next full load.
-	if scope != "" {
-		card.Scope = scope
-		if card.StartDate == "" && card.Week != "" {
-			end := board.AddDays(card.Week, 4) // through its Friday
-			if err := s.backend.SetStart(ctx, b, card, card.Week); err != nil {
-				return err
-			}
-			if err := s.backend.SetDay(ctx, b, card, end); err != nil {
-				return err
-			}
-			s.logEvent(ctx, b, card, board.EventDates, "", board.DateRange(card.Week, end))
-			card.StartDate = card.Week
+	if scope == "" {
+		return nil
+	}
+	// Filed into a column, the card leaves the plans it was on. Its DATES are
+	// its row on the Project board, so a card that has none takes the span
+	// of the week it was scheduled for — Monday to Friday, the whole of the
+	// week it was owed in — rather than landing in the column with no row at
+	// all; and the WEEK and the SPRINT go, because neither the weekly plan
+	// nor a team's day board draws a project card (H4).
+	card.Scope = scope
+	if card.StartDate == "" && card.Week != "" {
+		end := board.AddDays(card.Week, 4) // through its Friday
+		if err := s.backend.SetStart(ctx, b, card, card.Week); err != nil {
+			return err
 		}
-		return s.syncSlotWeek(ctx, b, card, card.StartDate)
+		if err := s.backend.SetDay(ctx, b, card, end); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventDates, "", board.DateRange(card.Week, end))
+		card.StartDate = card.Week
+	}
+	if card.Week != "" {
+		if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventWeek, card.Week, "")
+	}
+	if card.SprintStart != "" {
+		if err := s.backend.SetSprintStart(ctx, b, card, ""); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventSprint, card.SprintStart, "")
+	}
+	return nil
+}
+
+// projectCardCannotCarry is the H4 admission in one place: a team, an owner,
+// a parent or a review link on a card that stands — or is about to stand —
+// in a column. `where` finishes the sentence for the door that asked.
+func projectCardCannotCarry(c board.Card, where string) error {
+	switch {
+	case c.Team != "":
+		return fmt.Errorf("%w: %q carries a team %s", ErrProjectCard, c.Title, where)
+	case len(c.Assignees) > 0:
+		return fmt.Errorf("%w: %q has an owner %s", ErrProjectCard, c.Title, where)
+	case c.Parent != "":
+		return fmt.Errorf("%w: %q is a subtask %s", ErrProjectCard, c.Title, where)
+	case c.ReviewOf != "":
+		return fmt.Errorf("%w: %q is a review %s", ErrProjectCard, c.Title, where)
 	}
 	return nil
 }
@@ -242,13 +284,11 @@ func scopeNameFree(b board.Board, project, name, except string) error {
 var ErrNotInProject = errors.New("the card does not stand in that column")
 
 // RemoveFromProject is the Project board's ×: it takes the card out of its
-// column, and off the weekly plan ALWAYS — a plan entry was this project's
-// work, and the project just let go of it. The card survives only in the
-// working area, and only when it was worked on (someone had it and moved
-// it); an untouched card is deleted outright. The UI asks first when work
-// would go (deleteWarning). A SUBTASK is never deleted here, however
-// untouched: its other home is its parent, so the × only takes the column
-// away (G57).
+// column. A project card has no other home — no team, no owner, no parent
+// (H4) — so an untouched one is deleted outright, and one somebody has MOVED
+// (its progress says so) is kept as a dated card of the no-team group, where
+// a lead can give it a team and a person. The UI asks first when work would
+// go (deleteWarning).
 func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID, project, scope string) error {
 	// A column is named by its SCOPE — an empty scope is no column: without
 	// this, a card standing in no column "matched" ("", "") and fell
@@ -268,25 +308,17 @@ func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID,
 	if c.Project != project || c.Scope != scope {
 		return fmt.Errorf("%w: %q / %q", ErrNotInProject, project, scope)
 	}
-	// A SUBTASK has another home — its parent — so the × only takes the
-	// column away, however untouched the card is: deleting would destroy
-	// work that still rides the parent on every other board (the two-homes
-	// rule the × exists to honour).
-	worked := len(c.Assignees) > 0 && c.Progress > 0
-	if !worked && c.Parent == "" {
-		// The whole card goes — a deletion moves nothing — and clearing its
-		// plan first would be a dead write into the very commit that removes
-		// the file.
+	// Progress is the one trace of work a project card can carry: it has no
+	// owner to have had it (H4). Untouched, the whole card goes — a deletion
+	// moves nothing, and clearing its column first would be a dead write into
+	// the very commit that removes the file.
+	if c.Progress == 0 {
 		return s.deleteWithCascade(ctx, b, c)
 	}
-	// ORPHANING clears the pair, and for a teamless card that is a
-	// repository move (the domain falls through to the primary) — refused
-	// before anything is written, like every other door.
-	if err := refileGuard(b, c, func(a *board.Card) { a.Project = ""; a.Scope = "" }); err != nil {
-		return err
-	}
-	// The week goes with it, always: it was the slot's row, not a placement
-	// anyone made for the card itself.
+	// ORPHANING clears the pair; for a teamless card that is a repository
+	// move to the primary, which the backend makes as any other.
+	// A stale week from before schema 2 goes with it: it was the slot's row,
+	// not a placement anyone made for the card itself.
 	if c.Week != "" {
 		if err := s.backend.SetWeek(ctx, b, c, ""); err != nil {
 			return err
