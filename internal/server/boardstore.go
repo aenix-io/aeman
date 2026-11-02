@@ -196,6 +196,10 @@ type boardEntry struct {
 	// watcher that an epic's counts moved. Seeded from each installed board
 	// and kept by cardChanged.
 	parentOf map[string]string
+	// planning is which cards are goals, initiatives or epics, kept beside
+	// parentOf: with the two the walk to a card's planning ancestors costs
+	// the depth of its chain, never an index of the whole board.
+	planning map[string]bool
 }
 
 // recentGrace is how long a local mutation outweighs a full reload.
@@ -475,23 +479,30 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	// And built ONCE each: the card's resource and every ancestor's are the
 	// same for every watcher that is sent them, and an ancestor's standing
 	// is a walk over the board — built per watcher it was W × A walks under
-	// the entry lock for one change.
+	// the entry lock for one change. One index serves them all.
 	var ix *board.Index
 	index := func() *board.Index {
 		if ix == nil {
-			ix = board.NewIndex(e.board)
+			ix = newIndex(e.board)
 		}
 		return ix
 	}
 	var res apiserver.Card
 	built := false
-	ancestorRes := make([]*apiserver.Card, len(ancestors))
-	ancestorOf := func(i int) apiserver.Card {
-		if ancestorRes[i] == nil {
-			r := buildCard(e.board, index(), ancestors[i])
-			ancestorRes[i] = &r
+	type ancestor struct {
+		card  board.Card
+		ok    bool
+		res   apiserver.Card
+		built bool
+	}
+	resolved := make([]*ancestor, len(ancestors))
+	ancestorAt := func(i int) *ancestor {
+		if resolved[i] == nil {
+			a := &ancestor{}
+			a.card, a.ok = index().Find(ancestors[i])
+			resolved[i] = a
 		}
-		return *ancestorRes[i]
+		return resolved[i]
 	}
 	scoped := false
 	for sub := range e.watchers {
@@ -515,10 +526,15 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 			}
 			sub.send(watchFrame{Type: verb, Kind: "Card", Object: res})
 		}
-		for i, a := range ancestors {
-			if sub.rights.canRead(a.Domain) {
-				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: ancestorOf(i)})
+		for i := range ancestors {
+			a := ancestorAt(i)
+			if !a.ok || !sub.rights.canRead(a.card.Domain) {
+				continue
 			}
+			if !a.built {
+				a.res, a.built = buildCard(e.board, index(), a.card), true
+			}
+			sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: a.res})
 		}
 	}
 	if !scoped {
@@ -531,8 +547,8 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	// Marked as nobody's change, so no watcher's echo suppression swallows
 	// the standing the tree derived: flushMembers sends a MODIFIED for a
 	// touched member to its originator unless the change was its own.
-	for _, a := range ancestors {
-		e.moved[a.ItemID] = ""
+	for _, id := range ancestors {
+		e.moved[id] = ""
 	}
 	if !e.membersDue {
 		e.membersDue = true
@@ -593,6 +609,10 @@ func (e *boardEntry) flushMembers() {
 // buildCard is the resource a watcher is sent. A variable so a test can
 // count how many times a burst builds one.
 var buildCard = apiserver.CardResourceIn
+
+// newIndex is board.NewIndex, a variable so a test can count how often a
+// change reads the whole board's hierarchy.
+var newIndex = board.NewIndex
 
 // reevaluate recomputes every scoped subscription's membership against the
 // cached board and emits the deltas — the board shifted in a way no single
@@ -1070,20 +1090,26 @@ func (b *storeBackend) installLocked(e *boardEntry, fresh board.Board) {
 // caller holds e.mu.
 func (e *boardEntry) rememberParents() {
 	e.parentOf = make(map[string]string, len(e.board.Cards))
+	e.planning = map[string]bool{}
 	for _, c := range e.board.Cards {
 		e.parentOf[c.ItemID] = c.Parent
+		if board.IsPlanning(c) {
+			e.planning[c.ItemID] = true
+		}
 	}
 }
 
-// ancestorsChanged is the planning cards whose standing a card change moved:
-// the planning ancestors of the chain the card stands under now and of the
-// chain it stood under at the last announcement, root first, each once, the
-// card itself excluded. It also records the card's parent for next time. A
-// planning card records nothing about progress (H5), so no write reaches
-// it when a task under it changes; this is how the change reaches its
-// watchers. O(depth) lookups per change, through board.Lineage. The caller
-// holds e.mu with the cache already updated.
-func (e *boardEntry) ancestorsChanged(c board.Card, verb string) []board.Card {
+// ancestorsChanged is the planning cards whose standing a card change moved,
+// by id: the planning ancestors of the chain the card stands under now and of
+// the chain it stood under at the last announcement, root first, each once,
+// the card itself excluded. It also records the card's parent and level for
+// next time. A planning card records nothing about progress (H5), so no
+// write reaches it when a task under it changes; this is how the change
+// reaches its watchers. The walk reads the entry's own parent map — the
+// depth of the chain, never an index of the whole board, which a carry-over
+// burst would otherwise build once or twice for every card it moved. The
+// caller holds e.mu with the cache already updated.
+func (e *boardEntry) ancestorsChanged(c board.Card, verb string) []string {
 	if e.parentOf == nil {
 		// A board installed without the seed (a bare test entry): from here
 		// on parents are remembered; this one change cannot name the chain
@@ -1093,25 +1119,39 @@ func (e *boardEntry) ancestorsChanged(c board.Card, verb string) []board.Card {
 	old, known := e.parentOf[c.ItemID]
 	if verb == "DELETED" {
 		delete(e.parentOf, c.ItemID)
+		delete(e.planning, c.ItemID)
 	} else {
 		e.parentOf[c.ItemID] = c.Parent
+		if board.IsPlanning(c) {
+			e.planning[c.ItemID] = true
+		}
 	}
 	if !known {
 		old = ""
 	}
 	seen := map[string]bool{c.ItemID: true}
-	var out []board.Card
-	add := func(chain []board.Card) {
-		for _, a := range chain {
-			if board.IsPlanning(a) && !seen[a.ItemID] {
-				seen[a.ItemID] = true
-				out = append(out, a)
+	var out []string
+	add := func(from string) {
+		// Bottom-up along the parent map, bounded the way board.Lineage is:
+		// a repeat (a cycle a direct writer committed) or more hops than the
+		// levels allow ends the walk.
+		const maxHops = 6
+		var chain []string
+		walked := map[string]bool{c.ItemID: true}
+		for id, hops := from, 0; id != "" && hops < maxHops && !walked[id]; id, hops = e.parentOf[id], hops+1 {
+			walked[id] = true
+			chain = append(chain, id)
+		}
+		for i := len(chain) - 1; i >= 0; i-- {
+			if id := chain[i]; e.planning[id] && !seen[id] {
+				seen[id] = true
+				out = append(out, id)
 			}
 		}
 	}
-	add(board.Lineage(e.board, c))
+	add(c.Parent)
 	if old != c.Parent {
-		add(board.Lineage(e.board, board.Card{ItemID: c.ItemID, Parent: old}))
+		add(old)
 	}
 	return out
 }
