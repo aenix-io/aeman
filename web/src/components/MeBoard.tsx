@@ -30,7 +30,7 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, localDateIso } from "../date";
-import { subtaskShows } from "../subtasks";
+import { isSubtask, subtaskParent, subtaskShows } from "../subtasks";
 import { currentSprint, previousSprint } from "../sprint";
 import { onMyDay } from "../meview";
 import {
@@ -270,10 +270,10 @@ export function MeBoard({
     const owned = new Set<string>();
     for (const c of teamCards) {
       if (c.assignees.includes(viewMe)) {
-        owned.add(c.parent ?? c.itemId);
+        owned.add(subtaskParent(c) ?? c.itemId);
       }
     }
-    return teamCards.filter((c) => owned.has(c.parent ?? c.itemId));
+    return teamCards.filter((c) => owned.has(subtaskParent(c) ?? c.itemId));
   }, [teamCards, viewMe]);
 
   // In Me a card shows by the day rule of board.MeView, mirrored card by card
@@ -406,7 +406,7 @@ export function MeBoard({
   // to the full board state so the notes composer works on them.
   const selectedCard =
     myCards.find((c) => c.itemId === selectedCardId) ??
-    board.cards.find((c) => c.itemId === selectedCardId && c.parent) ??
+    board.cards.find((c) => c.itemId === selectedCardId && isSubtask(c)) ??
     null;
 
   const fail = (err: unknown) => {
@@ -432,15 +432,17 @@ export function MeBoard({
   const childrenOf = useMemo(() => {
     const m = new Map<string, CardModel[]>();
     for (const c of mine) {
-      if (!c.parent || !subtaskOnDay(c)) {
+      // Under a TASK only: a task under an epic is a row of its own.
+      const under = subtaskParent(c);
+      if (!under || !subtaskOnDay(c)) {
         continue;
       }
       if (teamFocus && teamFilter && !teamFilter.includes(c.team ?? "")) {
         continue;
       }
-      const list = m.get(c.parent) ?? [];
+      const list = m.get(under) ?? [];
       list.push(c);
-      m.set(c.parent, list);
+      m.set(under, list);
     }
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -719,8 +721,8 @@ export function MeBoard({
   // one level (the target is already a subtask, or the dragged card has its
   // own subtasks) — the middle-band group drop only offers valid targets.
   const canGroup = (active: CardModel, target: CardModel) =>
-    !target.parent &&
-    target.itemId !== active.parent &&
+    !isSubtask(target) &&
+    target.itemId !== subtaskParent(active) &&
     !(childrenOf.get(active.itemId) ?? []).length &&
     // Not across zones: a card nested under a parent elsewhere renders under
     // that parent, which is the crossing this board does not allow — by
@@ -757,7 +759,7 @@ export function MeBoard({
   // Group a dropped card as a subtask; the server enforces depth and hands a
   // scheduled card's week to the parent, which stands for it from then on.
   const handleGroup = (card: CardModel, parentId: string) => {
-    if (card.itemId === parentId || card.parent === parentId) {
+    if (card.itemId === parentId || subtaskParent(card) === parentId) {
       return;
     }
     const prev: Partial<CardModel> = { parent: card.parent, week: card.week };
@@ -841,14 +843,15 @@ export function MeBoard({
   // Mirror the server's derived-progress rule (board.DerivedProgress) so a
   // parent's bar moves the instant a subtask's does; the server converges it.
   const syncParentBar = (child: CardModel, childValue: number) => {
-    if (!child.parent) {
+    const under = subtaskParent(child);
+    if (!under) {
       return;
     }
-    const parent = cardsById.get(child.parent);
+    const parent = cardsById.get(under);
     if (!parent || isComplete(parent)) {
       return;
     }
-    const kids = board.cards.filter((c) => c.parent === child.parent);
+    const kids = board.cards.filter((c) => c.parent === under);
     if (kids.length === 0) {
       return;
     }
@@ -892,13 +895,13 @@ export function MeBoard({
         refreshLog(card.itemId);
         // A review card's progress drives the original's stage server-side,
         // and a subtask's drives its parent's derived bar.
-        if (card.reviewOf || card.parent) {
+        if (card.reviewOf || isSubtask(card)) {
           reload();
         }
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
-        if (card.parent) {
+        if (isSubtask(card)) {
           reload(); // the parent's optimistic derived bar needs the truth back
         }
         onError(errMessage(err));
@@ -962,14 +965,14 @@ export function MeBoard({
           leavingReview ||
           (enteringReview && hasLinkedReview) ||
           card.reviewOf ||
-          card.parent
+          isSubtask(card)
         ) {
           reload();
         }
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
-        if (card.parent) {
+        if (isSubtask(card)) {
           reload(); // the parent's optimistic derived bar needs the truth back
         }
         onError(errMessage(err));
@@ -995,13 +998,13 @@ export function MeBoard({
       .then((updated) => {
         addCard(updated);
         refreshLog(card.itemId);
-        if (card.stage === "review" || card.reviewOf || card.parent) {
+        if (card.stage === "review" || card.reviewOf || isSubtask(card)) {
           reload();
         }
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
-        if (card.parent) {
+        if (isSubtask(card)) {
           reload(); // the parent's optimistic derived bar needs the truth back
         }
         onError(errMessage(err));
@@ -1045,7 +1048,7 @@ export function MeBoard({
     // place.
     patchCard(
       card.itemId,
-      card.parent
+      isSubtask(card)
         ? subtaskRemovalPatch(card, gridCtx(card))
         : {
             assignees: [],
@@ -1054,7 +1057,7 @@ export function MeBoard({
           },
     );
     void provider
-      .removeCard(card.itemId, card.parent ? undefined : "unassign")
+      .removeCard(card.itemId, isSubtask(card) ? undefined : "unassign")
       .then(() => reload())
       .catch((err: unknown) => {
         if (isGone(err)) {
@@ -1409,7 +1412,9 @@ export function MeBoard({
     // The board committed exactly what the placeholder previewed: groupUnder
     // is the already-validated parent to nest under (null = standalone).
     const parentTo = groupUnder;
-    const parentChanged = (card.parent ?? "") !== (parentTo ?? "");
+    // Judged against the parent AS A TASK: a standalone drop of a task under
+    // an epic is no change, not an unlinking from the epic.
+    const parentChanged = (subtaskParent(card) ?? "") !== (parentTo ?? "");
 
     // 1) Optimistic local state first.
     const optimistic: Partial<CardModel> = {};
@@ -1732,12 +1737,13 @@ export function MeBoard({
   // the add-subtask form (the + flow) hangs after the LAST subtask row — or
   // right under the parent while it has none visible yet.
   const withSubs = (card: CardModel, node: ReactNode): ReactNode => {
-    if (card.parent) {
+    const under = subtaskParent(card);
+    if (under) {
       const wrapped = <div className="subtask-indent">{node}</div>;
-      const subs = childrenOf.get(card.parent) ?? [];
-      const parent = cardsById.get(card.parent);
+      const subs = childrenOf.get(under) ?? [];
+      const parent = cardsById.get(under);
       if (
-        addingSub === card.parent &&
+        addingSub === under &&
         parent &&
         subs[subs.length - 1]?.itemId === card.itemId
       ) {

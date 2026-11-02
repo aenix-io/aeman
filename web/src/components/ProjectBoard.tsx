@@ -24,6 +24,7 @@ import { deleteWarning, freeSubtasks } from "../removal";
 import { Dropdown } from "./Dropdown";
 import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
+import { isSubtask } from "../subtasks";
 import { TeamChips } from "./TeamChips";
 import { ZoomControl } from "./ZoomControl";
 import {
@@ -1515,10 +1516,10 @@ export function ProjectBoard({
               title={card.title}
             >
               <span className="project-slot-title">
-                {card.parent && (
+                {isSubtask(card) && (
                   <span
                     className="project-slot-subtask"
-                    title={subtaskTitle(byId.get(card.parent)?.title)}
+                    title={subtaskTitle(byId.get(card.parent ?? "")?.title)}
                   >
                     ↳
                   </span>

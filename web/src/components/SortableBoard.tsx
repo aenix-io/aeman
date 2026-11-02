@@ -21,6 +21,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Card as CardModel } from "../providers/types";
+import { isSubtask, subtaskParent } from "../subtasks";
 
 /** A group is one sortable container (a zone band, or an engineer×zone cell). */
 export interface BoardGroup<Meta> {
@@ -404,24 +405,30 @@ export function SortableBoard<Meta>({
     const leaving = strongDedent.current && slotArmed.current;
     let target: CardModel | undefined;
     let positional = false;
-    if (below?.parent) {
+    // The parents AS TASKS: a task under an epic carries a parent too, and
+    // reading it here made the slot machinery nest it under a card that is
+    // not on the board (subtasks.ts, subtaskParent).
+    const belowUnder = below ? subtaskParent(below) : undefined;
+    const aboveUnder = subtaskParent(above);
+    const activeUnder = subtaskParent(active);
+    if (belowUnder) {
       // Strictly inside a block: subtasks continue below, so the slot can
       // only be one of them — the dedent gesture exists on the last slot only.
-      target = cardById.get(below.parent);
+      target = cardById.get(belowUnder);
       positional = !indentOn;
-    } else if (above.parent) {
-      if (above.parent === active.parent) {
+    } else if (aboveUnder) {
+      if (aboveUnder === activeUnder) {
         // The own block's last slot: a subtask STAYS a subtask unless it is
         // pulled far left and parked — distance is the exit guard.
         if (!leaving) {
-          target = cardById.get(above.parent);
+          target = cardById.get(aboveUnder);
         }
       } else if (indentOn && slotArmed.current && overRow.current) {
         // A foreign block's last slot: joining takes a parked indent, held
         // over the rows themselves.
-        target = cardById.get(above.parent);
+        target = cardById.get(aboveUnder);
       }
-    } else if (above.itemId === active.parent) {
+    } else if (above.itemId === activeUnder) {
       // Right under the own parent (the card is its only visible subtask):
       // grouped unless pulled far left and parked, like the block's last slot.
       if (!leaving) {
@@ -435,13 +442,13 @@ export function SortableBoard<Meta>({
     }
     // A dragged subtask never ungroups without the exit gesture: wherever
     // the slot slid, it snaps back to its own parent.
-    if (!target && active.parent && !leaving) {
-      target = cardById.get(active.parent);
+    if (!target && activeUnder && !leaving) {
+      target = cardById.get(activeUnder);
     }
     if (!target || target.itemId === active.itemId) {
       return null;
     }
-    if (active.parent === target.itemId) {
+    if (activeUnder === target.itemId) {
       return { id: target.itemId, positional }; // staying among its siblings
     }
     if (canGroup && !canGroup(active, target)) {
@@ -501,7 +508,8 @@ export function SortableBoard<Meta>({
     const id = String(e.active.id);
     setActiveId(id);
     onDragActiveCard?.(cardById.get(id)?.itemId ?? null);
-    const seed = !!cardById.get(id)?.parent;
+    const seeded = cardById.get(id);
+    const seed = !!seeded && isSubtask(seeded);
     indentOnRef.current = seed;
     indentFlipAt.current = null;
     strongDedent.current = false;
@@ -605,7 +613,7 @@ export function SortableBoard<Meta>({
         let at = next[to].ids.indexOf(targetId) + 1;
         while (at < next[to].ids.length) {
           const c = cardById.get(next[to].ids[at]);
-          if (!c || c.parent !== targetItem) {
+          if (!c || subtaskParent(c) !== targetItem) {
             break;
           }
           at++;

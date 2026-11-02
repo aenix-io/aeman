@@ -113,3 +113,22 @@ describe("the Roadmap is a board", () => {
     expect(watchQuery("roadmap", TODAY, ["alpha"])).toEqual({ view: "roadmap" });
   });
 });
+
+// subtaskParent is the parent AS A TASK: what a board nests a row under,
+// offers the subtask × for, and keeps when a drag says "standalone". A task
+// under an epic has a parent and no subtask parent — reading the raw field
+// drew it indented under nothing and unlinked it from its epic on a drag.
+describe("subtaskParent", () => {
+  it("is the parent of a subtask, and nothing for a task under an epic", async () => {
+    const { subtaskParent } = await import("./subtasks");
+    const sub = card({ itemId: "s", parent: "t", lineage: [{ uid: "t", title: "a task" }] });
+    expect(subtaskParent(sub)).toBe("t");
+    expect(subtaskParent(underEpic)).toBeUndefined();
+    expect(subtaskParent(card({ itemId: "root" }))).toBeUndefined();
+  });
+
+  it("reads a card with a parent and no lineage as a subtask, as the server does", async () => {
+    const { subtaskParent } = await import("./subtasks");
+    expect(subtaskParent(card({ itemId: "fresh", parent: "t" }))).toBe("t");
+  });
+});

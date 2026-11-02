@@ -39,6 +39,7 @@ import { BacklogDrawer, dropSpot, type Spot } from "./BacklogDrawer";
 import { markOf } from "../placements";
 import { SIZES, SIZE_ORDER, pointsOf } from "../size";
 import { isComplete } from "../stages";
+import { isSubtask } from "../subtasks";
 import { displayName, type Avatars, type Names } from "../users";
 import { ZONES, ZONE_ORDER } from "../zones";
 import { type Laned, extentOf, laneStyle, packLanes, weekLabel } from "../weekgrid";
@@ -254,7 +255,7 @@ export function TriageBoard({
         (c) =>
           c.reviewOf &&
           teams.includes(c.team ?? "") &&
-          !c.parent &&
+          !isSubtask(c) &&
           !isComplete(c),
       ),
     [board.cards, teams],
@@ -273,7 +274,7 @@ export function TriageBoard({
         (c) =>
           isComplete(c) &&
           !c.reviewOf &&
-          !c.parent &&
+          !isSubtask(c) &&
           teams.includes(c.team ?? "") &&
           !!placedIn(c),
       ),
@@ -302,7 +303,7 @@ export function TriageBoard({
         continue;
       }
       // A card that HAS a week still has to be work someone is doing.
-      if (week && (c.parent || isComplete(c))) {
+      if (week && (isSubtask(c) || isComplete(c))) {
         continue;
       }
       seen.add(whoOf(c));

@@ -28,6 +28,16 @@ export function isSubtask(c: Pick<Card, "parent" | "lineage">): boolean {
   return parent.uid !== c.parent || !parent.type;
 }
 
+/** subtaskParent is the TASK a subtask rides — its `parent` — and nothing
+ *  for every other card: a task under an epic carries a parent too, and a
+ *  board that read it as "the card to nest under" drew the task indented
+ *  under nothing, offered it the subtask ×, and unlinked it from its epic on
+ *  the first drag. Every component that needs the parent AS A TASK asks
+ *  this, not `card.parent`. */
+export function subtaskParent(c: Pick<Card, "parent" | "lineage">): string | undefined {
+  return isSubtask(c) ? c.parent : undefined;
+}
+
 /** The slice of a card the subtask-visibility rule reads. */
 export interface SubtaskLike {
   team?: string;
