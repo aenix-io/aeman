@@ -232,16 +232,46 @@ a caller stands on is part of the address).
 
 ## The Roadmap tab
 
-Left, a tree: one row per card, indented by level, expandable, with the
-card's title, its start, its end (`day`) and its status — derived for a
-planning card, the stage band for a task. Right, a timeline: one bar per
-card from `start` to `day`, every type by the same rule; a card with one
-date is a point, with none a row without a bar. Above: a depth selector
-("from goal to task", "from initiative to subtask"), a zoom (3 months, a
-year, fit), a date range and the board's own filters. A card's detail
-pane, opened from any board, shows a **breadcrumb** of its ancestors
-root-first, and on a planning card lists what sits under it: planning
-cards, tasks and project cards.
+Left, a tree: one row per card, indented by level, expandable, with a
+glyph for what it is (goal, initiative, epic, task, subtask, project
+card), the card's title, its start, its end (`day`) and its status —
+derived for a planning card (`hierarchy.status`, with `done/total`
+beside it), and for a task its own: done, in progress, to do. Right, a
+timeline: one bar per card from `start` to `day`, every type by the same
+rule; a card with one date is a point, with none a row without a bar; a
+done bar is drawn distinct, and a bar that runs past the window is cut
+square at its edge. Rows and lanes share one height, so the two panes
+line up by construction. Above: a depth selector (two levels, "from goal
+to task", "from initiative to subtask" — a level above the range is
+skipped and its rows stand in its place, a level below is cut with its
+subtree; initiative to task by default), a zoom (3 months, a year, fit —
+three months and a year open two weeks before this Monday, fit spans
+every bar with a week of margin), the window's dates, the team chips and
+a person filter — a filter keeps the matching cards and every card above
+them, so the tree keeps its shape. The board's own gestures are the two
+the server offers it: the add box makes a planning card at the top, the
+`+` on a goal or an initiative one under it (an epic makes nothing below
+itself — a task is born on a day board and filed here from its own pane,
+H7), and the `×` on a planning card deletes it after saying where the
+rows under it will go (up a level, or to the top). Dates are changed in
+the detail pane; nothing is dragged on the timeline in this version. The
+depth, the zoom and which rows are folded are the reader's own, kept in
+the browser.
+
+A card's detail pane, opened from any board, shows a **breadcrumb** of its
+ancestors root-first — a planning crumb leads to the Roadmap with that row
+unfolded and marked; a subtask's task is a name — and a picker for what
+the card sits under, offering planning cards of a higher level only
+(`allowedParentKinds`, the mirror of the level rule) and nothing on a goal
+or a subtask (a subtask's task is the group gesture's). The server's
+refusal is shown in its own words. On a planning card the pane shows its
+level, its derived standing and `done/total`, its start and end, and
+what sits under it grouped as planning cards, tasks and project cards,
+each row opening that card — in place of the band a planning card cannot
+carry. The options and the children come from the roadmap listing,
+fetched once per card when the pane needs it: the day boards never
+deliver a planning card to look up. The rules live in `web/src/roadmap.ts`
+with their cases in `roadmap.test.ts`; the components draw them.
 
 ## API and MCP
 
