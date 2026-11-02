@@ -75,7 +75,7 @@ today while the card stays in its sprint). A "**next sprint**" create has **no
 
 ### Team view — a card's days (`selectedDate`)
 
-The Team board answers ONE question: what are these people working on that day? A card is in hand on a day when it is that team's, is **not a subtask** (a subtask rides with its parent), is **not parked** on a team's backlog, **somebody has said when it is for** — a week, a date or a sprint, since a card with none of the three is in the Triage strip, which is an inbox rather than a day's work — was **not planned into a week after that day's**, is **open or was finished on that very day** (`doneAt`; a card finished yesterday belongs to yesterday), and was **not deferred past that day**.
+The Team board answers ONE question: what are these people working on that day? A card is in hand on a day when it is that team's, is a **task** (a goal, an initiative or an epic is the Roadmap's and on no day board — `docs/design/hierarchy.md`), is **not a subtask** (a subtask — a task whose parent is a TASK — rides with its parent; a task under an epic is not one and stands here like any task), is **not parked** on a team's backlog, **somebody has said when it is for** — a week, a date or a sprint, since a card with none of the three is in the Triage strip, which is an inbox rather than a day's work — was **not planned into a week after that day's**, is **open or was finished on that very day** (`doneAt`; a card finished yesterday belongs to yesterday), and was **not deferred past that day**.
 
 That is the whole rule, and every card meets it the same way. It replaced seven layered ones — the week's own work, the sprint's start day, the card's own scheduled day, the range between its dates, the days of sprints it had passed through, and two special cases for deferral — which between them managed both halves of being wrong: work nobody was doing appeared on the day, and a card scheduled for last Tuesday and never finished fell off the board entirely, because no rule reached it any more.
 
@@ -240,10 +240,15 @@ board red, and a mark that is everywhere says nothing where it matters.
   is how those move.
 
 ### Subtasks (grouped cards)
-- A card with a **parent** (the `Parent` text field, one level deep) is a
+- A task whose **parent is a task** (the `parent` field, one level deep) is a
   **subtask**: it never appears as a row of its own in Team/Me — the views
   deliver it alongside its parent and the UI nests it under the parent's
   expandable list. The Me team-focus filter applies to subtask rows too.
+  `parent` is also the hierarchy's link (`docs/design/hierarchy.md`): a task
+  whose parent is a goal, an initiative or an epic is NOT a subtask — it is
+  on the day boards like any task, inherits nothing and rides nowhere; the
+  web reads which of the two it is off `status.lineage`, whose last entry
+  is the parent.
 - A subtask is a normal card in every other way: own description, own log and
   notes, own stage/progress, own assignee. It can be pulled back out as a
   standalone card at any time (clear the parent).

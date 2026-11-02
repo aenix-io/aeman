@@ -71,12 +71,21 @@ card. A card's domain is decided by one rule, evaluated in this order —
    exactly why this rule must come before the team rule: a review of a
    closed-project card would otherwise land in the shared team
    repository;
-2. a **subtask** (`parent` set) lives where its parent lives, whatever
-   column it carries itself;
+2. a **subtask** — a task whose `parent` is a TASK — lives where its
+   parent lives, whatever column it carries itself;
 3. an unlinked card filed under a **project** (an scope column, or a
    `project` without one) lives where that project lives;
 4. any other card lives where its **team** lives (the no-team group is a
    team for this purpose and lives in the primary domain).
+
+`parent` is also the hierarchy's link (`hierarchy.md`): a task under a
+goal, an initiative or an epic carries one too, and rule 2 does NOT apply
+to it — a hierarchy link places nothing, so the card lives where its own
+project or team puts it, and nothing under a planning card follows it
+between repositories. A planning card itself is "any other card". The
+rule tells the two parents apart through the resolver's
+`PlanningResolver` half; a resolver without it reads every parent as a
+task, which every parent was before the field existed.
 
 (Schema 1 had a third link, a process iteration's `task`, between the
 subtask and the project rules; the Process feature went with schema 2,
@@ -139,7 +148,8 @@ orphan cannot be created:
 
 | link | how it stays inside |
 | --- | --- |
-| `parent`, `reviewOf` | the inheritance rule above places the child where the referenced card is. The hierarchy work widens `parent` to the planning levels above a task and forbids that link crossing a domain at all — `hierarchy.md` |
+| `parent` to a TASK, `reviewOf` | the inheritance rule above places the child where the referenced card is |
+| `parent` to a planning card | not placed by it: a task under an epic lives where its own project or team lives, and nothing follows a planning card between repositories. The link may not cross one either — `hierarchyLinkAllowed` compares the child's home with the parent's and refuses with `ErrCrossDomain` at `SetParent` and at a create with a parent (H6), or a visitor who can read the task and not the epic would see a breadcrumb with a hole in it |
 | `team` on a project-domain card | the one reference that legitimately points across: a closed project's card names a team whose file lives in the primary. The **server** reads every domain, so the visibility rules (`CurrentSprint(b, team)` in `MeView`/`TeamGrid`, `sendToReview`, carry selection) see the pointer for everyone. For a **visitor**: the primary domain must be readable or there is no board at all (403 — `board.yaml` lives there); a card whose team file the visitor cannot read is still shown, under its team name, with the team's controls (sprint, carry) unavailable to that visitor |
 | the column (`project`/`scope`) | `refileGuard` at every door: the column must name the repository that HOLDS the card's file — the linked card's when a link outranks the project — `ErrCrossDomain` otherwise (G57, `ColumnDomain`) |
 | the reviewer | not a stored link but a choice: the reviewer picker offers only people who can read the card's domain. You cannot review what you cannot see; the UI says so instead of failing later |
@@ -225,6 +235,7 @@ A card:
 ```markdown
 ---
 title: Carry-over ignores a deferred card
+type: ""
 assignees: [kitsunoff]
 author: kvaps
 team: portal
@@ -265,6 +276,14 @@ Rules:
   an alias of `scope` on read and is written back as `scope` — so a card
   of a pre-migration day still stands in its column, and a writer emits
   `scope` only.
+- `type` is the card's LEVEL (`hierarchy.md`): absent for a task, else
+  `goal`, `initiative` or `epic` — a planning card, drawn on the Roadmap
+  and on no day board. It is written right after the title, and a task
+  writes none. `parent` is the one link between levels, and the parent's
+  type is what the link means: under a task, a subtask; under a planning
+  card, a card filed in the hierarchy and otherwise unchanged. A parent is
+  always of a higher level than its child (H2), and of the same
+  repository (H6).
 - `parked: true` puts the card on its TEAM's backlog — the third place a
   card can be, beside a week and the Triage strip. Every team has one and
   nothing declares it anywhere, which is what makes it safe: there is no

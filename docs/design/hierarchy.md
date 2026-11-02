@@ -80,13 +80,15 @@ A card with a `scope` is a plan, not work in hand: it **has no team and
 no assignees** (a write that sets either is refused), and it is **not
 drawn on Me, Team or Triage**. Its week is no longer derived from its
 dates, and nothing syncs it. It stands in its Scope column on the
-Project board, may be placed under an epic, initiative or goal, and
-shows on the Roadmap under that parent. It is **nobody's subtask and
-has none** — a subtask rides its parent's team, person and sprint onto
-the day boards, and a project card has none of those to give or to take
-— and it is **never sent to review**; the one trace of work it carries
-is its progress. Filing a card that carries a team, an owner, a parent
-or a review link into a column is refused the same way (`ErrProjectCard`,
+Project board, may be placed under an epic, initiative or goal (a
+planning `parent`, the hierarchy's link), and shows on the Roadmap under
+that parent. It is **never a subtask and has none** — a subtask rides its
+parent's team, person and sprint onto the day boards, and a project card
+has none of those to give or to take; so its `parent`, when it has one,
+is always a planning card, and no task is ever grouped under it — and it
+is **never sent to review**; the one trace of work it carries is its
+progress. Filing a card that carries a team, an owner, a TASK parent or
+a review link into a column is refused the same way (`ErrProjectCard`,
 422 `projectCard`): the person takes those off first, or makes a card in
 the column and links the work under the hierarchy. A card scheduled for
 a week and nothing else takes that week's span as its dates on the way
@@ -198,7 +200,8 @@ G18), in this order:
 5. strip `team`, `assignees` and `parent` from every card that has a
    `scope`, and `parent` from every card grouped under one (decision taken
    2026-11-02: a card in a column was created as a plan and stays one; a
-   plan is nobody's subtask and has none).
+   plan is never a subtask and has none — and before schema 2 every
+   `parent` was a task's, so there is no planning parent to keep).
 
 Idempotent — a step that finds nothing to do writes nothing — and
 rehearsed against `aeman-db-dev` before the production repositories see
@@ -260,18 +263,41 @@ Added: `spec.type` (`goal` | `initiative` | `epic`, absent for a task),
 `spec.parent` accepting a card of any type under the level rule,
 `status.lineage` (the ancestors root-first, each `{uid, type, title}`),
 `status.hierarchy` on a planning card (`{status, done, total}`), the view
-`roadmap`; `create_card` takes `type`, `update_card` takes `parent`,
-`list_cards view=roadmap`. No tool per level: a goal is a card.
+`roadmap`; the problem codes `unknownType`, `parentLevel`, `planningCard`
+(and `crossDomain`, kept from the mirrors, for a link across a
+repository); `create_card` takes `type`, `update_card` takes `parent`,
+`list_cards view=roadmap`. No tool per level: a goal is a card. There is
+no door that changes a card's type: the level is fixed at create, and a
+card that should be another level is made again.
 
-## Rules pinned (to be filled in as the phases land)
+## Rules pinned
 
 - H1 — one link, `parent`, kind read off the parent; a task under a task
-  is a subtask and the only kind that is one.
-- H2 — the level rule: a parent is of a higher level; one parent; optional.
-- H3 — a planning card is drawn on the Roadmap and on no day board.
+  is a subtask and the only kind that is one. A DANGLING parent — one not
+  on the board — reads as a subtask, as it always did: nothing dangles off
+  a planning card, since deleting one re-parents its children. Pinned by
+  board `TestASubtaskIsATaskUnderATask`, `TestParentOfAndChildrenOf`,
+  `TestSubtaskHelpersStopAtPlanningCards`,
+  `TestPlanningCardsAreOnNoDayBoardAndTasksUnderThemAre`; service
+  `TestTheLevelRuleGovernsTheParent`, `TestCarryOverCarriesATaskUnderAnEpic`;
+  web `hierarchy.test.ts` (`isSubtask`).
+- H2 — the level rule: a parent is of a higher level (`board.Level`: goal >
+  initiative > epic > task; an unknown type is a task); one parent;
+  optional; a task may skip levels. Pinned by board
+  `TestTheLevelsAreStrictlyOrdered`, `TestLineageIsEveryAncestorRootFirst`;
+  service `TestTheLevelRuleGovernsTheParent`; apiserver
+  `TestACardResourceCarriesItsLineageAndHierarchy`.
+- H3 — a planning card is drawn on the Roadmap and on no day board, is
+  never carried, weighed or overdue, and has no stage, progress, band,
+  week, shelf, sprint, column or review of its own (`ErrPlanningCard`,
+  422 `planningCard`); its dates, owner and team are its own. Pinned by
+  board `TestPlanningCardsAreOnNoDayBoardAndTasksUnderThemAre`; service
+  `TestAPlanningCardHasNoDayBoardState`,
+  `TestDeletingAPlanningCardReparentsItsChildren`; apiserver
+  `TestTheRoadmapListsTheHierarchy`; web `hierarchy.test.ts`.
 - H4 — a project card stands in its column alone: no team, no owner, no
-  week, nobody's subtask, no subtasks, never a review; drawn on the Project
-  board and the Roadmap only. Pinned by board
+  week, never a subtask, no subtasks, never a review; drawn on the Project
+  board and the Roadmap only. A planning parent it may have. Pinned by board
   `TestAProjectCardIsOnNoDayBoard`, `TestAProjectCardIsNotOnTheTriageBoard`;
   apiserver `TestProjectViewDeliversWhatStandsInAColumnAndNothingElse`;
   service `TestAProjectCardTakesNoTeamNoOwnerNoWeek`,
@@ -283,10 +309,27 @@ Added: `spec.type` (`goal` | `initiative` | `epic`, absent for a task),
   `TestMigrateSchema2TakesAProjectCardOutOfEverybodysHands`; web
   `teamgrid.test.ts`, `meview.test.ts`, `triage.test.ts`,
   `placements.test.ts`.
-- H5 — derived status and progress, never stored.
-- H6 — `parent` never crosses a domain; a hierarchy link does not move
-  the child.
-- H7 — Roadmap create requires a type; a day-board create refuses one.
+- H5 — derived status and progress, never stored: `backlog`,
+  `in-progress` or `done` with the counts, over the leaf tasks (a task
+  whose parent is a planning card; a subtask counts through its parent).
+  Pinned by board `TestHierarchyStatusIsDerivedFromTheLeafTasks`; service
+  `TestTheLevelRuleGovernsTheParent` (a task's progress writes nothing on
+  the epic); apiserver `TestACardResourceCarriesItsLineageAndHierarchy`.
+- H6 — `parent` never crosses a domain (`ErrCrossDomain`, 422
+  `crossDomain`); a hierarchy link does not move the child — a task under
+  an epic lives where its own project or team lives, and nothing under a
+  planning card follows it between repositories. Pinned by board
+  `TestAHierarchyLinkDoesNotPlaceTheChild`,
+  `TestSubtaskHelpersStopAtPlanningCards`; service
+  `TestAHierarchyLinkStaysInsideOneRepository`.
+- H7 — Roadmap create requires a type; a day-board create refuses one
+  (`ErrNotOnThisBoard`); the Roadmap draws the ×, which deletes the
+  planning card and hands its children to its parent. Pinned by service
+  `TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse`,
+  `TestDeletingAPlanningCardReparentsItsChildren`,
+  `TestAGestureIsOfferedByTheBoardThatDrawsIt`; server
+  `TestTheCatalogNamesTheBoardsAndTheirGestures`; web `hierarchy.test.ts`
+  (`createView`).
 - H8 — schema 2: the five steps, idempotent, and what a pre-migration
   day still shows.
 

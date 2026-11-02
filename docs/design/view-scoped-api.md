@@ -52,6 +52,7 @@ That is also why PATCH and DELETE stay off the view. Patching a field is not a g
 | `team` | the lead's day grid | the cards of `team=` on `day`, everyone's |
 | `triage` | the weeks grid | the cards of `team=` in the weeks `from`..`from+weeks` |
 | `backlog` | the Triage drawer | the parked cards of `team=` — a place of its own, not a week (B11) |
+| `roadmap` | the Roadmap | the hierarchy, board-wide: every goal, initiative and epic, and every card with one above it (`hierarchy.md`) |
 | `project` | the Project board | every card filed under a column |
 | `all` | no board | everything the caller may read — the escape hatch, and it has to be said out loud |
 
@@ -71,8 +72,11 @@ Three things, in the order they bite.
 | `team` | on `team=`, `day`, that team's current sprint, in any band; `assignee` optional (the Unassigned column) | `scope`, `parked`, `week` |
 | `triage` | scheduled for `week`; no dates and no sprint, unless the week is the one being WORKED — a card started in the current row belongs to today too | `parked`, `scope`, and a `day` in any other week |
 | `backlog` | on `team=`'s shelf: parked, no week, no dates, no sprint | `week`, a `day`, `scope` |
-| `project` | a slot under `scope` (+`project`): its row is the week of `dates.start`, no sprint | `parked` |
+| `roadmap` | a PLANNING card: `type` (required), its dates, an owner, a team and a `parent` of a higher level; no sprint, no band | `scope`, `week`, `parked`, `reviewOf`, a sprint |
+| `project` | a slot under `scope` (+`project`): its row is the week of `dates.start`, no sprint; a planning `parent` allowed | `parked`, `team`, `assignee`, `reviewOf`, `week`, `type` |
 | `all` | exactly what the fields say, as today | nothing |
+
+Every board but the roadmap refuses `type`: a goal, an initiative or an epic is made on the Roadmap and nowhere else (H7).
 
 `parked` stops being a flag: it was a board wearing a field's clothes, and the board is now in the address. `noSprint` stays a field of the `me` and `team` creates, because it is a real question the board asks — the dialog that offers "this sprint" or "the next one" when a card is typed for a day ahead — and a question is not a board.
 
