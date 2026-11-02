@@ -149,8 +149,39 @@ describe("the Roadmap's two panes", () => {
     expect(html).toContain("kind-icon-epic");
     expect(html).toContain("kind-icon-task");
     expect(html).toContain('class="roadmap-toggle roadmap-toggle-open"'); // the chevron, open, on a row with rows under it
-    expect(html).toContain('class="roadmap-toggle roadmap-toggle-none"'); // and a spacer on a leaf
+    expect(html).toContain('class="roadmap-toggle-spacer"'); // and a spacer on a leaf
     expect(html.match(/roadmap-guide/g)?.length).toBe(1 + 2 + 2); // the epic one deep, its two tasks two deep
+  });
+
+  it("gives a leaf no button in the chevron's place: a spacer, not something that lights up", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    // Two leaves (the tasks), two spacers — and the only toggle buttons are
+    // on the rows that fold something (the initiative and the epic).
+    expect(html.match(/class="roadmap-toggle-spacer"/g)?.length).toBe(2);
+    expect(html.match(/<button[^>]*class="roadmap-toggle /g)?.length).toBe(2);
+    expect(html).not.toContain("roadmap-toggle-none");
+  });
+
+  it("draws a drag's landing place as the moved rows alone: no outline, no line", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    expect(html).not.toContain("roadmap-row-drop-");
+  });
+
+  it("lists the open work that is not in the tree below it: in work, the shelves by team, unsorted", () => {
+    const inWork = card({ itemId: "w", title: "Fix the build", team: "core", startDate: today, day: today });
+    const shelved = card({ itemId: "b", title: "Someday", team: "core", parked: true });
+    const strip = card({ itemId: "u", title: "Just typed" });
+    const html = draw(board([goal, ini, epic, done, open, inWork, shelved, strip]));
+    const at = (s: string) => html.indexOf(s);
+    expect(at("Invoices")).toBeLessThan(at(">In work<"));
+    expect(at(">In work<")).toBeLessThan(at("Fix the build"));
+    expect(at("Fix the build")).toBeLessThan(at(">Backlog · core<"));
+    expect(at(">Backlog · core<")).toBeLessThan(at("Someday"));
+    expect(at("Someday")).toBeLessThan(at(">Unsorted<"));
+    expect(at(">Unsorted<")).toBeLessThan(at("Just typed"));
+    // A header is a line on both panes, so the lanes stay in step.
+    expect(html.match(/roadmap-section-label/g)?.length).toBe(3);
+    expect(html.match(/class="roadmap-lane roadmap-lane-section"/g)?.length).toBe(3);
   });
 
   it("filters by nobody's team: a planning card has none", () => {

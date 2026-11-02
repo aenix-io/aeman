@@ -22,6 +22,7 @@ import {
   DELETE_INTENT,
   KIND_LABEL,
   LEVELS,
+  SECTION_LABEL,
   STATUS_LABEL,
   barOf,
   buildTree,
@@ -38,14 +39,17 @@ import {
   previewCards,
   rangeFor,
   rows as rowsOf,
+  sectionsOf,
   statusOf,
   ticks as ticksOf,
+  visibleLevels,
   zoneOf,
   type DepthRange,
   type DropZone,
   type HierarchyChoice,
   type Placement,
   type RoadmapKind,
+  type RoadmapSection,
   type Row,
   type Zoom,
 } from "../roadmap";
@@ -183,6 +187,13 @@ const detect: CollisionDetection = (args) => {
   return within.length > 0 ? within : rectIntersection(args);
 };
 
+/** A line of the table: a row of the tree or of a section, or a section's
+ *  header. The timeline draws a lane per line, so the two panes stay in
+ *  step whatever stands between the rows. */
+type RowLine = { kind: "row"; row: Row; section: RoadmapSection };
+type Line = RowLine | { kind: "header"; key: string; label: string };
+type RoadmapNodeLike = Parameters<typeof rowsOf>[0][number];
+
 /** Hover is where the drag stands: the row under it, the zone of that row,
  *  the placement that reads as, and whether the level rule allows it. */
 interface Hover {
@@ -194,12 +205,15 @@ interface Hover {
 
 interface RowProps {
   row: Row;
+  /** Where the row stands: in the tree, or in one of the sections below it.
+   *  A section row drags INTO the tree and is dropped on by nothing —
+   *  dragging within the sections does nothing. */
+  section: RoadmapSection;
   today: string;
   open: boolean;
   focus: boolean;
   ghost: boolean;
   forbid: boolean;
-  dropZone: DropZone | null;
   dragging: boolean;
   onToggle: () => void;
   onOpen: () => void;
@@ -210,13 +224,15 @@ interface RowProps {
 
 /** RoadmapRow is one line of the table: draggable, a drop target, and the
  *  row's own controls. The tree is drawn by indent guides and a chevron
- *  with a hand's worth of hit area, the kind by its pictogram. */
-function RoadmapRow({ row, today, open, focus, ghost, forbid, dropZone, dragging, onToggle, onOpen, onAdd, onRemove, rowRef }: RowProps) {
+ *  with a hand's worth of hit area, the kind by its pictogram. A drag's
+ *  preview is the moved rows themselves, dimmed — the row under the pointer
+ *  wears no outline and no line of its own. */
+function RoadmapRow({ row, section, today, open, focus, ghost, forbid, dragging, onToggle, onOpen, onAdd, onRemove, rowRef }: RowProps) {
   const { node, depth, foldable } = row;
   const card = node.card;
   const id = card.itemId;
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id });
-  const { setNodeRef: setDropRef } = useDroppable({ id });
+  const { setNodeRef: setDropRef } = useDroppable({ id, disabled: section !== "tree" });
   const planning = isPlanning(card);
   const status = statusOf(card);
   const cls = [
@@ -224,7 +240,6 @@ function RoadmapRow({ row, today, open, focus, ghost, forbid, dropZone, dragging
     focus ? "roadmap-row-focus" : "",
     ghost || isDragging ? "roadmap-row-ghost" : "",
     forbid ? "roadmap-row-forbid" : "",
-    dropZone && !ghost ? `roadmap-row-drop-${dropZone}` : "",
     dragging ? "roadmap-row-while-drag" : "",
   ]
     .filter(Boolean)
@@ -263,7 +278,9 @@ function RoadmapRow({ row, today, open, focus, ghost, forbid, dropZone, dragging
             </svg>
           </button>
         ) : (
-          <span className="roadmap-toggle roadmap-toggle-none" aria-hidden="true" />
+          // A leaf keeps the chevron's width so the indent lines up, and
+          // nothing else: not a button, nothing to hover or focus.
+          <span className="roadmap-toggle-spacer" aria-hidden="true" />
         )}
         <KindIcon kind={node.kind} size={15} />
         <span className="roadmap-title" title={card.title}>
@@ -411,15 +428,45 @@ export function RoadmapBoard({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const expanded = (id: string) => !folded.has(id);
-  const baseRows = useMemo(() => rowsOf(buildTree(shown), depth, expanded), [shown, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
-  // While a drag stands over a place it may land, the rows are the listing
+  // The lines of the table: the tree's rows first, then each section below
+  // it — a header line and its rows. The sections draw tasks and their
+  // subtasks (when the depth range reaches them); the depth range's upper
+  // levels are the tree's business.
+  const lines = (cards: readonly CardModel[]): Line[] => {
+    const sections = sectionsOf(buildTree(cards));
+    const sub = visibleLevels(depth).has("subtask");
+    const flat: DepthRange = { from: "task", to: sub ? "subtask" : "task" };
+    const out: Line[] = rowsOf(sections.tree, depth, expanded).map((row) => ({ kind: "row", row, section: "tree" as const }));
+    const add = (section: Exclude<RoadmapSection, "tree">, label: string, nodes: readonly RoadmapNodeLike[], key: string) => {
+      if (nodes.length === 0) {
+        return;
+      }
+      out.push({ kind: "header", key, label });
+      for (const row of rowsOf(nodes, flat, expanded)) {
+        out.push({ kind: "row", row, section });
+      }
+    };
+    add("in-work", SECTION_LABEL["in-work"], sections.inWork, "in-work");
+    for (const shelf of sections.backlog) {
+      add("backlog", `${SECTION_LABEL.backlog} · ${shelf.team || "no team"}`, shelf.nodes, `backlog-${shelf.team}`);
+    }
+    add("unsorted", SECTION_LABEL.unsorted, sections.unsorted, "unsorted");
+    return out;
+  };
+  const baseLines = useMemo(() => lines(shown), [shown, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The tree's rows alone, which is what a drop is read against: a section
+  // row is dropped on by nothing.
+  const baseRows = useMemo(() => baseLines.filter((l) => l.kind === "row" && l.section === "tree").map((l) => (l as RowLine).row), [baseLines]);
+  // While a drag stands over a place it may land, the lines are the listing
   // as it would read after the drop: the subtree is drawn there, dimmed,
-  // before the pointer is released (roadmap.previewCards).
+  // before the pointer is released (roadmap.previewCards) — a section row
+  // dragged into the tree leaves its section in the preview too.
   const previewed = dragging && hover?.valid && hover.placement ? previewCards(shown, dragging, hover.placement) : null;
-  const rows = useMemo(
-    () => (previewed ? rowsOf(buildTree(previewed), depth, expanded) : baseRows),
-    [previewed, baseRows, depth, folded], // eslint-disable-line react-hooks/exhaustive-deps
+  const shownLines = useMemo(
+    () => (previewed ? lines(previewed) : baseLines),
+    [previewed, baseLines, depth, folded], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  const rows = useMemo(() => shownLines.filter((l): l is RowLine => l.kind === "row").map((l) => l.row), [shownLines]);
   const ghosts = useMemo(() => {
     if (!dragging || !previewed) {
       return new Set<string>();
@@ -516,7 +563,9 @@ export function RoadmapBoard({
     });
   };
 
-  const bars = useMemo(() => rows.map((r) => barOf(r.node.card)), [rows]);
+  // One bar (or none) per LINE, so a lane's index is its line's: a header
+  // has no bar and an empty lane.
+  const bars = useMemo(() => shownLines.map((l) => (l.kind === "row" ? barOf(l.row.node.card) : null)), [shownLines]);
   const range = useMemo(() => rangeFor(zoom, today, bars), [zoom, today, bars]);
   const days = daysBetween(range.from, range.to) + 1;
   const trackW = days * pxPerDay(zoom, days);
@@ -622,7 +671,7 @@ export function RoadmapBoard({
 
   const lane = (r: Row, i: number) => {
     const card = r.node.card;
-    const bar = bars[i];
+    const bar = bars[i]; // i is the LINE's index: bars runs over the lines
     const placed = bar ? place(bar, range) : null;
     const done = statusOf(card) === "done";
     const planning = isPlanning(card);
@@ -724,7 +773,7 @@ export function RoadmapBoard({
         )}
       </div>
 
-      {rows.length === 0 ? (
+      {shownLines.length === 0 ? (
         <p className="placeholder roadmap-empty">
           {board.cards.length === 0
             ? "Nothing on the roadmap yet: add a goal, an initiative or an epic, and file work under it from a card's pane."
@@ -747,7 +796,15 @@ export function RoadmapBoard({
                 <span className="roadmap-cell roadmap-cell-date">End</span>
                 <span className="roadmap-cell">Status</span>
               </div>
-              {rows.map((r) => {
+              {shownLines.map((line) => {
+                if (line.kind === "header") {
+                  return (
+                    <div key={line.key} className="roadmap-row roadmap-section" style={{ height: ROW_PX }} aria-hidden="false">
+                      <span className="roadmap-cell roadmap-cell-title roadmap-section-label">{line.label}</span>
+                    </div>
+                  );
+                }
+                const r = line.row;
                 const card = r.node.card;
                 const planning = isPlanning(card);
                 const kids = childLevels(r.node.kind);
@@ -756,12 +813,12 @@ export function RoadmapBoard({
                   <div key={card.itemId} className="roadmap-rowgroup">
                     <RoadmapRow
                       row={r}
+                      section={line.section}
                       today={today}
                       open={!folded.has(card.itemId)}
                       focus={focusRow === card.itemId}
                       ghost={ghosts.has(card.itemId)}
                       forbid={isOver && !hover.valid}
-                      dropZone={isOver && hover.valid ? hover.zone : null}
                       dragging={!!dragging}
                       onToggle={() => toggle(card.itemId)}
                       onOpen={() => {
@@ -814,14 +871,18 @@ export function RoadmapBoard({
                 {todayAt !== null && (
                   <div className="roadmap-today" style={{ left: `${todayAt * 100}%` }} title={`Today, ${today}`} />
                 )}
-                {rows.map((r, i) => (
-                  <div key={r.node.card.itemId} className="roadmap-lanegroup">
-                    {lane(r, i)}
-                    {addingRow && addingRow.node.card.itemId === r.node.card.itemId && (
-                      <div className="roadmap-lane" style={{ height: ROW_PX }} />
-                    )}
-                  </div>
-                ))}
+                {shownLines.map((line, i) =>
+                  line.kind === "header" ? (
+                    <div key={line.key} className="roadmap-lane roadmap-lane-section" style={{ height: ROW_PX }} />
+                  ) : (
+                    <div key={line.row.node.card.itemId} className="roadmap-lanegroup">
+                      {lane(line.row, i)}
+                      {addingRow && addingRow.node.card.itemId === line.row.node.card.itemId && (
+                        <div className="roadmap-lane" style={{ height: ROW_PX }} />
+                      )}
+                    </div>
+                  ),
+                )}
               </div>
             </div>
           </div>

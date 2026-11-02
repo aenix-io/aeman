@@ -5172,8 +5172,43 @@ button.card-age {
   transform: rotate(90deg);
 }
 
-.roadmap-toggle-none {
+/* A leaf's stand-in for the chevron: the same width, so the indent lines
+   up, and no button — nothing lights up on hover where there is nothing to
+   unfold. */
+.roadmap-toggle-spacer {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+}
+
+/* The sections below the tree: in work, the shelves, unsorted. A header
+   line names each; its lane on the timeline is empty. */
+.roadmap-section {
   cursor: default;
+  background: var(--bg-soft);
+}
+
+.roadmap-section:hover {
+  background: var(--bg-soft);
+}
+
+.roadmap-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-left: 10px;
+}
+
+.roadmap-lane-section {
+  background: var(--bg-soft);
+  cursor: default;
+}
+
+.roadmap-lane-section:hover {
+  background: var(--bg-soft);
 }
 
 /* The tree's guides: one thin line per level of depth, drawn from the row's
@@ -6013,32 +6048,11 @@ button.card-age {
   background: var(--accent-glow);
 }
 
+/* Over a place the card may not land, the cursor says so and nothing else;
+   over a place it may, the moved rows ARE the whole affordance — no outline
+   on the hovered row, no line in the gap. */
 .roadmap-row-forbid {
   cursor: not-allowed;
-  background: var(--danger-tint);
-}
-
-.roadmap-row-drop-into {
-  box-shadow: inset 0 0 0 2px var(--accent);
-}
-
-.roadmap-row-drop-before::before,
-.roadmap-row-drop-after::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--accent);
-  z-index: 1;
-}
-
-.roadmap-row-drop-before::before {
-  top: -1px;
-}
-
-.roadmap-row-drop-after::after {
-  bottom: -1px;
 }
 
 .roadmap-drag-overlay {

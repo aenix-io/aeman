@@ -23,6 +23,9 @@ import {
   statusOf,
   ticks,
   visibleLevels,
+  isPlanned,
+  sectionOf,
+  sectionsOf,
 } from "./roadmap";
 import type { Card } from "./providers/types";
 
@@ -326,5 +329,43 @@ describe("dragging a row on the Roadmap", () => {
     const second = dropCommit(wide, "t2", { parent: "e", index: 1 });
     expect(second.after).toBe("t");
     expect(second.order.indexOf("t")).toBeLessThan(second.order.indexOf("t2"));
+  });
+});
+
+describe("the sections below the tree", () => {
+  const loosePlanned = card({ itemId: "w1", title: "Fix the build", team: "core", startDate: "2026-03-02", day: "2026-03-02" });
+  const looseWeek = card({ itemId: "w2", title: "Write the post", team: "core", week: "2026-03-02" });
+  const looseSub = card({ itemId: "w1s", title: "A step", parent: "w1", lineage: [{ uid: "w1", title: "Fix the build" }] });
+  const parkedCore = card({ itemId: "b1", title: "Someday", team: "core", parked: true });
+  const parkedNone = card({ itemId: "b2", title: "Nobody's shelf", parked: true });
+  const strip = card({ itemId: "u1", title: "Just typed" });
+  const orphanUnder = card({ itemId: "o1", title: "Under an epic I cannot see", parent: "hidden", lineage: [{ uid: "hidden", type: "epic", title: "Hidden" }] });
+
+  it("files a root by what has been said about it: the tree, in work, a shelf, or unsorted", () => {
+    expect(sectionOf(goal)).toBe("tree");
+    expect(sectionOf(task)).toBe("tree"); // under an epic
+    expect(sectionOf(orphanUnder)).toBe("tree"); // its lineage names a planning card
+    expect(sectionOf(loosePlanned)).toBe("in-work");
+    expect(sectionOf(looseWeek)).toBe("in-work");
+    expect(sectionOf(parkedCore)).toBe("backlog");
+    expect(sectionOf(strip)).toBe("unsorted");
+  });
+
+  it("splits the forest's roots into the sections, the shelves grouped by team, and a subtask rides its task", () => {
+    const s = sectionsOf(buildTree([goal, ini, epic, task, loosePlanned, looseSub, parkedNone, parkedCore, strip, looseWeek]));
+    expect(s.tree.map((n) => n.card.itemId)).toEqual(["g"]);
+    expect(s.inWork.map((n) => n.card.itemId)).toEqual(["w1", "w2"]);
+    expect(s.inWork[0].children.map((n) => n.card.itemId)).toEqual(["w1s"]);
+    expect(s.backlog.map((b) => [b.team, b.nodes.map((n) => n.card.itemId)])).toEqual([
+      ["", ["b2"]],
+      ["core", ["b1"]],
+    ]);
+    expect(s.unsorted.map((n) => n.card.itemId)).toEqual(["u1"]);
+  });
+
+  it("says when a card is planned: a day, a week or a sprint", () => {
+    expect(isPlanned(strip)).toBe(false);
+    expect(isPlanned(looseWeek)).toBe(true);
+    expect(isPlanned(card({ sprintStart: "2026-03-02" }))).toBe(true);
   });
 });

@@ -72,6 +72,83 @@ export function buildTree(cards: readonly Card[]): RoadmapNode[] {
   return roots.sort((a, b) => levelOf(a.kind) - levelOf(b.kind) || 0);
 }
 
+/** RoadmapSection is where a root of the forest is drawn. The TREE is the
+ *  hierarchy: every planning card and everything under one. Below it, after
+ *  everything else, stands the open work that is not in the tree yet — the
+ *  roadmap listing carries it so a lead can file it (H9): IN WORK is what
+ *  the day boards draw (a card with a day, a week or a sprint), BACKLOG is
+ *  what is parked on a team's shelf, UNSORTED is the strip — a card with no
+ *  plan and no team, nobody's yet. */
+export type RoadmapSection = "tree" | "in-work" | "backlog" | "unsorted";
+
+export const SECTION_LABEL: Record<Exclude<RoadmapSection, "tree">, string> = {
+  "in-work": "In work",
+  backlog: "Backlog",
+  unsorted: "Unsorted",
+};
+
+/** isPlanned reports a card somebody has said WHEN for — a day, a week or a
+ *  sprint — which is what puts it on a day board. Mirrors the server's
+ *  "unplanned" in the own gesture (hierarchy.md, "Owner"). */
+export function isPlanned(c: Pick<Card, "startDate" | "day" | "week" | "sprintStart">): boolean {
+  return !!(c.startDate || c.day || c.week || c.sprintStart);
+}
+
+/** sectionOf is the section a ROOT card is drawn in: the tree for a planning
+ *  card or a card with a planning ancestor (its lineage names one — a root
+ *  with such a lineage is a card whose parent the reader may not see, and
+ *  it stays in the tree rather than reading as loose work); else the shelf
+ *  it is parked on, the day boards it is planned for, or the strip. A
+ *  subtask is never asked: it rides its task into whichever section. */
+export function sectionOf(
+  c: Pick<Card, "type" | "lineage" | "parked" | "startDate" | "day" | "week" | "sprintStart">,
+): RoadmapSection {
+  if (isPlanning(c) || (c.lineage ?? []).some((up) => !!up.type)) {
+    return "tree";
+  }
+  if (c.parked) {
+    return "backlog";
+  }
+  return isPlanned(c) ? "in-work" : "unsorted";
+}
+
+/** RoadmapSections is the forest split by section: the tree's roots, then
+ *  the loose roots — in work, on a shelf (grouped by team, the way the
+ *  Triage board draws the shelves; "" is the no-team shelf), unsorted. */
+export interface RoadmapSections {
+  tree: RoadmapNode[];
+  inWork: RoadmapNode[];
+  backlog: { team: string; nodes: RoadmapNode[] }[];
+  unsorted: RoadmapNode[];
+}
+
+export function sectionsOf(roots: readonly RoadmapNode[]): RoadmapSections {
+  const out: RoadmapSections = { tree: [], inWork: [], backlog: [], unsorted: [] };
+  for (const node of roots) {
+    switch (sectionOf(node.card)) {
+      case "tree":
+        out.tree.push(node);
+        break;
+      case "in-work":
+        out.inWork.push(node);
+        break;
+      case "backlog": {
+        const team = node.card.team ?? "";
+        let shelf = out.backlog.find((s) => s.team === team);
+        if (!shelf) {
+          shelf = { team, nodes: [] };
+          out.backlog.push(shelf);
+        }
+        shelf.nodes.push(node);
+        break;
+      }
+      default:
+        out.unsorted.push(node);
+    }
+  }
+  return out;
+}
+
 /** DepthRange is the depth selector: the kinds drawn, inclusive, from a top
  *  level to a bottom one ("initiative to subtask"). Default: initiative to
  *  task — the row a lead reads, with the work under it, and no subtasks. */
