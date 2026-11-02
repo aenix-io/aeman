@@ -159,6 +159,49 @@ func (s Selector) normalized() Selector {
 	return s
 }
 
+// roadmapCards is the Roadmap's listing (H9): the hierarchy — every goal,
+// initiative and epic, and every card with one of those above it: a task,
+// its subtasks, a project card (docs/design/hierarchy.md) — and, below it,
+// every OPEN task that has no planning card above it yet: the work in hand
+// on the Team and Me boards, the cards parked on a shelf, the strip. The
+// loose work is listed because the Roadmap is where a lead drags it INTO the
+// tree, and a board cannot offer a drag of a card it does not draw.
+//
+// What stays out: a task already FINISHED outside the hierarchy — there is
+// nothing left to plan on it, and a roadmap of every card ever closed is a
+// log; a project card in no hierarchy — the Project board's alone (H4); and
+// a subtask whose parent task is out, since a subtask rides its parent. The
+// tree is the client's to assemble from `parent`; the listing is the cards
+// that make it up.
+func roadmapCards(b board.Board) []board.Card {
+	planning := board.PlanningIDs(b)
+	in := map[string]bool{}
+	for _, c := range b.Cards {
+		if board.IsStateTitle(c.Title) {
+			continue
+		}
+		switch {
+		case board.IsPlanning(c) || board.HasPlanningAncestor(b, c):
+			in[c.ItemID] = true
+		case c.Scope == "" && !board.IsSubtaskIn(c, planning) && !board.Complete(c.Stage, c.Progress):
+			in[c.ItemID] = true
+		}
+	}
+	// A subtask rides its parent task: in when it is, out when it is not.
+	for _, c := range b.Cards {
+		if board.IsSubtaskIn(c, planning) && in[c.Parent] {
+			in[c.ItemID] = true
+		}
+	}
+	var out []board.Card
+	for _, c := range b.Cards {
+		if in[c.ItemID] {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // FilterCards returns the cards matching the selector, in board order. The
 // view rules delegate to the same domain filters the views always used.
 func FilterCards(b board.Board, sel Selector) []board.Card {
@@ -201,19 +244,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	case "backlog":
 		base = backlogCards(b, sel)
 	case "roadmap":
-		// The hierarchy: every goal, initiative and epic, and every card
-		// with one of those above it — a task, its subtasks, a project card
-		// (docs/design/hierarchy.md). A task with no parent is on the day
-		// boards and not here. The tree is the client's to assemble from
-		// `parent`; the listing is the cards that make it up.
-		for _, c := range b.Cards {
-			if board.IsStateTitle(c.Title) {
-				continue
-			}
-			if board.IsPlanning(c) || board.HasPlanningAncestor(b, c) {
-				base = append(base, c)
-			}
-		}
+		base = roadmapCards(b)
 	default:
 		base = b.Cards
 	}

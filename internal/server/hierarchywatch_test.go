@@ -8,14 +8,17 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// hierarchyWatchBoard is a goal → initiative → epic chain and one dated task
-// of team alpha standing on its own.
+// hierarchyWatchBoard is a goal → initiative → epic chain, one dated task of
+// team alpha standing on its own (open: listed below the tree, H9), and one
+// already finished (not listed — nothing left to plan on it).
 func hierarchyWatchBoard(today string) board.Board {
 	b := board.NewBoardIn("acme", []board.Card{
 		{ItemID: "goal", Title: "Reach Europe", Type: board.TypeGoal},
 		{ItemID: "init", Title: "Portugal", Type: board.TypeInitiative, Parent: "goal"},
 		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "init"},
 		{ItemID: "c1", Title: "Invoices", Team: "alpha", StartDate: today, Day: today, SprintStart: today},
+		{ItemID: "c2", Title: "Shipped", Team: "alpha", StartDate: today, Day: today, SprintStart: today,
+			Progress: 100, DoneAt: today},
 	})
 	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}}
 	return b
@@ -65,7 +68,9 @@ func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) 
 	defer cancel2()
 	raw, cancel3 := store.subscribe("k", "", nil, map[string]bool{"cards": true})
 	defer cancel3()
-	if !roadmap.members["epic"] || roadmap.members["c1"] {
+	// The open loose task is on the Roadmap from the start — below the tree,
+	// where it is dragged in from (H9); the finished one is not.
+	if !roadmap.members["epic"] || !roadmap.members["c1"] || roadmap.members["c2"] {
 		t.Fatalf("seeded roadmap members = %v", roadmap.members)
 	}
 	find := func(id string) board.Card {
@@ -73,8 +78,9 @@ func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) 
 		return c
 	}
 
-	// The task is filed under the epic by "me": it ENTERS the Roadmap, and
-	// the three above it change their standing — no items → to do.
+	// The task is filed under the epic by "me": it moves INTO the tree (it was
+	// listed already, so the frame is a change, not an arrival), and the three
+	// above it change their standing — no items → to do.
 	e.mu.Lock()
 	c1 := find("c1")
 	c1.Parent = "epic"
@@ -83,8 +89,8 @@ func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) 
 	e.mu.Unlock()
 	settled(t, e)
 	got := took(t, roadmap, 4)
-	if got["c1"].Type != "ADDED" {
-		t.Fatalf("the task did not enter the Roadmap: %+v", got["c1"])
+	if got["c1"].Type != "MODIFIED" {
+		t.Fatalf("the task's own frame: %+v", got["c1"])
 	}
 	for _, id := range []string{"goal", "init", "epic"} {
 		h := got[id].Card.Status.Hierarchy
@@ -148,5 +154,23 @@ func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) 
 	}
 	if h := got["goal"].Card.Status.Hierarchy; got["goal"].Type != "MODIFIED" || h.Status != board.HierarchyNoItems {
 		t.Fatalf("the goal after the delete: %s %+v, want MODIFIED no-items", got["goal"].Type, h)
+	}
+
+	// A card the Roadmap did NOT list — the finished task — ENTERS it when it
+	// is filed under the epic: an arrival for the watcher, and the chain above
+	// counts it at once (one done of one: done).
+	e.mu.Lock()
+	c2 := find("c2")
+	c2.Parent = "epic"
+	e.upsertCard(c2)
+	e.cardChanged("", c2, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+	got = took(t, roadmap, 4)
+	if got["c2"].Type != "ADDED" {
+		t.Fatalf("the finished task did not enter the Roadmap: %+v", got["c2"])
+	}
+	if h := got["goal"].Card.Status.Hierarchy; got["goal"].Type != "MODIFIED" || h.Status != board.HierarchyDone || h.Done != 1 || h.Total != 1 {
+		t.Fatalf("the goal after the finished task joined: %s %+v, want MODIFIED done 1/1", got["goal"].Type, h)
 	}
 }

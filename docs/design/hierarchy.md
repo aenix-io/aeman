@@ -236,11 +236,19 @@ not on them, whatever its dates, week or sprint say.
 **Project** draws project cards in their Scope columns, as before,
 without mirrors.
 
-**Roadmap** draws the hierarchy: every planning card, and every card that
-has a planning card above it, however many levels up. A task with no
-parent is not on the Roadmap — it is on the day boards. The listing is
-the card listing of the view (`GET /api/v1/views/roadmap/cards`), with
-the same watch; the tree is assembled from `parent` on the client. The
+**Roadmap** draws the hierarchy — every planning card, and every card that
+has a planning card above it, however many levels up — and, **below the
+tree, the work that is not in it yet**: every open task with no planning
+card above it, which is the work in hand on the Team and Me boards, the
+cards parked on a team's shelf, and the strip (H9). The loose work is
+listed because the Roadmap is where a lead drags it into the tree, and a
+board cannot offer a drag of a card it does not draw. A task already
+finished outside the hierarchy is not listed (nothing left to plan on
+it), nor is a project card in no hierarchy (the Project board's), and a
+subtask follows its parent task in or out. The listing is the card
+listing of the view (`GET /api/v1/views/roadmap/cards`), with the same
+watch; the tree is assembled from `parent` on the client, and the loose
+work is grouped by what it is — in hand, parked, unsorted. The
 watch keeps the tree LIVE: a planning card is never written when a task
 under it changes, so every card change also arrives as a `MODIFIED`
 frame for each planning card above it — the chain it stands under and

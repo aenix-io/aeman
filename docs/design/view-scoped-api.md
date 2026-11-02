@@ -52,7 +52,7 @@ That is also why PATCH and DELETE stay off the view. Patching a field is not a g
 | `team` | the lead's day grid | the cards of `team=` on `day`, everyone's |
 | `triage` | the weeks grid | the cards of `team=` in the weeks `from`..`from+weeks` |
 | `backlog` | the Triage drawer | the parked cards of `team=` — a place of its own, not a week (B11) |
-| `roadmap` | the Roadmap | the hierarchy, board-wide: every goal, initiative and epic, and every card with one above it (`hierarchy.md`) |
+| `roadmap` | the Roadmap | the hierarchy, board-wide: every goal, initiative and epic, and every card with one above it — and, below the tree, every open task with none above it yet: in hand, parked, or in the strip (`hierarchy.md`, H9) |
 | `project` | the Project board | every card filed under a column |
 | `all` | no board | everything the caller may read — the escape hatch, and it has to be said out loud |
 
@@ -72,7 +72,7 @@ Three things, in the order they bite.
 | `team` | on `team=`, `day`, that team's current sprint, in any band; `assignee` optional (the Unassigned column) | `scope`, `parked`, `week` |
 | `triage` | scheduled for `week`; no dates and no sprint, unless the week is the one being WORKED — a card started in the current row belongs to today too | `parked`, `scope`, and a `day` in any other week |
 | `backlog` | on `team=`'s shelf: parked, no week, no dates, no sprint | `week`, a `day`, `scope` |
-| `roadmap` | a PLANNING card: `type` (required), its dates, an owner, a team and a `parent` of a higher level; no sprint, no band | `scope`, `week`, `parked`, `reviewOf`, a sprint |
+| `roadmap` | a PLANNING card: `type`, its dates and a `parent` of a higher level — no owner, no team, no sprint, no band (H3); or a TASK under a planning `parent`, undated unless dated (H7) | `scope`, `week`, `parked`, `reviewOf`, a sprint, a team, an assignee, a band, a size |
 | `project` | a slot under `scope` (+`project`): its row is the week of `dates.start`, no sprint; a planning `parent` allowed | `parked`, `team`, `assignee`, `reviewOf`, `week`, `type` |
 | `all` | exactly what the fields say, as today | nothing |
 
