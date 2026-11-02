@@ -18,8 +18,11 @@ const (
 )
 
 // The derived status of a planning card (HierarchyStatus): never stored.
+// Four words, and the difference between the first two is the point: a
+// card with NOTHING under it is not waiting for work, it has none.
 const (
-	HierarchyBacklog    = "backlog"
+	HierarchyNoItems    = "no-items"
+	HierarchyTodo       = "todo"
 	HierarchyInProgress = "in-progress"
 	HierarchyDone       = "done"
 )
@@ -198,31 +201,35 @@ func LeafTasks(b Board, id string) []Card {
 }
 
 // HierarchyStatus is a planning card's standing, derived from its leaf tasks
-// and never stored (H5): done when every one is complete (and there is one),
-// in progress when any has started or finished, backlog otherwise. The counts
-// are what the Roadmap shows beside the word. A task answers "" — it has a
-// stage and a progress of its own.
+// and never stored (H5): NO ITEMS when nothing is under it; DONE when every
+// leaf task is complete; IN PROGRESS when any of them is somebody's, has
+// started, or is finished — a person named on a task is work being done
+// before the first percent is typed; TO DO otherwise. The counts are what
+// the Roadmap shows beside the word. A task answers "" — it has a stage and
+// a progress of its own.
 func HierarchyStatus(b Board, c Card) (status string, done, total int) {
 	if !IsPlanning(c) {
 		return "", 0, 0
 	}
-	started := false
+	working := false
 	for _, t := range LeafTasks(b, c.ItemID) {
 		total++
 		switch {
 		case Complete(t.Stage, t.Progress):
 			done++
-		case IsInProgress(t):
-			started = true
+		case len(t.Assignees) > 0 || IsInProgress(t):
+			working = true
 		}
 	}
 	switch {
-	case total > 0 && done == total:
+	case total == 0:
+		return HierarchyNoItems, 0, 0
+	case done == total:
 		return HierarchyDone, done, total
-	case done > 0 || started:
+	case done > 0 || working:
 		return HierarchyInProgress, done, total
 	}
-	return HierarchyBacklog, done, total
+	return HierarchyTodo, done, total
 }
 
 // PlanningResolver is the optional half of a DomainResolver: whether a card

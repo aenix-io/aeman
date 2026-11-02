@@ -98,9 +98,11 @@ describe("rows and the depth range", () => {
 });
 
 describe("statusOf", () => {
-  it("is the server's derived standing on a planning card, backlog when it says nothing", () => {
+  it("is the server's derived standing on a planning card, no items when it says nothing", () => {
     expect(statusOf(card({ type: "epic", hierarchy: { status: "in-progress", done: 1, total: 3 } }))).toBe("in-progress");
-    expect(statusOf(card({ type: "goal" }))).toBe("backlog");
+    expect(statusOf(card({ type: "epic", hierarchy: { status: "todo", done: 0, total: 2 } }))).toBe("todo");
+    expect(statusOf(card({ type: "epic", hierarchy: { status: "no-items", done: 0, total: 0 } }))).toBe("no-items");
+    expect(statusOf(card({ type: "goal" }))).toBe("no-items");
   });
 
   it("reads a task's own stage and bar", () => {

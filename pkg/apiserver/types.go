@@ -115,7 +115,7 @@ type LineageRef struct {
 // the tasks under it stand, through every level, and how many of them there
 // are. Never stored — read off the tree on every listing.
 type Hierarchy struct {
-	// Status is backlog, in-progress or done (board.HierarchyStatus).
+	// Status is no-items, todo, in-progress or done (board.HierarchyStatus).
 	Status string `json:"status"`
 	Done   int    `json:"done"`
 	Total  int    `json:"total"`

@@ -200,19 +200,21 @@ func TestHierarchyStatusIsDerivedFromTheLeafTasks(t *testing.T) {
 	if st, done, total := status("epic"); st != HierarchyInProgress || done != 0 || total != 1 {
 		t.Errorf("epic: %s %d/%d, want in-progress 0/1 (t1 is at 40)", st, done, total)
 	}
-	if st, done, total := status("empty"); st != HierarchyBacklog || done != 0 || total != 0 {
-		t.Errorf("empty: %s %d/%d, want backlog 0/0", st, done, total)
+	// Nothing under it at all: NO ITEMS — not "to do", which would read as
+	// work waiting when there is no work.
+	if st, done, total := status("empty"); st != HierarchyNoItems || done != 0 || total != 0 {
+		t.Errorf("empty: %s %d/%d, want no-items 0/0", st, done, total)
 	}
-	// Only project cards under it, none started: backlog. One of them done
-	// and the rest untouched: in progress. All done: done.
+	// Only project cards under it, none started and nobody's: TO DO. One
+	// of them done and the rest untouched: in progress. All done: done.
 	plan := NewBoard([]Card{
 		{ItemID: "e", Type: TypeEpic},
 		{ItemID: "a", Parent: "e", Scope: "S"},
 		{ItemID: "b", Parent: "e", Scope: "S"},
 	})
 	e, _ := Find(plan, "e")
-	if st, _, total := HierarchyStatus(plan, e); st != HierarchyBacklog || total != 2 {
-		t.Errorf("untouched project cards: %s/%d, want backlog/2", st, total)
+	if st, _, total := HierarchyStatus(plan, e); st != HierarchyTodo || total != 2 {
+		t.Errorf("untouched project cards: %s/%d, want todo/2", st, total)
 	}
 	plan.Cards[1].Progress = 100
 	if st, done, _ := HierarchyStatus(plan, e); st != HierarchyInProgress || done != 1 {
@@ -226,6 +228,40 @@ func TestHierarchyStatusIsDerivedFromTheLeafTasks(t *testing.T) {
 	task, _ := Find(b, "t1")
 	if st, _, _ := HierarchyStatus(b, task); st != "" {
 		t.Errorf("a task has no hierarchy status, got %q", st)
+	}
+}
+
+// Somebody being ON a task is work in progress, before the first percent is
+// typed: an initiative whose tasks are all assigned and none started is
+// being worked, and the Roadmap must say so. An unassigned, unstarted task
+// is to do; a task somebody owns is in progress; and a card that is a
+// subtask's parent counts once, assigned or not.
+func TestAnAssignedLeafTaskPutsItsPlanningCardInProgress(t *testing.T) {
+	t.Parallel()
+	b := NewBoard([]Card{
+		{ItemID: "i", Type: TypeInitiative},
+		{ItemID: "e", Type: TypeEpic, Parent: "i"},
+		{ItemID: "t1", Parent: "e"},
+		{ItemID: "t2", Parent: "e"},
+	})
+	i, _ := Find(b, "i")
+	if st, done, total := HierarchyStatus(b, i); st != HierarchyTodo || done != 0 || total != 2 {
+		t.Fatalf("nobody on anything: %s %d/%d, want todo 0/2", st, done, total)
+	}
+	b.Cards[2].Assignees = []string{"ann"}
+	if st, done, total := HierarchyStatus(b, i); st != HierarchyInProgress || done != 0 || total != 2 {
+		t.Fatalf("one task owned, none started: %s %d/%d, want in-progress 0/2", st, done, total)
+	}
+	// Its subtask is nobody's and counts through its parent only.
+	b.Cards = append(b.Cards, Card{ItemID: "t1a", Parent: "t1"})
+	if st, done, total := HierarchyStatus(b, i); st != HierarchyInProgress || total != 2 {
+		t.Fatalf("a subtask changes nothing: %s %d/%d, want in-progress 0/2", st, done, total)
+	}
+	// Done beats owned: when every leaf task is complete the card is done,
+	// whoever is still named on it.
+	b.Cards[2].Progress, b.Cards[3].Progress = 100, 100
+	if st, done, total := HierarchyStatus(b, i); st != HierarchyDone || done != 2 || total != 2 {
+		t.Fatalf("all done: %s %d/%d, want done 2/2", st, done, total)
 	}
 }
 

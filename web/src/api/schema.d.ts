@@ -949,10 +949,10 @@ export interface components {
             type?: string;
             title: string;
         };
-        /** @description A PLANNING card's derived standing, from the tasks under it through every level: done when every one is complete (and there is one), in progress when any has started or finished, backlog otherwise — with the counts. Never stored; absent on a task. */
+        /** @description A PLANNING card's derived standing, from the tasks under it through every level: no-items when nothing is under it; done when every leaf task is complete; in-progress when any of them is assigned to somebody, has started or is finished; todo otherwise — with the counts. Never stored; absent on a task. */
         Hierarchy: {
             /** @enum {string} */
-            status: "backlog" | "in-progress" | "done";
+            status: "no-items" | "todo" | "in-progress" | "done";
             done: number;
             total: number;
         };

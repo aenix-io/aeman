@@ -144,16 +144,18 @@ export function rows(
 }
 
 /** RoadmapStatus is the pill a row wears: a planning card's derived
- *  standing, or a task's own — done, in progress, to do. */
-export type RoadmapStatus = "backlog" | "todo" | "in-progress" | "done";
+ *  standing (no items, to do, in progress, done — H5), or a task's own
+ *  (done, in progress, to do). */
+export type RoadmapStatus = "no-items" | "todo" | "in-progress" | "done";
 
 /** statusOf is a row's status: for a planning card the server's derived one
- *  (`hierarchy.status`, H5 — backlog until a task under it starts); for a
+ *  (`hierarchy.status`, H5 — no items until something is filed under it,
+ *  in progress once a task under it is somebody's or has moved); for a
  *  task, done when complete, in progress when its bar has moved or it waits
  *  on somebody (review, locked), to do otherwise. */
 export function statusOf(c: Pick<Card, "type" | "hierarchy" | "stage" | "progress">): RoadmapStatus {
   if (isPlanning(c)) {
-    return c.hierarchy?.status ?? "backlog";
+    return c.hierarchy?.status ?? "no-items";
   }
   if (isComplete(c)) {
     return "done";
@@ -165,7 +167,7 @@ export function statusOf(c: Pick<Card, "type" | "hierarchy" | "stage" | "progres
 }
 
 export const STATUS_LABEL: Record<RoadmapStatus, string> = {
-  backlog: "Backlog",
+  "no-items": "No items",
   todo: "To do",
   "in-progress": "In progress",
   done: "Done",

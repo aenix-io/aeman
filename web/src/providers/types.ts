@@ -31,7 +31,7 @@ export interface LineageRef {
 /** HierarchyStatus is a planning card's derived standing (status.hierarchy):
  *  never stored, read off the tasks under it on every listing. */
 export interface HierarchyStatus {
-  status: "backlog" | "in-progress" | "done";
+  status: "no-items" | "todo" | "in-progress" | "done";
   done: number;
   total: number;
 }

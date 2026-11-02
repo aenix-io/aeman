@@ -67,12 +67,15 @@ project, and a project card may itself sit under an epic.
 
 A planning card records nothing about progress. Its **status** and
 **progress** are derived on every read from the tasks under it, through
-every level: *done* when every leaf task is complete (and there is at
-least one), *in progress* when any leaf task has started or finished,
-*backlog* otherwise; progress is the share of leaf tasks complete,
-served beside the counts (`3/7`). This is the subtask rule
-(`DerivedProgress`) applied up the tree, and like it, it is never
-stored.
+every level — four words: *no items* when nothing is under it; *done*
+when every leaf task is complete; *in progress* when any leaf task is
+somebody's (has an assignee), has started or is finished — a person
+named on a task is work being done before the first percent is typed;
+*to do* otherwise. Progress is the share of leaf tasks complete, served
+beside the counts (`3/7`). This is the subtask rule (`DerivedProgress`)
+applied up the tree, and like it, it is never stored. Nobody sets a
+status by hand at this stage; the Roadmap and the card's own pane show
+the derived one.
 
 ## Project cards live on the Project board, and nowhere else
 
@@ -339,10 +342,12 @@ card that should be another level is made again.
   `TestMigrateSchema2TakesAProjectCardOutOfEverybodysHands`; web
   `teamgrid.test.ts`, `meview.test.ts`, `triage.test.ts`,
   `placements.test.ts`.
-- H5 — derived status and progress, never stored: `backlog`,
-  `in-progress` or `done` with the counts, over the leaf tasks (a task
-  whose parent is a planning card; a subtask counts through its parent).
-  Pinned by board `TestHierarchyStatusIsDerivedFromTheLeafTasks`; service
+- H5 — derived status and progress, never stored: `no-items`, `todo`,
+  `in-progress` (any leaf task assigned, started or done) or `done` with
+  the counts, over the leaf tasks (a task whose parent is a planning
+  card; a subtask counts through its parent). Pinned by board
+  `TestHierarchyStatusIsDerivedFromTheLeafTasks`,
+  `TestAnAssignedLeafTaskPutsItsPlanningCardInProgress`; service
   `TestTheLevelRuleGovernsTheParent` (a task's progress writes nothing on
   the epic); apiserver `TestACardResourceCarriesItsLineageAndHierarchy`.
 - H6 — `parent` never crosses a domain (`ErrCrossDomain`, 422
