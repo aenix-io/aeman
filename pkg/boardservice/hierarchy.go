@@ -104,8 +104,13 @@ func hierarchyLinkAllowed(b board.Board, child, parent board.Card) error {
 	// is the one repository every reader of the board can read, so a link
 	// UP to one is open from any repository. A parent whose file stands in
 	// the child's own repository (a direct writer put it there) is readable
-	// to the child's readers as well. Anything else crosses.
-	from, to := board.HomeDomain(b, child), board.FileDomain(b, parent)
+	// to the child's readers as well. Anything else crosses. The child is
+	// judged where it will LIVE after the link: a subtask leaving its task
+	// for a planning card is no subtask then, and its own team or project
+	// places it — not the task's repository it is leaving.
+	after := child
+	after.Parent = ""
+	from, to := board.HomeDomain(b, after), board.FileDomain(b, parent)
 	if to != board.PrimaryDomain(b) && to != from {
 		return fmt.Errorf("%w: %q lives in another repository than %q", ErrCrossDomain, parent.Title, child.Title)
 	}

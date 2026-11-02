@@ -112,6 +112,22 @@ describe("canBeFiledIntoAColumn", () => {
       { name: "engineering", scopes: ["Cozystack"] },
     ]);
   });
+
+  // A project card has no subtasks (H4): a task that has pieces is not
+  // offered a column, or the pieces would be subtasks of a card no day board
+  // draws. Mirrors projectCardCannotCarry's subtask clause.
+  it("offers no column to a task that has subtasks", () => {
+    expect(canBeFiledIntoAColumn(mk({}), true)).toBe(false);
+    const board = {
+      projects: ["engineering"],
+      scopes: [{ name: "Cozystack", project: "engineering", domain: "" }],
+      cards: [mk({ itemId: "piece", parent: "parent", lineage: [{ uid: "parent", title: "a task" }] })],
+    };
+    expect(placementTargets(mk({ itemId: "parent" }), board).attach).toBeUndefined();
+    expect(placementTargets(mk({ itemId: "lone" }), board).attach).toEqual([
+      { name: "engineering", scopes: ["Cozystack"] },
+    ]);
+  });
 });
 
 // placementTargets is the dispatcher the boards call: which section a card

@@ -1043,7 +1043,8 @@ func (s *Service) Defer(ctx context.Context, boardID string, itemID string, days
 	// A card created today has no history to keep: its sprint moves with it.
 	// A PROJECT card is in no sprint to begin with (H4): its dates are its
 	// row on the Project board, and deferring moves the row and nothing else.
-	if c.Scope == "" && board.LocalDateIso(c.CreatedAt) == today {
+	// A PLANNING card neither (H3): its dates are its bar on the Roadmap.
+	if c.Scope == "" && !board.IsPlanning(c) && board.LocalDateIso(c.CreatedAt) == today {
 		if err := s.backend.SetSprintStart(ctx, b, c, target); err != nil {
 			return err
 		}

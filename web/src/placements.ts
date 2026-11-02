@@ -123,16 +123,20 @@ export function attachSlotDates(week: string): { startDate: string; day: string 
  *  that comes back as 422. Mirrors boardservice.projectCardCannotCarry. */
 export function canBeFiledIntoAColumn(
   card: Pick<Card, "team" | "assignees" | "parent" | "lineage" | "type" | "reviewOf">,
+  hasSubtasks = false,
 ): boolean {
   // A TASK parent makes it a subtask and bars the column; a planning parent
   // is the hierarchy's link and is fine. A planning card itself is never
-  // filed into a column (hierarchy.md).
+  // filed into a column (hierarchy.md). Nor a task with pieces: a project
+  // card has no subtasks, and its pieces would hang under a card no day
+  // board draws.
   return (
     !card.team &&
     (card.assignees?.length ?? 0) === 0 &&
     !isSubtask(card) &&
     !isPlanning(card) &&
-    !card.reviewOf
+    !card.reviewOf &&
+    !hasSubtasks
   );
 }
 
@@ -161,6 +165,7 @@ export interface CardPlacements {
 export function placementTargets(
   card: Pick<
     Card,
+    | "itemId"
     | "project"
     | "scope"
     | "domain"
@@ -175,9 +180,12 @@ export function placementTargets(
     scopes: ScopeRef[];
     projectDomains?: RosterDomains;
     domains?: readonly DomainInfo[];
+    /** The board's cards, to see whether this one has subtasks. */
+    cards?: ReadonlyArray<Pick<Card, "parent" | "lineage">>;
   },
 ): Pick<CardPlacements, "attach"> {
-  if (card.scope || !canBeFiledIntoAColumn(card)) {
+  const hasSubtasks = !!card.itemId && (board.cards ?? []).some((c) => c.parent === card.itemId && isSubtask(c));
+  if (card.scope || !canBeFiledIntoAColumn(card, hasSubtasks)) {
     return {};
   }
   return {
@@ -211,6 +219,7 @@ export function makeCardPlacements(
     domains?: readonly DomainInfo[];
     teams?: string[];
     teamDomains?: RosterDomains;
+    cards?: ReadonlyArray<Pick<Card, "parent" | "lineage">>;
   },
   deps: PlacementDeps,
 ): CardPlacements {

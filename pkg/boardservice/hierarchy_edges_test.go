@@ -3,6 +3,7 @@ package boardservice
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
 )
@@ -58,5 +59,115 @@ func TestAReviewCardSitsUnderNothingOfItsOwn(t *testing.T) {
 	}
 	if c := f.get("rev"); c.Parent != "" {
 		t.Fatalf("the refusal wrote the link anyway: %+v", c)
+	}
+}
+
+// A card in a column is a project card, and a project card has no subtasks
+// (H4): the Project board draws none, and the day boards that would have
+// drawn them nested no longer draw their parent. Filing a task that HAS
+// subtasks into a column would leave its pieces hidden as subtasks of a card
+// no day board shows, with delete the only gesture left on them — so it is
+// refused, as every other door refuses a project card with a subtask.
+func TestATaskWithSubtasksIsNotFiledIntoAColumn(t *testing.T) {
+	f := columnBoard([]board.Card{
+		{ItemID: "parent", Title: "a task with pieces"},
+		{ItemID: "p1", Title: "a piece", Parent: "parent"},
+		{ItemID: "p2", Title: "another piece", Parent: "parent"},
+		{ItemID: "lone", Title: "a task alone"},
+	})
+	svc := New(f)
+	engineering := "engineering"
+	if err := svc.SetScope(ctx, "acme", "parent", "Cozystack", &engineering); !errors.Is(err, ErrProjectCard) {
+		t.Fatalf("filing a task with subtasks into a column = %v, want ErrProjectCard", err)
+	}
+	if c := f.get("parent"); c.Scope != "" {
+		t.Fatalf("the refusal filed it anyway: %+v", c)
+	}
+	// A task with no pieces is filed as before.
+	if err := svc.SetScope(ctx, "acme", "lone", "Cozystack", &engineering); err != nil {
+		t.Fatalf("a task alone files into a column: %v", err)
+	}
+}
+
+// A project NAME on a card in no column is a label, and a PATCH that names
+// only the project changes it: the empty scope the door passes for "no
+// column" is not an instruction to clear the label. It used to be — a
+// change of project was written as clearing it, and naming a project on a
+// card that had none did nothing at all.
+func TestAProjectNameOnATaskOutsideEveryColumnIsChangedByItself(t *testing.T) {
+	f := columnBoard([]board.Card{
+		{ItemID: "labelled", Title: "a labelled task", Project: "engineering"},
+		{ItemID: "plain", Title: "a plain task"},
+	})
+	svc := New(f)
+	freedom := "freedom"
+	if err := svc.SetScope(ctx, "acme", "labelled", "", &freedom); err != nil {
+		t.Fatal(err)
+	}
+	if c := f.get("labelled"); c.Project != "freedom" || c.Scope != "" {
+		t.Fatalf("a change of project label = %+v, want project freedom, no column", c)
+	}
+	if err := svc.SetScope(ctx, "acme", "plain", "", &freedom); err != nil {
+		t.Fatal(err)
+	}
+	if c := f.get("plain"); c.Project != "freedom" {
+		t.Fatalf("naming a project on a card with none = %+v, want project freedom", c)
+	}
+	// Naming no project clears the label.
+	none := ""
+	if err := svc.SetScope(ctx, "acme", "plain", "", &none); err != nil {
+		t.Fatal(err)
+	}
+	if c := f.get("plain"); c.Project != "" {
+		t.Fatalf("an empty project clears the label: %+v", c)
+	}
+}
+
+// A planning card is in no sprint (H3): its dates are its bar on the
+// Roadmap. Deferring one made today moved a SPRINT onto it, the "a card
+// created today relocates fully" branch meant for a task — a sprint every
+// other door refuses on a planning card and the reading strips again.
+func TestDeferringAPlanningCardWritesNoSprint(t *testing.T) {
+	today := board.TodayIso()
+	f := newFake([]board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, StartDate: today, Day: board.AddDays(today, 5),
+			CreatedAt: time.Now().UTC().Format(time.RFC3339)},
+	}, nil)
+	if err := f2svc(f).Defer(ctx, "acme", "epic", 1); err != nil {
+		t.Fatal(err)
+	}
+	if c := f.get("epic"); c.SprintStart != "" {
+		t.Fatalf("a deferred planning card carries sprint %q, want none", c.SprintStart)
+	}
+	if c := f.get("epic"); c.StartDate != board.AddDays(today, 1) {
+		t.Fatalf("the epic's bar did not move: start %q", c.StartDate)
+	}
+}
+
+// The repository rule asks where the child will live AFTER the link: a
+// subtask lives where its task lives (rule 2), but once it is filed under a
+// planning card it is no subtask, and its own team or project places it. A
+// check made against the task's repository — the one the card is leaving —
+// let a piece of a closed task go under an epic that stands in the closed
+// repository, and the move that followed put the card in the primary, whose
+// readers then saw a parent they could not open.
+func TestTheRepositoryRuleJudgesWhereTheChildWillLive(t *testing.T) {
+	today := board.TodayIso()
+	ctx := WithActor(ctx, "kvaps")
+	f := newFake([]board.Card{
+		{ItemID: "closedEpic", Title: "Secret", Type: board.TypeEpic, Domain: "closed"},
+		{ItemID: "closedTask", Title: "Invoices", Team: "beta", Domain: "closed", StartDate: today, Day: today},
+		// A piece of the closed task whose own team lives in the primary (a
+		// shape a direct writer can leave): it is in the closed repository
+		// only because its task is.
+		{ItemID: "piece", Title: "a piece", Parent: "closedTask", Team: "alpha", Domain: "closed"},
+		{ItemID: "s-alpha", Title: board.SprintStateTitle, Team: "alpha", Domain: "primary"},
+		{ItemID: "s-beta", Title: board.SprintStateTitle, Team: "beta", Domain: "closed"},
+	}, nil)
+	f.b.Primary = "primary"
+	f.b.Domains = map[string]string{"s-alpha": "primary", "s-beta": "closed"}
+	f.b.SprintStates = map[string]board.SprintState{"alpha": {ItemID: "s-alpha"}, "beta": {ItemID: "s-beta"}}
+	if err := f2svc(f).SetParent(ctx, "acme", "piece", "closedEpic"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("a piece that will live in the primary under a closed epic = %v, want ErrCrossDomain", err)
 	}
 }

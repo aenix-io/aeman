@@ -186,14 +186,26 @@ func (s *Service) SetScope(ctx context.Context, boardID string, itemID, scope st
 	if inProject != nil {
 		projectName = *inProject
 	}
-	if scope == "" {
-		projectName = ""
-	} else if _, ok := board.FindScope(b, projectName, scope); !ok {
-		return fmt.Errorf("%w %q in project %q — add it first (add_scope / POST /scopes)",
-			ErrScopeNotFound, scope, projectName)
+	// An empty scope here is a card in NO column (taking one out is refused
+	// above): the project it names is a label, set — or cleared — by itself.
+	// It was once read as "out of the column, and leave the project behind",
+	// which turned a change of label into clearing it.
+	if scope != "" {
+		if _, ok := board.FindScope(b, projectName, scope); !ok {
+			return fmt.Errorf("%w %q in project %q — add it first (add_scope / POST /scopes)",
+				ErrScopeNotFound, scope, projectName)
+		}
 	}
 	if card.Scope == scope && card.Project == projectName {
 		return nil
+	}
+	// A label on a task that HAS a team: the team and the project must come
+	// from one repository, the rule a create holds them to — the domain rule
+	// files a card by its project before its team.
+	if scope == "" {
+		if err := guardRoster(b, card.Team, projectName); err != nil {
+			return err
+		}
 	}
 	// A card in a column is a PROJECT CARD and stands there alone (H4): one
 	// that carries a team, an owner, a parent or a review link is somebody's
@@ -291,6 +303,10 @@ func projectCardCannotCarry(b board.Board, c board.Card, where string) error {
 		return fmt.Errorf("%w: %q has an owner %s", ErrProjectCard, c.Title, where)
 	case board.IsSubtask(b, c):
 		return fmt.Errorf("%w: %q is a subtask %s", ErrProjectCard, c.Title, where)
+	case len(board.Children(b, c.ItemID)) > 0:
+		// Its pieces would be subtasks of a card no day board draws, hidden
+		// with delete the only gesture left on them.
+		return fmt.Errorf("%w: %q has subtasks %s", ErrProjectCard, c.Title, where)
 	case c.ReviewOf != "":
 		return fmt.Errorf("%w: %q is a review %s", ErrProjectCard, c.Title, where)
 	}

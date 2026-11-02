@@ -198,7 +198,10 @@ must never do is show a reader of the child a hole where the parent is,
 so `parent` may point **up to the primary** from any repository (a
 closed project's task under the company's goal is the ordinary case), or
 to a parent whose file stands in the child's own repository; anything
-else is refused (`ErrCrossDomain`). A planning card's derived status
+else is refused (`ErrCrossDomain`). "The child's own repository" is the
+one it will live in AFTER the link: a subtask leaving its task for a
+planning card is no subtask then, and its own team or project places
+it. A planning card's derived status
 counts every task under it, the server reading every repository as it
 does for sprint pointers, so a visitor may see `2/3 done` and two tasks
 listed — the third is one they may not read. The link table in
