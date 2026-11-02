@@ -3,12 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   attachSlotDates,
   attachTargets,
+  canBeFiledIntoAColumn,
   canCreateInColumn,
-  columnFollows,
   columnsOf,
   markOf,
-  countedAmong,
-  countedForProgress,
   drawnAsSlot,
   drawnOnProjectBoard,
   hasOriginToShow,
@@ -20,11 +18,9 @@ import {
   removeFromProjectOutcome,
   rosterOf,
   slotDragPlan,
-  teamFollowsParent,
   teamlessIsLawful,
   teamsACardCanTake,
   type CardPlacements,
-  datesAreAnotherBoards,
 } from "./placements";
 import type { Card } from "./providers/types";
 
@@ -94,84 +90,41 @@ describe("attachSlotDates", () => {
 describe("removeFromProjectOutcome", () => {
   const base = mk({ project: "engineering", scope: "Cozystack" });
 
-  it("is orphan on the last column of a worked card, delete otherwise", () => {
-    const worked = mk({ ...base, assignees: ["kvaps"], progress: 40 });
-    expect(removeFromProjectOutcome(worked, "engineering", "Cozystack")).toBe("orphan");
-    const idle = mk({ ...base, assignees: [] });
+  // Progress is the one trace of work a project card can carry: it has no
+  // owner (H4). Moved, it is kept as an orphan; untouched, it is deleted —
+  // and the UI asks first.
+  it("is orphan for a card somebody moved, delete otherwise", () => {
+    const moved = mk({ ...base, progress: 40 });
+    expect(removeFromProjectOutcome(moved, "engineering", "Cozystack")).toBe("orphan");
+    const idle = mk({ ...base, progress: 0 });
     expect(removeFromProjectOutcome(idle, "engineering", "Cozystack")).toBe("delete");
-    // Progress without a person, or a person without progress, is not
-    // "worked" — the server deletes it, and the UI must ask first.
-    expect(
-      removeFromProjectOutcome(mk({ ...base, assignees: [], progress: 40 }), "engineering", "Cozystack"),
-    ).toBe("delete");
   });
 });
 
-// A subtask's home is its parent, so the Project board's × may take it out
-// of a column but never delete it — the server refuses to as well.
-describe("removeFromProjectOutcome for a subtask", () => {
-  it("orphans instead of deleting, however untouched", () => {
-    const card = mk({
-      project: "engineering",
-      scope: "Cozystack",
-      parent: "p1",
-      assignees: [],
-      progress: 0,
-    });
-    expect(removeFromProjectOutcome(card, "engineering", "Cozystack")).toBe("orphan");
-  });
-});
-
-// The Project board draws a subtask that carries its own column, so the
-// column's progress must count it — but never twice: a parent standing in
-// the same project already answers for its children.
-describe("countedForProgress", () => {
-  const child = mk({ itemId: "c1", parent: "p1", project: "engineering", scope: "Cozystack" });
-  const index = (cards: Card[]) => new Map(cards.map((c) => [c.itemId, c]));
-
-  it("counts a subtask whose parent is on no board of this project", () => {
-    // The parent is on no board of this project — no column of its own.
-    const parent = mk({ itemId: "p1" });
-    expect(countedForProgress(child, index([child, parent]), { project: "engineering" })).toBe(true);
+// A card in a column is a PROJECT CARD and stands there alone (H4): the
+// picker offers a column only to a card nothing holds — no team, no owner,
+// no parent, no review — because the server refuses to file the rest.
+// Mirrors boardservice.projectCardCannotCarry.
+describe("canBeFiledIntoAColumn", () => {
+  it("offers a column to a card nothing holds, and to no other", () => {
+    expect(canBeFiledIntoAColumn(mk({}))).toBe(true);
+    expect(canBeFiledIntoAColumn(mk({ assignees: [] }))).toBe(true);
+    expect(canBeFiledIntoAColumn(mk({ team: "platform" }))).toBe(false);
+    expect(canBeFiledIntoAColumn(mk({ assignees: ["kvaps"] }))).toBe(false);
+    expect(canBeFiledIntoAColumn(mk({ parent: "p1" }))).toBe(false);
+    expect(canBeFiledIntoAColumn(mk({ reviewOf: "c1" }))).toBe(false);
   });
 
-  it("skips a subtask whose parent stands in the same project", () => {
-    const parent = mk({
-      itemId: "p1",
-      project: "engineering",
-      scope: "Roadmap",
-      startDate: "2026-08-24",
-    });
-    expect(countedForProgress(child, index([child, parent]), { project: "engineering" })).toBe(false);
-  });
-
-  it("counts a subtask whose parent is drawn nowhere", () => {
-    // A parent attached to a column but carrying no dates is no slot, so
-    // nothing counts it — deferring to it dropped the child's work from
-    // every bar while its slot was drawn in the column.
-    const parent = mk({ itemId: "p1", project: "engineering", scope: "Roadmap" });
-    expect(countedForProgress(child, index([child, parent]), { project: "engineering" })).toBe(true);
-  });
-
-  it("keeps a child in ITS column's bar when the parent stands in another", () => {
-    // Column bars are per column: a parent in X answers for the work in X,
-    // and the child drawn in Y is Y's only work. Deduplicating by PROJECT
-    // there subtracted a column's own slot from its own percentage.
-    const parent = mk({
-      itemId: "p1",
-      project: "engineering",
-      scope: "Roadmap",
-      startDate: "2026-08-24",
-    });
-    expect(countedForProgress(child, index([child, parent]), { project: "engineering", scope: "Cozystack" })).toBe(true);
-    // The project bar still counts it once: the parent's own progress
-    // already derives from this child.
-    expect(countedForProgress(child, index([child, parent]), { project: "engineering" })).toBe(false);
-  });
-
-  it("counts an ordinary card always", () => {
-    const plain = mk({ itemId: "x", project: "engineering", scope: "Cozystack" });
-    expect(countedForProgress(plain, index([plain]), { project: "engineering" })).toBe(true);
+  it("is what placementTargets asks first", () => {
+    const board = {
+      projects: ["engineering"],
+      scopes: [{ name: "Cozystack", project: "engineering", domain: "" }],
+    };
+    expect(placementTargets(mk({ team: "platform" }), board).attach).toBeUndefined();
+    expect(placementTargets(mk({ assignees: ["kvaps"] }), board).attach).toBeUndefined();
+    expect(placementTargets(mk({}), board).attach).toEqual([
+      { name: "engineering", scopes: ["Cozystack"] },
+    ]);
   });
 });
 
@@ -195,18 +148,11 @@ describe("placementTargets", () => {
     expect(placementTargets(mk({ scope: "Inbox" }), board).attach).toBeUndefined();
   });
 
-  it("offers a SUBTASK a column to attach to", () => {
-    // A subtask may carry ONE column of its own (G14, G57) — so the × that
-    // takes the column away must have a way back, or the Project board
-    // hands out a one-way door.
-    const loose = placementTargets(mk({ parent: "p1", stage: "recurrent" }), board);
-    expect(loose.attach).toEqual([{ name: "engineering", scopes: ["Cozystack"] }]);
-    // One it already carries is enough: nothing more is offered.
-    const inColumn = placementTargets(
-      mk({ project: "engineering", scope: "Cozystack", parent: "p1" }),
-      board,
-    );
-    expect(inColumn.attach).toBeUndefined();
+  it("offers a SUBTASK nothing", () => {
+    // A card in a column is nobody's subtask (H4): a subtask rides its
+    // parent's team and person, and a project card has neither. The server
+    // refuses the filing, so the picker does not open the door.
+    expect(placementTargets(mk({ parent: "p1", stage: "recurrent" }), board).attach).toBeUndefined();
   });
 
   // A recurrent card is a card like any other here: it comes round by
@@ -335,23 +281,13 @@ describe("drawnOnProjectBoard", () => {
 
 });
 
-// the slot menu must stay reachable: a subtask's team follows its
-// parent, but that is a reason to show the team read-only, not to take the
-// menu's handle away — the same menu carries "Mark as done".
-describe("teamFollowsParent", () => {
-  it("is true for a subtask and false for a standalone card", () => {
-    expect(teamFollowsParent(mk({ parent: "p1" }))).toBe(true);
-    expect(teamFollowsParent(mk({}))).toBe(false);
-  });
-});
-
-// the progress bars count what the grid DRAWS. A card in a column with
-// no dates has no slot — attaching a column to a dateless subtask (group,
-// then attach) put occupancy into the bar that nothing rendered.
+// the progress bars count what the grid DRAWS. A card in a column with no
+// start has no slot — its start is its row, and a stored week no longer
+// stands in for one (nothing writes a week on a project card, H4).
 describe("drawnAsSlot", () => {
-  it("needs dates to be a slot", () => {
+  it("needs a start date to be a slot", () => {
     expect(drawnAsSlot(mk({ scope: "Cozystack", startDate: "2026-08-24" }))).toBe(true);
-    expect(drawnAsSlot(mk({ scope: "Cozystack", week: "2026-08-24" }))).toBe(true);
+    expect(drawnAsSlot(mk({ scope: "Cozystack", week: "2026-08-24" }))).toBe(false);
     expect(drawnAsSlot(mk({ scope: "Cozystack" }))).toBe(false);
   });
 });
@@ -375,23 +311,11 @@ describe("targets on an alias project", () => {
     projectDomains: undefined,
   };
 
-  it("attaches a primary card only to the primary column", () => {
-    // A TEAM holds this card in its repository (G46), so the columns of
-    // another one are not destinations; a card nothing holds is carried
-    // by whatever project takes it, and is offered both.
-    const got = placementTargets(mk({ team: "platform" }), board);
-    expect(got.attach).toEqual([{ name: "portal", scopes: ["Bugs"] }]);
-  });
-
-  it("offers a closed card nothing under the alias project", () => {
-    // The merged entry resolves to ONE repository — the primary's, here —
-    // so the project would carry the card there, and its team holds it in
-    // the closed one (G46). The closed COLUMN under that name is not a
-    // destination either: the server compares the column's repository
-    // against the project's and returns 422. Offering it was the friendly
-    // label on a refusal.
-    const got = placementTargets(mk({ domain: "closed", team: "board" }), board);
-    expect(got.attach).toEqual([]);
+  it("offers a team's card nothing", () => {
+    // A card in a column has no team (H4): the server refuses the filing,
+    // whichever repository the column is in.
+    expect(placementTargets(mk({ team: "platform" }), board).attach).toBeUndefined();
+    expect(placementTargets(mk({ domain: "closed", team: "board" }), board).attach).toBeUndefined();
   });
 
   it("offers a card nothing holds only the columns its new project can hold", () => {
@@ -522,14 +446,16 @@ describe("attachTargets and the card's binding", () => {
     expect(got.attach?.map((p) => p.name)).toEqual(["engineering", "strategy"]);
   });
 
-  it("offers a team's card only its own repository", () => {
+  it("offers a team's card nothing at all", () => {
+    // A card in a column has no team (H4), so the question of which
+    // repository a team holds the card in no longer reaches the picker.
     const got = placementTargets(mk({ team: "platform" }), {
       projects,
       scopes,
       projectDomains,
       domains,
     });
-    expect(got.attach?.map((p) => p.name)).toEqual(["engineering"]);
+    expect(got.attach).toBeUndefined();
   });
 
   // The relaxation is the PROJECT's doing, and the no-project bucket is not
@@ -641,51 +567,6 @@ describe("projectsWithColumns", () => {
   });
 });
 
-// The client's copy of boardservice.columnFollows. A subtask's file rides
-// its parent, so a column of the parent's repository is one the card cannot
-// keep once it is pulled out — and the × means something else entirely then
-// (removal.test.ts). A board that could not ask this question let a
-// destructive × through as an ungroup.
-describe("columnFollows", () => {
-  const scopes = [
-    { name: "Closed", project: "", domain: "founders" },
-    { name: "Cozystack", project: "engineering" },
-  ];
-  const roster = {
-    scopes,
-    primary: "aeman-db",
-    teamDomains: { founders: "founders" },
-    projectDomains: { strategy: "founders" },
-  };
-
-  it("keeps a column of the repository the card lands in", () => {
-    expect(columnFollows({ scope: "Cozystack", project: "engineering" }, roster)).toBe(true);
-    expect(columnFollows({ scope: "Closed", project: "", team: "founders" }, roster)).toBe(true);
-  });
-
-  it("leaves behind a column of the repository the card is leaving", () => {
-    // Team "platform" is unstamped, so the card lands in the primary; the
-    // column was declared in founders.
-    expect(columnFollows({ scope: "Closed", project: "", team: "platform" }, roster)).toBe(false);
-  });
-
-  it("says nothing about a column no roster declares", () => {
-    expect(columnFollows({ scope: "Ghost", project: "", team: "platform" }, roster)).toBe(true);
-  });
-
-  it("has no column to lose when it stands in none", () => {
-    expect(columnFollows({ team: "platform" }, roster)).toBe(true);
-  });
-
-  it("follows the LINK when the card still has one", () => {
-    // A review card takes its original's repository whatever its own team
-    // says (G14), so the column of that repository comes along.
-    expect(
-      columnFollows({ scope: "Closed", project: "", team: "platform" }, roster, "founders"),
-    ).toBe(true);
-  });
-});
-
 // The shape a SINGLE-REPOSITORY board is served in — the default
 // deployment, and the one no test covered: the board names its one
 // repository, and every entry in the payload carries that name, because
@@ -718,14 +599,6 @@ describe("a board of one repository", () => {
     expect(teamlessIsLawful("aeman", roster)).toBe(true);
   });
 
-  it("keeps a subtask's bucket column when it is pulled out of the group", () => {
-    // The server's columnFollows answers true here — nothing places the
-    // card, so it belongs to the primary, which is where the column is.
-    expect(
-      columnFollows({ scope: "Inbox", project: "", team: "" }, { ...roster, scopes }),
-    ).toBe(true);
-  });
-
   it("offers every column to attach to", () => {
     expect(
       attachTargets(["engineering"], scopes, "aeman", true, roster).map((p) => p.name),
@@ -742,30 +615,8 @@ describe("a board of one repository", () => {
     expect(canCreateInColumn({ project: "", domain: "aeman" }, unnamed)).toBe(true);
     expect(teamlessIsLawful("aeman", unnamed)).toBe(true);
     expect(
-      columnFollows({ scope: "Inbox", project: "", team: "" }, { ...unnamed, scopes }),
-    ).toBe(true);
-    expect(
       attachTargets(["engineering"], scopes, "aeman", true, unnamed).map((p) => p.name),
     ).toEqual(["engineering", ""]);
-  });
-});
-
-// A figure that spans columns — the board header's total, a project's line
-// — de-duplicates by IDENTITY: the parent is either drawn in it or not.
-// Asking about the child's HOME project instead named a project nobody was
-// looking at, and a child was counted beside the parent whose bar already
-// derives from it.
-describe("countedAmong", () => {
-  it("skips a subtask whose parent is drawn in the same figure", () => {
-    expect(countedAmong(mk({ parent: "p1" }), new Set(["p1", "c1"]))).toBe(false);
-  });
-
-  it("counts one whose parent is not", () => {
-    expect(countedAmong(mk({ parent: "p1" }), new Set(["c1"]))).toBe(true);
-  });
-
-  it("counts an ordinary card always", () => {
-    expect(countedAmong(mk({}), new Set(["c1"]))).toBe(true);
   });
 });
 
@@ -787,14 +638,13 @@ describe("attach targets for a card a LINK holds", () => {
     ],
   };
 
-  it("offers a subtask only its own repository's columns", () => {
+  it("offers a subtask and a review card nothing", () => {
+    // A card in a column is nobody's subtask and never a review (H4): the
+    // link-held card is refused the filing before the repository question.
     const kid = mk({ parent: "p", domain: "aeman-db" });
-    expect(placementTargets(kid, board).attach?.map((p) => p.name)).toEqual(["engineering"]);
-  });
-
-  it("offers a review card the same", () => {
+    expect(placementTargets(kid, board).attach).toBeUndefined();
     const rev = mk({ reviewOf: "orig", domain: "aeman-db" });
-    expect(placementTargets(rev, board).attach?.map((p) => p.name)).toEqual(["engineering"]);
+    expect(placementTargets(rev, board).attach).toBeUndefined();
   });
 
   it("still carries a card nothing holds", () => {
@@ -811,35 +661,10 @@ describe("attach targets for a card a LINK holds", () => {
 // boards deciding it apart is how one of them came to draw nothing at all
 // after the weekly plan, whose band the stripe used to be, was taken out.
 describe("markOf", () => {
-  it("marks a project's work, and nothing else", () => {
-    expect(markOf({ scope: "Auth" })).toBe("project");
+  // A review is what arrived from elsewhere; a project card, the other kind
+  // the stripe used to mark, is on no board that draws the stripe (H4).
+  it("marks a review, and nothing else", () => {
+    expect(markOf({ reviewOf: "c1" })).toBe("review");
     expect(markOf({})).toBe("");
-  });
-
-  // A review card of a project card is BOTH; the waiting is the innermost
-  // thing about it, so that is what the stripe says.
-  it("says review where a card is both", () => {
-    expect(markOf({ reviewOf: "c1", scope: "Auth" })).toBe("review");
-  });
-});
-
-// A Project-board SLOT's dates are its ROW there: the week it stands in is the
-// Monday of its start, and its span is how many weeks the work takes. Editing
-// them from a day board re-dates another board's commitment in passing —
-// which is the same thing the Triage board's catch holds still (triage.gripOf,
-// "pinned"), said about the dates instead of the drag.
-//
-// It is a rule of the DAY BOARDS, not of the server: the Project board sets
-// those dates itself and must go on doing so, and the server cannot tell which
-// board is asking. That lesson is already paid for on this branch — a
-// Me-board-only narrowing put in the service refused the Team and Triage
-// grids too, because the create they send is identical.
-describe("whose dates a card's are", () => {
-  it("keeps a day board off a project card's", () => {
-    expect(datesAreAnotherBoards({ scope: "Auth" })).toBe(true);
-  });
-
-  it("leaves an ordinary card's alone", () => {
-    expect(datesAreAnotherBoards({})).toBe(false);
   });
 });

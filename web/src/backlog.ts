@@ -22,8 +22,8 @@ export function parked(c: Pick<Card, "parked">): boolean {
 
 /** parkable reports whether this card may be parked at all.
  *
- *  A Project-board slot is refused: its week is another board's to say — it
- *  follows its start date — so parking one here would edit a plan this board
+ *  A PROJECT card is refused: it is the Project board's plan and stands in
+ *  its column alone (H4), so parking it here would edit a plan this board
  *  does not own. The server refuses it too (ErrNotYoursToPark); this is so
  *  the board never offers what would come back as an error.
  *

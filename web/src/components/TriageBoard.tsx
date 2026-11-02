@@ -21,12 +21,11 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { Board, Card as CardModel, Provider, SizeKey, ZoneKey } from "../providers/types";
 import { registerPendingCard } from "../api/pending";
 import { justMade, noteMade } from "../justmade";
-import { addDays, mondayOf, todayIso } from "../date";
+import { mondayOf, todayIso } from "../date";
 import {
   anchorFor,
   broughtBack,
   byPile,
-  gripOf,
   needsTriage,
   ordersWithinCell,
   orderWith,
@@ -171,7 +170,6 @@ export function TriageBoard({
   // past it. The catch lifts that, for as long as the reader means to: it is
   // deliberately NOT remembered — a guard that stays open is not a guard, and
   // the next visit starts closed again.
-  const [unlocked, setUnlocked] = useState(false);
 
   // The order the reader dragged the columns into, if they have.
   const [order, setOrder] = useState<string[] | null>(readPeopleOrder);
@@ -387,7 +385,6 @@ export function TriageBoard({
      *  two of them is how that order is set. */
     at: number;
   } | null>(null);
-  const [stretch, setStretch] = useState<{ card: CardModel; to: number } | null>(null);
   const press = useRef<{
     card: CardModel;
     row: number;
@@ -398,10 +395,8 @@ export function TriageBoard({
      *  is where it lands — without this it followed the cursor itself and
      *  came to rest a card away from where it was let go. */
     hold: number;
-    pinned: boolean;
   } | null>(null);
   const moveRef = useRef<typeof move>(null);
-  const stretchRef = useRef<typeof stretch>(null);
 
   // onUp is handed the pointer event that ENDED the gesture, because where a
   // card is let go is not always somewhere the grid can name: the backlog
@@ -420,9 +415,7 @@ export function TriageBoard({
       window.removeEventListener("pointercancel", cancel);
       press.current = null;
       moveRef.current = null;
-      stretchRef.current = null;
       setMove(null);
-      setStretch(null);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", up);
@@ -789,29 +782,6 @@ export function TriageBoard({
     [today, choicesFor, doRemove],
   );
 
-  // Stretching: the card's end date moves to the Friday of the week the
-  // pointer let go over. The dates ARE the reach — the same two fields a
-  // Project slot uses — so nothing new is stored for it.
-  const stretchTo = useCallback(
-    (card: CardModel, week: string) => {
-      const from = placedIn(card);
-      if (!from || week < from) {
-        return;
-      }
-      const end = week === from ? "" : addDays(week, 4);
-      if ((card.day ?? "") === end) {
-        return;
-      }
-      const before = { day: card.day };
-      patchCard(card.itemId, { day: end || undefined });
-      void provider
-        .patchCard(card.itemId, { dates: { start: card.startDate ?? "", end } })
-        .then(addCard)
-        .catch(fail(card, before));
-    },
-    [provider, patchCard, addCard, fail],
-  );
-
   // ---- what the grid draws.
   //
   // A card taking more than one week is drawn as ONE CARD PER WEEK, each
@@ -893,8 +863,6 @@ export function TriageBoard({
         row = move.row;
         span = Math.max(1, Math.min(move.span, weeks.length - row));
         col = people[move.col]?.key ?? col;
-      } else if (stretch?.card.itemId === c.itemId) {
-        span = Math.max(1, Math.min(stretch.to - row + 1, weeks.length - row));
       }
       const list = slots.get(col) ?? [];
       for (let i = 0; i < span; i++) {
@@ -1055,7 +1023,6 @@ export function TriageBoard({
     weeks,
     people,
     move,
-    stretch,
     carried,
     overList,
     grid.rowFit,
@@ -1075,14 +1042,10 @@ export function TriageBoard({
       }
       e.preventDefault();
       e.stopPropagation();
-      // How far this card may be carried in TIME (triage.gripOf); the hand it
-      // is in is never in question.
-      const grip = gripOf(card, { unlocked });
       press.current = {
         card,
         row: slot.row - slot.part,
         span: slot.parts,
-        pinned: grip === "pinned",
         // Which week of the card was taken hold of, so a card grabbed by its
         // second week does not jump a week up under the pointer.
         grab: slot.part,
@@ -1102,9 +1065,7 @@ export function TriageBoard({
           return;
         }
         const spot = rowSpotAt(ev.clientY);
-        const row = p.pinned
-          ? p.row
-          : Math.max(0, Math.min(spot.row - p.grab, weeks.length - p.span));
+        const row = Math.max(0, Math.min(spot.row - p.grab, weeks.length - p.span));
         const next = {
           card: p.card,
           row,
@@ -1147,13 +1108,7 @@ export function TriageBoard({
         // Where it came from, so a card merely put back among its own
         // neighbours is a reorder and nothing more.
         const moved = m.row !== slot.row - slot.part || who !== whoOf(card);
-        if (moved && grip === "pinned") {
-          // Its row is not this board's to set; only the hand it is in
-          // changed.
-          if (who !== whoOf(card)) {
-            assignTo(m.card, who);
-          }
-        } else if (moved) {
+        if (moved) {
           place(m.card, weeks[m.row], who);
         }
         reorder(m.card, m.row, who, m.at);
@@ -1169,7 +1124,6 @@ export function TriageBoard({
       park,
       assignTo,
       reorder,
-      unlocked,
     ],
   );
 
@@ -1293,33 +1247,10 @@ export function TriageBoard({
     }
   }, [people]);
 
-  const beginStretch = useCallback(
-    (card: CardModel, slot: Slot) => (e: React.PointerEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const from = slot.row - slot.part;
-      const onMove = (ev: PointerEvent) => {
-        const to = Math.max(from, rowAt(ev.clientY));
-        const next = { card, to };
-        stretchRef.current = next;
-        setStretch(next);
-      };
-      arm(onMove, () => {
-        const s = stretchRef.current;
-        stretchRef.current = null;
-        setStretch(null);
-        if (s) {
-          stretchTo(card, weeks[s.to]);
-        }
-      });
-    },
-    [arm, rowAt, weeks, stretchTo],
-  );
-
-
-  // The card in the reader's hand, however they took hold of it: dragged to
-  // another week, or stretched over more of them.
-  const held = move?.card.itemId ?? stretch?.card.itemId;
+  // The card in the reader's hand: dragged to another week. (It used to be
+  // stretched over more of them as well — the catch-lifted resize of a
+  // project card's span, gone with the project card from this board, H4.)
+  const held = move?.card.itemId;
 
   // How many boxes each cell holds: where the composer stands in it, and how
   // much room the cell keeps free below them.
@@ -1401,15 +1332,6 @@ export function TriageBoard({
           onAdd={() => {}}
           onRemove={() => {}}
         />
-        <button
-          type="button"
-          className={`triage-lock${unlocked ? " triage-lock-open" : ""}`}
-          aria-pressed={unlocked}
-          onClick={() => setUnlocked(!unlocked)}
-          title={unlocked ? "Project cards unlocked" : "Project cards locked"}
-        >
-          <Padlock open={unlocked} />
-        </button>
         <ZoomControl zoom={grid.zoom} onChange={grid.setZoom} />
       </div>
 
@@ -1755,14 +1677,13 @@ export function TriageBoard({
                       copy has no card behind it yet and nothing to size. */}
                   {!slot.projected && <SizeChip card={card} onPick={openSizer} />}
                   {!slot.projected &&
-                    (parkable(card) ||
-                      removableOnTriage(card, unlocked, choicesFor(card))) && (
+                    (parkable(card) || removableOnTriage(choicesFor(card))) && (
                     <span className="project-slot-actions">
-                      {removableOnTriage(card, unlocked, choicesFor(card)) && (
+                      {removableOnTriage(choicesFor(card)) && (
                         <button
                           type="button"
                           className="card-action card-action-delete"
-                          title={card.scope ? "Take off this board" : "Remove"}
+                          title="Remove"
                           onClick={(e) => {
                             e.stopPropagation();
                             remove(card);
@@ -1802,19 +1723,6 @@ export function TriageBoard({
                         must not say something else here. */}
                     <i style={{ width: `${progress}%`, background: barColor(card.stage) }} />
                   </span>
-                  {/* Only a PROJECT card has a span to pull: the weeks it
-                      takes are its row on the Project board. Every other card
-                      here is one week's work, and stretching one said
-                      something about it that nothing else on the board would
-                      have said. And only with the catch lifted, since what
-                      the grip changes is the Project board's own dates. */}
-                  {part === parts - 1 && card.scope && unlocked && !slot.projected && (
-                    <div
-                      className="project-slot-resize triage-slot-resize"
-                      title="Drag down to give the card more weeks"
-                      onPointerDown={beginStretch(card, slot)}
-                    />
-                  )}
                 </div>
               );
             }),
@@ -2019,27 +1927,6 @@ function ShelfMark() {
       <path d="M8 2.5v6.5" />
       <path d="M5.25 6.5 8 9.25 10.75 6.5" />
       <path d="M3 12.75h10" />
-    </svg>
-  );
-}
-
-/** Padlock is the catch's own glyph — drawn rather than an emoji, so it takes
- *  the colour of the text around it and reads the same in either theme. */
-function Padlock({ open }: { open: boolean }) {
-  return (
-    <svg
-      className="triage-lock-glyph"
-      viewBox="0 0 16 16"
-      width="12"
-      height="12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      aria-hidden="true"
-    >
-      <rect x="2.75" y="7.25" width="8.5" height="6" rx="1.5" />
-      {open ? <path d="M9 7.25V5a2 2 0 0 1 4 0" /> : <path d="M5 7.25V5a2 2 0 0 1 4 0v2.25" />}
     </svg>
   );
 }

@@ -6,20 +6,15 @@ import type {
   Provider,
 } from "../providers/types";
 import { registerPendingCard } from "../api/pending";
-import { addDays } from "../date";
-import { teamColor, teamInitial } from "../avatar";
-import { cardDomainBadge, offerableTeams } from "../domains";
+import { addDays, mondayOf } from "../date";
+import { teamColor } from "../avatar";
+import { cardDomainBadge } from "../domains";
 import {
   canCreateInColumn,
   columnsOf,
-  countedAmong,
-  countedForProgress,
   projectsAColumnCanJoin,
-  teamlessIsLawful,
-  teamsACardCanTake,
   drawnAsSlot,
   drawnOnProjectBoard,
-  teamFollowsParent,
   movingSlot,
   removeFromProjectOutcome,
   rosterOf,
@@ -411,8 +406,8 @@ export function ProjectBoard({
       if (start === resize.startDate) {
         return;
       }
-      const prev = { startDate: resize.startDate, week: resize.week };
-      patchCard(resize.itemId, { startDate: start, week: start });
+      const prev = { startDate: resize.startDate };
+      patchCard(resize.itemId, { startDate: start });
       void provider
         .patchCard(resize.itemId, { dates: { start } })
         .then(addCard)
@@ -546,12 +541,13 @@ export function ProjectBoard({
     const end = addDays(weeks[Math.min(row + span - 1, weeks.length - 1)], 4);
     const target = { project: scope.project, scope: scope.name };
     const plan = slotDragPlan(grabbed, target);
-    const weekChanged = week !== card.week;
-    if (plan.kind === "dates" && !weekChanged) {
+    // The row is the start's week: a drop in the same column on the same
+    // row says nothing new.
+    const rowChanged = !card.startDate || week !== mondayOf(card.startDate);
+    if (plan.kind === "dates" && !rowChanged) {
       return;
     }
     const prev = {
-      week: card.week,
       scope: card.scope,
       project: card.project,
       startDate: card.startDate,
@@ -561,8 +557,9 @@ export function ProjectBoard({
       patchCard(card.itemId, prev);
       onError(errText(err));
     };
-    // The date change is the card's, whichever column was dragged to.
-    const dates: Partial<CardModel> = { week, startDate: week, day: end };
+    // The date change is the card's, whichever column was dragged to. No
+    // week: a project card is on no weekly plan, and its row is its start.
+    const dates: Partial<CardModel> = { startDate: week, day: end };
     switch (plan.kind) {
       case "dates": {
         patchCard(card.itemId, dates);
@@ -625,17 +622,17 @@ export function ProjectBoard({
     }
     const { scope, from, to } = draft;
     setDraft(null);
-    const week = weeks[from];
-    const start = week;
+    const start = weeks[from];
     const end = addDays(weeks[to], 4); // the Friday of the last week
     const tempId = `tmp-${new Date().toISOString()}`;
+    // A PROJECT card: no team, no owner, no week — its dates are its row
+    // (H4), and the server refuses the rest.
     addCard({
       itemId: tempId,
       title: title.trim(),
       assignees: [],
       scope: scope.name,
       project: scope.project,
-      week,
       startDate: start,
       day: end,
       description: "",
@@ -645,7 +642,6 @@ export function ProjectBoard({
       title: title.trim(),
       scope: scope.name,
       project: scope.project,
-      week,
       start,
       day: end,
     });
@@ -690,10 +686,11 @@ export function ProjectBoard({
     from: string;
     row: number;
   } | null>(null);
-  const [teamMenu, setTeamMenu] = useState<string | null>(null);
-  // Only one team menu is open at a time, so a single anchor ref serves
-  // whichever badge was last pressed.
-  const teamAnchor = useRef<HTMLButtonElement | null>(null);
+  // The slot's own menu ("Mark as done" and back). Only one is open at a
+  // time, so a single anchor ref serves whichever handle was last pressed.
+  // It used to be the TEAM menu as well; a project card has no team (H4).
+  const [slotMenu, setSlotMenu] = useState<string | null>(null);
+  const menuAnchor = useRef<HTMLButtonElement | null>(null);
 
   // A column belongs to exactly one project, so adding one is only offered
   // when a single project is in view — otherwise there is no answer to
@@ -747,21 +744,6 @@ export function ProjectBoard({
     void provider
       .renameScope(col.project, col.name, to.trim())
       .catch((err: unknown) => onError(errText(err)));
-  };
-
-  // Assigning a team hands the card to that team: the slot's own span says
-  // when it is due, so there is nothing else to place.
-  const assignTeam = (card: CardModel, team: string | null) => {
-    setTeamMenu(null);
-    const prev = { team: card.team };
-    patchCard(card.itemId, { team: team ?? undefined });
-    void provider
-      .patchCard(card.itemId, { team: team ?? "" })
-      .then(addCard)
-      .catch((err: unknown) => {
-        patchCard(card.itemId, prev);
-        onError(errText(err));
-      });
   };
 
   // A deadline belongs to the project whose plan it is part of, so the week's
@@ -819,7 +801,7 @@ export function ProjectBoard({
   // log, so an accidental done+undo round-trips instead of leaving the card
   // at 90 and painted "taken into work".
   const setDone = (card: CardModel, done: boolean) => {
-    setTeamMenu(null);
+    setSlotMenu(null);
     const prev = { stage: card.stage, progress: card.progress };
     if (done) {
       patchCard(card.itemId, {
@@ -1032,27 +1014,14 @@ export function ProjectBoard({
   // parent, whose progress already derives from its children — otherwise
   // the column, the overall bar and the project line disagree on one
   // screen.
-  const counted = useMemo(
-    () => {
-      // The header's total spans every column on screen, so the question
-      // is whether the PARENT is drawn in the same figure — not whether it
-      // shares the child's home project, which for a mirrored card names a
-      // project nobody is looking at (and counted parent and child both).
-      const drawn = new Set(cards.filter(drawnAsSlot).map((c) => c.itemId));
-      return cards.filter((c) => drawnAsSlot(c) && countedAmong(c, drawn));
-    },
-    [cards],
-  );
+  // The bars count what the grid DRAWS — every card with a slot — and
+  // nothing twice: a project card is nobody's subtask and has none (H4), so
+  // there is no parent and child to weigh once.
+  const counted = useMemo(() => cards.filter(drawnAsSlot), [cards]);
   const colProgress = useMemo(() => {
     const byCol = new Map<string, CardModel[]>();
-    for (const c of cards.filter(drawnAsSlot)) {
-      // The column the card is DRAWN in (columnsOf), and the
-      // de-duplication asked PER COLUMN: a parent standing in this one
-      // answers for its child here.
+    for (const c of counted) {
       for (const col of columnsOf(c)) {
-        if (!countedForProgress(c, byId, col)) {
-          continue;
-        }
         const k = colKey(col.project, col.scope);
         byCol.set(k, [...(byCol.get(k) ?? []), c]);
       }
@@ -1062,7 +1031,7 @@ export function ProjectBoard({
       out.set(k, progressOf(list));
     }
     return out;
-  }, [cards, byId]);
+  }, [counted]);
   const overall = useMemo(() => progressOf(counted), [counted]);
 
   // Every project's progress, filter or no filter: the point of opening the
@@ -1074,23 +1043,14 @@ export function ProjectBoard({
       if (!drawnAsSlot(c)) {
         continue;
       }
-      // Every project the card is DRAWN in, mirrors included — the same
-      // fan-out the column bars use, and the de-duplication asked per
-      // project for the same reason: a mirrored card counts in the project
-      // it is shown in, not only in the one it calls home.
-      const seen = new Set<string>();
       for (const col of columnsOf(c)) {
-        if (seen.has(col.project) || !countedForProgress(c, byId, { project: col.project })) {
-          continue;
-        }
-        seen.add(col.project);
         byProject.set(col.project, [...(byProject.get(col.project) ?? []), c]);
       }
     }
     return [...board.projects, ""]
       .filter((p) => p !== "" || (byProject.get("")?.length ?? 0) > 0)
       .map((p) => ({ project: p, ...progressOf(byProject.get(p) ?? []) }));
-  }, [board.cards, board.projects, byId]);
+  }, [board.cards, board.projects]);
 
   // The projects the week menu can act on: those in view, or the whole roster
   // when nothing is filtered. The no-project bucket is included in both cases
@@ -1586,39 +1546,24 @@ export function ProjectBoard({
                   ×
                 </button>
               </span>
-              {/* The team badge is the card's owner, not an action: it stays
-                  visible once assigned. Unassigned, it is a hover affordance.
-                  Delete sits to its LEFT so the badge keeps the slot's edge —
-                  it is the thing you point at, and it must not shift when the
+              {/* The slot's MENU HANDLE — "Mark as done" and back hang off
+                  it. It used to be the TEAM badge; a project card has no
+                  team and no owner (H4) — the work is done by tasks linked
+                  under the hierarchy, not by the column's card. Delete sits
+                  to its LEFT so the handle keeps the slot's edge — it is the
+                  thing you point at, and it must not shift when the
                   hover-only actions appear. */}
               <button
                 type="button"
-                className={`project-slot-team${card.team ? "" : " project-slot-team-empty"}`}
-                style={
-                  card.team
-                    ? { background: teamColor(card.team), color: "#fff" }
-                    : undefined
-                }
-                // The badge is the slot's MENU HANDLE — "Mark as done" and
-                // the team list hang off it — so it stays clickable for
-                // every card. A subtask's team follows its
-                // parent (S9, and the server rewrites any other choice):
-                // that makes the team LIST read-only inside the menu, not
-                // the menu unreachable.
-                title={
-                  teamFollowsParent(card)
-                    ? `Team: ${card.team || "none"} — follows the parent`
-                    : card.team
-                      ? `Team: ${card.team} — click to change`
-                      : "Assign to a team"
-                }
+                className="project-slot-team project-slot-team-empty"
+                title={complete(card) ? "Done — click to reopen" : "Mark as done"}
                 onClick={(ev) => {
                   ev.stopPropagation();
-                  teamAnchor.current = ev.currentTarget;
-                  setTeamMenu(teamMenu === card.itemId ? null : card.itemId);
+                  menuAnchor.current = ev.currentTarget;
+                  setSlotMenu(slotMenu === card.itemId ? null : card.itemId);
                 }}
               >
-                {card.team ? teamInitial(card.team) : "+"}
+                …
               </button>
               {card.stage && card.stage !== "done" && (
                 <span
@@ -1628,9 +1573,9 @@ export function ProjectBoard({
                 />
               )}
               <Dropdown
-                open={teamMenu === card.itemId}
-                anchorRef={teamAnchor}
-                onClose={() => setTeamMenu(null)}
+                open={slotMenu === card.itemId}
+                anchorRef={menuAnchor}
+                onClose={() => setSlotMenu(null)}
                 className="card-stage-menu"
               >
                 <button
@@ -1644,81 +1589,6 @@ export function ProjectBoard({
                   />
                   {complete(card) ? "Reopen" : "Mark as done"}
                 </button>
-                {/* The roster carries "" for the no-team group; the explicit
-                    "No team" entry below is that, so skip the blank one. And
-                    only the teams of the card's own repository are offered:
-                    its project decides where it lives, so a team from another
-                    repository would put the card out of reach of the people
-                    it names — the server refuses that pair. What the card
-                    already carries stays on the list, so a pair written
-                    before the rule can be seen and fixed. */}
-                {teamFollowsParent(card) ? (
-                  <div className="card-stage-item card-stage-item-static">
-                    <span
-                      className="card-stage-dot"
-                      style={card.team ? { background: teamColor(card.team) } : undefined}
-                    />
-                    {card.team || "No team"} — follows the parent
-                  </div>
-                ) : (
-                  <>
-                    {(card.project
-                      ? offerableTeams(
-                          board.teams,
-                          board.teamDomains,
-                          board.projectDomains,
-                          card.project,
-                          card.team ?? "",
-                        )
-                      : // No project to constrain it: the COLUMN does. A
-                        // card in a column of another repository can only
-                        // take that repository's teams — its team is what
-                        // decides where it lives (G57).
-                        teamsACardCanTake(
-                          columnDomain({ project: "", name: card.scope ?? "" }),
-                          board.teams,
-                          board.teamDomains,
-                          card.team ?? "",
-                          roster,
-                        ))
-                      .filter((t) => t !== "")
-                      .map((t) => (
-                        <button
-                          key={t}
-                          type="button"
-                          className={`card-stage-item${card.team === t ? " card-stage-item-active" : ""}`}
-                          onClick={() => assignTeam(card, t)}
-                        >
-                          <span
-                            className="card-stage-dot"
-                            style={{ background: teamColor(t) }}
-                          />
-                          {t}
-                        </button>
-                      ))}
-                    {/* A card with neither team nor project is held by the
-                        PRIMARY repository, so a column of another one could
-                        not show it: there the entry is a refusal with a
-                        friendly label. A card with a project is placed by
-                        it either way. What the card already carries stays
-                        on the list. */}
-                    {(!card.team ||
-                      teamlessIsLawful(
-                        columnDomain({ project: card.project ?? "", name: card.scope ?? "" }),
-                        roster,
-                        card.project ?? "",
-                      )) && (
-                      <button
-                        type="button"
-                        className={`card-stage-item${card.team ? "" : " card-stage-item-active"}`}
-                        onClick={() => assignTeam(card, null)}
-                      >
-                        <span className="card-stage-dot card-stage-dot-none" />
-                        No team
-                      </button>
-                    )}
-                  </>
-                )}
               </Dropdown>
               {/* One grip per edge: the top moves the slot's start, the
                   bottom its end. "from" is whichever edge stays put. */}

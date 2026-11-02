@@ -55,10 +55,10 @@ describe("what each × does, one answer for every board", () => {
     expect(gridRemoval({ ...inSprint, parent: "p", week: "2026-08-24" }, ctx)).toBe(
       "delete",
     );
-    // A COLUMN is the exception: it is a home of its own, drawn and counted
-    // on the Project board (G57), and a card filed under one is never
-    // deleted by either ×.
-    expect(gridRemoval({ ...inSprint, parent: "p", scope: "Auth" }, ctx)).toBe("ungroup");
+    // A column written on a subtask (a repository from before schema 2)
+    // spares it nothing: a card in a column is nobody's subtask (H4), so
+    // the pair is not a home and the × answers for the subtask.
+    expect(gridRemoval({ ...inSprint, parent: "p", scope: "Auth" }, ctx)).toBe("delete");
   });
 
   it("deletes a card of the current sprint, which is nowhere else", () => {
@@ -144,13 +144,13 @@ describe("freeing the subtasks of a deleted parent", () => {
 describe("gridRemoval on a subtask", () => {
   const ctx = { today: "2026-08-24", current: "2026-08-24", previous: "2026-08-17" };
 
-  it("ungroups a subtask that stands in a column, leaving it there", () => {
+  it("deletes a subtask whatever column is written on it (H4: a project card is nobody's subtask)", () => {
     expect(
       gridRemoval(
         mk({ parent: "p1", project: "engineering", scope: "Cozystack", sprintStart: "2026-08-24" }),
         ctx,
       ),
-    ).toBe("ungroup");
+    ).toBe("delete");
   });
 
   it("deletes a subtask with nowhere else to be", () => {
@@ -181,24 +181,11 @@ describe("subtaskRemovalPatch", () => {
     });
   });
 
-  // A subtask whose column cannot follow it out is DELETED now (the board
-  // drops the row rather than patching it), so the release patch is the
-  // only one there is — and it must not depend on the context, or a board
-  // would patch a card it is about to remove.
-  it("is the same patch whether or not the column can follow", () => {
-    expect(subtaskRemovalPatch(mk(kid), { ...ctx, columnFollows: false })).toEqual(
-      subtaskRemovalPatch(mk(kid), ctx),
-    );
-  });
-
   // The inverse has to cover the gesture: a board that rolls back fewer
   // fields than it patched leaves the card ungrouped and stripped of its
   // column on screen while the server still holds it as a subtask in it.
   it("has an undo for every field it can write", () => {
-    const written = {
-      ...subtaskRemovalPatch(mk(kid), ctx),
-      ...subtaskRemovalPatch(mk(kid), { ...ctx, columnFollows: false }),
-    };
+    const written = subtaskRemovalPatch(mk(kid), ctx);
     const undo = subtaskRemovalUndo(kid);
     for (const key of Object.keys(written)) {
       expect(undo).toHaveProperty(key);
@@ -211,9 +198,7 @@ describe("subtaskRemovalPatch", () => {
 
   it("leaves a card with no end day without one", () => {
     const noDay = { ...kid, day: undefined };
-    expect(
-      subtaskRemovalPatch(mk(noDay), { ...ctx, columnFollows: false }),
-    ).not.toHaveProperty("day");
+    expect(subtaskRemovalPatch(mk(noDay), ctx)).not.toHaveProperty("day");
   });
 });
 
@@ -357,12 +342,11 @@ describe("what the × offers", () => {
     expect(offersRemoval({}, ctx)).toBe(true);
   });
 
-  // A SUBTASK is its own case: out of the group where it has a column to be
-  // left in, off the board where it has not.
-  it("takes a subtask out of its group, or off the board", () => {
-    expect(removeChoices({ ...held, parent: "p", scope: "Auth" }, ctx)).toEqual([
-      "ungroup",
-    ]);
+  // A SUBTASK has no home of its own to be left in: the × takes it off the
+  // board. (It used to be left in a column it carried; a card in a column
+  // is nobody's subtask now, H4.)
+  it("takes a subtask off the board", () => {
+    expect(removeChoices({ ...held, parent: "p", scope: "Auth" }, ctx)).toEqual(["off-board"]);
     expect(removeChoices({ ...held, parent: "p" }, ctx)).toEqual(["off-board"]);
   });
 });

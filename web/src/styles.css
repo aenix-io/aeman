@@ -949,7 +949,6 @@ select {
    is somebody else's work waiting on this person. Work the day board made
    itself wears none — the stripe marks what came from elsewhere, which is
    why it is worth a glance. */
-.card-project::before,
 .card-review::before {
   content: "";
   position: absolute;
@@ -960,9 +959,6 @@ select {
   border-radius: 5px 0 0 5px;
 }
 
-.card-project::before {
-  background: var(--project-mark);
-}
 
 .card-review::before {
   background: var(--stage-review);
@@ -4228,36 +4224,8 @@ button.card-age {
   --mark: var(--zone-red-accent);
 }
 
-/* The catch on a project card's weeks. Closed by default and never
-   remembered: the next visit starts closed again. */
-.triage-lock {
-  /* At the right edge with the scale, not among the board's own readings:
-     it governs the cards, and the reader reaches for it rarely. */
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  color: var(--muted);
-  line-height: 1;
-  padding: 3px 5px;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  opacity: 0.55;
-}
 
-.triage-lock:hover {
-  opacity: 1;
-  color: var(--fg);
-  border-color: var(--line);
-}
 
-/* Open, it says so in the colour of the thing it is holding back. */
-.triage-lock-open {
-  opacity: 1;
-  color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
-}
 
 /* The lock has taken the space before it, so the scale sits against it
    rather than being pushed out again. */
@@ -4591,14 +4559,6 @@ button.card-age {
   background: var(--mark, var(--muted));
 }
 
-/* A project card is a commitment made on the Project board: it passes through
-   this board, and its week is the other one's to say, so it wears its own
-   mark rather than a zone nobody set here. The same mark the day boards draw
-   down a card's left edge (.card-project), so one card reads the same on
-   every board it is met on. */
-.triage-slot-project {
-  --mark: var(--project-mark);
-}
 
 /* A debt keeps the strong red, whatever zone it is in. */
 .triage-slot.project-slot-late {

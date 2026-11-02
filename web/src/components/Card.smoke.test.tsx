@@ -35,10 +35,6 @@ function draw(c: Card) {
 }
 
 describe("what a card's left stripe says", () => {
-  it("marks a PROJECT card", () => {
-    expect(draw(card({ scope: "Auth", project: "core" }))).toContain("card-project");
-  });
-
   it("marks a REVIEW card", () => {
     expect(draw(card({ reviewOf: "c0" }))).toContain("card-review");
   });

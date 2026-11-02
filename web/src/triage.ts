@@ -65,11 +65,11 @@ export function daysRanOut(c: Pick<Card, "startDate" | "day">, week: string): bo
  *  took the current week and stayed invisible everywhere the work is done.
  *  Mirrors the same branch of boardservice.Place. */
 export function broughtBack(
-  c: Pick<Card, "startDate" | "day" | "scope" | "domain">,
+  c: Pick<Card, "startDate" | "day" | "domain">,
   week: string,
   today: string,
 ): { startDate: string; day: string } | null {
-  if (week !== mondayOf(today) || c.scope) {
+  if (week !== mondayOf(today)) {
     return null;
   }
   if (!daysRanOut(c, week)) {
@@ -153,7 +153,7 @@ export function ordersWithinCell(c: Pick<Card, "reviewOf">): boolean {
  *  Cards of the same rank keep the order the board holds them in, so the
  *  order somebody set by hand still means something among its peers. */
 export function pileRank(
-  c: Pick<Card, "overdue" | "scope" | "zone" | "week"> & { projected?: boolean },
+  c: Pick<Card, "overdue" | "zone" | "week"> & { projected?: boolean },
   thisWeek?: string,
 ): number {
   // A DEBT first: its day has passed and it is still open. That is not the
@@ -165,11 +165,9 @@ export function pileRank(
   if (c.overdue || (thisWeek && c.week && c.week < thisWeek)) {
     return 0;
   }
-  if (c.scope) {
-    return 1;
-  }
   // A repeating card drawn ahead of itself: it will take the week's time
-  // whether or not anybody plans around it.
+  // whether or not anybody plans around it. (A project card used to read
+  // between the debts and this; it is not on this board any more, H4.)
   if (c.projected) {
     return 2;
   }
@@ -189,7 +187,7 @@ export function pileRank(
 
 /** byPile sorts a cell's cards into that order, leaving equals as they were. */
 export function byPile<T>(
-  of: (item: T) => Pick<Card, "overdue" | "scope" | "zone" | "week"> & { projected?: boolean },
+  of: (item: T) => Pick<Card, "overdue" | "zone" | "week"> & { projected?: boolean },
   thisWeek?: string,
 ) {
   return (a: T, b: T) => pileRank(of(a), thisWeek) - pileRank(of(b), thisWeek);
@@ -254,44 +252,15 @@ export function reachOf(c: Pick<Card, "week" | "day">): string {
   return weeks[weeks.length - 1] ?? "";
 }
 
-/** Grip is how far a card may be carried in TIME on this board: anywhere or
- *  nowhere. Where it may go between PEOPLE is a separate question — every
- *  card changes hands freely. */
-export type Grip = "free" | "pinned";
-
-/** gripOf is what the catch (the padlock) and the card's own kind allow.
- *
- *  A PROJECT card's weeks are the Project board's: it is carried between
- *  hands and not in time, until the catch is lifted.
- *
- *  Everything else the board draws is the board's own work, and its week is
- *  whichever one somebody drags it to. */
-export function gripOf(c: Pick<Card, "scope">, opts: { unlocked: boolean }): Grip {
-  if (c.scope) {
-    return opts.unlocked ? "free" : "pinned";
-  }
-  return "free";
-}
-
-/** removableOnTriage reports whether the × is drawn on a card here. A PROJECT
- *  card is not this board's to destroy — it is a commitment made on the
- *  Project board — so the × appears on it only with the catch lifted, the
- *  same gesture that admits everything else about it.
- *
- *  And only where it has something to OFFER. `choices` is what the card
- *  allows (removal.removeChoices): a project card that nobody has taken is
- *  already where the only option would put it, so the list is empty — and the
- *  × opened a dialog with no buttons in it, closing only on Escape. An × that
- *  does nothing reads as a delete that failed. */
-export function removableOnTriage(
-  c: Pick<Card, "scope">,
-  unlocked: boolean,
-  choices: readonly unknown[] = [1],
-): boolean {
-  if (choices.length === 0) {
-    return false;
-  }
-  return !c.scope || unlocked;
+/** removableOnTriage reports whether the × is drawn on a card here: only
+ *  where it has something to OFFER. `choices` is what the card allows
+ *  (removal.removeChoices); an empty list opened a dialog with no buttons in
+ *  it, closing only on Escape — an × that does nothing reads as a delete
+ *  that failed. Every card this board draws is the board's own work: a
+ *  project card, which used to be pinned here behind a catch, is not on it
+ *  at all any more (H4). */
+export function removableOnTriage(choices: readonly unknown[]): boolean {
+  return choices.length > 0;
 }
 
 /** deferred reports that a card has been scheduled AWAY from today: its start

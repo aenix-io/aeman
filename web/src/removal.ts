@@ -16,12 +16,6 @@ export interface RemovalContext {
   current?: string;
   previous?: string;
   today: string;
-  /** Whether the column a SUBTASK carries can come with it out of the
-   *  group (placements.columnFollows, mirroring the server's rule of the
-   *  same name). False only on a multi-repository board, where the column
-   *  can belong to the parent's repository and the card cannot keep it;
-   *  absent means "it can", which is the answer everywhere else. */
-  columnFollows?: boolean;
 }
 
 /** HomesOf is what the grid × needs to know about a card: where else it is,
@@ -107,8 +101,7 @@ export function inWorkingArea(c: RemovalHomes): boolean {
 }
 
 /** hasColumn: the card sits in a Project-board column, which the board
- *  renders by its scope. (slots.isSlot is a different question — whether the
- *  card has taken a ROW on that board — and the two must not be confused.) */
+ *  renders by its scope — a PROJECT card, drawn there and nowhere else (H4). */
 export function hasColumn(c: RemovalHomes): boolean {
   return !!c.scope;
 }
@@ -124,29 +117,16 @@ export type Outcome = "leave" | "delete" | "ungroup";
  *  answer it differently and hard-deleted what the Team board kept. */
 export function gridRemoval(
   c: RemovalHomes & Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent">,
-  ctx: RemovalContext,
+  _ctx: RemovalContext,
 ): Outcome {
   // A subtask has no sprint history of its own: it rides its parent, and
   // demoting it alone would split the family across two sprints — which is
   // what syncChildrenSprint exists to prevent. The × deletes it, and it is
-  // gone from under its parent at once — unless it stands in a COLUMN,
-  // which is a home of its own (G57). Then the × takes it OUT OF THE GROUP
-  // and leaves it there: releasing it while still a subtask would break
-  // the person/sprint pair its parent owns, or be undone by the next
-  // carry-over. The work stays planned in its column.
+  // gone from under its parent at once. (It used to be released into a
+  // column it carried; a subtask carries none now — a card in a column is
+  // nobody's subtask, H4.)
   if (c.parent) {
-    if (!hasColumn(c)) {
-      return "delete";
-    }
-    if (ctx.columnFollows === false) {
-      // The column belongs to the repository the card is LEAVING, so the
-      // pull-out cannot take it along: the server repairs it away and the
-      // card is answered like any other columnless one, which is deletion.
-      // Reading it as an ungroup here made a board patch the card as kept
-      // and let a destructive × through with no question.
-      return "delete";
-    }
-    return "ungroup";
+    return "delete";
   }
   // A card with a WEEK still has the Triage board to be on: taking it off
   // the day grid puts it back in that week rather than destroying it. Only

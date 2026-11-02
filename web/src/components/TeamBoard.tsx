@@ -23,7 +23,6 @@ import { TeamsModal } from "./TeamsModal";
 import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
-import { slotWeekPatch } from "../slots";
 import { subtaskShows } from "../subtasks";
 import {
   asksFirst,
@@ -35,13 +34,7 @@ import {
   subtaskRemovalPatch,
   subtaskRemovalUndo,
 } from "../removal";
-import {
-  columnFollows,
-  datesAreAnotherBoards,
-  makeCardPlacements,
-  rosterOf,
-  type CardPlacements,
-} from "../placements";
+import { makeCardPlacements, type CardPlacements } from "../placements";
 import { parkedLocally } from "../backlog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
@@ -717,11 +710,7 @@ export function TeamBoard({
       counterpartAssignees={counterpartAssigneesFor(card)}
       onSetReviewAssignee={handleSetReviewAssignee}
       asOf={selectedDate}
-      // A project card's dates are its ROW on the Project board — the week
-      // it stands in is the Monday of its start, and its span is how many
-      // weeks the work takes. This board does not re-date another board's
-      // commitment in passing (placements.datesAreAnotherBoards).
-      onSetDates={datesAreAnotherBoards(card) ? undefined : handleSetDates}
+      onSetDates={handleSetDates}
       onDefer={handleDefer}
       dimAvatar
       subCount={(childrenOf.get(card.itemId) ?? []).length}
@@ -990,30 +979,7 @@ export function TeamBoard({
     current: currentSprint(board, card.team ?? null) ?? undefined,
     previous: previousSprintFor(card) ?? undefined,
     today: todayIso(),
-  // Whether the column a subtask carries can come with it out of the group:
-  // the answer decides whether the × ungroups the card or hands it to the
-  // ordinary law (demote, or delete), and only the roster knows. A review
-  // card's link outranks its own team and project, so the card it points at
-  // answers for it.
-    // Only a card in a column can lose one, and finding the linked card
-    // is a scan of the board: asked when the question can arise.
-    columnFollows: card.scope
-      ? columnFollows(
-          card,
-          { ...rosterOf(board), scopes: board.scopes, teamDomains: board.teamDomains },
-          linkedDomainOf(card),
-        )
-      : true,
   });
-  // The repository of the card a subtask would still point at once its
-  // parent is gone: its original.
-  const linkedDomainOf = (card: CardModel): string | undefined => {
-    const ref = card.reviewOf;
-    if (!ref) {
-      return undefined;
-    }
-    return cardsById.get(ref)?.domain ?? undefined;
-  };
   const reviewOf = (card: CardModel) =>
     board.cards.find((c) => c.reviewOf === card.itemId)?.title ?? null;
 
@@ -1397,9 +1363,6 @@ export function TeamBoard({
       startDate: start ?? undefined,
       sprintStart: sprint ?? undefined,
       day: end ?? undefined,
-      // A slot's WEEK follows its start date, or the card keeps standing
-      // in the week it left until the next full load.
-      ...slotWeekPatch(card, start),
     });
     void provider
       .patchCard(card.itemId, {

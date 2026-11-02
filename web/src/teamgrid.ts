@@ -31,6 +31,12 @@ export function inHandOn(
   if (c.parent || parked(c)) {
     return false;
   }
+  // A card in a Scope column is a PROJECT CARD: the Project board's plan,
+  // not work in hand, whatever its week or dates say (H4,
+  // docs/design/hierarchy.md). Mirrors the same line in board.TeamGrid.
+  if (c.scope) {
+    return false;
+  }
   // Somebody has to have said WHEN: a week, a date or a sprint. A card with
   // none of the three is the Triage strip — an inbox, not a day's work — and
   // drawing it here would land the inbox in every column and keep it there.

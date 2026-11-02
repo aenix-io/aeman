@@ -32,8 +32,7 @@ globalThis.localStorage = {
 const week = mondayOf(todayIso());
 // Friday of this week: a card of ONE week.
 const thisFriday = addDays(week, 4);
-// Wednesday and Friday of the NEXT one: a card reaching into a second week.
-const nextWednesday = addDays(week, 9);
+// Friday of the NEXT one: a card reaching into a second week.
 const nextFriday = addDays(week, 11);
 // The two Mondays after this one — repeats still to come, and deadlines.
 const nextWeek = addDays(week, 7);
@@ -129,38 +128,22 @@ describe("the Triage board", () => {
     expect(draw([card({ zone: "green" })])).toContain("triage-slot-zone-green");
   });
 
-  it("stripes a project card with the project mark, not a zone", () => {
-    // A slot is a commitment made on the Project board and only passing
-    // through this one: its week is that board's to say, so a zone stripe
-    // would credit the decision to somebody who did not make it.
-    const html = draw([card({ scope: "Storage", day: thisFriday, zone: "red" })]);
-    expect(html).toContain("triage-slot-project");
-    expect(html).not.toContain("triage-slot-zone-red");
-  });
-
-  it("marks every week a stretched slot passes through", () => {
-    // Split across its weeks, each box is the same commitment and wears the
-    // same mark — one part carrying a zone stripe would read as two cards.
-    const html = draw([card({ scope: "Storage", day: nextWednesday })]);
-    expect(html.match(/triage-slot-project/g)).toHaveLength(2);
-  });
-
   it("stacks a week in the order somebody triaging wants to meet it", () => {
-    // Debts first, then the project's own work, then the zones.
+    // Debts first, then the zones. (A project card used to stand between
+    // the two; it is not on this board any more, H4.)
     const html = draw([
       card({ itemId: "a", title: "If time left", zone: "green" }),
       card({ itemId: "b", title: "Planned", zone: "gray" }),
-      card({ itemId: "c", title: "A slot", scope: "Storage" }),
       card({ itemId: "d", title: "Urgent", zone: "red" }),
       card({ itemId: "e", title: "A debt", zone: "green", overdue: true }),
     ]);
-    const order = ["A debt", "A slot", "Urgent", "Planned", "If time left"];
+    const order = ["A debt", "Urgent", "Planned", "If time left"];
     expect(order.map((t) => html.indexOf(t))).toEqual(
       [...order.map((t) => html.indexOf(t))].sort((x, y) => x - y),
     );
     // …and they stand under one another, in that order.
     expect(html).toContain("margin-top:0px");
-    expect(html).toContain("margin-top:112px");
+    expect(html).toContain("margin-top:84px");
   });
 
   it("colours the progress bar by stage, as Team and Me do", () => {
@@ -332,23 +315,6 @@ describe("the Triage board", () => {
       "triage-slot-resize",
     );
     expect(draw([card()])).not.toContain("triage-slot-resize");
-  });
-
-  it("keeps the × off a project card while the catch is closed", () => {
-    // What the × does to one is the Project board's business too.
-    expect(draw([card({ scope: "Storage", day: thisFriday })])).not.toContain(
-      "card-action-delete",
-    );
-    expect(draw([card()])).toContain("card-action-delete");
-  });
-
-  it("offers a catch to lift, and starts with it closed", () => {
-    // Never remembered: a guard that stays open is not a guard, so every
-    // visit begins with a project card's weeks held still.
-    const html = draw([card({ scope: "Storage", day: thisFriday })]);
-    expect(html).toContain('class="triage-lock"');
-    expect(html).toContain('aria-pressed="false"');
-    expect(html).not.toContain("triage-lock-open");
   });
 
   it("says beside a name what that person is carrying, in points and nothing else", () => {

@@ -119,10 +119,11 @@ export function attachSlotDates(week: string): { startDate: string; day: string 
 export type PlacementRemoval = "orphan" | "delete";
 
 /** removeFromProjectOutcome mirrors boardservice.RemoveFromProject: taking
- *  the card out of its column keeps only a WORKED card (someone had it and
- *  moved it) as an orphan of the working area, and deletes the rest. */
+ *  the card out of its column keeps only a card somebody MOVED — its
+ *  progress is the one trace of work a project card can carry, since it has
+ *  no owner (H4) — as an orphan a lead can hand on, and deletes the rest. */
 export function removeFromProjectOutcome(
-  card: Pick<Card, "project" | "scope" | "assignees" | "progress" | "parent">,
+  card: Pick<Card, "project" | "scope" | "progress">,
   project: string,
   scope: string,
 ): PlacementRemoval | "refused" {
@@ -136,56 +137,19 @@ export function removeFromProjectOutcome(
   if ((card.project ?? "") !== (project ?? "") || (card.scope ?? "") !== scope) {
     return "refused";
   }
-  // A subtask's home is its parent: the column goes, the card stays.
-  const worked = (card.assignees?.length ?? 0) > 0 && (card.progress ?? 0) > 0;
-  return worked || card.parent ? "orphan" : "delete";
+  return (card.progress ?? 0) > 0 ? "orphan" : "delete";
 }
 
-/** countedForProgress decides whether a card counts towards one progress
- *  figure. The Project board draws a subtask that carries its own column,
- *  so it must count — unless its PARENT is counted in the SAME figure,
- *  whose progress already derives from its children: counting both would
- *  weigh that work twice.
- *
- *  `where` is the figure being computed: a project's line ({project}), or
- *  one column ({project, scope}). The parent answers for that figure when
- *  it is DRAWN in it (columnsOf), so the question is asked per figure and
- *  not once per card.
- *
- *  A parent nothing draws (a column with no dates is no slot) answers
- *  nowhere — deferring to it dropped the child's work from every bar while
- *  its slot sat in the column. */
-export function countedForProgress(
-  card: Pick<Card, "itemId" | "parent" | "project" | "scope">,
-  byId: ReadonlyMap<
-    string,
-    Pick<Card, "itemId" | "project" | "scope" | "startDate" | "week">
-  >,
-  where: { project: string; scope?: string },
+/** canBeFiledIntoAColumn reports whether the picker may offer a card a
+ *  column at all. A card in a column is a PROJECT CARD and stands there alone
+ *  (H4): one that carries a team, an owner, a parent or a review link is
+ *  somebody's work in hand, and the server refuses to file it
+ *  (ErrProjectCard) — so the picker offers it nothing, rather than a column
+ *  that comes back as 422. Mirrors boardservice.projectCardCannotCarry. */
+export function canBeFiledIntoAColumn(
+  card: Pick<Card, "team" | "assignees" | "parent" | "reviewOf">,
 ): boolean {
-  if (!card.parent) {
-    return true;
-  }
-  const parent = byId.get(card.parent);
-  if (!parent || !drawnAsSlot(parent)) {
-    return true;
-  }
-  return !columnsOf(parent).some(
-    (c) => c.project === where.project && (where.scope === undefined || c.scope === where.scope),
-  );
-}
-
-/** countedAmong is the de-duplication for a figure that spans several
- *  columns — a board's header total, a project's line: a subtask counts
- *  unless its PARENT is drawn in the SAME figure, whose bar already derives
- *  from it. Asked by identity, because such a figure has no single
- *  (project, scope) pair to compare against; countedForProgress asks the
- *  same question of one column or one project. */
-export function countedAmong(
-  card: Pick<Card, "parent">,
-  drawn: ReadonlySet<string>,
-): boolean {
-  return !card.parent || !drawn.has(card.parent);
+  return !card.team && (card.assignees?.length ?? 0) === 0 && !card.parent && !card.reviewOf;
 }
 
 /** CardPlacements is everything the assign menu needs to attach one card —
@@ -205,7 +169,11 @@ export interface CardPlacements {
 /** placementTargets computes the attach targets for a card from the board —
  *  the same filters the server applies, so the picker offers only what
  *  would be accepted. A card already in a column is offered nothing: it is
- *  re-filed on the Project board, not from this menu. */
+ *  re-filed on the Project board, not from this menu. Nor is a card that
+ *  carries a team, an owner, a parent or a review link: a card in a column
+ *  has none of those (H4), and the server refuses the filing. What is left
+ *  — a card nothing holds — lives in the primary, and may be attached to a
+ *  column of the primary. */
 export function placementTargets(
   card: Pick<
     Card,
@@ -215,6 +183,7 @@ export function placementTargets(
     | "stage"
     | "parent"
     | "team"
+    | "assignees"
     | "reviewOf"
   >,
   board: {
@@ -224,26 +193,11 @@ export function placementTargets(
     domains?: readonly DomainInfo[];
   },
 ): Pick<CardPlacements, "attach"> {
-  if (card.scope) {
+  if (card.scope || !canBeFiledIntoAColumn(card)) {
     return {};
   }
-  // A subtask may carry a column of its own (G14), and the Project board's
-  // × takes that column away, so without the offer the × would be a
-  // one-way door. The rule lives here rather than in each board, or the
-  // next board to render cards has to remember it a third time.
-  if (card.parent) {
-    return {
-      // A LINK holds the card where the linked card is, ahead of its
-      // project (G14) — so a subtask cannot follow a new project into
-      // another repository any more than a teamed card can, and the
-      // columns there are refusals with a friendly label.
-      attach: attachTargets(board.projects, board.scopes, card.domain ?? "", true,
-        rosterOf(board)),
-    };
-  }
   return {
-    attach: attachTargets(board.projects, board.scopes, card.domain ?? "",
-      !!card.team || !!card.reviewOf, rosterOf(board)),
+    attach: attachTargets(board.projects, board.scopes, card.domain ?? "", false, rosterOf(board)),
   };
 }
 
@@ -359,17 +313,15 @@ export function drawnOnProjectBoard(
  *  any other choice — so the badge shows it and offers no list. It is NOT
  *  a reason to close the menu the badge opens: the same menu carries "Mark
  *  as done". */
-export function teamFollowsParent(card: Pick<Card, "parent">): boolean {
-  return !!card.parent;
-}
-
 /** drawnAsSlot reports whether the card HAS a slot on the Project grid: a
- *  column alone is not enough — a slot spans weeks, so it needs dates. The
- *  progress bars count what has a slot, whether or not the visible week
- *  window happens to be scrolled to it; what they must not count is a card
- *  with no slot at all, which nobody can see anywhere. */
-export function drawnAsSlot(card: Pick<Card, "scope" | "startDate" | "week">): boolean {
-  return !!card.scope && (!!card.startDate || !!card.week);
+ *  column alone is not enough — a slot spans weeks, so it needs a start
+ *  date, which is its row. The progress bars count what has a slot, whether
+ *  or not the visible week window happens to be scrolled to it; what they
+ *  must not count is a card with no slot at all, which nobody can see
+ *  anywhere. (A stored week used to stand in for a missing start; nothing
+ *  writes a week on a project card any more, H4.) */
+export function drawnAsSlot(card: Pick<Card, "scope" | "startDate">): boolean {
+  return !!card.scope && !!card.startDate;
 }
 
 /** hasOriginToShow reports whether the assign menu's origin block has any
@@ -418,44 +370,6 @@ export function teamsACardCanTake(
       t === current ||
       sameRepository(rosterDomain(teamDomains, t), columnDomain, roster),
   );
-}
-
-/** columnFollows mirrors boardservice.columnFollows: whether the column a
- *  SUBTASK carries can come with it out of the group. Once the parent link
- *  is gone the card's file goes where its own project — or, failing that,
- *  its team — names, and a column of any OTHER repository has to be left
- *  behind; the card is then an ordinary columnless one, which is what the ×
- *  answers for. An UNDECLARED column is left alone, exactly as the server
- *  leaves it.
- *
- *  `linked` is the repository of the card this one still points at when the
- *  parent is gone — the original it reviews — since a link outranks both
- *  project and team (G14). Omitted for the ordinary subtask, which points
- *  at nothing else. */
-export function columnFollows(
-  card: Pick<Card, "project" | "scope" | "team">,
-  roster: RosterHomes & {
-    scopes: readonly ScopeRef[];
-    teamDomains?: RosterDomains;
-  },
-  linked?: string,
-): boolean {
-  if (!card.scope) {
-    return true;
-  }
-  const col = roster.scopes.find(
-    (e) => e.name === card.scope && (e.project ?? "") === (card.project ?? ""),
-  );
-  if (!col) {
-    return true;
-  }
-  const home =
-    linked !== undefined
-      ? linked
-      : card.project
-        ? rosterDomain(roster.projectDomains, card.project)
-        : rosterDomain(roster.teamDomains, card.team ?? "");
-  return sameRepository(col.domain, home, roster);
 }
 
 /** columnsOf lists the columns a card is drawn in: its (project, scope) pair,
@@ -522,41 +436,18 @@ export function projectsWithColumns(
 }
 
 /** CardMark is what a card's left stripe says about where the work came FROM:
- *  a REVIEW waiting on this person, a PROJECT board's commitment — or
- *  nothing, for the day board's own work. The stripe is worth a glance
- *  precisely because it marks what arrived from elsewhere. */
-export type CardMark = "review" | "project" | "";
+ *  a REVIEW waiting on this person — or nothing, for the day board's own
+ *  work. The stripe is worth a glance precisely because it marks what
+ *  arrived from elsewhere. (A PROJECT board's commitment used to be the
+ *  other kind; the day boards and Triage draw no project card any more,
+ *  H4.) */
+export type CardMark = "review" | "";
 
 /** markOf answers it once, for every board that draws the mark: the day
- *  boards down a card's left edge (Card.tsx: .card-review / -project) and
- *  the Triage board on its own slot (.triage-slot-project). Two boards
- *  deciding this separately is how one of them came to draw no mark at all
- *  after the weekly plan — whose band the stripe used to be — was taken out.
- *
- *  A review card of a project card is BOTH; the waiting is the innermost
- *  thing about it, so that is what the stripe says. Triage never meets a
- *  review card (a review follows the card it reviews and is not scheduled),
- *  so the two boards agree wherever they both draw. */
-/** datesAreAnotherBoards reports that a card's dates are not this board's to
- *  change.
- *
- *  A Project-board SLOT's dates ARE its row there: the week it stands in is
- *  the Monday of its start, and its span is how many weeks the work takes.
- *  Editing them from a day board re-dates another board's commitment in
- *  passing — the same thing the Triage board's catch holds still (triage.gripOf
- *  answers "pinned"), said about the dates instead of about the drag.
- *
- *  It is a rule of the DAY BOARDS, not of the server. The Project board sets
- *  those dates itself and must go on doing so, and the server cannot tell
- *  which board is asking: a narrowing meant for one board, put in the service,
- *  refused every board that sends the same call. */
-export function datesAreAnotherBoards(c: Pick<Card, "scope">): boolean {
-  return !!c.scope;
-}
-
-export function markOf(c: Pick<Card, "reviewOf" | "scope">): CardMark {
-  if (c.reviewOf) {
-    return "review";
-  }
-  return c.scope ? "project" : "";
+ *  boards down a card's left edge (Card.tsx: .card-review) and the Triage
+ *  board on its own slot. Two boards deciding this separately is how one of
+ *  them came to draw no mark at all after the weekly plan — whose band the
+ *  stripe used to be — was taken out. */
+export function markOf(c: Pick<Card, "reviewOf">): CardMark {
+  return c.reviewOf ? "review" : "";
 }

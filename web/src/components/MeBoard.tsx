@@ -42,12 +42,7 @@ import {
   subtaskRemovalUndo,
   type RemoveChoice,
 } from "../removal";
-import {
-  columnFollows,
-  makeCardPlacements,
-  rosterOf,
-  type CardPlacements,
-} from "../placements";
+import { makeCardPlacements, type CardPlacements } from "../placements";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
@@ -1094,30 +1089,7 @@ export function MeBoard({
     current: currentSprint(board, card.team ?? null) ?? undefined,
     previous: previousSprint(board, card.team ?? null) ?? undefined,
     today: todayIso(),
-  // Whether the column a subtask carries can come with it out of the group:
-  // the answer decides whether the × ungroups the card or hands it to the
-  // ordinary law (demote, or delete), and only the roster knows. A review
-  // card's link outranks its own team and project, so the card it points at
-  // answers for it.
-    // Only a card in a column can lose one, and finding the linked card
-    // is a scan of the board: asked when the question can arise.
-    columnFollows: card.scope
-      ? columnFollows(
-          card,
-          { ...rosterOf(board), scopes: board.scopes, teamDomains: board.teamDomains },
-          linkedDomainOf(card),
-        )
-      : true,
   });
-  // The repository of the card a subtask would still point at once its
-  // parent is gone: its original.
-  const linkedDomainOf = (card: CardModel): string | undefined => {
-    const ref = card.reviewOf;
-    if (!ref) {
-      return undefined;
-    }
-    return board.cards.find((c) => c.itemId === ref)?.domain ?? undefined;
-  };
   // What the × actually does to a team card here — the same answer the Team
   // board gets, from the same place (gridRemoval, mirroring
   // boardservice.Remove). This board used to decide on its own and sent

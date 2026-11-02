@@ -89,19 +89,14 @@ describe("pileRank", () => {
     );
   });
 
-  it("puts the project's own work after the debts and before the zones", () => {
-    const slot = card({ scope: "Storage" });
-    expect(pileRank(slot)).toBeGreaterThan(pileRank(card({ overdue: true })));
-    expect(pileRank(slot)).toBeLessThan(pileRank(card({ zone: "red" })));
-  });
-
-  // A repeating card drawn ahead of itself is a commitment made elsewhere
-  // too, and it will take the week's time whether or not anybody plans
-  // around it — so it reads right after the project's work and before
-  // anything a zone decides.
-  it("puts the repeating work drawn ahead right after the project's", () => {
+  // A repeating card drawn ahead of itself is a commitment made elsewhere,
+  // and it will take the week's time whether or not anybody plans around it
+  // — so it reads right after the debts and before anything a zone decides.
+  // (A project card used to read between the two; it is not on this board
+  // any more, H4.)
+  it("puts the repeating work drawn ahead after the debts and before the zones", () => {
     const ghost = { ...card({ zone: "green" }), projected: true };
-    expect(pileRank(ghost)).toBeGreaterThan(pileRank(card({ scope: "Storage" })));
+    expect(pileRank(ghost)).toBeGreaterThan(pileRank(card({ overdue: true })));
     expect(pileRank(ghost)).toBeLessThan(pileRank(card({ zone: "red" })));
   });
 
@@ -322,12 +317,6 @@ describe("brought back into the week being worked", () => {
 
   it("leaves a card with no days at all — that one joins the sprint instead", () => {
     expect(broughtBack({}, WEEK, TODAY)).toBeNull();
-  });
-
-  it("never re-dates a project slot: its dates are its row", () => {
-    expect(
-      broughtBack({ startDate: "2026-08-24", day: "2026-08-30", scope: "Auth" }, WEEK, TODAY),
-    ).toBeNull();
   });
 
   it("says nothing about a week that is not the one being worked", () => {
