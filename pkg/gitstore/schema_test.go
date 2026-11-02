@@ -163,18 +163,20 @@ func TestMigrateSchema2ComposesEveryCardRewrite(t *testing.T) {
 	if _, err := r.ReadFile("projects/01JB4PROJ/epics/01JB4COL.yaml"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("the old column path should be gone, err = %v", err)
 	}
-	// Steps 2, 3 and 4 on ONE card, composed.
+	// Steps 2, 3, 4 and 5 on ONE card, composed: the retired keys go, the
+	// column key is respelled, and — a card in a column being a project card
+	// (H4) — the team it carried goes with them.
 	data, err := r.ReadFile("cards/c/1/01JB4K2E7QZMX3R8V0N5T9WYC1.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := string(data)
-	for _, gone := range []string{"epic:", "mirrors:", "process:", "task:"} {
+	for _, gone := range []string{"epic:", "mirrors:", "process:", "task:", "team:"} {
 		if strings.Contains(got, gone) {
 			t.Fatalf("%s survived the bump:\n%s", gone, got)
 		}
 	}
-	for _, kept := range []string{"title: shared work", "team: portal", "project: engineering", "scope: Cozystack", "The body stays."} {
+	for _, kept := range []string{"title: shared work", "project: engineering", "scope: Cozystack", "The body stays."} {
 		if !strings.Contains(got, kept) {
 			t.Fatalf("%q was lost by the bump:\n%s", kept, got)
 		}
@@ -188,6 +190,79 @@ func TestMigrateSchema2ComposesEveryCardRewrite(t *testing.T) {
 		t.Fatalf("an untouched card was rewritten:\n%s", data)
 	}
 	// And the migrated tree loads as a board whose column holds both cards.
+	if again, err := MigrateSchema(r); err != nil || again || r.Head() != c.Hash {
+		t.Fatalf("second run: migrated=%v err=%v head moved %v", again, err, r.Head() != c.Hash)
+	}
+}
+
+// Schema 2's last step (docs/design/hierarchy.md, H4): a card in a column is
+// a PROJECT CARD and stands there alone, so the bump takes off it the team,
+// the owner and the parent it may carry from before — a slot used to be
+// handed to a team and a person, and could be a subtask — and ungroups a
+// card that was grouped UNDER one, since a project card has no subtasks
+// either. A task keeps its team and owner untouched, and a card already in
+// that shape is not rewritten.
+func TestMigrateSchema2TakesAProjectCardOutOfEverybodysHands(t *testing.T) {
+	const planID, pieceID, taskID, cleanID = "01JB4K2E7QZMX3R8V0N5T9WYC1", "01JB4K2E7QZMX3R8V0N5T9WYC2", "01JB4K2E7QZMX3R8V0N5T9WYC3", "01JB4K2E7QZMX3R8V0N5T9WYC4"
+	plan := "---\ntitle: a plan\nassignees:\n  - kvaps\nteam: portal\nstart: 2026-08-24\nday: 2026-08-28\nproject: engineering\nepic: Cozystack\nparent: " + taskID + "\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n\nThe body stays.\n"
+	piece := "---\ntitle: a piece of the plan\nteam: portal\nparent: " + planID + "\nrank: b\ncreated: 2026-08-26T09:15:03Z\n---\n"
+	task := "---\ntitle: a task\nassignees:\n  - kvaps\nteam: portal\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n"
+	clean := "---\ntitle: already a plan\nproject: engineering\nscope: Cozystack\nrank: d\ncreated: 2026-08-26T09:17:03Z\n---\n"
+	r := repoWith(t, map[string]string{
+		BoardPath:                                "schema: 1\ntitle: b\n",
+		TeamPath("01JB4TEAM"):                    "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
+		ProjectPath("01JB4PROJ"):                 "name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		"projects/01JB4PROJ/epics/01JB4COL.yaml": "name: Cozystack\nrank: a\ncreated: 2026-06-04T08:00:00Z\n",
+		"cards/c/1/" + planID + ".md":            plan,
+		"cards/c/2/" + pieceID + ".md":           piece,
+		"cards/c/3/" + taskID + ".md":            task,
+		"cards/c/4/" + cleanID + ".md":           clean,
+	})
+	migrated, err := MigrateSchema(r)
+	if err != nil || !migrated {
+		t.Fatalf("migrated=%v err=%v, want a migration", migrated, err)
+	}
+	c, _ := r.CommitObject(r.Head())
+	// Step 5 on the card in the column: team, owner and parent gone, the rest
+	// as it was — and step 3 composed with it.
+	data, err := r.ReadFile("cards/c/1/" + planID + ".md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	for _, gone := range []string{"team:", "assignees:", "kvaps", "parent:", "epic:"} {
+		if strings.Contains(got, gone) {
+			t.Fatalf("%s survived the bump on a project card:\n%s", gone, got)
+		}
+	}
+	for _, kept := range []string{"title: a plan", "scope: Cozystack", "project: engineering", "start: 2026-08-24", "day: 2026-08-28", "The body stays."} {
+		if !strings.Contains(got, kept) {
+			t.Fatalf("%q was lost by the bump:\n%s", kept, got)
+		}
+	}
+	// The card grouped under it is ungrouped, and keeps everything else.
+	data, _ = r.ReadFile("cards/c/2/" + pieceID + ".md")
+	if got := string(data); strings.Contains(got, "parent:") || !strings.Contains(got, "team: portal") {
+		t.Fatalf("a card grouped under a project card is ungrouped and nothing more:\n%s", got)
+	}
+	// A task keeps its team and owner, byte for byte; a card already in
+	// shape is not rewritten.
+	if data, _ := r.ReadFile("cards/c/3/" + taskID + ".md"); string(data) != task {
+		t.Fatalf("a task was rewritten:\n%s", data)
+	}
+	if data, _ := r.ReadFile("cards/c/4/" + cleanID + ".md"); string(data) != clean {
+		t.Fatalf("a project card already in shape was rewritten:\n%s", data)
+	}
+	// And the migrated tree reads as a board on which the plan has no team.
+	snap, err := Load(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, card := range snap.Cards {
+		if card.ItemID == planID && (card.Team != "" || len(card.Assignees) != 0 || card.Parent != "") {
+			t.Fatalf("the loaded project card still carries %+v", card)
+		}
+	}
 	if again, err := MigrateSchema(r); err != nil || again || r.Head() != c.Hash {
 		t.Fatalf("second run: migrated=%v err=%v head moved %v", again, err, r.Head() != c.Hash)
 	}
