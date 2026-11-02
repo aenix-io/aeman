@@ -85,11 +85,17 @@ func (r *Repo) Rebase(tip plumbing.Hash) (RebaseResult, error) {
 	if err := r.resetLocked(tip); err != nil {
 		return res, err
 	}
+	restore := func(cause error) (RebaseResult, error) {
+		if err := r.resetLocked(head); err != nil {
+			return res, errors.Join(cause, fmt.Errorf("restore local head %s: %w", head, err))
+		}
+		return res, cause
+	}
 	for i := len(replay) - 1; i >= 0; i-- {
 		c := replay[i]
 		writes, err := r.replayWrites(c)
 		if err != nil {
-			return res, err
+			return restore(err)
 		}
 		// Authored by whoever wrote it, when they wrote it; COMMITTED now.
 		// The history is read by committer time — a day's record is the
@@ -101,7 +107,7 @@ func (r *Repo) Rebase(tip plumbing.Hash) (RebaseResult, error) {
 		committer.When = time.Now()
 		h, err := r.commitLocked(c.Message, c.Author, committer, writes, false)
 		if err != nil {
-			return res, err
+			return restore(err)
 		}
 		if h.IsZero() {
 			res.Dropped++
