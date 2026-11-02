@@ -39,7 +39,12 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string) error
 	if card.Scope != "" {
 		return fmt.Errorf("%w: %q is a project card — move its dates on the Project board", ErrProjectCard, card.Title)
 	}
-	if card.Parent != "" {
+	if err := notAPlanningCard(card, "week"); err != nil {
+		return err
+	}
+	// A subtask given a week leaves its group; a task under an epic keeps
+	// its place in the hierarchy — the week is its own (H1).
+	if board.IsSubtask(b, card) {
 		if err := s.ungroup(ctx, b, card); err != nil {
 			return err
 		}

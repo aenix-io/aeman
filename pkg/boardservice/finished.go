@@ -54,6 +54,9 @@ func (s *Service) FinishedEarlier(ctx context.Context, boardID string, itemID st
 	if err != nil {
 		return err
 	}
+	if err := notAPlanningCard(card, "sprint"); err != nil {
+		return err
+	}
 	if !board.Complete(card.Stage, card.Progress) {
 		return fmt.Errorf("%w: %q", ErrNotFinished, card.Title)
 	}

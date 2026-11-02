@@ -276,6 +276,11 @@ func (s *Service) MeView(ctx context.Context, boardID string, user, day string) 
 // the team's first sprint only when it has none), true = always (re)start the
 // pointer on the day, false = same as auto (start one only when there is none).
 type CreateCardArgs struct {
+	// Type is the card's level: "" (a task), "goal", "initiative" or "epic".
+	// A planning card is drawn on the Roadmap and on no day board; it is
+	// born with no sprint, band, week, shelf, column or review
+	// (docs/design/hierarchy.md). Fixed at create.
+	Type string
 	Team string
 	Zone board.ZoneKey
 	// Size is what the card weighs, when the caller already knows (a sizing
@@ -340,6 +345,9 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	if err := guardDay(args.Day, args.Start, args.SprintStart); err != nil {
 		return board.Card{}, err
 	}
+	if !board.ValidType(args.Type) {
+		return board.Card{}, fmt.Errorf("%w: %q", ErrUnknownType, args.Type)
+	}
 	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return board.Card{}, err
@@ -372,6 +380,11 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 		return board.Card{}, err
 	}
 
+	// A goal, an initiative or an epic is the Roadmap's: a type, its dates
+	// and its owner, and none of a task's day-board state.
+	if args.Type != board.TypeTask {
+		return s.createPlanningCard(ctx, b, args, linkDescription, pendingRef)
+	}
 	// An scope card lives on the Project board: filed under its column,
 	// anchored to its week row, optionally spanning several weeks via
 	// start..day. It joins no sprint.
@@ -597,7 +610,7 @@ func (s *Service) createScopeCard(ctx context.Context, b board.Board, args Creat
 	if args.Assignee != "" {
 		asked.Assignees = []string{args.Assignee}
 	}
-	if err := projectCardCannotCarry(asked, "and cannot be made in a column"); err != nil {
+	if err := projectCardCannotCarry(b, asked, "and cannot be made in a column"); err != nil {
 		return board.Card{}, err
 	}
 	start := args.Start
@@ -616,11 +629,16 @@ func (s *Service) createScopeCard(ctx context.Context, b board.Board, args Creat
 		Project: args.Project,
 		Start:   start,
 		Day:     day,
+		// A PLANNING parent, when one was named: the hierarchy's link, which
+		// linksArePossible has already held to the level rule. A task parent
+		// never gets here (projectCardCannotCarry).
+		Parent: args.Parent,
 	})
 	card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
 	if err == nil {
 		s.logEvent(ctx, b, card, board.EventCreated, "", "")
 		s.resolveTitleAsync(ctx, b, card, pendingRef)
+		card, err = s.linkBorn(ctx, b, card, args.Parent)
 	}
 	return card, err
 }
@@ -708,10 +726,13 @@ func selectCarry(b board.Board, team, old, today string) (carry, reseed, relocat
 	// back to an earlier one, or simply old — stays where it is, so removing a
 	// card from the current sprint is final and it never boomerangs back. A
 	// finished recurrent card stays behind and reseeds a fresh copy instead.
+	planning := board.PlanningIDs(b)
 	for _, c := range b.Cards {
 		// A subtask is never carried on its own - it rides with its parent
-		// (below), whatever team either of them belongs to.
-		if c.Parent != "" {
+		// (below), whatever team either of them belongs to. A task under an
+		// epic is not a subtask and is carried like any task (H1); a
+		// planning card is no sprint's work at all (H3).
+		if board.IsPlanning(c) || board.IsSubtaskIn(c, planning) {
 			continue
 		}
 		if c.Team != team {
@@ -906,6 +927,9 @@ func (s *Service) SetRecurrence(ctx context.Context, boardID string, itemID, cyc
 	if err != nil {
 		return err
 	}
+	if err := notAPlanningCard(c, "recurrence"); err != nil {
+		return err
+	}
 	if c.Recurrence == cycle {
 		return nil
 	}
@@ -1050,7 +1074,11 @@ func (s *Service) SetDates(ctx context.Context, boardID string, itemID, start, e
 	}
 	// Re-dating a PROJECT card is planning: its dates are its row on the
 	// Project board, and it is in no sprint, since no team's day board draws
-	// it (H4).
+	// it (H4). A PLANNING card's dates are its bar on the Roadmap, and it is
+	// in no sprint for the same reason (H3).
+	if board.IsPlanning(c) {
+		sprint = ""
+	}
 	if c.Scope != "" {
 		sprint = ""
 	}
@@ -1122,19 +1150,29 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, vie
 	if err != nil {
 		return err
 	}
-	if err := removingSomebodyElsesCard(ctx, c); err != nil {
+	if err := removingSomebodyElsesCard(ctx, b, c); err != nil {
 		return err
 	}
-	if err := removingFromOnesOwnBoard(ctx, c, view); err != nil {
+	if err := removingFromOnesOwnBoard(ctx, b, c, view); err != nil {
 		return err
 	}
+	// A PLANNING card has no working area to be emptied: the × on the
+	// Roadmap takes it off the board, and what sat under it moves up to its
+	// parent (reparentChildren). "Leave it in its week" means nothing here.
+	if board.IsPlanning(c) {
+		if intent != OffBoard {
+			return notAPlanningCard(c, "working area to be left")
+		}
+		return s.deleteWithCascade(ctx, b, c)
+	}
+	subtask := board.IsSubtask(b, c)
 	// OFF THE BOARD is taken at its word: the card goes even though its week
 	// or its column would have kept it, and the subtasks that were pieces of
 	// it go along. Only what this board put on itself, though — a slot
 	// belongs to another board's plan (ErrNotYoursToDestroy). A SUBTASK is
 	// not answered here: the × on one means "out of the group", which the
 	// arm below still decides.
-	if intent == OffBoard && c.Parent == "" {
+	if intent == OffBoard && !subtask {
 		if hasColumn(c) {
 			return fmt.Errorf("%w: %q", ErrNotYoursToDestroy, c.Title)
 		}
@@ -1144,7 +1182,7 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, vie
 	// emptying the working area would leave it with no person, no dates and
 	// no home at all — the state this rule exists to prevent — so the caller
 	// is told to say OffBoard if that is what they meant.
-	if intent == Unassign && c.Parent == "" && !hasColumn(c) && c.Week == "" {
+	if intent == Unassign && !subtask && !hasColumn(c) && c.Week == "" {
 		return fmt.Errorf("%w: %q", ErrNowhereToLeaveIt, c.Title)
 	}
 	// UNASSIGN destroys nothing, and it says so on the button. It is answered
@@ -1165,8 +1203,9 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, vie
 		}
 		// A subtask is pulled out of its group first: standing under a parent
 		// is a home of its own, and leaving it there would make the × look
-		// like it had done nothing.
-		if c.Parent != "" {
+		// like it had done nothing. A task under an epic keeps its place in
+		// the hierarchy — that is not where it is being taken off.
+		if subtask {
 			if err := s.ungroupWith(ctx, b, c, false); err != nil {
 				return err
 			}
@@ -1181,7 +1220,7 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, vie
 	// look like it had done nothing. It is deleted. (It used to be released
 	// into a column it carried; a subtask carries none now — a card in a
 	// column is nobody's subtask, H4.)
-	if c.Parent != "" {
+	if subtask {
 		return s.deleteWithCascade(ctx, b, c)
 	}
 	return s.removeFromGrid(ctx, b, c)
@@ -1483,6 +1522,9 @@ func (s *Service) SetStage(ctx context.Context, boardID string, itemID string, s
 	if _, known := board.Stages[stage]; !known && stage != board.StageNone {
 		return fmt.Errorf("%w: no such stage %q", ErrInvalidStage, stage)
 	}
+	if err := notAPlanningCard(card, "stage"); err != nil {
+		return err
+	}
 	// A review card is auxiliary and one-off: it cannot be made recurrent,
 	// and it cannot be sent to review either — a review of a review is a
 	// chain nothing draws and the stage menu never offered (Card.tsx).
@@ -1681,6 +1723,9 @@ func (s *Service) SetProgress(ctx context.Context, boardID string, itemID string
 	if err != nil {
 		return err
 	}
+	if err := notAPlanningCard(card, "progress"); err != nil {
+		return err
+	}
 	// 100% completes a stageless card; the parent's final 100 waits for
 	// every subtask to be done first.
 	if raw >= 100 && board.OpenChildren(b, card.ItemID) {
@@ -1714,6 +1759,9 @@ func (s *Service) SetProgress(ctx context.Context, boardID string, itemID string
 func (s *Service) SetInProgress(ctx context.Context, boardID string, itemID string) error {
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
+		return err
+	}
+	if err := notAPlanningCard(card, "stage"); err != nil {
 		return err
 	}
 	newStage, newProgress := board.ApplyInProgress(card.Stage, card.Progress)
@@ -1751,6 +1799,9 @@ func (s *Service) SetInProgress(ctx context.Context, boardID string, itemID stri
 func (s *Service) SetZone(ctx context.Context, boardID string, itemID string, zone board.ZoneKey) error {
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
+		return err
+	}
+	if err := notAPlanningCard(card, "band"); err != nil {
 		return err
 	}
 	if err := s.backend.SetZone(ctx, b, card, zone); err != nil {
@@ -1935,6 +1986,9 @@ func (s *Service) SetSprintStart(ctx context.Context, boardID string, itemID, da
 	if err != nil {
 		return err
 	}
+	if err := notAPlanningCard(card, "sprint"); err != nil {
+		return err
+	}
 	if err := s.backend.SetSprintStart(ctx, b, card, date); err != nil {
 		return err
 	}
@@ -1966,12 +2020,16 @@ func (s *Service) SetBacklog(ctx context.Context, boardID string, itemID string,
 	if parked && card.Scope != "" {
 		return fmt.Errorf("%w: %q", ErrNotYoursToPark, card.Title)
 	}
+	if err := notAPlanningCard(card, "shelf"); err != nil {
+		return err
+	}
 	// And a REVIEW card or a SUBTASK has no place of its own to be parked
 	// out of: one follows the card it reviews, the other stands inside its
 	// parent. Parking either takes it out of the only place it is drawn and
 	// leaves it where nothing looks — which is why no × ever offered the
-	// shelf for them (removal.ts).
-	if parked && (card.ReviewOf != "" || card.Parent != "") {
+	// shelf for them (removal.ts). A task under an epic has a place of its
+	// own and may be parked like any task.
+	if parked && (card.ReviewOf != "" || board.IsSubtask(b, card)) {
 		return fmt.Errorf("%w: %q", ErrNoPlaceOfItsOwn, card.Title)
 	}
 	if err := s.backend.SetBacklog(ctx, b, card, parked); err != nil {
@@ -2062,6 +2120,9 @@ func (s *Service) SetWeek(ctx context.Context, boardID string, itemID, week stri
 	if err != nil {
 		return err
 	}
+	if err := notAPlanningCard(card, "week"); err != nil {
+		return err
+	}
 	if card.Scope != "" {
 		// A PROJECT card is on no weekly plan (H4): its dates are its row on
 		// the Project board. Clearing a week it should not have (one written
@@ -2083,8 +2144,9 @@ func (s *Service) SetWeek(ctx context.Context, boardID string, itemID, week stri
 	// the group and schedule it". A refusal here would leave them with no
 	// gesture at all: grouping has already taken the card's week, and the ×
 	// deletes it, so a card dropped under the wrong parent could not be
-	// freed. Clearing a week is not that request and ungroups nothing.
-	if week != "" && card.Parent != "" {
+	// freed. Clearing a week is not that request and ungroups nothing. A
+	// task under an epic is not in a group: its week is its own.
+	if week != "" && board.IsSubtask(b, card) {
 		if err := s.ungroup(ctx, b, card); err != nil {
 			return err
 		}
@@ -2217,6 +2279,11 @@ func (s *Service) SendToReview(ctx context.Context, boardID string, itemID, revi
 
 // sendToReview is the create-review-card half of SendToReview over a loaded board.
 func (s *Service) sendToReview(ctx context.Context, b board.Board, card board.Card, reviewer, day string, zone board.ZoneKey) (board.Card, error) {
+	// A review carries an owner and a team's sprint: a planning card has
+	// neither to give (H3).
+	if err := notAPlanningCard(card, "review"); err != nil {
+		return board.Card{}, err
+	}
 	if day == "" {
 		day = board.TodayIso()
 	}
@@ -2384,8 +2451,9 @@ func (s *Service) SetAssignee(ctx context.Context, boardID string, itemID, login
 	// instead of drifting away from it. A family that drifts apart lands on
 	// two people's Me boards — the Me view admits a card when you own one of its
 	// subtasks, so one stray child drags the parent and every sibling onto a
-	// board they are not part of.
-	if card.Parent != "" {
+	// board they are not part of. A task under an epic has an owner of its
+	// own (H1).
+	if board.IsSubtask(b, card) {
 		if p, ok := findCard(b, card.Parent); ok {
 			login = ""
 			if len(p.Assignees) > 0 {
@@ -2410,7 +2478,7 @@ func (s *Service) SetAssignee(ctx context.Context, boardID string, itemID, login
 // syncChildrenAssignee puts every subtask on the person its parent is on. It
 // is a no-op for a card without subtasks.
 func (s *Service) syncChildrenAssignee(ctx context.Context, b board.Board, parent board.Card, login string) error {
-	if parent.Parent != "" {
+	if board.IsSubtask(b, parent) {
 		return nil // a subtask has no subtasks of its own
 	}
 	for _, c := range board.Children(b, parent.ItemID) {
@@ -2438,8 +2506,9 @@ func (s *Service) SetTeam(ctx context.Context, boardID string, itemID, team, day
 		return err
 	}
 	// A subtask always belongs to its parent's team: a direct change follows
-	// the parent instead of drifting away from it.
-	if card.Parent != "" {
+	// the parent instead of drifting away from it. A task under an epic has
+	// a team of its own (H1).
+	if board.IsSubtask(b, card) {
 		if p, ok := findCard(b, card.Parent); ok {
 			team = p.Team
 		}
@@ -2466,8 +2535,10 @@ func (s *Service) SetTeam(ctx context.Context, boardID string, itemID, team, day
 	if sprintStart == "" {
 		sprintStart = day
 	}
-	// A project card losing a stale team joins no sprint: no day board draws it.
-	if card.Scope != "" {
+	// A project card losing a stale team joins no sprint: no day board draws
+	// it. Nor does a planning card — its team is whose plan it is, not whose
+	// sprint (H3).
+	if card.Scope != "" || board.IsPlanning(card) {
 		sprintStart = ""
 	}
 	if err := s.setTeamOne(ctx, b, card, team, sprintStart); err != nil {
@@ -2669,7 +2740,7 @@ func (s *Service) DeleteCard(ctx context.Context, boardID string, itemID string)
 	if err != nil {
 		return err
 	}
-	if err := removingSomebodyElsesCard(ctx, card); err != nil {
+	if err := removingSomebodyElsesCard(ctx, b, card); err != nil {
 		return err
 	}
 	return s.deleteWithCascade(ctx, b, card)
@@ -2709,9 +2780,9 @@ func (s *Service) DeleteCard(ctx context.Context, boardID string, itemID string)
 // while, the browser drawing no × and the service allowing one.
 //
 // Every other board's × is the wide one and is not touched here.
-func removingFromOnesOwnBoard(ctx context.Context, card board.Card, view board.View) error {
+func removingFromOnesOwnBoard(ctx context.Context, b board.Board, card board.Card, view board.View) error {
 	actor := board.ActorFrom(ctx)
-	if view != board.ViewMe || actor == "" || card.Parent != "" {
+	if view != board.ViewMe || actor == "" || board.IsSubtask(b, card) {
 		return nil
 	}
 	if card.Author == actor && board.ZoneOf(card) == board.ZoneYellow {
@@ -2720,9 +2791,9 @@ func removingFromOnesOwnBoard(ctx context.Context, card board.Card, view board.V
 	return fmt.Errorf("%w: it is planned work, and the plan is not this board's to unmake — refuse it instead, or use the board it was planned on", ErrNotYoursToRemove)
 }
 
-func removingSomebodyElsesCard(ctx context.Context, card board.Card) error {
+func removingSomebodyElsesCard(ctx context.Context, b board.Board, card board.Card) error {
 	actor := board.ActorFrom(ctx)
-	if actor == "" || card.Parent != "" || card.ReviewOf != "" ||
+	if actor == "" || board.IsSubtask(b, card) || card.ReviewOf != "" ||
 		card.Author == "" || card.Author == actor {
 		return nil
 	}
@@ -2737,6 +2808,15 @@ func removingSomebodyElsesCard(ctx context.Context, card board.Card) error {
 // right, so they return to the board as standalone cards (keeping their team,
 // sprint and dates) instead of vanishing as orphans of a gone parent.
 func (s *Service) deleteWithCascade(ctx context.Context, b board.Board, card board.Card) error {
+	// What sits under a PLANNING card is not its subtasks: it moves up to
+	// the card's own parent, so the tree above the day boards does not fall
+	// apart when a level goes.
+	if board.IsPlanning(card) {
+		if err := s.reparentChildren(ctx, b, card); err != nil {
+			return err
+		}
+		return s.backend.DeleteCard(ctx, b, card)
+	}
 	if reviewCard, ok := findReviewCard(b, card.ItemID); ok {
 		// The review card's OWN subtasks are freed first: deleting it out
 		// from under them left a parent id pointing at a card that is gone
@@ -2817,19 +2897,36 @@ func (s *Service) groupOrUndo(ctx context.Context, b board.Board, card board.Car
 func linksArePossible(b board.Board, args CreateCardArgs) error {
 	if args.Parent != "" {
 		p, ok := findCard(b, args.Parent)
-		if !ok || p.Title == board.SprintStateTitle {
+		if !ok || board.IsStateTitle(p.Title) {
 			return ErrParentNotFound
 		}
-		if p.Parent != "" {
-			return ErrSubtaskDepth
+		asked := board.Card{Title: args.Title, Type: args.Type, Team: args.Team,
+			Project: args.Project, Scope: args.Scope, Parent: args.Parent}
+		if args.Assignee != "" {
+			asked.Assignees = []string{args.Assignee}
 		}
-		if args.Week != "" {
-			return ErrSubtaskWeek
-		}
-		// A card in a column is nobody's subtask and has none (H4); the
-		// create door says so before anything is written.
-		if p.Scope != "" {
-			return fmt.Errorf("%w: %q stands in a column and groups nothing under it", ErrProjectCard, p.Title)
+		// A link with a planning card on either side is the hierarchy's: the
+		// level rule and the repository rule (H2, H6), and nothing else.
+		if board.IsPlanning(p) || board.IsPlanning(asked) {
+			if err := hierarchyLinkAllowed(b, asked, p); err != nil {
+				return err
+			}
+		} else {
+			// Two tasks: a SUBTASK, one level deep, with no week of its own.
+			if board.IsSubtask(b, p) {
+				return ErrSubtaskDepth
+			}
+			if args.Week != "" {
+				return ErrSubtaskWeek
+			}
+			// A card in a column is nobody's subtask and has none (H4); the
+			// create door says so before anything is written.
+			if p.Scope != "" {
+				return fmt.Errorf("%w: %q stands in a column and groups nothing under it", ErrProjectCard, p.Title)
+			}
+			if args.Scope != "" {
+				return fmt.Errorf("%w: %q would stand in a column and is nobody's subtask", ErrProjectCard, args.Title)
+			}
 		}
 	}
 	if args.Scope == "" {

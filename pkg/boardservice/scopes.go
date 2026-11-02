@@ -170,6 +170,11 @@ func (s *Service) SetScope(ctx context.Context, boardID string, itemID, scope st
 	if err != nil {
 		return err
 	}
+	if scope != "" {
+		if err := notAPlanningCard(card, "column"); err != nil {
+			return err
+		}
+	}
 	projectName := card.Project
 	if inProject != nil {
 		projectName = *inProject
@@ -189,7 +194,7 @@ func (s *Service) SetScope(ctx context.Context, boardID string, itemID, scope st
 	// two questions. The person takes those off first — or, more often,
 	// makes a card in the column and links the work under the hierarchy.
 	if scope != "" {
-		if err := projectCardCannotCarry(card, "into a column"); err != nil {
+		if err := projectCardCannotCarry(b, card, "into a column"); err != nil {
 			return err
 		}
 	}
@@ -253,15 +258,17 @@ func (s *Service) SetScope(ctx context.Context, boardID string, itemID, scope st
 }
 
 // projectCardCannotCarry is the H4 admission in one place: a team, an owner,
-// a parent or a review link on a card that stands — or is about to stand —
-// in a column. `where` finishes the sentence for the door that asked.
-func projectCardCannotCarry(c board.Card, where string) error {
+// a TASK parent or a review link on a card that stands — or is about to
+// stand — in a column. A planning parent is not one of them: a project card
+// may sit under an epic, an initiative or a goal (hierarchy.md); it is never
+// a subtask. `where` finishes the sentence for the door that asked.
+func projectCardCannotCarry(b board.Board, c board.Card, where string) error {
 	switch {
 	case c.Team != "":
 		return fmt.Errorf("%w: %q carries a team %s", ErrProjectCard, c.Title, where)
 	case len(c.Assignees) > 0:
 		return fmt.Errorf("%w: %q has an owner %s", ErrProjectCard, c.Title, where)
-	case c.Parent != "":
+	case board.IsSubtask(b, c):
 		return fmt.Errorf("%w: %q is a subtask %s", ErrProjectCard, c.Title, where)
 	case c.ReviewOf != "":
 		return fmt.Errorf("%w: %q is a review %s", ErrProjectCard, c.Title, where)

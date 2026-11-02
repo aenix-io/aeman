@@ -187,9 +187,12 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 	defer f.mu.Unlock()
 	f.nextID++
 	card := board.Card{
-		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Domain: in.Domain,
+		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Type: in.Type, Domain: in.Domain,
 		Zone: in.Zone, StartDate: in.Start, Day: in.Day, SprintStart: in.SprintStart,
 		Week: in.Week, Scope: in.Scope, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
+		// Parent is deliberately NOT copied: this fake stands for a backend
+		// that cannot write the link at create, so the service's own
+		// grouping (and its compensating delete, parentErr) is exercised.
 		Parked: in.Parked, Size: in.Size,
 		Recurrence:  in.Recurrence,
 		Description: in.Body,

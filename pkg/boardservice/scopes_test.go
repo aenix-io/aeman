@@ -302,9 +302,10 @@ func TestAProjectCardTakesNoTeamNoOwnerNoWeek(t *testing.T) {
 }
 
 // A project card is BORN that way: the create door refuses a team, an owner,
-// a parent or a review link together with a column, whichever board asked
-// (the Project board's own add-box through CreateInView, a raw CreateCard
-// from an embedder or an agent).
+// a TASK parent or a review link together with a column, whichever board
+// asked (the Project board's own add-box through CreateInView, a raw
+// CreateCard from an embedder or an agent). A PLANNING parent it may take —
+// a project card sits under an epic and is never a subtask (hierarchy.md).
 func TestAProjectCardIsMadeWithoutATeamOrAnOwner(t *testing.T) {
 	fake := scopeBoard()
 	svc := New(fake)
@@ -312,7 +313,6 @@ func TestAProjectCardIsMadeWithoutATeamOrAnOwner(t *testing.T) {
 	for what, args := range map[string]CreateCardArgs{
 		"a team":   with(base, func(a *CreateCardArgs) { a.Team = "alpha" }),
 		"an owner": with(base, func(a *CreateCardArgs) { a.Assignee = "kvaps" }),
-		"a parent": with(base, func(a *CreateCardArgs) { a.Parent = "c1" }),
 		"a review": with(base, func(a *CreateCardArgs) { a.ReviewOf = "c1" }),
 	} {
 		if _, err := svc.CreateCard(ctx, "acme", args); !errors.Is(err, ErrProjectCard) {
@@ -321,6 +321,25 @@ func TestAProjectCardIsMadeWithoutATeamOrAnOwner(t *testing.T) {
 		if _, err := svc.CreateInView(ctx, "acme", board.ViewProject, args); !errors.Is(err, ErrNotOnThisBoard) {
 			t.Errorf("the Project board's add-box with %s = %v, want ErrNotOnThisBoard", what, err)
 		}
+	}
+	// A task parent would make it a subtask: refused at both doors, before
+	// anything is written.
+	underTask := with(base, func(a *CreateCardArgs) { a.Parent = "c1" })
+	if _, err := svc.CreateCard(ctx, "acme", underTask); !errors.Is(err, ErrProjectCard) {
+		t.Errorf("a project card under a task = %v, want ErrProjectCard", err)
+	}
+	if _, err := svc.CreateInView(ctx, "acme", board.ViewProject, underTask); !errors.Is(err, ErrProjectCard) {
+		t.Errorf("the Project board's add-box under a task = %v, want ErrProjectCard", err)
+	}
+	// A planning parent is the hierarchy's link and is allowed.
+	fake.b.Cards = append(fake.b.Cards, board.Card{ItemID: "epic", Title: "Security", Type: board.TypeEpic})
+	underEpic, err := svc.CreateInView(ctx, "acme", board.ViewProject,
+		with(base, func(a *CreateCardArgs) { a.Parent = "epic" }))
+	if err != nil {
+		t.Fatalf("a project card under an epic: %v", err)
+	}
+	if underEpic.Parent != "epic" || underEpic.Scope != "Infra" || underEpic.Team != "" {
+		t.Fatalf("under the epic = %+v", underEpic)
 	}
 	card, err := svc.CreateCard(ctx, "acme", base)
 	if err != nil {

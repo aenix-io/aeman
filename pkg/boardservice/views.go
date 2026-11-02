@@ -63,10 +63,23 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 	case board.ViewAll:
 		// No board at all: the caller said so, and gets the raw door.
 		return args, nil
+	case board.ViewRoadmap:
+		// A card made on the Roadmap is a PLANNING card — a goal, an
+		// initiative or an epic — and the type is the whole gesture (H7). It
+		// takes its dates, its owner and a parent, and none of a task's
+		// day-board state.
+		if args.Type == board.TypeTask {
+			return args, fmt.Errorf("%w: a card of the Roadmap is a goal, an initiative or an epic", ErrViewNeedsField)
+		}
+		refusals = []viewRefusal{
+			{args.Parked, "parked"}, {args.Scope != "", "scope"},
+			{args.Week != "", "week"}, {args.ReviewOf != "", "reviewOf"},
+			{args.SprintStart != "", "sprintStart"},
+		}
 	case board.ViewMe, board.ViewTeam:
 		refusals = []viewRefusal{
 			{args.Parked, "parked"}, {args.Scope != "", "scope"},
-			{args.Week != "", "week"},
+			{args.Week != "", "week"}, {args.Type != "", "type"},
 		}
 		// The Me board files for the person reading it — including a lead
 		// looking at somebody else's day, who says whose with an assignee.
@@ -82,7 +95,7 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 		}
 	case board.ViewTriage:
 		refusals = []viewRefusal{
-			{args.Parked, "parked"}, {args.Scope != "", "scope"},
+			{args.Parked, "parked"}, {args.Scope != "", "scope"}, {args.Type != "", "type"},
 			// A card of a week AHEAD stands on no day: it waits for its
 			// Monday, and dates on it would say two things at once (B1). The
 			// row that IS NOW is the exception the board's own add form
@@ -96,7 +109,7 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 	case board.ViewBacklog:
 		refusals = []viewRefusal{
 			{args.Week != "", "week"}, {args.Scope != "", "scope"},
-			{dated, "a day"},
+			{dated, "a day"}, {args.Type != "", "type"},
 		}
 		// Born on the shelf rather than born in the strip and moved: one
 		// commit, and no instant in between where the card stands somewhere
@@ -104,11 +117,13 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 		args.Parked = true
 	case board.ViewProject:
 		// A card made here is a PROJECT CARD (H4): the plan, not work in
-		// hand. It takes no team, no owner, no parent, no review link and no
-		// week — those are the day boards' and the Triage board's to give.
+		// hand. It takes no team, no owner, no review link and no week —
+		// those are the day boards' and the Triage board's to give. A
+		// parent it MAY take, a planning one: CreateCard holds it to that
+		// (a project card sits under an epic and is never a subtask).
 		refusals = []viewRefusal{
 			{args.Parked, "parked"}, {args.Team != "", "team"},
-			{args.Assignee != "", "assignee"}, {args.Parent != "", "parent"},
+			{args.Assignee != "", "assignee"}, {args.Type != "", "type"},
 			{args.ReviewOf != "", "reviewOf"}, {args.Week != "", "week"},
 		}
 		if args.Scope == "" {
@@ -160,7 +175,7 @@ const (
 // list: a caller that said "all" has no board to be refused by.
 var gestureBoards = map[Gesture][]board.View{
 	GestureRemove: {board.ViewMe, board.ViewTeam, board.ViewTriage, board.ViewBacklog,
-		board.ViewProject, board.ViewAll},
+		board.ViewRoadmap, board.ViewProject, board.ViewAll},
 	GesturePlace:           {board.ViewTriage, board.ViewAll},
 	GestureUntriage:        {board.ViewTriage, board.ViewAll},
 	GestureFinishedEarlier: {board.ViewMe, board.ViewTeam, board.ViewAll},
