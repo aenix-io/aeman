@@ -66,16 +66,25 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 	case board.ViewRoadmap:
 		// A card made on the Roadmap is a PLANNING card — a goal, an
 		// initiative or an epic — and the type is the whole gesture (H7). It
-		// takes its dates, its owner and a parent, and none of a task's
-		// day-board state.
+		// takes its dates and a parent, and none of a task's day-board state,
+		// nor an owner or a team (H3). The one task the Roadmap makes is a
+		// task UNDER a planning card — the epic's + — born with a title, a
+		// parent and, when given, dates: no team, no owner, no band, no
+		// size, no week, no sprint, so it stands in the Triage strip of the
+		// no-team group and on the Roadmap under its parent until somebody
+		// dates or weeks it. A task with no parent is not the Roadmap's.
+		if args.Type == board.TypeTask && args.Parent == "" {
+			return args, fmt.Errorf("%w: a card of the Roadmap is a goal, an initiative or an epic, or a task under one", ErrViewNeedsField)
+		}
 		if args.Type == board.TypeTask {
-			return args, fmt.Errorf("%w: a card of the Roadmap is a goal, an initiative or an epic", ErrViewNeedsField)
+			args.Undated = true
 		}
 		refusals = []viewRefusal{
 			{args.Parked, "parked"}, {args.Scope != "", "scope"},
 			{args.Week != "", "week"}, {args.ReviewOf != "", "reviewOf"},
 			{args.SprintStart != "", "sprintStart"},
 			{args.Team != "", "team"}, {args.Assignee != "", "assignee"},
+			{args.Zone != board.ZoneNone, "zone"}, {args.Size != "", "size"},
 		}
 	case board.ViewMe, board.ViewTeam:
 		refusals = []viewRefusal{

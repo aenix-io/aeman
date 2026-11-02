@@ -312,6 +312,13 @@ type CreateCardArgs struct {
 	// Parent groups the new card as a subtask of the given item on create.
 	Parent         string
 	StartNewSprint *bool
+	// Undated leaves the card on NO day: the Roadmap's task, born under a
+	// planning card with nothing but a title (and dates, when given), stands
+	// in the Triage strip of the no-team group until somebody dates or weeks
+	// it — a day it was not given must not be invented for it, or it would
+	// land on today's board for a team it does not have. It joins no sprint
+	// either.
+	Undated bool
 	// NoSprint schedules the card for its day without joining any sprint — a
 	// "next sprint" create: the card lives on its own day only until the first
 	// carry-over whose day has reached the card's start adopts it into the
@@ -404,12 +411,21 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	// day = today, or the [start…day] range would stretch it onto today's board.
 	day := args.Day
 	start := args.Start
-	if start == "" {
+	switch {
+	case args.Undated:
+		// Born on no day (the Roadmap's task): the dates stay exactly as
+		// given, empty included — a one-sided pair still closes below.
+		if start != "" && day == "" {
+			day = start
+		} else if day != "" && start == "" {
+			start = day
+		}
+	case start == "":
 		if day == "" {
 			day = board.TodayIso()
 		}
 		start = day
-	} else if day == "" {
+	case day == "":
 		day = start
 	}
 	sprint := args.SprintStart
@@ -423,7 +439,7 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	// start-a-new-sprint) still wins: the caller said what they wanted.
 	futureDay := start != "" && start > board.TodayIso() &&
 		args.SprintStart == "" && args.StartNewSprint == nil
-	if args.NoSprint || futureDay {
+	if args.NoSprint || futureDay || args.Undated {
 		// A "next sprint" create: the card is scheduled for its day but joins
 		// no sprint (and starts none) — the first carry-over whose day reaches
 		// the card's start adopts it into the sprint it opens. The team it
@@ -2932,6 +2948,13 @@ func linksArePossible(b board.Board, args CreateCardArgs) error {
 			Project: args.Project, Scope: args.Scope, Parent: args.Parent}
 		if args.Assignee != "" {
 			asked.Assignees = []string{args.Assignee}
+		}
+		// A task born on the ROADMAP sits under a goal, an initiative or an
+		// epic — the epic's +. Under a task it would be a subtask, which is
+		// the gesture of the parent's own board, not of a board that draws
+		// no subtask of nobody's.
+		if args.Undated && !board.IsPlanning(p) {
+			return fmt.Errorf("%w: a task of the Roadmap sits under a goal, an initiative or an epic; a subtask is made from its parent's own board", ErrNotOnThisBoard)
 		}
 		// A link with a planning card on either side is the hierarchy's: the
 		// level rule and the repository rule (H2, H6), and nothing else.

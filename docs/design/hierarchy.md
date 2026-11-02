@@ -241,9 +241,16 @@ has a planning card above it, however many levels up. A task with no
 parent is not on the Roadmap — it is on the day boards. The listing is
 the card listing of the view (`GET /api/v1/views/roadmap/cards`), with
 the same watch; the tree is assembled from `parent` on the client. A
-**create** on the Roadmap is a planning card: `type` is required and must
-be `goal`, `initiative` or `epic`; `parent` is optional and must obey
-the level rule; a create on a day board refuses `type` (G67 — the board
+**create** on the Roadmap is a planning card — `type` is `goal`,
+`initiative` or `epic`, `parent` optional under the level rule — or a
+**task under one**: no `type`, a `parent` naming a goal, an initiative
+or an epic (the epic's `+`). Such a task is born with a title, its
+parent and, when given, dates — no team, no owner, no day it was not
+given, no sprint — so it stands in the Triage strip of the no-team
+group and on the Roadmap under its parent until somebody dates or weeks
+it; under a task it would be a subtask, which is the parent's own
+board's gesture and is refused here. A task with no parent is not the
+Roadmap's, and a create on a day board refuses `type` (G67 — the board
 a caller stands on is part of the address).
 
 ## The Roadmap tab
@@ -266,9 +273,9 @@ every bar with a week of margin), the window's dates, the team chips and
 a person filter — a filter keeps the matching cards and every card above
 them, so the tree keeps its shape. The board's own gestures are the two
 the server offers it: the add box makes a planning card at the top, the
-`+` on a goal or an initiative one under it (an epic makes nothing below
-itself — a task is born on a day board and filed here from its own pane,
-H7), and the `×` on a planning card deletes it after saying where the
+`+` on a goal or an initiative one under it, the `+` on an epic a TASK
+under it — undated, nobody's, standing in the Triage strip until it is
+placed (H7) — and the `×` on a planning card deletes it after saying where the
 rows under it will go (up a level, or to the top). Dates are changed in
 the detail pane; nothing is dragged on the timeline in this version. The
 depth, the zoom and which rows are folded are the reader's own, kept in
@@ -375,12 +382,16 @@ card that should be another level is made again.
   `TestAHierarchyLinkDoesNotPlaceTheChild`,
   `TestSubtaskHelpersStopAtPlanningCards`; service
   `TestAHierarchyLinkStaysInsideOneRepository`.
-- H7 — Roadmap create requires a type; a day-board create refuses one
-  (`ErrNotOnThisBoard`); the Roadmap draws the ×, which deletes the
-  planning card and hands its children to its parent. Pinned by service
-  `TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse`,
+- H7 — a Roadmap create is a planning card (`type` required) or a task
+  under one (no `type`, `parent` a planning card; born undated, nobody's,
+  in no sprint — the Triage strip's until placed; under a task refused);
+  a team, an owner, a zone and a size are refused by name; a day-board
+  create refuses `type` (`ErrNotOnThisBoard`); the Roadmap draws the ×,
+  which deletes the planning card and hands its children to its parent.
+  Pinned by service `TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse`,
   `TestDeletingAPlanningCardReparentsItsChildren`,
-  `TestAGestureIsOfferedByTheBoardThatDrawsIt`; server
+  `TestAGestureIsOfferedByTheBoardThatDrawsIt`; apiserver
+  `TestARoadmapBornTaskStandsInTheStripAndOnTheRoadmap`; server
   `TestTheCatalogNamesTheBoardsAndTheirGestures`; web `hierarchy.test.ts`
   (`createView`).
 - H8 — schema 2: the five steps, idempotent, and what a pre-migration

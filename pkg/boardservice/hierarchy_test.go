@@ -69,11 +69,62 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 		}
 	})
 
-	t.Run("the Roadmap needs a type", func(t *testing.T) {
+	t.Run("the Roadmap needs a type, or a parent to put a task under", func(t *testing.T) {
 		f := hierarchySeed(today)
 		_, err := f2svc(f).CreateInView(ctx, "acme", board.ViewRoadmap, CreateCardArgs{Title: "x"})
 		if !errors.Is(err, ErrViewNeedsField) {
 			t.Fatalf("err = %v, want ErrViewNeedsField", err)
+		}
+	})
+
+	// The epic's +: a TASK born on the Roadmap, under a planning card, with
+	// a title and a parent and nothing a day board gives — no team, no owner,
+	// no day it was not given, no sprint — so it stands in the Triage strip
+	// of the no-team group and on the Roadmap until somebody dates or weeks
+	// it. Dates, when given, are kept.
+	t.Run("a task is born under a planning card from the Roadmap", func(t *testing.T) {
+		f := hierarchySeed(today)
+		svc := f2svc(f)
+		c, err := svc.CreateInView(ctx, "acme", board.ViewRoadmap, CreateCardArgs{Title: "Receipts", Parent: "epic"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Type != board.TypeTask || c.Parent != "epic" {
+			t.Fatalf("card = %+v", c)
+		}
+		if c.Team != "" || len(c.Assignees) != 0 || c.Day != "" || c.StartDate != "" || c.SprintStart != "" || c.Week != "" || c.Zone != board.ZoneNone {
+			t.Fatalf("a Roadmap-born task has nothing a day board gives: %+v", c)
+		}
+		if st := f.b.SprintStates[""]; st.Current != "" {
+			t.Fatalf("a Roadmap-born task minted a sprint for the no-team group: %+v", st)
+		}
+		dated, err := svc.CreateInView(ctx, "acme", board.ViewRoadmap, CreateCardArgs{Title: "Dated", Parent: "epic", Start: today, Day: board.AddDays(today, 3)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dated.StartDate != today || dated.Day != board.AddDays(today, 3) || dated.SprintStart != "" {
+			t.Fatalf("dates given are kept, and still no sprint: %+v", dated)
+		}
+		for what, mutate := range map[string]func(*CreateCardArgs){
+			"a team":    func(a *CreateCardArgs) { a.Team = "alpha" },
+			"an owner":  func(a *CreateCardArgs) { a.Assignee = "dev" },
+			"a band":    func(a *CreateCardArgs) { a.Zone = board.ZoneYellow },
+			"a size":    func(a *CreateCardArgs) { a.Size = board.SizeM },
+			"a week":    func(a *CreateCardArgs) { a.Week = board.MondayOf(today) },
+			"a column":  func(a *CreateCardArgs) { a.Scope = "Compliance"; a.Project = "eu" },
+			"the shelf": func(a *CreateCardArgs) { a.Parked = true },
+			"a review":  func(a *CreateCardArgs) { a.ReviewOf = "loose" },
+			"a sprint":  func(a *CreateCardArgs) { a.SprintStart = today },
+		} {
+			args := CreateCardArgs{Title: "x", Parent: "epic"}
+			mutate(&args)
+			if _, err := svc.CreateInView(ctx, "acme", board.ViewRoadmap, args); !errors.Is(err, ErrNotOnThisBoard) {
+				t.Errorf("a Roadmap task with %s = %v, want ErrNotOnThisBoard", what, err)
+			}
+		}
+		// Under a TASK it would be a subtask, which is the day boards' gesture.
+		if _, err := svc.CreateInView(ctx, "acme", board.ViewRoadmap, CreateCardArgs{Title: "x", Parent: "loose"}); err == nil {
+			t.Error("a task under a task from the Roadmap must not be born as a subtask of nobody's board")
 		}
 	})
 
