@@ -565,26 +565,15 @@ const syncTickTimeout = 15 * time.Second
 // takes the apply lock. A var so tests can shorten it.
 var startupMaintainDelay = 30 * time.Second
 
-// tick is one fetch-tick cycle for a board: sync, then file the week's due
-// process turns as the server identity — the sweep's home now that no
-// warmer rides anyone's session — then sync again so the turns land. Every
-// replica sweeps; the turns' ids are deterministic, so the second writer's
-// create is a no-op on re-apply and one turn exists (G11).
+// tick is one fetch-tick cycle for a board: sync, then the housekeeping the
+// server does as itself — resolving the titles a create-by-URL never got.
+// (The sweep that filed process turns here is gone with the feature.)
 func (b *storeBackend) tick(ctx context.Context, key string) error {
 	if err := b.syncNow(ctx, key); err != nil {
 		return err
 	}
 	b.sweepTitles(ctx, key)
-	n, err := b.sweepDue(ctx, key)
-	if err != nil {
-		return fmt.Errorf("sweep: %w", err)
-	}
-	if n == 0 {
-		return nil
-	}
-	b.git.log.Info("process turns filed", "board", key, "turns", n)
-	b.store.waitDrained(ctx)
-	return b.syncNow(ctx, key)
+	return nil
 }
 
 // sweepTitles finishes the create-by-URL cards whose background resolve never
@@ -610,20 +599,6 @@ func (b *storeBackend) sweepTitles(ctx context.Context, key string) {
 	if done > 0 || waiting > 0 {
 		b.git.log.Info("card titles resolved", "board", key, "renamed", done, "waiting", waiting)
 	}
-}
-
-// sweepDue files the current week's due turns through the store, as the
-// server: one action, so they land as one commit.
-func (b *storeBackend) sweepDue(ctx context.Context, key string) (int, error) {
-	e := b.store.entry(key)
-	e.mu.Lock()
-	boardID, loaded := e.board.Board, e.loaded
-	e.mu.Unlock()
-	if !loaded {
-		return 0, nil // nobody has asked for this board yet; the first read loads it
-	}
-	sctx := withAction(ctx, gitstore.NewID(time.Now()), "sweep")
-	return boardservice.New(b).SpawnDue(sctx, boardID)
 }
 
 // deepenSince decides whether a card's log, cut at truncated, is worth

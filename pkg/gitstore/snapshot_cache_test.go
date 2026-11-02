@@ -14,7 +14,7 @@ import (
 func bigRepo(t *testing.T, n int) *Repo {
 	t.Helper()
 	files := map[string]string{
-		BoardPath:                         "schema: 1\ntitle: big\n",
+		BoardPath:                         "schema: 2\ntitle: big\n",
 		TeamPath("01T_PORTAL"):            "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n  previous: 2026-08-17\n",
 		ProjectPath("01P_PORTAL"):         "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		EpicPath("01P_PORTAL", "01E_BUG"): "name: Bugs\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",

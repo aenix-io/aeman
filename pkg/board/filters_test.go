@@ -310,8 +310,8 @@ func TestTeamGridCarriesTheWeeksOwnWork(t *testing.T) {
 		// A slot covering this week, on nobody's day.
 		{ItemID: "slot", Team: "t", Epic: "E", Project: "P",
 			StartDate: AddDays(week, -7), Day: AddDays(week, 4)},
-		// A process turn filed into this week.
-		{ItemID: "turn", Team: "t", Task: "task", Week: week, Stage: StageRecurrent},
+		// A recurrent card standing in this week.
+		{ItemID: "turn", Team: "t", Week: week, Stage: StageRecurrent},
 		// A debt: owed last week, still open — it stands beside this week's
 		// work without leaving the week it was owed in.
 		{ItemID: "debt", Team: "t", Week: AddDays(week, -7)},

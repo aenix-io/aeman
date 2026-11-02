@@ -12,10 +12,10 @@ import (
 // that says "this is being done now" is dragging it into the week the team is
 // working. That gesture has to put it back on a day board, or the drag lies:
 // the card takes the current week and stays invisible everywhere work is
-// done, which is exactly where nine process turns sat on the production
+// done, which is exactly where nine recurrent cards sat on the production
 // board, three of them a month past their week.
 //
-// The dates it gets are the ones a turn filed for this week would have: from
+// The dates it gets are the ones a card filed for this week would have: from
 // TODAY (not the week's Monday — a start before the current sprint began
 // would join the previous one) through the end of the week.
 func TestPlacingBackAWeekWhoseDaysRanOutPutsTheCardOnTheDayBoard(t *testing.T) {
@@ -24,7 +24,7 @@ func TestPlacingBackAWeekWhoseDaysRanOutPutsTheCardOnTheDayBoard(t *testing.T) {
 	oldWeek := board.AddDays(thisWeek, -14)
 
 	f := newFake([]board.Card{{
-		ItemID: "turn", Team: "alpha", Assignees: []string{"kvaps"}, Task: "t1",
+		ItemID: "turn", Team: "alpha", Assignees: []string{"kvaps"},
 		Stage: board.StageRecurrent, Week: oldWeek,
 		StartDate: oldWeek, Day: board.AddDays(oldWeek, 6),
 	}}, map[string]board.SprintState{"alpha": {Current: thisWeek}})

@@ -9,9 +9,9 @@ import "context"
 
 type domainCtxKey struct{}
 
-// WithDomain carries the caller's choice of domain for a team, project or
-// process being declared — asked only when more than one is writable. Cards
-// never take one; a backend ignores the choice for them.
+// WithDomain carries the caller's choice of domain for a team or project
+// being declared — asked only when more than one is writable. Cards never
+// take one; a backend ignores the choice for them.
 func WithDomain(ctx context.Context, domain string) context.Context {
 	if domain == "" {
 		return ctx
@@ -42,14 +42,13 @@ type DomainResolver interface {
 //     original's and its project is empty, so the team rule would leak a
 //     review of a closed card into the shared repository;
 //  2. a subtask lives where its parent lives, whatever column it carries;
-//  3. an iteration lives where its task lives;
-//  4. an unlinked card filed under a project lives where the project lives;
-//  5. any other card lives where its team lives.
+//  3. an unlinked card filed under a project lives where the project lives;
+//  4. any other card lives where its team lives.
 //
 // An unknown reference falls through to the next rule; nothing deciding
 // means the primary domain, "".
 func DomainOf(c Card, r DomainResolver) string {
-	for _, ref := range []string{c.ReviewOf, c.Parent, c.Task} {
+	for _, ref := range []string{c.ReviewOf, c.Parent} {
 		if ref == "" {
 			continue
 		}
@@ -88,8 +87,7 @@ func TeamDomain(b Board, team string) string {
 // ProjectDomain is the repository a project was declared in, in the same
 // namespace: the PRIMARY's name for an unstamped entry, "" for a project
 // the roster does not declare — and "" for the empty project NAME, which
-// is not a project at all and decides nothing (SetProcessProject reads
-// the primary itself for that case).
+// is not a project at all and decides nothing.
 func ProjectDomain(b Board, project string) string {
 	if project == "" {
 		return ""
@@ -103,11 +101,12 @@ func ProjectDomain(b Board, project string) string {
 
 // RosterConflict reports a team and a project that live in different
 // repositories, and names both. It is the pair DomainOf cannot honour: the
-// project decides where the card lives (rule 4), so the team's people would
+// project decides where the card lives, so the team's people would
 // not see a card carrying their name while the project's people would.
 // Neither answer is right, so the pair is refused where it is made rather
 // than resolved silently. A name the roster does not declare yet decides
-// nothing — it will be declared in the card's own domain.
+// nothing — it will be declared in the card's own domain. (The project
+// decides where the card lives: rule 3.)
 func RosterConflict(b Board, team, project string) (teamDomain, projectDomain string, conflict bool) {
 	if team == "" || project == "" {
 		return TeamDomain(b, team), ProjectDomain(b, project), false

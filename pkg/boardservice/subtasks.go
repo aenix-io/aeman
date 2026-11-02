@@ -47,16 +47,6 @@ var ErrNotYoursToPark = errors.New("this work is not this board's to park")
 // the rule is here so the gesture is refused wherever it is made.
 var ErrNoPlaceOfItsOwn = errors.New("this card has no place of its own to park")
 
-// ErrOutsideCycle is a process turn given a week outside the occurrence it
-// belongs to. A turn IS that occurrence's work, wherever inside it somebody
-// moved the card, and one carried past the next due date stands where the
-// NEXT turn belongs: the two then read as one process running twice, and the
-// projection that asks whether an occurrence has a turn answers wrongly for
-// both. A task that ACCUMULATES is the exception — its turns are meant to
-// pile up — and a task with no calendar at all has no occurrence to move
-// inside, so its turn does not move in time.
-var ErrOutsideCycle = errors.New("a process turn belongs to its own occurrence")
-
 // ErrNotYoursToRemove is a person taking off the board a card SOMEBODY ELSE
 // put on it for them. Their answer to work they will not do is the refused
 // stage (ErrNotYoursToRefuse names the other side of the same seat), which
@@ -117,18 +107,17 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 		return ErrSubtaskDepth
 	}
 	// Grouping moves the card's file to its parent's repository, so it is a
-	// re-file like any other: the same guard, the same three references it
-	// could strand. EVERY refusal fires before anything is written — the
+	// re-file like any other: the same guard, the same references it could
+	// strand. EVERY refusal fires before anything is written — the
 	// weekly-plan handover below hands the child's slot to the parent, and
 	// a guard speaking after it left the cache holding a state the commit
 	// never made (the refusal aborts the write, not the cache mutation).
 	// The closure models what grouping PRODUCES, riders and all: it clears
-	// the tie and the mirrors (clearRiders below), so the guard must not
-	// refuse over either — only over what grouping keeps, the card's own
-	// column and the columns of everything that follows it.
+	// the mirrors (clearRiders below), so the guard must not refuse over
+	// them — only over what grouping keeps, the card's own column and the
+	// columns of everything that follows it.
 	if err := refileGuard(b, card, func(a *board.Card) {
 		a.Parent = parent
-		a.Process = ""
 		a.Mirrors = nil
 	}); err != nil {
 		return err
@@ -282,25 +271,18 @@ func (s *Service) syncParentProgress(ctx context.Context, b board.Board, parentI
 	return nil
 }
 
-// clearRiders strips what a subtask cannot carry — mirrors and the process
-// tie — when a card is grouped. A subtask keeps the ONE column it carries
-// (G14, and the Project board draws it there, G57); what it may not keep is
-// a SECOND placement or a tie, because its file follows its parent: a
-// parent in another repository would carry the card away from both, which
-// is the state ErrCrossDomain exists to prevent. The untying is logged;
-// the mirrors go silently on purpose — like the plan slot, they are
-// placements of the parentless life, not work.
+// clearRiders strips what a subtask cannot carry — its mirrors — when a
+// card is grouped. A subtask keeps the ONE column it carries (G14, and the
+// Project board draws it there, G57); what it may not keep is a SECOND
+// placement, because its file follows its parent: a parent in another
+// repository would carry the card away from it, which is the state
+// ErrCrossDomain exists to prevent. The mirrors go silently on purpose —
+// like the plan slot, they are placements of the parentless life, not work.
 func (s *Service) clearRiders(ctx context.Context, b board.Board, card board.Card) error {
 	if len(card.Mirrors) > 0 {
 		if err := s.backend.SetMirrors(ctx, b, card, nil); err != nil {
 			return err
 		}
-	}
-	if card.Process != "" {
-		if err := s.backend.SetProcess(ctx, b, card, ""); err != nil {
-			return err
-		}
-		s.logEvent(ctx, b, card, board.EventProcess, card.Process, "")
 	}
 	return nil
 }

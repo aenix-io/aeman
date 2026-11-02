@@ -208,7 +208,6 @@ const (
 	NotFinished          ProblemCode = "notFinished"
 	NotInProject         ProblemCode = "notInProject"
 	NotOnThisBoard       ProblemCode = "notOnThisBoard"
-	NotRecurrent         ProblemCode = "notRecurrent"
 	NotYoursToDestroy    ProblemCode = "notYoursToDestroy"
 	NotYoursToPark       ProblemCode = "notYoursToPark"
 	NotYoursToRefuse     ProblemCode = "notYoursToRefuse"
@@ -217,28 +216,21 @@ const (
 	NoteTooLong          ProblemCode = "noteTooLong"
 	NowhereToLeaveIt     ProblemCode = "nowhereToLeaveIt"
 	OpenSubtasks         ProblemCode = "openSubtasks"
-	OutsideCycle         ProblemCode = "outsideCycle"
 	OwnColumn            ProblemCode = "ownColumn"
 	ParentNotFound       ProblemCode = "parentNotFound"
 	PointsRequired       ProblemCode = "pointsRequired"
-	ProcessExists        ProblemCode = "processExists"
-	ProcessInUse         ProblemCode = "processInUse"
-	ProcessNotFound      ProblemCode = "processNotFound"
 	ProjectExists        ProblemCode = "projectExists"
 	ProjectInUse         ProblemCode = "projectInUse"
 	ProjectNotFound      ProblemCode = "projectNotFound"
 	SetupRequired        ProblemCode = "setupRequired"
 	SubtaskDepth         ProblemCode = "subtaskDepth"
 	SubtaskMirror        ProblemCode = "subtaskMirror"
-	SubtaskTie           ProblemCode = "subtaskTie"
 	SubtaskWeek          ProblemCode = "subtaskWeek"
-	TaskNotFound         ProblemCode = "taskNotFound"
 	TeamExists           ProblemCode = "teamExists"
 	TeamInUse            ProblemCode = "teamInUse"
 	TeamNotFound         ProblemCode = "teamNotFound"
 	TitleTooLong         ProblemCode = "titleTooLong"
 	TooManyCards         ProblemCode = "tooManyCards"
-	TurnProcess          ProblemCode = "turnProcess"
 	UnknownDomain        ProblemCode = "unknownDomain"
 	UnknownIntent        ProblemCode = "unknownIntent"
 	UnknownRoute         ProblemCode = "unknownRoute"
@@ -337,8 +329,6 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case NotOnThisBoard:
 		return true
-	case NotRecurrent:
-		return true
 	case NotYoursToDestroy:
 		return true
 	case NotYoursToPark:
@@ -355,19 +345,11 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case OpenSubtasks:
 		return true
-	case OutsideCycle:
-		return true
 	case OwnColumn:
 		return true
 	case ParentNotFound:
 		return true
 	case PointsRequired:
-		return true
-	case ProcessExists:
-		return true
-	case ProcessInUse:
-		return true
-	case ProcessNotFound:
 		return true
 	case ProjectExists:
 		return true
@@ -381,11 +363,7 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case SubtaskMirror:
 		return true
-	case SubtaskTie:
-		return true
 	case SubtaskWeek:
-		return true
-	case TaskNotFound:
 		return true
 	case TeamExists:
 		return true
@@ -396,8 +374,6 @@ func (e ProblemCode) Valid() bool {
 	case TitleTooLong:
 		return true
 	case TooManyCards:
-		return true
-	case TurnProcess:
 		return true
 	case UnknownDomain:
 		return true
@@ -485,14 +461,6 @@ type AddEpicBody struct {
 	Project *string `json:"project,omitempty"`
 }
 
-// AddProcessBody defines model for AddProcessBody.
-type AddProcessBody struct {
-	// Domain The repository to declare a project-less process in; one with a project lives with the project.
-	Domain  *string `json:"domain,omitempty"`
-	Name    *string `json:"name,omitempty"`
-	Project *string `json:"project,omitempty"`
-}
-
 // AddProjectBody defines model for AddProjectBody.
 type AddProjectBody struct {
 	// Domain The repository to declare the project in; empty is the primary.
@@ -545,11 +513,8 @@ type CardPatch struct {
 	Epic *string `json:"epic,omitempty"`
 
 	// Parent Groups the card under another one; empty ungroups.
-	Parent *string `json:"parent,omitempty"`
-	Parked *bool   `json:"parked,omitempty"`
-
-	// Process Ties the card to an existing process — the recurring shelf's counterpart of a column; empty clears. The process must live in the card's own repository; only a RECURRENT card takes a tie, and a process TURN is refused outright, since a turn's process is its task's.
-	Process    *string `json:"process,omitempty"`
+	Parent     *string `json:"parent,omitempty"`
+	Parked     *bool   `json:"parked,omitempty"`
 	Progress   *int    `json:"progress,omitempty"`
 	Project    *string `json:"project,omitempty"`
 	Recurrence *string `json:"recurrence,omitempty"`
@@ -624,9 +589,6 @@ type CreateCardRequest struct {
 // CreateCardRequestZone defines model for CreateCardRequest.Zone.
 type CreateCardRequestZone string
 
-// CycleWindow A process turn's own occurrence: the first and last week it may stand in, both Mondays and both inclusive. It is sent rather than derived because the calendar is the server's, and a second implementation of "when is this next due" is a second answer waiting to disagree.
-type CycleWindow = apiserver.CycleWindow
-
 // DayLogList defines model for DayLogList.
 type DayLogList = apiserver.DayLogList
 
@@ -656,9 +618,6 @@ type EpicBody struct {
 
 // EpicRef One Project-board column: its name and the project that owns it. A client cannot compute the column's repository from the project — the same project NAME may be declared in two repositories with its columns merged under one entry — and it is the COLUMN that decides whether a card may stand in it.
 type EpicRef = apiserver.EpicRef
-
-// Iteration One spawned card and how it went: "done" when it closed, "open" while it still runs inside its cycle, "late" once the week it was owed in has passed with it still open.
-type Iteration = apiserver.Iteration
 
 // Link One URL from a card's description. A GitHub issue or pull request is resolved to its live title and state where the server can read it.
 type Link = board.Link
@@ -799,20 +758,6 @@ type Problem struct {
 // ProblemCode The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
 type ProblemCode string
 
-// Process defines model for Process.
-type Process = apiserver.Process
-
-// ProcessBody defines model for ProcessBody.
-type ProcessBody struct {
-	Process *string `json:"process,omitempty"`
-}
-
-// ProcessList defines model for ProcessList.
-type ProcessList = apiserver.ProcessList
-
-// ProcessRef defines model for ProcessRef.
-type ProcessRef = apiserver.ProcessRef
-
 // ProjectBody defines model for ProjectBody.
 type ProjectBody struct {
 	Project *string `json:"project,omitempty"`
@@ -828,12 +773,6 @@ type RemoveCardBody struct {
 type RenameEpicBody struct {
 	Epic    *string `json:"epic,omitempty"`
 	Project *string `json:"project,omitempty"`
-	To      *string `json:"to,omitempty"`
-}
-
-// RenameProcessBody defines model for RenameProcessBody.
-type RenameProcessBody struct {
-	Process *string `json:"process,omitempty"`
 	To      *string `json:"to,omitempty"`
 }
 
@@ -853,17 +792,6 @@ type RenameTeamBody struct {
 type ReorderEpicsBody struct {
 	Epics   *[]string `json:"epics,omitempty"`
 	Project *string   `json:"project,omitempty"`
-}
-
-// ReorderProcessTasksBody defines model for ReorderProcessTasksBody.
-type ReorderProcessTasksBody struct {
-	Process *string   `json:"process,omitempty"`
-	Uids    *[]string `json:"uids,omitempty"`
-}
-
-// ReorderProcessesBody defines model for ReorderProcessesBody.
-type ReorderProcessesBody struct {
-	Processes *[]string `json:"processes,omitempty"`
 }
 
 // ReorderProjectsBody defines model for ReorderProjectsBody.
@@ -899,18 +827,6 @@ type SetEpicProjectBody struct {
 	Project *string `json:"project,omitempty"`
 }
 
-// SetProcessPausedBody defines model for SetProcessPausedBody.
-type SetProcessPausedBody struct {
-	Paused  *bool   `json:"paused,omitempty"`
-	Process *string `json:"process,omitempty"`
-}
-
-// SetProcessProjectBody defines model for SetProcessProjectBody.
-type SetProcessProjectBody struct {
-	Process *string `json:"process,omitempty"`
-	Project *string `json:"project,omitempty"`
-}
-
 // Sprint A team's sprint pointer; the empty team is the no-team group.
 type Sprint = apiserver.Sprint
 
@@ -941,26 +857,6 @@ type SprintPatch struct {
 
 // SprintSpec defines model for SprintSpec.
 type SprintSpec = apiserver.SprintSpec
-
-// Task What a turn is copied from, plus how the last few went.
-type Task = apiserver.Task
-
-// TaskRef defines model for TaskRef.
-type TaskRef struct {
-	UID string `json:"uid"`
-}
-
-// TaskRequest A task on the wire, for the create (which reads every field) and the patch (which applies only the present ones).
-type TaskRequest struct {
-	Accumulate  *bool   `json:"accumulate,omitempty"`
-	Assignee    *string `json:"assignee,omitempty"`
-	Description *string `json:"description,omitempty"`
-	Process     *string `json:"process,omitempty"`
-	Recurrence  *string `json:"recurrence,omitempty"`
-	Start       *string `json:"start,omitempty"`
-	Team        *string `json:"team,omitempty"`
-	Title       *string `json:"title,omitempty"`
-}
 
 // TeamBody defines model for TeamBody.
 type TeamBody struct {
@@ -1062,12 +958,6 @@ type GetDayLogsParams struct {
 
 	// Uids The cards to read, comma-separated; at most 200 per request.
 	Uids *string `form:"uids,omitempty" json:"uids,omitempty"`
-}
-
-// ListProcessesParams defines parameters for ListProcesses.
-type ListProcessesParams struct {
-	// Project Keep only the processes of one project; empty is every project.
-	Project *string `form:"project,omitempty" json:"project,omitempty"`
 }
 
 // ListSprintsParams defines parameters for ListSprints.
@@ -1349,33 +1239,6 @@ type PatchPersonJSONRequestBody = PersonPatch
 // SetPresenceJSONRequestBody defines body for SetPresence for application/json ContentType.
 type SetPresenceJSONRequestBody = PresenceBody
 
-// AddProcessJSONRequestBody defines body for AddProcess for application/json ContentType.
-type AddProcessJSONRequestBody = AddProcessBody
-
-// DeleteProcessJSONRequestBody defines body for DeleteProcess for application/json ContentType.
-type DeleteProcessJSONRequestBody = ProcessBody
-
-// RenameProcessJSONRequestBody defines body for RenameProcess for application/json ContentType.
-type RenameProcessJSONRequestBody = RenameProcessBody
-
-// ReorderProcessesJSONRequestBody defines body for ReorderProcesses for application/json ContentType.
-type ReorderProcessesJSONRequestBody = ReorderProcessesBody
-
-// SetProcessPausedJSONRequestBody defines body for SetProcessPaused for application/json ContentType.
-type SetProcessPausedJSONRequestBody = SetProcessPausedBody
-
-// SetProcessProjectJSONRequestBody defines body for SetProcessProject for application/json ContentType.
-type SetProcessProjectJSONRequestBody = SetProcessProjectBody
-
-// AddTaskJSONRequestBody defines body for AddTask for application/json ContentType.
-type AddTaskJSONRequestBody = TaskRequest
-
-// ReorderProcessTasksJSONRequestBody defines body for ReorderProcessTasks for application/json ContentType.
-type ReorderProcessTasksJSONRequestBody = ReorderProcessTasksBody
-
-// PatchTaskJSONRequestBody defines body for PatchTask for application/json ContentType.
-type PatchTaskJSONRequestBody = TaskRequest
-
 // AddProjectJSONRequestBody defines body for AddProject for application/json ContentType.
 type AddProjectJSONRequestBody = AddProjectBody
 
@@ -1510,39 +1373,6 @@ type ServerInterface interface {
 	// SetPresence Share the caller's live card selection; an empty card clears it.
 	// (POST /presence)
 	SetPresence(w http.ResponseWriter, r *http.Request)
-	// ListProcesses The Process tab — every process with its tasks and each task's history.
-	// (GET /processes)
-	ListProcesses(w http.ResponseWriter, r *http.Request, params ListProcessesParams)
-	// AddProcess Declare a process — recurring work inside a project.
-	// (POST /processes)
-	AddProcess(w http.ResponseWriter, r *http.Request)
-	// DeleteProcess Delete an EMPTY process; refused while it has tasks.
-	// (POST /processes/actions/delete-process)
-	DeleteProcess(w http.ResponseWriter, r *http.Request)
-	// RenameProcess Rename a process; its tasks follow.
-	// (POST /processes/actions/rename)
-	RenameProcess(w http.ResponseWriter, r *http.Request)
-	// ReorderProcesses Apply a shared process order.
-	// (POST /processes/actions/reorder)
-	ReorderProcesses(w http.ResponseWriter, r *http.Request)
-	// SetProcessPaused Pause a process, or resume it.
-	// (POST /processes/actions/set-paused)
-	SetProcessPaused(w http.ResponseWriter, r *http.Request)
-	// SetProcessProject Move a process to another project; an empty project is the no-project bucket.
-	// (POST /processes/actions/set-project)
-	SetProcessProject(w http.ResponseWriter, r *http.Request)
-	// AddTask Add what a process iterates on.
-	// (POST /processes/tasks)
-	AddTask(w http.ResponseWriter, r *http.Request)
-	// ReorderProcessTasks Apply one process's task order.
-	// (POST /processes/tasks/actions/reorder)
-	ReorderProcessTasks(w http.ResponseWriter, r *http.Request)
-	// DeleteTask Delete a task; its past turns stay as the record.
-	// (DELETE /processes/tasks/{uid})
-	DeleteTask(w http.ResponseWriter, r *http.Request, uid UID)
-	// PatchTask Change what the NEXT turns will be; the running one is untouched.
-	// (PATCH /processes/tasks/{uid})
-	PatchTask(w http.ResponseWriter, r *http.Request, uid UID)
 	// AddProject Declare a project — the Project board's top grouping, which owns epic columns.
 	// (POST /projects)
 	AddProject(w http.ResponseWriter, r *http.Request)
@@ -1573,7 +1403,7 @@ type ServerInterface interface {
 	// SetTeamCapacity Set the points a week a team gets through.
 	// (POST /teams/actions/capacity)
 	SetTeamCapacity(w http.ResponseWriter, r *http.Request)
-	// RenameTeam Rename a team in place, its cards and process tasks along with it.
+	// RenameTeam Rename a team in place, its cards along with it.
 	// (POST /teams/actions/rename)
 	RenameTeam(w http.ResponseWriter, r *http.Request)
 	// ListViews The boards a caller may open, each with the gestures it draws.
@@ -2356,203 +2186,6 @@ func (siw *ServerInterfaceWrapper) SetPresence(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetPresence(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListProcesses operation middleware
-func (siw *ServerInterfaceWrapper) ListProcesses(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListProcessesParams
-
-	// ------------- Optional query parameter "project" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "project", r.URL.Query(), &params.Project, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListProcesses(w, r, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// AddProcess operation middleware
-func (siw *ServerInterfaceWrapper) AddProcess(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AddProcess(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteProcess operation middleware
-func (siw *ServerInterfaceWrapper) DeleteProcess(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteProcess(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// RenameProcess operation middleware
-func (siw *ServerInterfaceWrapper) RenameProcess(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RenameProcess(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ReorderProcesses operation middleware
-func (siw *ServerInterfaceWrapper) ReorderProcesses(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReorderProcesses(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// SetProcessPaused operation middleware
-func (siw *ServerInterfaceWrapper) SetProcessPaused(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SetProcessPaused(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// SetProcessProject operation middleware
-func (siw *ServerInterfaceWrapper) SetProcessProject(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SetProcessProject(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// AddTask operation middleware
-func (siw *ServerInterfaceWrapper) AddTask(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AddTask(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ReorderProcessTasks operation middleware
-func (siw *ServerInterfaceWrapper) ReorderProcessTasks(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReorderProcessTasks(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteTask operation middleware
-func (siw *ServerInterfaceWrapper) DeleteTask(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "uid" -------------
-	var uid UID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "uid", r.PathValue("uid"), &uid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uid", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteTask(w, r, uid)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// PatchTask operation middleware
-func (siw *ServerInterfaceWrapper) PatchTask(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "uid" -------------
-	var uid UID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "uid", r.PathValue("uid"), &uid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uid", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PatchTask(w, r, uid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3985,17 +3618,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/epics/actions/reorder-epics", wrapper.ReorderEpics)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/epics/actions/set-project", wrapper.SetEpicProject)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/epics/actions/rename", wrapper.RenameEpic)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/processes", wrapper.ListProcesses)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/processes", wrapper.AddProcess)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/processes/actions/delete-process", wrapper.DeleteProcess)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/processes/actions/rename", wrapper.RenameProcess)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/processes/actions/set-project", wrapper.SetProcessProject)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/processes/actions/set-paused", wrapper.SetProcessPaused)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/processes/actions/reorder", wrapper.ReorderProcesses)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/processes/tasks/actions/reorder", wrapper.ReorderProcessTasks)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/processes/tasks", wrapper.AddTask)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/processes/tasks/{uid}", wrapper.DeleteTask)
-	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/processes/tasks/{uid}", wrapper.PatchTask)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/deadlines", wrapper.AddDeadline)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/deadlines/actions/delete", wrapper.DeleteDeadline)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/deadlines/actions/move", wrapper.MoveDeadline)
@@ -5161,382 +4783,6 @@ func (response SetPresencedefaultApplicationProblemPlusJSONResponse) VisitSetPre
 	return err
 }
 
-type ListProcessesRequestObject struct {
-	Params ListProcessesParams
-}
-
-type ListProcessesResponseObject interface {
-	VisitListProcessesResponse(w http.ResponseWriter) error
-}
-
-type ListProcesses200JSONResponse ProcessList
-
-func (response ListProcesses200JSONResponse) VisitListProcessesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListProcessesdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response ListProcessesdefaultApplicationProblemPlusJSONResponse) VisitListProcessesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type AddProcessRequestObject struct {
-	Body *AddProcessJSONRequestBody
-}
-
-type AddProcessResponseObject interface {
-	VisitAddProcessResponse(w http.ResponseWriter) error
-}
-
-type AddProcess204Response struct {
-}
-
-func (response AddProcess204Response) VisitAddProcessResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type AddProcessdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response AddProcessdefaultApplicationProblemPlusJSONResponse) VisitAddProcessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DeleteProcessRequestObject struct {
-	Body *DeleteProcessJSONRequestBody
-}
-
-type DeleteProcessResponseObject interface {
-	VisitDeleteProcessResponse(w http.ResponseWriter) error
-}
-
-type DeleteProcess204Response struct {
-}
-
-func (response DeleteProcess204Response) VisitDeleteProcessResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type DeleteProcessdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response DeleteProcessdefaultApplicationProblemPlusJSONResponse) VisitDeleteProcessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type RenameProcessRequestObject struct {
-	Body *RenameProcessJSONRequestBody
-}
-
-type RenameProcessResponseObject interface {
-	VisitRenameProcessResponse(w http.ResponseWriter) error
-}
-
-type RenameProcess204Response struct {
-}
-
-func (response RenameProcess204Response) VisitRenameProcessResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type RenameProcessdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response RenameProcessdefaultApplicationProblemPlusJSONResponse) VisitRenameProcessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ReorderProcessesRequestObject struct {
-	Body *ReorderProcessesJSONRequestBody
-}
-
-type ReorderProcessesResponseObject interface {
-	VisitReorderProcessesResponse(w http.ResponseWriter) error
-}
-
-type ReorderProcesses204Response struct {
-}
-
-func (response ReorderProcesses204Response) VisitReorderProcessesResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type ReorderProcessesdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response ReorderProcessesdefaultApplicationProblemPlusJSONResponse) VisitReorderProcessesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type SetProcessPausedRequestObject struct {
-	Body *SetProcessPausedJSONRequestBody
-}
-
-type SetProcessPausedResponseObject interface {
-	VisitSetProcessPausedResponse(w http.ResponseWriter) error
-}
-
-type SetProcessPaused204Response struct {
-}
-
-func (response SetProcessPaused204Response) VisitSetProcessPausedResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type SetProcessPauseddefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response SetProcessPauseddefaultApplicationProblemPlusJSONResponse) VisitSetProcessPausedResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type SetProcessProjectRequestObject struct {
-	Body *SetProcessProjectJSONRequestBody
-}
-
-type SetProcessProjectResponseObject interface {
-	VisitSetProcessProjectResponse(w http.ResponseWriter) error
-}
-
-type SetProcessProject204Response struct {
-}
-
-func (response SetProcessProject204Response) VisitSetProcessProjectResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type SetProcessProjectdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response SetProcessProjectdefaultApplicationProblemPlusJSONResponse) VisitSetProcessProjectResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type AddTaskRequestObject struct {
-	Body *AddTaskJSONRequestBody
-}
-
-type AddTaskResponseObject interface {
-	VisitAddTaskResponse(w http.ResponseWriter) error
-}
-
-type AddTask201JSONResponse TaskRef
-
-func (response AddTask201JSONResponse) VisitAddTaskResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type AddTaskdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response AddTaskdefaultApplicationProblemPlusJSONResponse) VisitAddTaskResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ReorderProcessTasksRequestObject struct {
-	Body *ReorderProcessTasksJSONRequestBody
-}
-
-type ReorderProcessTasksResponseObject interface {
-	VisitReorderProcessTasksResponse(w http.ResponseWriter) error
-}
-
-type ReorderProcessTasks204Response struct {
-}
-
-func (response ReorderProcessTasks204Response) VisitReorderProcessTasksResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type ReorderProcessTasksdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response ReorderProcessTasksdefaultApplicationProblemPlusJSONResponse) VisitReorderProcessTasksResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DeleteTaskRequestObject struct {
-	UID UID `json:"uid"`
-}
-
-type DeleteTaskResponseObject interface {
-	VisitDeleteTaskResponse(w http.ResponseWriter) error
-}
-
-type DeleteTask204Response struct {
-}
-
-func (response DeleteTask204Response) VisitDeleteTaskResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type DeleteTaskdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response DeleteTaskdefaultApplicationProblemPlusJSONResponse) VisitDeleteTaskResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PatchTaskRequestObject struct {
-	UID  UID `json:"uid"`
-	Body *PatchTaskJSONRequestBody
-}
-
-type PatchTaskResponseObject interface {
-	VisitPatchTaskResponse(w http.ResponseWriter) error
-}
-
-type PatchTask204Response struct {
-}
-
-func (response PatchTask204Response) VisitPatchTaskResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type PatchTaskdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response PatchTaskdefaultApplicationProblemPlusJSONResponse) VisitPatchTaskResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type AddProjectRequestObject struct {
 	Body *AddProjectJSONRequestBody
 }
@@ -6291,39 +5537,6 @@ type StrictServerInterface interface {
 	// SetPresence Share the caller's live card selection; an empty card clears it.
 	// (POST /presence)
 	SetPresence(ctx context.Context, request SetPresenceRequestObject) (SetPresenceResponseObject, error)
-	// ListProcesses The Process tab — every process with its tasks and each task's history.
-	// (GET /processes)
-	ListProcesses(ctx context.Context, request ListProcessesRequestObject) (ListProcessesResponseObject, error)
-	// AddProcess Declare a process — recurring work inside a project.
-	// (POST /processes)
-	AddProcess(ctx context.Context, request AddProcessRequestObject) (AddProcessResponseObject, error)
-	// DeleteProcess Delete an EMPTY process; refused while it has tasks.
-	// (POST /processes/actions/delete-process)
-	DeleteProcess(ctx context.Context, request DeleteProcessRequestObject) (DeleteProcessResponseObject, error)
-	// RenameProcess Rename a process; its tasks follow.
-	// (POST /processes/actions/rename)
-	RenameProcess(ctx context.Context, request RenameProcessRequestObject) (RenameProcessResponseObject, error)
-	// ReorderProcesses Apply a shared process order.
-	// (POST /processes/actions/reorder)
-	ReorderProcesses(ctx context.Context, request ReorderProcessesRequestObject) (ReorderProcessesResponseObject, error)
-	// SetProcessPaused Pause a process, or resume it.
-	// (POST /processes/actions/set-paused)
-	SetProcessPaused(ctx context.Context, request SetProcessPausedRequestObject) (SetProcessPausedResponseObject, error)
-	// SetProcessProject Move a process to another project; an empty project is the no-project bucket.
-	// (POST /processes/actions/set-project)
-	SetProcessProject(ctx context.Context, request SetProcessProjectRequestObject) (SetProcessProjectResponseObject, error)
-	// AddTask Add what a process iterates on.
-	// (POST /processes/tasks)
-	AddTask(ctx context.Context, request AddTaskRequestObject) (AddTaskResponseObject, error)
-	// ReorderProcessTasks Apply one process's task order.
-	// (POST /processes/tasks/actions/reorder)
-	ReorderProcessTasks(ctx context.Context, request ReorderProcessTasksRequestObject) (ReorderProcessTasksResponseObject, error)
-	// DeleteTask Delete a task; its past turns stay as the record.
-	// (DELETE /processes/tasks/{uid})
-	DeleteTask(ctx context.Context, request DeleteTaskRequestObject) (DeleteTaskResponseObject, error)
-	// PatchTask Change what the NEXT turns will be; the running one is untouched.
-	// (PATCH /processes/tasks/{uid})
-	PatchTask(ctx context.Context, request PatchTaskRequestObject) (PatchTaskResponseObject, error)
 	// AddProject Declare a project — the Project board's top grouping, which owns epic columns.
 	// (POST /projects)
 	AddProject(ctx context.Context, request AddProjectRequestObject) (AddProjectResponseObject, error)
@@ -6354,7 +5567,7 @@ type StrictServerInterface interface {
 	// SetTeamCapacity Set the points a week a team gets through.
 	// (POST /teams/actions/capacity)
 	SetTeamCapacity(ctx context.Context, request SetTeamCapacityRequestObject) (SetTeamCapacityResponseObject, error)
-	// RenameTeam Rename a team in place, its cards and process tasks along with it.
+	// RenameTeam Rename a team in place, its cards along with it.
 	// (POST /teams/actions/rename)
 	RenameTeam(ctx context.Context, request RenameTeamRequestObject) (RenameTeamResponseObject, error)
 	// ListViews The boards a caller may open, each with the gestures it draws.
@@ -7333,339 +6546,6 @@ func (sh *strictHandler) SetPresence(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetPresenceResponseObject); ok {
 		if err := validResponse.VisitSetPresenceResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ListProcesses operation middleware
-func (sh *strictHandler) ListProcesses(w http.ResponseWriter, r *http.Request, params ListProcessesParams) {
-	var request ListProcessesRequestObject
-
-	request.Params = params
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListProcesses(ctx, request.(ListProcessesRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListProcesses")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListProcessesResponseObject); ok {
-		if err := validResponse.VisitListProcessesResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// AddProcess operation middleware
-func (sh *strictHandler) AddProcess(w http.ResponseWriter, r *http.Request) {
-	var request AddProcessRequestObject
-
-	var body AddProcessJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.AddProcess(ctx, request.(AddProcessRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "AddProcess")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(AddProcessResponseObject); ok {
-		if err := validResponse.VisitAddProcessResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// DeleteProcess operation middleware
-func (sh *strictHandler) DeleteProcess(w http.ResponseWriter, r *http.Request) {
-	var request DeleteProcessRequestObject
-
-	var body DeleteProcessJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteProcess(ctx, request.(DeleteProcessRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteProcess")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteProcessResponseObject); ok {
-		if err := validResponse.VisitDeleteProcessResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// RenameProcess operation middleware
-func (sh *strictHandler) RenameProcess(w http.ResponseWriter, r *http.Request) {
-	var request RenameProcessRequestObject
-
-	var body RenameProcessJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.RenameProcess(ctx, request.(RenameProcessRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "RenameProcess")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(RenameProcessResponseObject); ok {
-		if err := validResponse.VisitRenameProcessResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ReorderProcesses operation middleware
-func (sh *strictHandler) ReorderProcesses(w http.ResponseWriter, r *http.Request) {
-	var request ReorderProcessesRequestObject
-
-	var body ReorderProcessesJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ReorderProcesses(ctx, request.(ReorderProcessesRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ReorderProcesses")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ReorderProcessesResponseObject); ok {
-		if err := validResponse.VisitReorderProcessesResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// SetProcessPaused operation middleware
-func (sh *strictHandler) SetProcessPaused(w http.ResponseWriter, r *http.Request) {
-	var request SetProcessPausedRequestObject
-
-	var body SetProcessPausedJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.SetProcessPaused(ctx, request.(SetProcessPausedRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "SetProcessPaused")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(SetProcessPausedResponseObject); ok {
-		if err := validResponse.VisitSetProcessPausedResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// SetProcessProject operation middleware
-func (sh *strictHandler) SetProcessProject(w http.ResponseWriter, r *http.Request) {
-	var request SetProcessProjectRequestObject
-
-	var body SetProcessProjectJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.SetProcessProject(ctx, request.(SetProcessProjectRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "SetProcessProject")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(SetProcessProjectResponseObject); ok {
-		if err := validResponse.VisitSetProcessProjectResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// AddTask operation middleware
-func (sh *strictHandler) AddTask(w http.ResponseWriter, r *http.Request) {
-	var request AddTaskRequestObject
-
-	var body AddTaskJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.AddTask(ctx, request.(AddTaskRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "AddTask")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(AddTaskResponseObject); ok {
-		if err := validResponse.VisitAddTaskResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ReorderProcessTasks operation middleware
-func (sh *strictHandler) ReorderProcessTasks(w http.ResponseWriter, r *http.Request) {
-	var request ReorderProcessTasksRequestObject
-
-	var body ReorderProcessTasksJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ReorderProcessTasks(ctx, request.(ReorderProcessTasksRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ReorderProcessTasks")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ReorderProcessTasksResponseObject); ok {
-		if err := validResponse.VisitReorderProcessTasksResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// DeleteTask operation middleware
-func (sh *strictHandler) DeleteTask(w http.ResponseWriter, r *http.Request, uid UID) {
-	var request DeleteTaskRequestObject
-
-	request.UID = uid
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteTask(ctx, request.(DeleteTaskRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteTask")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteTaskResponseObject); ok {
-		if err := validResponse.VisitDeleteTaskResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// PatchTask operation middleware
-func (sh *strictHandler) PatchTask(w http.ResponseWriter, r *http.Request, uid UID) {
-	var request PatchTaskRequestObject
-
-	request.UID = uid
-
-	var body PatchTaskJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.PatchTask(ctx, request.(PatchTaskRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "PatchTask")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(PatchTaskResponseObject); ok {
-		if err := validResponse.VisitPatchTaskResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

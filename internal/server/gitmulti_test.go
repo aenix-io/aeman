@@ -41,7 +41,7 @@ func seedClosedRemote(t *testing.T, remote gitstore.Remote) {
 		t.Fatal(err)
 	}
 	_, err = r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: closed\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: closed\n")},
 		{Path: gitstore.ProjectPath("01JB4PROJSECRET"), Data: []byte("name: secret\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
 		{Path: gitstore.EpicPath("01JB4PROJSECRET", "01JB4EPICRISK"), Data: []byte("name: Risk\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
 		{Path: "cards/c/3/01JB4K2E7QZMX3R8V0N5T9WYC3.md", Data: []byte("---\ntitle: three-closed\nteam: portal\nproject: secret\nepic: Risk\nzone: yellow\nassignees:\n  - zoe\nprogress: 20\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n")},
@@ -81,13 +81,13 @@ func tornMoveRemotes(t *testing.T) (gitstore.Remote, gitstore.Remote) {
 	t.Helper()
 	shared, closed := gitRemoteN(t, "shared"), gitRemoteN(t, "closed")
 	seedRemoteFiles(t, shared, map[string]string{
-		gitstore.BoardPath:                        "schema: 1\ntitle: t\n",
+		gitstore.BoardPath:                        "schema: 2\ntitle: t\n",
 		gitstore.TeamPath("_"):                    "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		gitstore.TeamPath("01JB4TEAMNEW"):         "name: portal\nrank: b\ncreated: 2026-07-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
 		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n",
 	})
 	seedRemoteFiles(t, closed, map[string]string{
-		gitstore.BoardPath:                        "schema: 1\ntitle: closed\n",
+		gitstore.BoardPath:                        "schema: 2\ntitle: closed\n",
 		gitstore.TeamPath("01JB4TEAMOLD"):         "name: portal\nrank: z\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
 		gitstore.ProjectPath("01JB4PROJSECRET"):   "name: secret\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nproject: secret\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
@@ -139,87 +139,6 @@ func TestCardLogFromCommits(t *testing.T) {
 	}
 	if got.TruncatedBefore != "" {
 		t.Fatalf("a full clone reports a horizon: %s", got.TruncatedBefore)
-	}
-}
-
-// processRemote seeds a board with the process "weekly" and one task due
-// every week from this week's Monday, owned by kvaps.
-func processRemote(t *testing.T, remote gitstore.Remote) (taskID, monday string) {
-	t.Helper()
-	monday = board.MondayOf(board.TodayIso())
-	taskID = "01JB4TASK0000000000000000A"
-	seedRemoteFiles(t, remote, map[string]string{
-		gitstore.BoardPath:                      "schema: 1\ntitle: t\n",
-		gitstore.TeamPath("_"):                  "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		gitstore.TeamPath("01JB4TEAM"):          "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: " + monday + "\n",
-		gitstore.ProcessPath("01JB4PROCWEEKLY"): "name: weekly\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		// A task's name is the first line of its body, marked — the title
-		// field is the marker that hides it from the card rows.
-		gitstore.TaskPath("01JB4PROCWEEKLY", taskID): "---\ntitle: aeman:process-task\nteam: portal\nassignees: [kvaps]\nrecurrence: week\nstart: " + monday + "\nrank: a\ncreated: 2026-06-01T08:00:00Z\n---\n\n# weekly report\n",
-	})
-	return taskID, monday
-}
-
-// The process sweep rides the fetch tick, as the server identity: after a
-// sync, the week's due turns are filed through the store — one action, one
-// commit, pushed — with deterministic ids, so a second replica sweeping the
-// same minute writes the same path and its create is dropped on re-apply:
-// one iteration on the remote, not two.
-func TestSweepOnFetchTickFilesThisWeeksTurnsOnce(t *testing.T) {
-	remote := gitRemote(t)
-	taskID, monday := processRemote(t, remote)
-	a, _ := gitStore(t, remote)
-	b, _ := gitStore(t, remote)
-	ctx := context.Background()
-	if _, err := a.LoadBoard(ctx, "acme"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := b.LoadBoard(ctx, "acme"); err != nil {
-		t.Fatal(err)
-	}
-	want := gitstore.IterationID(taskID, monday)
-	if err := a.tick(ctx, "acme"); err != nil {
-		t.Fatal(err)
-	}
-	if err := b.tick(ctx, "acme"); err != nil {
-		t.Fatal(err)
-	}
-	for name, be := range map[string]*storeBackend{"a": a, "b": b} {
-		bd, _ := be.LoadBoard(ctx, "acme")
-		turns := board.Iterations(bd, taskID)
-		if len(turns) != 1 || turns[0].ItemID != want || turns[0].Week != monday {
-			t.Fatalf("%s serves %d turn(s) %+v, want one with id %s", name, len(turns), turns, want)
-		}
-		if n, _ := be.git.primary().Unpushed(); n != 0 {
-			t.Fatalf("%s left %d unpushed commit(s) after the tick", name, n)
-		}
-	}
-	check, err := gitstore.Clone(ctx, memory.NewStorage(), remote, gitTestOpts, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p, _ := gitstore.CardPath(want)
-	data, err := check.ReadFile(p)
-	if err != nil {
-		t.Fatalf("the turn is not on the remote: %v", err)
-	}
-	if !strings.Contains(string(data), "task: "+taskID) || !strings.Contains(string(data), "week: "+monday) {
-		t.Fatalf("turn file:\n%s", data)
-	}
-	c, _ := check.CommitObject(check.Head())
-	if tr := gitstore.ParseTrailers(c.Message); tr.Action != "sweep" || tr.Actor != "" {
-		t.Fatalf("sweep commit trailers = %+v, want action sweep by the server", tr)
-	}
-	// G6 — the sweep is the server's own work: authored by the server.
-	if c.Author.Name != gitTestOpts.Committer.Name || c.Author.Email != gitTestOpts.Committer.Email {
-		t.Fatalf("sweep commit author = %s <%s>, want the server", c.Author.Name, c.Author.Email)
-	}
-	// Another tick files nothing new.
-	if err := a.tick(ctx, "acme"); err != nil {
-		t.Fatal(err)
-	}
-	if bd, _ := a.LoadBoard(ctx, "acme"); len(board.Iterations(bd, taskID)) != 1 {
-		t.Fatal("a second tick filed another turn")
 	}
 }
 
@@ -300,7 +219,7 @@ func TestGitModeMigratesOlderSchemaAtStartup(t *testing.T) {
 	srv := gitModeServer(t, remote)
 	primary := srv.gitBE.git.primary()
 	data, err := primary.ReadFile(gitstore.BoardPath)
-	if err != nil || !strings.Contains(string(data), "schema: 1") || !strings.Contains(string(data), "title: old") {
+	if err != nil || !strings.Contains(string(data), "schema: 2") || !strings.Contains(string(data), "title: old") {
 		t.Fatalf("board.yaml after start-up = %q (%v)", data, err)
 	}
 	c, _ := primary.CommitObject(primary.Head())
@@ -320,13 +239,13 @@ func TestHealthzReportsAliasesAndGhosts(t *testing.T) {
 	// back: a direct push to one of its repositories.
 	shared, closed := gitRemoteN(t, "shared"), gitRemoteN(t, "closed")
 	seedRemoteFiles(t, shared, map[string]string{
-		gitstore.BoardPath:                        "schema: 1\ntitle: t\n",
+		gitstore.BoardPath:                        "schema: 2\ntitle: t\n",
 		gitstore.TeamPath("_"):                    "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		gitstore.TeamPath("01JB4TEAMNEW"):         "name: portal\nrank: b\ncreated: 2026-07-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
 		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n",
 	})
 	seedRemoteFiles(t, closed, map[string]string{
-		gitstore.BoardPath:                        "schema: 1\ntitle: closed\n",
+		gitstore.BoardPath:                        "schema: 2\ntitle: closed\n",
 		gitstore.ProjectPath("01JB4PROJSECRET"):   "name: secret\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nproject: secret\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
 	})

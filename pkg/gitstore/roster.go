@@ -12,12 +12,14 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// The roster — teams, projects, epics, deadlines, processes and the board
-// file — is configuration that used to hide in aeman:*-state cards. Here
-// each is a small YAML file at a path that carries identity only.
+// The roster — teams, projects, epics, deadlines and the board file — is
+// configuration that used to hide in aeman:*-state cards. Here each is a
+// small YAML file at a path that carries identity only.
 
 // SchemaVersion is the layout version this server writes and understands.
-const SchemaVersion = 1
+// Version 2 retired the Process feature: the processes/ directory and the
+// process, task and accumulate card keys (docs/design/hierarchy.md).
+const SchemaVersion = 2
 
 // BoardPath is the board's own file, primary domain only.
 const BoardPath = "board.yaml"
@@ -42,14 +44,6 @@ func DeadlinePath(projectID, id string) string {
 	return "projects/" + projectID + "/deadlines/" + id + ".yaml"
 }
 
-// ProcessPath is a process's own file.
-func ProcessPath(id string) string { return "processes/" + id + "/process.yaml" }
-
-// TaskPath is one task of a process — a card file, minus placement.
-func TaskPath(processID, id string) string {
-	return "processes/" + processID + "/tasks/" + id + ".md"
-}
-
 // PathKind classifies a path in the layout.
 type PathKind int
 
@@ -62,8 +56,6 @@ const (
 	PathProject
 	PathEpic
 	PathDeadline
-	PathProcess
-	PathTask
 	PathUser
 )
 
@@ -82,7 +74,9 @@ type UserFile struct {
 
 // ParsePath is the layout's inverse: what a path is and the ids in it. A
 // remote commit's diff goes through it so the cache reloads exactly the
-// objects that changed.
+// objects that changed. A path the layout no longer has — the processes/
+// tree of a schema-1 repository, read on a day before the migration — is
+// PathUnknown, which the loader records and skips.
 func ParsePath(p string) (PathKind, []string) {
 	parts := strings.Split(p, "/")
 	strip := func(s, ext string) (string, bool) {
@@ -111,12 +105,6 @@ func ParsePath(p string) (PathKind, []string) {
 	case len(parts) == 4 && parts[0] == "projects" && parts[2] == "deadlines":
 		if id, ok := strip(parts[3], ".yaml"); ok {
 			return PathDeadline, []string{parts[1], id}
-		}
-	case len(parts) == 3 && parts[0] == "processes" && parts[2] == "process.yaml":
-		return PathProcess, []string{parts[1]}
-	case len(parts) == 4 && parts[0] == "processes" && parts[2] == "tasks":
-		if id, ok := strip(parts[3], ".md"); ok {
-			return PathTask, []string{parts[1], id}
 		}
 	case len(parts) == 2 && parts[0] == "users":
 		if login, ok := strip(parts[1], ".yaml"); ok {
@@ -172,16 +160,6 @@ type DeadlineFile struct {
 	Extra   []ExtraField
 }
 
-// ProcessFile is processes/<id>/process.yaml.
-type ProcessFile struct {
-	Name    string
-	Project string
-	Paused  bool
-	Rank    string
-	Created string
-	Extra   []ExtraField
-}
-
 // BoardFile is board.yaml.
 type BoardFile struct {
 	Schema int
@@ -198,12 +176,6 @@ type yamlWriter struct{ b bytes.Buffer }
 func (w *yamlWriter) str(key, val string) {
 	if val != "" {
 		w.b.WriteString(key + ": " + scalar(val) + "\n")
-	}
-}
-
-func (w *yamlWriter) flag(key string, val bool) {
-	if val {
-		w.b.WriteString(key + ": true\n")
 	}
 }
 
@@ -316,17 +288,6 @@ func EncodeEpic(f EpicFile) ([]byte, error) {
 func EncodeDeadline(f DeadlineFile) ([]byte, error) {
 	var w yamlWriter
 	w.str("week", f.Week)
-	w.str("created", f.Created)
-	return w.finish(f.Extra)
-}
-
-// EncodeProcess renders a process file.
-func EncodeProcess(f ProcessFile) ([]byte, error) {
-	var w yamlWriter
-	w.str("name", f.Name)
-	w.str("project", f.Project)
-	w.flag("paused", f.Paused)
-	w.str("rank", f.Rank)
 	w.str("created", f.Created)
 	return w.finish(f.Extra)
 }
@@ -456,30 +417,6 @@ func DecodeDeadline(data []byte) (DeadlineFile, error) {
 		switch key {
 		case "week":
 			f.Week = val.Value
-		case "created":
-			f.Created = val.Value
-		default:
-			return false
-		}
-		return true
-	})
-	f.Extra = extra
-	return f, err
-}
-
-// DecodeProcess parses a process file.
-func DecodeProcess(data []byte) (ProcessFile, error) {
-	var f ProcessFile
-	extra, err := each(data, func(key string, val *yaml.Node) bool {
-		switch key {
-		case "name":
-			f.Name = val.Value
-		case "project":
-			f.Project = val.Value
-		case "paused":
-			f.Paused = val.Value == "true"
-		case "rank":
-			f.Rank = val.Value
 		case "created":
 			f.Created = val.Value
 		default:

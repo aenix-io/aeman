@@ -365,11 +365,10 @@ type updateCardInput struct {
 	Sprint      *string `json:"sprint,omitempty" jsonschema:"sprint start day the card belongs to; empty clears it"`
 	Epic        *string `json:"epic,omitempty" jsonschema:"Project-board column to file the card under; empty clears it. MUST be an EXISTING column from get_board metadata.epics — and columns are identified by the (project, epic) pair, so pass project too unless the card is already in the right project"`
 	Project     *string `json:"project,omitempty" jsonschema:"the project half of the card's column (see epic). Epic names repeat across projects, so filing a card into another project's column needs both"`
-	Week        *string `json:"week,omitempty" jsonschema:"the week the card is scheduled for, its Monday as yyyy-mm-dd; empty takes it off the Triage board's weeks. A Project-board slot (a card with an epic) refuses it — its week IS its start date's week, so move the dates instead and the row follows. A process TURN keeps to its own OCCURRENCE: the weeks from the one its task came due in through the week before the next due date, since a turn carried past that stands where the next turn belongs and the two read as one process running twice. Outside it is refused — unless the task accumulates (its turns are meant to pile up), and a turn whose occurrence is already past may still come forward into the CURRENT week, which is the only way back for one whose days ran out"`
-	Parked      *bool   `json:"parked,omitempty" jsonschema:"put the card on its TEAM's backlog, or take it off with false. Every team has a backlog and nothing declares it. It is the third place a card can be: not a week and not the triage strip, but work somebody has read and put aside — 'not now'. Parking clears the week, the person, the sprint and the dates, takes the card's subtasks off the board with it and withdraws any review of it; giving a parked card a week takes it off the shelf. A Project-board slot and a process turn are refused: their week is another board's to say. A REVIEW card and a SUBTASK are refused too — neither has a place of its own to be parked out of, one follows the card it reviews and the other stands inside its parent, so the shelf would take it out of the only place it is drawn"`
+	Week        *string `json:"week,omitempty" jsonschema:"the week the card is scheduled for, its Monday as yyyy-mm-dd; empty takes it off the Triage board's weeks. A Project-board slot (a card with an epic) refuses it — its week IS its start date's week, so move the dates instead and the row follows"`
+	Parked      *bool   `json:"parked,omitempty" jsonschema:"put the card on its TEAM's backlog, or take it off with false. Every team has a backlog and nothing declares it. It is the third place a card can be: not a week and not the triage strip, but work somebody has read and put aside — 'not now'. Parking clears the week, the person, the sprint and the dates, takes the card's subtasks off the board with it and withdraws any review of it; giving a parked card a week takes it off the shelf. A Project-board slot is refused: its week is another board's to say. A REVIEW card and a SUBTASK are refused too — neither has a place of its own to be parked out of, one follows the card it reviews and the other stands inside its parent, so the shelf would take it out of the only place it is drawn"`
 	ReviewOf    *string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews; empty breaks the link"`
 	Parent      *string `json:"parent,omitempty" jsonschema:"uid of the card to group this one under as a subtask (one level deep; empty ungroups it back to a standalone card); a subtask keeps its own description/notes/log, feeds the parent's derived progress and rides with it through carry-over"`
-	Process     *string `json:"process,omitempty" jsonschema:"tie the card to an EXISTING process — the recurring shelf's counterpart of a column (a typo is not a new process); empty clears"`
 }
 
 func (h *server) updateCard(ctx context.Context, _ *mcp.CallToolRequest, in updateCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
@@ -461,11 +460,6 @@ func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, 
 			return err
 		}
 	}
-	if in.Process != nil {
-		if err := svc.SetCardProcess(ctx, boardID, in.UID, *in.Process); err != nil {
-			return err
-		}
-	}
 	if in.ReviewOf != nil {
 		if err := svc.SetReviewOf(ctx, boardID, in.UID, *in.ReviewOf); err != nil {
 			return err
@@ -552,106 +546,6 @@ func (h *server) renameEpic(ctx context.Context, _ *mcp.CallToolRequest, in epic
 	return nil, statusOutput{Status: "renamed"}, nil
 }
 
-// --- Processes ----------------------------------------------------------------
-
-type listProcessesInput struct {
-	boardRef
-	Project string `json:"project,omitempty" jsonschema:"scope to one project's processes; empty is every project"`
-}
-
-func (h *server) listProcesses(ctx context.Context, _ *mcp.CallToolRequest, in listProcessesInput) (*mcp.CallToolResult, apiserver.ProcessList, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, apiserver.ProcessList{}, err
-	}
-	b, err := svc.Board(ctx, boardID)
-	if err != nil {
-		return nil, apiserver.ProcessList{}, err
-	}
-	return nil, apiserver.ProcessesResource(b, in.Project), nil
-}
-
-type processInput struct {
-	boardRef
-	Name    string `json:"name" jsonschema:"the process's name"`
-	Project string `json:"project,omitempty" jsonschema:"add_process: the project the process is part of (from get_board metadata.projects)"`
-	To      string `json:"to,omitempty" jsonschema:"rename_process only: the new name"`
-	// Domain is the repository to declare a project-less process in; a
-	// process with a project lives with its project.
-	Domain string `json:"domain,omitempty" jsonschema:"add_process only, without a project: the domain (repository) to declare the process in, from get_board metadata.domains; empty = the primary"`
-}
-
-func (h *server) addProcess(ctx context.Context, _ *mcp.CallToolRequest, in processInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.AddProcess(board.WithDomain(ctx, in.Domain), boardID, in.Name, in.Project); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "added"}, nil
-}
-
-func (h *server) deleteProcess(ctx context.Context, _ *mcp.CallToolRequest, in processInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.DeleteProcess(ctx, boardID, in.Name); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "deleted"}, nil
-}
-
-func (h *server) renameProcess(ctx context.Context, _ *mcp.CallToolRequest, in processInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.RenameProcess(ctx, boardID, in.Name, in.To); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "renamed"}, nil
-}
-
-type setProcessProjectInput struct {
-	boardRef
-	Process string `json:"process" jsonschema:"the process to move (required)"`
-	Project string `json:"project" jsonschema:"the project it should belong to, from get_board metadata.projects; empty moves it to the no-project bucket"`
-}
-
-func (h *server) setProcessProject(ctx context.Context, _ *mcp.CallToolRequest, in setProcessProjectInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.SetProcessProject(ctx, boardID, in.Process, in.Project); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "moved"}, nil
-}
-
-type pauseProcessInput struct {
-	boardRef
-	Process string `json:"process" jsonschema:"the process to pause or resume (required)"`
-	Paused  bool   `json:"paused" jsonschema:"true stops it filing iterations, false starts it again"`
-}
-
-func (h *server) setProcessPaused(ctx context.Context, _ *mcp.CallToolRequest, in pauseProcessInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.SetProcessPaused(ctx, boardID, in.Process, in.Paused); err != nil {
-		return nil, statusOutput{}, err
-	}
-	status := "resumed"
-	if in.Paused {
-		status = "paused"
-	}
-	return nil, statusOutput{Status: status}, nil
-}
-
 // reopenCard undoes a done mark, restoring the pre-done progress from the
 // card's own activity log (fallback: the In Progress nudge).
 func (h *server) reopenCard(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, apiserver.Card, error) {
@@ -663,109 +557,6 @@ func (h *server) reopenCard(ctx context.Context, _ *mcp.CallToolRequest, in card
 		return nil, apiserver.Card{}, err
 	}
 	return h.cardResource(ctx, svc, boardID, in.UID)
-}
-
-type reorderProcessesInput struct {
-	boardRef
-	Processes []string `json:"processes" jsonschema:"every process name in the desired order (from list_processes)"`
-}
-
-func (h *server) reorderProcesses(ctx context.Context, _ *mcp.CallToolRequest, in reorderProcessesInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.ReorderProcesses(ctx, boardID, in.Processes); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "reordered"}, nil
-}
-
-type reorderProcessTasksInput struct {
-	boardRef
-	Process string   `json:"process" jsonschema:"the process whose task order this is (required)"`
-	UIDs    []string `json:"uids" jsonschema:"the task uids in the desired order. A uid belonging to another process is ADOPTED into this one at its position — that is how moving a task between processes lands"`
-}
-
-func (h *server) reorderProcessTasks(ctx context.Context, _ *mcp.CallToolRequest, in reorderProcessTasksInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.ReorderProcessTasks(ctx, boardID, in.Process, in.UIDs); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "reordered"}, nil
-}
-
-type addTaskInput struct {
-	boardRef
-	Process     string `json:"process" jsonschema:"the process this task belongs to (required)"`
-	Title       string `json:"title" jsonschema:"the title every iteration will be created with (required)"`
-	Description string `json:"description,omitempty" jsonschema:"the body every iteration will be created with"`
-	Recurrence  string `json:"recurrence" jsonschema:"the cycle: week, 2weeks, month or quarter (required). Counted on the calendar from start, not from when the last iteration closed"`
-	Start       string `json:"start,omitempty" jsonschema:"the calendar anchor the cycle is counted from, yyyy-mm-dd; defaults to today"`
-	Team        string `json:"team,omitempty" jsonschema:"the team the iterations land in — use a team key from get_board metadata.teams: a name no team carries DECLARES A NEW TEAM rather than failing, so a typo leaves a ghost team on the board"`
-	Assignee    string `json:"assignee,omitempty" jsonschema:"the standing owner (GitHub login); every iteration is assigned to them, the team lead may reassign"`
-	Accumulate  bool   `json:"accumulate,omitempty" jsonschema:"spawn the next iteration even while the previous one is still open, so unpaid months pile up as separate cards. Default false: an open iteration simply goes overdue and the next one waits"`
-}
-
-func (h *server) addProcessTask(ctx context.Context, _ *mcp.CallToolRequest, in addTaskInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	tpl, err := svc.AddProcessTask(ctx, boardID, in.Process, boardservice.TaskArgs{
-		Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
-		Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
-	})
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "added", UID: tpl.ItemID}, nil
-}
-
-type updateTaskInput struct {
-	boardRef
-	UID         string  `json:"uid" jsonschema:"the task's uid, from list_processes (required)"`
-	Title       *string `json:"title,omitempty" jsonschema:"new title for the NEXT iterations"`
-	Description *string `json:"description,omitempty" jsonschema:"new body for the NEXT iterations; empty clears"`
-	Recurrence  *string `json:"recurrence,omitempty" jsonschema:"new cycle: week, 2weeks, month or quarter"`
-	Start       *string `json:"start,omitempty" jsonschema:"new calendar anchor, yyyy-mm-dd"`
-	Team        *string `json:"team,omitempty" jsonschema:"new team (an existing team key)"`
-	Assignee    *string `json:"assignee,omitempty" jsonschema:"new standing owner; empty clears"`
-	Accumulate  *bool   `json:"accumulate,omitempty" jsonschema:"whether the next iteration spawns while the previous is open"`
-}
-
-func (h *server) updateProcessTask(ctx context.Context, _ *mcp.CallToolRequest, in updateTaskInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	err = svc.UpdateProcessTask(ctx, boardID, in.UID, boardservice.TaskPatch{
-		Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
-		Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
-	})
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "updated", UID: in.UID}, nil
-}
-
-type taskRef struct {
-	boardRef
-	UID string `json:"uid" jsonschema:"the task's uid, from list_processes (required)"`
-}
-
-func (h *server) deleteProcessTask(ctx context.Context, _ *mcp.CallToolRequest, in taskRef) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.DeleteProcessTask(ctx, boardID, in.UID); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "deleted", UID: in.UID}, nil
 }
 
 // deadlineInput names a week of the Project board (and, for a move, the week

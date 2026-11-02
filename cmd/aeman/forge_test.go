@@ -1207,7 +1207,7 @@ func TestMCPUnknownCredentialOwnerCanStillRead(t *testing.T) {
 func TestMCPReadOnlyClassificationFailsClosed(t *testing.T) {
 	for _, name := range []string{
 		"get_board", "list_cards", "get_card", "list_sprints", "list_day_logs",
-		"list_log", "list_links", "list_notes", "list_processes",
+		"list_log", "list_links", "list_notes",
 	} {
 		if !readOnlyMCPTool(mcpToolRequest(name, `{}`)) {
 			t.Errorf("%s classified as mutating", name)

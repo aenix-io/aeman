@@ -420,10 +420,8 @@ func (e *boardEntry) cached() (board.Board, cacheState) {
 // wrong silently.
 func detached(b board.Board) board.Board {
 	b.Cards = detachedCards(b.Cards)
-	b.Tasks = detachedCards(b.Tasks)
 	b.Epics = slices.Clone(b.Epics)
 	b.Deadlines = slices.Clone(b.Deadlines)
-	b.Processes = slices.Clone(b.Processes)
 	b.Projects = slices.Clone(b.Projects)
 	b.TeamOrder = slices.Clone(b.TeamOrder)
 	b.SprintStates = maps.Clone(b.SprintStates)
@@ -453,13 +451,6 @@ func detachedCards(cards []board.Card) []board.Card {
 // events are suppressed — it already holds the change optimistically — but its
 // membership is still tracked, or later diffs would mis-fire.
 func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
-	// A turn of a process is a card AND a row of the Process tab's history:
-	// its stage changing is a card event to the boards and a structure event
-	// to that tab, which reads the turns from the board rather than from the
-	// card stream.
-	if c.Task != "" {
-		e.rosterBroadcast()
-	}
 	// Every card write can move a number beside a person — its size, who it
 	// is on, whether it is still open, which week it waits in — and the
 	// numbers are summed over cards this watcher may never be sent. So the
@@ -1156,8 +1147,7 @@ func (e *boardEntry) flushRoster() {
 	// The frame CARRIES the board, the way a Card frame carries its card: a
 	// client applies it and needs no round trip. A bare "something changed"
 	// signal sent every open tab back to GET /board — a full snapshot each,
-	// which is the opposite of what a cache is for. Processes ride along as
-	// their full structure, since the Process tab is drawn from it.
+	// which is the opposite of what a cache is for.
 	//
 	// Built off e.mu for the same reason flushLoad is: BoardResourceWithPeople
 	// resolves members against the forge, and those lookups must not freeze the
@@ -1165,7 +1155,6 @@ func (e *boardEntry) flushRoster() {
 	for _, g := range groups {
 		raw, err := json.Marshal(watchFrame{Type: "MODIFIED", Kind: "Board", Object: boardFrame{
 			BoardInfo: apiserver.BoardResourceWithPeople(g.board, member),
-			Processes: apiserver.ProcessesResource(g.board, "").Items,
 		}})
 		if err != nil {
 			continue
@@ -1203,11 +1192,11 @@ func rightsKey(r *domainRights) string {
 	return "r\x00" + r.primary + "\x00" + strings.Join(names, "\x00")
 }
 
-// boardFrame is the Board watch frame's object: the board resource plus the
-// process structure, so one frame repaints every roster-driven view.
+// boardFrame is the Board watch frame's object: the board resource, so one
+// frame repaints every roster-driven view. (It used to carry the process
+// structure beside it; a planning card's structure rides the card stream.)
 type boardFrame struct {
 	apiserver.BoardInfo
-	Processes []apiserver.Process `json:"processes"`
 }
 
 // loadBroadcast tells every watcher that what the board's PEOPLE are holding
@@ -1377,23 +1366,6 @@ func (b *storeBackend) createSync(ctx context.Context, bd board.Board, e *boardE
 		return card, err
 	}
 	e.mu.Lock()
-	if card.Title == board.ProcessStateTitle {
-		if _, exists := board.FindProcess(e.board, card.Process); card.Process != "" && !exists {
-			e.board.Processes = append(e.board.Processes,
-				board.Process{Name: card.Process, Project: card.Project, ItemID: card.ItemID})
-		}
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
-		e.mu.Unlock()
-		return card, nil
-	}
-	if card.Title == board.ProcessTaskTitle {
-		e.board.Tasks = append(e.board.Tasks, card)
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
-		e.mu.Unlock()
-		return card, nil
-	}
 	if card.Title == board.DeadlineStateTitle {
 		// A deadline is a line on a week, not a card row.
 		if _, exists := board.FindDeadline(e.board, card.Project, card.Week); card.Week != "" && !exists {
@@ -1466,23 +1438,6 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 			continue
 		}
 		e.board.Epics = append(e.board.Epics[:i:i], e.board.Epics[i+1:]...)
-		e.rosterBroadcast()
-		break
-	}
-	// ...a deleted process or task leaves its roster...
-	for i, p := range e.board.Processes {
-		if p.ItemID != card.ItemID {
-			continue
-		}
-		e.board.Processes = append(e.board.Processes[:i:i], e.board.Processes[i+1:]...)
-		e.rosterBroadcast()
-		break
-	}
-	for i, t := range e.board.Tasks {
-		if t.ItemID != card.ItemID {
-			continue
-		}
-		e.board.Tasks = append(e.board.Tasks[:i:i], e.board.Tasks[i+1:]...)
 		e.rosterBroadcast()
 		break
 	}
@@ -1641,16 +1596,6 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 	}
 	if project, ok := nameOfState(e.board.ProjectStates, card.ItemID); ok {
 		e.board.Projects = moveNameAfter(e.board.Projects, e.board.ProjectStates, project, afterID)
-		e.rosterBroadcast()
-	}
-	// …and for the Process tab's two: processes and their tasks are state
-	// cards whose board position is the order the tab draws.
-	if from := processIndexOf(e.board.Processes, card.ItemID); from >= 0 {
-		e.board.Processes = moveProcessAfter(e.board.Processes, from, afterID)
-		e.rosterBroadcast()
-	}
-	if from := taskIndexOf(e.board.Tasks, card.ItemID); from >= 0 {
-		e.board.Tasks = moveTaskAfter(e.board.Tasks, from, afterID)
 		e.rosterBroadcast()
 	}
 	e.recentMove = time.Now()
@@ -2150,10 +2095,6 @@ func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card boar
 	if i := epicIndexOf(e.board.Epics, card.ItemID); i >= 0 {
 		e.board.Epics[i].Project = project
 		e.rosterBroadcast()
-	} else if i := processIndexOf(e.board.Processes, card.ItemID); i >= 0 {
-		// A process moved to another project: it is a roster entry, not a row.
-		e.board.Processes[i].Project = project
-		e.rosterBroadcast()
 	} else if old, ok := nameOfState(e.board.ProjectStates, card.ItemID); ok {
 		// A project-state card renamed: re-key the roster in place.
 		e.board.Projects = renameInList(e.board.Projects, old, project)
@@ -2181,10 +2122,6 @@ func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card boar
 				fresh.Epics[i].Project = project
 				return
 			}
-			if i := processIndexOf(fresh.Processes, card.ItemID); i >= 0 {
-				fresh.Processes[i].Project = project
-				return
-			}
 			if old, ok := nameOfState(fresh.ProjectStates, card.ItemID); ok {
 				fresh.Projects = renameInList(fresh.Projects, old, project)
 				delete(fresh.ProjectStates, old)
@@ -2208,151 +2145,8 @@ func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card boar
 // A roster write is applied to the cache at once and to GitHub behind. If a
 // full reload lands while it is still queued, every pending op is replayed
 // over the fresh board — so each of these carries a replay that re-imposes
-// its own change. Without one the reload put the old name (or the old pause)
-// back in the cache and broadcast it to every tab, and only the NEXT reload
-// undid that.
-
-// moveProcessAfter and moveTaskAfter reorder the two Process-tab rosters the
-// way moveEpicAfter does the columns: take the entry out, put it back after
-// the anchor ("" = the front).
-func moveProcessAfter(list []board.Process, from int, afterID string) []board.Process {
-	entry := list[from]
-	out := append(append([]board.Process{}, list[:from]...), list[from+1:]...)
-	at := 0
-	if afterID != "" {
-		for i, p := range out {
-			if p.ItemID == afterID {
-				at = i + 1
-				break
-			}
-		}
-	}
-	return append(out[:at:at], append([]board.Process{entry}, out[at:]...)...)
-}
-
-func moveTaskAfter(list []board.Card, from int, afterID string) []board.Card {
-	entry := list[from]
-	out := append(append([]board.Card{}, list[:from]...), list[from+1:]...)
-	at := 0
-	if afterID != "" {
-		for i, t := range out {
-			if t.ItemID == afterID {
-				at = i + 1
-				break
-			}
-		}
-	}
-	return append(out[:at:at], append([]board.Card{entry}, out[at:]...)...)
-}
-
-// taskIndexOf finds a task in the roster by its item id.
-func taskIndexOf(list []board.Card, itemID string) int {
-	for i := range list {
-		if list[i].ItemID == itemID {
-			return i
-		}
-	}
-	return -1
-}
-
-// processIndexOf finds a process in the roster by the item id of the card
-// that declares it.
-func processIndexOf(list []board.Process, itemID string) int {
-	for i := range list {
-		if list[i].ItemID == itemID {
-			return i
-		}
-	}
-	return -1
-}
-
-// SetProcess renames a process on its state card, re-points a task at a
-// renamed process — or, on an ORDINARY card, ties it to a process
-// (SetCardProcess). The first two are roster rows; the tie is a card row,
-// and skipping the card mutation here left the cache serving process=""
-// right after the write acknowledged it.
-func (b *storeBackend) SetProcess(ctx context.Context, bd board.Board, card board.Card, process string) error {
-	if card.Title != board.ProcessStateTitle && card.Title != board.ProcessTaskTitle {
-		b.mutateCard(ctx, bd, card.ItemID, "process", tieDesc(card, process), func(c *board.Card) {
-			c.Process = process
-		}, func(ctx context.Context) error {
-			return b.inner.SetProcess(ctx, bd, card, process)
-		})
-		return nil
-	}
-	e := b.store.entry(storeKey(bd.Board))
-	e.mu.Lock()
-	for i := range e.board.Processes {
-		if e.board.Processes[i].ItemID == card.ItemID {
-			e.board.Processes[i].Name = process
-		}
-	}
-	for i := range e.board.Tasks {
-		if e.board.Tasks[i].ItemID == card.ItemID {
-			e.board.Tasks[i].Process = process
-		}
-	}
-	e.rosterBroadcast()
-	e.mu.Unlock()
-	b.enqueue(ctx, e, pendingOp{
-		key: "process:" + card.ItemID, itemID: card.ItemID,
-		desc: "rename the process on " + cardRef(card),
-		apply: func(fresh *board.Board) {
-			for i := range fresh.Processes {
-				if fresh.Processes[i].ItemID == card.ItemID {
-					fresh.Processes[i].Name = process
-				}
-			}
-			for i := range fresh.Tasks {
-				if fresh.Tasks[i].ItemID == card.ItemID {
-					fresh.Tasks[i].Process = process
-				}
-			}
-		},
-		exec: func(ctx context.Context) error { return b.inner.SetProcess(ctx, bd, card, process) },
-	})
-	return nil
-}
-
-func (b *storeBackend) SetTask(ctx context.Context, bd board.Board, card board.Card, task string) error {
-	b.mutateCard(ctx, bd, card.ItemID, "task", "link "+cardRef(card)+" to its task", func(c *board.Card) {
-		c.Task = task
-	}, func(ctx context.Context) error {
-		return b.inner.SetTask(ctx, bd, card, task)
-	})
-	return nil
-}
-
-// SetPaused pauses a process: a roster entry, not a card row.
-func (b *storeBackend) SetPaused(ctx context.Context, bd board.Board, card board.Card, paused bool) error {
-	e := b.store.entry(storeKey(bd.Board))
-	e.mu.Lock()
-	if i := processIndexOf(e.board.Processes, card.ItemID); i >= 0 {
-		e.board.Processes[i].Paused = paused
-		e.rosterBroadcast()
-	}
-	e.mu.Unlock()
-	b.enqueue(ctx, e, pendingOp{
-		key: "paused:" + card.ItemID, itemID: card.ItemID,
-		desc: "pause or resume " + cardRef(card),
-		apply: func(fresh *board.Board) {
-			if i := processIndexOf(fresh.Processes, card.ItemID); i >= 0 {
-				fresh.Processes[i].Paused = paused
-			}
-		},
-		exec: func(ctx context.Context) error { return b.inner.SetPaused(ctx, bd, card, paused) },
-	})
-	return nil
-}
-
-func (b *storeBackend) SetAccumulate(ctx context.Context, bd board.Board, card board.Card, on bool) error {
-	b.mutateCard(ctx, bd, card.ItemID, "accumulate", "set accumulate on "+cardRef(card), func(c *board.Card) {
-		c.Accumulate = on
-	}, func(ctx context.Context) error {
-		return b.inner.SetAccumulate(ctx, bd, card, on)
-	})
-	return nil
-}
+// its own change. Without one the reload put the old name back in the cache
+// and broadcast it to every tab, and only the NEXT reload undid that.
 
 func (b *storeBackend) SetRecurrence(ctx context.Context, bd board.Board, card board.Card, cycle string) error {
 	b.mutateCard(ctx, bd, card.ItemID, "recurrence", "set the recurrence of "+cardRef(card), func(c *board.Card) {
@@ -2493,10 +2287,7 @@ func cardFromInput(in board.CreateInput, itemID string) board.Card {
 		Size:        in.Size,
 		Epic:        in.Epic,
 		Project:     in.Project,
-		Process:     in.Process,
-		Task:        in.Task,
 		Recurrence:  in.Recurrence,
-		Paused:      in.Paused,
 		Description: in.Body,
 		ReviewOf:    in.ReviewOf,
 		Parent:      in.Parent,
@@ -2533,47 +2324,23 @@ func rosterStubs(b board.Board) map[string]board.Card {
 	for name, id := range b.ProjectStates {
 		out[id] = board.Card{ItemID: id, Title: board.ProjectStateTitle, Project: name, Domain: b.Domains[id]}
 	}
-	for _, p := range b.Processes {
-		out[p.ItemID] = board.Card{ItemID: p.ItemID, Title: board.ProcessStateTitle, Process: p.Name, Project: p.Project, Paused: p.Paused, Domain: b.Domains[p.ItemID]}
-	}
 	for _, e := range b.Epics {
 		out[e.ItemID] = board.Card{ItemID: e.ItemID, Title: board.EpicStateTitle, Epic: e.Name, Project: e.Project, Domain: b.Domains[e.ItemID]}
 	}
 	for _, d := range b.Deadlines {
 		out[d.ItemID] = board.Card{ItemID: d.ItemID, Title: board.DeadlineStateTitle, Week: d.Week, Project: d.Project, Domain: b.Domains[d.ItemID]}
 	}
-	for _, k := range b.Tasks {
-		c := k
-		c.Domain = b.Domains[k.ItemID]
-		out[k.ItemID] = c
-	}
 	return out
 }
 
-// installStub puts a roster stub — a process, task, project, column or
-// deadline state card — into the board's roster, idempotently, and records
-// its domain when it carries one. It reports false for a plain card, which
-// is a row and not the roster's business. A queued create's apply uses it
-// too, so a reload that lands while the create is still pending puts the
-// roster entry back where it belongs instead of leaking a stub row.
+// installStub puts a roster stub — a project, column or deadline state card
+// — into the board's roster, idempotently, and records its domain when it
+// carries one. It reports false for a plain card, which is a row and not the
+// roster's business. A queued create's apply uses it too, so a reload that
+// lands while the create is still pending puts the roster entry back where
+// it belongs instead of leaking a stub row.
 func installStub(target *board.Board, card board.Card) bool {
 	switch card.Title {
-	case board.ProcessStateTitle:
-		if _, exists := board.FindProcess(*target, card.Process); card.Process != "" && !exists {
-			target.Processes = append(target.Processes,
-				board.Process{Name: card.Process, Project: card.Project, ItemID: card.ItemID})
-		}
-	case board.ProcessTaskTitle:
-		exists := false
-		for _, t := range target.Tasks {
-			if t.ItemID == card.ItemID {
-				exists = true
-				break
-			}
-		}
-		if !exists {
-			target.Tasks = append(target.Tasks, card)
-		}
 	case board.ProjectStateTitle:
 		if card.Project != "" && target.ProjectStates[card.Project] == "" {
 			if target.ProjectStates == nil {

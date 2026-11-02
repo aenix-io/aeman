@@ -172,12 +172,12 @@ func (mb *MultiBackend) LoadCards(ctx context.Context, bd board.Board, ids []str
 
 // resolver answers DomainOf's questions from a merged snapshot.
 type resolver struct {
-	cards, projects, teams, processes map[string]string
-	stubs                             map[string]string // roster id → domain
+	cards, projects, teams map[string]string
+	stubs                  map[string]string // roster id → domain
 }
 
 func newResolver(s Snapshot) resolver {
-	r := resolver{cards: map[string]string{}, projects: map[string]string{}, teams: map[string]string{}, processes: map[string]string{}, stubs: map[string]string{}}
+	r := resolver{cards: map[string]string{}, projects: map[string]string{}, teams: map[string]string{}, stubs: map[string]string{}}
 	for _, c := range s.Cards {
 		r.cards[c.ItemID] = c.Domain
 	}
@@ -193,13 +193,6 @@ func newResolver(s Snapshot) resolver {
 		}
 		for _, d := range p.Deadlines {
 			r.stubs[d.ID] = d.Domain
-		}
-	}
-	for _, p := range s.Processes {
-		r.processes[p.Name] = p.Domain
-		r.stubs[p.ID] = p.Domain
-		for _, k := range p.Tasks {
-			r.cards[k.ID] = k.Domain
 		}
 	}
 	for _, a := range s.Aliases {
@@ -236,7 +229,7 @@ func (mb *MultiBackend) domainOf(ctx context.Context, r resolver, c board.Card) 
 	if c.Domain != "" {
 		return c.Domain
 	}
-	if isStub(c) || c.Title == board.ProcessTaskTitle {
+	if isStub(c) {
 		if d, ok := r.stubs[c.ItemID]; ok {
 			return d
 		}
@@ -263,8 +256,7 @@ func (mb *MultiBackend) homeOf(r resolver, c board.Card) string {
 
 // CreateCard places a new card by the inheritance rule, a roster stub where
 // the caller asks (default the primary) — except that a column or deadline
-// lives with its project, a task with its process, a process with its
-// project when it has one.
+// lives with its project.
 func (mb *MultiBackend) CreateCard(ctx context.Context, bd board.Board, in board.CreateInput) (board.Card, error) {
 	s, err := mb.snapshot()
 	if err != nil {
@@ -281,14 +273,9 @@ func (mb *MultiBackend) CreateCard(ctx context.Context, bd board.Board, in board
 		if err := nameFree(r, "team", in.Team); err != nil {
 			return board.Card{}, err
 		}
-	case board.ProcessStateTitle:
-		if err := nameFree(r, "process", in.Process); err != nil {
-			return board.Card{}, err
-		}
 	}
 	// The caller's choice — the input's, else the context's (board.WithDomain)
-	// — counts only for what has no home by rule: a team, a project, a
-	// process without a project.
+	// — counts only for what has no home by rule: a team, a project.
 	choice := in.Domain
 	if choice == "" {
 		choice = board.DomainFrom(ctx)
@@ -311,18 +298,6 @@ func (mb *MultiBackend) CreateCard(ctx context.Context, bd board.Board, in board
 		}
 		if d, ok := r.projects[in.Project]; ok {
 			target = d
-		}
-	case board.ProcessTaskTitle:
-		if d, ok := r.processes[in.Process]; ok {
-			target = d
-		}
-	case board.ProcessStateTitle:
-		if in.Project != "" {
-			if d, ok := r.projects[in.Project]; ok {
-				target = d
-			}
-		} else {
-			target = choice
 		}
 	case board.ProjectStateTitle, board.SprintStateTitle:
 		target = choice
@@ -371,7 +346,7 @@ func (mb *MultiBackend) refile(ctx context.Context, op string, c board.Card, cha
 	if err != nil {
 		return err
 	}
-	if isStub(c) || c.Title == board.ProcessTaskTitle {
+	if isStub(c) {
 		return apply(src)
 	}
 	// The home is decided from the card as the action currently sees it — an
@@ -512,15 +487,10 @@ func eventsOf(e LogEntry) []board.Event {
 	return out
 }
 
-// stampedDomain is the domain a loaded board records for a card or task, or
-// "" when the board does not carry the card (or was built without stamps).
+// stampedDomain is the domain a loaded board records for a card, or "" when
+// the board does not carry the card (or was built without stamps).
 func stampedDomain(bd board.Board, id string) string {
 	for _, c := range bd.Cards {
-		if c.ItemID == id {
-			return c.Domain
-		}
-	}
-	for _, c := range bd.Tasks {
 		if c.ItemID == id {
 			return c.Domain
 		}
@@ -825,8 +795,6 @@ func nameFree(r resolver, kind, name string) error {
 		_, taken = r.teams[name]
 	case "project":
 		_, taken = r.projects[name]
-	case "process":
-		_, taken = r.processes[name]
 	}
 	if taken {
 		return fmt.Errorf("%w: %s %q", ErrNameTaken, kind, name)
@@ -857,43 +825,6 @@ func (mb *MultiBackend) SetMirrors(ctx context.Context, bd board.Board, card boa
 		return err
 	}
 	return be.SetMirrors(ctx, bd, card, mirrors)
-}
-
-// SetProcess writes in the stub's or task's domain.
-func (mb *MultiBackend) SetProcess(ctx context.Context, bd board.Board, card board.Card, process string) error {
-	if card.Title == board.ProcessStateTitle && process != card.Process {
-		if err := mb.checkName("process", process); err != nil {
-			return err
-		}
-	}
-	be, err := mb.route(ctx, card)
-	if err != nil {
-		return err
-	}
-	return be.SetProcess(ctx, bd, card, process)
-}
-
-// SetTask may move an iteration to its task's domain.
-func (mb *MultiBackend) SetTask(ctx context.Context, bd board.Board, card board.Card, task string) error {
-	return mb.refile(ctx, "task", card, func(c *board.Card) { c.Task = task }, func(be *Backend) error { return be.SetTask(ctx, bd, card, task) })
-}
-
-// SetPaused writes in the process's domain.
-func (mb *MultiBackend) SetPaused(ctx context.Context, bd board.Board, card board.Card, paused bool) error {
-	be, err := mb.route(ctx, card)
-	if err != nil {
-		return err
-	}
-	return be.SetPaused(ctx, bd, card, paused)
-}
-
-// SetAccumulate writes in the task's domain.
-func (mb *MultiBackend) SetAccumulate(ctx context.Context, bd board.Board, card board.Card, on bool) error {
-	be, err := mb.route(ctx, card)
-	if err != nil {
-		return err
-	}
-	return be.SetAccumulate(ctx, bd, card, on)
 }
 
 // SetProject may move a card into another project's domain.

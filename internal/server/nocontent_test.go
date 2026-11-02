@@ -21,7 +21,6 @@ func TestNothingToReturnIs204(t *testing.T) {
 		{"an epic added", http.MethodPost, "/api/v1/epics", `{"name":"Launch","project":"engineering"}`},
 		{"an epic renamed", http.MethodPost, "/api/v1/epics/actions/rename", `{"project":"engineering","epic":"Launch","to":"Ship"}`},
 		{"a deadline added", http.MethodPost, "/api/v1/deadlines", `{"week":"2026-08-24","project":"engineering"}`},
-		{"a process added", http.MethodPost, "/api/v1/processes", `{"name":"audit","project":"engineering"}`},
 		{"a team renamed", http.MethodPost, "/api/v1/teams/actions/rename", `{"team":"test","to":"platform"}`},
 		{"a team's capacity set", http.MethodPost, "/api/v1/teams/actions/capacity", `{"team":"platform","points":40}`},
 		{"a card moved", http.MethodPost, "/api/v1/cards/c1/actions/move", `{"after":"c2"}`},

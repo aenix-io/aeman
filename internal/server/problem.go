@@ -101,7 +101,6 @@ var sentinels = []struct {
 	// or missing the one that board is: the view refused the change.
 	{boardservice.ErrNotOnThisBoard, http.StatusUnprocessableEntity, "notOnThisBoard"},
 	{boardservice.ErrViewNeedsField, http.StatusUnprocessableEntity, "viewNeedsField"},
-	{boardservice.ErrOutsideCycle, http.StatusUnprocessableEntity, "outsideCycle"},
 	// Work sent back to the sprint it was done in, where there is nothing
 	// to send or nowhere to send it: rules refusing a change, not a forge
 	// failure.
@@ -128,13 +127,6 @@ var sentinels = []struct {
 	{boardservice.ErrNoReviewer, http.StatusUnprocessableEntity, "noReviewer"},
 	{boardservice.ErrEmptyNote, http.StatusUnprocessableEntity, "emptyNote"},
 	{boardservice.ErrEndBeforeStart, http.StatusUnprocessableEntity, "endBeforeStart"},
-	{boardservice.ErrProcessExists, http.StatusUnprocessableEntity, "processExists"},
-	{boardservice.ErrProcessNotFound, http.StatusUnprocessableEntity, "processNotFound"},
-	{boardservice.ErrTurnProcess, http.StatusUnprocessableEntity, "turnProcess"},
-	{boardservice.ErrNotRecurrent, http.StatusUnprocessableEntity, "notRecurrent"},
-	{boardservice.ErrSubtaskTie, http.StatusUnprocessableEntity, "subtaskTie"},
-	{boardservice.ErrProcessInUse, http.StatusUnprocessableEntity, "processInUse"},
-	{boardservice.ErrTaskNotFound, http.StatusUnprocessableEntity, "taskNotFound"},
 	{boardservice.ErrDomainConflict, http.StatusUnprocessableEntity, "domainConflict"},
 	{boardservice.ErrCrossDomain, http.StatusUnprocessableEntity, "crossDomain"},
 	{boardservice.ErrNoColumn, http.StatusUnprocessableEntity, "noColumn"},

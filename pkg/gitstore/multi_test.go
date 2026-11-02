@@ -28,14 +28,14 @@ func repoWith(t *testing.T, files map[string]string) *Repo {
 
 func TestLoadAllMergesRostersInRankOrder(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:                 "schema: 1\ntitle: the board\n",
+		BoardPath:                 "schema: 2\ntitle: the board\n",
 		TeamPath("_"):             "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		TeamPath("01T_PORTAL"):    "name: portal\nrank: c\ncreated: 2026-06-01T08:00:00Z\n",
 		ProjectPath("01P_PORTAL"): "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		"cards/a/1/01CARDA1.md":   "---\ntitle: shared one\nteam: portal\nrank: b\n---\n",
 	})
 	closed := repoWith(t, map[string]string{
-		BoardPath:                       "schema: 1\ntitle: IGNORED — only the primary names the board\n",
+		BoardPath:                       "schema: 2\ntitle: IGNORED — only the primary names the board\n",
 		TeamPath("01T_OPS"):             "name: ops\nrank: b\ncreated: 2026-06-02T08:00:00Z\n",
 		ProjectPath("01P_SECRET"):       "name: secret\nrank: b\ncreated: 2026-06-02T08:00:00Z\n",
 		EpicPath("01P_SECRET", "01E_X"): "name: X\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
@@ -75,7 +75,7 @@ func teamNames(s Snapshot) string {
 // cards still count. Health learns about it; nothing is renamed or dropped.
 func TestLoadAllDuplicateNamesResolveToOldest(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:               "schema: 1\ntitle: b\n",
+		BoardPath:               "schema: 2\ntitle: b\n",
 		TeamPath("01T_NEWER"):   "name: portal\nrank: a\ncreated: 2026-07-01T08:00:00Z\nsprint:\n  current: 2026-08-31\n",
 		"cards/a/1/01CARDA1.md": "---\ntitle: in shared\nteam: portal\nrank: a\n---\n",
 	})
@@ -103,11 +103,11 @@ func TestLoadAllDuplicateNamesResolveToOldest(t *testing.T) {
 // an alias, however old it is.
 func TestLoadAllNoTeamFragmentOutsidePrimaryIgnored(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:     "schema: 1\ntitle: b\n",
+		BoardPath:     "schema: 2\ntitle: b\n",
 		TeamPath("_"): "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
 	})
 	closed := repoWith(t, map[string]string{
-		BoardPath:     "schema: 1\ntitle: closed\n",
+		BoardPath:     "schema: 2\ntitle: closed\n",
 		TeamPath("_"): "rank: a\ncreated: 2026-05-01T08:00:00Z\n",
 	})
 	s, err := LoadAll([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}})
@@ -125,7 +125,7 @@ func TestLoadAllNoTeamFragmentOutsidePrimaryIgnored(t *testing.T) {
 // An alias project's columns and deadline lines show as the winner's.
 func TestLoadAllAliasProjectMergesColumns(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:                       "schema: 1\ntitle: b\n",
+		BoardPath:                       "schema: 2\ntitle: b\n",
 		ProjectPath("01P_OLD"):          "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		EpicPath("01P_OLD", "01E_BUGS"): "name: Bugs\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
 	})
@@ -154,7 +154,7 @@ func TestLoadAllAliasProjectMergesColumns(t *testing.T) {
 // movedFrom names the other domain is current, the other is a ghost.
 func TestLoadAllHidesTornMoveGhost(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:               "schema: 1\ntitle: b\n",
+		BoardPath:               "schema: 2\ntitle: b\n",
 		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nteam: portal\nrank: a\n---\n",
 	})
 	closed := repoWith(t, map[string]string{
@@ -177,7 +177,7 @@ func TestLoadAllHidesTornMoveGhost(t *testing.T) {
 // ghost with no current domain — maintenance must leave it alone.
 func TestLoadAllPlainDuplicateIsNotAMove(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:               "schema: 1\ntitle: b\n",
+		BoardPath:               "schema: 2\ntitle: b\n",
 		"cards/a/1/01CARDA1.md": "---\ntitle: dup\nteam: portal\nrank: a\n---\n",
 	})
 	closed := repoWith(t, map[string]string{

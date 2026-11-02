@@ -23,7 +23,7 @@ var _ boardservice.Backend = (*MultiBackend)(nil)
 func twoDomains(t *testing.T) (*MultiBackend, *Repo, *Repo) {
 	t.Helper()
 	shared := repoWith(t, map[string]string{
-		BoardPath:                         "schema: 1\ntitle: b\n",
+		BoardPath:                         "schema: 2\ntitle: b\n",
 		TeamPath("_"):                     "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		TeamPath("01T_PORTAL"):            "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
 		ProjectPath("01P_PORTAL"):         "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
@@ -208,7 +208,7 @@ func TestMultiBackendRefilingIsAMove(t *testing.T) {
 // action, each with movedFrom; a card linked to something else stays.
 func TestMultiBackendMoveCascadesToLinkedCards(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:                         "schema: 1\ntitle: b\n",
+		BoardPath:                         "schema: 2\ntitle: b\n",
 		TeamPath("_"):                     "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		TeamPath("01T_PORTAL"):            "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
 		ProjectPath("01P_PORTAL"):         "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
@@ -289,13 +289,6 @@ func TestMultiBackendCreateHonoursDomainFromContext(t *testing.T) {
 	}
 	if _, err := closed.ReadFile(ProjectPath(proj.ItemID)); err != nil {
 		t.Fatalf("project not declared in the chosen domain: %v", err)
-	}
-	proc, err := mb.CreateCard(ctx, b, board.CreateInput{Title: board.ProcessStateTitle, Process: "audit"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := closed.ReadFile(ProcessPath(proc.ItemID)); err != nil {
-		t.Fatalf("process not declared in the chosen domain: %v", err)
 	}
 	if err := mb.SetSprintState(ctx, b, "ops", "2026-08-31", ""); err != nil {
 		t.Fatal(err)
@@ -382,7 +375,7 @@ func TestMultiBackendCardLogFollowsMoveIntoOldDomain(t *testing.T) {
 // and torn-move ghosts (G22), as of the last load.
 func TestMultiBackendIssuesReportAliasesAndGhosts(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:               "schema: 1\ntitle: b\n",
+		BoardPath:               "schema: 2\ntitle: b\n",
 		TeamPath("01T_NEWER"):   "name: portal\nrank: a\ncreated: 2026-07-01T08:00:00Z\n",
 		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nteam: portal\nrank: a\n---\n",
 	})
@@ -410,7 +403,7 @@ func TestMultiBackendIssuesReportAliasesAndGhosts(t *testing.T) {
 // first domain's.
 func TestMultiBackendLoadCardsPrefersMovedCopy(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:               "schema: 1\ntitle: b\n",
+		BoardPath:               "schema: 2\ntitle: b\n",
 		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nteam: portal\nrank: a\n---\n",
 	})
 	closed := repoWith(t, map[string]string{
@@ -428,7 +421,7 @@ func TestMultiBackendLoadCardsPrefersMovedCopy(t *testing.T) {
 // movedFrom) is a maintainer's problem and is never touched.
 func TestMultiBackendSweepGhosts(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:               "schema: 1\ntitle: b\n",
+		BoardPath:               "schema: 2\ntitle: b\n",
 		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nteam: portal\nrank: a\n---\n",
 		"cards/d/1/01CARDD1.md": "---\ntitle: dup\nteam: portal\nrank: b\n---\n",
 	})
@@ -588,7 +581,7 @@ func TestAMirrorWrittenThroughTheStoreSurvivesTheNextLoad(t *testing.T) {
 	// bucket, which is a lawful mirror home (G15) — and one in the closed
 	// repository, which is not.
 	shared := repoWith(t, map[string]string{
-		BoardPath:                         "schema: 1\ntitle: b\n",
+		BoardPath:                         "schema: 2\ntitle: b\n",
 		TeamPath("01T_PORTAL"):            "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
 		ProjectPath("01P_PORTAL"):         "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		EpicPath("01P_PORTAL", "01E_BUG"): "name: Bugs\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
@@ -673,7 +666,7 @@ func TestAMirrorWrittenThroughTheStoreSurvivesTheNextLoad(t *testing.T) {
 // repository, and no half-moved copy stays behind.
 func TestTheGridRemoveOnASubtaskAcrossRepositories(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:              "schema: 1\ntitle: b\n",
+		BoardPath:              "schema: 2\ntitle: b\n",
 		TeamPath("01T_PORTAL"): "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n  previous: 2026-08-17\n",
 	})
 	closed := repoWith(t, map[string]string{
@@ -760,58 +753,6 @@ func TestCreatingASubtaskInsideOneScope(t *testing.T) {
 	p, _ := CardPath(kid.ItemID)
 	if _, err := shared.ReadFile(p); err != nil {
 		t.Fatalf("with its file where the parent's is: %v", err)
-	}
-}
-
-// Re-assigning a process task inside ONE scope moves the turn that is
-// already running: "who does it" has to take effect on the card in front
-// of the person, not only on next month's. The routing used to re-read the
-// task it had just written — staged, so a bare store answered with the OLD
-// owner, every open turn matched, and the whole re-route silently did
-// nothing for an embedder.
-func TestReRoutingATasksTurnInsideOneScope(t *testing.T) {
-	mb, _, _ := twoDomains(t)
-	svc := boardservice.New(mb)
-	week := board.MondayOf(board.TodayIso())
-	// The process and the task are requests of their own, as they are in
-	// the product — one commit each.
-	plain := ctxAs("kvaps")
-	if err := svc.AddProcess(plain, "acme", "Invoicing", ""); err != nil {
-		t.Fatal(err)
-	}
-	task, err := svc.AddProcessTask(plain, "acme", "Invoicing", boardservice.TaskArgs{
-		Title: "Invoice ACME", Recurrence: "week", Start: week, Team: "portal", Assignee: "alice",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The edit is the request under test, in the scope its commit is made
-	// in: the routing that follows it reads the task this scope has just
-	// written.
-	ctx, flush := WithScope(plain, Action{Name: "process", ID: "01JB4KA0M2P4R6T8V0X2Z4B6N4"})
-	// The task is due this week, so it filed its turn at once — on alice.
-	// Not asserted here: inside the scope that write is staged, and a plain
-	// load reads the repository as it was. The end state says both things.
-	bob := "bob"
-	if err := svc.UpdateProcessTask(ctx, "acme", task.ItemID,
-		boardservice.TaskPatch{Assignee: &bob}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := flush(); err != nil {
-		t.Fatal(err)
-	}
-	after, err := mb.LoadBoard(ctx, "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	its := board.Iterations(after, task.ItemID)
-	if len(its) != 1 {
-		// 0 means the task's create never filed its turn (the spawn read a
-		// task that was not there yet); 2 means the old one was left behind.
-		t.Fatalf("the task filed one turn and it was re-routed, not doubled: %d", len(its))
-	}
-	if len(its[0].Assignees) != 1 || its[0].Assignees[0] != "bob" {
-		t.Fatalf("the running turn follows the task's new owner: %+v", its[0].Assignees)
 	}
 }
 

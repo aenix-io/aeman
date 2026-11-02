@@ -43,15 +43,15 @@ type Options struct {
 
 // Report is what the migration did and what it could not carry over.
 type Report struct {
-	AlreadyMigrated                                            bool
-	Verified                                                   bool
-	Cards, Teams, Projects, Epics, Deadlines, Processes, Tasks int
-	Events, Commits                                            int
-	DoneFromSeeded, DoneWithoutJump                            int
-	IssueCards                                                 []string
-	UnattributedNotes                                          int
-	Dangling                                                   []string
-	Dropped                                                    []string
+	AlreadyMigrated                          bool
+	Verified                                 bool
+	Cards, Teams, Projects, Epics, Deadlines int
+	Events, Commits                          int
+	DoneFromSeeded, DoneWithoutJump          int
+	IssueCards                               []string
+	UnattributedNotes                        int
+	Dangling                                 []string
+	Dropped                                  []string
 	// Stranded are the cards the source board carried that were PLACED on a
 	// day and then left where no view can reach them — the shape the old ×
 	// made when it demoted a worked card into the previous sprint
@@ -73,8 +73,8 @@ func (r Report) String() string {
 		b.WriteString("already migrated — nothing written\n")
 		return b.String()
 	}
-	fmt.Fprintf(&b, "%d cards, %d tasks, %d teams, %d projects, %d epics, %d deadlines, %d processes\n",
-		r.Cards, r.Tasks, r.Teams, r.Projects, r.Epics, r.Deadlines, r.Processes)
+	fmt.Fprintf(&b, "%d cards, %d teams, %d projects, %d epics, %d deadlines\n",
+		r.Cards, r.Teams, r.Projects, r.Epics, r.Deadlines)
 	fmt.Fprintf(&b, "%d events replayed into %d commits; end state verified: %v\n", r.Events, r.Commits, r.Verified)
 	fmt.Fprintf(&b, "doneFrom seeded on %d done cards; %d done cards had no recorded jump (reopen falls back to the nudge)\n", r.DoneFromSeeded, r.DoneWithoutJump)
 	fmt.Fprintf(&b, "%d unattributed notes (kept without an author)\n", r.UnattributedNotes)
@@ -292,15 +292,6 @@ func boardOf(snapshot map[string][]byte) board.Board {
 			}
 			cards = append(cards, board.Card{ItemID: parts[0], Title: board.SprintStateTitle,
 				Team: f.Name, SprintStart: f.Sprint.Current, StartDate: f.Sprint.Previous})
-		case gitstore.PathTask:
-			f, err := gitstore.DecodeCard(parts[1], data)
-			if err != nil {
-				continue
-			}
-			c := f.Card
-			c.ItemID = parts[1]
-			c.Title = board.ProcessTaskTitle
-			cards = append(cards, c)
 		}
 	}
 	return board.NewBoard(cards)
@@ -340,20 +331,19 @@ type mapper struct {
 	items map[string]ghsource.Item // the GitHub side of each source card
 	rep   *Report
 	ids   map[string]string // old item id → new
-	cards []*board.Card     // converted cards (rows + tasks)
+	cards []*board.Card     // converted cards
 	paths map[string]string // new id → path
 	// the event log per card, in source order, kept apart from the files
 	logs map[string][]board.Event
 	// roster ids
 	teamID    map[string]string
 	projectID map[string]string
-	processID map[string]string
 }
 
 func newMapper(ex ghsource.Export, rep *Report) *mapper {
 	b := ex.Board
 	m := &mapper{b: b, items: ex.Items, rep: rep, ids: rep.IDMap, paths: map[string]string{}, logs: map[string][]board.Event{},
-		teamID: map[string]string{}, projectID: map[string]string{}, processID: map[string]string{}}
+		teamID: map[string]string{}, projectID: map[string]string{}}
 	// A board loaded without an explicit team order (a fake, an old snapshot)
 	// still has its teams in the sprint pointers: no-team group first, then
 	// by name, so the order is the same on every run.
@@ -364,8 +354,8 @@ func newMapper(ex ghsource.Export, rep *Report) *mapper {
 		sort.Strings(b.TeamOrder)
 		m.b = b
 	}
-	// Roster ids first: cards refer to projects and processes by name, but
-	// their files live under the roster's ids.
+	// Roster ids first: cards refer to projects by name, but their files live
+	// under the roster's ids.
 	for i, team := range b.TeamOrder {
 		st := b.SprintStates[team]
 		id := "_"
@@ -391,16 +381,8 @@ func newMapper(ex ghsource.Export, rep *Report) *mapper {
 	for _, d := range b.Deadlines {
 		m.ids[d.ItemID] = gitstore.DeriveID(epoch, "deadline", d.Project, d.Week)
 	}
-	for _, p := range b.Processes {
-		id := gitstore.DeriveID(epoch, "process", p.Name)
-		m.processID[p.Name] = id
-		m.ids[p.ItemID] = id
-	}
 	for i := range b.Cards {
 		m.ids[b.Cards[i].ItemID] = gitstore.DeriveID(createdAt(b.Cards[i]), "card", b.Cards[i].ItemID)
-	}
-	for i := range b.Tasks {
-		m.ids[b.Tasks[i].ItemID] = gitstore.DeriveID(createdAt(b.Tasks[i]), "card", b.Tasks[i].ItemID)
 	}
 	m.convert()
 	return m
@@ -416,15 +398,11 @@ func createdAt(c board.Card) time.Time {
 // convert rewrites every card: new id, GitHub fields stripped, references
 // remapped, notes given ids, doneFrom seeded, rank by board order.
 func (m *mapper) convert() {
-	all := make([]board.Card, 0, len(m.b.Cards)+len(m.b.Tasks))
-	all = append(all, m.b.Cards...)
-	all = append(all, m.b.Tasks...)
+	all := append([]board.Card(nil), m.b.Cards...)
 	ranks, _ := board.RankRebalance("", "", len(m.b.Cards))
-	taskRanks, _ := board.RankRebalance("", "", len(m.b.Tasks))
 	for i := range all {
 		src := all[i]
 		c := src
-		isTask := i >= len(m.b.Cards)
 		gh := m.items[src.ItemID]
 		c.ItemID = m.ids[src.ItemID]
 		c.GitHubID = src.ItemID
@@ -434,12 +412,7 @@ func (m *mapper) convert() {
 		}
 		c.Parent = m.ref(src.ItemID, "parent", src.Parent)
 		c.ReviewOf = m.ref(src.ItemID, "reviewOf", src.ReviewOf)
-		c.Task = m.ref(src.ItemID, "task", src.Task)
-		if isTask {
-			c.Rank = taskRanks[i-len(m.b.Cards)]
-		} else {
-			c.Rank = ranks[i]
-		}
+		c.Rank = ranks[i]
 		c.Notes = nil
 		for j, n := range src.Notes {
 			if n.Author == "" {
@@ -459,20 +432,14 @@ func (m *mapper) convert() {
 		}
 		cp := c
 		m.cards = append(m.cards, &cp)
-		if isTask {
-			m.paths[c.ItemID] = gitstore.TaskPath(m.processID[c.Process], c.ItemID)
-			m.rep.Tasks++
-		} else {
-			p, _ := gitstore.CardPath(c.ItemID)
-			m.paths[c.ItemID] = p
-			m.rep.Cards++
-		}
+		p, _ := gitstore.CardPath(c.ItemID)
+		m.paths[c.ItemID] = p
+		m.rep.Cards++
 	}
 	m.rep.Teams = len(m.b.TeamOrder)
 	m.rep.Projects = len(m.b.Projects)
 	m.rep.Epics = len(m.b.Epics)
 	m.rep.Deadlines = len(m.b.Deadlines)
-	m.rep.Processes = len(m.b.Processes)
 	m.rep.Dropped = append(m.rep.Dropped, "Status field (Todo on every card; vestigial)")
 }
 
@@ -537,10 +504,6 @@ func (m *mapper) files(title string) map[string][]byte {
 	}
 	for _, d := range m.b.Deadlines {
 		out[gitstore.DeadlinePath(m.projectID[d.Project], m.ids[d.ItemID])], _ = gitstore.EncodeDeadline(gitstore.DeadlineFile{Week: d.Week, Created: created})
-	}
-	procRanks, _ := board.RankRebalance("", "", len(m.b.Processes))
-	for i, p := range m.b.Processes {
-		out[gitstore.ProcessPath(m.processID[p.Name])], _ = gitstore.EncodeProcess(gitstore.ProcessFile{Name: p.Name, Project: p.Project, Paused: p.Paused, Rank: procRanks[i], Created: created})
 	}
 	for _, c := range m.cards {
 		out[m.pathOf(c)] = m.render(c)

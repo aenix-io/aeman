@@ -76,7 +76,7 @@ func TestMoveRebalancesTheRunWhenTheKeyIsExhausted(t *testing.T) {
 	// Every key strictly between "a" and "a000…01" (32 chars) is 33+ chars.
 	tight := "a" + strings.Repeat("0", 30) + "1"
 	r := repoWith(t, map[string]string{
-		BoardPath:               "schema: 1\ntitle: b\n",
+		BoardPath:               "schema: 2\ntitle: b\n",
 		"cards/a/1/01CARDA1.md": "---\ntitle: first\nrank: a\n---\n",
 		"cards/b/2/01CARDB2.md": "---\ntitle: second\nrank: " + tight + "\n---\n",
 		"cards/c/3/01CARDC3.md": "---\ntitle: third\nrank: b\n---\n",
@@ -160,39 +160,17 @@ func changedPathsSince(t *testing.T, r *Repo, since plumbing.Hash) []string {
 	return paths
 }
 
-// An iteration's id is deterministic — a ULID whose time is the due week's
-// Monday and whose random bits hash the task and the week — so two replicas
-// sweeping the same due task write the SAME path, and the loser's create is
-// a no-op on re-apply (G11); everything else gets a fresh id.
-func TestCreateIterationIDIsDeterministic(t *testing.T) {
+// Every create mints a fresh id: two cards of the same title are two cards.
+// (The one deterministic id the store used to mint — a process turn's — went
+// with the feature.)
+func TestCreateMintsFreshIDs(t *testing.T) {
 	a, _ := newBackend(t)
-	b, _ := newBackend(t)
 	ctx := ctxAs("aeman")
-	in := board.CreateInput{Title: "weekly turn", Team: "portal", Task: "01TASK0000000000000000000A", Week: "2026-08-24"}
 	ba, _ := a.LoadBoard(ctx, "x")
-	bb, _ := b.LoadBoard(ctx, "x")
-	ca, err := a.CreateCard(ctx, ba, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cb, err := b.CreateCard(ctx, bb, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ca.ItemID != cb.ItemID || ca.ItemID != IterationID(in.Task, in.Week) {
-		t.Fatalf("iteration ids %s / %s, want both = %s", ca.ItemID, cb.ItemID, IterationID(in.Task, in.Week))
-	}
-	if got, _ := IDTime(ca.ItemID); got.Format("2006-01-02") != "2026-08-24" {
-		t.Fatalf("iteration id time = %v, want the week's Monday", got)
-	}
-	if IterationID(in.Task, "2026-08-31") == ca.ItemID || IterationID("01TASK0000000000000000000B", in.Week) == ca.ItemID {
-		t.Fatal("another week or task must not collide")
-	}
-	// A caller's explicit id still wins, and a plain card is never derived.
 	other, _ := a.CreateCard(ctx, ba, board.CreateInput{Title: "plain", Team: "portal"})
 	again, _ := a.CreateCard(ctx, ba, board.CreateInput{Title: "plain", Team: "portal"})
-	if other.ItemID == again.ItemID {
-		t.Fatal("plain cards must get fresh ids")
+	if other.ItemID == "" || other.ItemID == again.ItemID {
+		t.Fatalf("plain cards must get fresh ids: %q / %q", other.ItemID, again.ItemID)
 	}
 }
 
@@ -223,12 +201,6 @@ func TestBackendLoadBoardFromFiles(t *testing.T) {
 	}
 	if len(b.Deadlines) != 1 || b.Deadlines[0].Week != "2026-09-07" || b.Deadlines[0].Project != "portal" || b.Deadlines[0].ItemID != "01JB4DL" {
 		t.Fatalf("deadlines = %+v", b.Deadlines)
-	}
-	if len(b.Processes) != 1 || b.Processes[0].Name != "Invoicing" || b.Processes[0].Project != "portal" || b.Processes[0].ItemID != "01JB4PROC" {
-		t.Fatalf("processes = %+v", b.Processes)
-	}
-	if len(b.Tasks) != 1 || b.Tasks[0].ItemID != "01JB4TASK" || b.Tasks[0].Process != "Invoicing" || b.Tasks[0].Recurrence != "month" {
-		t.Fatalf("tasks = %+v", b.Tasks)
 	}
 }
 
@@ -304,30 +276,9 @@ func TestBackendCreateStateCardsWriteRosterFiles(t *testing.T) {
 	if _, err := r.ReadFile(DeadlinePath(proj.ItemID, dl.ItemID)); err != nil {
 		t.Fatalf("deadline file: %v", err)
 	}
-	proc, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.ProcessStateTitle, Process: "Backups", Project: "infra"})
-	if err != nil {
-		t.Fatal(err)
-	}
 	b, _ = be.LoadBoard(ctx, "acme")
-	task, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.ProcessTaskTitle, Process: "Backups", Recurrence: "week", Start: "2026-08-24", Team: "portal", Body: "Rotate keys\nAll of them."})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.ReadFile(TaskPath(proc.ItemID, task.ItemID)); err != nil {
-		t.Fatalf("task file under its process: %v", err)
-	}
-	b, _ = be.LoadBoard(ctx, "acme")
-	if len(b.Projects) != 2 || len(b.Epics) != 2 || len(b.Deadlines) != 2 || len(b.Processes) != 2 || len(b.Tasks) != 2 {
-		t.Fatalf("roster after creates: %d projects, %d epics, %d deadlines, %d processes, %d tasks", len(b.Projects), len(b.Epics), len(b.Deadlines), len(b.Processes), len(b.Tasks))
-	}
-	var found *board.Card
-	for i := range b.Tasks {
-		if b.Tasks[i].ItemID == task.ItemID {
-			found = &b.Tasks[i]
-		}
-	}
-	if found == nil || found.Title != board.ProcessTaskTitle || found.Process != "Backups" || found.Description != "Rotate keys\nAll of them." || found.Recurrence != "week" {
-		t.Fatalf("task = %+v", found)
+	if len(b.Projects) != 2 || len(b.Epics) != 2 || len(b.Deadlines) != 2 {
+		t.Fatalf("roster after creates: %d projects, %d epics, %d deadlines", len(b.Projects), len(b.Epics), len(b.Deadlines))
 	}
 }
 
@@ -540,7 +491,7 @@ func TestBackendDeleteCardRemovesFile(t *testing.T) {
 	}
 }
 
-// The roster stubs: rename, re-parent, pause, move a deadline, reorder.
+// The roster stubs: rename, re-parent, move a deadline, reorder.
 func TestBackendRosterStubs(t *testing.T) {
 	be, r := newBackend(t)
 	ctx := ctxAs("kvaps")
@@ -554,25 +505,14 @@ func TestBackendRosterStubs(t *testing.T) {
 	if err := be.SetProject(ctx, b, proj, "Portal"); err != nil {
 		t.Fatal(err)
 	}
-	proc := board.Card{ItemID: "01JB4PROC", Title: board.ProcessStateTitle, Process: "Invoicing", Project: "portal"}
-	if err := be.SetPaused(ctx, b, proc, true); err != nil {
-		t.Fatal(err)
-	}
-	if err := be.SetProcess(ctx, b, proc, "Billing"); err != nil {
-		t.Fatal(err)
-	}
 	dl := board.Card{ItemID: "01JB4DL", Title: board.DeadlineStateTitle, Week: "2026-09-07", Project: "portal"}
 	if err := be.SetWeek(ctx, b, dl, "2026-09-14"); err != nil {
 		t.Fatal(err)
 	}
-	task := board.Card{ItemID: "01JB4TASK", Title: board.ProcessTaskTitle, Process: "Invoicing"}
-	if err := be.SetAccumulate(ctx, b, task, true); err != nil {
-		t.Fatal(err)
-	}
 
 	b, _ = be.LoadBoard(ctx, "acme")
-	if b.Epics[0].Name != "Defects" || b.Projects[0] != "Portal" || b.Processes[0].Name != "Billing" || !b.Processes[0].Paused || b.Deadlines[0].Week != "2026-09-14" || !b.Tasks[0].Accumulate {
-		t.Fatalf("roster after stubs: epics=%+v projects=%v processes=%+v deadlines=%+v tasks=%+v", b.Epics, b.Projects, b.Processes, b.Deadlines, b.Tasks[0].Accumulate)
+	if b.Epics[0].Name != "Defects" || b.Projects[0] != "Portal" || b.Deadlines[0].Week != "2026-09-14" {
+		t.Fatalf("roster after stubs: epics=%+v projects=%v deadlines=%+v", b.Epics, b.Projects, b.Deadlines)
 	}
 	// Renaming a project file does not move anything: its id and path stay.
 	if _, err := r.ReadFile(ProjectPath("01JB4PROJ")); err != nil {

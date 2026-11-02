@@ -485,16 +485,11 @@ func (a surface) CreateCard(ctx context.Context, req apiv1.CreateCardRequestObje
 	return apiv1.CreateCard201JSONResponse(apiserver.CardResource(b, card)), nil
 }
 
-// applyGroupingPatch is the parent/process fragment of a card patch: what
-// the card is grouped under.
+// applyGroupingPatch is the parent fragment of a card patch: what the card
+// is grouped under.
 func applyGroupingPatch(ctx context.Context, svc *boardservice.Service, boardID, uid string, p *apiv1.CardPatch) error {
 	if p.Parent != nil {
 		if err := svc.SetParent(ctx, boardID, uid, *p.Parent); err != nil {
-			return err
-		}
-	}
-	if p.Process != nil {
-		if err := svc.SetCardProcess(ctx, boardID, uid, *p.Process); err != nil {
 			return err
 		}
 	}
@@ -1133,135 +1128,6 @@ func patchColumn(ctx context.Context, svc *boardservice.Service, boardID, uid st
 		epic = card.Epic
 	}
 	return svc.SetEpic(ctx, boardID, uid, epic, p.Project)
-}
-
-// --- Processes -----------------------------------------------------------------
-
-// ListProcesses is the Process tab: every process with its tasks and each
-// task's history.
-func (a surface) ListProcesses(ctx context.Context, req apiv1.ListProcessesRequestObject) (apiv1.ListProcessesResponseObject, error) {
-	svc, boardID, err := a.s.serviceOf()
-	if err != nil {
-		return nil, err
-	}
-	b, err := svc.Board(staleOK(ctx), boardID)
-	if err != nil {
-		return nil, err
-	}
-	return apiv1.ListProcesses200JSONResponse(apiserver.ProcessesResource(b, strOf(req.Params.Project))), nil
-}
-
-// AddProcess declares a process — recurring work inside a project.
-func (a surface) AddProcess(ctx context.Context, req apiv1.AddProcessRequestObject) (apiv1.AddProcessResponseObject, error) {
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.AddProcess(board.WithDomain(ctx, strOf(req.Body.Domain)), boardID, strOf(req.Body.Name), strOf(req.Body.Project))
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.AddProcess204Response{}, nil
-}
-
-// DeleteProcess deletes an EMPTY process; it is refused while it has tasks.
-func (a surface) DeleteProcess(ctx context.Context, req apiv1.DeleteProcessRequestObject) (apiv1.DeleteProcessResponseObject, error) {
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.DeleteProcess(ctx, boardID, strOf(req.Body.Process))
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.DeleteProcess204Response{}, nil
-}
-
-// RenameProcess renames a process; its tasks follow.
-func (a surface) RenameProcess(ctx context.Context, req apiv1.RenameProcessRequestObject) (apiv1.RenameProcessResponseObject, error) {
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.RenameProcess(ctx, boardID, strOf(req.Body.Process), strOf(req.Body.To))
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.RenameProcess204Response{}, nil
-}
-
-// SetProcessProject moves a process to another project; an empty project is
-// the no-project bucket.
-func (a surface) SetProcessProject(ctx context.Context, req apiv1.SetProcessProjectRequestObject) (apiv1.SetProcessProjectResponseObject, error) {
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.SetProcessProject(ctx, boardID, strOf(req.Body.Process), strOf(req.Body.Project))
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.SetProcessProject204Response{}, nil
-}
-
-// SetProcessPaused pauses a process, or resumes it.
-func (a surface) SetProcessPaused(ctx context.Context, req apiv1.SetProcessPausedRequestObject) (apiv1.SetProcessPausedResponseObject, error) {
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.SetProcessPaused(ctx, boardID, strOf(req.Body.Process), boolOf(req.Body.Paused))
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.SetProcessPaused204Response{}, nil
-}
-
-// ReorderProcesses applies a shared process order.
-func (a surface) ReorderProcesses(ctx context.Context, req apiv1.ReorderProcessesRequestObject) (apiv1.ReorderProcessesResponseObject, error) {
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.ReorderProcesses(ctx, boardID, listOf(req.Body.Processes))
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.ReorderProcesses204Response{}, nil
-}
-
-// ReorderProcessTasks applies one process's task order.
-func (a surface) ReorderProcessTasks(ctx context.Context, req apiv1.ReorderProcessTasksRequestObject) (apiv1.ReorderProcessTasksResponseObject, error) {
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.ReorderProcessTasks(ctx, boardID, strOf(req.Body.Process), listOf(req.Body.Uids))
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.ReorderProcessTasks204Response{}, nil
-}
-
-// AddTask adds what a process iterates on.
-func (a surface) AddTask(ctx context.Context, req apiv1.AddTaskRequestObject) (apiv1.AddTaskResponseObject, error) {
-	svc, boardID, err := a.s.serviceOf()
-	if err != nil {
-		return nil, err
-	}
-	in := req.Body
-	tpl, err := svc.AddProcessTask(staleOK(ctx), boardID, strOf(in.Process), boardservice.TaskArgs{
-		Title: strOf(in.Title), Description: strOf(in.Description), Recurrence: strOf(in.Recurrence),
-		Start: strOf(in.Start), Team: strOf(in.Team), Assignee: strOf(in.Assignee),
-		Accumulate: boolOf(in.Accumulate),
-	})
-	if err != nil {
-		return nil, err
-	}
-	return apiv1.AddTask201JSONResponse{UID: tpl.ItemID}, nil
-}
-
-// PatchTask changes what the NEXT turns will be; the running one is untouched.
-func (a surface) PatchTask(ctx context.Context, req apiv1.PatchTaskRequestObject) (apiv1.PatchTaskResponseObject, error) {
-	in := req.Body
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.UpdateProcessTask(ctx, boardID, req.UID, boardservice.TaskPatch{
-			Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
-			Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
-		})
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.PatchTask204Response{}, nil
-}
-
-// DeleteTask deletes a task; its past turns stay as the record.
-func (a surface) DeleteTask(ctx context.Context, req apiv1.DeleteTaskRequestObject) (apiv1.DeleteTaskResponseObject, error) {
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.DeleteProcessTask(ctx, boardID, req.UID)
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.DeleteTask204Response{}, nil
 }
 
 // AddDeadline marks a week with one project's deadline line.

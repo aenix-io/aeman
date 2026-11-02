@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-// A recurrent card that came from no process comes round again all the same:
-// carry-over reseeds it, and the weeks it will land in are as spoken for as a
-// process turn's. The board drew projections for turns alone, so a team's own
-// repeating work — the weekly report, the monthly invoice — showed as one
-// card this week and empty weeks after it.
-func TestARecurrentCardOfNoProcessIsProjectedToo(t *testing.T) {
+// A recurrent card comes round again: carry-over reseeds it, and the weeks
+// it will land in are spoken for. The board used to project only the turns
+// of the (retired) Process feature, so a team's own repeating work — the
+// weekly report, the monthly invoice — showed as one card this week and
+// empty weeks after it.
+func TestARecurrentCardIsProjected(t *testing.T) {
 	t.Parallel()
 	card := Card{
 		ItemID: "c1", Title: "Weekly report", Team: "portal",
@@ -77,12 +77,6 @@ func TestOnlyACalendarRecurrenceIsProjected(t *testing.T) {
 		{"not recurrent at all", Card{
 			ItemID: "c1", Title: "x", Team: "portal",
 			Recurrence: RecurrenceWeek, StartDate: "2026-09-02", Week: "2026-08-31",
-		}},
-		// A process turn is projected by its TASK's calendar (UpcomingTurns);
-		// answering here as well would draw every one of them twice.
-		{"a process turn", Card{
-			ItemID: "c1", Title: "x", Team: "portal", Stage: StageRecurrent,
-			Task: "t1", Recurrence: RecurrenceWeek, StartDate: "2026-09-02", Week: "2026-08-31",
 		}},
 		{"nobody placed it in a week", Card{
 			ItemID: "c1", Title: "x", Team: "portal", Stage: StageRecurrent,

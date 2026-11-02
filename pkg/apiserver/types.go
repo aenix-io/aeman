@@ -93,32 +93,24 @@ type CardSpec struct {
 	// Mirrors are the additional columns the same card stands in — one
 	// file, one log, one set of dates, shown in every listed project too.
 	// Always the card's own repository (the service admits nothing else).
-	Mirrors []board.Placement `json:"mirrors,omitempty"`
-	// Process and Task, on a process turn, name the process this card is a
-	// turn of and the task it was copied from. A card on the Me or Team
-	// board carries them so a person can see what it belongs to without
-	// going looking for it.
-	Process  string `json:"process,omitempty"`
-	Task     string `json:"task,omitempty"`
-	ReviewOf string `json:"reviewOf,omitempty"`
+	Mirrors  []board.Placement `json:"mirrors,omitempty"`
+	ReviewOf string            `json:"reviewOf,omitempty"`
 	// Parent, on a subtask, is the uid of the card it is grouped under.
 	Parent string `json:"parent,omitempty"`
 }
 
-// CycleWindow is the span of weeks a process turn's own occurrence covers,
-// as Mondays, both ends inclusive.
-type CycleWindow struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-}
+// DueWeeksAhead is the planning horizon a recurrent card's coming weeks are
+// projected over (status.due): a quarter, which is as far as the Triage
+// board lays weeks out.
+const DueWeeksAhead = 13
 
 // CardStatus is derived by the server, never written by clients.
 type CardStatus struct {
 	Complete   bool `json:"complete"`
 	InProgress bool `json:"inProgress"`
-	// Overdue: a card that came from a plan — a slot, a process turn, a
-	// card scheduled for a week — still open past the day it was owed by. Derived on
-	// read from the card's own dates (board.Overdue); never stored.
+	// Overdue: a card that came from a plan — a slot, a card scheduled for a
+	// week — still open past the day it was owed by. Derived on read from
+	// the card's own dates (board.Overdue); never stored.
 	Overdue     bool   `json:"overdue,omitempty"`
 	ReviewedBy  string `json:"reviewedBy,omitempty"`
 	ReviewRound int    `json:"reviewRound,omitempty"`
@@ -150,21 +142,9 @@ type CardStatus struct {
 	// Due is a RECURRENT card's weeks to come: the ones it comes round in
 	// over the planning horizon and no copy of it stands in yet. A team's own
 	// repeating work — the weekly report, the monthly invoice — is reseeded
-	// by carry-over rather than filed by a process, and the weeks it will
-	// land in are as spoken for as a process turn's. Absent on everything
-	// else, and on a recurrence with no calendar (per sprint).
+	// by carry-over, and the weeks it will land in are spoken for. Absent on
+	// everything else, and on a recurrence with no calendar (per sprint).
 	Due []string `json:"due,omitempty"`
-	// Cycle is a process TURN's own occurrence: the first and last week it
-	// may stand in, both Mondays and both inclusive. A turn belongs to one
-	// turn of its process's calendar, and moving it past the next due date
-	// would put it where the NEXT turn belongs — the two would then read as
-	// one process running twice. Absent on everything that is not a turn,
-	// and on a turn whose task has no calendar to reckon with.
-	//
-	// It is sent rather than derived by the client because the calendar is
-	// the server's (board.CycleWindow): a second implementation of "when is
-	// this next due" is a second answer waiting to disagree.
-	Cycle *CycleWindow `json:"cycle,omitempty"`
 	// LeftAt is the board day the older × demoted the card into the previous
 	// sprint, which a RECORD of that day gives back (G60). Nothing writes it
 	// any more; the cards that carry it still stand in the history.
@@ -260,10 +240,6 @@ type BoardMetadata struct {
 	// grouping: a project owns epic columns. (Not the GitHub board, which the
 	// caller addresses with owner+board.)
 	Projects []string `json:"projects,omitempty"`
-	// Processes lists the board's processes in board order, each naming its
-	// project. The Process tab reads the full structure from /processes; this
-	// is the roster, so a client can tell when it changed.
-	Processes []ProcessRef `json:"processes,omitempty"`
 	// Deadlines are the deadline lines in board order: the week each one sits
 	// on and the project it belongs to. A project holds at most one per week.
 	Deadlines []DeadlineRef `json:"deadlines,omitempty"`
@@ -278,8 +254,8 @@ type BoardMetadata struct {
 	// assembles a forge URL of its own.
 	Members []Member `json:"members"`
 	// Domains are the repositories the visitor can read, primary first: which
-	// they may write — a team, project or process is declared in one they
-	// pick when more than one is writable — and which members can read each,
+	// they may write — a team or project is declared in one they pick when
+	// more than one is writable — and which members can read each,
 	// so a reviewer picker offers only people who will see the card. Absent
 	// primary first. The board lists its repositories whatever it spans
 	// (G59), so a client compares the stamps it carries against this list
@@ -293,9 +269,6 @@ type BoardMetadata struct {
 	// pickers must not offer it (boardservice.ErrDomainConflict).
 	TeamDomains    map[string]string `json:"teamDomains,omitempty"`
 	ProjectDomains map[string]string `json:"projectDomains,omitempty"`
-	// ProcessDomains does the same for processes: a card may only be tied
-	// to a process of its own repository, so the picker needs to know.
-	ProcessDomains map[string]string `json:"processDomains,omitempty"`
 }
 
 // Member is one person on the board: a login and, when the server knows the
@@ -342,25 +315,10 @@ type EpicRef struct {
 	Domain string `json:"domain,omitempty"`
 }
 
-// ProcessRef is one process: its name and project.
-type ProcessRef struct {
-	Name    string `json:"name"`
-	Project string `json:"project,omitempty"`
-}
-
 // DeadlineRef is one deadline line: its week and the project it belongs to.
 type DeadlineRef struct {
 	Week    string `json:"week"`
 	Project string `json:"project,omitempty"`
-}
-
-// processNames lists the process names, in board order.
-func processNames(b board.Board) []string {
-	out := make([]string, 0, len(b.Processes))
-	for _, p := range b.Processes {
-		out = append(out, p.Name)
-	}
-	return out
 }
 
 // columnDomainOf reads a column's repository the way every rule does —
@@ -372,34 +330,6 @@ func processNames(b board.Board) []string {
 func columnDomainOf(b board.Board, e board.EpicCol) string {
 	d, _ := board.ColumnDomain(b, e.Project, e.Name)
 	return d
-}
-
-// processRefs lists the processes, in board order.
-func processRefs(b board.Board) []ProcessRef {
-	out := make([]ProcessRef, 0, len(b.Processes))
-	for _, p := range b.Processes {
-		out = append(out, ProcessRef{Name: p.Name, Project: p.Project})
-	}
-	return out
-}
-
-// processOf names the card's process: a turn's by way of the task it was
-// copied from, a directly tied card's (SetCardProcess) from the card
-// itself. Empty for a card that is neither.
-func processOf(b board.Board, c board.Card) string {
-	// A process turn names its task, and the task names the process. A card
-	// tied to a process DIRECTLY (SetCardProcess — the recurring shelf's
-	// counterpart of a column) carries the name itself; without this branch
-	// the write never round-tripped: PATCH process → GET → "".
-	if c.Task == "" {
-		return c.Process
-	}
-	for _, t := range b.Tasks {
-		if t.ItemID == c.Task {
-			return t.Process
-		}
-	}
-	return ""
 }
 
 // deadlineWeeks lists the deadline lines, in board order.
@@ -460,8 +390,6 @@ func CardResource(b board.Board, c board.Card) Card {
 		Epic:        c.Epic,
 		Project:     c.Project,
 		Mirrors:     append([]board.Placement{}, c.Mirrors...),
-		Process:     processOf(b, c),
-		Task:        c.Task,
 		ReviewOf:    c.ReviewOf,
 		Parent:      c.Parent,
 	}
@@ -476,20 +404,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Triage:      board.NeedsTriage(b, c, board.TodayIso()),
 		TriageWeek:  board.TriageWeekOf(b, c, board.TodayIso()),
 	}
-	status.Due = board.UpcomingRecurrences(b, c, board.TodayIso(), TurnsAhead)
-	// A process turn carries the occurrence it belongs to, so the board can
-	// bound the grip without a calendar of its own.
-	if c.Task != "" && c.Week != "" {
-		for _, t := range b.Tasks {
-			if t.ItemID != c.Task {
-				continue
-			}
-			if from, to := board.CycleWindow(t, c.Week); from != "" {
-				status.Cycle = &CycleWindow{From: from, To: to}
-			}
-			break
-		}
-	}
+	status.Due = board.UpcomingRecurrences(b, c, board.TodayIso(), DueWeeksAhead)
 	for _, l := range board.ExtractLinks(c.Description) {
 		// A row needs an indicator and a menu, not an inventory: a
 		// pathological body of hundreds of URLs must not make the "light"
@@ -669,13 +584,10 @@ func BoardResourceWithPeople(b board.Board, person func(login string) Member) Bo
 		Kind: "Board",
 		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams,
 			Projects: append([]string{}, b.Projects...), Epics: epicRefs(b),
-			Deadlines: deadlineWeeks(b), Processes: processRefs(b), Members: people,
+			Deadlines: deadlineWeeks(b), Members: people,
 			TeamDomains: rosterDomains(teams, func(name string) string { return board.TeamDomain(b, name) }),
 			ProjectDomains: rosterDomains(b.Projects, func(name string) string {
 				return board.ProjectDomain(b, name)
-			}),
-			ProcessDomains: rosterDomains(processNames(b), func(name string) string {
-				return board.ProcessDomain(b, name)
 			})},
 	}
 }

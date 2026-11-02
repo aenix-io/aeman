@@ -28,7 +28,7 @@ func (m mapResolver) TeamDomain(name string) (string, bool) {
 }
 
 var world = mapResolver{
-	cards:    map[string]string{"closedCard": "closed", "sharedCard": "shared", "task1": "closed"},
+	cards:    map[string]string{"closedCard": "closed", "sharedCard": "shared"},
 	projects: map[string]string{"secret": "closed", "portal": "shared"},
 	teams:    map[string]string{"portal": "shared", "ops": "shared"},
 }
@@ -45,11 +45,6 @@ func TestDomainOfLinkedCardsFirst(t *testing.T) {
 	sub := Card{ItemID: "s", Parent: "closedCard", Project: "portal", Epic: "Docs", Team: "portal"}
 	if got := DomainOf(sub, world); got != "closed" {
 		t.Fatalf("subtask domain = %q, want closed (the parent's)", got)
-	}
-	// An iteration follows its task.
-	iter := Card{ItemID: "i", Task: "task1", Team: "ops"}
-	if got := DomainOf(iter, world); got != "closed" {
-		t.Fatalf("iteration domain = %q, want closed (the task's)", got)
 	}
 }
 
@@ -169,14 +164,12 @@ func TestEveryDomainReaderAnswersInThePrimarysNamespace(t *testing.T) {
 		{ItemID: "pr-s", Title: ProjectStateTitle, Project: "strategy", Domain: "founders"},
 		{ItemID: "ep-c", Title: EpicStateTitle, Project: "engineering", Epic: "Cozystack"},
 		{ItemID: "ep-i", Title: EpicStateTitle, Epic: "Inbox"},
-		{ItemID: "pc-i", Title: ProcessStateTitle, Process: "Invoicing"},
 	})
 	for _, tc := range []struct{ what, got, want string }{
 		{"an unstamped team", TeamDomain(b, "platform"), "aeman-db"},
 		{"a stamped team", TeamDomain(b, "founders"), "founders"},
 		{"an unstamped project", ProjectDomain(b, "engineering"), "aeman-db"},
 		{"a stamped project", ProjectDomain(b, "strategy"), "founders"},
-		{"an unstamped process", ProcessDomain(b, "Invoicing"), "aeman-db"},
 		{"a card its team places", HomeDomain(b, Card{Team: "platform"}), "aeman-db"},
 		{"a card its project places", HomeDomain(b, Card{Project: "strategy"}), "founders"},
 		{"a card NOTHING places", HomeDomain(b, Card{}), "aeman-db"},
@@ -199,8 +192,8 @@ func TestEveryDomainReaderAnswersInThePrimarysNamespace(t *testing.T) {
 	}
 	// Where the card's FILE is, in the same namespace: the stamp, or the
 	// primary when the file carries none. A rule that reads a card's own
-	// stamp raw — the process tie asks whether the card and the process
-	// live together — compares it against answers that ARE normalized.
+	// stamp raw — a mirror asks whether the card and the column live
+	// together — compares it against answers that ARE normalized.
 	for _, tc := range []struct{ what, got, want string }{
 		{"an unstamped card", FileDomain(b, Card{}), "aeman-db"},
 		{"a stamped card", FileDomain(b, Card{Domain: "founders"}), "founders"},
@@ -217,8 +210,5 @@ func TestEveryDomainReaderAnswersInThePrimarysNamespace(t *testing.T) {
 	}
 	if got := TeamDomain(b, "ghosts"); got != "" {
 		t.Errorf("an undeclared team answers %q, want the empty non-answer", got)
-	}
-	if got := ProcessDomain(b, "Nope"); got != "" {
-		t.Errorf("an undeclared process answers %q, want the empty non-answer", got)
 	}
 }

@@ -36,7 +36,6 @@ const (
 	EventTeam            = "team"
 	EventEpic            = "epic"
 	EventMirror          = "mirror"
-	EventProcess         = "process"
 	EventZone            = "zone"
 	EventSize            = "size"
 	EventReviewSent      = "review-sent"

@@ -7,7 +7,7 @@ import (
 
 // G17 — a visitor's board is the union of the domains they can read: a
 // domain they cannot read is absent, not empty — no cards, teams, projects,
-// columns, deadlines, processes or tasks from it. A card whose team lives in
+// columns or deadlines from it. A card whose team lives in
 // an unreadable domain is still served, under its team name, with no sprint
 // pointer for that team. Entries with no recorded domain belong to the
 // primary.
@@ -22,8 +22,6 @@ func twoDomainBoard() Board {
 		{ItemID: "E_BUGS", Title: EpicStateTitle, Project: "portal", Epic: "Bugs", Domain: "shared"},
 		{ItemID: "E_RISK", Title: EpicStateTitle, Project: "secret", Epic: "Risk", Domain: "closed"},
 		{ItemID: "D_1", Title: DeadlineStateTitle, Project: "secret", Week: "2026-09-07", Domain: "closed"},
-		{ItemID: "PR_WEEKLY", Title: ProcessStateTitle, Process: "weekly", Project: "secret", Domain: "closed"},
-		{ItemID: "K_1", Title: ProcessTaskTitle, Process: "weekly", Domain: "closed"},
 		{ItemID: "C_SHARED", Title: "shared card", Team: "portal", Domain: "shared", Assignees: []string{"kvaps"}},
 		{ItemID: "C_CLOSED", Title: "closed card", Team: "portal", Project: "secret", Epic: "Risk", Domain: "closed", Assignees: []string{"timur"}},
 		{ItemID: "C_OPS", Title: "ops card in shared", Team: "ops", Domain: "shared"},
@@ -42,7 +40,7 @@ func cardIDs(cards []Card) []string {
 func TestNewBoardRecordsRosterDomains(t *testing.T) {
 	b := twoDomainBoard()
 	want := map[string]string{"T_": "shared", "T_PORTAL": "shared", "T_OPS": "closed", "P_PORTAL": "shared", "P_SECRET": "closed",
-		"E_BUGS": "shared", "E_RISK": "closed", "D_1": "closed", "PR_WEEKLY": "closed", "K_1": "closed"}
+		"E_BUGS": "shared", "E_RISK": "closed", "D_1": "closed"}
 	if !reflect.DeepEqual(b.Domains, want) {
 		t.Fatalf("Domains = %v\nwant %v", b.Domains, want)
 	}
@@ -64,8 +62,8 @@ func TestVisibleDropsUnreadableDomainsEntirely(t *testing.T) {
 	if len(v.Epics) != 1 || v.Epics[0].Name != "Bugs" {
 		t.Fatalf("epics = %v", v.Epics)
 	}
-	if len(v.Deadlines) != 0 || len(v.Processes) != 0 || len(v.Tasks) != 0 {
-		t.Fatalf("closed roster leaked: deadlines %v processes %v tasks %d", v.Deadlines, v.Processes, len(v.Tasks))
+	if len(v.Deadlines) != 0 {
+		t.Fatalf("closed roster leaked: deadlines %v", v.Deadlines)
 	}
 	if _, ok := v.Domains["P_SECRET"]; ok {
 		t.Fatal("Domains still names a closed entry")

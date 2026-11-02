@@ -160,12 +160,12 @@ func TestADayGivesBackACardItBothMadeAndRemoved(t *testing.T) {
 			strconv.Itoa(progress) + "\nrank: a\ncreated: 2026-08-21T10:00:00Z\n---\n")
 	}
 	// The day before knows nothing of it.
-	write("2026-08-20T09:00:00Z", nil, FileWrite{Path: BoardPath, Data: []byte("schema: 1\ntitle: t\n")})
+	write("2026-08-20T09:00:00Z", nil, FileWrite{Path: BoardPath, Data: []byte("schema: 2\ntitle: t\n")})
 	// Made, worked and taken off, all on the 21st.
 	write("2026-08-21T10:00:00Z", []string{id}, FileWrite{Path: p, Data: body(0)})
 	write("2026-08-21T16:00:00Z", []string{id}, FileWrite{Path: p, Data: body(100)})
 	write("2026-08-21T16:05:00Z", []string{id}, FileWrite{Path: p})
-	write("2026-08-22T09:00:00Z", nil, FileWrite{Path: BoardPath, Data: []byte("schema: 1\ntitle: t2\n")})
+	write("2026-08-22T09:00:00Z", nil, FileWrite{Path: BoardPath, Data: []byte("schema: 2\ntitle: t2\n")})
 
 	s, ok, err := LoadAsOfDay(r, endOf(t, "2026-08-20"), endOf(t, "2026-08-21"))
 	if err != nil || !ok {
@@ -224,11 +224,11 @@ func TestADayGivesBackWhatAToolRemovedWithoutSayingSo(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	bare("2026-08-20T08:00:00Z", FileWrite{Path: BoardPath, Data: []byte("schema: 1\ntitle: t\n")})
+	bare("2026-08-20T08:00:00Z", FileWrite{Path: BoardPath, Data: []byte("schema: 2\ntitle: t\n")})
 	bare("2026-08-20T09:00:00Z", FileWrite{Path: p, Data: []byte(
 		"---\ntitle: a card\nteam: portal\nstart: 2026-08-20\nday: 2026-08-20\nprogress: 70\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n")})
 	bare("2026-08-21T11:00:00Z", FileWrite{Path: p})
-	bare("2026-08-22T09:00:00Z", FileWrite{Path: BoardPath, Data: []byte("schema: 1\ntitle: t\n")})
+	bare("2026-08-22T09:00:00Z", FileWrite{Path: BoardPath, Data: []byte("schema: 2\ntitle: t\n")})
 
 	s, ok, err := LoadAsOfDay(r, endOf(t, "2026-08-20"), endOf(t, "2026-08-21"))
 	if err != nil || !ok {

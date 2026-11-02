@@ -191,8 +191,7 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 		Zone: in.Zone, StartDate: in.Start, Day: in.Day, SprintStart: in.SprintStart,
 		Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
 		Parked: in.Parked, Size: in.Size,
-		Process: in.Process, Task: in.Task, Recurrence: in.Recurrence,
-		Paused:      in.Paused,
+		Recurrence:  in.Recurrence,
 		Description: in.Body,
 		Assignees:   []string{},
 	}
@@ -2650,46 +2649,6 @@ func TestSetDatesIntoFutureLeavesTheSprint(t *testing.T) {
 	if got := fake.get("c1"); got.SprintStart != today {
 		t.Fatalf("back on today's board, sprint = %q, want %q", got.SprintStart, today)
 	}
-}
-
-func (f *fakeBackend) SetProcess(_ context.Context, _ board.Board, card board.Card, process string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetProcess %s %s", card.ItemID, process)
-	if c := f.get(card.ItemID); c != nil {
-		c.Process = process
-	}
-	return nil
-}
-
-func (f *fakeBackend) SetTask(_ context.Context, _ board.Board, card board.Card, task string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetTask %s %s", card.ItemID, task)
-	if c := f.get(card.ItemID); c != nil {
-		c.Task = task
-	}
-	return nil
-}
-
-func (f *fakeBackend) SetAccumulate(_ context.Context, _ board.Board, card board.Card, on bool) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetAccumulate %s %v", card.ItemID, on)
-	if c := f.get(card.ItemID); c != nil {
-		c.Accumulate = on
-	}
-	return nil
-}
-
-func (f *fakeBackend) SetPaused(_ context.Context, _ board.Board, card board.Card, paused bool) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetPaused %s %v", card.ItemID, paused)
-	if c := f.get(card.ItemID); c != nil {
-		c.Paused = paused
-	}
-	return nil
 }
 
 // Reopen undoes a done mark by RESTORING the progress the card had when done

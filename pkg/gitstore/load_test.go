@@ -16,14 +16,12 @@ import (
 func seedBoard(t *testing.T, r *Repo) {
 	t.Helper()
 	files := map[string]string{
-		BoardPath:                                 "schema: 1\ntitle: aeman board\n",
+		BoardPath:                                 "schema: 2\ntitle: aeman board\n",
 		TeamPath("_"):                             "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		TeamPath("01JB4TEAM"):                     "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n  previous: 2026-08-21\n",
 		ProjectPath("01JB4PROJ"):                  "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		EpicPath("01JB4PROJ", "01JB4EPIC"):        "name: Bugs\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
 		DeadlinePath("01JB4PROJ", "01JB4DL"):      "week: 2026-09-07\ncreated: 2026-06-03T08:00:00Z\n",
-		ProcessPath("01JB4PROC"):                  "name: Invoicing\nproject: portal\nrank: a\ncreated: 2026-06-04T08:00:00Z\n",
-		TaskPath("01JB4PROC", "01JB4TASK"):        "---\ntitle: Invoice ACME\nteam: portal\nrecurrence: month\nrank: a\ncreated: 2026-06-04T08:00:00Z\n---\n\nSend the invoice.\n",
 		"cards/c/1/01JB4K2E7QZMX3R8V0N5T9WYC1.md": "---\ntitle: first\nteam: portal\nzone: yellow\nprogress: 40\nrank: b\ncreated: 2026-08-26T09:14:03Z\n---\n\nDetails.\n",
 		"cards/c/2/01JB4K2E7QZMX3R8V0N5T9WYC2.md": "---\ntitle: second\nteam: portal\nrank: a\ncreated: 2026-08-26T09:15:03Z\n---\n",
 		"README.md":                               "not ours\n",
@@ -44,7 +42,7 @@ func TestLoadReadsTheWholeTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Board.Title != "aeman board" || s.Board.Schema != 1 {
+	if s.Board.Title != "aeman board" || s.Board.Schema != SchemaVersion {
 		t.Fatalf("board = %+v", s.Board)
 	}
 	// Cards come back in rank order, ids from their paths, bodies parsed.
@@ -68,16 +66,47 @@ func TestLoadReadsTheWholeTree(t *testing.T) {
 	if len(s.Projects[0].Epics) != 1 || s.Projects[0].Epics[0].Name != "Bugs" || len(s.Projects[0].Deadlines) != 1 || s.Projects[0].Deadlines[0].Week != "2026-09-07" {
 		t.Fatalf("project children = %+v", s.Projects[0])
 	}
-	// Processes carry their tasks, which are card files.
-	if len(s.Processes) != 1 || s.Processes[0].Name != "Invoicing" || len(s.Processes[0].Tasks) != 1 {
-		t.Fatalf("processes = %+v", s.Processes)
-	}
-	if task := s.Processes[0].Tasks[0]; task.ID != "01JB4TASK" || task.Card.Title != "Invoice ACME" || task.Card.Recurrence != "month" || task.Card.Description != "Send the invoice." {
-		t.Fatalf("task = %+v", task)
-	}
 	// What is not ours is named, not silently dropped or misread.
 	if len(s.Unknown) != 1 || s.Unknown[0] != "README.md" {
 		t.Fatalf("unknown = %v", s.Unknown)
+	}
+}
+
+// A tree written before schema 2 still has the Process feature's files in
+// it: a processes/ directory, and cards carrying task:, process: and
+// accumulate:. A record of such a day (G60) is read from that tree as it
+// stood, so the loader must take it — the retired directory is named as
+// unknown rather than misread, and the retired keys ride through a card as
+// unknown keys rather than failing it (H8).
+func TestLoadTakesAPreMigrationTree(t *testing.T) {
+	r := newRepo(t)
+	files := map[string]string{
+		BoardPath:                                 "schema: 1\ntitle: aeman board\n",
+		TeamPath("_"):                             "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		"processes/01JB4PROC/process.yaml":        "name: Invoicing\nproject: portal\nrank: a\ncreated: 2026-06-04T08:00:00Z\n",
+		"processes/01JB4PROC/tasks/01JB4TASK.md":  "---\ntitle: Invoice ACME\nteam: portal\nrecurrence: month\n---\n",
+		"cards/c/1/01JB4K2E7QZMX3R8V0N5T9WYC1.md": "---\ntitle: a turn\nteam: portal\nstage: recurrent\nweek: 2026-08-24\nprocess: Invoicing\ntask: 01JB4TASK\naccumulate: true\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n\nStill a card.\n",
+	}
+	var writes []FileWrite
+	for p, d := range files {
+		writes = append(writes, FileWrite{Path: p, Data: []byte(d)})
+	}
+	if _, err := r.Commit(Action{Name: "import", Summary: "seed"}, writes); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Cards) != 1 || s.Cards[0].Title != "a turn" || s.Cards[0].Week != "2026-08-24" || s.Cards[0].Stage != board.StageRecurrent {
+		t.Fatalf("the orphaned turn is an ordinary card of its week: %+v", s.Cards)
+	}
+	if len(s.Broken) != 0 {
+		t.Fatalf("a retired key must not break the card: %+v", s.Broken)
+	}
+	want := []string{"processes/01JB4PROC/process.yaml", "processes/01JB4PROC/tasks/01JB4TASK.md"}
+	if len(s.Unknown) != 2 || s.Unknown[0] != want[0] || s.Unknown[1] != want[1] {
+		t.Fatalf("the retired tree is unknown, not read: %v", s.Unknown)
 	}
 }
 

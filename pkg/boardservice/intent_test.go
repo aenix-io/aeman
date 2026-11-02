@@ -23,11 +23,9 @@ func intentBoard() *fakeBackend {
 			SprintStart: today, StartDate: today, Day: today},
 		// Its subtask: a piece of the same work.
 		{ItemID: "kid", Team: "alpha", Parent: "plain", SprintStart: today, StartDate: today},
-		// A project card, and a process turn.
+		// A project card.
 		{ItemID: "slot", Team: "alpha", Project: "core", Epic: "Auth",
 			Assignees: []string{"kvaps"}, SprintStart: today, StartDate: today, Day: today},
-		{ItemID: "turn", Team: "alpha", Task: "t1", Week: board.MondayOf(today),
-			Assignees: []string{"kvaps"}, SprintStart: today, StartDate: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 }
 
@@ -66,13 +64,12 @@ func TestOffTheBoardTakesTheCardAndItsPieces(t *testing.T) {
 	}
 }
 
-// A PROJECT card and a PROCESS TURN are never destroyed by the ×: the one is
-// its Project board's commitment, the other its process's record of a week.
-// Asking for it is refused rather than quietly turned into an unassign — a
-// gesture that does something other than what it says is how the × came to be
-// mistrusted.
+// A PROJECT card is never destroyed by the ×: it is its Project board's
+// commitment. Asking for it is refused rather than quietly turned into an
+// unassign — a gesture that does something other than what it says is how
+// the × came to be mistrusted.
 func TestOffTheBoardIsRefusedForWorkThatIsNotThisBoardsToDestroy(t *testing.T) {
-	for _, id := range []string{"slot", "turn"} {
+	for _, id := range []string{"slot"} {
 		f := intentBoard()
 		if err := New(f).Remove(ctx, "acme", id, board.ViewAll, OffBoard); !errors.Is(err, ErrNotYoursToDestroy) {
 			t.Fatalf("%s off the board = %v, want ErrNotYoursToDestroy", id, err)

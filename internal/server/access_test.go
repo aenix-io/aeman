@@ -269,9 +269,9 @@ func TestWriteNeedsWriteAccessToTheDomain(t *testing.T) {
 	}
 }
 
-// Teams, projects and processes are declared in the domain the caller picks
-// — a body field, refused unless the visitor can write there, unknown names
-// refused outright; without a choice they land in the primary.
+// Teams and projects are declared in the domain the caller picks — a body
+// field, refused unless the visitor can write there, unknown names refused
+// outright; without a choice they land in the primary.
 func TestCreateRosterEntryInChosenDomain(t *testing.T) {
 	srv := twoDomainServer(t)
 	if rec := doAs(t, srv, "dave", http.MethodPost, "/api/v1/projects", `{"name":"vault","domain":"closed"}`); rec.Code != http.StatusForbidden {
@@ -282,9 +282,6 @@ func TestCreateRosterEntryInChosenDomain(t *testing.T) {
 	}
 	if rec := doAs(t, srv, "bob", http.MethodPost, "/api/v1/projects", `{"name":"vault","domain":"closed"}`); rec.Code != http.StatusNoContent {
 		t.Fatalf("bob declares a closed project: %d %s", rec.Code, rec.Body.String())
-	}
-	if rec := doAs(t, srv, "bob", http.MethodPost, "/api/v1/processes", `{"name":"audit","domain":"closed"}`); rec.Code != http.StatusNoContent {
-		t.Fatalf("bob declares a closed process: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := doAs(t, srv, "bob", http.MethodPatch, "/api/v1/sprints", `{"team":"ops","current":"2026-08-31","domain":"closed"}`); rec.Code != http.StatusOK {
 		t.Fatalf("bob declares a closed team: %d %s", rec.Code, rec.Body.String())
@@ -297,11 +294,11 @@ func TestCreateRosterEntryInChosenDomain(t *testing.T) {
 	srv.store.waitDrained(ctx)
 	// Alice sees the primary's project, not the closed ones.
 	rec := doAs(t, srv, "alice", http.MethodGet, "/api/v1/board", "")
-	if body := rec.Body.String(); !strings.Contains(body, `"open"`) || strings.Contains(body, `"vault"`) || strings.Contains(body, `"audit"`) || strings.Contains(body, `"ops"`) {
+	if body := rec.Body.String(); !strings.Contains(body, `"open"`) || strings.Contains(body, `"vault"`) || strings.Contains(body, `"ops"`) {
 		t.Fatalf("alice's board: %s", body)
 	}
 	rec = doAs(t, srv, "bob", http.MethodGet, "/api/v1/board", "")
-	if body := rec.Body.String(); !strings.Contains(body, `"vault"`) || !strings.Contains(body, `"audit"`) || !strings.Contains(body, `"ops"`) {
+	if body := rec.Body.String(); !strings.Contains(body, `"vault"`) || !strings.Contains(body, `"ops"`) {
 		t.Fatalf("bob's board: %s", body)
 	}
 }

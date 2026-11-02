@@ -96,7 +96,7 @@ export interface paths {
         put?: never;
         /**
          * The board's × — hand the card back to a home it still has, or delete it by that board's rules.
-         * @description `intent` says which of the ×'s two meanings is wanted: `unassign` empties the working area and leaves the card in its week or its column, `off-board` takes it away with the subtasks that were pieces of it. Omitted, the gesture decides for itself. `off-board` on a Project-board slot or a process turn is 422 — those belong to another board's plan; `unassign` on a card with no week and no column is 422 too, since it would leave the card nowhere at all.
+         * @description `intent` says which of the ×'s two meanings is wanted: `unassign` empties the working area and leaves the card in its week or its column, `off-board` takes it away with the subtasks that were pieces of it. Omitted, the gesture decides for itself. `off-board` on a Project-board slot is 422 — it belongs to another board's plan; `unassign` on a card with no week and no column is 422 too, since it would leave the card nowhere at all.
          *
          *     From the Me board the × is the narrow one: a person takes off their own board what they PUT there and what the plan has not taken up. Work another person scheduled for them, or work they scheduled on the Team or Triage board, is somebody's plan and is refused there (403) — the wide × lives on the board where the planning was done, and the answer to "I am not doing this" is `spec.stage: refuse`. A card with no recorded author is not exempt, and a subtask is outside the rule.
          *
@@ -663,173 +663,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/processes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** The Process tab — every process with its tasks and each task's history. */
-        get: operations["listProcesses"];
-        put?: never;
-        /**
-         * Declare a process — recurring work inside a project.
-         * @description A process with a project lives with the project; `domain` picks the repository for a project-less one.
-         */
-        post: operations["addProcess"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/processes/actions/delete-process": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Delete an EMPTY process; refused while it has tasks. */
-        post: operations["deleteProcess"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/processes/actions/rename": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Rename a process; its tasks follow. */
-        post: operations["renameProcess"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/processes/actions/set-project": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Move a process to another project; an empty project is the no-project bucket. */
-        post: operations["setProcessProject"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/processes/actions/set-paused": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Pause a process, or resume it.
-         * @description A paused process files no turns and projects none; resuming files what the current week is owed.
-         */
-        post: operations["setProcessPaused"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/processes/actions/reorder": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Apply a shared process order. */
-        post: operations["reorderProcesses"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/processes/tasks/actions/reorder": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Apply one process's task order.
-         * @description A uid from another process is adopted into this one — which is how a cross-process drop lands.
-         */
-        post: operations["reorderProcessTasks"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/processes/tasks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Add what a process iterates on.
-         * @description A task says what every turn is called and says, its cycle (counted on the calendar from its start date, not from when the last turn closed), the team the turns land in and the standing owner. The server files what each week is owed by itself, as the week arrives.
-         */
-        post: operations["addTask"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/processes/tasks/{uid}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete a task; its past turns stay as the record. */
-        delete: operations["deleteTask"];
-        options?: never;
-        head?: never;
-        /** Change what the NEXT turns will be; the running one is untouched. */
-        patch: operations["patchTask"];
-        trace?: never;
-    };
     "/deadlines": {
         parameters: {
             query?: never;
@@ -968,7 +801,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Rename a team in place, its cards and process tasks along with it.
+         * Rename a team in place, its cards along with it.
          * @description Its declaration keeps its sprint pointer. A name another team has is refused (422), and the no-team group cannot be renamed.
          */
         post: operations["renameTeam"];
@@ -1053,7 +886,7 @@ export interface components {
              * @description The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
              * @enum {string}
              */
-            code: "accessUndecided" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "dayIsARecord" | "descriptionTooLong" | "domainConflict" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "epicExists" | "epicInUse" | "epicNotFound" | "epicRequired" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "noColumn" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAMonday" | "notAuthenticated" | "notFinished" | "notInProject" | "notOnThisBoard" | "notRecurrent" | "notYoursToDestroy" | "notYoursToPark" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "nowhereToLeaveIt" | "openSubtasks" | "outsideCycle" | "ownColumn" | "parentNotFound" | "pointsRequired" | "processExists" | "processInUse" | "processNotFound" | "projectExists" | "projectInUse" | "projectNotFound" | "setupRequired" | "subtaskDepth" | "subtaskMirror" | "subtaskTie" | "subtaskWeek" | "taskNotFound" | "teamExists" | "teamInUse" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "turnProcess" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownZone" | "upstreamFailed" | "viewNeedsField" | "weekDerived";
+            code: "accessUndecided" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "dayIsARecord" | "descriptionTooLong" | "domainConflict" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "epicExists" | "epicInUse" | "epicNotFound" | "epicRequired" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "noColumn" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAMonday" | "notAuthenticated" | "notFinished" | "notInProject" | "notOnThisBoard" | "notYoursToDestroy" | "notYoursToPark" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "nowhereToLeaveIt" | "openSubtasks" | "ownColumn" | "parentNotFound" | "pointsRequired" | "projectExists" | "projectInUse" | "projectNotFound" | "setupRequired" | "subtaskDepth" | "subtaskMirror" | "subtaskWeek" | "teamExists" | "teamInUse" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownZone" | "upstreamFailed" | "viewNeedsField" | "weekDerived";
             /** @description Where the person can go to fix the refusal — installing the board's app — for a client to offer as a button. */
             actionUrl?: string;
         };
@@ -1095,19 +928,15 @@ export interface components {
             /** @description A recurrent card's reseed cycle: absent is every sprint, "week" and "month" once the interval has elapsed. */
             recurrence?: string;
             dates: components["schemas"]["CardDates"];
-            /** @description The week a card with no dates is scheduled for, a Monday: its column on the Triage board. Any other day is refused (422) — a column IS a Monday. A slot's row is the week of its `dates.start`, always derived, so setting a week on a card filed under a column is refused too, though re-asserting the week it already derives is a harmless no-op. A process TURN keeps to its own occurrence. */
+            /** @description The week a card with no dates is scheduled for, a Monday: its column on the Triage board. Any other day is refused (422) — a column IS a Monday. A slot's row is the week of its `dates.start`, always derived, so setting a week on a card filed under a column is refused too, though re-asserting the week it already derives is a harmless no-op. */
             week?: string;
-            /** @description The card is on its team's SHELF rather than in the plan — work somebody has read and put aside. Exclusive with `week`: setting one clears the other, at every door. Parking empties the working area, takes the card's subtasks off the board with it, withdraws any unfinished review of it, and puts it at the top of the shelf. Every team has a shelf and nothing declares it. A Project-board slot, a process turn, a review card and a subtask are refused (422): none of them has a place of its own to be parked out of. */
+            /** @description The card is on its team's SHELF rather than in the plan — work somebody has read and put aside. Exclusive with `week`: setting one clears the other, at every door. Parking empties the working area, takes the card's subtasks off the board with it, withdraws any unfinished review of it, and puts it at the top of the shelf. Every team has a shelf and nothing declares it. A Project-board slot, a review card and a subtask are refused (422): none of them has a place of its own to be parked out of. */
             parked?: boolean;
             /** @description The card's column, which is the (project, epic) PAIR — epic names repeat across projects, so anything acting on a column names both halves. */
             epic?: string;
             project?: string;
             /** @description The additional columns the same card stands in — one file, one log, one set of dates — always in the card's own repository. */
             mirrors?: components["schemas"]["Placement"][];
-            /** @description The process this card is a turn of, or the one it was tied to directly. A card on a day board carries it so a person can see what the work belongs to. */
-            process?: string;
-            /** @description The task a process turn was copied from. */
-            task?: string;
             reviewOf?: string;
             /** @description On a subtask, the uid of the card it is grouped under. */
             parent?: string;
@@ -1122,7 +951,7 @@ export interface components {
         CardStatus: {
             complete: boolean;
             inProgress: boolean;
-            /** @description A promise made on ANOTHER board and broken: a slot past its end date, a process turn past the week its process filed it into. A card the Triage board scheduled into a week is not marked late for still being open — that week is this board's own planning — though it is still a debt. */
+            /** @description A promise made on ANOTHER board and broken: a slot past its end date. A card the Triage board scheduled into a week is not marked late for still being open — that week is this board's own planning — though it is still a debt. */
             overdue?: boolean;
             /** @description The assignee of the unfinished linked review card. */
             reviewedBy?: string;
@@ -1139,16 +968,10 @@ export interface components {
             triageWeek?: string;
             /** @description A RECURRENT card's weeks to come: the ones it comes round in over the planning horizon and no copy of it stands in yet. */
             due?: string[];
-            cycle?: components["schemas"]["CycleWindow"];
             /** @description The board day the older × demoted the card into the previous sprint, which a record of that day gives it back by. Nothing writes it any more. */
             leftAt?: string;
             /** @description The references extracted from the description, unresolved and capped — they ride the status so a row that omits the description still knows it has links to show. GET /cards/{uid}/links resolves them. */
             links?: components["schemas"]["CardLinkRef"][];
-        };
-        /** @description A process turn's own occurrence: the first and last week it may stand in, both Mondays and both inclusive. It is sent rather than derived because the calendar is the server's, and a second implementation of "when is this next due" is a second answer waiting to disagree. */
-        CycleWindow: {
-            from: string;
-            to: string;
         };
         /** @description One reference extracted from a description, unresolved. */
         CardLinkRef: {
@@ -1229,8 +1052,6 @@ export interface components {
             /** @description The teams that have sprint pointers, in board order. */
             teams: string[];
             projects?: string[];
-            /** @description The roster of processes, so a client can tell when it changed; the Process tab reads the full structure from GET /processes. */
-            processes?: components["schemas"]["ProcessRef"][];
             deadlines?: components["schemas"]["DeadlineRef"][];
             epics?: components["schemas"]["EpicRef"][];
             /** @description Every distinct assignee on the board, in login order, with the numbers beside each — the people roster the pickers offer. Who may READ a repository is the other list, `domains[].members`. */
@@ -1243,10 +1064,6 @@ export interface components {
             };
             /** @description The repository each project was declared in. */
             projectDomains?: {
-                [key: string]: string;
-            };
-            /** @description The repository each process was declared in: a card may only be tied to a process of its own repository. */
-            processDomains?: {
                 [key: string]: string;
             };
         };
@@ -1274,51 +1091,9 @@ export interface components {
             project?: string;
             domain?: string;
         };
-        ProcessRef: {
-            name: string;
-            project?: string;
-        };
         DeadlineRef: {
             week: string;
             project?: string;
-        };
-        ProcessList: {
-            /** @enum {string} */
-            kind: "ProcessList";
-            items: components["schemas"]["Process"][];
-        };
-        Process: {
-            name: string;
-            project?: string;
-            paused?: boolean;
-            tasks: components["schemas"]["Task"][];
-        };
-        /** @description What a turn is copied from, plus how the last few went. */
-        Task: {
-            uid: string;
-            title: string;
-            description?: string;
-            recurrence: string;
-            start?: string;
-            team?: string;
-            assignee?: string;
-            /** @description An open turn holds the next one back — the stuck card IS the process — unless the task accumulates, for work where unpaid months must pile up as separate cards. */
-            accumulate?: boolean;
-            /** @description The task's recent turns, oldest first, and only the tail: a process that has run for a year has fifty, and this list rides in every board frame. */
-            history: components["schemas"]["Iteration"][];
-            /** @description Every turn, the tail that is not sent included: turns == the length of history means nothing was left out. */
-            turns: number;
-            done: number;
-            late: number;
-            /** @description The weeks this task comes due in over the planning horizon with no turn of its own yet — what the process is going to file. A paused process sends none. */
-            due?: string[];
-        };
-        /** @description One spawned card and how it went: "done" when it closed, "open" while it still runs inside its cycle, "late" once the week it was owed in has passed with it still open. */
-        Iteration: {
-            uid: string;
-            week: string;
-            /** @enum {string} */
-            state: "done" | "open" | "late";
         };
         /** @description One item of a card's unified activity feed. */
         LogEntry: components["schemas"]["LogEventEntry"] | components["schemas"]["LogNoteEntry"];
@@ -1409,9 +1184,6 @@ export interface components {
             carried: number;
             reseeded: number;
         };
-        TaskRef: {
-            uid: string;
-        };
         /** @description The card a board makes. Every field is optional here because what a board REQUIRES and what it refuses are the board's own rules, answered as a 422 that names the field. */
         CreateCardRequest: {
             title?: string;
@@ -1469,8 +1241,6 @@ export interface components {
             reviewOf?: string;
             /** @description Groups the card under another one; empty ungroups. */
             parent?: string;
-            /** @description Ties the card to an existing process — the recurring shelf's counterpart of a column; empty clears. The process must live in the card's own repository; only a RECURRENT card takes a tie, and a process TURN is refused outright, since a turn's process is its task's. */
-            process?: string;
         };
         CardDatesPatch: {
             start?: string;
@@ -1558,45 +1328,6 @@ export interface components {
             epic?: string;
             to?: string;
         };
-        AddProcessBody: {
-            name?: string;
-            project?: string;
-            /** @description The repository to declare a project-less process in; one with a project lives with the project. */
-            domain?: string;
-        };
-        ProcessBody: {
-            process?: string;
-        };
-        RenameProcessBody: {
-            process?: string;
-            to?: string;
-        };
-        SetProcessProjectBody: {
-            process?: string;
-            project?: string;
-        };
-        SetProcessPausedBody: {
-            process?: string;
-            paused?: boolean;
-        };
-        ReorderProcessesBody: {
-            processes?: string[];
-        };
-        ReorderProcessTasksBody: {
-            process?: string;
-            uids?: string[];
-        };
-        /** @description A task on the wire, for the create (which reads every field) and the patch (which applies only the present ones). */
-        TaskRequest: {
-            process?: string;
-            title?: string;
-            description?: string;
-            recurrence?: string;
-            start?: string;
-            team?: string;
-            assignee?: string;
-            accumulate?: boolean;
-        };
         DeadlineBody: {
             week?: string;
             project?: string;
@@ -1671,18 +1402,17 @@ export interface components {
             login: string;
             card: string;
         };
-        /** @description The board's STRUCTURE changed — a project, a column, a deadline, a process or one of its tasks. It carries the whole board resource plus the process structure, so a client applies it without a round trip, and it is coalesced for a burst of writes. */
+        /** @description The board's STRUCTURE changed — a project, a column, a deadline. It carries the whole board resource, so a client applies it without a round trip, and it is coalesced for a burst of writes. */
         BoardFrame: {
             /** @enum {string} */
             type: "MODIFIED";
             /** @enum {string} */
             kind: "Board";
-            /** @description The board resource with the process structure beside it. Stated field by field rather than composed out of Board: a closed schema cannot be extended by an allOf, and the closure is what catches a field added in Go without a line here. */
+            /** @description The board resource. Stated field by field rather than composed out of Board: a closed schema cannot be extended by an allOf, and the closure is what catches a field added in Go without a line here. */
             object: {
                 /** @enum {string} */
                 kind: "Board";
                 metadata: components["schemas"]["BoardMetadata"];
-                processes: components["schemas"]["Process"][];
             };
         };
         /** @description What the board's PEOPLE are holding. Those numbers are summed over cards from every team, so a client holding one view's cards can neither compute them nor learn them from the card events it receives. Shaped as `metadata.members`, to be merged in place. */
@@ -2929,264 +2659,6 @@ export interface operations {
         };
         responses: {
             /** @description The column is renamed. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Problem"];
-        };
-    };
-    listProcesses: {
-        parameters: {
-            query?: {
-                /** @description Keep only the processes of one project; empty is every project. */
-                project?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The processes. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProcessList"];
-                };
-            };
-            default: components["responses"]["Problem"];
-        };
-    };
-    addProcess: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AddProcessBody"];
-            };
-        };
-        responses: {
-            /** @description The process is declared. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Problem"];
-        };
-    };
-    deleteProcess: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProcessBody"];
-            };
-        };
-        responses: {
-            /** @description The process is gone. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Problem"];
-        };
-    };
-    renameProcess: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RenameProcessBody"];
-            };
-        };
-        responses: {
-            /** @description The process is renamed. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Problem"];
-        };
-    };
-    setProcessProject: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetProcessProjectBody"];
-            };
-        };
-        responses: {
-            /** @description The process belongs to the other project now. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Problem"];
-        };
-    };
-    setProcessPaused: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetProcessPausedBody"];
-            };
-        };
-        responses: {
-            /** @description The process is paused, or running again. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Problem"];
-        };
-    };
-    reorderProcesses: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReorderProcessesBody"];
-            };
-        };
-        responses: {
-            /** @description The order is applied. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Problem"];
-        };
-    };
-    reorderProcessTasks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReorderProcessTasksBody"];
-            };
-        };
-        responses: {
-            /** @description The order is applied. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Problem"];
-        };
-    };
-    addTask: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TaskRequest"];
-            };
-        };
-        responses: {
-            /** @description The uid of the new task. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TaskRef"];
-                };
-            };
-            default: components["responses"]["Problem"];
-        };
-    };
-    deleteTask: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The card's own address, a ULID assigned at creation. */
-                uid: components["parameters"]["Uid"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The task is gone. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Problem"];
-        };
-    };
-    patchTask: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The card's own address, a ULID assigned at creation. */
-                uid: components["parameters"]["Uid"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TaskRequest"];
-            };
-        };
-        responses: {
-            /** @description The task is changed. */
             204: {
                 headers: {
                     [name: string]: unknown;

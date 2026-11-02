@@ -24,7 +24,7 @@ func TestMirrorActionsOverTheGitStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
 		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: platform\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n")},
 		{Path: gitstore.ProjectPath("01JB4PROJE"), Data: []byte("name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
 		{Path: gitstore.ProjectPath("01JB4PROJF"), Data: []byte("name: freedom\nrank: b\ncreated: 2026-06-01T08:00:00Z\n")},
@@ -107,60 +107,6 @@ func TestMirrorActionsOverTheGitStore(t *testing.T) {
 	}
 }
 
-// PATCHing process must round-trip: the write lands as Card.Process, and the
-// resource must serve it back — before this test, processOf answered only
-// for process TURNS (cards carrying a task id), so an ordinary card's tie
-// vanished on the next GET: the picker flickered, a reload erased the
-// choice, and the current process never dropped out of the targets list.
-func TestProcessPatchRoundTripsOverTheGitStore(t *testing.T) {
-	remote := gitRemoteN(t, "board")
-	r, err := gitstore.Init(memory.NewStorage(), gitTestOpts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
-		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: platform\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n")},
-		{Path: gitstore.ProcessPath("01JB4PROC1"), Data: []byte("name: Invoicing\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
-		{Path: "cards/c/3/01JB4K2E7QZMX3R8V0N5T9WYC3.md", Data: []byte("---\ntitle: weekly chore\nteam: platform\nstage: recurrent\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n")},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Push(context.Background(), remote); err != nil {
-		t.Fatal(err)
-	}
-	rights := rightsOn([]string{"shared"}, []string{"shared"})
-	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}, remote)
-	const uid = "01JB4K2E7QZMX3R8V0N5T9WYC3"
-
-	spec := func() string {
-		rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards/"+uid, "")
-		var got struct {
-			Spec struct {
-				Process string `json:"process"`
-			} `json:"spec"`
-		}
-		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-			t.Fatal(err)
-		}
-		return got.Spec.Process
-	}
-	if rec := doAs(t, srv, "kvaps", "PATCH", "/api/v1/cards/"+uid, `{"process":"Invoicing"}`); rec.Code != http.StatusOK {
-		t.Fatalf("patch process: %d %s", rec.Code, rec.Body.String())
-	}
-	if got := spec(); got != "Invoicing" {
-		t.Fatalf("the tie must survive the round trip, spec.process = %q", got)
-	}
-	// "" unties, and the resource says so.
-	if rec := doAs(t, srv, "kvaps", "PATCH", "/api/v1/cards/"+uid, `{"process":""}`); rec.Code != http.StatusOK {
-		t.Fatalf("clear process: %d %s", rec.Code, rec.Body.String())
-	}
-	if got := spec(); got != "" {
-		t.Fatalf("clearing must round-trip too, spec.process = %q", got)
-	}
-}
-
 // The no-project bucket is a full column with a working ×: removing a card
 // from it sends project: "" — a pair the HTTP guard must let through (the
 // column is named by its epic) all the way to the last-column outcome.
@@ -171,7 +117,7 @@ func TestRemoveFromANoProjectColumnOverHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
 		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: platform\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n")},
 		{Path: "cards/d/4/01JB4K2E7QZMX3R8V0N5T9WYD4.md", Data: []byte("---\ntitle: unbound\nteam: platform\nepic: Inbox\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n")},
 	})
@@ -228,38 +174,6 @@ func TestMirrorsDescTellsAddsFromRemovals(t *testing.T) {
 	}
 }
 
-// PATCH may carry parent and process together — grouping clears the tie,
-// so the process half must not re-tie the fresh subtask in the same
-// request: the service refuses it, and the whole PATCH answers 422.
-func TestGroupingAndTyingInOnePatchIsRefused(t *testing.T) {
-	remote := gitRemoteN(t, "board")
-	r, err := gitstore.Init(memory.NewStorage(), gitTestOpts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
-		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: platform\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n")},
-		{Path: gitstore.ProcessPath("01JB4PROC1"), Data: []byte("name: Invoicing\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
-		{Path: "cards/e/5/01JB4K2E7QZMX3R8V0N5T9WYE5.md", Data: []byte("---\ntitle: parent\nteam: platform\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n")},
-		{Path: "cards/f/6/01JB4K2E7QZMX3R8V0N5T9WYF6.md", Data: []byte("---\ntitle: child\nteam: platform\nstage: recurrent\nrank: b\ncreated: 2026-08-20T09:00:00Z\n---\n")},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Push(context.Background(), remote); err != nil {
-		t.Fatal(err)
-	}
-	rights := rightsOn([]string{"shared"}, []string{"shared"})
-	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}, remote)
-
-	rec := doAs(t, srv, "kvaps", "PATCH", "/api/v1/cards/01JB4K2E7QZMX3R8V0N5T9WYF6",
-		`{"parent":"01JB4K2E7QZMX3R8V0N5T9WYE5","process":"Invoicing"}`)
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("the re-tie of a fresh subtask must be refused: %d %s", rec.Code, rec.Body.String())
-	}
-}
-
 // A hand-written mirror onto a column nobody declared must not be
 // honoured: the board assembly drops it, so the resource never shows it
 // and the x's promotion never re-files the card into a ghost pair — the
@@ -271,7 +185,7 @@ func TestAHandWrittenGhostMirrorNeverPromotes(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
 		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: platform\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n")},
 		{Path: gitstore.ProjectPath("01JB4PROJE"), Data: []byte("name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
 		{Path: gitstore.EpicPath("01JB4PROJE", "01JB4EPICC"), Data: []byte("name: Cozystack\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
@@ -315,7 +229,7 @@ func TestMirroringIntoTheNoProjectBucketOverHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
 		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: platform\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n")},
 		{Path: gitstore.ProjectPath("01JB4PROJ"), Data: []byte("name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
 		{Path: gitstore.EpicPath("01JB4PROJ", "01JB4EPIC"), Data: []byte("name: Cozystack\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},

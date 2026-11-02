@@ -49,7 +49,6 @@ func mutateHistoricalSnapshot(b *board.Board) {
 	b.Cards[0].Assignees[0] = "bob"
 	b.Cards[0].Notes[0].Body = "rewritten"
 	b.Cards[0].Mirrors[0].Project = "other"
-	b.Tasks[0].Title = "changed task"
 	b.SprintStates["alpha"] = board.SprintState{ItemID: "other"}
 	b.People["ann"] = board.Person{Capacity: 99}
 	b.TeamOrder[0] = "other"
@@ -63,7 +62,7 @@ func assertHistoricalSnapshotUnchanged(t *testing.T, b board.Board) {
 		b.Cards[0].Notes[0].Body != "first" || b.Cards[0].Mirrors[0].Project != "p" {
 		t.Fatalf("card containers changed through another snapshot: %+v", b.Cards[0])
 	}
-	if b.Tasks[0].Title != "t1" || b.SprintStates["alpha"].ItemID != "s1" ||
+	if b.SprintStates["alpha"].ItemID != "s1" ||
 		b.People["ann"].Capacity != 20 || b.TeamOrder[0] != "alpha" ||
 		b.ProjectStates["proj"] != "ps1" || b.Domains["s1"] != "primary" {
 		t.Fatalf("board containers changed through another snapshot: %+v", b)

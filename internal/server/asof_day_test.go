@@ -65,7 +65,7 @@ func TestAPastDayHoldsWhatStoodOnItThatDay(t *testing.T) {
 	}
 	// The sprint opens on the 24th with both cards in it.
 	commit("2026-08-24T08:00:00Z", "the sprint opens",
-		gitstore.FileWrite{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
+		gitstore.FileWrite{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
 		team(day, prev),
 		card(tidy, day, day, day, 40, ""),
 		card(kept, day, day, day, 40, ""))

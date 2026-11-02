@@ -93,18 +93,6 @@ func TestATeamsBoardHoldsItsOwnOpenWorkWhateverSprintItSitsIn(t *testing.T) {
 	}
 }
 
-// A process task is the thing turns are copied FROM: it stands on the Process
-// tab, not on a day, and it is not work anyone lost.
-func TestAProcessTaskIsReachable(t *testing.T) {
-	b := NewBoard([]Card{
-		{ItemID: "pr", Title: ProcessStateTitle, Process: "Payments"},
-		{ItemID: "task", Title: ProcessTaskTitle, Process: "Payments", Team: "portal", Recurrence: "month"},
-	})
-	if !Reachable(b, "2026-09-02")["task"] {
-		t.Fatal("a process task lives on the Process tab")
-	}
-}
-
 // A PARKED card is on a board — the backlog drawer, which is the whole point
 // of parking — and the day boards deliberately do not draw it. Nothing in
 // Reachable said so, and that was a rounding error while the day rule lost

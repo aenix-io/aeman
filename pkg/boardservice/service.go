@@ -1155,12 +1155,12 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, vie
 	}
 	// OFF THE BOARD is taken at its word: the card goes even though its week
 	// or its column would have kept it, and the subtasks that were pieces of
-	// it go along. Only what this board put on itself, though — a slot and a
-	// process turn belong to another board's plan (ErrNotYoursToDestroy).
-	// A SUBTASK is not answered here: the × on one means "out of the group",
-	// which the arm below still decides.
+	// it go along. Only what this board put on itself, though — a slot
+	// belongs to another board's plan (ErrNotYoursToDestroy). A SUBTASK is
+	// not answered here: the × on one means "out of the group", which the
+	// arm below still decides.
 	if intent == OffBoard && c.Parent == "" {
-		if hasColumn(c) || c.Task != "" {
+		if hasColumn(c) {
 			return fmt.Errorf("%w: %q", ErrNotYoursToDestroy, c.Title)
 		}
 		return s.deleteGroup(ctx, b, c)
@@ -1258,14 +1258,10 @@ func (s *Service) removeFromGrid(ctx context.Context, b board.Board, c board.Car
 	// × takes it out of the working area and leaves it there — whatever it
 	// carries. Only while it IS in the working area: a card that is nothing
 	// but its week has no second home to be handed to, and an × that always
-	// answered "back to your week" could never remove one at all. A PROCESS
-	// TURN is the exception, and never runs out of homes: the week it was
-	// filed into is its process's record of what that week was owed, and the
-	// turn is how the board remembers it — so the × empties the working area
-	// and, pressed again, does nothing. A slot's week is derived from its
-	// start date rather than stored, so it is answered by the column arm
-	// below instead.
-	if c.Week != "" && !hasColumn(c) && (inWorkingArea(c) || c.Task != "") {
+	// answered "back to your week" could never remove one at all. A slot's
+	// week is derived from its start date rather than stored, so it is
+	// answered by the column arm below instead.
+	if c.Week != "" && !hasColumn(c) && inWorkingArea(c) {
 		if len(c.Assignees) > 0 {
 			if err := s.backend.SetAssignee(ctx, b, c, ""); err != nil {
 				return err
@@ -1698,23 +1694,8 @@ func (s *Service) reactivateReviewCard(ctx context.Context, b board.Board, origi
 }
 
 // applyStage persists a stage change and any coupled progress change.
-// keepsItsMarker refuses to move a turn of a process off the recurrent stage,
-// whichever door the change came through — the stage menu, "in progress", or
-// being sent to review. Its task owns the repeat, and a turn that shed the
-// marker would still be replaced next cycle while pretending to be a one-off.
-// Done is the exception: that is what finishing a turn IS.
-func (s *Service) keepsItsMarker(card board.Card, newStage board.StageKey) error {
-	if card.Task == "" || newStage == board.StageRecurrent || newStage == board.StageDone {
-		return nil
-	}
-	return fmt.Errorf("%w: this card is a turn of a process — its recurrence is the process's", ErrInvalidStage)
-}
-
 func (s *Service) applyStage(ctx context.Context, b board.Board, card board.Card, stage board.StageKey) error {
 	newStage, newProgress := board.ApplyStage(stage, card.Progress)
-	if err := s.keepsItsMarker(card, newStage); err != nil {
-		return err
-	}
 	if err := s.backend.SetStage(ctx, b, card, newStage); err != nil {
 		return err
 	}
@@ -1768,9 +1749,6 @@ func (s *Service) Reopen(ctx context.Context, boardID string, itemID string) err
 		return s.pullBackFromAnEarlierSprint(ctx, b, card)
 	}
 	newStage, _ := board.ApplyInProgress(card.Stage, card.Progress)
-	if err := s.keepsItsMarker(card, newStage); err != nil {
-		return err
-	}
 	if err := s.backend.SetStage(ctx, b, card, newStage); err != nil {
 		return err
 	}
@@ -1833,9 +1811,6 @@ func (s *Service) SetInProgress(ctx context.Context, boardID string, itemID stri
 		return err
 	}
 	newStage, newProgress := board.ApplyInProgress(card.Stage, card.Progress)
-	if err := s.keepsItsMarker(card, newStage); err != nil {
-		return err
-	}
 	if err := s.backend.SetStage(ctx, b, card, newStage); err != nil {
 		return err
 	}
@@ -2100,11 +2075,10 @@ func (s *Service) SetBacklog(ctx context.Context, boardID string, itemID string,
 	if err != nil {
 		return err
 	}
-	// A PROJECT card and a PROCESS TURN are not this board's to park. A slot's
-	// week follows its start date and belongs to the Project board's plan; a
-	// turn's week is its process's record of what that week was owed. Taking
-	// either out of the week here would edit a plan this board does not own.
-	if parked && (card.Epic != "" || card.Task != "") {
+	// A PROJECT card is not this board's to park: a slot's week follows its
+	// start date and belongs to the Project board's plan, and taking it out
+	// of the week here would edit a plan this board does not own.
+	if parked && card.Epic != "" {
 		return fmt.Errorf("%w: %q", ErrNotYoursToPark, card.Title)
 	}
 	// And a REVIEW card or a SUBTASK has no place of its own to be parked
@@ -2217,9 +2191,6 @@ func (s *Service) SetWeek(ctx context.Context, boardID string, itemID, week stri
 			return nil
 		}
 		return fmt.Errorf("%w: a slot's week follows its start date — move the dates instead", ErrWeekDerived)
-	}
-	if err := guardTurnWeek(b, card, week); err != nil {
-		return err
 	}
 	// A card is a subtask or a card of its own week, never both (G58) — and a
 	// WEEK given to a standing subtask is how a person says "take it out of

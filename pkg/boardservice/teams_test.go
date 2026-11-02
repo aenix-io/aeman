@@ -8,14 +8,13 @@ import (
 )
 
 // RenameTeam renames the team where it is declared and rewrites every card
-// and task that names it — one action, so the roster and the cards never
-// disagree. The old UI relabelled a chip and patched cards one by one,
-// which left the declared team behind under its old name.
+// that names it — one action, so the roster and the cards never disagree.
+// The old UI relabelled a chip and patched cards one by one, which left the
+// declared team behind under its old name.
 func TestRenameTeamRewritesPointerAndCards(t *testing.T) {
 	fake := newFake([]board.Card{
 		{ItemID: "c1", Title: "one", Team: "test", Progress: 40},
 		{ItemID: "c2", Title: "two", Team: "portal"},
-		{ItemID: "t1", Title: board.ProcessTaskTitle, Process: "Invoicing", Team: "test", Recurrence: "month", StartDate: "2026-06-01"},
 	}, map[string]board.SprintState{
 		"test":   {Current: "2026-08-24", Previous: "2026-08-17", ItemID: "st-test"},
 		"portal": {Current: "2026-08-24", ItemID: "st-portal"},
@@ -37,9 +36,6 @@ func TestRenameTeamRewritesPointerAndCards(t *testing.T) {
 	}
 	if c, _ := findCard(b, "c2"); c.Team != "portal" {
 		t.Fatalf("another team's card was touched: %q", c.Team)
-	}
-	if !fake.saw("SetTeam t1 platform") {
-		t.Fatalf("the process task that names the team follows it; log = %v", fake.log)
 	}
 }
 

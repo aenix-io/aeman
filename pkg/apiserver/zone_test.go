@@ -10,11 +10,11 @@ import (
 // a day and carrying no zone of its own is planned work, because that is where
 // every client already puts it. Before this, such a card came back with no
 // zone at all and each reader had to know the clients' fallback to make sense
-// of it — a process turn, filed with no zone, arrived in the middle of
+// of it — a recurrent card, reseeded with no zone, arrived in the middle of
 // somebody's day as work in no band.
 func TestAWorkingCardWithNoZoneIsPlanned(t *testing.T) {
 	b := board.Board{Cards: []board.Card{
-		{ItemID: "turn", Title: "Получить оплату", Team: "alpha", Task: "t1",
+		{ItemID: "turn", Title: "Получить оплату", Team: "alpha",
 			Stage: board.StageRecurrent, StartDate: "2026-09-07", Day: "2026-09-13"},
 		{ItemID: "strip", Title: "somebody's idea", Team: "alpha"},
 		{ItemID: "urgent", Title: "the fire", Team: "alpha",
@@ -38,7 +38,7 @@ func TestAWorkingCardWithNoZoneIsPlanned(t *testing.T) {
 // API itself reports as planned.
 func TestTheZoneFilterMatchesWhatTheCardReports(t *testing.T) {
 	b := board.Board{Cards: []board.Card{
-		{ItemID: "turn", Title: "Получить оплату", Team: "alpha", Task: "t1",
+		{ItemID: "turn", Title: "Получить оплату", Team: "alpha",
 			StartDate: "2026-09-07", Day: "2026-09-13"},
 		{ItemID: "strip", Title: "somebody's idea", Team: "alpha"},
 	}}

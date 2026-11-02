@@ -119,11 +119,6 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	w("reviewOf", c.ReviewOf)
 	wi("reviewRound", c.ReviewRound)
 	w("recurrence", c.Recurrence)
-	w("process", c.Process)
-	w("task", c.Task)
-	if c.Accumulate {
-		b.WriteString("accumulate: true\n")
-	}
 	w("link", c.Link)
 	w("github", c.GitHubID)
 	w("movedFrom", c.MovedFrom)
@@ -310,14 +305,18 @@ func resolveNode(n *yaml.Node, seen map[*yaml.Node]bool) *yaml.Node {
 }
 
 // setKnown stores one front-matter key on the card; false means the key is
-// not one of ours.
+// not one of ours. The keys of a retired feature — `process`, `task`,
+// `accumulate` (schema 1) — are deliberately NOT ours any more: on a file
+// written before the migration they ride through as Extra, so a record of
+// that day still shows the card as it stood, and the migration strips them
+// once rather than every reader forgetting them.
 func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 	num := func() int { n, _ := strconv.Atoi(val.Value); return n }
 	strs := map[string]*string{
 		"title": &c.Title, "author": &c.Author, "team": &c.Team, "start": &c.StartDate,
 		"day": &c.Day, "sprint": &c.SprintStart, "week": &c.Week, "project": &c.Project,
 		"epic": &c.Epic, "parent": &c.Parent, "reviewOf": &c.ReviewOf, "recurrence": &c.Recurrence,
-		"process": &c.Process, "task": &c.Task, "link": &c.Link, "github": &c.GitHubID,
+		"link": &c.Link, "github": &c.GitHubID,
 		"movedFrom": &c.MovedFrom, "movedAt": &c.MovedAt, "rank": &c.Rank, "created": &c.CreatedAt,
 	}
 	if p, ok := strs[key]; ok {
@@ -371,8 +370,6 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 		c.LeftAt = val.Value
 	case "reviewRound":
 		c.ReviewRound = num()
-	case "accumulate":
-		c.Accumulate = val.Value == "true"
 	case "parked":
 		c.Parked = val.Value == "true"
 	default:

@@ -59,7 +59,7 @@ func TestACardDatedIntoThePastDoesNotEnterARecord(t *testing.T) {
 		}
 	}
 	commit("2026-08-20T08:00:00Z", "the board starts",
-		gitstore.FileWrite{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
+		gitstore.FileWrite{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
 		teamFile("01JB4TEAMA", "portal", settledDay, ""),
 		teamFile("01JB4TEAMB", "backoffice", settledDay, ""))
 	// Portal opens a new sprint (so the 20th becomes a record for it), and

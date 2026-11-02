@@ -18,8 +18,6 @@ func TestOverdue(t *testing.T) {
 		{"a slot still running", Card{Epic: "E", StartDate: "2026-08-03", Day: "2026-09-04"}, "2026-09-04", false},
 		{"a slot ending today is not late yet", Card{Epic: "E", Day: today}, today, false},
 		{"a finished slot is never late", Card{Epic: "E", Day: "2026-08-01", Progress: 100}, "2026-08-01", false},
-		{"a turn of last week", Card{Task: "t", Week: "2026-08-17"}, "2026-08-23", true},
-		{"a turn of this week", Card{Task: "t", Week: "2026-08-24"}, "2026-08-30", false},
 		// A card the Triage board scheduled: it has a day it was owed by, and
 		// nobody outside this board promised it, so it is not late.
 		{"a card scheduled for last week", Card{Week: "2026-08-17"}, "2026-08-21", false},
@@ -57,10 +55,11 @@ func TestAStretchedCardIsOwedByItsEnd(t *testing.T) {
 	}
 }
 
-// OVERDUE is a promise broken, and only two kinds of card carry a promise
+// OVERDUE is a promise broken, and only one kind of card carries a promise
 // somebody else is holding: a Project-board slot, owed by the end date its
-// row was drawn to, and a process turn, owed by the end of the week its
-// process filed it into. Both are commitments made on another board.
+// row was drawn to — a commitment made on another board. (A process turn
+// used to be the other kind; with the feature gone, a turn it left behind is
+// a card planned into a week like any other, and is not marked.)
 //
 // A card scheduled into a week on Triage is not one of those. Its week is
 // this board's own planning, and planning is what the daily sync redoes:
@@ -77,7 +76,9 @@ func TestOnlyAPromiseMadeElsewhereGoesOverdue(t *testing.T) {
 	open := func(c Card) Card { c.Progress = 40; return c }
 
 	slot := open(Card{ItemID: "slot", Team: "t", Epic: "Storage", Project: "cozy", Week: last, Day: "2026-09-04"})
-	turn := open(Card{ItemID: "turn", Team: "t", Task: "01TASK", Process: "Publishing", Week: last})
+	// A turn the retired Process feature left behind: a recurrent card of
+	// its week, and nothing more.
+	turn := open(Card{ItemID: "turn", Team: "t", Stage: StageRecurrent, Week: last})
 	plain := open(Card{ItemID: "plain", Team: "t", Week: last, Day: "2026-09-04"})
 
 	for _, c := range []struct {
@@ -86,7 +87,7 @@ func TestOnlyAPromiseMadeElsewhereGoesOverdue(t *testing.T) {
 		want bool
 	}{
 		{"a project slot past its end date", slot, true},
-		{"a process turn past its week", turn, true},
+		{"an orphaned turn planned into a week gone by", turn, false},
 		{"a card somebody planned into a week", plain, false},
 		{"a card with no week at all", open(Card{Day: "2026-08-01"}), false},
 	} {

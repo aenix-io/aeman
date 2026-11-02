@@ -130,13 +130,6 @@ func stamp(s *Snapshot, domain string) {
 			s.Projects[i].Deadlines[j].Domain = domain
 		}
 	}
-	for i := range s.Processes {
-		s.Processes[i].Domain = domain
-		for j := range s.Processes[i].Tasks {
-			s.Processes[i].Tasks[j].Domain = domain
-			s.Processes[i].Tasks[j].Card.Domain = domain
-		}
-	}
 }
 
 // merge folds the parts into one snapshot.
@@ -149,7 +142,6 @@ func merge(parts []Snapshot) Snapshot {
 	out.Cards, out.Ghosts = mergeCards(parts)
 	out.Teams, out.Aliases = mergeTeams(parts, out.Aliases)
 	out.Projects, out.Aliases = mergeProjects(parts, out.Aliases)
-	out.Processes, out.Aliases = mergeProcesses(parts, out.Aliases)
 	return out
 }
 
@@ -264,36 +256,4 @@ func mergeProjects(parts []Snapshot, aliases []Alias) ([]Project, []Alias) {
 	}
 	sort.Slice(projects, func(i, j int) bool { return byRank(projects[i].Rank, projects[i].ID, projects[j].Rank, projects[j].ID) })
 	return projects, aliases
-}
-
-func mergeProcesses(parts []Snapshot, aliases []Alias) ([]Process, []Alias) {
-	byName := map[string]*Process{}
-	for _, p := range parts {
-		for _, pc := range p.Processes {
-			pc := pc
-			prev, seen := byName[pc.Name]
-			if !seen {
-				byName[pc.Name] = &pc
-				continue
-			}
-			winner, loser := prev, &pc
-			if older(pc.Created, pc.ID, prev.Created, prev.ID) {
-				winner, loser = &pc, prev
-			}
-			winner.Tasks = append(winner.Tasks, loser.Tasks...)
-			aliases = append(aliases, Alias{Kind: "process", Name: pc.Name, Domain: loser.Domain, ID: loser.ID, Winner: winner.ID})
-			byName[pc.Name] = winner
-		}
-	}
-	processes := make([]Process, 0, len(byName))
-	for _, pc := range byName {
-		sort.Slice(pc.Tasks, func(i, j int) bool {
-			return byRank(pc.Tasks[i].Card.Rank, pc.Tasks[i].ID, pc.Tasks[j].Card.Rank, pc.Tasks[j].ID)
-		})
-		processes = append(processes, *pc)
-	}
-	sort.Slice(processes, func(i, j int) bool {
-		return byRank(processes[i].Rank, processes[i].ID, processes[j].Rank, processes[j].ID)
-	})
-	return processes, aliases
 }

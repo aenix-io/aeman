@@ -10,7 +10,7 @@ import (
 
 // mirrorBoard: two projects in the primary repository (engineering with the
 // column Cozystack, freedom with Launch), one in another (strategy with
-// Fundraising), and a process.
+// Fundraising).
 func mirrorBoard(cards []board.Card) *fakeBackend {
 	roster := []board.Card{
 		{ItemID: "pr-e", Title: board.ProjectStateTitle, Project: "engineering"},
@@ -19,7 +19,6 @@ func mirrorBoard(cards []board.Card) *fakeBackend {
 		{ItemID: "ep-cozy", Title: board.EpicStateTitle, Epic: "Cozystack", Project: "engineering"},
 		{ItemID: "ep-launch", Title: board.EpicStateTitle, Epic: "Launch", Project: "freedom"},
 		{ItemID: "ep-fund", Title: board.EpicStateTitle, Epic: "Fundraising", Project: "strategy", Domain: "founders"},
-		{ItemID: "proc-pay", Title: board.ProcessStateTitle, Process: "Invoicing"},
 	}
 	return newFake(append(roster, cards...), map[string]board.SprintState{
 		"platform": {Current: board.TodayIso(), Previous: board.AddDays(board.TodayIso(), -1), ItemID: "st-p"},
@@ -271,99 +270,6 @@ func TestACardInANoProjectColumnMirrorsWithinItsRepository(t *testing.T) {
 	}
 }
 
-// The tie is a reference by name, and issue #124's rule follows it: a
-// renamed process carries its ties along, with the same trace in the
-// card's log the tie itself leaves.
-func TestRenameProcessRewritesTheTies(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "chore", Team: "platform", Stage: board.StageRecurrent, Process: "Invoicing"},
-	})
-	svc := New(f)
-	if err := svc.RenameProcess(ctx, "acme", "Invoicing", "Billing"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Process != "Billing" {
-		t.Fatalf("the tie follows the rename: %+v", c)
-	}
-	found := false
-	for _, e := range f.eventsOf("c1") {
-		if e.Kind == board.EventProcess && e.From == "Invoicing" && e.To == "Billing" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("the rewrite must be logged: %+v", f.eventsOf("c1"))
-	}
-}
-
-// A process with standing ties will not delete: the ties would dangle on a
-// name that no longer exists — the same protection tasks already had.
-func TestDeleteProcessRefusesWhileCardsAreTied(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "chore", Team: "platform", Stage: board.StageRecurrent, Process: "Invoicing"},
-	})
-	svc := New(f)
-	if err := svc.DeleteProcess(ctx, "acme", "Invoicing"); !errors.Is(err, ErrProcessInUse) {
-		t.Fatalf("ties stand: %v", err)
-	}
-	if err := svc.SetCardProcess(ctx, "acme", "c1", ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.DeleteProcess(ctx, "acme", "Invoicing"); err != nil {
-		t.Fatalf("untied, the process deletes: %v", err)
-	}
-}
-
-// Moving a process to a project of another repository re-files its stub
-// there — and every standing tie would turn cross-repository in one
-// stroke, the very state the tie guard exists to prevent. Refused while
-// ties stand; a move within the repository, and any move once untied, is
-// free.
-func TestMovingAProcessToAnotherRepositoryIsRefusedWhileCardsAreTied(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "chore", Team: "platform", Stage: board.StageRecurrent, Process: "Invoicing"},
-	})
-	svc := New(f)
-	if err := svc.SetProcessProject(ctx, "acme", "Invoicing", "strategy"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the move would strand every tie: %v", err)
-	}
-	if err := svc.SetProcessProject(ctx, "acme", "Invoicing", "engineering"); err != nil {
-		t.Fatalf("a move within the repository leaves the ties valid: %v", err)
-	}
-	if err := svc.SetCardProcess(ctx, "acme", "c1", ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.SetProcessProject(ctx, "acme", "Invoicing", "strategy"); err != nil {
-		t.Fatalf("no ties, no objection: %v", err)
-	}
-}
-
-// Dropping a process's project keeps it where it is when it already lives
-// in the primary — the stub does not move, so no tie is stranded and there
-// is nothing to refuse. The board NAMES its primary, the way a real store
-// hands it over, and reading "no project" as a repository of its own made
-// the unbinding look like a move out of it.
-func TestDroppingTheProjectOfAProcessInThePrimaryKeepsItsTies(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "chore", Team: "platform", Stage: board.StageRecurrent, Process: "Invoicing"},
-	})
-	f.b.Primary = "aeman-db"
-	svc := New(f)
-	if err := svc.SetProcessProject(ctx, "acme", "Invoicing", "engineering"); err != nil {
-		t.Fatalf("a move within the repository is free: %v", err)
-	}
-	if err := svc.SetProcessProject(ctx, "acme", "Invoicing", ""); err != nil {
-		t.Fatalf("and so is dropping the project, which moves the stub nowhere: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Process != "Invoicing" {
-		t.Fatalf("the tie stands: %+v", c)
-	}
-}
-
 // A review link inside ONE repository moves nothing, so a mirrored card
 // keeps its mirrors through it — the refusal is for a link that would
 // carry the card out, and this rule had no test on either side. The board
@@ -388,31 +294,6 @@ func TestLinkingAMirroredCardAsAReviewInsideOneRepositoryIsAllowed(t *testing.T)
 	}
 	if len(c.Mirrors) != 1 {
 		t.Fatalf("and the mirrors stand: %+v", c.Mirrors)
-	}
-}
-
-// What rides a follower is not only its column. A review card tied to a
-// process of its original's repository is dragged along by the re-file
-// (the cascade follows reviewOf), and its tie — a reference by name that
-// never crosses a repository — would be left naming a process the new one
-// does not declare. The direct door refuses such a tie; the door that
-// moves the card underneath it must refuse too.
-func TestReFilingACardCannotStrandAFollowersProcessTie(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "the work", Team: "platform"},
-		{ItemID: "rev", Title: "review of the work", ReviewOf: "c1", Team: "platform",
-			Stage: board.StageRecurrent, Process: "Invoicing"},
-	})
-	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
-	f.b.Domains = map[string]string{"st-f": "founders"}
-	err := New(f).SetTeam(ctx, "acme", "c1", "founders", "")
-	if !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the review card follows the original and its tie cannot: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Team != "platform" {
-		t.Fatalf("a refused re-file writes nothing: %+v", c)
 	}
 }
 
@@ -539,53 +420,6 @@ func TestAttachingADatedCardKeepsItsDates(t *testing.T) {
 	c, _ := findCard(b, "c1")
 	if c.StartDate != "2026-09-07" || c.Day != "2026-09-09" {
 		t.Fatalf("the chosen schedule survives the attach: %+v", c)
-	}
-}
-
-// A recurrent card is attached to a PROCESS instead of a project — the same
-// gesture, the recurring shelf: its Process field names it, and the process
-// must exist (a typo is not a new process).
-func TestSetCardProcess(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "weekly chore", Team: "platform", Stage: board.StageRecurrent},
-	})
-	svc := New(f)
-	if err := svc.SetCardProcess(ctx, "acme", "c1", "Invoicing"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Process != "Invoicing" {
-		t.Fatalf("the card names its process: %+v", c)
-	}
-	if err := svc.SetCardProcess(ctx, "acme", "c1", "Nope"); !errors.Is(err, ErrProcessNotFound) {
-		t.Fatalf("an unknown process: %v", err)
-	}
-	if err := svc.SetCardProcess(ctx, "acme", "c1", ""); err != nil {
-		t.Fatal(err)
-	}
-	b, _ = f.LoadBoard(ctx, "acme")
-	c, _ = findCard(b, "c1")
-	if c.Process != "" {
-		t.Fatalf("empty clears: %+v", c)
-	}
-}
-
-// The tie is a stored reference, and references never cross a domain
-// boundary: a card of the closed repository naming a process declared in
-// the shared one would hand the closed card's existence to readers who may
-// not have it — the same rule every other reference on the board obeys.
-func TestTyingACardToAProcessOfAnotherRepositoryIsRefused(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "closed chore", Stage: board.StageRecurrent, Domain: "founders"},
-	})
-	if err := New(f).SetCardProcess(ctx, "acme", "c1", "Invoicing"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("Invoicing lives in the primary repository, the card does not: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Process != "" {
-		t.Fatalf("the refused tie must not land: %+v", c)
 	}
 }
 
@@ -822,20 +656,6 @@ func TestACardLinkedIntoAnotherRepositoryCannotBeMirrored(t *testing.T) {
 	}
 }
 
-// A process turn belongs to its task, and the task names the process:
-// writing process: on the turn itself would contradict the task and lose
-// to it on every read (processOf resolves the task first) — the silent
-// no-op the picker used to show as a flicker-then-revert. Refused.
-func TestATurnsProcessCannotBeReTied(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "turn", Title: "invoice week 35", Team: "platform",
-			Stage: board.StageRecurrent, Task: "task-1"},
-	})
-	if err := New(f).SetCardProcess(ctx, "acme", "turn", "Invoicing"); !errors.Is(err, ErrTurnProcess) {
-		t.Fatalf("a turn's process is its task's: %v", err)
-	}
-}
-
 // A rewritten mirror entry leaves the same trace a home rename does: the
 // activity log is the second documentation, and a mirror that silently
 // changed columns read as one appearing from nowhere.
@@ -856,180 +676,6 @@ func TestARenamedMirrorLandsInTheCardsLog(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("the rewrite must be logged: %+v", f.eventsOf("c1"))
-	}
-}
-
-// The UI offers the process picker to recurrent cards alone, and the
-// service holds the same line for the callers that skip the UI: tying a
-// non-recurrent card is refused — a tie the recurring shelf never draws
-// would be invisible state — while CLEARING stays free whatever the stage
-// became since.
-func TestOnlyARecurrentCardTakesAProcessTie(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "plain", Title: "one-off", Team: "platform"},
-		{ItemID: "was", Title: "used to recur", Team: "platform", Process: "Invoicing"},
-	})
-	svc := New(f)
-	if err := svc.SetCardProcess(ctx, "acme", "plain", "Invoicing"); !errors.Is(err, ErrNotRecurrent) {
-		t.Fatalf("a one-off card has no recurring shelf to show the tie: %v", err)
-	}
-	if err := svc.SetCardProcess(ctx, "acme", "was", ""); err != nil {
-		t.Fatalf("clearing is free whatever the stage is now: %v", err)
-	}
-}
-
-// The tie never crosses a domain boundary — and neither may the CARD slip
-// out from under it. Four doors, each a re-file in disguise, each refused
-// (or, for grouping, cleared) before anything is written:
-//
-//   - SetTeam: a recurrent card without a project follows its team, so
-//     re-teaming it into another repository would strand the tie;
-//   - SetEpic: attaching a teamless tied card to a project of another
-//     repository moves the file the same way;
-//   - SetEpicProject: a column move carries its home cards along;
-//   - SetReviewOf: a link outranks everything (linked cards first);
-//   - SetParent clears the tie instead, the way it clears mirrors — a
-//     subtask rides its parent, and the shelf never draws its tie.
-func TestReTeamingATiedCardToAnotherRepositoryIsRefused(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "chore", Team: "platform", Stage: board.StageRecurrent, Process: "Invoicing"},
-	})
-	f.b.SprintStates["board"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-b"}
-	f.b.Domains = map[string]string{"st-b": "founders"}
-	svc := New(f)
-	if err := svc.SetTeam(ctx, "acme", "c1", "board", ""); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the team decides where a project-less card lives: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Team != "platform" || c.Process != "Invoicing" {
-		t.Fatalf("the refused move must leave the card whole: %+v", c)
-	}
-}
-
-func TestAttachingATiedCardToAProjectOfAnotherRepositoryIsRefused(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "chore", Stage: board.StageRecurrent, Process: "Invoicing"},
-	})
-	strategy := "strategy"
-	if err := New(f).SetEpic(ctx, "acme", "c1", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the attach is a repository move in disguise: %v", err)
-	}
-}
-
-func TestMovingAColumnToAnotherRepositoryIsRefusedWhileCardsAreTied(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "chore", Stage: board.StageRecurrent, Process: "Invoicing",
-			Project: "freedom", Epic: "Launch"},
-	})
-	if err := New(f).SetEpicProject(ctx, "acme", "freedom", "Launch", "strategy"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the column would carry the tied card away: %v", err)
-	}
-}
-
-func TestLinkingATiedCardIntoAnotherRepositoryIsRefused(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "review chore", Team: "platform", Stage: board.StageRecurrent, Process: "Invoicing"},
-		{ItemID: "orig", Title: "original", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
-	})
-	if err := New(f).SetReviewOf(ctx, "acme", "c1", "orig"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the link outranks everything and would move the file: %v", err)
-	}
-}
-
-func TestGroupingATiedCardClearsTheTie(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "c1", Title: "chore", Team: "platform", Stage: board.StageRecurrent, Process: "Invoicing"},
-	})
-	svc := New(f)
-	if err := svc.SetParent(ctx, "acme", "c1", "p"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Process != "" {
-		t.Fatalf("a subtask rides its parent; the tie goes with the grouping: %+v", c)
-	}
-	found := false
-	for _, e := range f.eventsOf("c1") {
-		if e.Kind == board.EventProcess && e.From == "Invoicing" && e.To == "" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("the untying must be logged: %+v", f.eventsOf("c1"))
-	}
-}
-
-// The x's last column is one more door out of the repository: orphaning
-// clears the pair, and for a TEAMLESS card the domain falls through to
-// the primary — a standing tie would be stranded. Refused before anything
-// is written; a card whose orphan life stays in the same repository keeps
-// its tie and goes free.
-func TestRemoveFromLastColumnCannotStrandTheTie(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "proc-f", Title: board.ProcessStateTitle, Process: "Fundraising ops", Domain: "founders"},
-		{ItemID: "c1", Title: "closed chore", Stage: board.StageRecurrent,
-			Project: "strategy", Epic: "Fundraising", Domain: "founders",
-			Process: "Fundraising ops", Assignees: []string{"kvaps"}, Progress: 40,
-			Week: "2026-08-24"},
-		{ItemID: "c2", Title: "open chore", Stage: board.StageRecurrent,
-			Project: "engineering", Epic: "Cozystack",
-			Process: "Invoicing", Assignees: []string{"kvaps"}, Progress: 40},
-	})
-	svc := New(f)
-	if err := svc.RemoveFromProject(ctx, "acme", "c1", "strategy", "Fundraising"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("orphaning a teamless closed card is a move to the primary: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Epic != "Fundraising" || c.Week != "2026-08-24" {
-		t.Fatalf("the refusal must fire before anything is written: %+v", c)
-	}
-	// Same repository: the orphan keeps its tie and goes free.
-	if err := svc.RemoveFromProject(ctx, "acme", "c2", "engineering", "Cozystack"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ = f.LoadBoard(ctx, "acme")
-	c, _ = findCard(b, "c2")
-	if c.Epic != "" || c.Process != "Invoicing" {
-		t.Fatalf("a same-repository orphan keeps its tie: %+v", c)
-	}
-}
-
-// A DELETION moves nothing, so the tie guard has no say in it: an
-// untouched tied card of a closed repository is deleted in place by its
-// last column's x, the same way delete_card would take it — the guard
-// bites only the orphaning, which really is a re-file.
-func TestRemoveFromLastColumnDeletesAnUntouchedTiedCard(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "proc-f", Title: board.ProcessStateTitle, Process: "Fundraising ops", Domain: "founders"},
-		{ItemID: "c1", Title: "untouched closed chore", Stage: board.StageRecurrent,
-			Project: "strategy", Epic: "Fundraising", Domain: "founders",
-			Process: "Fundraising ops"},
-	})
-	svc := New(f)
-	if err := svc.RemoveFromProject(ctx, "acme", "c1", "strategy", "Fundraising"); err != nil {
-		t.Fatalf("deletion is not a move — the tie guard must stay quiet: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	if _, ok := findCard(b, "c1"); ok {
-		t.Fatal("the untouched card is deleted in place")
-	}
-}
-
-// A subtask rides its parent, and grouping clears its tie — a re-tie one
-// request later (PATCH {parent, process} carries both) would put it right
-// back under refileGuard's radar: any re-file of the PARENT drags the
-// child across repositories unguarded. Refused outright, like the mirror.
-func TestASubtaskCannotBeTied(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "c1", Title: "child", Team: "platform", Stage: board.StageRecurrent, Parent: "p"},
-	})
-	if err := New(f).SetCardProcess(ctx, "acme", "c1", "Invoicing"); !errors.Is(err, ErrSubtaskTie) {
-		t.Fatalf("a subtask rides its parent: %v", err)
 	}
 }
 
@@ -1467,26 +1113,6 @@ func TestTheGridRemoveStillDeletesAColumnlessSubtask(t *testing.T) {
 	b, _ := f.LoadBoard(ctx, "acme")
 	if _, ok := findCard(b, "c1"); ok {
 		t.Fatal("nowhere else to be: the × deletes it")
-	}
-}
-
-// Grouping CLEARS the tie (clearRiders) — it does not refuse over it, as
-// its own docstring and G56 say. The guard was reading the state before
-// the change, so a parent in another repository tripped the tie check that
-// grouping was about to make moot.
-func TestGroupingATiedCardAcrossRepositoriesStillClearsTheTie(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
-		{ItemID: "c1", Title: "tied chore", Stage: board.StageRecurrent, Process: "Invoicing"},
-	})
-	svc := New(f)
-	if err := svc.SetParent(ctx, "acme", "c1", "far"); err != nil {
-		t.Fatalf("grouping clears the tie, it does not refuse: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Process != "" || c.Parent != "far" {
-		t.Fatalf("the tie is cleared and the grouping lands: %+v", c)
 	}
 }
 

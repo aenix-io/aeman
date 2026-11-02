@@ -1,10 +1,18 @@
 package board
 
-// A repeating card is not always a process's. A team keeps its own work that
-// comes round — the weekly report, the monthly invoice — as a plain recurrent
-// card, reseeded by carry-over rather than filed by a sweep. The weeks it
-// will land in are as spoken for as a process turn's, and a board that plans
-// weeks ahead has to say so.
+// A team keeps work that comes round — the weekly report, the monthly
+// invoice — as a recurrent card, reseeded by carry-over. The weeks it will
+// land in are spoken for, and a board that plans weeks ahead has to say so.
+
+// DueInWeek reports whether a recurrence anchored at `start` comes due in
+// the week beginning on `week`: the first occurrence falling after the day
+// before it lands on or before the week's end. It is the one calendar
+// question every projection asks, so the week the board draws a recurrence
+// in is the week the reseed will put it in.
+func DueInWeek(recurrence, start, week string) bool {
+	due := NextAfter(recurrence, start, AddDays(week, -1))
+	return due != "" && due <= AddDays(week, 6)
+}
 
 // UpcomingRecurrences is every week, of the `weeks` beginning at `from`, in
 // which a recurrent card comes round again and no copy of it stands yet.
@@ -15,11 +23,9 @@ package board
 // matches on: the title, within the team (Service.CarryOver's own dedup).
 //
 // Nothing is projected without a calendar to project from: a per-sprint
-// recurrence turns with the sprint, which is not a date. A process TURN is
-// projected by its task's calendar instead (UpcomingTurns) — answering here
-// as well would draw every one of them twice.
+// recurrence turns with the sprint, which is not a date.
 func UpcomingRecurrences(b Board, c Card, from string, weeks int) []string {
-	if c.Stage != StageRecurrent || c.Task != "" || c.Week == "" || weeks <= 0 {
+	if c.Stage != StageRecurrent || c.Week == "" || weeks <= 0 {
 		return nil
 	}
 	if c.Recurrence == RecurrenceSprint || !ValidRecurrence(c.Recurrence) {

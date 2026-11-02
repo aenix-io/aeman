@@ -44,7 +44,7 @@ func TestAPastDayIsServedAsThatDaysOwnBoard(t *testing.T) {
 		{"2026-08-24T11:00:00Z", 100, "as it is now"},
 	}
 	first := []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
 		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-20\n")},
 	}
 	for i, s := range seed {

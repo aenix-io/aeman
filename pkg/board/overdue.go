@@ -1,11 +1,10 @@
 package board
 
 // DueDate is the day a card that came from a plan was owed by — "" for a
-// card that has no such day. Three kinds of card come from a plan, and each
+// card that has no such day. Two kinds of card come from a plan, and each
 // has its own clock:
 //
 //   - a Project-board slot is owed by its end date;
-//   - a process turn is owed by the end of the week it was filed in;
 //   - a card scheduled for a WEEK is owed by the end of that week.
 //
 // A card with no week is not scheduled work and has no due date here: the day
@@ -14,11 +13,6 @@ func DueDate(c Card) string {
 	switch {
 	case c.Epic != "":
 		return c.Day
-	case c.Task != "":
-		if c.Week == "" {
-			return ""
-		}
-		return AddDays(c.Week, 6)
 	case c.Week != "":
 		// A card the Triage board scheduled. Being placed in a week IS the
 		// promise, so it is owed by the end of that week — its Friday.
@@ -37,11 +31,12 @@ func DueDate(c Card) string {
 }
 
 // Overdue reports whether a card has broken a promise somebody else is
-// holding — which is what the mark means, and why only two kinds of card can
-// carry it: a Project-board SLOT, owed by the end date its row was drawn to,
-// and a process TURN, owed by the end of the week its process filed it into.
-// Both are commitments made on another board, by somebody who is not the
-// person the card sits on.
+// holding — which is what the mark means, and why only one kind of card can
+// carry it: a Project-board SLOT, owed by the end date its row was drawn to.
+// It is a commitment made on another board, by somebody who is not the
+// person the card sits on. (A process turn used to be the other kind, owed
+// by the end of its week; the feature is gone, and a turn it left behind is
+// an ordinary card of its week now.)
 //
 // A card scheduled into a week on the Triage board is not one of those. Its
 // week is that board's own planning, and planning is what the next sync
@@ -54,7 +49,7 @@ func DueDate(c Card) string {
 // It is derived, never stored — the card's own dates are the truth, and a
 // flag beside them would be one more thing to drift.
 func Overdue(c Card, today string) bool {
-	if c.Epic == "" && c.Task == "" {
+	if c.Epic == "" {
 		return false
 	}
 	if Complete(c.Stage, c.Progress) {

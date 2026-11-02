@@ -291,7 +291,7 @@ func TestRebaseRefusesUnrelatedTip(t *testing.T) {
 	remote, a, _ := twoReplicas(t)
 	head := commitFile(t, a, "update", "cards/a/1/A1.md", "---\ntitle: a\nprogress: 70\n---\n")
 	other := newRepo(t)
-	unrelated, err := other.Commit(Action{Name: "import", Summary: "elsewhere"}, []FileWrite{{Path: BoardPath, Data: []byte("schema: 1\n")}})
+	unrelated, err := other.Commit(Action{Name: "import", Summary: "elsewhere"}, []FileWrite{{Path: BoardPath, Data: []byte("schema: 2\n")}})
 	if err != nil {
 		t.Fatal(err)
 	}

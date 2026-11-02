@@ -19,7 +19,7 @@ func newService(t *testing.T) (*boardservice.Service, *Backend, *Repo) {
 	t.Helper()
 	r := newRepo(t)
 	if _, err := r.Commit(Action{Name: "init", Summary: "init"}, []FileWrite{
-		{Path: BoardPath, Data: []byte("schema: 1\ntitle: conformance\n")},
+		{Path: BoardPath, Data: []byte("schema: 2\ntitle: conformance\n")},
 		{Path: TeamPath("_"), Data: []byte("rank: a\ncreated: 2026-06-01T08:00:00Z\n")},
 	}); err != nil {
 		t.Fatal(err)
@@ -197,38 +197,6 @@ func TestServiceCarryOverThroughTheBackend(t *testing.T) {
 	b, _ = svc.Board(ctx, "acme")
 	if paths := changedPathsSince(t, r, head); len(paths) != 1 || paths[0] != TeamPath(b.SprintStates["ops"].ItemID) {
 		t.Fatalf("zero-card carry-over touched %v, want the team file only", paths)
-	}
-}
-
-func TestServiceProcessAndTaskThroughTheBackend(t *testing.T) {
-	svc, _, r := newService(t)
-	ctx := ctxAs("kvaps")
-	if err := svc.AddProject(ctx, "acme", "portal"); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.AddProcess(ctx, "acme", "Invoicing", "portal"); err != nil {
-		t.Fatal(err)
-	}
-	task, err := svc.AddProcessTask(ctx, "acme", "Invoicing", boardservice.TaskArgs{Title: "Invoice ACME", Description: "monthly", Recurrence: "month", Start: "2026-08-03", Team: "portal", Accumulate: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, _ := svc.Board(ctx, "acme")
-	if len(b.Processes) != 1 || b.Processes[0].Name != "Invoicing" || b.Processes[0].Project != "portal" {
-		t.Fatalf("processes = %+v", b.Processes)
-	}
-	if len(b.Tasks) != 1 || b.Tasks[0].ItemID != task.ItemID || !b.Tasks[0].Accumulate || b.Tasks[0].Recurrence != "month" {
-		t.Fatalf("tasks = %+v", b.Tasks)
-	}
-	if _, err := r.ReadFile(TaskPath(b.Processes[0].ItemID, task.ItemID)); err != nil {
-		t.Fatalf("task file: %v", err)
-	}
-	if err := svc.DeleteProcessTask(ctx, "acme", task.ItemID); err != nil {
-		t.Fatal(err)
-	}
-	b, _ = svc.Board(ctx, "acme")
-	if len(b.Tasks) != 0 {
-		t.Fatalf("task not deleted: %+v", b.Tasks)
 	}
 }
 

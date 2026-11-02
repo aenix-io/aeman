@@ -320,18 +320,11 @@ func rosterCollision(s gitstore.Snapshot) error {
 	for _, p := range s.Projects {
 		domainOf[p.ID] = p.Domain
 	}
-	for _, p := range s.Processes {
-		domainOf[p.ID] = p.Domain
-	}
 	pathOf := func(kind, id string) string {
-		switch kind {
-		case "team":
+		if kind == "team" {
 			return gitstore.TeamPath(id)
-		case "project":
-			return gitstore.ProjectPath(id)
-		default:
-			return gitstore.ProcessPath(id)
 		}
+		return gitstore.ProjectPath(id)
 	}
 	var b strings.Builder
 	b.WriteString("the repositories declare the same name twice; rename one of each pair and start again:")
@@ -470,8 +463,6 @@ func actionName(method, path string) string {
 		return map[string]string{"create": "note", "update": "note-edit", "delete": "note-delete"}[verb]
 	case parts[0] == "cards":
 		return verb
-	case parts[0] == "processes" && len(parts) >= 2 && parts[1] == "tasks":
-		return map[string]string{"create": "add-task", "update": "update-task", "delete": "delete-task"}[verb]
 	case verb == "create":
 		return "add-" + strings.TrimSuffix(parts[0], "s")
 	}

@@ -36,18 +36,14 @@ func newRemote(t *testing.T, suffix string) gitstore.Remote {
 }
 
 // fixture is a small board with everything the migration has to handle: a
-// team with a sprint pointer, a project with a column and a deadline, a
-// process with a task, cards with events (one done, one done without a
-// recorded jump), an issue card, a subtask, a review pair, a note without an
-// author, and a dangling parent.
+// team with a sprint pointer, a project with a column and a deadline, cards
+// with events (one done, one done without a recorded jump), an issue card, a
+// subtask, a review pair, a note without an author, and a dangling parent.
 func fixture() *boardservicetest.Backend {
 	cards := []board.Card{
 		{ItemID: "PVTI_proj", Title: board.ProjectStateTitle, Project: "portal", CreatedAt: "2026-06-01T08:00:00Z"},
 		{ItemID: "PVTI_epic", Title: board.EpicStateTitle, Epic: "Bugs", Project: "portal", CreatedAt: "2026-06-02T08:00:00Z"},
 		{ItemID: "PVTI_dl", Title: board.DeadlineStateTitle, Week: "2026-09-07", Project: "portal", CreatedAt: "2026-06-03T08:00:00Z"},
-		{ItemID: "PVTI_proc", Title: board.ProcessStateTitle, Process: "Invoicing", Project: "portal", CreatedAt: "2026-06-04T08:00:00Z"},
-		{ItemID: "PVTI_task", Title: board.ProcessTaskTitle, Process: "Invoicing", Recurrence: "month", StartDate: "2026-06-01", Team: "portal",
-			Description: "Invoice ACME\nmonthly", CreatedAt: "2026-06-04T09:00:00Z"},
 		{ItemID: "PVTI_a", Title: "leak", Team: "portal", Zone: board.ZoneYellow, Progress: 100, Epic: "Bugs", Project: "portal",
 			StartDate: "2026-08-24", Day: "2026-08-26", SprintStart: "2026-08-24", Assignees: []string{"kitsunoff"}, Author: "kvaps",
 			CreatedAt: "2026-08-24T09:00:00Z", Description: "Memory leak in the portal.",
@@ -146,8 +142,8 @@ func TestFinalTreeEqualsSnapshot(t *testing.T) {
 	if len(leak.Notes) != 2 || leak.Notes[0].Body != "reproduced" || len(leak.Notes[0].ID) != 26 || leak.Notes[1].Author != "" {
 		t.Fatalf("notes = %+v", leak.Notes)
 	}
-	if len(s.Teams) != 2 || len(s.Projects) != 1 || len(s.Projects[0].Epics) != 1 || len(s.Projects[0].Deadlines) != 1 || len(s.Processes) != 1 || len(s.Processes[0].Tasks) != 1 {
-		t.Fatalf("roster: teams=%d projects=%+v processes=%+v", len(s.Teams), s.Projects, s.Processes)
+	if len(s.Teams) != 2 || len(s.Projects) != 1 || len(s.Projects[0].Epics) != 1 || len(s.Projects[0].Deadlines) != 1 {
+		t.Fatalf("roster: teams=%d projects=%+v", len(s.Teams), s.Projects)
 	}
 	if s.Board.Title != "aeman board" || s.Board.Schema != gitstore.SchemaVersion {
 		t.Fatalf("board = %+v", s.Board)
@@ -234,10 +230,6 @@ func TestDeterministicIDsAndRemappedReferences(t *testing.T) {
 		if len(c.ItemID) != 26 || strings.HasPrefix(c.ItemID, "PVTI") {
 			t.Fatalf("id not a ULID: %s", c.ItemID)
 		}
-	}
-	// The task points at its process by name and lives under its directory.
-	if s.Processes[0].Tasks[0].Card.Process != "Invoicing" {
-		t.Fatalf("task = %+v", s.Processes[0].Tasks[0].Card)
 	}
 }
 

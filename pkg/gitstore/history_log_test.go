@@ -43,7 +43,7 @@ func TestCardLogRootCommitOnlyForCardsInIt(t *testing.T) {
 func TestCardLogCreatedAndDeletedOnceWhenTheTrailerSaysSoToo(t *testing.T) {
 	r := newRepo(t)
 	if _, err := r.Commit(Action{Name: "init", Summary: "board", At: at("2026-08-01T09:00:00Z")}, []FileWrite{
-		{Path: "board.yaml", Data: []byte("schema: 1\ntitle: t\n")},
+		{Path: "board.yaml", Data: []byte("schema: 2\ntitle: t\n")},
 	}); err != nil {
 		t.Fatal(err)
 	}

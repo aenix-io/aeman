@@ -36,22 +36,6 @@ var ErrOwnColumn = errors.New("the card's own column is not a mirror target")
 // repository, naming a repository that no longer holds the card.
 var ErrSubtaskMirror = errors.New("a subtask rides its parent and cannot be mirrored")
 
-// ErrTurnProcess is re-tying a process turn: a turn belongs to its task,
-// and the task names the process — a process written on the turn itself
-// would contradict the task and silently lose to it on every read.
-var ErrTurnProcess = errors.New("a process turn's process is its task's — it cannot be re-tied")
-
-// ErrNotRecurrent is tying a non-recurrent card to a process: the
-// recurring shelf is where a tie shows, and a tie nothing draws is the
-// kind of invisible state every guard here exists to refuse.
-var ErrNotRecurrent = errors.New("only a recurrent card can be tied to a process")
-
-// ErrSubtaskTie is tying a subtask: it rides its parent (whose re-file
-// would carry it into another repository, tie and all), and grouping
-// clears the tie for that very reason — re-tying it would undo the clear
-// one request later.
-var ErrSubtaskTie = errors.New("a subtask rides its parent and cannot be tied to a process")
-
 // Mirror adds the column (project, epic) to the card. The card must already
 // stand in a column — one outside every column is attached, not mirrored —
 // and the target must exist in the repository that holds the CARD'S FILE
@@ -216,62 +200,6 @@ func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID,
 	return nil
 }
 
-// SetCardProcess names the process a card belongs to — the recurring
-// shelf's counterpart of attaching a card to a project. The process must
-// exist (a typo is not a new process); "" clears the tie.
-func (s *Service) SetCardProcess(ctx context.Context, boardID string, itemID, process string) error {
-	b, c, err := s.loadCard(ctx, boardID, itemID)
-	if err != nil {
-		return err
-	}
-	// A turn is refused before anything else: processOf resolves its task
-	// first, so a process: key written here would never be read back — the
-	// silent no-op this guard turns into an honest error.
-	if c.Task != "" {
-		return ErrTurnProcess
-	}
-	if process != "" {
-		// The UI offers the picker to recurrent cards alone; the service
-		// holds the same line for the callers that skip the UI (MCP, a
-		// plain PATCH) — clearing stays free, whatever the stage is now.
-		// A SUBTASK is refused outright: grouping cleared its tie, and a
-		// PATCH carrying {parent, process} together would re-tie it in
-		// the same request — after which any re-file of the PARENT drags
-		// the child across repositories under refileGuard's radar.
-		if c.Parent != "" {
-			return ErrSubtaskTie
-		}
-		if c.Stage != board.StageRecurrent {
-			return ErrNotRecurrent
-		}
-		found := false
-		for _, p := range b.Processes {
-			if p.Name == process {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("%w %q", ErrProcessNotFound, process)
-		}
-		// The tie is a stored reference, and references never cross a
-		// domain boundary (git-backend.md): a card of the closed repository
-		// naming a process declared in the shared one would hand the closed
-		// card's existence to readers who may not have it.
-		if board.ProcessDomain(b, process) != board.FileDomain(b, c) {
-			return fmt.Errorf("%w: the process %q lives in another repository", ErrCrossDomain, process)
-		}
-	}
-	if c.Process == process {
-		return nil
-	}
-	if err := s.backend.SetProcess(ctx, b, c, process); err != nil {
-		return err
-	}
-	s.logEvent(ctx, b, c, board.EventProcess, c.Process, process)
-	return nil
-}
-
 // renameMirror rewrites the card's mirror entry (fromProject, fromEpic) to
 // the new pair — the rename flows call it so a renamed column does not
 // strand the mirrors that point at it (issue #124's lesson).
@@ -303,20 +231,13 @@ func (s *Service) renameMirror(ctx context.Context, b board.Board, c board.Card,
 }
 
 // refileGuard refuses a re-file that would leave a reference pointing across
-// a domain boundary. Two of them ride on a card and cannot follow it:
+// a domain boundary: the COLUMNS OF THE CARDS THAT FOLLOW IT. A subtask's
+// file follows its parent and a review card's follows its original
+// (MultiBackend cascades the re-file along both links), while each one's
+// own column stays behind, naming a repository that no longer holds it —
+// the very state SetEpic refuses when the card itself is moved.
 //
-//   - its PROCESS TIE, a reference by name that never crosses a domain
-//     (git-backend.md) — the mirror of the rule that keeps the process
-//     itself from moving away (SetProcessProject);
-//   - the COLUMNS AND TIES OF THE CARDS THAT FOLLOW IT: a subtask's file
-//     follows its parent and a review card's follows its original
-//     (MultiBackend cascades the re-file along both links), while each
-//     one's own column and process tie stay behind, naming a repository
-//     that no longer holds it — the very state SetEpic and SetCardProcess
-//     refuse when the card itself is moved.
-//
-// Explicit re-files refuse; grouping clears the tie instead (SetParent),
-// the way it clears mirrors.
+// Explicit re-files refuse; grouping clears the mirrors instead (SetParent).
 func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
 	return refileGuardOpts(b, c, change, true)
 }
@@ -343,22 +264,9 @@ func refileGuardOpts(b board.Board, c board.Card, change func(*board.Card), ownC
 	if to == board.HomeDomain(b, c) {
 		return nil
 	}
-	// The tie the change ITSELF clears strands nothing: grouping clears it
-	// (clearRiders), which is why the docstring promises grouping refuses
-	// over the tie nowhere. Reading the state before the change made a
-	// cross-repository grouping trip over a tie it was about to remove.
-	//
-	// Asked exactly as a follower's tie is asked below: a process NAME is
-	// unique board-wide (G38), so "the card is moving" and "the process is
-	// not where it is moving to" are the same answer today — and two
-	// spellings of one rule are how they stop being.
-	if tieStrandedBy(b, after.Process, to) {
-		return fmt.Errorf("%w: the card is tied to the process %q of another repository — untie it first",
-			ErrCrossDomain, after.Process)
-	}
 	// Only a card that MOVES can strand what rides it, so the follower
 	// scan — the one linear walk here — waits until the move is certain
-	// and until the cheaper refusals above have had their say.
+	// and until the cheaper refusal above has had its say.
 	// SetEpicProject calls this once per card of a column.
 	followers := board.Followers(b, c.ItemID)
 	for _, f := range followers {
@@ -368,26 +276,8 @@ func refileGuardOpts(b board.Board, c board.Card, change func(*board.Card), ownC
 					ErrCrossDomain, f.Title)
 			}
 		}
-		// A follower's TIE rides it exactly as its column does. The card
-		// itself is refused a tie across the boundary (SetCardProcess), and
-		// a card dragged over that boundary by a link it does not control
-		// must not end up in the state the direct door forbids.
-		if tieStrandedBy(b, f.Process, to) {
-			return fmt.Errorf("%w: %q follows this card and is tied to the process %q of another repository — untie it first",
-				ErrCrossDomain, f.Title, f.Process)
-		}
 	}
 	return nil
-}
-
-// tieStrandedBy reports whether a process tie would be left naming a
-// process of another repository once its card lands in `to`. A card with no
-// tie strands nothing; a process the roster does not declare answers ""
-// and decides nothing, which is the same non-answer every domain reader
-// gives (G59) — the tie is refused there, since a name nothing declares
-// cannot be shown to be in reach.
-func tieStrandedBy(b board.Board, process, to string) bool {
-	return process != "" && board.ProcessDomain(b, process) != to
 }
 
 // columnsAgree reports whether two columns belong to the same repository —

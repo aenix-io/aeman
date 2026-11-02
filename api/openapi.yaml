@@ -37,8 +37,6 @@ tags:
     description: Per-team sprint pointers and the carry-over.
   - name: Epics
     description: The Project board's columns.
-  - name: Processes
-    description: Recurring work and the tasks it iterates on.
   - name: Deadlines
     description: The deadline lines a project draws across the weeks.
   - name: Projects
@@ -211,7 +209,7 @@ paths:
         empties the working area and leaves the card in its week or its column,
         `off-board` takes it away with the subtasks that were pieces of it.
         Omitted, the gesture decides for itself. `off-board` on a Project-board
-        slot or a process turn is 422 — those belong to another board's plan;
+        slot is 422 — it belongs to another board's plan;
         `unassign` on a card with no week and no column is 422 too, since it
         would leave the card nowhere at all.
 
@@ -1042,201 +1040,6 @@ paths:
           description: The column is renamed.
         default:
           $ref: '#/components/responses/Problem'
-  /processes:
-    get:
-      operationId: listProcesses
-      tags: [Processes]
-      summary: The Process tab — every process with its tasks and each task's history.
-      parameters:
-        - name: project
-          in: query
-          required: false
-          description: Keep only the processes of one project; empty is every project.
-          schema:
-            type: string
-      responses:
-        '200':
-          description: The processes.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProcessList'
-        default:
-          $ref: '#/components/responses/Problem'
-    post:
-      operationId: addProcess
-      tags: [Processes]
-      summary: Declare a process — recurring work inside a project.
-      description: >-
-        A process with a project lives with the project; `domain` picks the
-        repository for a project-less one.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AddProcessBody'
-      responses:
-        '204':
-          description: The process is declared.
-        default:
-          $ref: '#/components/responses/Problem'
-  /processes/actions/delete-process:
-    post:
-      operationId: deleteProcess
-      tags: [Processes]
-      summary: Delete an EMPTY process; refused while it has tasks.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ProcessBody'
-      responses:
-        '204':
-          description: The process is gone.
-        default:
-          $ref: '#/components/responses/Problem'
-  /processes/actions/rename:
-    post:
-      operationId: renameProcess
-      tags: [Processes]
-      summary: Rename a process; its tasks follow.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RenameProcessBody'
-      responses:
-        '204':
-          description: The process is renamed.
-        default:
-          $ref: '#/components/responses/Problem'
-  /processes/actions/set-project:
-    post:
-      operationId: setProcessProject
-      tags: [Processes]
-      summary: Move a process to another project; an empty project is the no-project bucket.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SetProcessProjectBody'
-      responses:
-        '204':
-          description: The process belongs to the other project now.
-        default:
-          $ref: '#/components/responses/Problem'
-  /processes/actions/set-paused:
-    post:
-      operationId: setProcessPaused
-      tags: [Processes]
-      summary: Pause a process, or resume it.
-      description: >-
-        A paused process files no turns and projects none; resuming files what
-        the current week is owed.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SetProcessPausedBody'
-      responses:
-        '204':
-          description: The process is paused, or running again.
-        default:
-          $ref: '#/components/responses/Problem'
-  /processes/actions/reorder:
-    post:
-      operationId: reorderProcesses
-      tags: [Processes]
-      summary: Apply a shared process order.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ReorderProcessesBody'
-      responses:
-        '204':
-          description: The order is applied.
-        default:
-          $ref: '#/components/responses/Problem'
-  /processes/tasks/actions/reorder:
-    post:
-      operationId: reorderProcessTasks
-      tags: [Processes]
-      summary: Apply one process's task order.
-      description: >-
-        A uid from another process is adopted into this one — which is how a
-        cross-process drop lands.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ReorderProcessTasksBody'
-      responses:
-        '204':
-          description: The order is applied.
-        default:
-          $ref: '#/components/responses/Problem'
-  /processes/tasks:
-    post:
-      operationId: addTask
-      tags: [Processes]
-      summary: Add what a process iterates on.
-      description: >-
-        A task says what every turn is called and says, its cycle (counted on
-        the calendar from its start date, not from when the last turn closed),
-        the team the turns land in and the standing owner. The server files what
-        each week is owed by itself, as the week arrives.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/TaskRequest'
-      responses:
-        '201':
-          description: The uid of the new task.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TaskRef'
-        default:
-          $ref: '#/components/responses/Problem'
-  /processes/tasks/{uid}:
-    patch:
-      operationId: patchTask
-      tags: [Processes]
-      summary: Change what the NEXT turns will be; the running one is untouched.
-      parameters:
-        - $ref: '#/components/parameters/Uid'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/TaskRequest'
-      responses:
-        '204':
-          description: The task is changed.
-        default:
-          $ref: '#/components/responses/Problem'
-    delete:
-      operationId: deleteTask
-      tags: [Processes]
-      summary: Delete a task; its past turns stay as the record.
-      parameters:
-        - $ref: '#/components/parameters/Uid'
-      responses:
-        '204':
-          description: The task is gone.
-        default:
-          $ref: '#/components/responses/Problem'
   /deadlines:
     post:
       operationId: addDeadline
@@ -1361,7 +1164,7 @@ paths:
     post:
       operationId: renameTeam
       tags: [Teams]
-      summary: Rename a team in place, its cards and process tasks along with it.
+      summary: Rename a team in place, its cards along with it.
       description: >-
         Its declaration keeps its sprint pointer. A name another team has is
         refused (422), and the no-team group cannot be renamed.
@@ -1674,7 +1477,6 @@ components:
             - notFinished
             - notInProject
             - notOnThisBoard
-            - notRecurrent
             - notYoursToDestroy
             - notYoursToPark
             - notYoursToRefuse
@@ -1683,28 +1485,21 @@ components:
             - noteTooLong
             - nowhereToLeaveIt
             - openSubtasks
-            - outsideCycle
             - ownColumn
             - parentNotFound
             - pointsRequired
-            - processExists
-            - processInUse
-            - processNotFound
             - projectExists
             - projectInUse
             - projectNotFound
             - setupRequired
             - subtaskDepth
             - subtaskMirror
-            - subtaskTie
             - subtaskWeek
-            - taskNotFound
             - teamExists
             - teamInUse
             - teamNotFound
             - titleTooLong
             - tooManyCards
-            - turnProcess
             - unknownDomain
             - unknownIntent
             - unknownRoute
@@ -1837,7 +1632,7 @@ components:
             Monday. A slot's row is the week of its `dates.start`, always
             derived, so setting a week on a card filed under a column is refused
             too, though re-asserting the week it already derives is a harmless
-            no-op. A process TURN keeps to its own occurrence.
+            no-op.
         parked:
           type: boolean
           description: >-
@@ -1847,8 +1642,8 @@ components:
             takes the card's subtasks off the board with it, withdraws any
             unfinished review of it, and puts it at the top of the shelf. Every
             team has a shelf and nothing declares it. A Project-board slot, a
-            process turn, a review card and a subtask are refused (422): none of
-            them has a place of its own to be parked out of.
+            review card and a subtask are refused (422): none of them has a
+            place of its own to be parked out of.
         epic:
           type: string
           description: >-
@@ -1864,15 +1659,6 @@ components:
             one set of dates — always in the card's own repository.
           items:
             $ref: '#/components/schemas/Placement'
-        process:
-          type: string
-          description: >-
-            The process this card is a turn of, or the one it was tied to
-            directly. A card on a day board carries it so a person can see what
-            the work belongs to.
-        task:
-          type: string
-          description: The task a process turn was copied from.
         reviewOf:
           type: string
         parent:
@@ -1913,7 +1699,7 @@ components:
           type: boolean
           description: >-
             A promise made on ANOTHER board and broken: a slot past its end
-            date, a process turn past the week its process filed it into. A card
+            date. A card
             the Triage board scheduled into a week is not marked late for still
             being open — that week is this board's own planning — though it is
             still a debt.
@@ -1956,8 +1742,6 @@ components:
             the planning horizon and no copy of it stands in yet.
           items:
             type: string
-        cycle:
-          $ref: '#/components/schemas/CycleWindow'
         leftAt:
           type: string
           description: >-
@@ -1972,23 +1756,6 @@ components:
             knows it has links to show. GET /cards/{uid}/links resolves them.
           items:
             $ref: '#/components/schemas/CardLinkRef'
-    CycleWindow:
-      type: object
-      additionalProperties: false
-      x-go-type: apiserver.CycleWindow
-      x-go-type-import:
-        path: github.com/aenix-io/aeman/pkg/apiserver
-      description: >-
-        A process turn's own occurrence: the first and last week it may stand
-        in, both Mondays and both inclusive. It is sent rather than derived
-        because the calendar is the server's, and a second implementation of
-        "when is this next due" is a second answer waiting to disagree.
-      required: [from, to]
-      properties:
-        from:
-          type: string
-        to:
-          type: string
     CardLinkRef:
       type: object
       additionalProperties: false
@@ -2202,13 +1969,6 @@ components:
           type: array
           items:
             type: string
-        processes:
-          type: array
-          description: >-
-            The roster of processes, so a client can tell when it changed; the
-            Process tab reads the full structure from GET /processes.
-          items:
-            $ref: '#/components/schemas/ProcessRef'
         deadlines:
           type: array
           items:
@@ -2250,13 +2010,6 @@ components:
         projectDomains:
           type: object
           description: The repository each project was declared in.
-          additionalProperties:
-            type: string
-        processDomains:
-          type: object
-          description: >-
-            The repository each process was declared in: a card may only be tied
-            to a process of its own repository.
           additionalProperties:
             type: string
     Member:
@@ -2330,18 +2083,6 @@ components:
           type: string
         domain:
           type: string
-    ProcessRef:
-      type: object
-      additionalProperties: false
-      x-go-type: apiserver.ProcessRef
-      x-go-type-import:
-        path: github.com/aenix-io/aeman/pkg/apiserver
-      required: [name]
-      properties:
-        name:
-          type: string
-        project:
-          type: string
     DeadlineRef:
       type: object
       additionalProperties: false
@@ -2354,112 +2095,6 @@ components:
           type: string
         project:
           type: string
-    ProcessList:
-      type: object
-      additionalProperties: false
-      x-go-type: apiserver.ProcessList
-      x-go-type-import:
-        path: github.com/aenix-io/aeman/pkg/apiserver
-      required: [kind, items]
-      properties:
-        kind:
-          type: string
-          enum: [ProcessList]
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/Process'
-    Process:
-      type: object
-      additionalProperties: false
-      x-go-type: apiserver.Process
-      x-go-type-import:
-        path: github.com/aenix-io/aeman/pkg/apiserver
-      required: [name, tasks]
-      properties:
-        name:
-          type: string
-        project:
-          type: string
-        paused:
-          type: boolean
-        tasks:
-          type: array
-          items:
-            $ref: '#/components/schemas/Task'
-    Task:
-      type: object
-      additionalProperties: false
-      x-go-type: apiserver.Task
-      x-go-type-import:
-        path: github.com/aenix-io/aeman/pkg/apiserver
-      description: What a turn is copied from, plus how the last few went.
-      required: [uid, title, recurrence, history, turns, done, late]
-      properties:
-        uid:
-          type: string
-        title:
-          type: string
-        description:
-          type: string
-        recurrence:
-          type: string
-        start:
-          type: string
-        team:
-          type: string
-        assignee:
-          type: string
-        accumulate:
-          type: boolean
-          description: >-
-            An open turn holds the next one back — the stuck card IS the process
-            — unless the task accumulates, for work where unpaid months must
-            pile up as separate cards.
-        history:
-          type: array
-          description: >-
-            The task's recent turns, oldest first, and only the tail: a process
-            that has run for a year has fifty, and this list rides in every
-            board frame.
-          items:
-            $ref: '#/components/schemas/Iteration'
-        turns:
-          type: integer
-          description: >-
-            Every turn, the tail that is not sent included: turns == the length
-            of history means nothing was left out.
-        done:
-          type: integer
-        late:
-          type: integer
-        due:
-          type: array
-          description: >-
-            The weeks this task comes due in over the planning horizon with no
-            turn of its own yet — what the process is going to file. A paused
-            process sends none.
-          items:
-            type: string
-    Iteration:
-      type: object
-      additionalProperties: false
-      x-go-type: apiserver.Iteration
-      x-go-type-import:
-        path: github.com/aenix-io/aeman/pkg/apiserver
-      description: >-
-        One spawned card and how it went: "done" when it closed, "open" while it
-        still runs inside its cycle, "late" once the week it was owed in has
-        passed with it still open.
-      required: [uid, week, state]
-      properties:
-        uid:
-          type: string
-        week:
-          type: string
-        state:
-          type: string
-          enum: [done, open, late]
     LogEntry:
       x-go-type: apiserver.LogEntry
       x-go-type-import:
@@ -2664,13 +2299,6 @@ components:
             the target week's panel. They are not moved.
         reseeded:
           type: integer
-    TaskRef:
-      type: object
-      additionalProperties: false
-      required: [uid]
-      properties:
-        uid:
-          type: string
     CreateCardRequest:
       type: object
       description: >-
@@ -2793,14 +2421,6 @@ components:
         parent:
           type: string
           description: Groups the card under another one; empty ungroups.
-        process:
-          type: string
-          description: >-
-            Ties the card to an existing process — the recurring shelf's
-            counterpart of a column; empty clears. The process must live in the
-            card's own repository; only a RECURRENT card takes a tie, and a
-            process TURN is refused outright, since a turn's process is its
-            task's.
     CardDatesPatch:
       type: object
       properties:
@@ -2956,82 +2576,6 @@ components:
           type: string
         to:
           type: string
-    AddProcessBody:
-      type: object
-      properties:
-        name:
-          type: string
-        project:
-          type: string
-        domain:
-          type: string
-          description: >-
-            The repository to declare a project-less process in; one with a
-            project lives with the project.
-    ProcessBody:
-      type: object
-      properties:
-        process:
-          type: string
-    RenameProcessBody:
-      type: object
-      properties:
-        process:
-          type: string
-        to:
-          type: string
-    SetProcessProjectBody:
-      type: object
-      properties:
-        process:
-          type: string
-        project:
-          type: string
-    SetProcessPausedBody:
-      type: object
-      properties:
-        process:
-          type: string
-        paused:
-          type: boolean
-    ReorderProcessesBody:
-      type: object
-      properties:
-        processes:
-          type: array
-          items:
-            type: string
-    ReorderProcessTasksBody:
-      type: object
-      properties:
-        process:
-          type: string
-        uids:
-          type: array
-          items:
-            type: string
-    TaskRequest:
-      type: object
-      description: >-
-        A task on the wire, for the create (which reads every field) and the
-        patch (which applies only the present ones).
-      properties:
-        process:
-          type: string
-        title:
-          type: string
-        description:
-          type: string
-        recurrence:
-          type: string
-        start:
-          type: string
-        team:
-          type: string
-        assignee:
-          type: string
-        accumulate:
-          type: boolean
     DeadlineBody:
       type: object
       properties:
@@ -3184,10 +2728,9 @@ components:
     BoardFrame:
       type: object
       description: >-
-        The board's STRUCTURE changed — a project, a column, a deadline, a
-        process or one of its tasks. It carries the whole board resource plus
-        the process structure, so a client applies it without a round trip, and
-        it is coalesced for a burst of writes.
+        The board's STRUCTURE changed — a project, a column, a deadline. It
+        carries the whole board resource, so a client applies it without a
+        round trip, and it is coalesced for a burst of writes.
       required: [type, kind, object]
       properties:
         type:
@@ -3200,21 +2743,16 @@ components:
           type: object
           additionalProperties: false
           description: >-
-            The board resource with the process structure beside it. Stated
-            field by field rather than composed out of Board: a closed schema
-            cannot be extended by an allOf, and the closure is what catches a
-            field added in Go without a line here.
-          required: [kind, metadata, processes]
+            The board resource. Stated field by field rather than composed out
+            of Board: a closed schema cannot be extended by an allOf, and the
+            closure is what catches a field added in Go without a line here.
+          required: [kind, metadata]
           properties:
             kind:
               type: string
               enum: [Board]
             metadata:
               $ref: '#/components/schemas/BoardMetadata'
-            processes:
-              type: array
-              items:
-                $ref: '#/components/schemas/Process'
     LoadFrame:
       type: object
       description: >-

@@ -53,7 +53,7 @@ func TestReadingADayDoesNotCostTheWholeBoardPerCommit(t *testing.T) {
 	const cards = 300
 	ids := make([]string, cards)
 	writes := make([]FileWrite, 0, cards+1)
-	writes = append(writes, FileWrite{Path: BoardPath, Data: []byte("schema: 1\ntitle: t\n")})
+	writes = append(writes, FileWrite{Path: BoardPath, Data: []byte("schema: 2\ntitle: t\n")})
 	for i := range cards {
 		id := fmt.Sprintf("01CARD%020d", i)
 		ids[i] = id
