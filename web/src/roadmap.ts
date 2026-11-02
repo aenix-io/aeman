@@ -7,7 +7,7 @@
 import { addDays, mondayOf } from "./date";
 import { isComplete, isInProgress } from "./stages";
 import { isPlanning, isSubtask } from "./subtasks";
-import type { Card } from "./providers/types";
+import type { Card, CardPatch } from "./providers/types";
 
 /** RoadmapKind is what a row IS: the three planning levels, a task, a subtask
  *  (a task under a task), or a project card (a task in a Scope column). The
@@ -719,6 +719,51 @@ export function dropCommit(cards: readonly Card[], draggedId: string, placement:
     before: i === 0 && siblings.length > 1 ? siblings[1].itemId : null,
     order: after.map((c) => c.itemId),
   };
+}
+
+/** DropWriteError is a drop's write that failed, and how far it had got:
+ *  `parentWritten` says the server took the new parent before the move
+ *  among the siblings failed. */
+export class DropWriteError extends Error {
+  readonly parentWritten: boolean;
+  readonly cause: unknown;
+  constructor(cause: unknown, parentWritten: boolean) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = "DropWriteError";
+    this.cause = cause;
+    this.parentWritten = parentWritten;
+  }
+}
+
+/** writeDrop sends a drop's writes in order — the parent first, then the
+ *  place among the new siblings — and, when one fails, says how far it got,
+ *  so the board rolls back only what the server did not take. The two are
+ *  separate requests (a card PATCH carries no position); a parent taken and
+ *  a move refused leaves the card under its new parent, which is where the
+ *  board must keep drawing it. */
+export async function writeDrop(
+  id: string,
+  commit: DropCommit,
+  provider: {
+    patchCard(uid: string, patch: CardPatch): Promise<unknown>;
+    moveCard(uid: string, afterId: string | null): Promise<void>;
+    moveCardBefore(uid: string, beforeId: string): Promise<void>;
+  },
+): Promise<void> {
+  let parentWritten = false;
+  try {
+    if (commit.parentChanged) {
+      await provider.patchCard(id, { parent: commit.parent ?? "" });
+      parentWritten = true;
+    }
+    if (commit.after) {
+      await provider.moveCard(id, commit.after);
+    } else if (commit.before) {
+      await provider.moveCardBefore(id, commit.before);
+    }
+  } catch (err) {
+    throw new DropWriteError(err, parentWritten);
+  }
 }
 
 export const KIND_LABEL: Record<RoadmapKind, string> = {

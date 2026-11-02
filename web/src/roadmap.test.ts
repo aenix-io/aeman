@@ -7,6 +7,7 @@ import {
   buildTree,
   childrenNote,
   daysBetween,
+  DropWriteError,
   dropCommit,
   droppable,
   hierarchyChoices,
@@ -26,6 +27,7 @@ import {
   isPlanned,
   sectionOf,
   sectionsOf,
+  writeDrop,
 } from "./roadmap";
 import type { Card } from "./providers/types";
 
@@ -378,3 +380,59 @@ describe("the sections below the tree", () => {
     expect(isPlanned(card({ sprintStart: "2026-03-02" }))).toBe(true);
   });
 });
+
+// A drop is two writes — the parent, then the place among the new siblings —
+// and they can fail apart. When the PARENT was taken and only the move
+// failed, the card IS under its new parent on the server: putting it back
+// under the old one in the board, and then letting the reload snap it under
+// the new one again, showed the reader the opposite of what happened. The
+// writer says how far it got, and only what the server did not take is
+// rolled back.
+describe("writeDrop", () => {
+  const commit = { parent: "e", parentChanged: true, after: "t1", before: null, order: [] };
+  it("reports that the parent was written when only the move failed", async () => {
+    const calls: string[] = [];
+    const provider = {
+      patchCard: async () => {
+        calls.push("parent");
+        return {} as never;
+      },
+      moveCard: async () => {
+        calls.push("move");
+        throw new Error("409");
+      },
+      moveCardBefore: async () => undefined,
+    };
+    const err = await writeDrop("t2", commit, provider).catch((e: unknown) => e);
+    expect(calls).toEqual(["parent", "move"]);
+    expect(err).toBeInstanceOf(DropWriteError);
+    expect((err as DropWriteError).parentWritten).toBe(true);
+  });
+  it("reports nothing written when the parent itself was refused", async () => {
+    const provider = {
+      patchCard: async () => {
+        throw new Error("422 parentLevel");
+      },
+      moveCard: async () => undefined,
+      moveCardBefore: async () => undefined,
+    };
+    const err = await writeDrop("t2", commit, provider).catch((e: unknown) => e);
+    expect((err as DropWriteError).parentWritten).toBe(false);
+  });
+  it("writes only the move when the parent did not change", async () => {
+    const calls: string[] = [];
+    const provider = {
+      patchCard: async () => {
+        calls.push("parent");
+        return {} as never;
+      },
+      moveCard: async () => {
+        calls.push("move");
+      },
+      moveCardBefore: async () => undefined,
+    };
+    await writeDrop("t2", { ...commit, parentChanged: false }, provider);
+    expect(calls).toEqual(["move"]);
+  });
+});
+

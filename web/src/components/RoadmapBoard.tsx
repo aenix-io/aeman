@@ -28,6 +28,7 @@ import {
   buildTree,
   childrenNote,
   daysBetween,
+  DropWriteError,
   dropCommit,
   droppable,
   fractionOf,
@@ -52,6 +53,7 @@ import {
   type RoadmapSection,
   type Row,
   type Zoom,
+  writeDrop,
 } from "../roadmap";
 import { barColor } from "../stages";
 import { isPlanning } from "../subtasks";
@@ -574,19 +576,14 @@ export function RoadmapBoard({
     if (shown === board.cards) {
       reorderCards?.(commit.order);
     }
-    const write = async () => {
-      if (commit.parentChanged) {
-        await provider.patchCard(id, { parent: commit.parent ?? "" });
+    // A parent the server took stays: only a refused parent is rolled
+    // back, and the reload settles the order either way.
+    void writeDrop(id, commit, provider).catch((err: unknown) => {
+      const taken = err instanceof DropWriteError && err.parentWritten;
+      if (!taken) {
+        patchCard(id, before);
       }
-      if (commit.after) {
-        await provider.moveCard(id, commit.after);
-      } else if (commit.before) {
-        await provider.moveCardBefore(id, commit.before);
-      }
-    };
-    void write().catch((err: unknown) => {
-      patchCard(id, before);
-      onError(errText(err));
+      onError(errText(err instanceof DropWriteError ? err.cause : err));
       reload();
     });
   };
