@@ -1310,11 +1310,6 @@ export function TriageBoard({
     [weeks, today, provider, addCard, replaceCard, removeCard, onError],
   );
 
-  const deadlines = useMemo(
-    () => board.deadlines.filter((d) => weeks.includes(d.week)),
-    [board.deadlines, weeks],
-  );
-
   return (
     <div className="triage" ref={grid.wrapRef}>
       <div className="board-toolbar">
@@ -1775,45 +1770,6 @@ export function TriageBoard({
               );
             })()}
 
-          {/* Deadlines: a line at the end of the week they fall in, as on the
-              Project board — what stands above it is due by then.
-              This board shows every project of the team at once, so a bare
-              line said only "something is due" and left the reader to guess
-              whose: each carries its project's NAME in the week column, in
-              that project's own colour, the way the Project board colours its
-              lines when several plans are on screen. Two segments for the
-              reason the Project board has two — one element cannot both cross
-              the sticky week column and sit behind the cards. */}
-          {deadlines.map((d) => {
-            const colour = d.project ? teamColor(d.project) : undefined;
-            const at = weeks.indexOf(d.week) + 2;
-            const label = d.project || "no project";
-            return [
-              <div
-                key={`${d.project}/${d.week}/head`}
-                className="project-deadline project-deadline-head triage-deadline triage-deadline-name"
-                style={{ gridRow: at, gridColumn: 1 }}
-              >
-                <span
-                  className="triage-deadline-label"
-                  style={colour ? { background: colour } : undefined}
-                  title={`Deadline of ${label}, end of that week`}
-                >
-                  {label}
-                </span>
-              </div>,
-              <div
-                key={`${d.project}/${d.week}/body`}
-                className="project-deadline project-deadline-body triage-deadline"
-                style={{
-                  gridRow: at,
-                  gridColumn: "2 / -2",
-                  ...(colour ? { borderTopColor: colour } : {}),
-                }}
-                title={`Deadline of ${label}, end of that week`}
-              />,
-            ];
-          })}
       </WeekGrid>
         <BacklogDrawer
           collapsed={folded}

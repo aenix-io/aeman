@@ -4569,49 +4569,6 @@ button.card-age {
   cursor: ns-resize;
 }
 
-.triage-deadline {
-  border-top-color: var(--danger);
-}
-
-/* On this board the head carries the NAME and nothing else. The line's own run
-   begins where the WEEKS do: the piece of it that crossed the dates column
-   hung off the left end of every deadline like a tail and pointed at nothing,
-   since the dates are not a week work can be due in. The border stays, unpainted
-   — the tab is placed against it. */
-.triage-deadline-name {
-  border-top-color: transparent;
-}
-
-/* Whose deadline it is. This board shows every project of the team at once,
-   so the line needs a name: it sits in the week column, just above the line
-   it belongs to, in that project's own colour. Absolute because the line
-   itself is a zero-height border and has no room inside it; right-aligned so
-   the names stack against the columns rather than drifting across the dates
-   under them. */
-.triage-deadline-label {
-  position: absolute;
-  /* Flush with the column's edge, where the line's own run begins. Inset, it
-     left a few pixels of line poking out past the tab's right foot — a tail
-     on every deadline, and one the eye went to instead of the name. Now the
-     tab ends where the weeks start and the line carries straight on. */
-  right: 0;
-  /* Sits ON the line: the tab's flat foot IS the line's own top edge, so the
-     two read as one mark rather than a label floating near a rule. */
-  bottom: 0;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 1px 5px 2px;
-  border-radius: 4px 4px 0 0;
-  background: var(--danger);
-  color: var(--on-accent);
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 1.1;
-  pointer-events: auto;
-}
-
 /* The right edge belongs to the SIZE, which is always on show; the × and the
    shelf appear on hover and therefore stand beside it, never over it. (They
    sat against the edge while the slot carried nothing permanent there, and

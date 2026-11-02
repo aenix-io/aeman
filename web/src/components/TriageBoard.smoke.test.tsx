@@ -34,7 +34,7 @@ const week = mondayOf(todayIso());
 const thisFriday = addDays(week, 4);
 // Friday of the NEXT one: a card reaching into a second week.
 const nextFriday = addDays(week, 11);
-// The two Mondays after this one — repeats still to come, and deadlines.
+// The two Mondays after this one — repeats still to come.
 const nextWeek = addDays(week, 7);
 const weekAfter = addDays(week, 14);
 
@@ -464,25 +464,4 @@ describe("the Triage board", () => {
     expect(html.indexOf("Unassigned")).toBeLessThan(html.indexOf("lexfrei"));
   });
 
-  // Every project of the team lands on this one board, so a bare red line
-  // said only "something is due" and left the reader to work out whose. The
-  // line carries its project's NAME in the week column, in that project's own
-  // colour — the same colour the Project board gives it when several plans
-  // share a screen.
-  it("says whose deadline the line is", () => {
-    const html = draw([card()], [
-      { week: nextWeek, project: "cozystack" },
-      { week: weekAfter, project: "freedom" },
-    ]);
-    expect(html).toContain("triage-deadline-label");
-    expect(html).toContain("cozystack");
-    expect(html).toContain("freedom");
-    // The label stands in the week column; the line still crosses the cards.
-    expect(html).toContain("grid-row:3;grid-column:1");
-    expect(html).toContain("grid-row:3;grid-column:2 / -2");
-    // Two projects, two colours: neither line is the plain danger red that
-    // would make them indistinguishable.
-    const colours = [...html.matchAll(/border-top-color:([^;"]+)/g)].map((m) => m[1]);
-    expect(new Set(colours).size).toBeGreaterThan(1);
-  });
 });
