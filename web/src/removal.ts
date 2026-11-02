@@ -112,8 +112,10 @@ export function hasColumn(c: RemovalHomes): boolean {
 }
 
 /** Outcome is what an × does to a card: leave it in a home it still has,
- *  take it out of its group, or — its last home emptied — delete it. */
-export type Outcome = "leave" | "delete" | "ungroup";
+ *  or — its last home emptied — delete it. (It used to take a subtask out
+ *  of its group as well, when a subtask could carry a column of its own; a
+ *  card in a column is nobody's subtask now, H4.) */
+export type Outcome = "leave" | "delete";
 
 /** gridRemoval mirrors boardservice.Remove(from="grid"), in its order: a
  *  card scheduled for a WEEK goes back to that week on the Triage board;
@@ -237,8 +239,11 @@ export function removeChoices(
     },
   ctx: RemovalContext,
 ): RemoveChoice[] {
+  // A subtask carries no column (a card in a column is nobody's subtask,
+  // H4), so the grid × has one answer for it: off the board. The pull-out
+  // of the group is the drawer's own choice, not the ×'s.
   if (isSubtask(c)) {
-    return gridRemoval(c, ctx) === "ungroup" ? ["ungroup"] : ["off-board"];
+    return ["off-board"];
   }
   const shelve: RemoveChoice[] =
     !c.parked && !hasColumn(c) && !c.reviewOf ? ["backlog"] : [];

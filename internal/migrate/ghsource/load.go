@@ -340,7 +340,9 @@ var domainRoleAliases = map[string][]string{
 	"sprint":      {"sprint", "iteration"},
 	"status":      {"status"},
 	"week":        {"week"},
-	"scope":       {"scope"},
+	// The column was called an epic before schema 2, and a Projects v2
+	// board only ever had an "Epic" field: that is the name to recognise.
+	"scope":       {"scope", "epic"},
 	"project":     {"project"},
 	"stage":       {"stage"},
 	"team":        {"team"},
