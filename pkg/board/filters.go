@@ -259,6 +259,21 @@ func MeView(b Board, user, day string) []Card {
 			}
 			continue
 		}
+		// An OPEN card of the person's keeps standing on their LIVE board (today)
+		// even when its sprint has fallen behind the team's current one. A card
+		// left out of a carry-over is still unfinished, and this board is the one
+		// that keeps everything of theirs that is not closed — so it must not
+		// vanish the way it did when its end date passed (the range gate below
+		// stops there) and its sprint fell two carry-overs back (the sprint-span
+		// gate below wants the active sprint). It is the Me-board echo of the Team
+		// board keeping overran work. Scoped to TODAY and to a card that HAS a
+		// sprint: a day still to come is a plan, a past day reads by its own
+		// sprint, and an old sprint-LESS stray still does not resurface (below).
+		if day == today && c.SprintStart != "" && !Complete(c.Stage, c.Progress) &&
+			(c.StartDate == "" || c.StartDate <= day) {
+			out = append(out, c)
+			continue
+		}
 		// A card with an end date spans a range: it shows on every day from its
 		// start through its end regardless of sprint boundaries.
 		if c.StartDate != "" && c.Day != "" && c.Day >= c.StartDate &&

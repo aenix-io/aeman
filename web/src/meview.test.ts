@@ -79,4 +79,23 @@ describe("the rest of a day on the Me board", () => {
   it("leaves a subtask to its parent", () => {
     expect(onMyDay(card({ parent: "p", week: THIS_WEEK }), board, TODAY, TODAY)).toBe(false);
   });
+
+  // An open card whose sprint fell behind the team's current one — left out of
+  // a carry-over, its end date already past — still stands on its owner's board
+  // today, the way the Team board keeps overran work. A finished one carried
+  // past does not, and neither does an old sprint-less stray; a day to come is
+  // a plan. Mirrors TestMeBoardKeepsStrandedOpenWork.
+  it("keeps the person's open work whose sprint fell behind, on today", () => {
+    const STALE = "2026-08-31"; // older than the previous sprint
+    const stranded = card({ sprintStart: STALE, startDate: STALE, day: "2026-09-02", progress: 90 });
+    expect(onMyDay(stranded, board, TODAY, TODAY)).toBe(true);
+    // Finished and carried past: it belongs to its own sprint, not to today.
+    const done = card({ sprintStart: STALE, startDate: STALE, day: "2026-09-02", progress: 100, doneAt: "2026-09-01" });
+    expect(onMyDay(done, board, TODAY, TODAY)).toBe(false);
+    // An old sprint-less stray must not resurface on today.
+    const stray = card({ startDate: STALE, day: "2026-09-02" });
+    expect(onMyDay(stray, board, TODAY, TODAY)).toBe(false);
+    // A day still to come is a plan, not a dumping ground for open work.
+    expect(onMyDay(stranded, board, NEXT_WEEK, TODAY)).toBe(false);
+  });
 });

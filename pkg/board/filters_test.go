@@ -727,6 +727,64 @@ func TestTheMeBoardDrawsAWeekThatHasCome(t *testing.T) {
 	}
 }
 
+// The Me board is the one that keeps everything of the person's that is not
+// closed, whichever day they look at (docs/dates.md). An OPEN card whose sprint
+// fell behind the team's current one — left out of a carry-over, so its sprint
+// never advanced and its end date is already past — used to vanish from it: the
+// range gate stopped at the end date, and the sprint-span gate wanted the
+// ACTIVE sprint, which this card's stale sprint is older than. It belongs on
+// the owner's LIVE board all the same, the way the Team board keeps overran
+// work. Observed in production: an open card two carry-overs behind showed in
+// Team but not in Me. Still bounded: a done card carried past stays on its own
+// sprint, an old sprint-LESS stray does not resurface, and a day still to come
+// is a plan, not a dumping ground for open work.
+func TestMeBoardKeepsStrandedOpenWork(t *testing.T) {
+	today := TodayIso()
+	stale := AddDays(today, -12) // its sprint, two carry-overs behind
+	previous := AddDays(today, -3)
+	b := Board{
+		Cards: []Card{
+			// Open, assigned, sprinted — but the sprint is stale and the end
+			// date is past. The card the bug hid.
+			{ItemID: "stranded", Team: "alpha", Assignees: []string{"u"},
+				SprintStart: stale, StartDate: AddDays(today, -14), Day: AddDays(today, -10),
+				Progress: 90},
+			// Finished in that same stale sprint: carried past, so it belongs to
+			// its own sprint's days, not to today.
+			{ItemID: "stranded-done", Team: "alpha", Assignees: []string{"u"},
+				SprintStart: stale, StartDate: AddDays(today, -14), Day: AddDays(today, -10),
+				Progress: 100, DoneAt: AddDays(today, -11)},
+			// An old sprint-LESS stray must still NOT resurface on today.
+			{ItemID: "stray", Team: "alpha", Assignees: []string{"u"},
+				StartDate: AddDays(today, -14), Day: AddDays(today, -10)},
+		},
+		SprintStates: map[string]SprintState{"alpha": {Current: today, Previous: previous}},
+	}
+	on := func(day string) map[string]bool {
+		got := map[string]bool{}
+		for _, c := range MeView(b, "u", day) {
+			got[c.ItemID] = true
+		}
+		return got
+	}
+
+	now := on(today)
+	if !now["stranded"] {
+		t.Errorf("an open card of the person's stays on their board today even when its sprint fell behind: %v", now)
+	}
+	if now["stranded-done"] {
+		t.Errorf("a finished card carried past belongs to its own sprint, not today: %v", now)
+	}
+	if now["stray"] {
+		t.Errorf("an old sprint-less stray must not resurface on today: %v", now)
+	}
+
+	// A day still to COME is a plan: the stranded card is not dumped onto it.
+	if on(AddDays(today, 1))["stranded"] {
+		t.Error("the stranded open card is today's work, not a future day's plan")
+	}
+}
+
 // Two things watched at a real standup. (1) EVERY day of the current sprint
 // accumulates its work, closed included — a lead opening a middle day of a
 // running sprint sees what the sprint has finished, not only what it opened
