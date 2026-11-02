@@ -65,6 +65,19 @@ func TestDomainOfProjectThenTeam(t *testing.T) {
 	if got := DomainOf(Card{ItemID: "n"}, world); got != "" {
 		t.Fatalf("bare card domain = %q, want the primary", got)
 	}
+	// A PLANNING card has no team and no project — the people and the
+	// projects are on the tasks under it — so it lives in the primary, on a
+	// board of two repositories like any other; a stray value a direct writer
+	// put on it does not move it into a closed repository.
+	for _, c := range []Card{
+		{ItemID: "g", Type: TypeGoal},
+		{ItemID: "g2", Type: TypeGoal, Team: "portal"},
+		{ItemID: "e", Type: TypeEpic, Project: "secret", Parent: "closedCard"},
+	} {
+		if got := DomainOf(c, world); got != "" {
+			t.Fatalf("planning card %s domain = %q, want the primary", c.ItemID, got)
+		}
+	}
 }
 
 // An unknown reference does not decide: a dangling parent falls through to

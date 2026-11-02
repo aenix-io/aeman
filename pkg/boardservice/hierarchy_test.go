@@ -15,7 +15,7 @@ func hierarchySeed(today string) *fakeBackend {
 	return newFake([]board.Card{
 		{ItemID: "goal", Title: "Reach Europe", Type: board.TypeGoal},
 		{ItemID: "init", Title: "Portugal", Type: board.TypeInitiative, Parent: "goal"},
-		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "init", Assignees: []string{"po"}, Team: "alpha"},
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "init"},
 		{ItemID: "task", Title: "Invoices", Parent: "epic", Team: "alpha", Assignees: []string{"dev"},
 			StartDate: today, Day: today, SprintStart: today},
 		{ItemID: "loose", Title: "Loose", Team: "alpha", Assignees: []string{"dev"},
@@ -30,23 +30,42 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 	today := board.TodayIso()
 	ctx := WithActor(ctx, "kvaps")
 
-	t.Run("the Roadmap makes a planning card: a type, an owner, dates, no sprint", func(t *testing.T) {
+	t.Run("the Roadmap makes a planning card: a type, dates, a parent — no owner, no team, no sprint", func(t *testing.T) {
 		f := hierarchySeed(today)
 		c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewRoadmap, CreateCardArgs{
-			Title: "Launch", Type: board.TypeInitiative, Parent: "goal", Team: "alpha", Assignee: "po",
+			Title: "Launch", Type: board.TypeInitiative, Parent: "goal",
 			Start: today, Day: board.AddDays(today, 60),
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if c.Type != board.TypeInitiative || c.Parent != "goal" || c.Team != "alpha" || len(c.Assignees) != 1 {
+		if c.Type != board.TypeInitiative || c.Parent != "goal" || c.Team != "" || len(c.Assignees) != 0 {
 			t.Fatalf("card = %+v", c)
 		}
-		if c.SprintStart != "" || c.Week != "" || c.Zone != board.ZoneNone {
-			t.Fatalf("a planning card joins no sprint, no week and no band: %+v", c)
+		if c.SprintStart != "" || c.Week != "" || c.Zone != board.ZoneNone || c.Size != "" {
+			t.Fatalf("a planning card joins no sprint, no week, no band and no size: %+v", c)
 		}
 		if c.StartDate != today || c.Day != board.AddDays(today, 60) {
 			t.Fatalf("dates = %s..%s", c.StartDate, c.Day)
+		}
+	})
+
+	// A goal, an initiative or an epic is nobody's and no team's: the people
+	// and the teams are on the tasks under it, and the Roadmap reads them off
+	// the tree. The board's own door refuses the field by name; the raw door
+	// refuses the card.
+	t.Run("a planning card has no owner and no team", func(t *testing.T) {
+		for what, args := range map[string]CreateCardArgs{
+			"an owner": {Title: "Launch", Type: board.TypeInitiative, Assignee: "po"},
+			"a team":   {Title: "Launch", Type: board.TypeInitiative, Team: "alpha"},
+		} {
+			svc := f2svc(hierarchySeed(today))
+			if _, err := svc.CreateInView(ctx, "acme", board.ViewRoadmap, args); !errors.Is(err, ErrNotOnThisBoard) {
+				t.Errorf("the Roadmap's add-box with %s = %v, want ErrNotOnThisBoard", what, err)
+			}
+			if _, err := svc.CreateCard(ctx, "acme", args); !errors.Is(err, ErrPlanningCard) {
+				t.Errorf("a planning card born with %s = %v, want ErrPlanningCard", what, err)
+			}
 		}
 	})
 
@@ -145,12 +164,13 @@ func TestTheLevelRuleGovernsTheParent(t *testing.T) {
 		if len(c.Assignees) != 1 || c.Assignees[0] != "dev" || c.Team != "alpha" || c.SprintStart != today {
 			t.Fatalf("a hierarchy link inherits nothing: %+v", c)
 		}
-		// And re-assigning the EPIC hands nothing down.
-		if err := f2svc(f).SetAssignee(ctx, "acme", "epic", "lead"); err != nil {
-			t.Fatal(err)
+		// And the EPIC has nothing to hand down: it takes no owner at all, and
+		// the task under it keeps its own.
+		if err := f2svc(f).SetAssignee(ctx, "acme", "epic", "lead"); !errors.Is(err, ErrPlanningCard) {
+			t.Fatalf("an owner on the epic: %v, want ErrPlanningCard", err)
 		}
 		if got := f.get("task").Assignees; len(got) != 1 || got[0] != "dev" {
-			t.Fatalf("the task under the epic followed the epic's owner: %v", got)
+			t.Fatalf("the task under the epic lost its owner: %v", got)
 		}
 		// Nor does the epic's progress derive from the task's.
 		if err := f2svc(f).SetProgress(ctx, "acme", "task", 50); err != nil {
@@ -223,31 +243,47 @@ func TestTheLevelRuleGovernsTheParent(t *testing.T) {
 	})
 }
 
-// A hierarchy link never crosses a repository (H6): a visitor who can read
-// the task and not the epic would see a breadcrumb with a hole in it.
+// A hierarchy link never shows a reader of the child a hole where the parent
+// is (H6). A planning card lives in the PRIMARY — the one repository every
+// reader of the board can read — so a task of a CLOSED repository may sit
+// under it; a parent whose file stands in the child's own repository is
+// readable to the child's readers too; a parent in a repository the child's
+// readers cannot open is refused.
 func TestAHierarchyLinkStaysInsideOneRepository(t *testing.T) {
 	today := board.TodayIso()
 	ctx := WithActor(ctx, "kvaps")
 	f := newFake([]board.Card{
 		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Domain: "primary"},
-		{ItemID: "closedEpic", Title: "Secret", Type: board.TypeEpic, Team: "beta", Domain: "closed"},
+		{ItemID: "closedEpic", Title: "Secret", Type: board.TypeEpic, Domain: "closed"},
 		{ItemID: "task", Title: "Invoices", Team: "beta", Domain: "closed", StartDate: today, Day: today},
+		{ItemID: "sharedTask", Title: "Docs", Team: "alpha", Domain: "primary", StartDate: today, Day: today},
 		{ItemID: "s-alpha", Title: board.SprintStateTitle, Team: "alpha", Domain: "primary"},
 		{ItemID: "s-beta", Title: board.SprintStateTitle, Team: "beta", Domain: "closed"},
 	}, nil)
 	f.b.Primary = "primary"
 	f.b.Domains = map[string]string{"s-alpha": "primary", "s-beta": "closed"}
 	f.b.SprintStates = map[string]board.SprintState{"alpha": {ItemID: "s-alpha"}, "beta": {ItemID: "s-beta"}}
-	if err := f2svc(f).SetParent(ctx, "acme", "task", "epic"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("a closed task under a shared epic: %v, want ErrCrossDomain", err)
+	// Up to the primary, from the closed repository: every reader of the
+	// closed task can read the primary's epic.
+	if err := f2svc(f).SetParent(ctx, "acme", "task", "epic"); err != nil {
+		t.Fatalf("a closed task under a primary epic: %v, want it allowed", err)
 	}
+	// Inside the closed repository: the same readers on both sides.
 	if err := f2svc(f).SetParent(ctx, "acme", "task", "closedEpic"); err != nil {
 		t.Fatalf("inside the closed repository: %v", err)
 	}
+	// A primary task under a parent that stands in the closed repository:
+	// the task's readers cannot open the parent — refused.
+	if err := f2svc(f).SetParent(ctx, "acme", "sharedTask", "closedEpic"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("a primary task under a closed parent: %v, want ErrCrossDomain", err)
+	}
 	// The create door answers the same, before anything is written.
-	_, err := f2svc(f).CreateCard(ctx, "acme", CreateCardArgs{Title: "x", Team: "beta", Parent: "epic"})
+	_, err := f2svc(f).CreateCard(ctx, "acme", CreateCardArgs{Title: "x", Team: "alpha", Parent: "closedEpic"})
 	if !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("create across: %v, want ErrCrossDomain", err)
+	}
+	if _, err := f2svc(f).CreateCard(ctx, "acme", CreateCardArgs{Title: "y", Team: "beta", Parent: "epic"}); err != nil {
+		t.Fatalf("a closed create under the primary's epic: %v, want it allowed", err)
 	}
 }
 
@@ -303,6 +339,8 @@ func TestAPlanningCardHasNoDayBoardState(t *testing.T) {
 		"scope":     svc.SetScope(ctx, "acme", "epic", "Compliance", nil),
 		"sprint":    svc.SetSprintStart(ctx, "acme", "epic", today),
 		"recurrent": svc.SetRecurrence(ctx, "acme", "epic", "week"),
+		"owner":     svc.SetAssignee(ctx, "acme", "epic", "po"),
+		"team":      svc.SetTeam(ctx, "acme", "epic", "alpha", ""),
 	}
 	for what, err := range refused {
 		if !errors.Is(err, ErrPlanningCard) {
@@ -318,13 +356,6 @@ func TestAPlanningCardHasNoDayBoardState(t *testing.T) {
 	}
 	if c := f.get("epic"); c.StartDate != today || c.SprintStart != "" {
 		t.Fatalf("dates on a planning card: %+v", c)
-	}
-	// So is its team — and that joins no sprint either.
-	if err := svc.SetTeam(ctx, "acme", "epic", "alpha", ""); err != nil {
-		t.Fatal(err)
-	}
-	if c := f.get("epic"); c.Team != "alpha" || c.SprintStart != "" {
-		t.Fatalf("team on a planning card: %+v", c)
 	}
 	// And it is born with neither a band nor a size: the Roadmap draws
 	// levels and dates, not the day boards' bands, and a weight belongs to

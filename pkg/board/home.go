@@ -32,6 +32,15 @@ func (b Board) inPrimary(domain string) string {
 	return domain
 }
 
+// PrimaryDomain is the primary repository's name in the board's ONE
+// namespace — what an unstamped entry resolves to. It is the repository
+// every reader of the board can read (a board is 403 without it), which is
+// why a planning card lives there and a hierarchy link may point up to it
+// from any repository (H6).
+func PrimaryDomain(b Board) string {
+	return b.inPrimary("")
+}
+
 // FileDomain is the repository whose files hold this card, read in the
 // board's ONE namespace: the stamp the store put on it — gitstore stamps
 // every card with its domain's name, the primary's included — with an

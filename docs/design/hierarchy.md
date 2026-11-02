@@ -25,7 +25,7 @@ is:
 | *(absent)*   | a **task** — engineering work                             | epic, initiative, goal, or a task      | Me, Team, Triage, Roadmap      |
 | *(absent)* + `scope` | a **project card** — a plan filed in a Scope column | epic, initiative, goal                 | Project, Roadmap               |
 | `epic`       | a body of work worth tracking as one thing                | initiative, goal                       | Roadmap                        |
-| `initiative` | a product bet; an owner, a start and an end               | goal                                   | Roadmap                        |
+| `initiative` | a product bet; a start and an end                         | goal                                   | Roadmap                        |
 | `goal`       | what the company is trying to reach                       | —                                      | Roadmap                        |
 
 Three consequences, each deliberate:
@@ -48,15 +48,18 @@ Three consequences, each deliberate:
   detail pane, because it is stored and served like any other card —
   nothing was added to the storage for it. Its dates are the card's own
   `start` and `day`, which is why the Roadmap draws a goal and a task by
-  one rule. It may carry `assignees` (the initiative's owner — a product
-  owner, a lead) and a `team`; neither puts it on a day board, because
-  the day boards draw tasks only.
+  one rule. It carries **no `assignees` and no `team`**: the people and
+  the teams are on the tasks under it, and the Roadmap reads them off the
+  tree (an initiative is "in progress" the moment one of its tasks is
+  somebody's). A write that sets either is refused; one found in a file
+  is read off. With nothing to place it, a planning card lives in the
+  **primary** repository, always.
 
 ### What a level is for
 
 A **goal** is the thing the company is trying to reach; it has no parent.
 An **initiative** is a product bet made to reach a goal — the unit that
-gets an owner, a start and an end, and the row a lead reads on the
+gets a start and an end, and the row a lead reads on the
 Roadmap. An **epic** is a body of work inside an initiative (or straight
 under a goal) that is worth tracking as one thing. A **task** is what the
 day boards have always held. The Scope columns of the Project board are
@@ -175,14 +178,20 @@ The inheritance rule loses one clause and keeps its order:
 4. any other card lives where its **team** lives (the no-team group
    lives in the primary domain).
 
-A planning card is "any other card": it lives where its team lives, in
-the primary domain when it has none. A hierarchy link does **not** move
-the child — a task under an epic keeps the domain its own project or
-team gives it — but it may not cross a domain either: `parent` must name
-a card of the child's own domain (`ErrCrossDomain`, the rule mirrors
-used to be held to), or a visitor who can read the task and not the
-epic would see a breadcrumb with a hole in it. The link table in
-`git-backend.md` gains the row.
+A planning card has no team and no project, so nothing places it: it
+lives in the **primary** repository, always — the one repository every
+reader of the board can read (without it there is no board at all,
+403). A hierarchy link does **not** move the child — a task under an
+epic keeps the domain its own project or team gives it. What the link
+must never do is show a reader of the child a hole where the parent is,
+so `parent` may point **up to the primary** from any repository (a
+closed project's task under the company's goal is the ordinary case), or
+to a parent whose file stands in the child's own repository; anything
+else is refused (`ErrCrossDomain`). A planning card's derived status
+counts every task under it, the server reading every repository as it
+does for sprint pointers, so a visitor may see `2/3 done` and two tasks
+listed — the third is one they may not read. The link table in
+`git-backend.md` carries the row.
 
 ## Reading older history
 
@@ -327,7 +336,7 @@ card that should be another level is made again.
 - H3 — a planning card is drawn on the Roadmap and on no day board, is
   never carried, weighed or overdue, and has no stage, progress, band,
   week, shelf, sprint, column or review of its own (`ErrPlanningCard`,
-  422 `planningCard`); its dates, owner and team are its own. Pinned by
+  422 `planningCard`); its dates are its own, and it has no owner and no team — those are on the tasks under it — so it lives in the primary repository. Pinned by
   board `TestPlanningCardsAreOnNoDayBoardAndTasksUnderThemAre`; service
   `TestAPlanningCardHasNoDayBoardState`,
   `TestDeletingAPlanningCardReparentsItsChildren`; apiserver
@@ -357,7 +366,9 @@ card that should be another level is made again.
   `TestAnAssignedLeafTaskPutsItsPlanningCardInProgress`; service
   `TestTheLevelRuleGovernsTheParent` (a task's progress writes nothing on
   the epic); apiserver `TestACardResourceCarriesItsLineageAndHierarchy`.
-- H6 — `parent` never crosses a domain (`ErrCrossDomain`, 422
+- H6 — `parent` never shows a reader of the child a hole: it may point up
+  to the primary (where every planning card lives) or to a parent in the
+  child's own repository, and is refused otherwise (`ErrCrossDomain`, 422
   `crossDomain`); a hierarchy link does not move the child — a task under
   an epic lives where its own project or team lives, and nothing under a
   planning card follows it between repositories. Pinned by board

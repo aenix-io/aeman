@@ -55,6 +55,10 @@ func planningCardCannotBe(args CreateCardArgs) error {
 	switch {
 	case args.Scope != "" || args.Project != "":
 		what = "column"
+	case args.Team != "":
+		what = "team"
+	case args.Assignee != "":
+		what = "owner"
 	case args.Zone != board.ZoneNone:
 		what = "band"
 	case args.Size != "":
@@ -82,10 +86,16 @@ func hierarchyLinkAllowed(b board.Board, child, parent board.Card) error {
 			articled(child.Type), child.Title, articled(parent.Type), parent.Title)
 	}
 	// A project card may sit under a planning card (H4 allows exactly
-	// that); a task may, a planning card may. A link never crosses a
-	// repository: the child's own home — by its project or its team, since a
-	// planning parent does not place it — must be the parent's.
-	if from, to := board.HomeDomain(b, child), board.HomeDomain(b, parent); from != to {
+	// that); a task may, a planning card may. What the link must never do is
+	// show a reader of the child a hole where the parent is: the child's
+	// readers must be able to read the parent. A planning card lives in the
+	// PRIMARY — no team, no project to place it elsewhere — and the primary
+	// is the one repository every reader of the board can read, so a link
+	// UP to one is open from any repository. A parent whose file stands in
+	// the child's own repository (a direct writer put it there) is readable
+	// to the child's readers as well. Anything else crosses.
+	from, to := board.HomeDomain(b, child), board.FileDomain(b, parent)
+	if to != board.PrimaryDomain(b) && to != from {
 		return fmt.Errorf("%w: %q lives in another repository than %q", ErrCrossDomain, parent.Title, child.Title)
 	}
 	return nil
@@ -99,17 +109,14 @@ func (s *Service) createPlanningCard(ctx context.Context, b board.Board, args Cr
 	if err := planningCardCannotBe(args); err != nil {
 		return board.Card{}, err
 	}
-	if err := s.declareTeam(ctx, b, args.Team); err != nil {
-		return board.Card{}, err
-	}
+	// Nobody's and no team's: the people and the teams are on the tasks
+	// under it, which is where the Roadmap reads them from (H3).
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
-		Title:    args.Title,
-		Type:     args.Type,
-		Day:      args.Day,
-		Start:    args.Start,
-		Assignee: args.Assignee,
-		Team:     args.Team,
-		Parent:   args.Parent,
+		Title:  args.Title,
+		Type:   args.Type,
+		Day:    args.Day,
+		Start:  args.Start,
+		Parent: args.Parent,
 	})
 	card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
 	if err == nil {

@@ -255,6 +255,29 @@ func TestACardInAColumnOrOfALevelReadsWithNoZoneOrSize(t *testing.T) {
 	}
 }
 
+// A planning card is nobody's and no team's: the people and the teams are
+// on the tasks under it. A file that names an owner or a team on a goal — a
+// repository written before the rule, a direct writer — is read without
+// them, so a stray team on a goal never mints a team chip or a column.
+func TestAPlanningCardReadsWithNoTeamOrOwner(t *testing.T) {
+	t.Parallel()
+	b := NewBoard([]Card{
+		{ItemID: "goal", Type: TypeGoal, Team: "ghost", Assignees: []string{"po"}},
+		{ItemID: "task", Team: "t", Assignees: []string{"dev"}},
+	})
+	if c, _ := Find(b, "goal"); c.Team != "" || len(c.Assignees) != 0 {
+		t.Errorf("a goal reads with team %q owners %v, want neither", c.Team, c.Assignees)
+	}
+	if c, _ := Find(b, "task"); c.Team != "t" || len(c.Assignees) != 1 {
+		t.Errorf("a task keeps its team and owner, got %q %v", c.Team, c.Assignees)
+	}
+	for _, team := range b.TeamOrder {
+		if team == "ghost" {
+			t.Error("a stray team on a goal minted a team")
+		}
+	}
+}
+
 // Somebody being ON a task is work in progress, before the first percent is
 // typed: an initiative whose tasks are all assigned and none started is
 // being worked, and the Roadmap must say so. An unassigned, unstarted task

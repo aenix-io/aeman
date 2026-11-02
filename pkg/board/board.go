@@ -407,9 +407,15 @@ func NewBoardIn(primary string, cards []Card) Board {
 	// that still says otherwise — a repository migrated before the rule, a
 	// direct writer — is read without them, and the card's next rewrite
 	// drops the keys; nothing is rewritten for the reading alone.
+	// A planning card is nobody's and no team's besides (H3): the people
+	// and the teams are on the tasks under it, and the Roadmap reads them
+	// off the tree.
 	for i := range b.Cards {
 		if b.Cards[i].Scope != "" || IsPlanning(b.Cards[i]) {
 			b.Cards[i].Zone, b.Cards[i].Size = ZoneNone, ""
+		}
+		if IsPlanning(b.Cards[i]) {
+			b.Cards[i].Team, b.Cards[i].Assignees = "", nil
 		}
 	}
 	for team, c := range winners {

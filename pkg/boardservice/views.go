@@ -75,6 +75,7 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 			{args.Parked, "parked"}, {args.Scope != "", "scope"},
 			{args.Week != "", "week"}, {args.ReviewOf != "", "reviewOf"},
 			{args.SprintStart != "", "sprintStart"},
+			{args.Team != "", "team"}, {args.Assignee != "", "assignee"},
 		}
 	case board.ViewMe, board.ViewTeam:
 		refusals = []viewRefusal{

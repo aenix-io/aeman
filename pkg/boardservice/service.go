@@ -2461,6 +2461,12 @@ func (s *Service) SetAssignee(ctx context.Context, boardID string, itemID, login
 	if login != "" && card.Scope != "" {
 		return fmt.Errorf("%w: %q stands in a column and takes no owner", ErrProjectCard, card.Title)
 	}
+	// Nor does a PLANNING card (H3): the people are on the tasks under it.
+	if login != "" {
+		if err := notAPlanningCard(card, "owner"); err != nil {
+			return err
+		}
+	}
 	// A subtask always belongs to its parent's PERSON, the way it always
 	// belongs to the parent's team: a direct change follows the parent
 	// instead of drifting away from it. A family that drifts apart lands on
@@ -2536,6 +2542,13 @@ func (s *Service) SetTeam(ctx context.Context, boardID string, itemID, team, day
 	// OFF one (team = "") is fine.
 	if team != "" && card.Scope != "" {
 		return fmt.Errorf("%w: %q stands in a column and takes no team", ErrProjectCard, card.Title)
+	}
+	// Nor does a PLANNING card (H3): the teams are on the tasks under it,
+	// and with no team it lives in the primary repository.
+	if team != "" {
+		if err := notAPlanningCard(card, "team"); err != nil {
+			return err
+		}
 	}
 	if err := guardRoster(b, team, card.Project); err != nil {
 		return err

@@ -82,8 +82,11 @@ card. A card's domain is decided by one rule, evaluated in this order —
 goal, an initiative or an epic carries one too, and rule 2 does NOT apply
 to it — a hierarchy link places nothing, so the card lives where its own
 project or team puts it, and nothing under a planning card follows it
-between repositories. A planning card itself is "any other card". The
-rule tells the two parents apart through the resolver's
+between repositories. A planning card itself has no team and no project,
+so nothing places it: it lives in the PRIMARY repository, always — said
+outright in `DomainOf` rather than left to fall through, so a stray
+value a direct writer put on a goal cannot move a tree's root into a
+closed repository. The rule tells the two parents apart through the resolver's
 `PlanningResolver` half; a resolver without it reads every parent as a
 task, which every parent was before the field existed.
 
@@ -149,7 +152,7 @@ orphan cannot be created:
 | link | how it stays inside |
 | --- | --- |
 | `parent` to a TASK, `reviewOf` | the inheritance rule above places the child where the referenced card is |
-| `parent` to a planning card | not placed by it: a task under an epic lives where its own project or team lives, and nothing follows a planning card between repositories. The link may not cross one either — `hierarchyLinkAllowed` compares the child's home with the parent's and refuses with `ErrCrossDomain` at `SetParent` and at a create with a parent (H6), or a visitor who can read the task and not the epic would see a breadcrumb with a hole in it |
+| `parent` to a planning card | not placed by it: a task under an epic lives where its own project or team lives, and nothing follows a planning card between repositories. The link must never show a reader of the child a hole where the parent is: a planning card lives in the PRIMARY, which every reader of the board can read, so `hierarchyLinkAllowed` lets a link point up to a parent whose file stands in the primary or in the child's own repository, and refuses anything else with `ErrCrossDomain` at `SetParent` and at a create with a parent (H6) |
 | `team` on a project-domain card | the one reference that legitimately points across: a closed project's card names a team whose file lives in the primary. The **server** reads every domain, so the visibility rules (`CurrentSprint(b, team)` in `MeView`/`TeamGrid`, `sendToReview`, carry selection) see the pointer for everyone. For a **visitor**: the primary domain must be readable or there is no board at all (403 — `board.yaml` lives there); a card whose team file the visitor cannot read is still shown, under its team name, with the team's controls (sprint, carry) unavailable to that visitor |
 | the column (`project`/`scope`) | `refileGuard` at every door: the column must name the repository that HOLDS the card's file — the linked card's when a link outranks the project — `ErrCrossDomain` otherwise (G57, `ColumnDomain`) |
 | the reviewer | not a stored link but a choice: the reviewer picker offers only people who can read the card's domain. You cannot review what you cannot see; the UI says so instead of failing later |
