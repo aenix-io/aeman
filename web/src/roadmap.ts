@@ -328,6 +328,76 @@ export function planningRemoval(
   return cards.filter((c) => c.parent === id).map((c) => ({ itemId: c.itemId, parent: up }));
 }
 
+/** HierarchyChoice is what the hierarchy's × may mean: delete the card, or
+ *  only take it out from under its parent. The Team board's own choice
+ *  dialog puts the question. */
+export type HierarchyChoice = "delete" | "detach";
+
+/** hierarchyChoices is the list that × offers, most destructive first (the
+ *  dialog reads it that way): always delete; detach only where there is a
+ *  parent to come out from under — a root offered "detach" would be offered
+ *  a no-op dressed as a choice. */
+export function hierarchyChoices(c: Pick<Card, "parent">): HierarchyChoice[] {
+  return c.parent ? ["delete", "detach"] : ["delete"];
+}
+
+/** DELETE_INTENT is what the roadmap `remove` gesture must be asked for. The
+ *  server's default intent is the day boards' "unassign", which a planning
+ *  card refuses (it has no working area to be left in) — so a × that sent no
+ *  intent got a 422 back and looked like a × that did nothing. */
+export const DELETE_INTENT = "off-board" as const;
+
+/** RemovalPlan is what one answer of the hierarchy's × does: the optimistic
+ *  patches the board applies at once (the children moving up, or the link
+ *  going), and the one request that makes it so. */
+export interface RemovalPlan {
+  patches: { itemId: string; parent: string | undefined }[];
+  request: { kind: "remove"; uid: string; intent: typeof DELETE_INTENT } | { kind: "unlink"; uid: string };
+  /** The card leaves the board (delete) — the row goes with it. */
+  gone: boolean;
+}
+
+/** planningRemovalPlan turns an answer into the plan above. Delete moves the
+ *  children up (planningRemoval) and sends the remove gesture with the
+ *  intent the server needs; detach clears the card's own parent and sends
+ *  that one patch. */
+export function planningRemovalPlan(
+  cards: readonly Pick<Card, "itemId" | "parent">[],
+  id: string,
+  choice: HierarchyChoice,
+): RemovalPlan {
+  if (choice === "detach") {
+    return {
+      patches: [{ itemId: id, parent: undefined }],
+      request: { kind: "unlink", uid: id },
+      gone: false,
+    };
+  }
+  return {
+    patches: planningRemoval(cards, id),
+    request: { kind: "remove", uid: id, intent: DELETE_INTENT },
+    gone: true,
+  };
+}
+
+/** childrenNote says, for the dialog, what deleting the card does to what
+ *  sits under it — nothing when nothing does. */
+export function childrenNote(
+  cards: readonly Pick<Card, "itemId" | "parent" | "title">[],
+  id: string,
+): string {
+  const moved = planningRemoval(cards, id);
+  if (moved.length === 0) {
+    return "";
+  }
+  const gone = cards.find((c) => c.itemId === id);
+  const up = gone?.parent ? cards.find((c) => c.itemId === gone.parent) : undefined;
+  const where = up ? `under «${up.title}»` : "to the top";
+  return moved.length === 1
+    ? `The card under it moves ${where}.`
+    : `The ${moved.length} cards under it move ${where}.`;
+}
+
 /** allowedParentKinds is what a card of a kind may sit under (H2): a level
  *  strictly above it, with a task's one exception — another task, which
  *  makes it a subtask (that flow is the group gesture's, not the picker's).

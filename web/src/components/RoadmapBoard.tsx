@@ -4,21 +4,25 @@ import { todayIso } from "../date";
 import type { Board, Card as CardModel, CardType, Provider } from "../providers/types";
 import {
   DEFAULT_DEPTH,
+  DELETE_INTENT,
   GLYPH,
   KIND_LABEL,
   LEVELS,
   STATUS_LABEL,
   barOf,
   buildTree,
+  childrenNote,
   daysBetween,
   fractionOf,
+  hierarchyChoices,
   place,
-  planningRemoval,
+  planningRemovalPlan,
   rangeFor,
   rows as rowsOf,
   statusOf,
   ticks as ticksOf,
   type DepthRange,
+  type HierarchyChoice,
   type RoadmapKind,
   type Row,
   type Zoom,
@@ -26,6 +30,7 @@ import {
 import { barColor } from "../stages";
 import { isPlanning } from "../subtasks";
 import { AddCard } from "./AddCard";
+import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
 // The Roadmap: the hierarchy as a table of rows on the left and a timeline
 // of bars on the right, one row per card from a goal down to a subtask
@@ -313,25 +318,31 @@ export function RoadmapBoard({
       });
   };
 
-  // ---- the x: a planning card goes, the rows under it move up a level ----
-  const deletePlanning = (card: CardModel) => {
-    const moved = planningRemoval(board.cards, card.itemId);
-    const up = card.parent ? board.cards.find((c) => c.itemId === card.parent) : undefined;
-    const where = up ? `under «${up.title}»` : "to the top";
-    const under =
-      moved.length === 0
-        ? ""
-        : ` The ${moved.length === 1 ? "card" : `${moved.length} cards`} under it ${moved.length === 1 ? "moves" : "move"} ${where}.`;
-    if (!window.confirm(`Delete «${card.title}»?${under}`)) {
+  // ---- the x: the Team board's own question — delete it, or only unlink it ----
+  // The card the × was pressed on, while the dialog asks. One answer
+  // destroys (the rows under it move up a level), the other only takes the
+  // card out from under its parent; the plan for either is roadmap.ts's.
+  const [removeChoice, setRemoveChoice] = useState<CardModel | null>(null);
+  const answerRemoval = (card: CardModel, choice: HierarchyChoice) => {
+    const plan = planningRemovalPlan(board.cards, card.itemId, choice);
+    const before = { parent: card.parent, lineage: card.lineage };
+    for (const p of plan.patches) {
+      // A child moving up inherits the deleted card's own ancestors as its
+      // lineage; the card coming out from under its parent has none. Either
+      // way the tree draws right before the watch frames confirm it.
+      patchCard(p.itemId, { parent: p.parent, lineage: p.parent ? card.lineage : undefined });
+    }
+    if (plan.gone) {
+      removeCard(card.itemId);
+      void provider.removeCard(plan.request.uid, DELETE_INTENT).catch((err: unknown) => {
+        onError(errText(err));
+        reload();
+      });
       return;
     }
-    for (const m of moved) {
-      patchCard(m.itemId, { parent: m.parent });
-    }
-    removeCard(card.itemId);
-    void provider.removeCard(card.itemId).catch((err: unknown) => {
+    void provider.patchCard(card.itemId, { parent: "" }).catch((err: unknown) => {
+      patchCard(card.itemId, before);
       onError(errText(err));
-      reload();
     });
   };
 
@@ -416,7 +427,7 @@ export function RoadmapBoard({
               aria-label={`Delete ${card.title}`}
               onClick={(e) => {
                 e.stopPropagation();
-                deletePlanning(card);
+                setRemoveChoice(card);
               }}
             >
               ×
@@ -574,7 +585,7 @@ export function RoadmapBoard({
               <div key={r.node.card.itemId} className="roadmap-rowgroup">
                 {row(r)}
                 {addingRow && addingRow.node.card.itemId === r.node.card.itemId && (
-                  <div className="roadmap-row roadmap-row-add" style={{ paddingLeft: 30 + (r.depth + 1) * 16 }}>
+                  <div className="roadmap-row roadmap-row-form" style={{ paddingLeft: 30 + (r.depth + 1) * 16 }}>
                     <AddCard
                       autoOpen
                       compact
@@ -618,6 +629,17 @@ export function RoadmapBoard({
             </div>
           </div>
         </div>
+      )}
+      {removeChoice && (
+        <RemoveChoiceDialog
+          title={removeChoice.title}
+          progress={removeChoice.hierarchy ? Math.round((100 * removeChoice.hierarchy.done) / Math.max(removeChoice.hierarchy.total, 1)) : 0}
+          choices={hierarchyChoices(removeChoice)}
+          subtasks={0}
+          note={childrenNote(board.cards, removeChoice.itemId)}
+          onClose={() => setRemoveChoice(null)}
+          onSubmit={(choice) => answerRemoval(removeChoice, choice as HierarchyChoice)}
+        />
       )}
     </div>
   );

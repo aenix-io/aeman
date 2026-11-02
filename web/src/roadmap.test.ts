@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DELETE_INTENT,
   allowedParentKinds,
   barOf,
   buildTree,
+  childrenNote,
   daysBetween,
+  hierarchyChoices,
   kindOf,
   place,
   planningRemoval,
+  planningRemovalPlan,
   rangeFor,
   rows,
   statusOf,
@@ -178,5 +182,41 @@ describe("the rest of the Roadmap's rules", () => {
     expect(allowedParentKinds("epic")).toEqual(["initiative", "goal"]);
     expect(allowedParentKinds("task")).toEqual(["epic", "initiative", "goal"]);
     expect(allowedParentKinds("project")).toEqual(["epic", "initiative", "goal"]);
+  });
+});
+
+// The hierarchy's ×: the Team board's own question, with two answers. The
+// delete answer must ask the server for the OFF-BOARD intent — without one
+// the remove gesture defaults to the day boards' "unassign", which a planning
+// card refuses (422), and the × looked like it did nothing. Pinned here as a
+// plan the component only executes.
+describe("the hierarchy's × and its two answers", () => {
+  it("offers delete and detach under a parent, delete alone at the top", () => {
+    expect(hierarchyChoices(ini)).toEqual(["delete", "detach"]);
+    expect(hierarchyChoices(goal)).toEqual(["delete"]);
+  });
+
+  it("delete moves the children up and asks the remove gesture for off-board", () => {
+    const plan = planningRemovalPlan([goal, ini, epic, task, slot], "i", "delete");
+    expect(plan.gone).toBe(true);
+    expect(plan.patches).toEqual([
+      { itemId: "e", parent: "g" },
+      { itemId: "p", parent: "g" },
+    ]);
+    expect(plan.request).toEqual({ kind: "remove", uid: "i", intent: "off-board" });
+    expect(DELETE_INTENT).toBe("off-board");
+  });
+
+  it("detach clears the card's own parent and nothing under it moves", () => {
+    const plan = planningRemovalPlan([goal, ini, epic, task, slot], "i", "detach");
+    expect(plan.gone).toBe(false);
+    expect(plan.patches).toEqual([{ itemId: "i", parent: undefined }]);
+    expect(plan.request).toEqual({ kind: "unlink", uid: "i" });
+  });
+
+  it("says what deleting does to what sits under the card", () => {
+    expect(childrenNote([goal, ini, epic, task, slot], "i")).toBe("The 2 cards under it move under «Grow».");
+    expect(childrenNote([goal, ini], "g")).toBe("The card under it moves to the top.");
+    expect(childrenNote([goal, ini], "i")).toBe("");
   });
 });

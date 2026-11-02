@@ -142,4 +142,13 @@ describe("the Roadmap's two panes", () => {
     expect(html).not.toContain('aria-label="Delete Render PDF"');
     expect(html).not.toContain('aria-label="Add under Invoices"'); // an epic makes nothing below it here
   });
+
+  it("keeps the + button's hover-only class off every row: a form that shared it was invisible", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    // The class is the BUTTON's (opacity 0 until the row is hovered); a row
+    // container wearing it opened as an empty line — "the + makes an empty
+    // space below". The inline form has a class of its own.
+    expect(html).not.toMatch(/<div[^>]*class="[^"]*\broadmap-row-add\b/);
+    expect(html).toMatch(/<button[^>]*class="roadmap-row-add"/);
+  });
 });

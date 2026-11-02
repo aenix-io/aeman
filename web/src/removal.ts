@@ -178,13 +178,20 @@ export function asksFirst(
 
 /** RemoveChoice is one of the things an × can mean, and the dialog offers the
  *  card's own list of them (removeChoices). "backlog" is the answer that
- *  destroys nothing: the work is kept, off the plan, on its team's shelf. */
+ *  destroys nothing: the work is kept, off the plan, on its team's shelf.
+ *
+ *  The hierarchy's × has two answers of its own (roadmap.hierarchyChoices):
+ *  "detach" takes the card out from under its parent and changes nothing
+ *  else; "delete" destroys it — a planning card's children move up a level
+ *  (roadmap.planningRemoval), as the server does (reparentChildren). */
 export type RemoveChoice =
   | "off-board"
   | "unassign"
   | "ungroup"
   | "backlog"
-  | "finished-earlier";
+  | "finished-earlier"
+  | "detach"
+  | "delete";
 
 /** removeChoices is what the × may do to this card WHERE IT STANDS, most
  *  destructive first, and the × is drawn only where the list is not empty.

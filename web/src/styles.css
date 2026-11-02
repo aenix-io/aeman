@@ -5282,7 +5282,10 @@ button.card-age {
   color: var(--danger);
 }
 
-.roadmap-row.roadmap-row-add {
+/* The inline create under a planning row. Its OWN class: the + button's
+   (.roadmap-row-add) hides until the row is hovered, and a form that shared
+   it opened an invisible row — "the + makes an empty space". */
+.roadmap-row-form {
   display: block;
   cursor: default;
   padding-right: 6px;
