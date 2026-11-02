@@ -580,6 +580,28 @@ func TestBackendLoadCards(t *testing.T) {
 	}
 }
 
+// The reload of ONE card reads its file by the same rules a read of the
+// whole board does (board.SettleCard): the server refreshes the cards a
+// commit wrote with this call, and a column card whose file still carries a
+// week and a band would otherwise flip back to them in the cache — and lose
+// its row on the Project board — until the next full reload.
+func TestLoadCardsReadsACardByTheBoardsRules(t *testing.T) {
+	const id = "01JB4K2E7QZMX3R8V0N5T9WYE1"
+	r := repoWith(t, map[string]string{
+		BoardPath:                 "schema: 2\ntitle: b\n",
+		"cards/e/1/" + id + ".md": "---\ntitle: a slot\nzone: red\nweek: 2026-10-05\nproject: p\nscope: S\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n",
+	})
+	be := NewBackend(r, BackendOptions{})
+	got, err := be.LoadCards(context.Background(), board.Board{}, []string{id})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("LoadCards = %v, %v", got, err)
+	}
+	c := got[0]
+	if c.StartDate != "2026-10-05" || c.Day != "2026-10-09" || c.Week != "" || c.Zone != board.ZoneNone {
+		t.Fatalf("a reloaded column card reads as %+v, want its week's dates, no week, no band", c)
+	}
+}
+
 func findByID(b board.Board, id string) (board.Card, bool) {
 	for _, c := range b.Cards {
 		if c.ItemID == id {

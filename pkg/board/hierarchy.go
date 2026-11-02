@@ -92,11 +92,11 @@ func PlanningIDs(b Board) map[string]bool {
 }
 
 // IsSubtaskIn answers IsSubtask against a set PlanningIDs built: a card with
-// a parent that is NOT a planning card. A DANGLING parent — one not on the
-// board at all — reads as a subtask, which is what it always read as: a
-// top-level reading would resurface a card the day boards never drew, and a
-// planning parent that is deleted re-parents its children, so nothing
-// dangles off one.
+// a parent that is NOT a planning card. A read board holds no DANGLING
+// parent — the reading drops one (dropDanglingParents) — so an unknown
+// parent is met only on a board nobody read: a cache between a delete and
+// its reload, a hand-built board. There it reads as a subtask, which is what
+// it always read as.
 func IsSubtaskIn(c Card, planning map[string]bool) bool {
 	return c.Parent != "" && !planning[c.Parent]
 }

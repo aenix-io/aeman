@@ -387,7 +387,10 @@ func (b *Backend) LoadCards(ctx context.Context, _ board.Board, ids []string) ([
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, f.Card)
+		// Read by the same rules a read of the whole board applies to one
+		// card, or the reload of a card a commit wrote would disagree with
+		// the board about the same file.
+		out = append(out, board.SettleCard(f.Card))
 	}
 	return out, nil
 }

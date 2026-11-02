@@ -509,12 +509,15 @@ task.
 
 - H1 — one link, `parent`, kind read off the parent; a task under a task
   is a subtask and the only kind that is one. A DANGLING parent — one not
-  on the board — reads as a subtask, as it always did: nothing dangles off
-  a planning card, since deleting one re-parents its children. A subtask
+  on the board — is dropped when the board is read (`DroppedParents` names
+  it): the server's own deletes re-parent a planning card's children, but
+  an epic deleted by a direct writer, or a torn move, would otherwise hide
+  its whole subtree as subtasks of nothing; read as a root, the card stands
+  where its own dates and team put it. A subtask
   that leaves its task for a planning card is pulled out of the group the
   way the ungroup gesture pulls it: one with no person of its own takes
   its task's. Pinned by
-  board `TestASubtaskIsATaskUnderATask`, `TestParentOfAndChildrenOf`,
+  board `TestASubtaskIsATaskUnderATask`, `TestADanglingParentIsDroppedOnLoad`, `TestParentOfAndChildrenOf`,
   `TestSubtaskHelpersStopAtPlanningCards`,
   `TestPlanningCardsAreOnNoDayBoardAndTasksUnderThemAre`; service
   `TestTheLevelRuleGovernsTheParent`, `TestCarryOverCarriesATaskUnderAnEpic`,

@@ -58,7 +58,7 @@ func (ix *Index) Find(id string) (Card, bool) {
 func (ix *Index) ParentOf(c Card) (Card, bool) { return ix.Find(c.Parent) }
 
 // IsSubtask is board.IsSubtask: a task whose parent is a task, or is not
-// here at all (a dangling parent reads as it always did).
+// here at all (which a read board never holds: the reading drops it).
 func (ix *Index) IsSubtask(c Card) bool { return IsSubtaskIn(c, ix.planning) }
 
 // Lineage is board.Lineage: every ancestor, root first, bounded.

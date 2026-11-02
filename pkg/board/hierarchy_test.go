@@ -79,13 +79,16 @@ func TestASubtaskIsATaskUnderATask(t *testing.T) {
 			t.Errorf("IsSubtask(%s) = %v, want %v", id, got, want)
 		}
 	}
-	// A DANGLING parent keeps today's reading — a subtask of something that
-	// is not here. Reading it as a top-level card would resurface a card the
-	// day boards never drew (the state the × made by the dozen, G60), and
-	// a planning parent that vanished leaves no such card behind: deleting
-	// one re-parents its children.
-	if !IsSubtask(b, find("t4")) {
-		t.Error("a card whose parent is not on the board is read as a subtask, as it always was")
+	// A DANGLING parent never reaches the rules from a read board: the
+	// loader drops it (TestADanglingParentIsDroppedOnLoad), so the card is a
+	// top-level task, not a subtask of nothing hidden from every board.
+	if c := find("t4"); c.Parent != "" || IsSubtask(b, c) {
+		t.Errorf("a card whose parent is not on the board is read as a root, got parent %q", c.Parent)
+	}
+	// The rules' own reading of one, on a board nobody read (a cache between
+	// a delete and its reload): still a subtask, as it always was.
+	if !IsSubtask(Board{}, Card{ItemID: "x", Parent: "gone"}) {
+		t.Error("IsSubtask reads an unknown parent as a task's")
 	}
 	// The set form answers the same, and is what a loop over the board uses.
 	pl := PlanningIDs(b)
@@ -287,6 +290,49 @@ func TestAWeekOnlyProjectCardReadsAsItsWeeksDates(t *testing.T) {
 	}
 	if c, _ := Find(b, "epic"); c.StartDate != "" || c.Day != "" || c.Week != "" {
 		t.Errorf("a planning card's stray week is dropped and no dates invented, got %+v", c)
+	}
+}
+
+// A DANGLING parent — one the board does not hold — is dropped when the
+// board is read. The rules read a card with a parent that is not a planning
+// card as a subtask, hidden from every board; before the hierarchy only a
+// deleted TASK could leave one behind, and the × never did without freeing
+// its children. Now an epic or a goal deleted by a direct writer (or a torn
+// cross-replica move) would take its whole subtree off Me, Team, Triage and
+// the Roadmap with nothing to bring it back. Read as a root, the card stands
+// where its own dates and team put it, and its next rewrite drops the key.
+func TestADanglingParentIsDroppedOnLoad(t *testing.T) {
+	t.Parallel()
+	today := TodayIso()
+	b := NewBoard([]Card{
+		// Its epic's file is gone.
+		{ItemID: "t", Parent: "gone-epic", Team: "alpha", StartDate: today, Day: today, SprintStart: today},
+		// Its task's file is gone.
+		{ItemID: "s", Parent: "gone-task", Team: "alpha", StartDate: today, Day: today, SprintStart: today},
+		// A real subtask keeps its parent.
+		{ItemID: "p", Team: "alpha", StartDate: today, Day: today, SprintStart: today},
+		{ItemID: "pa", Parent: "p", Team: "alpha", StartDate: today, Day: today, SprintStart: today},
+	})
+	b.SprintStates = map[string]SprintState{"alpha": {Current: today}}
+	for _, id := range []string{"t", "s"} {
+		c, _ := Find(b, id)
+		if c.Parent != "" || IsSubtask(b, c) {
+			t.Errorf("%s reads with parent %q (subtask %v), want a top-level card", id, c.Parent, IsSubtask(b, c))
+		}
+	}
+	if c, _ := Find(b, "pa"); c.Parent != "p" || !IsSubtask(b, c) {
+		t.Errorf("a subtask whose task is here keeps its parent, got %+v", c)
+	}
+	// What the reading dropped is named, for a tool that must report it.
+	if b.DroppedParents["t"] != "gone-epic" || b.DroppedParents["s"] != "gone-task" || len(b.DroppedParents) != 2 {
+		t.Errorf("DroppedParents = %v", b.DroppedParents)
+	}
+	got := map[string]bool{}
+	for _, c := range TeamGrid(b, "alpha", today) {
+		got[c.ItemID] = true
+	}
+	if !got["t"] || !got["s"] || got["pa"] {
+		t.Errorf("the Team grid draws the two orphans and not the real subtask, got %v", got)
 	}
 }
 

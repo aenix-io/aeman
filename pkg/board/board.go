@@ -296,6 +296,11 @@ type Board struct {
 	// (repository) it was declared in; cards carry their own Domain. Nil on
 	// a single-domain board, where nothing records one.
 	Domains map[string]string `json:"domains,omitempty"`
+	// DroppedParents names the parents the reading dropped, by the card
+	// that named them: a parent the board does not hold is read as no
+	// parent (NewBoardIn), and a tool that must REPORT such links — the
+	// importer's dangling references, M4 — reads them here.
+	DroppedParents map[string]string `json:"-"`
 }
 
 // NewBoard builds a Board snapshot from the full card list, splitting the hidden sprint-state cards out of Cards into SprintStates (keyed
@@ -401,35 +406,10 @@ func NewBoardIn(primary string, cards []Card) Board {
 			b.Cards[i].Project = match
 		}
 	}
-	// A card in a column and a planning card have no band and no size (H4,
-	// H3): the Project board draws columns and date rows, the Roadmap draws
-	// levels and bars, and a weight belongs to work somebody carries. A file
-	// that still says otherwise — a repository migrated before the rule, a
-	// direct writer — is read without them, and the card's next rewrite
-	// drops the keys; nothing is rewritten for the reading alone.
-	// A planning card is nobody's and no team's besides (H3): the people
-	// and the teams are on the tasks under it, and the Roadmap reads them
-	// off the tree.
-	// Nor a sprint or a week: no day board draws either kind, so a sprint
-	// left on one (a team had picked the card up before the rule) is a
-	// sprint a carry-over would move for nothing and nothing else reads.
 	for i := range b.Cards {
-		// A column card whose week was its only date takes that week as its
-		// dates before the week goes, or it would have no row on the Project
-		// board and stand on no board at all.
-		if b.Cards[i].Scope != "" {
-			if start, day, ok := WeekAsDates(b.Cards[i]); ok {
-				b.Cards[i].StartDate, b.Cards[i].Day = start, day
-			}
-		}
-		if b.Cards[i].Scope != "" || IsPlanning(b.Cards[i]) {
-			b.Cards[i].Zone, b.Cards[i].Size = ZoneNone, ""
-			b.Cards[i].SprintStart, b.Cards[i].Week = "", ""
-		}
-		if IsPlanning(b.Cards[i]) {
-			b.Cards[i].Team, b.Cards[i].Assignees = "", nil
-		}
+		b.Cards[i] = SettleCard(b.Cards[i])
 	}
+	dropDanglingParents(&b)
 	for team, c := range winners {
 		b.SprintStates[team] = SprintState{
 			Current:  c.SprintStart,
@@ -438,6 +418,62 @@ func NewBoardIn(primary string, cards []Card) Board {
 		}
 	}
 	return b
+}
+
+// SettleCard applies the reading rules that hold for one card on its own,
+// whatever the file says — the same on a full read of the board and on the
+// reload of a single card, or the two would disagree about one file.
+//
+// A card in a column and a planning card have no band and no size (H4, H3):
+// the Project board draws columns and date rows, the Roadmap draws levels
+// and bars, and a weight belongs to work somebody carries. A file that still
+// says otherwise — a repository migrated before the rule, a direct writer —
+// is read without them, and the card's next rewrite drops the keys; nothing
+// is rewritten for the reading alone. Nor a sprint or a week: no day board
+// draws either kind, so a sprint left on one (a team had picked the card up
+// before the rule) is a sprint a carry-over would move for nothing — and a
+// column card whose week was its only date takes that week as its dates
+// before the week goes, or it would have no row on the Project board and
+// stand on no board at all. A planning card is nobody's and no team's
+// besides (H3): the people and the teams are on the tasks under it.
+func SettleCard(c Card) Card {
+	if c.Scope != "" {
+		if start, day, ok := WeekAsDates(c); ok {
+			c.StartDate, c.Day = start, day
+		}
+	}
+	if c.Scope != "" || IsPlanning(c) {
+		c.Zone, c.Size = ZoneNone, ""
+		c.SprintStart, c.Week = "", ""
+	}
+	if IsPlanning(c) {
+		c.Team, c.Assignees = "", nil
+	}
+	return c
+}
+
+// dropDanglingParents reads a parent the board does not hold as no parent,
+// and names what it dropped in DroppedParents. Every rule reads a card with
+// a parent that is not a planning card as a subtask — hidden from every
+// board — so an epic deleted by a direct writer, or a torn move, would
+// otherwise take its whole subtree off Me, Team, Triage and the Roadmap with
+// nothing to bring it back. Read as a root, the card stands where its own
+// dates and team put it; its next rewrite drops the key. It needs the whole
+// board, which is why it is not part of SettleCard.
+func dropDanglingParents(b *Board) {
+	held := make(map[string]bool, len(b.Cards))
+	for _, c := range b.Cards {
+		held[c.ItemID] = true
+	}
+	for i := range b.Cards {
+		if p := b.Cards[i].Parent; p != "" && !held[p] {
+			if b.DroppedParents == nil {
+				b.DroppedParents = map[string]string{}
+			}
+			b.DroppedParents[b.Cards[i].ItemID] = p
+			b.Cards[i].Parent = ""
+		}
+	}
 }
 
 // olderSprintState reports whether a is the older sprint-state card: earlier

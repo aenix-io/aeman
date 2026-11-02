@@ -12,10 +12,10 @@ export function isPlanning(c: Pick<Card, "type">): boolean {
  *
  *  The parent's kind is read off the card's lineage, whose last entry is the
  *  parent, because the day boards never deliver a planning card to look it
- *  up by. No lineage at all — a card made optimistically a moment ago, or a
- *  parent that is not on the board — reads as a subtask, which is what every
- *  card with a parent read as before, and what the server reads a dangling
- *  parent as (board.IsSubtask). */
+ *  up by. No lineage at all — a card made optimistically a moment ago —
+ *  reads as a subtask, which is what every card with a parent read as
+ *  before. A parent the board does not hold never reaches the client: the
+ *  server drops it when it reads the board (board.dropDanglingParents). */
 export function isSubtask(c: Pick<Card, "parent" | "lineage">): boolean {
   if (!c.parent) {
     return false;

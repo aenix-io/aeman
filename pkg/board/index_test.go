@@ -55,8 +55,10 @@ func TestIndexAgreesWithTheLinearHelpers(t *testing.T) {
 	if _, ok := ix.Find("gone"); ok {
 		t.Error("a dangling parent is not found")
 	}
-	if c, _ := ix.Find("t4"); !ix.IsSubtask(c) {
-		t.Error("a card with a dangling parent reads as a subtask, as it always did")
+	// The loader dropped t4's dangling parent: a root, in the index as in the
+	// linear helpers.
+	if c, _ := ix.Find("t4"); c.Parent != "" || ix.IsSubtask(c) {
+		t.Error("a card whose parent the board does not hold reads as a root")
 	}
 	// The reviewer, as the resource's own walk finds it.
 	if got := ix.ReviewedBy(Card{ItemID: "t1"}); got != "rev" {

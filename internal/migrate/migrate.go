@@ -420,7 +420,13 @@ func (m *mapper) convert() {
 			c.Link = gh.URL
 			m.rep.IssueCards = append(m.rep.IssueCards, src.ItemID)
 		}
-		c.Parent = m.ref(src.ItemID, "parent", src.Parent)
+		// A parent the source board does not hold was dropped when the board
+		// was read; it is still a dangling reference to report (M4).
+		parent := src.Parent
+		if parent == "" {
+			parent = m.b.DroppedParents[src.ItemID]
+		}
+		c.Parent = m.ref(src.ItemID, "parent", parent)
 		c.ReviewOf = m.ref(src.ItemID, "reviewOf", src.ReviewOf)
 		switch {
 		case c.Scope != "":

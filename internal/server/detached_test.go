@@ -22,16 +22,17 @@ func fullBoard() board.Board {
 		}
 	}
 	return board.Board{
-		Board:         "acme",
-		Cards:         []board.Card{card("c1")},
-		SprintStates:  map[string]board.SprintState{"alpha": {ItemID: "s1"}},
-		People:        map[string]board.Person{"ann": {Capacity: 20}},
-		TeamOrder:     []string{"alpha"},
-		Scopes:        []board.ScopeCol{{ItemID: "e1", Name: "scope"}},
-		Deadlines:     []board.Deadline{{ItemID: "d1", Week: "2026-09-14"}},
-		Projects:      []string{"proj"},
-		ProjectStates: map[string]string{"proj": "ps1"},
-		Domains:       map[string]string{"s1": "primary"},
+		Board:          "acme",
+		Cards:          []board.Card{card("c1")},
+		SprintStates:   map[string]board.SprintState{"alpha": {ItemID: "s1"}},
+		People:         map[string]board.Person{"ann": {Capacity: 20}},
+		TeamOrder:      []string{"alpha"},
+		Scopes:         []board.ScopeCol{{ItemID: "e1", Name: "scope"}},
+		Deadlines:      []board.Deadline{{ItemID: "d1", Week: "2026-09-14"}},
+		Projects:       []string{"proj"},
+		ProjectStates:  map[string]string{"proj": "ps1"},
+		Domains:        map[string]string{"s1": "primary"},
+		DroppedParents: map[string]string{"c1": "gone"},
 	}
 }
 

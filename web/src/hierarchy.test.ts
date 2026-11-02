@@ -32,8 +32,9 @@ const subtask = card({
   itemId: "t1a", parent: "t1", startDate: TODAY, day: TODAY, sprintStart: TODAY,
   lineage: [{ uid: "epic", type: "epic", title: "Billing" }, { uid: "t1", title: "Invoices" }],
 });
-// A parent and no lineage at all: a card made a moment ago, or a parent
-// that is not here — read as a subtask, as it always was.
+// A parent and no lineage at all: a card made a moment ago, before the
+// server has said what its parent is — read as a subtask, as it always was.
+// (A parent the board does not hold never arrives: the server drops it.)
 const dangling = card({ itemId: "t4", parent: "gone", startDate: TODAY, day: TODAY, sprintStart: TODAY });
 
 describe("isSubtask and isPlanning", () => {

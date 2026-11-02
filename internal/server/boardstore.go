@@ -435,6 +435,7 @@ func detached(b board.Board) board.Board {
 	b.People = maps.Clone(b.People)
 	b.ProjectStates = maps.Clone(b.ProjectStates)
 	b.Domains = maps.Clone(b.Domains)
+	b.DroppedParents = maps.Clone(b.DroppedParents)
 	return b
 }
 
