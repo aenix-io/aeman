@@ -5970,6 +5970,41 @@ button.card-age {
   overflow-wrap: anywhere;
 }
 
+/* The progress row: the card's own bar, given room for its handle, and the
+   number beside it. */
+.drawer-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0 2px;
+}
+
+.drawer-progress .card-bar {
+  flex: 1 1 auto;
+  position: relative;
+}
+
+.drawer-progress-pct {
+  flex: none;
+  min-width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* The zone button sat in an inline wrapper and shrank to its text, which
+   then broke mid-word; it takes the row's width like every other pick, and
+   a band's name is one word that never wraps. */
+.drawer-zone {
+  display: block;
+  width: 100%;
+}
+
+.drawer-zone .drawer-pick-text {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
 .drawer-value > * {
   min-width: 0;
 }

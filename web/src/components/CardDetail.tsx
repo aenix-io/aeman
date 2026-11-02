@@ -12,7 +12,8 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER } from "../zones";
 import { SIZES, SIZE_ORDER } from "../size";
-import { STAGES } from "../stages";
+import { STAGES, barColor, clampProgress, clampsProgress } from "../stages";
+import { ProgressSlider } from "./ProgressSlider";
 import { Dropdown } from "./Dropdown";
 import { eventLabel } from "../eventlog";
 import { localDateIso, todayIso } from "../date";
@@ -465,6 +466,25 @@ export function CardDetail({
     patchCard(card.itemId, { stage: undefined });
     void provider
       .reopen(card.itemId)
+      .then((updated) => patchCard(card.itemId, { stage: updated.stage, progress: updated.progress }))
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
+        onError?.(errMessage(err));
+      });
+  };
+
+  // Progress moves by dragging the bar's handle, the way it does on a card of
+  // the day boards: the same slider, the same 10% grid, the same clamp for a
+  // review/locked card. The server answers with the stage it settled on
+  // (100 reads as done; a clamped stage holds the band), and that is what
+  // stays on the card.
+  const doneish = card.stage === "done" || (!card.stage && (card.progress ?? 0) >= 100);
+  const progressValue = clampProgress(card.stage, doneish ? 100 : (card.progress ?? 0));
+  const setProgress = (next: number) => {
+    const prev = { stage: card.stage, progress: card.progress };
+    patchCard(card.itemId, { progress: next });
+    void provider
+      .patchCard(card.itemId, { progress: next })
       .then((updated) => patchCard(card.itemId, { stage: updated.stage, progress: updated.progress }))
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
@@ -1154,6 +1174,23 @@ export function CardDetail({
                 {!planning && stageLabel && <span className="drawer-chip">{stageLabel}</span>}
               </>,
             )}
+            {/* The bar a task (or a project card) carries on its board, with
+                its handle: drag it here as there. A planning card's progress
+                is derived and has no bar of its own. */}
+            {!planning &&
+              row(
+                "Progress",
+                <div className="drawer-progress">
+                  <ProgressSlider
+                    value={progressValue}
+                    locked={clampsProgress(card.stage)}
+                    fill={barColor(doneish ? "done" : card.stage)}
+                    readOnly={isRecord}
+                    onCommit={setProgress}
+                  />
+                  <span className="drawer-progress-pct">{progressValue}%</span>
+                </div>,
+              )}
             {/* Whose the task is: its team and the person on it, in the one
                 menu the boards ask it with. A subtask's owner is its task's
                 (the server cascades it) and only reads here. */}

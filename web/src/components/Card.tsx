@@ -10,7 +10,7 @@ import {
   clampsProgress,
   isInProgress,
 } from "../stages";
-import { snapProgress } from "../progress";
+import { ProgressSlider } from "./ProgressSlider";
 import { isPlanning, isSubtask } from "../subtasks";
 import { teamColor, teamInitial } from "../avatar";
 import { hasOriginToShow, markOf, type CardPlacements } from "../placements";
@@ -121,8 +121,6 @@ interface CardProps {
   record?: boolean;
 }
 
-const SEGMENTS = 10;
-
 /** Card is a compact single-row item shared by the Me and Team boards. */
 export function Card({
   card,
@@ -177,13 +175,11 @@ export function Card({
   // left so it never clips off-screen.
   const [recLeft, setRecLeft] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [dragValue, setDragValue] = useState<number | null>(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const [personInput, setPersonInput] = useState("");
   const [reviewerInput, setReviewerInput] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
   const assignRef = useRef<HTMLDivElement | null>(null);
-  const barRef = useRef<HTMLDivElement | null>(null);
   const [datesOpen, setDatesOpen] = useState(false);
   const [linksOpen, setLinksOpen] = useState(false);
   const [resolvedLinks, setResolvedLinks] = useState<CardLink[] | null>(null);
@@ -215,67 +211,6 @@ export function Card({
 
   const canAssign = Boolean(onSetTeam || onSetAssignee);
   const canEditDates = Boolean(onSetDates);
-
-  // While dragging the handle, show the snapped drag value; otherwise the card's.
-  const shown = dragValue ?? value;
-  // Snap the visible fill to the 10% grid, but never read a started card as empty
-  // nor a sub-100 card as full: an off-grid value the slider can't produce (e.g.
-  // 3 or 95 set via MCP/API) in (0,10) shows one segment and in (90,100) shows
-  // nine — only a true 0 and 100 hit the extremes.
-  const dispPct =
-    shown <= 0
-      ? 0
-      : shown >= 100
-        ? 100
-        : Math.min(90, Math.max(10, Math.round(shown / 10) * 10));
-  const filled = dispPct / 10;
-
-  // Where a pointer at clientX lands on the 10% grid. A clamped stage reaches
-  // only 10–90%; every other card spans 0–100% (0% clears). The reach is the
-  // same rule as the value: a handle that drags past its own limit and snaps
-  // back when the server answers is the bug this shares its answer to avoid.
-  const valueAt = (clientX: number): number => {
-    const rect = barRef.current?.getBoundingClientRect();
-    if (!rect || rect.width <= 0) {
-      return value;
-    }
-    return snapProgress(
-      (clientX - rect.left) / rect.width,
-      clampsProgress(card.stage),
-    );
-  };
-
-  // Progress moves only by dragging the handle. The bar itself stays inert on
-  // purpose: it runs the full width of the card, and a stray press while
-  // dragging cards around would silently rewrite someone's progress.
-  const onHandleDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    setDragValue(value);
-  };
-
-  const onHandleMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (dragValue === null) {
-      return;
-    }
-    const snapped = valueAt(e.clientX);
-    if (snapped !== dragValue) {
-      setDragValue(snapped);
-    }
-  };
-
-  const onHandleUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (dragValue === null) {
-      return;
-    }
-    e.currentTarget.releasePointerCapture(e.pointerId);
-    const final = dragValue;
-    setDragValue(null);
-    if (final !== value) {
-      onProgress(card, final);
-    }
-  };
 
   const handleDelete = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
@@ -1088,39 +1023,13 @@ export function Card({
         </div>
       )}
 
-      <div
-        className="card-bar"
-        ref={barRef}
-        title={
-          (subCount ?? 0) > 0
-            ? `${shown}% — derived from subtasks`
-            : `${shown}%`
-        }
-      >
-        {Array.from({ length: SEGMENTS }, (_, i) => (
-          <span
-            key={i}
-            className={`card-seg${i < filled ? " card-seg-filled" : ""}`}
-            style={i < filled ? { backgroundColor: fill } : undefined}
-          />
-        ))}
-        <div
-          className={`card-bar-handle${dragValue !== null ? " card-bar-handle-dragging" : ""}`}
-          // Sit the handle on the last filled 10% boundary, not the raw value, so
-          // an off-grid value (e.g. 95) doesn't leave it floating past the fill.
-          style={{ left: `${filled * 10}%`, borderColor: fill }}
-          role="slider"
-          aria-label="Progress"
-          aria-valuenow={shown}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          onClick={(e) => e.stopPropagation()}
-          onPointerDown={onHandleDown}
-          onPointerMove={onHandleMove}
-          onPointerUp={onHandleUp}
-          onPointerCancel={onHandleUp}
-        />
-      </div>
+      <ProgressSlider
+        value={value}
+        locked={clampsProgress(card.stage)}
+        fill={fill}
+        title={(subCount ?? 0) > 0 ? `${value}% — derived from subtasks` : undefined}
+        onCommit={(final) => onProgress(card, final)}
+      />
     </div>
   );
 }

@@ -52,7 +52,7 @@ describe("the card drawer", () => {
 
   it("gives a task every row: its owner, zone, size, and what it sits under", () => {
     const html = draw(card({ zone: "red", team: "core", assignees: ["ann"], project: "cozy" }));
-    expect(rows(html)).toEqual(["Status", "Owner", "Zone", "Size", "Under", "Project"]);
+    expect(rows(html)).toEqual(["Status", "Progress", "Owner", "Zone", "Size", "Under", "Project"]);
     expect(html).toContain(">urgent<");
     // The owner is the team and the person, in one menu (OwnerPicker).
     expect(html).toContain("core · ann");
@@ -79,7 +79,7 @@ describe("the card drawer", () => {
   it("reads a subtask's owner as its task's, and names the task as a way to it", () => {
     const sub = card({ parent: "t", team: "core", assignees: ["ann"], lineage: [{ uid: "t", title: "Render PDF" }] });
     const html = draw(sub);
-    expect(rows(html)).toEqual(["Status", "Owner", "Zone", "Size", "Subtask of", "Project"].filter((r) => r !== "Project"));
+    expect(rows(html)).toEqual(["Status", "Progress", "Owner", "Zone", "Size", "Subtask of", "Project"].filter((r) => r !== "Project"));
     expect(html).not.toContain("owner-picker");
     expect(html).toContain('title="Open «Render PDF»"');
     expect(html).not.toContain('aria-label="Subtasks"'); // one level deep: a subtask has none
@@ -105,7 +105,7 @@ describe("the card drawer", () => {
 
   it("gives a project card its column and its dates, and a way under a planning card — no band, no size, no people", () => {
     const html = draw(card({ project: "cozy", scope: "Storage", startDate: "2026-03-02", day: "2026-03-13" }));
-    expect(rows(html)).toEqual(["Status", "Dates", "Under", "Project", "Scope"]);
+    expect(rows(html)).toEqual(["Status", "Progress", "Dates", "Under", "Project", "Scope"]);
     expect(html).not.toContain("modal-size-chip");
     expect(html).not.toContain("modal-zone-btn");
     expect(html).not.toContain("owner-picker");
