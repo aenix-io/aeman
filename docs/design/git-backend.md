@@ -444,7 +444,14 @@ team-less card and gave it the no-team group's sprint over the team's
 current one that SetTeam had just staged. The server's cache never showed
 it, because it applies every write at once; the store on its own — which
 is what an embedder uses — did. The overlay is not memoized: the staged
-set is the action's, not the tip's (G83).
+set is the action's, not the tip's (G83). That has a known cost for an
+embedder that runs the service straight over the store: every door an
+action passes through decodes the whole tree again, so a gesture that
+chains doors (`own` goes through five) or an action over many cards
+inside one scope pays a full read per door. The server is not affected —
+its cache answers every read — and overlaying the staged files onto the
+memoized tip snapshot, rather than walking the tree, is the fix when an
+embedder needs it.
 
 The exception to "one request, one commit" is the **coalesced field
 write**. Dragging a progress slider fires many writes for one intent;
