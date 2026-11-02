@@ -204,7 +204,7 @@ func TestMigrateSchema2ComposesEveryCardRewrite(t *testing.T) {
 // that shape is not rewritten.
 func TestMigrateSchema2TakesAProjectCardOutOfEverybodysHands(t *testing.T) {
 	const planID, pieceID, taskID, cleanID = "01JB4K2E7QZMX3R8V0N5T9WYC1", "01JB4K2E7QZMX3R8V0N5T9WYC2", "01JB4K2E7QZMX3R8V0N5T9WYC3", "01JB4K2E7QZMX3R8V0N5T9WYC4"
-	plan := "---\ntitle: a plan\nassignees:\n  - kvaps\nteam: portal\nstart: 2026-08-24\nday: 2026-08-28\nproject: engineering\nepic: Cozystack\nparent: " + taskID + "\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n\nThe body stays.\n"
+	plan := "---\ntitle: a plan\nassignees:\n  - kvaps\nteam: portal\nzone: yellow\nsize: M\nstart: 2026-08-24\nday: 2026-08-28\nproject: engineering\nepic: Cozystack\nparent: " + taskID + "\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n\nThe body stays.\n"
 	piece := "---\ntitle: a piece of the plan\nteam: portal\nparent: " + planID + "\nrank: b\ncreated: 2026-08-26T09:15:03Z\n---\n"
 	task := "---\ntitle: a task\nassignees:\n  - kvaps\nteam: portal\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n"
 	clean := "---\ntitle: already a plan\nproject: engineering\nscope: Cozystack\nrank: d\ncreated: 2026-08-26T09:17:03Z\n---\n"
@@ -223,14 +223,14 @@ func TestMigrateSchema2TakesAProjectCardOutOfEverybodysHands(t *testing.T) {
 		t.Fatalf("migrated=%v err=%v, want a migration", migrated, err)
 	}
 	c, _ := r.CommitObject(r.Head())
-	// Step 5 on the card in the column: team, owner and parent gone, the rest
-	// as it was — and step 3 composed with it.
+	// Step 5 on the card in the column: team, owner, parent, band and size
+	// gone, the rest as it was — and step 3 composed with it.
 	data, err := r.ReadFile("cards/c/1/" + planID + ".md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := string(data)
-	for _, gone := range []string{"team:", "assignees:", "kvaps", "parent:", "epic:"} {
+	for _, gone := range []string{"team:", "assignees:", "kvaps", "parent:", "epic:", "zone:", "size:"} {
 		if strings.Contains(got, gone) {
 			t.Fatalf("%s survived the bump on a project card:\n%s", gone, got)
 		}
@@ -259,7 +259,7 @@ func TestMigrateSchema2TakesAProjectCardOutOfEverybodysHands(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, card := range snap.Cards {
-		if card.ItemID == planID && (card.Team != "" || len(card.Assignees) != 0 || card.Parent != "") {
+		if card.ItemID == planID && (card.Team != "" || len(card.Assignees) != 0 || card.Parent != "" || card.Zone != "" || card.Size != "") {
 			t.Fatalf("the loaded project card still carries %+v", card)
 		}
 	}

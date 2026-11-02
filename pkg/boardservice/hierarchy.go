@@ -29,7 +29,7 @@ var ErrParentLevel = errors.New("a parent is of a higher level than its child")
 // board (H3), and its status is derived from the tasks under it (H5) — a
 // write of any of those would be a second answer to a question the tree
 // already answers.
-var ErrPlanningCard = errors.New("a planning card has no stage, progress, band, week, shelf, sprint, column or review of its own")
+var ErrPlanningCard = errors.New("a planning card has no stage, progress, band, size, week, shelf, sprint, column or review of its own")
 
 // notAPlanningCard is the guard every task-only write starts with.
 func notAPlanningCard(c board.Card, what string) error {
@@ -55,6 +55,10 @@ func planningCardCannotBe(args CreateCardArgs) error {
 	switch {
 	case args.Scope != "" || args.Project != "":
 		what = "column"
+	case args.Zone != board.ZoneNone:
+		what = "band"
+	case args.Size != "":
+		what = "size"
 	case args.Week != "":
 		what = "week"
 	case args.Parked:
@@ -101,7 +105,6 @@ func (s *Service) createPlanningCard(ctx context.Context, b board.Board, args Cr
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:    args.Title,
 		Type:     args.Type,
-		Size:     args.Size,
 		Day:      args.Day,
 		Start:    args.Start,
 		Assignee: args.Assignee,

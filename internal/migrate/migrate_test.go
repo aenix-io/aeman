@@ -133,12 +133,12 @@ func TestFinalTreeEqualsSnapshot(t *testing.T) {
 			leak = c
 		}
 	}
-	if leak.Progress != 100 || leak.Zone != board.ZoneYellow || leak.Scope != "Bugs" || leak.Project != "portal" || leak.GitHubID != "PVTI_a" {
+	if leak.Progress != 100 || leak.Scope != "Bugs" || leak.Project != "portal" || leak.GitHubID != "PVTI_a" {
 		t.Fatalf("leak = %+v", leak)
 	}
-	// A column entry comes in as a PROJECT CARD (H4): the team and the owner
-	// Projects v2 let it carry are not written.
-	if leak.Team != "" || len(leak.Assignees) != 0 {
+	// A column entry comes in as a PROJECT CARD (H4): the team, the owner,
+	// the band and the size Projects v2 let it carry are not written.
+	if leak.Team != "" || len(leak.Assignees) != 0 || leak.Zone != board.ZoneNone || leak.Size != "" {
 		t.Fatalf("a card in a column is imported with no team and no owner: %+v", leak)
 	}
 	// doneFrom seeded by the walk Reopen does today: the last jump to ≥100

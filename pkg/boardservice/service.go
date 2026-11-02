@@ -613,6 +613,14 @@ func (s *Service) createScopeCard(ctx context.Context, b board.Board, args Creat
 	if err := projectCardCannotCarry(b, asked, "and cannot be made in a column"); err != nil {
 		return board.Card{}, err
 	}
+	// Nor a band or a size: the Project board draws columns and date rows,
+	// and a weight belongs to work somebody carries (H4).
+	if args.Zone != board.ZoneNone {
+		return board.Card{}, fmt.Errorf("%w: %q would stand in a column and takes no band", ErrProjectCard, args.Title)
+	}
+	if args.Size != "" {
+		return board.Card{}, fmt.Errorf("%w: %q would stand in a column and takes no size", ErrProjectCard, args.Title)
+	}
 	start := args.Start
 	if start == "" {
 		start = board.TodayIso()
@@ -623,8 +631,6 @@ func (s *Service) createScopeCard(ctx context.Context, b board.Board, args Creat
 	}
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:   args.Title,
-		Zone:    args.Zone,
-		Size:    args.Size,
 		Scope:   args.Scope,
 		Project: args.Project,
 		Start:   start,
@@ -1804,6 +1810,9 @@ func (s *Service) SetZone(ctx context.Context, boardID string, itemID string, zo
 	if err := notAPlanningCard(card, "band"); err != nil {
 		return err
 	}
+	if card.Scope != "" {
+		return fmt.Errorf("%w: %q stands in a column and takes no band", ErrProjectCard, card.Title)
+	}
 	if err := s.backend.SetZone(ctx, b, card, zone); err != nil {
 		return err
 	}
@@ -1931,6 +1940,12 @@ func (s *Service) SetSize(ctx context.Context, boardID string, itemID string, si
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
+	}
+	if err := notAPlanningCard(card, "size"); err != nil {
+		return err
+	}
+	if card.Scope != "" {
+		return fmt.Errorf("%w: %q stands in a column and takes no size", ErrProjectCard, card.Title)
 	}
 	if card.Size == size {
 		return nil

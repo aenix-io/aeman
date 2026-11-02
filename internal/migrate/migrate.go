@@ -401,9 +401,9 @@ func (m *mapper) convert() {
 	all := append([]board.Card(nil), m.b.Cards...)
 	ranks, _ := board.RankRebalance("", "", len(m.b.Cards))
 	// A card in a column is a PROJECT CARD (H4, docs/design/hierarchy.md) and
-	// comes in as one: no team, no owner, no parent — and a card grouped under
-	// one comes in ungrouped, since a project card has no subtasks. Projects v2
-	// let a column entry carry all of those.
+	// comes in as one: no team, no owner, no parent, no band, no size — and a
+	// card grouped under one comes in ungrouped, since a project card has no
+	// subtasks. Projects v2 let a column entry carry all of those.
 	scoped := map[string]bool{}
 	for _, c := range m.b.Cards {
 		if c.Scope != "" {
@@ -425,6 +425,7 @@ func (m *mapper) convert() {
 		switch {
 		case c.Scope != "":
 			c.Team, c.Assignees, c.Parent = "", nil, ""
+			c.Zone, c.Size = board.ZoneNone, ""
 		case scoped[src.Parent]:
 			c.Parent = ""
 		}

@@ -25,7 +25,7 @@ var ErrScopeExists = errors.New("scope already exists")
 // any of those, or filing a card that carries one into a column, is refused:
 // a rejected input (422), not an upstream failure. The project card's dates
 // are its row; those it keeps.
-var ErrProjectCard = errors.New("a project card stands in its column alone: no team, no owner, no week, no parent, no review")
+var ErrProjectCard = errors.New("a project card stands in its column alone: no team, no owner, no band, no size, no week, no task parent, no review")
 
 // ErrScopeNotFound is filing a card under a column that does not exist — a
 // typo must not mint a phantom column the way a stray team value used to
@@ -198,9 +198,9 @@ func (s *Service) SetScope(ctx context.Context, boardID string, itemID, scope st
 			return err
 		}
 	}
-	if err := guardRoster(b, card.Team, projectName); err != nil {
-		return err
-	}
+	// No team/project pair to guard here: a card filed INTO a column has no
+	// team (refused just above, H4), and one taken OUT of its column leaves
+	// its project behind too — a Scope and a project card know no team.
 	// The card's own column must name the repository that will hold the
 	// file: a project card lives where its project lives, and a column of
 	// the no-project bucket declared elsewhere cannot hold it.
@@ -253,6 +253,21 @@ func (s *Service) SetScope(ctx context.Context, boardID string, itemID, scope st
 			return err
 		}
 		s.logEvent(ctx, b, card, board.EventSprint, card.SprintStart, "")
+	}
+	// And its BAND and SIZE go the same way: a project card has neither
+	// (H4), and filing is the act that makes it one — it is not refused for
+	// carrying what the column does not keep.
+	if card.Zone != board.ZoneNone {
+		if err := s.backend.SetZone(ctx, b, card, board.ZoneNone); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventZone, string(card.Zone), "")
+	}
+	if card.Size != "" {
+		if err := s.backend.SetSize(ctx, b, card, ""); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventSize, string(card.Size), "")
 	}
 	return nil
 }

@@ -295,6 +295,7 @@ func TestAPlanningCardHasNoDayBoardState(t *testing.T) {
 		"progress":  svc.SetProgress(ctx, "acme", "epic", 50),
 		"inprog":    svc.SetInProgress(ctx, "acme", "epic"),
 		"zone":      svc.SetZone(ctx, "acme", "epic", board.ZoneRed),
+		"size":      svc.SetSize(ctx, "acme", "epic", board.SizeM),
 		"week":      svc.SetWeek(ctx, "acme", "epic", board.MondayOf(today)),
 		"backlog":   svc.SetBacklog(ctx, "acme", "epic", true),
 		"place":     svc.Place(ctx, "acme", "epic", board.MondayOf(today)),
@@ -324,6 +325,17 @@ func TestAPlanningCardHasNoDayBoardState(t *testing.T) {
 	}
 	if c := f.get("epic"); c.Team != "alpha" || c.SprintStart != "" {
 		t.Fatalf("team on a planning card: %+v", c)
+	}
+	// And it is born with neither a band nor a size: the Roadmap draws
+	// levels and dates, not the day boards' bands, and a weight belongs to
+	// work somebody carries.
+	for what, args := range map[string]CreateCardArgs{
+		"a band": {Title: "Billing", Type: board.TypeEpic, Zone: board.ZoneYellow},
+		"a size": {Title: "Billing", Type: board.TypeEpic, Size: board.SizeM},
+	} {
+		if _, err := svc.CreateCard(ctx, "acme", args); !errors.Is(err, ErrPlanningCard) {
+			t.Errorf("a planning card born with %s = %v, want ErrPlanningCard", what, err)
+		}
 	}
 }
 

@@ -401,6 +401,17 @@ func NewBoardIn(primary string, cards []Card) Board {
 			b.Cards[i].Project = match
 		}
 	}
+	// A card in a column and a planning card have no band and no size (H4,
+	// H3): the Project board draws columns and date rows, the Roadmap draws
+	// levels and bars, and a weight belongs to work somebody carries. A file
+	// that still says otherwise — a repository migrated before the rule, a
+	// direct writer — is read without them, and the card's next rewrite
+	// drops the keys; nothing is rewritten for the reading alone.
+	for i := range b.Cards {
+		if b.Cards[i].Scope != "" || IsPlanning(b.Cards[i]) {
+			b.Cards[i].Zone, b.Cards[i].Size = ZoneNone, ""
+		}
+	}
 	for team, c := range winners {
 		b.SprintStates[team] = SprintState{
 			Current:  c.SprintStart,

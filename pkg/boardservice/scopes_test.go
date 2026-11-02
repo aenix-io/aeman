@@ -350,6 +350,49 @@ func TestAProjectCardIsMadeWithoutATeamOrAnOwner(t *testing.T) {
 	}
 }
 
+// A project card has no band and no size: the Project board draws columns
+// and date rows, not the day boards' bands, and a weight belongs to work
+// somebody carries. Refused at birth and at the two doors that set them;
+// and a TASK filed into a column leaves both behind, the way it leaves its
+// week and its sprint (H4) — filing is not refused for them.
+func TestAProjectCardCarriesNoZoneOrSize(t *testing.T) {
+	fake := scopeBoard()
+	svc := New(fake)
+	base := CreateCardArgs{Title: "KMS encryption", Scope: "Infra", Project: "Cozystack", Start: "2026-09-14"}
+	for what, args := range map[string]CreateCardArgs{
+		"a band": with(base, func(a *CreateCardArgs) { a.Zone = board.ZoneYellow }),
+		"a size": with(base, func(a *CreateCardArgs) { a.Size = board.SizeM }),
+	} {
+		if _, err := svc.CreateCard(ctx, "acme", args); !errors.Is(err, ErrProjectCard) {
+			t.Errorf("creating a project card with %s = %v, want ErrProjectCard", what, err)
+		}
+	}
+	card, err := svc.CreateCard(ctx, "acme", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetZone(ctx, "acme", card.ItemID, board.ZoneYellow); !errors.Is(err, ErrProjectCard) {
+		t.Errorf("a band on a project card = %v, want ErrProjectCard", err)
+	}
+	if err := svc.SetSize(ctx, "acme", card.ItemID, board.SizeM); !errors.Is(err, ErrProjectCard) {
+		t.Errorf("a size on a project card = %v, want ErrProjectCard", err)
+	}
+	// A task with a band and a size, filed into a column: both go.
+	task, err := svc.CreateCard(ctx, "acme", CreateCardArgs{Title: "a task", Zone: board.ZoneYellow, Size: board.SizeL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := "Cozystack"
+	if err := svc.SetScope(ctx, "acme", task.ItemID, "Infra", &project); err != nil {
+		t.Fatalf("filing a task into a column: %v", err)
+	}
+	b, _ := svc.Board(ctx, "acme")
+	filed, _ := board.Find(b, task.ItemID)
+	if filed.Scope != "Infra" || filed.Zone != board.ZoneNone || filed.Size != "" {
+		t.Fatalf("filed into a column = scope %q zone %q size %q, want Infra and neither", filed.Scope, filed.Zone, filed.Size)
+	}
+}
+
 func with[T any](v T, f func(*T)) T {
 	f(&v)
 	return v

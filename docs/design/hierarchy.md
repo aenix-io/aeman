@@ -79,10 +79,13 @@ the derived one.
 
 ## Project cards live on the Project board, and nowhere else
 
-A card with a `scope` is a plan, not work in hand: it **has no team and
-no assignees** (a write that sets either is refused), and it is **not
-drawn on Me, Team or Triage**. Its week is no longer derived from its
-dates, and nothing syncs it. It stands in its Scope column on the
+A card with a `scope` is a plan, not work in hand: it **has no team, no
+assignees, no band and no size** (a write that sets any of them is
+refused; a task filed into a column leaves its band and size behind, the
+way it leaves its week and sprint), and it is **not drawn on Me, Team or
+Triage**. Its week is no longer derived from its dates, and nothing
+syncs it. A file that still carries a band or a size on such a card is
+read without them and rewritten without them the next time it changes. It stands in its Scope column on the
 Project board, may be placed under an epic, initiative or goal (a
 planning `parent`, the hierarchy's link), and shows on the Roadmap under
 that parent. It is **never a subtask and has none** — a subtask rides its
@@ -200,8 +203,9 @@ G18), in this order:
 3. rename `projects/<id>/epics/` to `projects/<id>/scopes/` and rewrite
    `epic:` to `scope:` on every card;
 4. strip `mirrors` from every card;
-5. strip `team`, `assignees` and `parent` from every card that has a
-   `scope`, and `parent` from every card grouped under one (decision taken
+5. strip `team`, `assignees`, `parent`, `zone` and `size` from every card
+   that has a `scope`, and `parent` from every card grouped under one
+   (decision taken
    2026-11-02: a card in a column was created as a plan and stays one; a
    plan is never a subtask and has none — and before schema 2 every
    `parent` was a task's, so there is no planning parent to keep).
@@ -329,9 +333,12 @@ card that should be another level is made again.
   `TestDeletingAPlanningCardReparentsItsChildren`; apiserver
   `TestTheRoadmapListsTheHierarchy`; web `hierarchy.test.ts`.
 - H4 — a project card stands in its column alone: no team, no owner, no
-  week, never a subtask, no subtasks, never a review; drawn on the Project
-  board and the Roadmap only. A planning parent it may have. Pinned by board
-  `TestAProjectCardIsOnNoDayBoard`, `TestAProjectCardIsNotOnTheTriageBoard`;
+  band, no size, no week, never a subtask, no subtasks, never a review;
+  drawn on the Project board and the Roadmap only. A planning parent it may
+  have. Pinned by board `TestAProjectCardIsOnNoDayBoard`,
+  `TestAProjectCardIsNotOnTheTriageBoard`,
+  `TestACardInAColumnOrOfALevelReadsWithNoZoneOrSize`; service
+  `TestAProjectCardCarriesNoZoneOrSize`;
   apiserver `TestProjectViewDeliversWhatStandsInAColumnAndNothingElse`;
   service `TestAProjectCardTakesNoTeamNoOwnerNoWeek`,
   `TestAProjectCardIsMadeWithoutATeamOrAnOwner`,

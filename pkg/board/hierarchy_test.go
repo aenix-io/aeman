@@ -231,6 +231,30 @@ func TestHierarchyStatusIsDerivedFromTheLeafTasks(t *testing.T) {
 	}
 }
 
+// A card in a column and a planning card have no band and no size — the
+// Project board and the Roadmap draw neither, and a file that still carries
+// the keys (a repository migrated before the rule, a direct writer) must not
+// put them back on the wire. They are taken off on READ, where every other
+// reading of a file is settled, and the card's next rewrite drops the keys.
+// A task keeps both.
+func TestACardInAColumnOrOfALevelReadsWithNoZoneOrSize(t *testing.T) {
+	t.Parallel()
+	b := NewBoard([]Card{
+		{ItemID: "plan", Scope: "Infra", Project: "P", Zone: ZoneRed, Size: SizeM},
+		{ItemID: "epic", Type: TypeEpic, Zone: ZoneYellow, Size: SizeXL},
+		{ItemID: "task", Team: "t", Zone: ZoneGreen, Size: SizeS},
+	})
+	for _, id := range []string{"plan", "epic"} {
+		c, _ := Find(b, id)
+		if c.Zone != ZoneNone || c.Size != "" {
+			t.Errorf("%s reads with zone %q size %q, want neither", id, c.Zone, c.Size)
+		}
+	}
+	if c, _ := Find(b, "task"); c.Zone != ZoneGreen || c.Size != SizeS {
+		t.Errorf("a task keeps its band and size, got %q %q", c.Zone, c.Size)
+	}
+}
+
 // Somebody being ON a task is work in progress, before the first percent is
 // typed: an initiative whose tasks are all assigned and none started is
 // being worked, and the Roadmap must say so. An unassigned, unstarted task
