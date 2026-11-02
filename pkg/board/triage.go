@@ -22,13 +22,20 @@ func PlacedAhead(c Card, today string) bool {
 // A card SENT TO REVIEW is not in that pile either. Its work is done and it
 // is waiting on a reviewer, not on a week: asking the strip's reader for one
 // asks them to decide something nobody is waiting on them to decide.
-func NeedsTriage(b Board, c Card, _ string) bool {
+func NeedsTriage(b Board, c Card, today string) bool {
+	return needsTriage(c, today, func(c Card) bool { return IsSubtask(b, c) })
+}
+
+// needsTriage is NeedsTriage with the subtask question handed in — the one
+// part of it that reads the board — so an Index answers it for every card
+// of a listing without a walk of the board per card.
+func needsTriage(c Card, _ string, isSubtask func(Card) bool) bool {
 	if IsStateTitle(c.Title) || IsPlanning(c) {
 		return false
 	}
 	// A subtask rides its parent; a task under an epic that nobody has
 	// scheduled is in the strip like any other (H1).
-	if IsSubtask(b, c) || c.ReviewOf != "" || c.Week != "" {
+	if isSubtask(c) || c.ReviewOf != "" || c.Week != "" {
 		return false
 	}
 	// A card in a Scope column is the Project board's plan (H4): somebody

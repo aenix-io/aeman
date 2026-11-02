@@ -471,8 +471,27 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	ancestors := e.ancestorsChanged(c, verb)
 	// Built on demand: on a board whose tabs are all scoped — the ordinary
 	// case — a burst of changes must not pay for a resource nobody is sent.
+	// And built ONCE each: the card's resource and every ancestor's are the
+	// same for every watcher that is sent them, and an ancestor's standing
+	// is a walk over the board — built per watcher it was W × A walks under
+	// the entry lock for one change.
+	var ix *board.Index
+	index := func() *board.Index {
+		if ix == nil {
+			ix = board.NewIndex(e.board)
+		}
+		return ix
+	}
 	var res apiserver.Card
 	built := false
+	ancestorRes := make([]*apiserver.Card, len(ancestors))
+	ancestorOf := func(i int) apiserver.Card {
+		if ancestorRes[i] == nil {
+			r := buildCard(e.board, index(), ancestors[i])
+			ancestorRes[i] = &r
+		}
+		return *ancestorRes[i]
+	}
 	scoped := false
 	for sub := range e.watchers {
 		if !sub.resources["cards"] {
@@ -491,13 +510,13 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 		}
 		if sub.rights.canRead(c.Domain) && !mine(origin, sub.clientID) {
 			if !built {
-				res, built = apiserver.CardResource(e.board, c), true
+				res, built = buildCard(e.board, index(), c), true
 			}
 			sub.send(watchFrame{Type: verb, Kind: "Card", Object: res})
 		}
-		for _, a := range ancestors {
+		for i, a := range ancestors {
 			if sub.rights.canRead(a.Domain) {
-				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: apiserver.CardResource(e.board, a)})
+				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: ancestorOf(i)})
 			}
 		}
 	}
@@ -535,6 +554,9 @@ func (e *boardEntry) flushMembers() {
 	defer func() { e.noteFanout(time.Since(started)) }()
 	moved := e.moved
 	e.moved = nil
+	// One index for the burst: every resource sent below asks the board the
+	// same questions, for every watcher.
+	ix := board.NewIndex(e.board)
 	for sub := range e.watchers {
 		if sub.sel == nil || !sub.resources["cards"] {
 			continue
@@ -548,9 +570,9 @@ func (e *boardEntry) flushMembers() {
 			}
 			switch {
 			case !sub.members[c.ItemID]:
-				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: apiserver.CardResource(e.board, c)})
+				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: buildCard(e.board, ix, c)})
 			case touched:
-				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: apiserver.CardResource(e.board, c)})
+				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: buildCard(e.board, ix, c)})
 			}
 		}
 		for id := range sub.members {
@@ -558,11 +580,8 @@ func (e *boardEntry) flushMembers() {
 				continue
 			}
 			obj := tombstone(id)
-			for _, c := range e.board.Cards {
-				if c.ItemID == id {
-					obj = apiserver.CardResource(e.board, c)
-					break
-				}
+			if c, ok := ix.Find(id); ok {
+				obj = buildCard(e.board, ix, c)
 			}
 			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})
 		}
@@ -570,11 +589,16 @@ func (e *boardEntry) flushMembers() {
 	}
 }
 
+// buildCard is the resource a watcher is sent. A variable so a test can
+// count how many times a burst builds one.
+var buildCard = apiserver.CardResourceIn
+
 // reevaluate recomputes every scoped subscription's membership against the
 // cached board and emits the deltas — the board shifted in a way no single
 // card event expresses (a sprint pointer moved, or the day rolled over).
 // The caller holds e.mu.
 func (e *boardEntry) reevaluate(origin string) {
+	ix := board.NewIndex(e.board)
 	for sub := range e.watchers {
 		if sub.sel == nil || !sub.resources["cards"] {
 			continue
@@ -584,7 +608,7 @@ func (e *boardEntry) reevaluate(origin string) {
 		for _, c := range apiserver.FilterCards(sub.view(e.board), *sub.sel) {
 			now[c.ItemID] = true
 			if !sub.members[c.ItemID] && !suppressed {
-				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: apiserver.CardResource(e.board, c)})
+				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: buildCard(e.board, ix, c)})
 			}
 		}
 		for id := range sub.members {
@@ -592,11 +616,8 @@ func (e *boardEntry) reevaluate(origin string) {
 				continue
 			}
 			obj := tombstone(id)
-			for _, c := range e.board.Cards {
-				if c.ItemID == id {
-					obj = apiserver.CardResource(e.board, c)
-					break
-				}
+			if c, ok := ix.Find(id); ok {
+				obj = buildCard(e.board, ix, c)
 			}
 			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})
 		}

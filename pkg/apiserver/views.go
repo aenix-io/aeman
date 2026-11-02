@@ -173,26 +173,25 @@ func (s Selector) normalized() Selector {
 // a subtask whose parent task is out, since a subtask rides its parent. The
 // tree is the client's to assemble from `parent`; the listing is the cards
 // that make it up.
-func roadmapCards(b board.Board) []board.Card {
-	planning := board.PlanningIDs(b)
+func roadmapCards(b board.Board, ix *board.Index) []board.Card {
 	in := map[string]bool{}
 	for _, c := range b.Cards {
 		if board.IsStateTitle(c.Title) {
 			continue
 		}
 		switch {
-		case board.IsPlanning(c) || board.HasPlanningAncestor(b, c):
+		case board.IsPlanning(c) || ix.HasPlanningAncestor(c):
 			in[c.ItemID] = true
 		// Open work with no planning ancestor: a task, parked or in the strip
 		// or on a day board. Not a review card — it follows the card it
 		// reviews, which is the work, and cannot be filed under anything.
-		case c.Scope == "" && c.ReviewOf == "" && !board.IsSubtaskIn(c, planning) && !board.Complete(c.Stage, c.Progress):
+		case c.Scope == "" && c.ReviewOf == "" && !ix.IsSubtask(c) && !board.Complete(c.Stage, c.Progress):
 			in[c.ItemID] = true
 		}
 	}
 	// A subtask rides its parent task: in when it is, out when it is not.
 	for _, c := range b.Cards {
-		if board.IsSubtaskIn(c, planning) && in[c.Parent] {
+		if ix.IsSubtask(c) && in[c.Parent] {
 			in[c.ItemID] = true
 		}
 	}
@@ -243,11 +242,11 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 			base = append(base, c)
 		}
 	case "triage":
-		base = triageCards(b, sel)
+		base = triageCards(b, board.NewIndex(b), sel)
 	case "backlog":
 		base = backlogCards(b, sel)
 	case "roadmap":
-		base = roadmapCards(b)
+		base = roadmapCards(b, board.NewIndex(b))
 	default:
 		base = b.Cards
 	}
@@ -481,13 +480,17 @@ func MarkRecords(list *CardList, records map[string]bool, asOf string) {
 // ListCards builds the LIST response for a selector: resources in board order.
 func ListCards(b board.Board, sel Selector) CardList {
 	cards := FilterCards(b, sel)
-	resource := CardSummaryResource
+	// One index for the whole listing: every resource asks the board the
+	// same questions (lineage, standing, triage, reviewer), and asking them
+	// afresh per card was a walk of the board per card.
+	ix := board.NewIndex(b)
+	resource := CardSummaryResourceIn
 	if sel.Fields == "full" {
-		resource = CardResource
+		resource = CardResourceIn
 	}
 	items := make([]Card, 0, len(cards))
 	for _, c := range cards {
-		items = append(items, resource(b, c))
+		items = append(items, resource(b, ix, c))
 	}
 	return CardList{Kind: "CardList", Items: items}
 }
@@ -496,16 +499,15 @@ func ListCards(b board.Board, sel Selector) CardList {
 // in the weeks asked for, the current sprint (which is the current week's
 // column), the debts owed from earlier weeks — they stand in that column too
 // — and the cards nobody placed at all, which are the triage strip (B3, B5).
-func triageCards(b board.Board, sel Selector) []board.Card {
+func triageCards(b board.Board, ix *board.Index, sel Selector) []board.Card {
 	today := board.TodayIso()
 	until := board.AddDays(sel.From, 7*sel.Weeks)
 	thisWeek := board.MondayOf(today)
-	planning := board.PlanningIDs(b)
 	var out []board.Card
 	for _, c := range b.Cards {
 		// A planning card is the Roadmap's (H3); a subtask rides its
 		// parent; a task under an epic stands here like any task (H1).
-		if board.IsPlanning(c) || board.IsSubtaskIn(c, planning) || board.IsStateTitle(c.Title) {
+		if board.IsPlanning(c) || ix.IsSubtask(c) || board.IsStateTitle(c.Title) {
 			continue
 		}
 		// A PROJECT card is the Project board's plan and stands in no week
@@ -527,7 +529,7 @@ func triageCards(b board.Board, sel Selector) []board.Card {
 		if !teamInSet(c.Team, sel.Team) {
 			continue
 		}
-		if board.NeedsTriage(b, c, today) {
+		if ix.NeedsTriage(c, today) {
 			out = append(out, c)
 			continue
 		}

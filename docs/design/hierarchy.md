@@ -76,7 +76,11 @@ somebody's (has an assignee), has started or is finished — a person
 named on a task is work being done before the first percent is typed;
 *to do* otherwise. Progress is the share of leaf tasks complete, served
 beside the counts (`3/7`). This is the subtask rule (`DerivedProgress`)
-applied up the tree, and like it, it is never stored. Nobody sets a
+applied up the tree, and like it, it is never stored. It is a walk over the
+board (the leaf tasks), so a listing builds one `board.Index` — the cards
+by id and by parent — and asks it of every card, and a change announces
+its ancestors with resources built once for every watcher; asked card by
+card it was a walk of the board per card, per watcher. Nobody sets a
 status by hand at this stage; the Roadmap and the card's own pane show
 the derived one.
 

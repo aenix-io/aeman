@@ -395,12 +395,29 @@ type CardList struct {
 // by row rendering — stays behind for GET /cards/{uid}; the derived link refs
 // in status keep the row's links indicator honest without it.
 func CardSummaryResource(b board.Board, c board.Card) Card {
-	res := CardResource(b, c)
+	return CardSummaryResourceIn(b, board.NewIndex(b), c)
+}
+
+// CardSummaryResourceIn is CardSummaryResource over an index the caller
+// built once for a whole listing.
+func CardSummaryResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
+	res := CardResourceIn(b, ix, c)
 	res.Spec.Description = nil
 	return res
 }
 
+// CardResource is the resource for one card. It reads the board once (an
+// Index) for the questions that walk it — the lineage, a planning card's
+// standing, the triage strip, the reviewer. A LISTING builds the index once
+// and asks CardResourceIn of every card: three thousand cards walking the
+// board for each of those questions was the listing's whole cost, paid again
+// for every watcher's projection.
 func CardResource(b board.Board, c board.Card) Card {
+	return CardResourceIn(b, board.NewIndex(b), c)
+}
+
+// CardResourceIn is CardResource over an index built once for a listing.
+func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 	description := c.Description
 	spec := CardSpec{
 		Title:       c.Title,
@@ -429,15 +446,15 @@ func CardResource(b board.Board, c board.Card) Card {
 		Domain:      c.Domain,
 		DoneAt:      c.DoneAt,
 		LeftAt:      c.LeftAt,
-		Triage:      board.NeedsTriage(b, c, board.TodayIso()),
+		Triage:      ix.NeedsTriage(c, board.TodayIso()),
 		TriageWeek:  board.TriageWeekOf(b, c, board.TodayIso()),
 	}
 	status.Due = board.UpcomingRecurrences(b, c, board.TodayIso(), DueWeeksAhead)
-	for _, a := range board.Lineage(b, c) {
+	for _, a := range ix.Lineage(c) {
 		status.Lineage = append(status.Lineage, LineageRef{UID: a.ItemID, Type: a.Type, Title: a.Title})
 	}
 	if board.IsPlanning(c) {
-		st, done, total := board.HierarchyStatus(b, c)
+		st, done, total := ix.HierarchyStatus(c)
 		status.Hierarchy = &Hierarchy{Status: st, Done: done, Total: total}
 	}
 	for _, l := range board.ExtractLinks(c.Description) {
@@ -451,13 +468,7 @@ func CardResource(b board.Board, c board.Card) Card {
 			Kind: l.Kind, URL: l.URL, Owner: l.Owner, Repo: l.Repo, Number: l.Number,
 		})
 	}
-	for _, r := range b.Cards {
-		if r.ReviewOf == c.ItemID && len(r.Assignees) > 0 &&
-			!board.Complete(r.Stage, r.Progress) {
-			status.ReviewedBy = r.Assignees[0]
-			break
-		}
-	}
+	status.ReviewedBy = ix.ReviewedBy(c)
 	return Card{
 		Kind: "Card",
 		Metadata: CardMetadata{

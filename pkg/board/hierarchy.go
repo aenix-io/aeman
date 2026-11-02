@@ -117,90 +117,29 @@ func IsSubtask(b Board, c Card) bool {
 // at a parent that is not here, on a repeat (a cycle written straight into
 // the repository must not hang a reader), and after more hops than the
 // levels allow.
-func Lineage(b Board, c Card) []Card {
-	const maxHops = 6 // goal, initiative, epic, task, subtask — and one to spare
-	var up []Card
-	seen := map[string]bool{c.ItemID: true}
-	for cur := c; cur.Parent != "" && len(up) < maxHops; {
-		p, ok := Find(b, cur.Parent)
-		if !ok || seen[p.ItemID] {
-			break
-		}
-		seen[p.ItemID] = true
-		up = append(up, p)
-		cur = p
-	}
-	// Collected bottom-up; the breadcrumb reads top-down.
-	for i, j := 0, len(up)-1; i < j; i, j = i+1, j-1 {
-		up[i], up[j] = up[j], up[i]
-	}
-	return up
-}
+//
+// The one-card form of Index.Lineage: it reads the board once for the
+// answer. A loop over a board asking it of every card builds an Index first.
+func Lineage(b Board, c Card) []Card { return NewIndex(b).Lineage(c) }
 
 // HasPlanningAncestor reports a card with a goal, an initiative or an epic
 // somewhere above it — which is what puts a task, a subtask or a project
 // card on the Roadmap.
-func HasPlanningAncestor(b Board, c Card) bool {
-	for _, a := range Lineage(b, c) {
-		if IsPlanning(a) {
-			return true
-		}
-	}
-	return false
-}
+func HasPlanningAncestor(b Board, c Card) bool { return NewIndex(b).HasPlanningAncestor(c) }
 
 // ChildrenOf is every card whose parent is the given one, planning cards and
 // tasks alike, in board order. (Children, in subtasks.go, is the narrower
 // question: the SUBTASKS of a task.)
-func ChildrenOf(b Board, id string) []Card {
-	if id == "" {
-		return nil
-	}
-	var out []Card
-	for _, c := range b.Cards {
-		if c.Parent == id {
-			out = append(out, c)
-		}
-	}
-	return out
-}
+func ChildrenOf(b Board, id string) []Card { return NewIndex(b).ChildrenOf(id) }
 
 // LeafTasks is every task under a planning card, through every level: a
 // task whose parent is a planning card in the subtree. A subtask is NOT one
 // of them — its parent task answers for it through its own derived progress
-// — and neither is anything under a task. A task has no leaf tasks: the
-// question is a planning card's.
-func LeafTasks(b Board, id string) []Card {
-	root, ok := Find(b, id)
-	if !ok || !IsPlanning(root) {
-		return nil
-	}
-	// The planning cards of the subtree first, then one pass in BOARD order
-	// for the tasks under any of them — so the list is stable, whatever
-	// level a task hangs off.
-	subtree := map[string]bool{id: true}
-	for frontier := []string{id}; len(frontier) > 0; {
-		var next []string
-		for _, pid := range frontier {
-			for _, c := range ChildrenOf(b, pid) {
-				if IsPlanning(c) && !subtree[c.ItemID] {
-					subtree[c.ItemID] = true
-					next = append(next, c.ItemID)
-				}
-			}
-		}
-		frontier = next
-	}
-	// A review card is not one either: it is a copy of the card it reviews,
-	// made for the asking, and the original answers for the work.
-	var out []Card
-	for _, c := range b.Cards {
-		if !IsPlanning(c) && c.ReviewOf == "" && subtree[c.Parent] {
-			out = append(out, c)
-		}
-	}
-	return out
-}
+// — and neither is anything under a task, nor a review card (a copy of the
+// card it reviews, made for the asking; the original answers for the work).
+// A task has no leaf tasks: the question is a planning card's. The list is
+// in BOARD order, whatever level a task hangs off.
+func LeafTasks(b Board, id string) []Card { return NewIndex(b).LeafTasks(id) }
 
 // HierarchyStatus is a planning card's standing, derived from its leaf tasks
 // and never stored (H5): NO ITEMS when nothing is under it; DONE when every
@@ -210,28 +149,7 @@ func LeafTasks(b Board, id string) []Card {
 // the Roadmap shows beside the word. A task answers "" — it has a stage and
 // a progress of its own.
 func HierarchyStatus(b Board, c Card) (status string, done, total int) {
-	if !IsPlanning(c) {
-		return "", 0, 0
-	}
-	working := false
-	for _, t := range LeafTasks(b, c.ItemID) {
-		total++
-		switch {
-		case Complete(t.Stage, t.Progress):
-			done++
-		case len(t.Assignees) > 0 || IsInProgress(t):
-			working = true
-		}
-	}
-	switch {
-	case total == 0:
-		return HierarchyNoItems, 0, 0
-	case done == total:
-		return HierarchyDone, done, total
-	case done > 0 || working:
-		return HierarchyInProgress, done, total
-	}
-	return HierarchyTodo, done, total
+	return NewIndex(b).HierarchyStatus(c)
 }
 
 // PlanningResolver is the optional half of a DomainResolver: whether a card
