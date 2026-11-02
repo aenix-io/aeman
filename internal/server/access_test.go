@@ -231,7 +231,7 @@ func TestWriteNeedsWriteAccessToTheDomain(t *testing.T) {
 	// A team of one repository and a project of another cannot both be
 	// honoured, so that pair is refused before rights are even consulted
 	// (G46): the card carries the shared team "portal".
-	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"project":"secret","epic":"Risk"}`); rec.Code != http.StatusUnprocessableEntity {
+	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"project":"secret","scope":"Risk"}`); rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("dave files a shared team's card under a closed project: %d %s, want 422", rec.Code, rec.Body.String())
 	}
 	// Without a team the pair is valid and the move is a real one — into a
@@ -239,7 +239,7 @@ func TestWriteNeedsWriteAccessToTheDomain(t *testing.T) {
 	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"team":""}`); rec.Code != http.StatusOK {
 		t.Fatalf("dave clears the team: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"project":"secret","epic":"Risk"}`); rec.Code != http.StatusForbidden {
+	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"project":"secret","scope":"Risk"}`); rec.Code != http.StatusForbidden {
 		t.Fatalf("dave moves into closed: %d %s, want 403", rec.Code, rec.Body.String())
 	}
 	rec := doAs(t, srv, "dave", http.MethodGet, "/api/v1/cards/"+sharedUID, "")
@@ -253,11 +253,11 @@ func TestWriteNeedsWriteAccessToTheDomain(t *testing.T) {
 	if rec := doAs(t, srv, "dave", http.MethodDelete, "/api/v1/cards/"+closedUID, ""); rec.Code != http.StatusForbidden {
 		t.Fatalf("dave deletes a closed card: %d", rec.Code)
 	}
-	if rec := doAs(t, srv, "dave", http.MethodPost, "/api/v1/epics", `{"project":"secret","name":"Later"}`); rec.Code != http.StatusForbidden {
+	if rec := doAs(t, srv, "dave", http.MethodPost, "/api/v1/scopes", `{"project":"secret","name":"Later"}`); rec.Code != http.StatusForbidden {
 		t.Fatalf("dave adds a closed column: %d %s", rec.Code, rec.Body.String())
 	}
 	// bob may do all of it.
-	if rec := doAs(t, srv, "bob", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"project":"secret","epic":"Risk"}`); rec.Code != http.StatusOK {
+	if rec := doAs(t, srv, "bob", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"project":"secret","scope":"Risk"}`); rec.Code != http.StatusOK {
 		t.Fatalf("bob moves into closed: %d %s", rec.Code, rec.Body.String())
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

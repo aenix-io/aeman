@@ -250,8 +250,8 @@ func mergeByKind(p string, base, ours, theirs []byte) (merged []byte, same, merg
 		return mergeTyped(base, ours, theirs, DecodeTeam, EncodeTeam)
 	case PathProject:
 		return mergeTyped(base, ours, theirs, DecodeProject, EncodeProject)
-	case PathEpic:
-		return mergeTyped(base, ours, theirs, DecodeEpic, EncodeEpic)
+	case PathScope:
+		return mergeTyped(base, ours, theirs, DecodeScope, EncodeScope)
 	case PathDeadline:
 		return mergeTyped(base, ours, theirs, DecodeDeadline, EncodeDeadline)
 	case PathBoard:

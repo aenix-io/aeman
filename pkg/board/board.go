@@ -10,19 +10,19 @@ package board
 // web/src/providers/github/githubProvider.ts; such cards never render on a board.
 const SprintStateTitle = "aeman:sprint-state"
 
-// EpicStateTitle marks the hidden card that declares an epic column of the
-// Project board. One card per epic: its Epic field is the epic's name, its
-// Project field is the project the epic belongs to, and its position on the
+// ScopeStateTitle marks the hidden card that declares an scope column of the
+// Project board. One card per scope: its Scope field is the scope's name, its
+// Project field is the project the scope belongs to, and its position on the
 // board is the column order (exactly the team-roster mechanism of sprint-state
-// cards). The card exists so an empty epic — just added, or emptied out —
+// cards). The card exists so an empty scope — just added, or emptied out —
 // still has a column.
-const EpicStateTitle = "aeman:epic-state"
+const ScopeStateTitle = "aeman:scope-state"
 
 // ProjectStateTitle marks the hidden card that declares a project — the
-// Project board's top-level grouping, one step above epics. One card per
+// Project board's top-level grouping, one step above scopes. One card per
 // project: its Project field is the name and its board position is the order
-// the chips appear in. Like an epic, a project exists in its own right, so an
-// empty one can be created first and filled with epics afterwards.
+// the chips appear in. Like an scope, a project exists in its own right, so an
+// empty one can be created first and filled with scopes afterwards.
 const ProjectStateTitle = "aeman:project-state"
 
 // DeadlineStateTitle marks the hidden card that puts a deadline on a week of
@@ -106,15 +106,15 @@ type Card struct {
 	// or the board draws the same work twice and counts it twice against the
 	// week. Read it through board.InBacklog.
 	Parked bool `json:"parked,omitempty"`
-	// Epic names the Project-board column this card belongs to ("" = none). An
-	// epic card's row is its Week; StartDate..Day span the weeks its slot
+	// Scope names the Project-board column this card belongs to ("" = none). An
+	// scope card's row is its Week; StartDate..Day span the weeks its slot
 	// covers when it stretches over more than one.
-	Epic string `json:"epic,omitempty"`
+	Scope string `json:"scope,omitempty"`
 	// Project is the project side of the card's column. A column is
-	// identified by the PAIR (project, epic), because epic names are unique
+	// identified by the PAIR (project, scope), because scope names are unique
 	// only within a project — "Docs" or "Auth" belong to every project — so a
 	// card filed under a column must name both. On a project-state card it is
-	// the project's own name; on an epic-state card, the project owning it.
+	// the project's own name; on an scope-state card, the project owning it.
 	Project string `json:"project,omitempty"`
 	// ReviewOf, on a review card, is the itemId of the original card it reviews.
 	ReviewOf string `json:"reviewOf,omitempty"`
@@ -197,7 +197,7 @@ type CreateInput struct {
 	// than born in the strip and moved, which is one commit instead of two
 	// and spares every reader the instant in between.
 	Parked     bool   `json:"parked,omitempty"`
-	Epic       string `json:"epic,omitempty"`
+	Scope      string `json:"scope,omitempty"`
 	Project    string `json:"project,omitempty"`
 	Recurrence string `json:"recurrence,omitempty"`
 	// Body is the draft's description, written with the create rather than
@@ -215,11 +215,11 @@ type Deadline struct {
 	ItemID  string `json:"itemId,omitempty"`
 }
 
-// EpicCol is one column of the Project board: its name, the project that owns
-// it, and the hidden epic-state card that declares it. The (Project, Name)
-// pair is the column's identity — epic names repeat across projects, so a name
+// ScopeCol is one column of the Project board: its name, the project that owns
+// it, and the hidden scope-state card that declares it. The (Project, Name)
+// pair is the column's identity — scope names repeat across projects, so a name
 // alone does not identify a column.
-type EpicCol struct {
+type ScopeCol struct {
 	Name    string `json:"name"`
 	Project string `json:"project,omitempty"`
 	ItemID  string `json:"itemId,omitempty"`
@@ -259,15 +259,15 @@ type Board struct {
 	// each team's hidden sprint-state card on the project. That position IS
 	// the team order every client shares (reordering teams moves the card).
 	TeamOrder []string `json:"teamOrder,omitempty"`
-	// Epics lists the Project board's columns in board order (the positions
-	// of the hidden epic-state cards that declare them).
-	Epics []EpicCol `json:"epics,omitempty"`
+	// Scopes lists the Project board's columns in board order (the positions
+	// of the hidden scope-state cards that declare them).
+	Scopes []ScopeCol `json:"scopes,omitempty"`
 	// Deadlines are the weeks carrying a deadline line, in board order.
 	Deadlines []Deadline `json:"deadlines,omitempty"`
 	// Projects lists the project roster in board order (the positions of the
 	// hidden project-state cards) and ProjectStates maps each project to the
-	// card that declares it. A project groups epics: the Project board shows
-	// one project's epics as its columns.
+	// card that declares it. A project groups scopes: the Project board shows
+	// one project's scopes as its columns.
 	Projects      []string          `json:"projects,omitempty"`
 	ProjectStates map[string]string `json:"projectStates,omitempty"`
 	// Primary names the repository a board's own entries belong to — the
@@ -280,7 +280,7 @@ type Board struct {
 	// is the same thing said the other way.
 	Primary string `json:"primary,omitempty"`
 	// Domains maps a roster entry's id — a team's sprint-state card, a
-	// project, an epic column, a deadline — to the domain
+	// project, an scope column, a deadline — to the domain
 	// (repository) it was declared in; cards carry their own Domain. Nil on
 	// a single-domain board, where nothing records one.
 	Domains map[string]string `json:"domains,omitempty"`
@@ -304,10 +304,10 @@ func NewBoardIn(primary string, cards []Card) Board {
 	}
 	seen := map[string]bool{}
 	winners := map[string]Card{}
-	epicSeen := map[string]bool{}
+	scopeSeen := map[string]bool{}
 	projectSeen := map[string]bool{}
 	deadlineSeen := map[string]bool{}
-	epicKey := func(project, name string) string { return project + "\x00" + name }
+	scopeKey := func(project, name string) string { return project + "\x00" + name }
 	for _, c := range cards {
 		if c.Domain != "" && IsStateTitle(c.Title) {
 			if b.Domains == nil {
@@ -326,7 +326,7 @@ func NewBoardIn(primary string, cards []Card) Board {
 			continue
 		}
 		if c.Title == ProjectStateTitle {
-			// Same duplicate rule as epic-state: the first position wins.
+			// Same duplicate rule as scope-state: the first position wins.
 			if c.Project == "" || projectSeen[c.Project] {
 				continue
 			}
@@ -338,16 +338,16 @@ func NewBoardIn(primary string, cards []Card) Board {
 			b.ProjectStates[c.Project] = c.ItemID
 			continue
 		}
-		if c.Title == EpicStateTitle {
+		if c.Title == ScopeStateTitle {
 			// Same duplicate rule as sprint-state: the first position wins
 			// the order, the oldest card wins the state slot.
-			if c.Epic == "" {
+			if c.Scope == "" {
 				continue
 			}
-			if k := epicKey(c.Project, c.Epic); !epicSeen[k] {
-				epicSeen[k] = true
-				b.Epics = append(b.Epics, EpicCol{
-					Name: c.Epic, Project: c.Project, ItemID: c.ItemID,
+			if k := scopeKey(c.Project, c.Scope); !scopeSeen[k] {
+				scopeSeen[k] = true
+				b.Scopes = append(b.Scopes, ScopeCol{
+					Name: c.Scope, Project: c.Project, ItemID: c.ItemID,
 				})
 			}
 			continue
@@ -375,23 +375,23 @@ func NewBoardIn(primary string, cards []Card) Board {
 	// card's own dates said another. Deriving here makes every reader agree at
 	// once, and the stored field converges as cards are written.
 	for i := range b.Cards {
-		if b.Cards[i].Epic != "" && b.Cards[i].StartDate != "" {
+		if b.Cards[i].Scope != "" && b.Cards[i].StartDate != "" {
 			b.Cards[i].Week = MondayOf(b.Cards[i].StartDate)
 		}
 	}
-	// A card can name an epic without naming a project: it predates the pair,
-	// or someone set the Epic field straight in the GitHub UI. When exactly one
+	// A card can name an scope without naming a project: it predates the pair,
+	// or someone set the Scope field straight in the GitHub UI. When exactly one
 	// column bears that name it can only be that one, so it is adopted on READ
 	// — no rewriting of anyone's data, and the next write settles the pair.
 	// An ambiguous name (two projects, one column name) is left unattached
 	// rather than guessed at.
 	for i := range b.Cards {
-		if b.Cards[i].Epic == "" || b.Cards[i].Project != "" {
+		if b.Cards[i].Scope == "" || b.Cards[i].Project != "" {
 			continue
 		}
 		match, count := "", 0
-		for _, col := range b.Epics {
-			if col.Name == b.Cards[i].Epic {
+		for _, col := range b.Scopes {
+			if col.Name == b.Cards[i].Scope {
 				match, count = col.Project, count+1
 			}
 		}
@@ -419,12 +419,12 @@ func olderSprintState(a, b Card) bool {
 	return a.ItemID < b.ItemID
 }
 
-// EpicsOf lists a project's epic columns in board order. A column whose
+// ScopesOf lists a project's scope columns in board order. A column whose
 // project is unset belongs to none and shows only in the all-projects view —
 // it is never silently adopted.
-func EpicsOf(b Board, project string) []EpicCol {
-	var out []EpicCol
-	for _, e := range b.Epics {
+func ScopesOf(b Board, project string) []ScopeCol {
+	var out []ScopeCol
+	for _, e := range b.Scopes {
 		if e.Project == project {
 			out = append(out, e)
 		}
@@ -432,20 +432,20 @@ func EpicsOf(b Board, project string) []EpicCol {
 	return out
 }
 
-// FindEpic looks a column up by its identity — the (project, epic) pair.
-func FindEpic(b Board, project, name string) (EpicCol, bool) {
-	for _, e := range b.Epics {
+// FindScope looks a column up by its identity — the (project, scope) pair.
+func FindScope(b Board, project, name string) (ScopeCol, bool) {
+	for _, e := range b.Scopes {
 		if e.Project == project && e.Name == name {
 			return e, true
 		}
 	}
-	return EpicCol{}, false
+	return ScopeCol{}, false
 }
 
-// InEpic reports whether a card is filed under a column. Both halves have to
-// match: the same epic name in another project is a different column.
-func InEpic(c Card, project, name string) bool {
-	return c.Epic == name && c.Project == project
+// InScope reports whether a card is filed under a column. Both halves have to
+// match: the same scope name in another project is a different column.
+func InScope(c Card, project, name string) bool {
+	return c.Scope == name && c.Project == project
 }
 
 // InProject reports whether a card stands in one project's columns.

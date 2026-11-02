@@ -86,10 +86,10 @@ type Backend interface {
 	// SetBacklog puts the card on its team's shelf, or takes it off.
 	SetBacklog(ctx context.Context, b board.Board, card board.Card, parked bool) error
 	SetTeam(ctx context.Context, b board.Board, card board.Card, team string) error
-	// SetEpic files the card under a Project-board column ("" clears).
-	SetEpic(ctx context.Context, b board.Board, card board.Card, epic string) error
+	// SetScope files the card under a Project-board column ("" clears).
+	SetScope(ctx context.Context, b board.Board, card board.Card, scope string) error
 	// SetProject writes the Project field of a hidden state card: a
-	// project-state card's own name, or the project an epic belongs to.
+	// project-state card's own name, or the project an scope belongs to.
 	SetProject(ctx context.Context, b board.Board, card board.Card, project string) error
 	// SetRecurrence sets a recurrent card's reseed cycle ("" = every sprint).
 	SetRecurrence(ctx context.Context, b board.Board, card board.Card, cycle string) error

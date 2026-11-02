@@ -35,11 +35,11 @@ func TestLoadAllMergesRostersInRankOrder(t *testing.T) {
 		"cards/a/1/01CARDA1.md":   "---\ntitle: shared one\nteam: portal\nrank: b\n---\n",
 	})
 	closed := repoWith(t, map[string]string{
-		BoardPath:                       "schema: 2\ntitle: IGNORED — only the primary names the board\n",
-		TeamPath("01T_OPS"):             "name: ops\nrank: b\ncreated: 2026-06-02T08:00:00Z\n",
-		ProjectPath("01P_SECRET"):       "name: secret\nrank: b\ncreated: 2026-06-02T08:00:00Z\n",
-		EpicPath("01P_SECRET", "01E_X"): "name: X\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
-		"cards/a/2/01CARDA2.md":         "---\ntitle: closed one\nproject: secret\nepic: X\nrank: a\n---\n",
+		BoardPath:                        "schema: 2\ntitle: IGNORED — only the primary names the board\n",
+		TeamPath("01T_OPS"):              "name: ops\nrank: b\ncreated: 2026-06-02T08:00:00Z\n",
+		ProjectPath("01P_SECRET"):        "name: secret\nrank: b\ncreated: 2026-06-02T08:00:00Z\n",
+		ScopePath("01P_SECRET", "01E_X"): "name: X\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
+		"cards/a/2/01CARDA2.md":          "---\ntitle: closed one\nproject: secret\nscope: X\nrank: a\n---\n",
 	})
 	s, err := LoadAll([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}})
 	if err != nil {
@@ -54,7 +54,7 @@ func TestLoadAllMergesRostersInRankOrder(t *testing.T) {
 	if s.Teams[1].Domain != "closed" || s.Teams[2].Domain != "shared" || s.Teams[0].Domain != "shared" {
 		t.Fatalf("team domains = %s %s %s", s.Teams[0].Domain, s.Teams[1].Domain, s.Teams[2].Domain)
 	}
-	if len(s.Projects) != 2 || s.Projects[0].Name != "portal" || s.Projects[1].Name != "secret" || s.Projects[1].Domain != "closed" || len(s.Projects[1].Epics) != 1 {
+	if len(s.Projects) != 2 || s.Projects[0].Name != "portal" || s.Projects[1].Name != "secret" || s.Projects[1].Domain != "closed" || len(s.Projects[1].Scopes) != 1 {
 		t.Fatalf("projects = %+v", s.Projects)
 	}
 	if len(s.Cards) != 2 || s.Cards[0].Title != "closed one" || s.Cards[0].Domain != "closed" || s.Cards[1].Domain != "shared" {
@@ -125,13 +125,13 @@ func TestLoadAllNoTeamFragmentOutsidePrimaryIgnored(t *testing.T) {
 // An alias project's columns and deadline lines show as the winner's.
 func TestLoadAllAliasProjectMergesColumns(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:                       "schema: 2\ntitle: b\n",
-		ProjectPath("01P_OLD"):          "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		EpicPath("01P_OLD", "01E_BUGS"): "name: Bugs\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		BoardPath:                        "schema: 2\ntitle: b\n",
+		ProjectPath("01P_OLD"):           "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		ScopePath("01P_OLD", "01E_BUGS"): "name: Bugs\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
 	})
 	closed := repoWith(t, map[string]string{
 		ProjectPath("01P_NEW"):           "name: portal\nrank: b\ncreated: 2026-07-01T08:00:00Z\n",
-		EpicPath("01P_NEW", "01E_DOCS"):  "name: Docs\nrank: b\ncreated: 2026-07-01T08:00:00Z\n",
+		ScopePath("01P_NEW", "01E_DOCS"): "name: Docs\nrank: b\ncreated: 2026-07-01T08:00:00Z\n",
 		DeadlinePath("01P_NEW", "01D_1"): "week: 2026-09-07\ncreated: 2026-07-01T08:00:00Z\n",
 	})
 	s, err := LoadAll([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}})
@@ -142,8 +142,8 @@ func TestLoadAllAliasProjectMergesColumns(t *testing.T) {
 		t.Fatalf("projects = %+v", s.Projects)
 	}
 	p := s.Projects[0]
-	if len(p.Epics) != 2 || p.Epics[0].Name != "Bugs" || p.Epics[1].Name != "Docs" || p.Epics[1].Domain != "closed" {
-		t.Fatalf("epics = %+v", p.Epics)
+	if len(p.Scopes) != 2 || p.Scopes[0].Name != "Bugs" || p.Scopes[1].Name != "Docs" || p.Scopes[1].Domain != "closed" {
+		t.Fatalf("scopes = %+v", p.Scopes)
 	}
 	if len(p.Deadlines) != 1 || p.Deadlines[0].Domain != "closed" {
 		t.Fatalf("deadlines = %+v", p.Deadlines)

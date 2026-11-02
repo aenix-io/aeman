@@ -10,7 +10,7 @@ import (
 
 // A PERSON creating a card does it on a BOARD, and the board is what makes the
 // card what it is. The API asked for the fields instead — `week`, `parked`,
-// `epic` — so a caller had to know which combinations are boards and which are
+// `scope` — so a caller had to know which combinations are boards and which are
 // states no board draws. These are the add-boxes, as the views they belong to
 // (docs/design/view-scoped-api.md).
 func TestEachBoardCreatesItsOwnKindOfCard(t *testing.T) {
@@ -197,10 +197,10 @@ func TestEachBoardCreatesItsOwnKindOfCard(t *testing.T) {
 			field string
 		}{
 			{board.ViewMe, CreateCardArgs{Title: "x", Parked: true}, "parked"},
-			{board.ViewMe, CreateCardArgs{Title: "x", Epic: "Auth"}, "epic"},
+			{board.ViewMe, CreateCardArgs{Title: "x", Scope: "Auth"}, "scope"},
 			{board.ViewTriage, CreateCardArgs{Title: "x", Week: board.AddDays(board.MondayOf(today), 7), Day: today}, "day"},
 			{board.ViewBacklog, CreateCardArgs{Title: "x", Week: "2026-09-07"}, "week"},
-			{board.ViewProject, CreateCardArgs{Title: "x", Epic: "Auth", Parked: true}, "parked"},
+			{board.ViewProject, CreateCardArgs{Title: "x", Scope: "Auth", Parked: true}, "parked"},
 		} {
 			f := seed()
 			_, err := f2svc(f).CreateInView(ctx, "acme", tc.view, tc.args)

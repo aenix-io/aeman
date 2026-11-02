@@ -207,14 +207,14 @@ func MeView(b Board, user, day string) []Card {
 		if c.Parent != "" {
 			continue
 		}
-		// An epic card lives on the Project board until it joins a sprint: its
+		// An scope card lives on the Project board until it joins a sprint: its
 		// week-spanning dates would otherwise smear it across the day boards.
-		// The column is what holds it, and a column needs the epic side —
+		// The column is what holds it, and a column needs the scope side —
 		// TeamGrid draws the same line. Unless someone owns it: then it is
 		// that person's work, and their day board is where they look for it;
 		// it shows across the days its own dates cover, like any other dated
 		// card.
-		if c.Epic != "" && c.SprintStart == "" && len(c.Assignees) == 0 {
+		if c.Scope != "" && c.SprintStart == "" && len(c.Assignees) == 0 {
 			continue
 		}
 		if user != "" && !slices.Contains(c.Assignees, user) && !childAssigned(b, c.ItemID, user) {

@@ -34,7 +34,7 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string) error
 		return err
 	}
 	today := board.TodayIso()
-	if card.Epic != "" && card.Week != "" && card.Day != "" {
+	if card.Scope != "" && card.Week != "" && card.Day != "" {
 		// A slot's week is its start's week: move the dates, the week
 		// follows (syncSlotWeek).
 		from := board.MondayOf(card.StartDate)
@@ -102,7 +102,7 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string) error
 	// sprint began would join the PREVIOUS one — through the end of the week.
 	// Only the week being WORKED does this; placing into an earlier one is
 	// filing a record, not saying "this is being done now".
-	if week == board.MondayOf(today) && card.Epic == "" && daysRanOut(card, week) {
+	if week == board.MondayOf(today) && card.Scope == "" && daysRanOut(card, week) {
 		return s.SetDates(ctx, boardID, itemID, today, board.AddDays(week, 6))
 	}
 	// Brought back into the week the team is working, a card that stands on
@@ -113,7 +113,7 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string) error
 	// day, not on anyone's Me, findable by its id alone. A card that already
 	// has a day keeps it: placing it in the week it is already in says
 	// nothing new about when it is being done.
-	if card.StartDate == "" && card.Day == "" && card.SprintStart == "" && card.Epic == "" {
+	if card.StartDate == "" && card.Day == "" && card.SprintStart == "" && card.Scope == "" {
 		sprint := board.ActiveSprint(b, card.Team, today)
 		if sprint == "" {
 			sprint = board.CurrentSprint(b, card.Team)
@@ -155,7 +155,7 @@ func (s *Service) Untriage(ctx context.Context, boardID, itemID string) error {
 	if err != nil {
 		return err
 	}
-	if card.Epic != "" {
+	if card.Scope != "" {
 		return fmt.Errorf("%w: a slot's week is its row — take it off the column instead", ErrWeekDerived)
 	}
 	if card.Week != "" {

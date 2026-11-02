@@ -17,14 +17,14 @@ func intentBoard() *fakeBackend {
 	today := board.TodayIso()
 	return newFake([]board.Card{
 		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "core"},
-		{ItemID: "ep", Title: board.EpicStateTitle, Epic: "Auth", Project: "core"},
+		{ItemID: "ep", Title: board.ScopeStateTitle, Scope: "Auth", Project: "core"},
 		// An ordinary card, in the working area and scheduled for a week.
 		{ItemID: "plain", Team: "alpha", Assignees: []string{"kvaps"}, Week: board.MondayOf(today),
 			SprintStart: today, StartDate: today, Day: today},
 		// Its subtask: a piece of the same work.
 		{ItemID: "kid", Team: "alpha", Parent: "plain", SprintStart: today, StartDate: today},
 		// A project card.
-		{ItemID: "slot", Team: "alpha", Project: "core", Epic: "Auth",
+		{ItemID: "slot", Team: "alpha", Project: "core", Scope: "Auth",
 			Assignees: []string{"kvaps"}, SprintStart: today, StartDate: today, Day: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 }

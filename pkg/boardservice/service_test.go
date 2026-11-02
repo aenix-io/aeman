@@ -93,7 +93,7 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string) (board.Board, error
 	f.rec("LoadBoard")
 	// Assembled the way the real board is. A fake that reproduced the
 	// state-card split by hand never ran the assembly's own rules — the
-	// derived week, the adopted epic, the domain stamps — so the service was
+	// derived week, the adopted scope, the domain stamps — so the service was
 	// tested against a board nobody has, and the branch's whole claim is
 	// that the assembly and the service must answer alike.
 	cards := append([]board.Card{}, f.b.Cards...)
@@ -189,7 +189,7 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 	card := board.Card{
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Domain: in.Domain,
 		Zone: in.Zone, StartDate: in.Start, Day: in.Day, SprintStart: in.SprintStart,
-		Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
+		Week: in.Week, Scope: in.Scope, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
 		Parked: in.Parked, Size: in.Size,
 		Recurrence:  in.Recurrence,
 		Description: in.Body,
@@ -467,12 +467,12 @@ func (f *fakeBackend) SetTeam(_ context.Context, _ board.Board, card board.Card,
 	return nil
 }
 
-func (f *fakeBackend) SetEpic(_ context.Context, _ board.Board, card board.Card, epic string) error {
+func (f *fakeBackend) SetScope(_ context.Context, _ board.Board, card board.Card, scope string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.rec("SetEpic %s %s", card.ItemID, epic)
+	f.rec("SetScope %s %s", card.ItemID, scope)
 	if c := f.get(card.ItemID); c != nil {
-		c.Epic = epic
+		c.Scope = scope
 	}
 	return nil
 }
@@ -1360,7 +1360,7 @@ func TestRemoveGridDeletesWhenNoPreviousSprintAndNowhereElse(t *testing.T) {
 // the weekly plan AND from the Project board, because the grid x had no
 // project-card guard and a same-day card has no earlier sprint to demote into.
 func TestRemoveGridReleasesProjectCardInsteadOfDeleting(t *testing.T) {
-	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Epic: "Journal", Project: "Portal",
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Scope: "Journal", Project: "Portal",
 		StartDate: board.TodayIso(), SprintStart: "2026-01-10", Assignees: []string{"bob"}}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
 	if err := f2svc(f).Remove(ctx, "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
@@ -1373,7 +1373,7 @@ func TestRemoveGridReleasesProjectCardInsteadOfDeleting(t *testing.T) {
 	if len(c.Assignees) != 0 || c.SprintStart != "" {
 		t.Fatalf("removing from a person hands the card back: %+v", c)
 	}
-	if c.Epic != "Journal" || c.Project != "Portal" {
+	if c.Scope != "Journal" || c.Project != "Portal" {
 		t.Fatalf("it keeps its Project-board column: %+v", c)
 	}
 }

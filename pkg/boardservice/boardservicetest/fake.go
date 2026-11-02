@@ -277,7 +277,7 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 	card := board.Card{
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Domain: in.Domain,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
-		Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
+		Week: in.Week, Scope: in.Scope, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
 		Parked: in.Parked, Size: in.Size,
 		Recurrence:  in.Recurrence,
 		Description: in.Body,
@@ -600,13 +600,13 @@ func (f *Backend) SetTeam(_ context.Context, _ board.Board, card board.Card, tea
 	return nil
 }
 
-// SetEpic files the card under a Project-board column.
-func (f *Backend) SetEpic(_ context.Context, _ board.Board, card board.Card, epic string) error {
+// SetScope files the card under a Project-board column.
+func (f *Backend) SetScope(_ context.Context, _ board.Board, card board.Card, scope string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.rec("SetEpic %s %s", card.ItemID, epic)
+	f.rec("SetScope %s %s", card.ItemID, scope)
 	if c := f.card(card.ItemID); c != nil {
-		c.Epic = epic
+		c.Scope = scope
 	}
 	return nil
 }

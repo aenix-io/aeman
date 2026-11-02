@@ -19,11 +19,11 @@ func twoDomainBoard() Board {
 		{ItemID: "T_OPS", Title: SprintStateTitle, Team: "ops", SprintStart: "2026-08-24", Domain: "closed"},
 		{ItemID: "P_PORTAL", Title: ProjectStateTitle, Project: "portal", Domain: "shared"},
 		{ItemID: "P_SECRET", Title: ProjectStateTitle, Project: "secret", Domain: "closed"},
-		{ItemID: "E_BUGS", Title: EpicStateTitle, Project: "portal", Epic: "Bugs", Domain: "shared"},
-		{ItemID: "E_RISK", Title: EpicStateTitle, Project: "secret", Epic: "Risk", Domain: "closed"},
+		{ItemID: "E_BUGS", Title: ScopeStateTitle, Project: "portal", Scope: "Bugs", Domain: "shared"},
+		{ItemID: "E_RISK", Title: ScopeStateTitle, Project: "secret", Scope: "Risk", Domain: "closed"},
 		{ItemID: "D_1", Title: DeadlineStateTitle, Project: "secret", Week: "2026-09-07", Domain: "closed"},
 		{ItemID: "C_SHARED", Title: "shared card", Team: "portal", Domain: "shared", Assignees: []string{"kvaps"}},
-		{ItemID: "C_CLOSED", Title: "closed card", Team: "portal", Project: "secret", Epic: "Risk", Domain: "closed", Assignees: []string{"timur"}},
+		{ItemID: "C_CLOSED", Title: "closed card", Team: "portal", Project: "secret", Scope: "Risk", Domain: "closed", Assignees: []string{"timur"}},
 		{ItemID: "C_OPS", Title: "ops card in shared", Team: "ops", Domain: "shared"},
 		{ItemID: "C_LEGACY", Title: "no domain recorded"},
 	})
@@ -59,8 +59,8 @@ func TestVisibleDropsUnreadableDomainsEntirely(t *testing.T) {
 	if !reflect.DeepEqual(v.Projects, []string{"portal"}) || v.ProjectStates["secret"] != "" {
 		t.Fatalf("projects = %v / %v", v.Projects, v.ProjectStates)
 	}
-	if len(v.Epics) != 1 || v.Epics[0].Name != "Bugs" {
-		t.Fatalf("epics = %v", v.Epics)
+	if len(v.Scopes) != 1 || v.Scopes[0].Name != "Bugs" {
+		t.Fatalf("scopes = %v", v.Scopes)
 	}
 	if len(v.Deadlines) != 0 {
 		t.Fatalf("closed roster leaked: deadlines %v", v.Deadlines)

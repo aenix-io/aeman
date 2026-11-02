@@ -43,15 +43,15 @@ type Options struct {
 
 // Report is what the migration did and what it could not carry over.
 type Report struct {
-	AlreadyMigrated                          bool
-	Verified                                 bool
-	Cards, Teams, Projects, Epics, Deadlines int
-	Events, Commits                          int
-	DoneFromSeeded, DoneWithoutJump          int
-	IssueCards                               []string
-	UnattributedNotes                        int
-	Dangling                                 []string
-	Dropped                                  []string
+	AlreadyMigrated                           bool
+	Verified                                  bool
+	Cards, Teams, Projects, Scopes, Deadlines int
+	Events, Commits                           int
+	DoneFromSeeded, DoneWithoutJump           int
+	IssueCards                                []string
+	UnattributedNotes                         int
+	Dangling                                  []string
+	Dropped                                   []string
 	// Stranded are the cards the source board carried that were PLACED on a
 	// day and then left where no view can reach them — the shape the old ×
 	// made when it demoted a worked card into the previous sprint
@@ -73,8 +73,8 @@ func (r Report) String() string {
 		b.WriteString("already migrated — nothing written\n")
 		return b.String()
 	}
-	fmt.Fprintf(&b, "%d cards, %d teams, %d projects, %d epics, %d deadlines\n",
-		r.Cards, r.Teams, r.Projects, r.Epics, r.Deadlines)
+	fmt.Fprintf(&b, "%d cards, %d teams, %d projects, %d scopes, %d deadlines\n",
+		r.Cards, r.Teams, r.Projects, r.Scopes, r.Deadlines)
 	fmt.Fprintf(&b, "%d events replayed into %d commits; end state verified: %v\n", r.Events, r.Commits, r.Verified)
 	fmt.Fprintf(&b, "doneFrom seeded on %d done cards; %d done cards had no recorded jump (reopen falls back to the nudge)\n", r.DoneFromSeeded, r.DoneWithoutJump)
 	fmt.Fprintf(&b, "%d unattributed notes (kept without an author)\n", r.UnattributedNotes)
@@ -375,8 +375,8 @@ func newMapper(ex ghsource.Export, rep *Report) *mapper {
 			m.ids[item] = id
 		}
 	}
-	for _, col := range b.Epics {
-		m.ids[col.ItemID] = gitstore.DeriveID(epoch, "epic", col.Project, col.Name)
+	for _, col := range b.Scopes {
+		m.ids[col.ItemID] = gitstore.DeriveID(epoch, "scope", col.Project, col.Name)
 	}
 	for _, d := range b.Deadlines {
 		m.ids[d.ItemID] = gitstore.DeriveID(epoch, "deadline", d.Project, d.Week)
@@ -438,7 +438,7 @@ func (m *mapper) convert() {
 	}
 	m.rep.Teams = len(m.b.TeamOrder)
 	m.rep.Projects = len(m.b.Projects)
-	m.rep.Epics = len(m.b.Epics)
+	m.rep.Scopes = len(m.b.Scopes)
 	m.rep.Deadlines = len(m.b.Deadlines)
 	m.rep.Dropped = append(m.rep.Dropped, "Status field (Todo on every card; vestigial)")
 }
@@ -496,11 +496,11 @@ func (m *mapper) files(title string) map[string][]byte {
 		out[gitstore.ProjectPath(m.projectID[p])], _ = gitstore.EncodeProject(gitstore.ProjectFile{Name: p, Rank: projRanks[i], Created: created})
 	}
 	perProject := map[string]int{}
-	epicRanks, _ := board.RankRebalance("", "", len(m.b.Epics))
-	for i, col := range m.b.Epics {
+	scopeRanks, _ := board.RankRebalance("", "", len(m.b.Scopes))
+	for i, col := range m.b.Scopes {
 		pid := m.projectID[col.Project]
 		perProject[col.Project]++
-		out[gitstore.EpicPath(pid, m.ids[col.ItemID])], _ = gitstore.EncodeEpic(gitstore.EpicFile{Name: col.Name, Rank: epicRanks[i], Created: created})
+		out[gitstore.ScopePath(pid, m.ids[col.ItemID])], _ = gitstore.EncodeScope(gitstore.ScopeFile{Name: col.Name, Rank: scopeRanks[i], Created: created})
 	}
 	for _, d := range m.b.Deadlines {
 		out[gitstore.DeadlinePath(m.projectID[d.Project], m.ids[d.ItemID])], _ = gitstore.EncodeDeadline(gitstore.DeadlineFile{Week: d.Week, Created: created})
@@ -568,8 +568,8 @@ func (m *mapper) apply(c *board.Card, kind, v string) {
 		c.Week = v
 	case board.EventTeam:
 		c.Team = v
-	case board.EventEpic:
-		c.Epic = v
+	case board.EventScope:
+		c.Scope = v
 	case board.EventAssignee:
 		if v == "" {
 			c.Assignees = nil

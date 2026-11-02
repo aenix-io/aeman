@@ -91,7 +91,7 @@ func withTargetItem(ctx context.Context, id string) context.Context {
 
 // echoOrigin is clientIDFrom for one card's change: the author's own watch is
 // spared the echo only when THIS card is the one their request addressed. A
-// cascade onto any other card — an epic rename fanning out, a subtask
+// cascade onto any other card — an scope rename fanning out, a subtask
 // following its parent — has no optimistic copy on the author's side, and
 // suppressing it left the author's board stale until a reload (the "renamed
 // column loses its cards" bug). A request that addressed no card (a batch
@@ -420,7 +420,7 @@ func (e *boardEntry) cached() (board.Board, cacheState) {
 // wrong silently.
 func detached(b board.Board) board.Board {
 	b.Cards = detachedCards(b.Cards)
-	b.Epics = slices.Clone(b.Epics)
+	b.Scopes = slices.Clone(b.Scopes)
 	b.Deadlines = slices.Clone(b.Deadlines)
 	b.Projects = slices.Clone(b.Projects)
 	b.TeamOrder = slices.Clone(b.TeamOrder)
@@ -1076,7 +1076,7 @@ func (e *boardEntry) diffNotify(old board.Board) {
 // data itself already arrived as the diff's ordinary events. The caller holds
 // e.mu.
 // rosterBroadcast tells every watcher that the board's STRUCTURE changed —
-// its projects, epic columns or deadlines. Those live in the board metadata
+// its projects, scope columns or deadlines. Those live in the board metadata
 // rather than in any card, so a client cannot learn about them from the card
 // events it is already receiving: it has to re-read /board, and this is what
 // tells it to. Sent to every watcher regardless of the view it selected,
@@ -1391,12 +1391,12 @@ func (b *storeBackend) createSync(ctx context.Context, bd board.Board, e *boardE
 		e.mu.Unlock()
 		return card, nil
 	}
-	if card.Title == board.EpicStateTitle {
+	if card.Title == board.ScopeStateTitle {
 		// A state card is a Project-board column, not a card: surface it as
 		// the board's column roster (clients re-read /board), never as a row.
-		if _, exists := board.FindEpic(e.board, card.Project, card.Epic); card.Epic != "" && !exists {
-			e.board.Epics = append(e.board.Epics, board.EpicCol{
-				Name: card.Epic, Project: card.Project, ItemID: card.ItemID,
+		if _, exists := board.FindScope(e.board, card.Project, card.Scope); card.Scope != "" && !exists {
+			e.board.Scopes = append(e.board.Scopes, board.ScopeCol{
+				Name: card.Scope, Project: card.Project, ItemID: card.ItemID,
 			})
 		}
 		e.markRecent(card.ItemID)
@@ -1431,12 +1431,12 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 		e.sprintChanged(clientIDFrom(ctx), team)
 		break
 	}
-	// Likewise a deleted epic-state card takes its column with it.
-	for i, col := range e.board.Epics {
+	// Likewise a deleted scope-state card takes its column with it.
+	for i, col := range e.board.Scopes {
 		if col.ItemID != card.ItemID {
 			continue
 		}
-		e.board.Epics = append(e.board.Epics[:i:i], e.board.Epics[i+1:]...)
+		e.board.Scopes = append(e.board.Scopes[:i:i], e.board.Scopes[i+1:]...)
 		e.rosterBroadcast()
 		break
 	}
@@ -1506,8 +1506,8 @@ func moveTeamAfter(order []string, states map[string]board.SprintState, team, af
 	return moveNameAfter(order, ids, team, afterID)
 }
 
-// epicIndexOf finds a column by its state card's item id (-1 = not a column).
-func epicIndexOf(cols []board.EpicCol, itemID string) int {
+// scopeIndexOf finds a column by its state card's item id (-1 = not a column).
+func scopeIndexOf(cols []board.ScopeCol, itemID string) int {
 	for i, c := range cols {
 		if c.ItemID == itemID {
 			return i
@@ -1516,16 +1516,16 @@ func epicIndexOf(cols []board.EpicCol, itemID string) int {
 	return -1
 }
 
-// moveEpicAfter re-slots the column at index from so it follows the column
+// moveScopeAfter re-slots the column at index from so it follows the column
 // whose state card is afterID ("" or unknown = to the front).
-func moveEpicAfter(cols []board.EpicCol, from int, afterID string) []board.EpicCol {
+func moveScopeAfter(cols []board.ScopeCol, from int, afterID string) []board.ScopeCol {
 	col := cols[from]
-	rest := append(append([]board.EpicCol(nil), cols[:from]...), cols[from+1:]...)
+	rest := append(append([]board.ScopeCol(nil), cols[:from]...), cols[from+1:]...)
 	at := 0
-	if i := epicIndexOf(rest, afterID); i >= 0 {
+	if i := scopeIndexOf(rest, afterID); i >= 0 {
 		at = i + 1
 	}
-	out := make([]board.EpicCol, 0, len(rest)+1)
+	out := make([]board.ScopeCol, 0, len(rest)+1)
 	out = append(out, rest[:at]...)
 	out = append(out, col)
 	out = append(out, rest[at:]...)
@@ -1553,7 +1553,7 @@ func nameOfState(ids map[string]string, itemID string) (string, bool) {
 }
 
 // moveNameAfter re-slots name in an ordered roster after the entry owning the
-// afterID state card ("" or unknown = to the front). Teams, epic columns and
+// afterID state card ("" or unknown = to the front). Teams, scope columns and
 // projects all order themselves by their state card's board position, so they
 // all reorder through here.
 func moveNameAfter(order []string, ids map[string]string, name, afterID string) []string {
@@ -1589,8 +1589,8 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 	// The same for the two Project-board rosters: their order IS the board
 	// position of their state cards, so a reorder must land in the cache or
 	// /board keeps serving the old order until the next revalidation.
-	if from := epicIndexOf(e.board.Epics, card.ItemID); from >= 0 {
-		e.board.Epics = moveEpicAfter(e.board.Epics, from, afterID)
+	if from := scopeIndexOf(e.board.Scopes, card.ItemID); from >= 0 {
+		e.board.Scopes = moveScopeAfter(e.board.Scopes, from, afterID)
 		e.rosterBroadcast()
 	}
 	if project, ok := nameOfState(e.board.ProjectStates, card.ItemID); ok {
@@ -2017,49 +2017,49 @@ func (b *storeBackend) SetTeam(ctx context.Context, bd board.Board, card board.C
 	return nil
 }
 
-func (b *storeBackend) SetEpic(ctx context.Context, bd board.Board, card board.Card, epic string) error {
-	if card.Title == board.EpicStateTitle {
+func (b *storeBackend) SetScope(ctx context.Context, bd board.Board, card board.Card, scope string) error {
+	if card.Title == board.ScopeStateTitle {
 		// Renaming the column itself: the state card is not in the cached card
 		// list (NewBoard splits it out), so mutateCard cannot reach it.
 		e := b.store.entry(storeKey(bd.Board))
 		e.mu.Lock()
-		if i := epicIndexOf(e.board.Epics, card.ItemID); i >= 0 {
-			e.board.Epics[i].Name = epic
+		if i := scopeIndexOf(e.board.Scopes, card.ItemID); i >= 0 {
+			e.board.Scopes[i].Name = scope
 			e.rosterBroadcast()
 		}
 		e.mu.Unlock()
 		b.enqueue(ctx, e, pendingOp{
-			key:    "epic:" + card.ItemID,
+			key:    "scope:" + card.ItemID,
 			itemID: card.ItemID,
-			desc:   "rename the epic " + card.Epic,
+			desc:   "rename the scope " + card.Scope,
 			apply: func(fresh *board.Board) {
-				if i := epicIndexOf(fresh.Epics, card.ItemID); i >= 0 {
-					fresh.Epics[i].Name = epic
+				if i := scopeIndexOf(fresh.Scopes, card.ItemID); i >= 0 {
+					fresh.Scopes[i].Name = scope
 				}
 			},
 			exec: func(ctx context.Context) error {
-				return b.inner.SetEpic(ctx, bd, card, epic)
+				return b.inner.SetScope(ctx, bd, card, scope)
 			},
 		})
 		return nil
 	}
-	b.mutateCard(ctx, bd, card.ItemID, "epic", "file "+cardRef(card)+" under an epic", func(c *board.Card) {
-		c.Epic = epic
+	b.mutateCard(ctx, bd, card.ItemID, "scope", "file "+cardRef(card)+" under an scope", func(c *board.Card) {
+		c.Scope = scope
 	}, func(ctx context.Context) error {
-		return b.inner.SetEpic(ctx, bd, card, epic)
+		return b.inner.SetScope(ctx, bd, card, scope)
 	})
 	return nil
 }
 
-// SetProject rebinds an epic column to a project. The target is a hidden
+// SetProject rebinds an scope column to a project. The target is a hidden
 // state card, which is NOT in the cached card list (NewBoard splits it out),
 // so mutateCard cannot reach it: update the roster map directly and queue the
 // write like any other mutation.
 func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card board.Card, project string) error {
 	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
-	if i := epicIndexOf(e.board.Epics, card.ItemID); i >= 0 {
-		e.board.Epics[i].Project = project
+	if i := scopeIndexOf(e.board.Scopes, card.ItemID); i >= 0 {
+		e.board.Scopes[i].Project = project
 		e.rosterBroadcast()
 	} else if old, ok := nameOfState(e.board.ProjectStates, card.ItemID); ok {
 		// A project-state card renamed: re-key the roster in place.
@@ -2084,8 +2084,8 @@ func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card boar
 		itemID: card.ItemID,
 		desc:   "file " + cardRef(card) + " under a project",
 		apply: func(fresh *board.Board) {
-			if i := epicIndexOf(fresh.Epics, card.ItemID); i >= 0 {
-				fresh.Epics[i].Project = project
+			if i := scopeIndexOf(fresh.Scopes, card.ItemID); i >= 0 {
+				fresh.Scopes[i].Project = project
 				return
 			}
 			if old, ok := nameOfState(fresh.ProjectStates, card.ItemID); ok {
@@ -2251,7 +2251,7 @@ func cardFromInput(in board.CreateInput, itemID string) board.Card {
 		Week:        in.Week,
 		Parked:      in.Parked,
 		Size:        in.Size,
-		Epic:        in.Epic,
+		Scope:       in.Scope,
 		Project:     in.Project,
 		Recurrence:  in.Recurrence,
 		Description: in.Body,
@@ -2290,8 +2290,8 @@ func rosterStubs(b board.Board) map[string]board.Card {
 	for name, id := range b.ProjectStates {
 		out[id] = board.Card{ItemID: id, Title: board.ProjectStateTitle, Project: name, Domain: b.Domains[id]}
 	}
-	for _, e := range b.Epics {
-		out[e.ItemID] = board.Card{ItemID: e.ItemID, Title: board.EpicStateTitle, Epic: e.Name, Project: e.Project, Domain: b.Domains[e.ItemID]}
+	for _, e := range b.Scopes {
+		out[e.ItemID] = board.Card{ItemID: e.ItemID, Title: board.ScopeStateTitle, Scope: e.Name, Project: e.Project, Domain: b.Domains[e.ItemID]}
 	}
 	for _, d := range b.Deadlines {
 		out[d.ItemID] = board.Card{ItemID: d.ItemID, Title: board.DeadlineStateTitle, Week: d.Week, Project: d.Project, Domain: b.Domains[d.ItemID]}
@@ -2315,10 +2315,10 @@ func installStub(target *board.Board, card board.Card) bool {
 			target.Projects = append(target.Projects, card.Project)
 			target.ProjectStates[card.Project] = card.ItemID
 		}
-	case board.EpicStateTitle:
-		if _, exists := board.FindEpic(*target, card.Project, card.Epic); card.Epic != "" && !exists {
-			target.Epics = append(target.Epics, board.EpicCol{
-				Name: card.Epic, Project: card.Project, ItemID: card.ItemID,
+	case board.ScopeStateTitle:
+		if _, exists := board.FindScope(*target, card.Project, card.Scope); card.Scope != "" && !exists {
+			target.Scopes = append(target.Scopes, board.ScopeCol{
+				Name: card.Scope, Project: card.Project, ItemID: card.ItemID,
 			})
 		}
 	case board.DeadlineStateTitle:

@@ -14,7 +14,7 @@ func TestReachableIsEveryCardABoardStillShows(t *testing.T) {
 	const today, cur, prev = "2026-09-02", "2026-09-01", "2026-08-31"
 	b := NewBoard([]Card{
 		{ItemID: "st", Title: SprintStateTitle, Team: "portal", SprintStart: cur, StartDate: prev},
-		{ItemID: "ep", Title: EpicStateTitle, Epic: "Auth", Project: "freedom"},
+		{ItemID: "ep", Title: ScopeStateTitle, Scope: "Auth", Project: "freedom"},
 
 		// On the board today.
 		{ItemID: "today", Team: "portal", SprintStart: cur, StartDate: cur, Day: cur},
@@ -24,7 +24,7 @@ func TestReachableIsEveryCardABoardStillShows(t *testing.T) {
 		// Planned for a later day: it comes back on its own.
 		{ItemID: "deferred", Team: "portal", SprintStart: cur, StartDate: "2026-09-10", Day: "2026-09-10"},
 		// In a Project-board column, which is a board of its own.
-		{ItemID: "slot", Team: "portal", Epic: "Auth", Project: "freedom", Week: "2026-09-07", Day: "2026-09-11"},
+		{ItemID: "slot", Team: "portal", Scope: "Auth", Project: "freedom", Week: "2026-09-07", Day: "2026-09-11"},
 		// Scheduled for a week, which is a column of the Triage board.
 		{ItemID: "week", Team: "portal", Week: "2026-09-07"},
 		// Done, and so off the board on purpose.

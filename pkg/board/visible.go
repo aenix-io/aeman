@@ -10,7 +10,7 @@ package board
 // NewBoard splits out of the card rows.
 func IsStateTitle(title string) bool {
 	switch title {
-	case SprintStateTitle, ProjectStateTitle, EpicStateTitle, DeadlineStateTitle:
+	case SprintStateTitle, ProjectStateTitle, ScopeStateTitle, DeadlineStateTitle:
 		return true
 	}
 	return false
@@ -61,10 +61,10 @@ func Visible(b Board, primary string, readable func(domain string) bool) Board {
 		}
 		v.ProjectStates[name] = id
 	}
-	v.Epics = nil
-	for _, e := range b.Epics {
+	v.Scopes = nil
+	for _, e := range b.Scopes {
 		if entry(e.ItemID) {
-			v.Epics = append(v.Epics, e)
+			v.Scopes = append(v.Scopes, e)
 		}
 	}
 	v.Deadlines = nil

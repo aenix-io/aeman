@@ -296,11 +296,11 @@ type CreateCardArgs struct {
 	// no day. Born there rather than born in the strip and moved — one commit,
 	// and no instant in between where the card stands somewhere nobody put it.
 	Parked bool
-	// Epic + Project create a Project-board card: filed under the column that
+	// Scope + Project create a Project-board card: filed under the column that
 	// pair identifies, its Week is the row (defaulting to the Monday of Start,
 	// then of today), Start/Day may span several weeks, and no sprint is
 	// joined — the card lives on the Project board until a team picks it up.
-	Epic    string
+	Scope   string
 	Project string
 	// ReviewOf marks the new card as the review of the given item.
 	ReviewOf string
@@ -372,11 +372,11 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 		return board.Card{}, err
 	}
 
-	// An epic card lives on the Project board: filed under its column,
+	// An scope card lives on the Project board: filed under its column,
 	// anchored to its week row, optionally spanning several weeks via
 	// start..day. It joins no sprint.
-	if args.Epic != "" {
-		return s.createEpicCard(ctx, b, args, linkDescription, pendingRef)
+	if args.Scope != "" {
+		return s.createScopeCard(ctx, b, args, linkDescription, pendingRef)
 	}
 	// A card given a WEEK and no day is scheduled for that week alone.
 	if args.Week != "" && args.Start == "" && args.Day == "" && args.SprintStart == "" {
@@ -524,8 +524,8 @@ func (s *Service) resolveTitleAsync(ctx context.Context, b board.Board, card boa
 	})
 }
 
-// createEpicCard files a new card on the Project board: under an existing
-// column — the (project, epic) pair — anchored to its week row and optionally
+// createScopeCard files a new card on the Project board: under an existing
+// column — the (project, scope) pair — anchored to its week row and optionally
 // spanning several weeks. No sprint, no plan band: a team picking it up later
 // is what schedules it.
 // createWeekCard files a card scheduled for a WEEK and nothing else — the
@@ -586,10 +586,10 @@ func (s *Service) createParkedCard(ctx context.Context, b board.Board, args Crea
 	return card, err
 }
 
-func (s *Service) createEpicCard(ctx context.Context, b board.Board, args CreateCardArgs, linkDescription string, pendingRef *board.Link) (board.Card, error) {
-	if _, ok := board.FindEpic(b, args.Project, args.Epic); !ok {
-		return board.Card{}, fmt.Errorf("%w %q in project %q — add it first (add_epic / POST /epics)",
-			ErrEpicNotFound, args.Epic, args.Project)
+func (s *Service) createScopeCard(ctx context.Context, b board.Board, args CreateCardArgs, linkDescription string, pendingRef *board.Link) (board.Card, error) {
+	if _, ok := board.FindScope(b, args.Project, args.Scope); !ok {
+		return board.Card{}, fmt.Errorf("%w %q in project %q — add it first (add_scope / POST /scopes)",
+			ErrScopeNotFound, args.Scope, args.Project)
 	}
 	start := args.Start
 	if start == "" {
@@ -606,7 +606,7 @@ func (s *Service) createEpicCard(ctx context.Context, b board.Board, args Create
 		Title:   args.Title,
 		Zone:    args.Zone,
 		Size:    args.Size,
-		Epic:    args.Epic,
+		Scope:   args.Scope,
 		Project: args.Project,
 		// Born parented and born LINKED, like the other create doors: a
 		// create-then-group pair broadcasts a parentless instant that
@@ -1073,7 +1073,7 @@ func (s *Service) SetDates(ctx context.Context, boardID string, itemID, start, e
 	// keeps the sprint they are working in. Recomputing it from the new date
 	// silently dropped a started slot off its team's day board — and its
 	// subtasks with it.
-	if c.Epic != "" {
+	if c.Scope != "" {
 		sprint = c.SprintStart
 	}
 	if err := s.backend.SetStart(ctx, b, c, start); err != nil {
@@ -1242,7 +1242,7 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, vie
 		// band and no column — alive, and on no board anyone can open.
 		// The card in hand again, for the same reason: a re-read answers
 		// differently for an embedder than for the server.
-		c.Epic, c.Project, c.Week = "", "", ""
+		c.Scope, c.Project, c.Week = "", "", ""
 		return s.removeFromGrid(ctx, b, c)
 	}
 	return s.removeFromGrid(ctx, b, c)
@@ -1367,11 +1367,11 @@ func (s *Service) childrenLeaveWorkingArea(ctx context.Context, b board.Board, p
 }
 
 // hasColumn reports whether the card sits in a Project-board column. The
-// column is the pair (project, epic) and the EPIC side is what puts the card
-// in one: the Project board renders columns by epic and the weekly plan
-// derives a slot's band by epic, so a card carrying only a project name is
+// column is the pair (project, scope) and the SCOPE side is what puts the card
+// in one: the Project board renders columns by scope and the weekly plan
+// derives a slot's band by scope, so a card carrying only a project name is
 // on no board — a label, not a home.
-func hasColumn(c board.Card) bool { return c.Epic != "" }
+func hasColumn(c board.Card) bool { return c.Scope != "" }
 
 // leaveWorkingArea takes a card out of the day grid: the sprint goes, and so
 // do the dates that would keep the grid listing it (a card whose start is
@@ -1990,7 +1990,7 @@ func (s *Service) SetDay(ctx context.Context, boardID string, itemID, day string
 // is not a second thing to set: it IS the start's week, and a card whose dates
 // moved while its week stayed behind sat in a row its own dates contradicted.
 func (s *Service) syncSlotWeek(ctx context.Context, b board.Board, c board.Card, start string) error {
-	if c.Epic == "" || start == "" {
+	if c.Scope == "" || start == "" {
 		return nil
 	}
 	week := board.MondayOf(start)
@@ -2062,7 +2062,7 @@ func (s *Service) SetBacklog(ctx context.Context, boardID string, itemID string,
 	// A PROJECT card is not this board's to park: a slot's week follows its
 	// start date and belongs to the Project board's plan, and taking it out
 	// of the week here would edit a plan this board does not own.
-	if parked && card.Epic != "" {
+	if parked && card.Scope != "" {
 		return fmt.Errorf("%w: %q", ErrNotYoursToPark, card.Title)
 	}
 	// And a REVIEW card or a SUBTASK has no place of its own to be parked
@@ -2161,7 +2161,7 @@ func (s *Service) SetWeek(ctx context.Context, boardID string, itemID, week stri
 	if err != nil {
 		return err
 	}
-	if card.Epic != "" {
+	if card.Scope != "" {
 		// Re-asserting the week the slot already derives from its start date
 		// is a harmless no-op — the SPA and API writers echo the visible week
 		// back (ungrouping a slot subtask used to die here on the parent's
@@ -2554,11 +2554,11 @@ func (s *Service) SetTeam(ctx context.Context, boardID string, itemID, team, day
 	if sprintStart == "" {
 		sprintStart = day
 	}
-	// An epic card that is not in work yet stays plan-level: handing it to a
+	// An scope card that is not in work yet stays plan-level: handing it to a
 	// team files it into that team's WEEKLY plan (band + week do that), not
 	// into today's sprint — joining the sprint would smear its multi-week
 	// span across the team's day grid.
-	if card.Epic != "" && card.SprintStart == "" {
+	if card.Scope != "" && card.SprintStart == "" {
 		sprintStart = ""
 	}
 	if err := s.setTeamOne(ctx, b, card, team, sprintStart); err != nil {
@@ -2934,12 +2934,12 @@ func linksArePossible(b board.Board, args CreateCardArgs) error {
 	// even when it names no link: the column's repository must be the one
 	// that will hold the card. Only a request with neither has nothing to
 	// check — there the project decides, and it decides for itself.
-	if args.Epic == "" && args.Parent == "" && args.ReviewOf == "" {
+	if args.Scope == "" && args.Parent == "" && args.ReviewOf == "" {
 		return nil
 	}
 	probe := board.Card{
 		Parent: args.Parent, ReviewOf: args.ReviewOf, Team: args.Team,
-		Project: args.Project, Epic: args.Epic,
+		Project: args.Project, Scope: args.Scope,
 	}
 	return refileGuard(b, probe, func(*board.Card) {})
 }
@@ -2955,12 +2955,12 @@ func linksArePossible(b board.Board, args CreateCardArgs) error {
 // acts on the same answer. One function, or the two drift and the × decides
 // a card is columnless while its column is still written on it.
 func columnFollows(b board.Board, c board.Card) bool {
-	if c.Epic == "" {
+	if c.Scope == "" {
 		return true
 	}
 	after := c
 	after.Parent = ""
-	cd, known := board.ColumnDomain(b, c.Project, c.Epic)
+	cd, known := board.ColumnDomain(b, c.Project, c.Scope)
 	return !known || cd == board.HomeDomain(b, after)
 }
 
@@ -2974,8 +2974,8 @@ func (s *Service) dropAStrandedColumn(ctx context.Context, b board.Board, c boar
 	if columnFollows(b, c) {
 		return nil
 	}
-	was := c.Project + " / " + c.Epic
-	if err := s.backend.SetEpic(ctx, b, c, ""); err != nil {
+	was := c.Project + " / " + c.Scope
+	if err := s.backend.SetScope(ctx, b, c, ""); err != nil {
 		return err
 	}
 	if c.Project != "" {
@@ -2993,6 +2993,6 @@ func (s *Service) dropAStrandedColumn(ctx context.Context, b board.Board, c boar
 			return err
 		}
 	}
-	s.logEvent(ctx, b, c, board.EventEpic, was, "")
+	s.logEvent(ctx, b, c, board.EventScope, was, "")
 	return nil
 }

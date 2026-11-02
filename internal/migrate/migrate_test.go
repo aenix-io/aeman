@@ -42,9 +42,9 @@ func newRemote(t *testing.T, suffix string) gitstore.Remote {
 func fixture() *boardservicetest.Backend {
 	cards := []board.Card{
 		{ItemID: "PVTI_proj", Title: board.ProjectStateTitle, Project: "portal", CreatedAt: "2026-06-01T08:00:00Z"},
-		{ItemID: "PVTI_epic", Title: board.EpicStateTitle, Epic: "Bugs", Project: "portal", CreatedAt: "2026-06-02T08:00:00Z"},
+		{ItemID: "PVTI_scope", Title: board.ScopeStateTitle, Scope: "Bugs", Project: "portal", CreatedAt: "2026-06-02T08:00:00Z"},
 		{ItemID: "PVTI_dl", Title: board.DeadlineStateTitle, Week: "2026-09-07", Project: "portal", CreatedAt: "2026-06-03T08:00:00Z"},
-		{ItemID: "PVTI_a", Title: "leak", Team: "portal", Zone: board.ZoneYellow, Progress: 100, Epic: "Bugs", Project: "portal",
+		{ItemID: "PVTI_a", Title: "leak", Team: "portal", Zone: board.ZoneYellow, Progress: 100, Scope: "Bugs", Project: "portal",
 			StartDate: "2026-08-24", Day: "2026-08-26", SprintStart: "2026-08-24", Assignees: []string{"kitsunoff"}, Author: "kvaps",
 			CreatedAt: "2026-08-24T09:00:00Z", Description: "Memory leak in the portal.",
 			Notes: []board.Note{
@@ -131,7 +131,7 @@ func TestFinalTreeEqualsSnapshot(t *testing.T) {
 			leak = c
 		}
 	}
-	if leak.Progress != 100 || leak.Zone != board.ZoneYellow || leak.Epic != "Bugs" || leak.Project != "portal" || leak.GitHubID != "PVTI_a" {
+	if leak.Progress != 100 || leak.Zone != board.ZoneYellow || leak.Scope != "Bugs" || leak.Project != "portal" || leak.GitHubID != "PVTI_a" {
 		t.Fatalf("leak = %+v", leak)
 	}
 	// doneFrom seeded by the walk Reopen does today: the last jump to ≥100
@@ -142,7 +142,7 @@ func TestFinalTreeEqualsSnapshot(t *testing.T) {
 	if len(leak.Notes) != 2 || leak.Notes[0].Body != "reproduced" || len(leak.Notes[0].ID) != 26 || leak.Notes[1].Author != "" {
 		t.Fatalf("notes = %+v", leak.Notes)
 	}
-	if len(s.Teams) != 2 || len(s.Projects) != 1 || len(s.Projects[0].Epics) != 1 || len(s.Projects[0].Deadlines) != 1 {
+	if len(s.Teams) != 2 || len(s.Projects) != 1 || len(s.Projects[0].Scopes) != 1 || len(s.Projects[0].Deadlines) != 1 {
 		t.Fatalf("roster: teams=%d projects=%+v", len(s.Teams), s.Projects)
 	}
 	if s.Board.Title != "aeman board" || s.Board.Schema != gitstore.SchemaVersion {

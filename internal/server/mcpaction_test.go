@@ -23,7 +23,7 @@ func TestMCPActionMiddlewareGroupsAToolCall(t *testing.T) {
 		heldDuring = be.actionHeld(a.ID)
 		return nil, nil
 	})
-	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "rename_epic"}}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "rename_scope"}}
 	if _, err := h(context.Background(), "tools/call", req); err != nil {
 		t.Fatal(err)
 	}

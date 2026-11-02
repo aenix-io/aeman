@@ -187,7 +187,7 @@ func newResolver(s Snapshot) resolver {
 	for _, p := range s.Projects {
 		r.projects[p.Name] = p.Domain
 		r.stubs[p.ID] = p.Domain
-		for _, e := range p.Epics {
+		for _, e := range p.Scopes {
 			r.stubs[e.ID] = e.Domain
 		}
 		for _, d := range p.Deadlines {
@@ -281,7 +281,7 @@ func (mb *MultiBackend) CreateCard(ctx context.Context, bd board.Board, in board
 	}
 	target := ""
 	switch in.Title {
-	case board.EpicStateTitle, board.DeadlineStateTitle:
+	case board.ScopeStateTitle, board.DeadlineStateTitle:
 		if in.Project == "" {
 			// The no-project BUCKET is not one place on the board: every
 			// repository may declare its own nameless project file, and a
@@ -811,9 +811,9 @@ func (mb *MultiBackend) checkName(kind, name string) error {
 	return nameFree(newResolver(s), kind, name)
 }
 
-// SetEpic may move a card into another project's domain.
-func (mb *MultiBackend) SetEpic(ctx context.Context, bd board.Board, card board.Card, epic string) error {
-	return mb.refile(ctx, "epic", card, func(c *board.Card) { c.Epic = epic }, func(be *Backend) error { return be.SetEpic(ctx, bd, card, epic) })
+// SetScope may move a card into another project's domain.
+func (mb *MultiBackend) SetScope(ctx context.Context, bd board.Board, card board.Card, scope string) error {
+	return mb.refile(ctx, "scope", card, func(c *board.Card) { c.Scope = scope }, func(be *Backend) error { return be.SetScope(ctx, bd, card, scope) })
 }
 
 // SetProject may move a card into another project's domain.

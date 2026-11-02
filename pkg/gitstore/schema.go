@@ -25,10 +25,11 @@ import (
 type upgrade func(tree *object.Tree) ([]FileWrite, error)
 
 // upgrades holds the rewrite each version asks for. Version 1 introduced
-// the marker and rewrote nothing; version 2 retired the Process feature
-// (docs/design/hierarchy.md, H8).
+// the marker and rewrote nothing; version 2 is the hierarchy work's bump
+// (docs/design/hierarchy.md, H8): the Process feature retired, the column
+// renamed from epic to scope, card mirrors retired.
 var upgrades = map[int]upgrade{
-	2: retireProcesses,
+	2: schema2,
 }
 
 // MigrateSchema brings board.yaml to SchemaVersion when it is older (or
@@ -90,24 +91,61 @@ func MigrateSchema(r *Repo) (bool, error) {
 	return true, nil
 }
 
-// retiredCardKeys are the front-matter keys the Process feature wrote on a
-// card and schema 2 takes off it: the link to the task a turn was copied
-// from, the process a card was tied to, and the pile-up flag. A turn so
-// stripped is ORPHANED — a card of its week and its zone, and nothing more.
-var retiredCardKeys = map[string]bool{"process": true, "task": true, "accumulate": true}
+// Schema 2 is one bump with several steps, specified in order in
+// docs/design/hierarchy.md ("Migration"):
+//
+//  1. the processes/ tree goes (the Process feature retired);
+//  2. `process`, `task` and `accumulate` come off every card — a filed turn
+//     is ORPHANED, a card of its week and its zone and nothing more;
+//  3. the column stubs move from projects/<id>/epics/ to projects/<id>/scopes/,
+//     content untouched, and the card key `epic` is written as `scope`;
+//  4. `mirrors` comes off every card (card mirrors retired).
+//
+// The steps that rewrite a card COMPOSE: one pass decides per file whether
+// any of them applies and writes the file once with all of them applied —
+// independent passes would each produce a FileWrite for the same path and
+// the last would win, undoing the others. A card none of the steps touch is
+// not rewritten, so the commit touches exactly what the retired features
+// and the rename touched.
 
-// retiredProcessesDir is the directory the feature kept its processes and
-// tasks in; the whole tree goes.
+// retiredCardKeys are the front-matter keys schema 2 takes off a card: the
+// Process feature's (steps 2) and the mirrors list (step 4). The codec no
+// longer knows them, so on read they sit in Extra, which is where this pass
+// finds them.
+var retiredCardKeys = map[string]bool{"process": true, "task": true, "accumulate": true, "mirrors": true}
+
+// renamedCardKeys are the keys the codec reads under a NEW name: a file that
+// still spells the old one is rewritten so the current spelling is on disk
+// (step 3). The alias in setKnown is what makes the rewrite a plain
+// decode-and-encode.
+var renamedCardKeys = map[string]bool{"epic": true}
+
+// retiredProcessesDir is the directory the Process feature kept its
+// processes and tasks in; the whole tree goes (step 1).
 const retiredProcessesDir = "processes/"
 
-// retireProcesses is schema 2: delete the processes/ tree and strip the
-// retired keys from every card that carries one. A card without them is not
-// rewritten, so the commit touches exactly what the feature touched.
-func retireProcesses(tree *object.Tree) ([]FileWrite, error) {
+// oldColumnDir is the directory segment the column stubs used to live under
+// (step 3): projects/<id>/epics/<id>.yaml → projects/<id>/scopes/<id>.yaml.
+const oldColumnDir = "/epics/"
+
+// schema2 walks the tree once and emits every write the bump asks for.
+func schema2(tree *object.Tree) ([]FileWrite, error) {
 	var writes []FileWrite
 	err := tree.Files().ForEach(func(f *object.File) error {
-		if strings.HasPrefix(f.Name, retiredProcessesDir) {
+		switch {
+		case strings.HasPrefix(f.Name, retiredProcessesDir):
 			writes = append(writes, FileWrite{Path: f.Name})
+			return nil
+		case strings.HasPrefix(f.Name, "projects/") && strings.Contains(f.Name, oldColumnDir):
+			// The stub moves: same bytes under the new path, the old path
+			// deleted — in one commit, so no tree ever has both or neither.
+			data, err := readAll(f)
+			if err != nil {
+				return fmt.Errorf("%s: %w", f.Name, err)
+			}
+			writes = append(writes,
+				FileWrite{Path: strings.Replace(f.Name, oldColumnDir, "/scopes/", 1), Data: data},
+				FileWrite{Path: f.Name})
 			return nil
 		}
 		kind, ids := ParsePath(f.Name)
@@ -118,23 +156,31 @@ func retireProcesses(tree *object.Tree) ([]FileWrite, error) {
 		if err != nil {
 			return fmt.Errorf("%s: %w", f.Name, err)
 		}
-		cf, err := DecodeCard(ids[0], data)
+		keys, err := frontKeys(data)
 		if err != nil {
 			// A card the loader already reports as broken is not this
 			// step's to mend; it is left as it is, as every reader leaves it.
 			return nil //nolint:nilerr // see above
 		}
-		kept := cf.Extra[:0:0]
-		stripped := false
-		for _, x := range cf.Extra {
-			if retiredCardKeys[x.Key] {
-				stripped = true
-				continue
+		touched := false
+		for _, k := range keys {
+			if retiredCardKeys[k] || renamedCardKeys[k] {
+				touched = true
+				break
 			}
-			kept = append(kept, x)
 		}
-		if !stripped {
+		if !touched {
 			return nil
+		}
+		cf, err := DecodeCard(ids[0], data)
+		if err != nil {
+			return nil //nolint:nilerr // see above
+		}
+		kept := cf.Extra[:0:0]
+		for _, x := range cf.Extra {
+			if !retiredCardKeys[x.Key] {
+				kept = append(kept, x)
+			}
 		}
 		cf.Extra = kept
 		out, err := EncodeCard(cf)

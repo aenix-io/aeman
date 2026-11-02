@@ -7,7 +7,7 @@ import (
 )
 
 // The rank key orders whatever sits in a list — cards, teams, projects,
-// epics, processes, tasks, deadlines — as a plain string compared bytewise.
+// scopes, processes, tasks, deadlines — as a plain string compared bytewise.
 // Between any two keys there is always room for another by appending, so a
 // move rewrites ONE file and never renumbers its neighbours. When repeated
 // inserts at one spot have grown a run of keys past MaxRankLen, the run is

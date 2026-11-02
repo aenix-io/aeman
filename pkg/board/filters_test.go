@@ -200,14 +200,14 @@ func TestTeamGridDeferredLeavesCurrentSprint(t *testing.T) {
 // column was said to hold it meanwhile — but the Team board is now the same
 // set the Triage board shows for the week, and a slot whose week has arrived
 // is in that set. A card carrying only a PROJECT name is not a slot at all
-// (the Project board renders columns by epic, so it has no column) and shows
+// (the Project board renders columns by scope, so it has no column) and shows
 // like any other card.
 func TestTeamGridShowsASlotOnceItsWeekHasCome(t *testing.T) {
 	today := TodayIso()
 	b := NewBoardIn("acme", []Card{
-		{ItemID: "slot", Team: "t", Epic: "E", Project: "P", StartDate: today, Day: today},
+		{ItemID: "slot", Team: "t", Scope: "E", Project: "P", StartDate: today, Day: today},
 		{ItemID: "project-only", Team: "t", Project: "P", StartDate: today, Day: today},
-		{ItemID: "later", Team: "t", Epic: "E", Project: "P",
+		{ItemID: "later", Team: "t", Scope: "E", Project: "P",
 			StartDate: AddDays(MondayOf(today), 21), Day: AddDays(MondayOf(today), 25)},
 	})
 	got := ids(TeamGrid(b, "t", today))
@@ -225,7 +225,7 @@ func TestTeamGridShowsASlotFromItsWeekUntilItIsDone(t *testing.T) {
 	today := TodayIso()
 	week := MondayOf(today)
 	b := NewBoardIn("acme", []Card{
-		{ItemID: "slot", Team: "t", Epic: "E", Project: "P",
+		{ItemID: "slot", Team: "t", Scope: "E", Project: "P",
 			StartDate: AddDays(week, -14), Day: AddDays(today, -1)},
 	})
 	b.SprintStates = map[string]SprintState{"t": {Current: AddDays(week, -14)}}
@@ -279,9 +279,9 @@ func TestMeViewHidesASlotButNotACardThatOnlyNamesAProject(t *testing.T) {
 	today := TodayIso()
 	b := Board{
 		Cards: []Card{
-			{ItemID: "slot", Team: "t", Epic: "E", Project: "P", StartDate: today, Day: today},
+			{ItemID: "slot", Team: "t", Scope: "E", Project: "P", StartDate: today, Day: today},
 			{ItemID: "project-only", Team: "t", Project: "P", StartDate: today, Day: today, Assignees: []string{"kvaps"}},
-			{ItemID: "owned-slot", Team: "t", Epic: "E", Project: "P", StartDate: today, Day: today, Assignees: []string{"kvaps"}},
+			{ItemID: "owned-slot", Team: "t", Scope: "E", Project: "P", StartDate: today, Day: today, Assignees: []string{"kvaps"}},
 		},
 		SprintStates: map[string]SprintState{"t": {Current: today}},
 	}
@@ -308,7 +308,7 @@ func TestTeamGridCarriesTheWeeksOwnWork(t *testing.T) {
 		// Placed in this week and nothing else: no dates, no sprint.
 		{ItemID: "placed", Team: "t", Week: week},
 		// A slot covering this week, on nobody's day.
-		{ItemID: "slot", Team: "t", Epic: "E", Project: "P",
+		{ItemID: "slot", Team: "t", Scope: "E", Project: "P",
 			StartDate: AddDays(week, -7), Day: AddDays(week, 4)},
 		// A recurrent card standing in this week.
 		{ItemID: "turn", Team: "t", Week: week, Stage: StageRecurrent},

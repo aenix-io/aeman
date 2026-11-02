@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// The rank key orders cards, teams, projects, epics, processes, tasks and
+// The rank key orders cards, teams, projects, scopes, processes, tasks and
 // deadlines: a plain string compared bytewise, with room to insert between
 // any two neighbours by appending. Moving one thing rewrites one file.
 

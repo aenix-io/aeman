@@ -15,8 +15,8 @@ func twoRepoBoard(cards []board.Card) *fakeBackend {
 	roster := []board.Card{
 		{ItemID: "pr-backoffice", Title: board.ProjectStateTitle, Project: "backoffice"},
 		{ItemID: "pr-strategy", Title: board.ProjectStateTitle, Project: "strategy", Domain: "founders"},
-		{ItemID: "ep-contracts", Title: board.EpicStateTitle, Epic: "Contracts", Project: "backoffice"},
-		{ItemID: "ep-fundraising", Title: board.EpicStateTitle, Epic: "Fundraising", Project: "strategy", Domain: "founders"},
+		{ItemID: "ep-contracts", Title: board.ScopeStateTitle, Scope: "Contracts", Project: "backoffice"},
+		{ItemID: "ep-fundraising", Title: board.ScopeStateTitle, Scope: "Fundraising", Project: "strategy", Domain: "founders"},
 	}
 	fake := newFake(append(roster, cards...), map[string]board.SprintState{
 		"backoffice": {Current: "2026-08-24", ItemID: "st-backoffice"},
@@ -34,7 +34,7 @@ func twoRepoBoard(cards []board.Card) *fakeBackend {
 // whose people cannot even read it. The pair is refused where it is made.
 func TestATeamFromAnotherRepositoryIsRefusedOnAProjectCard(t *testing.T) {
 	fake := twoRepoBoard([]board.Card{
-		{ItemID: "c1", Title: "SAFE #2", Team: "backoffice", Project: "backoffice", Epic: "Contracts"},
+		{ItemID: "c1", Title: "SAFE #2", Team: "backoffice", Project: "backoffice", Scope: "Contracts"},
 	})
 	svc := New(fake)
 	err := svc.SetTeam(t.Context(), "o", "c1", "founders", "2026-08-28")
@@ -63,12 +63,12 @@ func TestAProjectFromAnotherRepositoryIsRefusedOnATeamCard(t *testing.T) {
 	})
 	svc := New(fake)
 	project := "backoffice"
-	err := svc.SetEpic(t.Context(), "o", "c1", "Contracts", &project)
+	err := svc.SetScope(t.Context(), "o", "c1", "Contracts", &project)
 	if !errors.Is(err, ErrDomainConflict) {
-		t.Fatalf("SetEpic across repositories = %v, want ErrDomainConflict", err)
+		t.Fatalf("SetScope across repositories = %v, want ErrDomainConflict", err)
 	}
-	if c, _ := findCard(fake.b, "c1"); c.Project != "" || c.Epic != "" {
-		t.Fatalf("the card was filed anyway: project %q epic %q", c.Project, c.Epic)
+	if c, _ := findCard(fake.b, "c1"); c.Project != "" || c.Scope != "" {
+		t.Fatalf("the card was filed anyway: project %q scope %q", c.Project, c.Scope)
 	}
 }
 
@@ -76,7 +76,7 @@ func TestAProjectFromAnotherRepositoryIsRefusedOnATeamCard(t *testing.T) {
 // repositories disagreeing, not about secondary repositories being special.
 func TestATeamAndAProjectInTheSameRepositoryArePermitted(t *testing.T) {
 	fake := twoRepoBoard([]board.Card{
-		{ItemID: "c1", Title: "Стратегия", Team: "founders", Project: "strategy", Epic: "Fundraising"},
+		{ItemID: "c1", Title: "Стратегия", Team: "founders", Project: "strategy", Scope: "Fundraising"},
 		{ItemID: "c2", Title: "no project", Team: "backoffice"},
 	})
 	svc := New(fake)
@@ -98,7 +98,7 @@ func TestCreatingACardWithATeamAndProjectFromDifferentRepositoriesIsRefused(t *t
 	fake := twoRepoBoard(nil)
 	svc := New(fake)
 	_, err := svc.CreateCard(t.Context(), "o", CreateCardArgs{
-		Title: "new", Team: "founders", Project: "backoffice", Epic: "Contracts", Week: "2026-08-24",
+		Title: "new", Team: "founders", Project: "backoffice", Scope: "Contracts", Week: "2026-08-24",
 	})
 	if !errors.Is(err, ErrDomainConflict) {
 		t.Fatalf("create across repositories = %v, want ErrDomainConflict", err)
@@ -126,7 +126,7 @@ func TestANewTeamNameIsNotAConflict(t *testing.T) {
 // way. Only a write that would leave the pair conflicting is refused.
 func TestALegacyConflictDoesNotFreezeTheCard(t *testing.T) {
 	fake := twoRepoBoard([]board.Card{
-		{ItemID: "c1", Title: "SAFE #2", Team: "founders", Project: "backoffice", Epic: "Contracts", Progress: 40},
+		{ItemID: "c1", Title: "SAFE #2", Team: "founders", Project: "backoffice", Scope: "Contracts", Progress: 40},
 	})
 	svc := New(fake)
 	if err := svc.SetProgress(t.Context(), "o", "c1", 60); err != nil {

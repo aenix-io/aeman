@@ -16,9 +16,9 @@ func columnBoard(cards []board.Card) *fakeBackend {
 		{ItemID: "pr-e", Title: board.ProjectStateTitle, Project: "engineering"},
 		{ItemID: "pr-f", Title: board.ProjectStateTitle, Project: "freedom"},
 		{ItemID: "pr-s", Title: board.ProjectStateTitle, Project: "strategy", Domain: "founders"},
-		{ItemID: "ep-cozy", Title: board.EpicStateTitle, Epic: "Cozystack", Project: "engineering"},
-		{ItemID: "ep-launch", Title: board.EpicStateTitle, Epic: "Launch", Project: "freedom"},
-		{ItemID: "ep-fund", Title: board.EpicStateTitle, Epic: "Fundraising", Project: "strategy", Domain: "founders"},
+		{ItemID: "ep-cozy", Title: board.ScopeStateTitle, Scope: "Cozystack", Project: "engineering"},
+		{ItemID: "ep-launch", Title: board.ScopeStateTitle, Scope: "Launch", Project: "freedom"},
+		{ItemID: "ep-fund", Title: board.ScopeStateTitle, Scope: "Fundraising", Project: "strategy", Domain: "founders"},
 	}
 	return newFake(append(roster, cards...), map[string]board.SprintState{
 		"platform": {Current: board.TodayIso(), Previous: board.AddDays(board.TodayIso(), -1), ItemID: "st-p"},
@@ -26,10 +26,10 @@ func columnBoard(cards []board.Card) *fakeBackend {
 }
 
 func TestRemoveFromLastProjectDropsTheWeekAndKeepsOnlyWorkedCards(t *testing.T) {
-	worked := board.Card{ItemID: "w", Title: "worked", Team: "platform", Project: "engineering", Epic: "Cozystack",
+	worked := board.Card{ItemID: "w", Title: "worked", Team: "platform", Project: "engineering", Scope: "Cozystack",
 		Assignees: []string{"kvaps"}, Progress: 40, Week: "2026-08-24",
 		SprintStart: board.TodayIso(), StartDate: board.TodayIso(), Day: board.TodayIso()}
-	idle := board.Card{ItemID: "i", Title: "idle", Team: "platform", Project: "engineering", Epic: "Cozystack",
+	idle := board.Card{ItemID: "i", Title: "idle", Team: "platform", Project: "engineering", Scope: "Cozystack",
 		Week:        "2026-08-24",
 		SprintStart: board.TodayIso(), StartDate: board.TodayIso(), Day: board.TodayIso()}
 	f := columnBoard([]board.Card{worked, idle})
@@ -46,7 +46,7 @@ func TestRemoveFromLastProjectDropsTheWeekAndKeepsOnlyWorkedCards(t *testing.T) 
 	if c.Week != "" {
 		t.Fatalf("the week was the slot's row and goes with the column: %+v", c)
 	}
-	if c.Project != "" || c.Epic != "" {
+	if c.Project != "" || c.Scope != "" {
 		t.Fatalf("the column is gone: %+v", c)
 	}
 	if c.SprintStart == "" || len(c.Assignees) == 0 {
@@ -69,17 +69,17 @@ func TestRemoveFromLastProjectDropsTheWeekAndKeepsOnlyWorkedCards(t *testing.T) 
 
 func TestRemoveFromProjectRefusesAColumnTheCardIsNotIn(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "c1", Title: "x", Team: "platform", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "c1", Title: "x", Team: "platform", Project: "engineering", Scope: "Cozystack"},
 	})
 	if err := New(f).RemoveFromProject(ctx, "acme", "c1", "freedom", "Launch"); err == nil {
 		t.Fatal("the card does not stand in that column")
 	}
 }
 
-// A column is named by its EPIC alone. A card standing in no column has an
+// A column is named by its SCOPE alone. A card standing in no column has an
 // empty home, which once "matched" ("", "") and fell through to the
 // last-column branch — the call that asked to remove a card from nowhere
-// deleted it outright. Requiring the epic half closes that hole; requiring
+// deleted it outright. Requiring the scope half closes that hole; requiring
 // the project half too broke the × of every no-project column, which is a
 // real column with a real ×. The MCP tool feeds this service without
 // validating, and an agent calling remove_from_project with empty halves
@@ -92,7 +92,7 @@ func TestRemoveFromProjectRefusesTheEmptyPair(t *testing.T) {
 	if err := svc.RemoveFromProject(ctx, "acme", "c1", "", ""); !errors.Is(err, ErrNotInProject) {
 		t.Fatalf("the empty pair must be refused: %v", err)
 	}
-	// ("", epic) is a lawful pair — the no-project bucket — but this card
+	// ("", scope) is a lawful pair — the no-project bucket — but this card
 	// is not in it: an empty home mismatches honestly, nothing is deleted.
 	if err := svc.RemoveFromProject(ctx, "acme", "c1", "", "Launch"); !errors.Is(err, ErrNotInProject) {
 		t.Fatalf("a no-project column the card is not in: %v", err)
@@ -108,9 +108,9 @@ func TestRemoveFromProjectRefusesTheEmptyPair(t *testing.T) {
 // deleted, a worked card survives as a working-area orphan.
 func TestRemoveFromANoProjectColumnWorks(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "ep-inbox", Title: board.EpicStateTitle, Epic: "Inbox"},
-		{ItemID: "cold", Title: "untouched", Team: "platform", Epic: "Inbox"},
-		{ItemID: "warm", Title: "worked", Team: "platform", Epic: "Inbox",
+		{ItemID: "ep-inbox", Title: board.ScopeStateTitle, Scope: "Inbox"},
+		{ItemID: "cold", Title: "untouched", Team: "platform", Scope: "Inbox"},
+		{ItemID: "warm", Title: "worked", Team: "platform", Scope: "Inbox",
 			Assignees: []string{"kvaps"}, Progress: 40},
 	})
 	svc := New(f)
@@ -126,7 +126,7 @@ func TestRemoveFromANoProjectColumnWorks(t *testing.T) {
 	}
 	b, _ = f.LoadBoard(ctx, "acme")
 	c, ok := findCard(b, "warm")
-	if !ok || c.Epic != "" {
+	if !ok || c.Scope != "" {
 		t.Fatalf("a worked card survives as a working-area orphan: %+v", c)
 	}
 }
@@ -139,7 +139,7 @@ func TestGroupingKeepsTheWeekOfACardInAColumn(t *testing.T) {
 	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 		{ItemID: "slot", Title: "a card in a column", Team: "platform",
-			Project: "engineering", Epic: "Cozystack",
+			Project: "engineering", Scope: "Cozystack",
 			Week: "2026-08-31", StartDate: "2026-08-31", Day: "2026-09-04"},
 		{ItemID: "plain", Title: "a card of a week", Team: "platform", Week: "2026-08-31"},
 	})
@@ -175,7 +175,7 @@ func TestAttachingACardOfAWeekTakesThatWeeksSlot(t *testing.T) {
 	})
 	svc := New(f)
 	project := "engineering"
-	if err := svc.SetEpic(ctx, "acme", "c1", "Cozystack", &project); err != nil {
+	if err := svc.SetScope(ctx, "acme", "c1", "Cozystack", &project); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
@@ -198,7 +198,7 @@ func TestAttachingADatedCardKeepsItsDates(t *testing.T) {
 	})
 	svc := New(f)
 	project := "engineering"
-	if err := svc.SetEpic(ctx, "acme", "c1", "Cozystack", &project); err != nil {
+	if err := svc.SetScope(ctx, "acme", "c1", "Cozystack", &project); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
@@ -217,7 +217,7 @@ func TestRemoveFromColumnNeverDeletesASubtask(t *testing.T) {
 	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 		{ItemID: "c1", Title: "untouched child", Team: "platform", Parent: "p",
-			Project: "engineering", Epic: "Cozystack"},
+			Project: "engineering", Scope: "Cozystack"},
 	})
 	svc := New(f)
 	if err := svc.RemoveFromProject(ctx, "acme", "c1", "engineering", "Cozystack"); err != nil {
@@ -228,7 +228,7 @@ func TestRemoveFromColumnNeverDeletesASubtask(t *testing.T) {
 	if !ok {
 		t.Fatal("a subtask survives its column: its home is the parent")
 	}
-	if c.Epic != "" || c.Project != "" {
+	if c.Scope != "" || c.Project != "" {
 		t.Fatalf("the column is gone: %+v", c)
 	}
 	if c.Parent != "p" {
@@ -239,14 +239,14 @@ func TestRemoveFromColumnNeverDeletesASubtask(t *testing.T) {
 // The column-holds-the-file rule has a second door: GROUPING. A subtask's
 // file follows its parent, so grouping a columned card under a parent of
 // another repository would leave its column naming a repository that no
-// longer holds it — the state SetEpic now refuses, reached by a drag
+// longer holds it — the state SetScope now refuses, reached by a drag
 // instead of a menu. The Project board draws such a card and counts it,
 // so the stale column is load-bearing, not merely untidy.
 func TestGroupingUnderAParentInAnotherRepositoryIsRefused(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
-		{ItemID: "near", Title: "parent here", Project: "engineering", Epic: "Cozystack"},
-		{ItemID: "c1", Title: "columned child", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Scope: "Fundraising", Domain: "founders"},
+		{ItemID: "near", Title: "parent here", Project: "engineering", Scope: "Cozystack"},
+		{ItemID: "c1", Title: "columned child", Project: "engineering", Scope: "Cozystack"},
 	})
 	svc := New(f)
 	if err := svc.SetParent(ctx, "acme", "c1", "far"); !errors.Is(err, ErrCrossDomain) {
@@ -263,7 +263,7 @@ func TestGroupingUnderAParentInAnotherRepositoryIsRefused(t *testing.T) {
 	}
 	b, _ = f.LoadBoard(ctx, "acme")
 	c, _ = findCard(b, "c1")
-	if c.Epic != "Cozystack" {
+	if c.Scope != "Cozystack" {
 		t.Fatalf("a subtask keeps the one column it carries: %+v", c)
 	}
 }
@@ -274,12 +274,12 @@ func TestGroupingUnderAParentInAnotherRepositoryIsRefused(t *testing.T) {
 // caller named.
 func TestReFilingAParentCannotStrandItsSubtasksColumn(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Project: "engineering", Epic: "Cozystack"},
-		{ItemID: "c1", Title: "child", Parent: "p", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "p", Title: "parent", Project: "engineering", Scope: "Cozystack"},
+		{ItemID: "c1", Title: "child", Parent: "p", Project: "engineering", Scope: "Cozystack"},
 	})
 	svc := New(f)
 	strategy := "strategy"
-	if err := svc.SetEpic(ctx, "acme", "p", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
+	if err := svc.SetScope(ctx, "acme", "p", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the child's column would be stranded: %v", err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
@@ -289,21 +289,21 @@ func TestReFilingAParentCannotStrandItsSubtasksColumn(t *testing.T) {
 	}
 	// A move within the repository leaves every child's column valid.
 	freedom := "freedom"
-	if err := svc.SetEpic(ctx, "acme", "p", "Launch", &freedom); err != nil {
+	if err := svc.SetScope(ctx, "acme", "p", "Launch", &freedom); err != nil {
 		t.Fatalf("a move inside the repository is free: %v", err)
 	}
 }
 
-// A column's repository is the column's OWN — the domain of the epic stub
+// A column's repository is the column's OWN — the domain of the scope stub
 // that declares it — not its project's. The two agree wherever a project
 // owns the column, but the NO-PROJECT bucket is a real column with no
 // project to ask: reading the project made every card in it ungroupable,
 // because ProjectStates never holds "" and the lookup always missed.
 func TestGroupingACardFromANoProjectColumnIsFree(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "ep-loose", Title: board.EpicStateTitle, Epic: "Loose"},
+		{ItemID: "ep-loose", Title: board.ScopeStateTitle, Scope: "Loose"},
 		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "c1", Title: "loose column child", Team: "platform", Epic: "Loose"},
+		{ItemID: "c1", Title: "loose column child", Team: "platform", Scope: "Loose"},
 	})
 	svc := New(f)
 	if err := svc.SetParent(ctx, "acme", "c1", "p"); err != nil {
@@ -311,7 +311,7 @@ func TestGroupingACardFromANoProjectColumnIsFree(t *testing.T) {
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
 	c, _ := findCard(b, "c1")
-	if c.Epic != "Loose" || c.Parent != "p" {
+	if c.Scope != "Loose" || c.Parent != "p" {
 		t.Fatalf("the column survives the grouping (G14): %+v", c)
 	}
 }
@@ -321,12 +321,12 @@ func TestGroupingACardFromANoProjectColumnIsFree(t *testing.T) {
 // project — the two guards must answer alike, or one of them is a way in.
 func TestAttachingToAForeignNoProjectColumnIsRefused(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "ep-far", Title: board.EpicStateTitle, Epic: "Far", Domain: "founders"},
+		{ItemID: "ep-far", Title: board.ScopeStateTitle, Scope: "Far", Domain: "founders"},
 		{ItemID: "p", Title: "parent", Team: "platform"},
 		{ItemID: "c1", Title: "child", Team: "platform", Parent: "p"},
 	})
 	none := ""
-	if err := New(f).SetEpic(ctx, "acme", "c1", "Far", &none); !errors.Is(err, ErrCrossDomain) {
+	if err := New(f).SetScope(ctx, "acme", "c1", "Far", &none); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("a column of the closed repository cannot hold a card of the primary: %v", err)
 	}
 }
@@ -337,8 +337,8 @@ func TestAttachingToAForeignNoProjectColumnIsRefused(t *testing.T) {
 // happened: the board then showed a state git had never held.
 func TestARefusedGroupingLeavesTheWeekAlone(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
-		{ItemID: "c1", Title: "planned child", Project: "engineering", Epic: "Cozystack",
+		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Scope: "Fundraising", Domain: "founders"},
+		{ItemID: "c1", Title: "planned child", Project: "engineering", Scope: "Cozystack",
 			Week: "2026-08-24"},
 	})
 	svc := New(f)
@@ -361,12 +361,12 @@ func TestARefusedGroupingLeavesTheWeekAlone(t *testing.T) {
 // exactly as a subtask is stranded by moving its parent.
 func TestReFilingAnOriginalCannotStrandItsReviewCardsColumn(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "orig", Title: "original", Project: "engineering", Epic: "Cozystack"},
-		{ItemID: "rev", Title: "review", ReviewOf: "orig", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "orig", Title: "original", Project: "engineering", Scope: "Cozystack"},
+		{ItemID: "rev", Title: "review", ReviewOf: "orig", Project: "engineering", Scope: "Cozystack"},
 	})
 	svc := New(f)
 	strategy := "strategy"
-	if err := svc.SetEpic(ctx, "acme", "orig", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
+	if err := svc.SetScope(ctx, "acme", "orig", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the review card's column would be stranded: %v", err)
 	}
 }
@@ -380,9 +380,9 @@ func TestReFilingAnOriginalCannotStrandItsReviewCardsColumn(t *testing.T) {
 // along: the review card's own column stays behind.
 func TestGroupingCannotStrandAReviewCardsColumn(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Scope: "Fundraising", Domain: "founders"},
 		{ItemID: "orig", Title: "original", Team: "platform"},
-		{ItemID: "rev", Title: "review", ReviewOf: "orig", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "rev", Title: "review", ReviewOf: "orig", Project: "engineering", Scope: "Cozystack"},
 	})
 	if err := New(f).SetParent(ctx, "acme", "orig", "far"); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the review card follows the original and would be stranded: %v", err)
@@ -393,10 +393,10 @@ func TestGroupingCannotStrandAReviewCardsColumn(t *testing.T) {
 // parent's repository for whatever its own project or team names.
 func TestUngroupingCannotStrandAFollowersColumn(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Scope: "Fundraising", Domain: "founders"},
 		{ItemID: "kid", Title: "child", Team: "platform", Parent: "far"},
 		{ItemID: "rev", Title: "review of the child", ReviewOf: "kid",
-			Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+			Project: "strategy", Scope: "Fundraising", Domain: "founders"},
 	})
 	if err := New(f).SetParent(ctx, "acme", "kid", ""); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the pull-out takes the review card's file out of its column's repository: %v", err)
@@ -407,8 +407,8 @@ func TestUngroupingCannotStrandAFollowersColumn(t *testing.T) {
 // real column — re-teaming across repositories leaves that column behind.
 func TestReTeamingCannotStrandTheCardsOwnColumn(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "ep-loose", Title: board.EpicStateTitle, Epic: "Loose"},
-		{ItemID: "c1", Title: "loose column card", Team: "platform", Epic: "Loose"},
+		{ItemID: "ep-loose", Title: board.ScopeStateTitle, Scope: "Loose"},
+		{ItemID: "c1", Title: "loose column card", Team: "platform", Scope: "Loose"},
 	})
 	f.b.SprintStates["board"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-b"}
 	f.b.Domains = map[string]string{"st-b": "founders"}
@@ -427,8 +427,8 @@ func TestReTeamingCannotStrandTheCardsOwnColumn(t *testing.T) {
 // cards first), and its own column does not follow.
 func TestSettingTheReviewLinkCannotStrandTheCardsOwnColumn(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "orig", Title: "original", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
-		{ItemID: "c1", Title: "review", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "orig", Title: "original", Project: "strategy", Scope: "Fundraising", Domain: "founders"},
+		{ItemID: "c1", Title: "review", Project: "engineering", Scope: "Cozystack"},
 	})
 	if err := New(f).SetReviewOf(ctx, "acme", "c1", "orig"); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the card would live in founders while its column names the primary: %v", err)
@@ -441,13 +441,13 @@ func TestSettingTheReviewLinkCannotStrandTheCardsOwnColumn(t *testing.T) {
 // card hanging off it.
 func TestTheGuardFollowsTheCascadeAllTheWayDown(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "p", Title: "grandparent", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "p", Title: "grandparent", Project: "engineering", Scope: "Cozystack"},
 		{ItemID: "kid", Title: "child", Parent: "p"},
 		{ItemID: "rev", Title: "review of the child", ReviewOf: "kid",
-			Project: "engineering", Epic: "Cozystack"},
+			Project: "engineering", Scope: "Cozystack"},
 	})
 	strategy := "strategy"
-	if err := New(f).SetEpic(ctx, "acme", "p", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
+	if err := New(f).SetScope(ctx, "acme", "p", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the review card two hops down would be stranded: %v", err)
 	}
 }
@@ -459,10 +459,10 @@ func TestTheGuardFollowsTheCascadeAllTheWayDown(t *testing.T) {
 func TestMovingAColumnCannotStrandALinkedCardStandingInIt(t *testing.T) {
 	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent"},
-		{ItemID: "c1", Title: "subtask", Parent: "p", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "c1", Title: "subtask", Parent: "p", Project: "engineering", Scope: "Cozystack"},
 	})
 	svc := New(f)
-	if err := svc.SetEpicProject(ctx, "acme", "engineering", "Cozystack", "strategy"); !errors.Is(err, ErrCrossDomain) {
+	if err := svc.SetScopeProject(ctx, "acme", "engineering", "Cozystack", "strategy"); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the subtask's file rides its parent in the primary repository: %v", err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
@@ -471,7 +471,7 @@ func TestMovingAColumnCannotStrandALinkedCardStandingInIt(t *testing.T) {
 		t.Fatalf("the refused move must not have rewritten the card: %+v", c)
 	}
 	// A move within the repository carries everyone along as before.
-	if err := svc.SetEpicProject(ctx, "acme", "engineering", "Cozystack", "freedom"); err != nil {
+	if err := svc.SetScopeProject(ctx, "acme", "engineering", "Cozystack", "freedom"); err != nil {
 		t.Fatalf("a move inside the repository is free: %v", err)
 	}
 }
@@ -487,10 +487,10 @@ func TestAColumnCannotMoveToAProjectOfAnotherRepository(t *testing.T) {
 	f := columnBoard([]board.Card{
 		// Teamless: a team of the primary would refuse the move first (G46),
 		// and this is exactly the card that would be stranded.
-		{ItemID: "plain", Title: "plain card", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "plain", Title: "plain card", Project: "engineering", Scope: "Cozystack"},
 	})
 	svc := New(f)
-	if err := svc.SetEpicProject(ctx, "acme", "engineering", "Cozystack", "strategy"); !errors.Is(err, ErrCrossDomain) {
+	if err := svc.SetScopeProject(ctx, "acme", "engineering", "Cozystack", "strategy"); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the column's stub cannot follow: %v", err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
@@ -501,7 +501,7 @@ func TestAColumnCannotMoveToAProjectOfAnotherRepository(t *testing.T) {
 	// An empty column is refused for the same reason: the column itself
 	// would end up declared in one repository and owned by a project of
 	// another, which no reader can make sense of.
-	if err := svc.SetEpicProject(ctx, "acme", "freedom", "Launch", "strategy"); !errors.Is(err, ErrCrossDomain) {
+	if err := svc.SetScopeProject(ctx, "acme", "freedom", "Launch", "strategy"); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("an empty column cannot move either: %v", err)
 	}
 }
@@ -513,11 +513,11 @@ func TestAColumnCannotMoveToAProjectOfAnotherRepository(t *testing.T) {
 func TestUnbindingANonPrimaryColumnKeepsItsCards(t *testing.T) {
 	f := columnBoard([]board.Card{
 		{ItemID: "c1", Title: "closed card", Team: "founders",
-			Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+			Project: "strategy", Scope: "Fundraising", Domain: "founders"},
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
 	f.b.Domains = map[string]string{"st-f": "founders"}
-	if err := New(f).SetEpicProject(ctx, "acme", "strategy", "Fundraising", ""); err != nil {
+	if err := New(f).SetScopeProject(ctx, "acme", "strategy", "Fundraising", ""); err != nil {
 		t.Fatalf("the column stays in its repository and so do its cards: %v", err)
 	}
 }
@@ -530,7 +530,7 @@ func TestTheGridRemoveKeepsAColumnedSubtask(t *testing.T) {
 	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 		{ItemID: "c1", Title: "columned child", Team: "platform", Parent: "p",
-			Project: "engineering", Epic: "Cozystack",
+			Project: "engineering", Scope: "Cozystack",
 			StartDate: board.TodayIso(), Day: board.TodayIso(), SprintStart: board.TodayIso()},
 	})
 	if err := New(f).Remove(ctx, "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
@@ -541,7 +541,7 @@ func TestTheGridRemoveKeepsAColumnedSubtask(t *testing.T) {
 	if !ok {
 		t.Fatal("a card filed under a column is never deleted by either ×")
 	}
-	if c.Epic != "Cozystack" {
+	if c.Scope != "Cozystack" {
 		t.Fatalf("the work stays planned in its column: %+v", c)
 	}
 	// It LEAVES THE GROUP. A subtask's person and sprint must equal its
@@ -552,7 +552,7 @@ func TestTheGridRemoveKeepsAColumnedSubtask(t *testing.T) {
 	if c.Parent != "" {
 		t.Fatalf("the × takes it out of the group: %+v", c)
 	}
-	// Off the day grid: an epic card out of the sprint is skipped there
+	// Off the day grid: an scope card out of the sprint is skipped there
 	// (TeamGrid). Its DATES stay — for a card in a column they are its row
 	// on the Project board, not a working-area life.
 	if c.SprintStart != "" {
@@ -594,7 +594,7 @@ func TestCreatingACardWithBothAParentAndAColumnKeepsBoth(t *testing.T) {
 	})
 	c, err := New(f).CreateCard(ctx, "acme", CreateCardArgs{
 		Title: "child in a column", Team: "platform", Parent: "p",
-		Project: "engineering", Epic: "Cozystack",
+		Project: "engineering", Scope: "Cozystack",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -604,7 +604,7 @@ func TestCreatingACardWithBothAParentAndAColumnKeepsBoth(t *testing.T) {
 	if got.Parent != "p" {
 		t.Fatalf("the parent was asked for and must land: %+v", got)
 	}
-	if got.Epic != "Cozystack" {
+	if got.Scope != "Cozystack" {
 		t.Fatalf("and the column with it: %+v", got)
 	}
 }
@@ -614,19 +614,19 @@ func TestCreatingACardWithBothAParentAndAColumnKeepsBoth(t *testing.T) {
 // ADDED broadcast and a created event for a card that should not exist.
 func TestCreatingUnderAnImpossibleParentCreatesNothing(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Scope: "Fundraising", Domain: "founders"},
 	})
 	svc := New(f)
 	before, _ := f.LoadBoard(ctx, "acme")
 	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
 		Title: "child", Team: "platform", Parent: "ghost",
-		Project: "engineering", Epic: "Cozystack",
+		Project: "engineering", Scope: "Cozystack",
 	}); !errors.Is(err, ErrParentNotFound) {
 		t.Fatalf("a parent that does not exist: %v", err)
 	}
 	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
 		Title: "child", Team: "platform", Parent: "far",
-		Project: "engineering", Epic: "Cozystack",
+		Project: "engineering", Scope: "Cozystack",
 	}); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("a parent whose repository the column is not in: %v", err)
 	}
@@ -679,7 +679,7 @@ func TestAFreedSubtasksColumnStillNamesItsRepository(t *testing.T) {
 	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform", Assignees: []string{"kvaps"}},
 		{ItemID: "kid", Title: "columned child", Team: "platform", Parent: "p",
-			Project: "engineering", Epic: "Cozystack"},
+			Project: "engineering", Scope: "Cozystack"},
 	})
 	svc := New(f)
 	if err := svc.DeleteCard(ctx, "acme", "p"); err != nil {
@@ -693,7 +693,7 @@ func TestAFreedSubtasksColumnStillNamesItsRepository(t *testing.T) {
 	if c.Parent != "" {
 		t.Fatalf("freed: %+v", c)
 	}
-	cd, known := board.ColumnDomain(b, c.Project, c.Epic)
+	cd, known := board.ColumnDomain(b, c.Project, c.Scope)
 	if !known {
 		t.Fatalf("the column it kept must still be declared: %+v", c)
 	}
@@ -702,14 +702,14 @@ func TestAFreedSubtasksColumnStillNamesItsRepository(t *testing.T) {
 	}
 }
 
-// The review link the same way, on the epic path.
+// The review link the same way, on the scope path.
 func TestCreatingAColumnedReviewCardKeepsTheLink(t *testing.T) {
 	f := columnBoard([]board.Card{
 		{ItemID: "orig", Title: "original", Team: "platform"},
 	})
 	c, err := New(f).CreateCard(ctx, "acme", CreateCardArgs{
 		Title: "review", Team: "platform", ReviewOf: "orig",
-		Project: "engineering", Epic: "Cozystack",
+		Project: "engineering", Scope: "Cozystack",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -728,9 +728,9 @@ func TestCreatingAColumnedReviewCardKeepsTheLink(t *testing.T) {
 // name has to be free, exactly as it must be for any other destination.
 func TestUnbindingACollidingColumnIsRefused(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "ep-loose", Title: board.EpicStateTitle, Epic: "Launch"},
+		{ItemID: "ep-loose", Title: board.ScopeStateTitle, Scope: "Launch"},
 	})
-	if err := New(f).SetEpicProject(ctx, "acme", "freedom", "Launch", ""); err == nil {
+	if err := New(f).SetScopeProject(ctx, "acme", "freedom", "Launch", ""); err == nil {
 		t.Fatal("the no-project bucket already holds a Launch column")
 	}
 }
@@ -741,12 +741,12 @@ func TestUnbindingACollidingColumnIsRefused(t *testing.T) {
 // the state every other door refuses — file here, column there.
 func TestCreatingAColumnedReviewCardAcrossRepositoriesIsRefused(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "orig", Title: "original", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+		{ItemID: "orig", Title: "original", Project: "strategy", Scope: "Fundraising", Domain: "founders"},
 	})
 	svc := New(f)
 	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
 		Title: "review", ReviewOf: "orig",
-		Project: "engineering", Epic: "Cozystack",
+		Project: "engineering", Scope: "Cozystack",
 	}); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the card would live in founders while its column names the primary: %v", err)
 	}
@@ -763,13 +763,13 @@ func TestCreatingAColumnedReviewCardAcrossRepositoriesIsRefused(t *testing.T) {
 func TestTheCreateProbeReadsTheLinkBeforeTheParent(t *testing.T) {
 	f := columnBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "orig", Title: "original", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+		{ItemID: "orig", Title: "original", Project: "strategy", Scope: "Fundraising", Domain: "founders"},
 	})
 	svc := New(f)
 	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
 		Title: "review of an original elsewhere", Team: "platform",
 		Parent: "p", ReviewOf: "orig",
-		Project: "engineering", Epic: "Cozystack",
+		Project: "engineering", Scope: "Cozystack",
 	}); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the link decides where this card lives: %v", err)
 	}
@@ -784,8 +784,8 @@ func TestTheCreateProbeReadsTheLinkBeforeTheParent(t *testing.T) {
 // card. Both of the shapes the rest of the branch refuses elsewhere.
 func TestCreatingIntoAColumnOfAnotherRepositoryIsRefused(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "ep-loose", Title: board.EpicStateTitle, Epic: "Loose"},
-		{ItemID: "ep-far", Title: board.EpicStateTitle, Epic: "Far", Project: "engineering", Domain: "founders"},
+		{ItemID: "ep-loose", Title: board.ScopeStateTitle, Scope: "Loose"},
+		{ItemID: "ep-far", Title: board.ScopeStateTitle, Scope: "Far", Project: "engineering", Domain: "founders"},
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
 	f.b.Domains = map[string]string{"st-f": "founders", "ep-far": "founders"}
@@ -793,14 +793,14 @@ func TestCreatingIntoAColumnOfAnotherRepositoryIsRefused(t *testing.T) {
 
 	// The team holds this card in founders; the column is of the primary.
 	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
-		Title: "closed card in a primary column", Team: "founders", Epic: "Loose",
+		Title: "closed card in a primary column", Team: "founders", Scope: "Loose",
 	}); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("a no-project column of the primary cannot hold it: %v", err)
 	}
 	// The same project NAME declared twice (G13): the COLUMN decides, and
 	// this one was declared in founders.
 	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
-		Title: "primary card in a closed column", Project: "engineering", Epic: "Far",
+		Title: "primary card in a closed column", Project: "engineering", Scope: "Far",
 	}); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the column's own repository is what answers: %v", err)
 	}
@@ -818,10 +818,10 @@ func TestCreatingIntoAColumnOfAnotherRepositoryIsRefused(t *testing.T) {
 // only while that column still names the repository that holds it.
 func TestFreeingASubtaskDropsAColumnItsRepositoryNoLongerHolds(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
+		{ItemID: "ep-closed", Title: board.ScopeStateTitle, Scope: "Closed", Domain: "founders"},
 		{ItemID: "orig", Title: "original", Team: "founders"},
 		{ItemID: "rev", Title: "review", ReviewOf: "orig"},
-		{ItemID: "kid", Title: "child", Parent: "rev", Epic: "Closed"},
+		{ItemID: "kid", Title: "child", Parent: "rev", Scope: "Closed"},
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
 	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
@@ -833,8 +833,8 @@ func TestFreeingASubtaskDropsAColumnItsRepositoryNoLongerHolds(t *testing.T) {
 	if !ok {
 		t.Fatal("a subtask is freed, not deleted, with its parent")
 	}
-	if c.Epic != "" {
-		cd, _ := board.ColumnDomain(b, c.Project, c.Epic)
+	if c.Scope != "" {
+		cd, _ := board.ColumnDomain(b, c.Project, c.Scope)
 		t.Fatalf("the column names %q, the card lives in %q: %+v",
 			cd, board.DomainOf(c, board.Resolver(b, "")), c)
 	}
@@ -937,10 +937,10 @@ func TestAFailedGroupingLeavesNoCardBehind(t *testing.T) {
 // card nobody can account for afterwards.
 func TestTheDroppedColumnOfAFreedSubtaskIsLogged(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
+		{ItemID: "ep-closed", Title: board.ScopeStateTitle, Scope: "Closed", Domain: "founders"},
 		{ItemID: "orig", Title: "original", Team: "founders"},
 		{ItemID: "rev", Title: "review", ReviewOf: "orig"},
-		{ItemID: "kid", Title: "child", Parent: "rev", Epic: "Closed"},
+		{ItemID: "kid", Title: "child", Parent: "rev", Scope: "Closed"},
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
 	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
@@ -949,7 +949,7 @@ func TestTheDroppedColumnOfAFreedSubtaskIsLogged(t *testing.T) {
 	}
 	var found bool
 	for _, e := range f.eventsOf("kid") {
-		if e.Kind == board.EventEpic && e.From == " / Closed" && e.To == "" {
+		if e.Kind == board.EventScope && e.From == " / Closed" && e.To == "" {
 			found = true
 		}
 	}
@@ -968,11 +968,11 @@ func TestTheDroppedColumnOfAFreedSubtaskIsLogged(t *testing.T) {
 func stampedBoard(cards []board.Card) *fakeBackend {
 	roster := []board.Card{
 		{ItemID: "pr-e", Title: board.ProjectStateTitle, Project: "engineering", Domain: "aeman-db"},
-		{ItemID: "ep-cozy", Title: board.EpicStateTitle, Epic: "Cozystack", Project: "engineering", Domain: "aeman-db"},
-		{ItemID: "ep-inbox", Title: board.EpicStateTitle, Epic: "Inbox", Domain: "aeman-db"},
-		{ItemID: "ep-other", Title: board.EpicStateTitle, Epic: "Other", Domain: "aeman-db"},
+		{ItemID: "ep-cozy", Title: board.ScopeStateTitle, Scope: "Cozystack", Project: "engineering", Domain: "aeman-db"},
+		{ItemID: "ep-inbox", Title: board.ScopeStateTitle, Scope: "Inbox", Domain: "aeman-db"},
+		{ItemID: "ep-other", Title: board.ScopeStateTitle, Scope: "Other", Domain: "aeman-db"},
 		{ItemID: "pr-s", Title: board.ProjectStateTitle, Project: "strategy", Domain: "founders"},
-		{ItemID: "ep-fund", Title: board.EpicStateTitle, Epic: "Fundraising", Project: "strategy", Domain: "founders"},
+		{ItemID: "ep-fund", Title: board.ScopeStateTitle, Scope: "Fundraising", Project: "strategy", Domain: "founders"},
 	}
 	f := newFake(append(roster, cards...), map[string]board.SprintState{
 		"platform": {Current: board.TodayIso(), ItemID: "st-p"},
@@ -988,7 +988,7 @@ func stampedBoard(cards []board.Card) *fakeBackend {
 func TestAStampedBoardKeepsAFreedSubtasksLawfulColumn(t *testing.T) {
 	f := stampedBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Epic: "Inbox"},
+		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Scope: "Inbox"},
 	})
 	if err := New(f).DeleteCard(ctx, "acme", "p"); err != nil {
 		t.Fatal(err)
@@ -998,7 +998,7 @@ func TestAStampedBoardKeepsAFreedSubtasksLawfulColumn(t *testing.T) {
 	if !ok {
 		t.Fatal("the child is freed, not deleted")
 	}
-	if c.Epic != "Inbox" {
+	if c.Scope != "Inbox" {
 		t.Fatalf("its column was never stranded and must survive: %+v", c)
 	}
 }
@@ -1012,12 +1012,12 @@ func TestAStampedBoardKeepsAFreedSubtasksLawfulColumn(t *testing.T) {
 // something else reloads the card.
 func TestTheGridRemoveWritesNothingWhenItRefusesOverAFollower(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
+		{ItemID: "ep-closed", Title: board.ScopeStateTitle, Scope: "Closed", Domain: "founders"},
 		{ItemID: "p", Title: "parent in the closed repository", Team: "founders", Domain: "founders"},
-		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Epic: "Closed",
+		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Scope: "Closed",
 			SprintStart: board.TodayIso()},
 		{ItemID: "rev", Title: "review of the child", ReviewOf: "kid", Team: "founders",
-			Epic: "Closed", Domain: "founders"},
+			Scope: "Closed", Domain: "founders"},
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
 	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
@@ -1030,10 +1030,10 @@ func TestTheGridRemoveWritesNothingWhenItRefusesOverAFollower(t *testing.T) {
 	if !ok {
 		t.Fatal("a refused × deletes nothing")
 	}
-	if c.Parent != "p" || c.Epic != "Closed" {
+	if c.Parent != "p" || c.Scope != "Closed" {
 		t.Fatalf("a refused × writes nothing: %+v", c)
 	}
-	if f.count("SetEpic") > 0 {
+	if f.count("SetScope") > 0 {
 		t.Fatalf("not even the repair: %v", f.log)
 	}
 }
@@ -1046,9 +1046,9 @@ func TestTheGridRemoveWritesNothingWhenItRefusesOverAFollower(t *testing.T) {
 // day it stood on keeps it (G60).
 func TestAStrandedColumnDoesNotLeaveACardNowhere(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
+		{ItemID: "ep-closed", Title: board.ScopeStateTitle, Scope: "Closed", Domain: "founders"},
 		{ItemID: "p", Title: "parent in the closed repository", Team: "founders"},
-		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Epic: "Closed",
+		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Scope: "Closed",
 			SprintStart: board.TodayIso(), StartDate: board.AddDays(board.TodayIso(), -2)},
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
@@ -1068,10 +1068,10 @@ func TestAStrandedColumnDoesNotLeaveACardNowhere(t *testing.T) {
 // the sake of not deleting it.
 func TestAStrandedColumnWithNoSprintToDemoteIntoDeletesTheCard(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
+		{ItemID: "ep-closed", Title: board.ScopeStateTitle, Scope: "Closed", Domain: "founders"},
 		{ItemID: "st-n", Title: board.SprintStateTitle, Team: "newcomers"},
 		{ItemID: "p", Title: "parent in the closed repository", Team: "founders"},
-		{ItemID: "kid", Title: "child", Parent: "p", Team: "newcomers", Epic: "Closed",
+		{ItemID: "kid", Title: "child", Parent: "p", Team: "newcomers", Scope: "Closed",
 			SprintStart: board.TodayIso()},
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
@@ -1093,9 +1093,9 @@ func TestAStrandedColumnWithNoSprintToDemoteIntoDeletesTheCard(t *testing.T) {
 // card, now an ordinary columnless one, is deleted like any other.
 func TestTheGridRemoveCompletesWhenUngroupingStrandsTheColumn(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
+		{ItemID: "ep-closed", Title: board.ScopeStateTitle, Scope: "Closed", Domain: "founders"},
 		{ItemID: "p", Title: "parent in the closed repository", Team: "founders"},
-		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Epic: "Closed",
+		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Scope: "Closed",
 			SprintStart: board.TodayIso()},
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
@@ -1109,7 +1109,7 @@ func TestTheGridRemoveCompletesWhenUngroupingStrandsTheColumn(t *testing.T) {
 	}
 	// The repair happened all the same: the refusal it exists to prevent
 	// never fired, and the × did not stop half way.
-	if f.count("SetEpic") == 0 {
+	if f.count("SetScope") == 0 {
 		t.Fatalf("the stranded column is repaired on the way out: %v", f.log)
 	}
 }
@@ -1120,29 +1120,29 @@ func TestTheGridRemoveCompletesWhenUngroupingStrandsTheColumn(t *testing.T) {
 // either is refused, while an ordinary teamless card follows its project.
 func TestAColumnCannotNameARepositoryThatDoesNotHoldTheCard(t *testing.T) {
 	f := columnBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "p", Title: "parent", Project: "engineering", Scope: "Cozystack"},
 		{ItemID: "c1", Title: "child", Parent: "p"},
 		{ItemID: "rev", Title: "review", ReviewOf: "p"},
 		// Teamless on purpose: a team of the primary repository would refuse
 		// the move first (G46), before this rule gets a say.
-		{ItemID: "plain", Title: "ordinary", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "plain", Title: "ordinary", Project: "engineering", Scope: "Cozystack"},
 	})
 	svc := New(f)
 	strategy := "strategy"
-	if err := svc.SetEpic(ctx, "acme", "c1", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
+	if err := svc.SetScope(ctx, "acme", "c1", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the subtask's file rides its parent, in the primary repository: %v", err)
 	}
-	if err := svc.SetEpic(ctx, "acme", "rev", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
+	if err := svc.SetScope(ctx, "acme", "rev", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the review card's file follows its original: %v", err)
 	}
 	// The same repository is free — a subtask may carry its own column (G14).
 	freedom := "freedom"
-	if err := svc.SetEpic(ctx, "acme", "c1", "Launch", &freedom); err != nil {
+	if err := svc.SetScope(ctx, "acme", "c1", "Launch", &freedom); err != nil {
 		t.Fatalf("a column of its own repository is a subtask's right: %v", err)
 	}
 	// And an ordinary teamless card still moves BETWEEN repositories freely:
 	// there the project is what decides, so the file follows the column.
-	if err := svc.SetEpic(ctx, "acme", "plain", "Fundraising", &strategy); err != nil {
+	if err := svc.SetScope(ctx, "acme", "plain", "Fundraising", &strategy); err != nil {
 		t.Fatalf("an ordinary card's file follows its project: %v", err)
 	}
 }
@@ -1155,13 +1155,13 @@ func TestAColumnOfAnAliasProjectAnswersForItself(t *testing.T) {
 		// "engineering" is declared in the primary; the same NAME is
 		// declared again in founders, carrying its own column.
 		{ItemID: "pr-e2", Title: board.ProjectStateTitle, Project: "engineering", Domain: "founders"},
-		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed work",
+		{ItemID: "ep-closed", Title: board.ScopeStateTitle, Scope: "Closed work",
 			Project: "engineering", Domain: "founders"},
-		{ItemID: "c1", Title: "primary card", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "c1", Title: "primary card", Project: "engineering", Scope: "Cozystack"},
 	})
 	svc := New(f)
 	none := "engineering"
-	if err := svc.SetEpic(ctx, "acme", "c1", "Closed work", &none); !errors.Is(err, ErrCrossDomain) {
+	if err := svc.SetScope(ctx, "acme", "c1", "Closed work", &none); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the column lives in founders, the card does not: %v", err)
 	}
 }
@@ -1171,17 +1171,17 @@ func TestAColumnOfAnAliasProjectAnswersForItself(t *testing.T) {
 // primary and an unstamped card are the same repository.
 func TestTheRulesReadOneNamespaceOnAStampedBoard(t *testing.T) {
 	f := stampedBoard([]board.Card{
-		{ItemID: "c1", Title: "in the bucket", Epic: "Inbox"},
+		{ItemID: "c1", Title: "in the bucket", Scope: "Inbox"},
 	})
 	svc := New(f)
 
 	// Creating into that column is not a cross-repository move.
-	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{Title: "another", Epic: "Inbox"}); err != nil {
+	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{Title: "another", Scope: "Inbox"}); err != nil {
 		t.Fatalf("the bucket is a column of this very board: %v", err)
 	}
 	// Nor is attaching to a sibling column.
 	none := ""
-	if err := svc.SetEpic(ctx, "acme", "c1", "Other", &none); err != nil {
+	if err := svc.SetScope(ctx, "acme", "c1", "Other", &none); err != nil {
 		t.Fatalf("the card may be re-filed between columns of the primary: %v", err)
 	}
 }

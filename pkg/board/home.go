@@ -8,13 +8,13 @@ package board
 // named primary and "" once became two repositories.
 
 // ColumnDomain is the repository a COLUMN belongs to — the domain of the
-// epic stub that declares it, not of its project. The two agree wherever a
+// scope stub that declares it, not of its project. The two agree wherever a
 // project owns the column (a project and its columns live together), but
 // the NO-PROJECT bucket is a real column with no project to ask: reading
 // the project there answers "no such repository" for every card in it.
 // Reports false only for a column the roster does not declare at all.
-func ColumnDomain(b Board, project, epic string) (string, bool) {
-	col, ok := FindEpic(b, project, epic)
+func ColumnDomain(b Board, project, scope string) (string, bool) {
+	col, ok := FindScope(b, project, scope)
 	if !ok {
 		return "", false
 	}

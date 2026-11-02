@@ -159,7 +159,7 @@ func (v *visibleBackend) domainOf(ctx context.Context, bd board.Board, c board.C
 // stubHome is where a roster stub lives: a column or deadline with its
 // project, else the primary.
 func (v *visibleBackend) stubHome(whole board.Board, c board.Card) string {
-	if c.Title == board.EpicStateTitle || c.Title == board.DeadlineStateTitle {
+	if c.Title == board.ScopeStateTitle || c.Title == board.DeadlineStateTitle {
 		if d, ok := board.Resolver(whole, v.primary).ProjectDomain(c.Project); ok {
 			return d
 		}
@@ -351,11 +351,11 @@ func (v *visibleBackend) SetTeam(ctx context.Context, bd board.Board, card board
 	return v.Backend.SetTeam(ctx, bd, card, team)
 }
 
-func (v *visibleBackend) SetEpic(ctx context.Context, bd board.Board, card board.Card, epic string) error {
-	if err := v.writeMove(ctx, bd, card, func(c *board.Card) { c.Epic = epic }); err != nil {
+func (v *visibleBackend) SetScope(ctx context.Context, bd board.Board, card board.Card, scope string) error {
+	if err := v.writeMove(ctx, bd, card, func(c *board.Card) { c.Scope = scope }); err != nil {
 		return err
 	}
-	return v.Backend.SetEpic(ctx, bd, card, epic)
+	return v.Backend.SetScope(ctx, bd, card, scope)
 }
 
 func (v *visibleBackend) SetProject(ctx context.Context, bd board.Board, card board.Card, project string) error {

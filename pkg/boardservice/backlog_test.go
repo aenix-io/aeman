@@ -16,12 +16,12 @@ func backlogBoard() *fakeBackend {
 	today := board.TodayIso()
 	return newFake([]board.Card{
 		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "core"},
-		{ItemID: "ep", Title: board.EpicStateTitle, Epic: "Auth", Project: "core"},
+		{ItemID: "ep", Title: board.ScopeStateTitle, Scope: "Auth", Project: "core"},
 		// An ordinary card, in the working area and scheduled for a week.
 		{ItemID: "plain", Team: "alpha", Assignees: []string{"kvaps"},
 			Week: board.MondayOf(today), SprintStart: today, StartDate: today, Day: today},
 		// A Project-board slot: not this board's to park.
-		{ItemID: "slot", Team: "alpha", Project: "core", Epic: "Auth", StartDate: today, Day: today},
+		{ItemID: "slot", Team: "alpha", Project: "core", Scope: "Auth", StartDate: today, Day: today},
 		// A card of the NO-TEAM group, which has a shelf like any other team.
 		{ItemID: "loose", Assignees: []string{"kvaps"}, Week: board.MondayOf(today)},
 		// And one of a SECOND team.

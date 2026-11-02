@@ -9,36 +9,36 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// ErrEpicInUse is returned when deleting an epic that still has cards filed
+// ErrScopeInUse is returned when deleting an scope that still has cards filed
 // under it: silently orphaning them would hide planned work, exactly the
 // failure mode the Project board exists to prevent.
-var ErrEpicInUse = errors.New("epic still has cards")
+var ErrScopeInUse = errors.New("scope still has cards")
 
-// ErrEpicExists guards against doubling a column WITHIN a project. Epic names
+// ErrScopeExists guards against doubling a column WITHIN a project. Scope names
 // repeat across projects on purpose — every project has its own "Docs".
-var ErrEpicExists = errors.New("epic already exists")
+var ErrScopeExists = errors.New("scope already exists")
 
 // ErrWeekDerived is setting the week of a Project-board slot by hand: it is
 // derived from the card's start date, so there is nothing to set. A rejected
 // input (422), not an upstream failure.
 var ErrWeekDerived = errors.New("a slot's week is derived from its dates")
 
-// ErrEpicNotFound is filing a card under a column that does not exist — a
+// ErrScopeNotFound is filing a card under a column that does not exist — a
 // typo must not mint a phantom column the way a stray team value used to
 // mint a team. It is a rejected input (422), not an upstream failure.
-var ErrEpicNotFound = errors.New("unknown epic")
+var ErrScopeNotFound = errors.New("unknown scope")
 
-// AddEpic declares a new column by creating its hidden epic-state card (the
+// AddScope declares a new column by creating its hidden scope-state card (the
 // exact team-roster mechanism: the card's position IS the column order).
 //
 // A column normally belongs to a project, and naming one is how it ends up
 // somewhere people look. An empty project is allowed but deliberate: it files
 // the column in the no-project bucket, which the board shows behind its own
 // chip. A project that does not exist is still refused — that is a typo.
-func (s *Service) AddEpic(ctx context.Context, boardID string, name, projectName string) error {
+func (s *Service) AddScope(ctx context.Context, boardID string, name, projectName string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return fmt.Errorf("epic name must not be empty")
+		return fmt.Errorf("scope name must not be empty")
 	}
 	projectName = strings.TrimSpace(projectName)
 	b, err := s.backend.LoadBoard(ctx, boardID)
@@ -50,104 +50,104 @@ func (s *Service) AddEpic(ctx context.Context, boardID string, name, projectName
 			return err
 		}
 	}
-	if err := epicNameFree(b, projectName, name, ""); err != nil {
+	if err := scopeNameFree(b, projectName, name, ""); err != nil {
 		return err
 	}
 	_, err = s.backend.CreateCard(ctx, b, board.CreateInput{
-		Title:   board.EpicStateTitle,
-		Epic:    name,
+		Title:   board.ScopeStateTitle,
+		Scope:   name,
 		Project: projectName,
 	})
 	return err
 }
 
-// DeleteEpic removes an empty column by deleting its epic-state card. A column
-// still referenced by cards is protected (ErrEpicInUse).
-func (s *Service) DeleteEpic(ctx context.Context, boardID string, name, projectName string) error {
+// DeleteScope removes an empty column by deleting its scope-state card. A column
+// still referenced by cards is protected (ErrScopeInUse).
+func (s *Service) DeleteScope(ctx context.Context, boardID string, name, projectName string) error {
 	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
 	inUse := 0
 	for _, c := range b.Cards {
-		if board.InEpic(c, projectName, name) {
+		if board.InScope(c, projectName, name) {
 			inUse++
 		}
 	}
 	if inUse > 0 {
-		return fmt.Errorf("%w: %d card(s) still under %q — move or clear them first", ErrEpicInUse, inUse, name)
+		return fmt.Errorf("%w: %d card(s) still under %q — move or clear them first", ErrScopeInUse, inUse, name)
 	}
-	col, ok := board.FindEpic(b, projectName, name)
+	col, ok := board.FindScope(b, projectName, name)
 	if !ok || col.ItemID == "" {
 		return nil
 	}
-	stub := board.Card{ItemID: col.ItemID, Title: board.EpicStateTitle, Epic: name, Project: projectName}
+	stub := board.Card{ItemID: col.ItemID, Title: board.ScopeStateTitle, Scope: name, Project: projectName}
 	return s.backend.DeleteCard(ctx, b, stub)
 }
 
-// RenameEpic renames a column in place: its epic-state card and every card
+// RenameScope renames a column in place: its scope-state card and every card
 // filed under it. The name IS the reference (cards store the text, not an id),
 // so the two must move together or the cards would point at a column that no
 // longer exists.
-func (s *Service) RenameEpic(ctx context.Context, boardID string, projectName, from, to string) error {
+func (s *Service) RenameScope(ctx context.Context, boardID string, projectName, from, to string) error {
 	to = strings.TrimSpace(to)
 	if to == "" {
-		return fmt.Errorf("epic name must not be empty")
+		return fmt.Errorf("scope name must not be empty")
 	}
 	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
-	col, ok := board.FindEpic(b, projectName, from)
+	col, ok := board.FindScope(b, projectName, from)
 	if !ok || col.ItemID == "" {
-		return fmt.Errorf("%w %q", ErrEpicNotFound, from)
+		return fmt.Errorf("%w %q", ErrScopeNotFound, from)
 	}
 	if from == to {
 		return nil
 	}
-	if err := epicNameFree(b, projectName, to, from); err != nil {
+	if err := scopeNameFree(b, projectName, to, from); err != nil {
 		return err
 	}
-	stub := board.Card{ItemID: col.ItemID, Title: board.EpicStateTitle, Epic: from, Project: projectName}
-	if err := s.backend.SetEpic(ctx, b, stub, to); err != nil {
+	stub := board.Card{ItemID: col.ItemID, Title: board.ScopeStateTitle, Scope: from, Project: projectName}
+	if err := s.backend.SetScope(ctx, b, stub, to); err != nil {
 		return err
 	}
 	for _, c := range b.Cards {
-		if !board.InEpic(c, projectName, from) {
+		if !board.InScope(c, projectName, from) {
 			continue
 		}
-		if err := s.backend.SetEpic(ctx, b, c, to); err != nil {
+		if err := s.backend.SetScope(ctx, b, c, to); err != nil {
 			return err
 		}
-		s.logEvent(ctx, b, c, board.EventEpic, from, to)
+		s.logEvent(ctx, b, c, board.EventScope, from, to)
 	}
 	return nil
 }
 
-// ReorderEpics persists the column order of ONE project by walking its
-// epic-state cards into the given sequence (mirrors ReorderTeams). Names are
+// ReorderScopes persists the column order of ONE project by walking its
+// scope-state cards into the given sequence (mirrors ReorderTeams). Names are
 // scoped to the project, since they repeat across projects.
-func (s *Service) ReorderEpics(ctx context.Context, boardID string, projectName string, epics []string) error {
+func (s *Service) ReorderScopes(ctx context.Context, boardID string, projectName string, scopes []string) error {
 	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
 	// Where this project's block begins in the board-wide roster: moving its
 	// first column to "the top" would hoist the whole project above every
-	// other one, because b.Epics is one list for every project.
+	// other one, because b.Scopes is one list for every project.
 	prev := ""
-	for _, e := range b.Epics {
+	for _, e := range b.Scopes {
 		if e.Project == projectName {
 			break
 		}
 		prev = e.ItemID
 	}
-	for _, name := range epics {
-		col, ok := board.FindEpic(b, projectName, name)
+	for _, name := range scopes {
+		col, ok := board.FindScope(b, projectName, name)
 		if !ok || col.ItemID == "" {
 			continue
 		}
-		stub := board.Card{ItemID: col.ItemID, Title: board.EpicStateTitle, Epic: name, Project: projectName}
+		stub := board.Card{ItemID: col.ItemID, Title: board.ScopeStateTitle, Scope: name, Project: projectName}
 		if err := s.backend.MoveCard(ctx, b, stub, prev); err != nil {
 			return err
 		}
@@ -156,12 +156,12 @@ func (s *Service) ReorderEpics(ctx context.Context, boardID string, projectName 
 	return nil
 }
 
-// SetEpic files a card under a column — the (project, epic) pair, since the
-// same epic name in another project is another column. An empty epic clears
+// SetScope files a card under a column — the (project, scope) pair, since the
+// same scope name in another project is another column. An empty scope clears
 // the filing. A nil projectName keeps the card where it is, which is what
 // filing inside one project means; crossing projects names both halves. The
 // column must exist: a typo must not mint a phantom one.
-func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic string, inProject *string) error {
+func (s *Service) SetScope(ctx context.Context, boardID string, itemID, scope string, inProject *string) error {
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -170,13 +170,13 @@ func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic stri
 	if inProject != nil {
 		projectName = *inProject
 	}
-	if epic == "" {
+	if scope == "" {
 		projectName = ""
-	} else if _, ok := board.FindEpic(b, projectName, epic); !ok {
-		return fmt.Errorf("%w %q in project %q — add it first (add_epic / POST /epics)",
-			ErrEpicNotFound, epic, projectName)
+	} else if _, ok := board.FindScope(b, projectName, scope); !ok {
+		return fmt.Errorf("%w %q in project %q — add it first (add_scope / POST /scopes)",
+			ErrScopeNotFound, scope, projectName)
 	}
-	if card.Epic == epic && card.Project == projectName {
+	if card.Scope == scope && card.Project == projectName {
 		return nil
 	}
 	if err := guardRoster(b, card.Team, projectName); err != nil {
@@ -188,15 +188,15 @@ func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic stri
 	// and the columns of the cards whose files follow it.
 	if err := refileGuard(b, card, func(a *board.Card) {
 		a.Project = projectName
-		a.Epic = epic
+		a.Scope = scope
 	}); err != nil {
 		return err
 	}
-	if card.Epic != epic {
-		if err := s.backend.SetEpic(ctx, b, card, epic); err != nil {
+	if card.Scope != scope {
+		if err := s.backend.SetScope(ctx, b, card, scope); err != nil {
 			return err
 		}
-		s.logEvent(ctx, b, card, board.EventEpic, card.Epic, epic)
+		s.logEvent(ctx, b, card, board.EventScope, card.Scope, scope)
 	}
 	if card.Project != projectName {
 		if err := s.backend.SetProject(ctx, b, card, projectName); err != nil {
@@ -209,8 +209,8 @@ func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic stri
 	// the way: Monday to Friday, the whole of the week it was owed in.
 	// Without this it would land in the column with no row at all and jump to
 	// another week on the next full load.
-	if epic != "" {
-		card.Epic = epic
+	if scope != "" {
+		card.Scope = scope
 		if card.StartDate == "" && card.Week != "" {
 			end := board.AddDays(card.Week, 4) // through its Friday
 			if err := s.backend.SetStart(ctx, b, card, card.Week); err != nil {
@@ -227,12 +227,12 @@ func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic stri
 	return nil
 }
 
-// epicNameFree rejects a column name already taken WITHIN the project
+// scopeNameFree rejects a column name already taken WITHIN the project
 // (case-insensitively); except is the column being renamed, if any.
-func epicNameFree(b board.Board, project, name, except string) error {
-	for _, e := range board.EpicsOf(b, project) {
+func scopeNameFree(b board.Board, project, name, except string) error {
+	for _, e := range board.ScopesOf(b, project) {
 		if e.Name != except && strings.EqualFold(e.Name, name) {
-			return fmt.Errorf("%w in %q: %q", ErrEpicExists, project, e.Name)
+			return fmt.Errorf("%w in %q: %q", ErrScopeExists, project, e.Name)
 		}
 	}
 	return nil
@@ -249,24 +249,24 @@ var ErrNotInProject = errors.New("the card does not stand in that column")
 // would go (deleteWarning). A SUBTASK is never deleted here, however
 // untouched: its other home is its parent, so the × only takes the column
 // away (G57).
-func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID, project, epic string) error {
-	// A column is named by its EPIC — an empty epic is no column: without
+func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID, project, scope string) error {
+	// A column is named by its SCOPE — an empty scope is no column: without
 	// this, a card standing in no column "matched" ("", "") and fell
 	// through to the deletion branch, deleted outright by the very call
 	// that asked to remove it from nowhere. The PROJECT half may be empty:
 	// the no-project bucket is a real column with a working ×, and a card
-	// outside every column has an empty epic, so ("", epic) on it honestly
+	// outside every column has an empty scope, so ("", scope) on it honestly
 	// mismatches below. This package is a public contract and the MCP tool
 	// feeds it directly, so the guard lives here.
-	if epic == "" {
-		return fmt.Errorf("%w: a column is named by its epic — the epic half is required", ErrNotInProject)
+	if scope == "" {
+		return fmt.Errorf("%w: a column is named by its scope — the scope half is required", ErrNotInProject)
 	}
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
 	}
-	if c.Project != project || c.Epic != epic {
-		return fmt.Errorf("%w: %q / %q", ErrNotInProject, project, epic)
+	if c.Project != project || c.Scope != scope {
+		return fmt.Errorf("%w: %q / %q", ErrNotInProject, project, scope)
 	}
 	// A SUBTASK has another home — its parent — so the × only takes the
 	// column away, however untouched the card is: deleting would destroy
@@ -282,7 +282,7 @@ func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID,
 	// ORPHANING clears the pair, and for a teamless card that is a
 	// repository move (the domain falls through to the primary) — refused
 	// before anything is written, like every other door.
-	if err := refileGuard(b, c, func(a *board.Card) { a.Project = ""; a.Epic = "" }); err != nil {
+	if err := refileGuard(b, c, func(a *board.Card) { a.Project = ""; a.Scope = "" }); err != nil {
 		return err
 	}
 	// The week goes with it, always: it was the slot's row, not a placement
@@ -292,12 +292,12 @@ func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID,
 			return err
 		}
 	}
-	if err := s.backend.SetEpic(ctx, b, c, ""); err != nil {
+	if err := s.backend.SetScope(ctx, b, c, ""); err != nil {
 		return err
 	}
 	if err := s.backend.SetProject(ctx, b, c, ""); err != nil {
 		return err
 	}
-	s.logEvent(ctx, b, c, board.EventEpic, project+" / "+epic, "")
+	s.logEvent(ctx, b, c, board.EventScope, project+" / "+scope, "")
 	return nil
 }

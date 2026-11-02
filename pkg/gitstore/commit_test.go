@@ -214,9 +214,9 @@ func TestCommitDeleteRemovesFileAndEmptyDirs(t *testing.T) {
 // Trailers survive a body with blank lines and a summary that contains a
 // colon; a message with no trailers parses to nothing, not to garbage.
 func TestParseTrailersRobust(t *testing.T) {
-	msg := "rename: Docs → Documentation\n\nSome body text: with a colon.\n\nAeman-Action: rename-epic\nAeman-Cards: A1 B2 C3\n"
+	msg := "rename: Docs → Documentation\n\nSome body text: with a colon.\n\nAeman-Action: rename-scope\nAeman-Cards: A1 B2 C3\n"
 	tr := ParseTrailers(msg)
-	if tr.Action != "rename-epic" || len(tr.Cards) != 3 || tr.Actor != "" {
+	if tr.Action != "rename-scope" || len(tr.Cards) != 3 || tr.Actor != "" {
 		t.Fatalf("trailers = %+v", tr)
 	}
 	if tr := ParseTrailers("just a line\n"); tr.Action != "" || len(tr.Cards) != 0 {

@@ -16,7 +16,7 @@ import (
 
 // Backend is boardservice.Backend over one domain's repository. The service
 // speaks the state-card protocol it always has — a stub card whose Title is
-// an aeman:*-state marker stands for a team, epic, project, deadline or
+// an aeman:*-state marker stands for a team, scope, project, deadline or
 // process — and the backend routes those onto roster files. Every mutation
 // is a commit: on its own when called bare, or folded into the enclosing
 // action's single commit when the context carries a scope (WithScope).
@@ -306,8 +306,8 @@ func boardFromSnapshotIn(primary string, s Snapshot) board.Board {
 		cards = append(cards, board.Card{ItemID: p.ID, Title: board.ProjectStateTitle, Project: p.Name, Rank: p.Rank, CreatedAt: p.Created, Domain: p.Domain})
 	}
 	for _, p := range s.Projects {
-		for _, e := range p.Epics {
-			cards = append(cards, board.Card{ItemID: e.ID, Title: board.EpicStateTitle, Epic: e.Name, Project: p.Name, Rank: e.Rank, CreatedAt: e.Created, Domain: e.Domain})
+		for _, e := range p.Scopes {
+			cards = append(cards, board.Card{ItemID: e.ID, Title: board.ScopeStateTitle, Scope: e.Name, Project: p.Name, Rank: e.Rank, CreatedAt: e.Created, Domain: e.Domain})
 		}
 		for _, d := range p.Deadlines {
 			cards = append(cards, board.Card{ItemID: d.ID, Title: board.DeadlineStateTitle, Week: d.Week, Project: p.Name, CreatedAt: d.Created, Domain: d.Domain})
@@ -400,18 +400,18 @@ func (b *Backend) CreateCard(ctx context.Context, _ board.Board, in board.Create
 		}
 		return board.Card{ItemID: id, Title: in.Title, Project: in.Project, Rank: rank, CreatedAt: created},
 			b.write(ctx, "add-project", nil, ProjectPath(id), data)
-	case board.EpicStateTitle:
+	case board.ScopeStateTitle:
 		pid, pr, err := b.projectByName(ctx, s, in.Project, true)
 		if err != nil {
 			return board.Card{}, err
 		}
-		rank, _ := board.RankBetween(lastRank(len(pr.Epics), func(i int) string { return pr.Epics[i].Rank }), "")
-		data, err := EncodeEpic(EpicFile{Name: in.Epic, Rank: rank, Created: created})
+		rank, _ := board.RankBetween(lastRank(len(pr.Scopes), func(i int) string { return pr.Scopes[i].Rank }), "")
+		data, err := EncodeScope(ScopeFile{Name: in.Scope, Rank: rank, Created: created})
 		if err != nil {
 			return board.Card{}, err
 		}
-		return board.Card{ItemID: id, Title: in.Title, Epic: in.Epic, Project: in.Project, Rank: rank, CreatedAt: created},
-			b.write(ctx, "add-epic", nil, EpicPath(pid, id), data)
+		return board.Card{ItemID: id, Title: in.Title, Scope: in.Scope, Project: in.Project, Rank: rank, CreatedAt: created},
+			b.write(ctx, "add-scope", nil, ScopePath(pid, id), data)
 	case board.DeadlineStateTitle:
 		pid, _, err := b.projectByName(ctx, s, in.Project, true)
 		if err != nil {
@@ -437,7 +437,7 @@ func (b *Backend) CreateCard(ctx context.Context, _ board.Board, in board.Create
 func cardFromInput(in board.CreateInput, id, created, author string) board.Card {
 	c := board.Card{
 		ItemID: id, Title: in.Title, Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
-		Team: in.Team, ReviewOf: in.ReviewOf, Parent: in.Parent, Week: in.Week, Epic: in.Epic,
+		Team: in.Team, ReviewOf: in.ReviewOf, Parent: in.Parent, Week: in.Week, Scope: in.Scope,
 		Parked: in.Parked, Size: in.Size,
 		Project: in.Project, Recurrence: in.Recurrence,
 		Description: in.Body, CreatedAt: created, Author: author,
@@ -530,9 +530,9 @@ func (b *Backend) pathFor(ctx context.Context, s Snapshot, c board.Card) (string
 		return TeamPath(c.ItemID), nil
 	case board.ProjectStateTitle:
 		return ProjectPath(c.ItemID), nil
-	case board.EpicStateTitle:
+	case board.ScopeStateTitle:
 		pid, err := b.projectOfChild(ctx, s, c, func(p Project) bool {
-			for _, e := range p.Epics {
+			for _, e := range p.Scopes {
 				if e.ID == c.ItemID {
 					return true
 				}
@@ -542,7 +542,7 @@ func (b *Backend) pathFor(ctx context.Context, s Snapshot, c board.Card) (string
 		if err != nil {
 			return "", err
 		}
-		return EpicPath(pid, c.ItemID), nil
+		return ScopePath(pid, c.ItemID), nil
 	case board.DeadlineStateTitle:
 		pid, err := b.projectOfChild(ctx, s, c, func(p Project) bool {
 			for _, d := range p.Deadlines {
@@ -596,7 +596,7 @@ func cardIDs(c board.Card) []string {
 
 func isStub(c board.Card) bool {
 	switch c.Title {
-	case board.SprintStateTitle, board.ProjectStateTitle, board.EpicStateTitle, board.DeadlineStateTitle:
+	case board.SprintStateTitle, board.ProjectStateTitle, board.ScopeStateTitle, board.DeadlineStateTitle:
 		return true
 	}
 	return false
@@ -707,11 +707,11 @@ func (b *Backend) rankedList(s Snapshot, c board.Card) []ranked {
 		for _, p := range s.Projects {
 			out = append(out, ranked{p.ID, p.Rank})
 		}
-	case board.EpicStateTitle:
+	case board.ScopeStateTitle:
 		for _, p := range s.Projects {
-			for _, e := range p.Epics {
+			for _, e := range p.Scopes {
 				if e.ID == c.ItemID {
-					for _, x := range p.Epics {
+					for _, x := range p.Scopes {
 						out = append(out, ranked{x.ID, x.Rank})
 					}
 					return out
@@ -737,8 +737,8 @@ func (b *Backend) setRank(ctx context.Context, s Snapshot, c board.Card, rank st
 		return b.editTeam(ctx, "move", p, func(f *TeamFile) { f.Rank = rank })
 	case board.ProjectStateTitle:
 		return b.editProject(ctx, "move", p, func(f *ProjectFile) { f.Rank = rank })
-	case board.EpicStateTitle:
-		return b.editEpic(ctx, "move", p, func(f *EpicFile) { f.Rank = rank })
+	case board.ScopeStateTitle:
+		return b.editScope(ctx, "move", p, func(f *ScopeFile) { f.Rank = rank })
 	case board.DeadlineStateTitle:
 		return nil // deadlines order by week
 	}
@@ -875,7 +875,7 @@ func (b *Backend) editProject(ctx context.Context, op, p string, fn func(*Projec
 	return b.write(ctx, op, nil, p, out)
 }
 
-func (b *Backend) editEpic(ctx context.Context, op, p string, fn func(*EpicFile)) error {
+func (b *Backend) editScope(ctx context.Context, op, p string, fn func(*ScopeFile)) error {
 	data, ok, err := b.read(ctx, p)
 	if err != nil {
 		return err
@@ -883,12 +883,12 @@ func (b *Backend) editEpic(ctx context.Context, op, p string, fn func(*EpicFile)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNotFound, p)
 	}
-	f, err := DecodeEpic(data)
+	f, err := DecodeScope(data)
 	if err != nil {
 		return err
 	}
 	fn(&f)
-	out, err := EncodeEpic(f)
+	out, err := EncodeScope(f)
 	if err != nil {
 		return err
 	}
@@ -1099,9 +1099,9 @@ func (b *Backend) SetBacklog(
 	return b.editCard(ctx, "backlog", card, func(f *CardFile) { f.Card.Parked = parked })
 }
 
-// SetEpic files the card under a column, or renames an epic stub.
-func (b *Backend) SetEpic(ctx context.Context, _ board.Board, card board.Card, epic string) error {
-	if card.Title == board.EpicStateTitle {
+// SetScope files the card under a column, or renames an scope stub.
+func (b *Backend) SetScope(ctx context.Context, _ board.Board, card board.Card, scope string) error {
+	if card.Title == board.ScopeStateTitle {
 		s, err := b.snapshot(ctx)
 		if err != nil {
 			return err
@@ -1110,26 +1110,26 @@ func (b *Backend) SetEpic(ctx context.Context, _ board.Board, card board.Card, e
 		if err != nil {
 			return err
 		}
-		return b.editEpic(ctx, "rename-epic", p, func(f *EpicFile) { f.Name = epic })
+		return b.editScope(ctx, "rename-scope", p, func(f *ScopeFile) { f.Name = scope })
 	}
-	return b.editCard(ctx, "epic", card, func(f *CardFile) { f.Card.Epic = epic })
+	return b.editCard(ctx, "scope", card, func(f *CardFile) { f.Card.Scope = scope })
 }
 
-// SetProject renames a project stub, re-parents an epic stub, or files a
+// SetProject renames a project stub, re-parents an scope stub, or files a
 // card under a project.
 func (b *Backend) SetProject(ctx context.Context, _ board.Board, card board.Card, project string) error {
 	switch card.Title {
 	case board.ProjectStateTitle:
 		return b.editProject(ctx, "rename-project", ProjectPath(card.ItemID), func(f *ProjectFile) { f.Name = project })
-	case board.EpicStateTitle:
-		return b.moveEpic(ctx, card, project)
+	case board.ScopeStateTitle:
+		return b.moveScope(ctx, card, project)
 	}
 	return b.editCard(ctx, "project", card, func(f *CardFile) { f.Card.Project = project })
 }
 
-// moveEpic moves a column to another project: the epic file's path names
+// moveScope moves a column to another project: the scope file's path names
 // its project, so this is a delete and a create with the same id.
-func (b *Backend) moveEpic(ctx context.Context, card board.Card, project string) error {
+func (b *Backend) moveScope(ctx context.Context, card board.Card, project string) error {
 	s, err := b.snapshot(ctx)
 	if err != nil {
 		return err
@@ -1149,10 +1149,10 @@ func (b *Backend) moveEpic(ctx context.Context, card board.Card, project string)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNotFound, from)
 	}
-	if err := b.write(ctx, "epic-project", nil, from, nil); err != nil {
+	if err := b.write(ctx, "scope-project", nil, from, nil); err != nil {
 		return err
 	}
-	return b.write(ctx, "epic-project", nil, EpicPath(toPID, card.ItemID), data)
+	return b.write(ctx, "scope-project", nil, ScopePath(toPID, card.ItemID), data)
 }
 
 // SetRecurrence sets a recurrent card's cycle.

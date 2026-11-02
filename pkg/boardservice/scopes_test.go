@@ -8,38 +8,38 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-func epicBoard() *fakeBackend {
+func scopeBoard() *fakeBackend {
 	return newFake([]board.Card{
 		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "Cozystack"},
-		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "Infra", Project: "Cozystack"},
-		{ItemID: "c1", Team: "alpha", Title: "vGPU setup", Epic: "Infra", Project: "Cozystack", Week: "2026-08-17",
+		{ItemID: "e1", Title: board.ScopeStateTitle, Scope: "Infra", Project: "Cozystack"},
+		{ItemID: "c1", Team: "alpha", Title: "vGPU setup", Scope: "Infra", Project: "Cozystack", Week: "2026-08-17",
 			StartDate: "2026-08-17", Day: "2026-08-28"},
 	}, map[string]board.SprintState{"alpha": {Current: board.TodayIso(), ItemID: "s1"}})
 }
 
-// An epic is declared by its hidden state card — the team-roster mechanism —
+// An scope is declared by its hidden state card — the team-roster mechanism —
 // and duplicates are refused case-insensitively.
-func TestAddEpic(t *testing.T) {
-	fake := epicBoard()
+func TestAddScope(t *testing.T) {
+	fake := scopeBoard()
 	svc := New(fake)
-	if err := svc.AddEpic(context.Background(), "acme", "Console", "Cozystack"); err != nil {
+	if err := svc.AddScope(context.Background(), "acme", "Console", "Cozystack"); err != nil {
 		t.Fatal(err)
 	}
 	last := fake.creates[len(fake.creates)-1]
-	if last.Title != board.EpicStateTitle || last.Epic != "Console" || last.Project != "Cozystack" {
-		t.Fatalf("epic-state create = %+v", last)
+	if last.Title != board.ScopeStateTitle || last.Scope != "Console" || last.Project != "Cozystack" {
+		t.Fatalf("scope-state create = %+v", last)
 	}
-	if err := svc.AddEpic(context.Background(), "acme", "infra", "Cozystack"); !errors.Is(err, ErrEpicExists) {
+	if err := svc.AddScope(context.Background(), "acme", "infra", "Cozystack"); !errors.Is(err, ErrScopeExists) {
 		t.Fatalf("a case-insensitive duplicate must be refused, got %v", err)
 	}
-	if err := svc.AddEpic(context.Background(), "acme", "  ", "Cozystack"); err == nil {
+	if err := svc.AddScope(context.Background(), "acme", "  ", "Cozystack"); err == nil {
 		t.Fatal("an empty name must be refused")
 	}
 	// A typo is refused; the no-project bucket is a deliberate destination.
-	if err := svc.AddEpic(context.Background(), "acme", "Loose", "Ghost"); !errors.Is(err, ErrProjectNotFound) {
+	if err := svc.AddScope(context.Background(), "acme", "Loose", "Ghost"); !errors.Is(err, ErrProjectNotFound) {
 		t.Fatalf("an unknown project must be refused, got %v", err)
 	}
-	if err := svc.AddEpic(context.Background(), "acme", "Loose", ""); err != nil {
+	if err := svc.AddScope(context.Background(), "acme", "Loose", ""); err != nil {
 		t.Fatalf("the no-project bucket is a real destination: %v", err)
 	}
 }
@@ -47,7 +47,7 @@ func TestAddEpic(t *testing.T) {
 // A project is declared by its own hidden state card, and is deletable only
 // while it owns no columns — detaching planned work silently is the anti-goal.
 func TestProjectLifecycle(t *testing.T) {
-	fake := epicBoard()
+	fake := scopeBoard()
 	svc := New(fake)
 	if err := svc.AddProject(context.Background(), "acme", "Portal"); err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestProjectLifecycle(t *testing.T) {
 		t.Fatalf("a project owning columns must be protected, got %v", err)
 	}
 	// Detach the column, and the project becomes deletable.
-	if err := svc.SetEpicProject(context.Background(), "acme", "Cozystack", "Infra", ""); err != nil {
+	if err := svc.SetScopeProject(context.Background(), "acme", "Cozystack", "Infra", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.DeleteProject(context.Background(), "acme", "Cozystack"); err != nil {
@@ -77,44 +77,44 @@ func TestProjectLifecycle(t *testing.T) {
 	}
 }
 
-// Moving a column between projects rewrites the epic-state card, not the cards
-// under it: a card's project always follows its epic.
-func TestSetEpicProject(t *testing.T) {
-	fake := epicBoard()
+// Moving a column between projects rewrites the scope-state card, not the cards
+// under it: a card's project always follows its scope.
+func TestSetScopeProject(t *testing.T) {
+	fake := scopeBoard()
 	svc := New(fake)
 	if err := svc.AddProject(context.Background(), "acme", "Portal"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.SetEpicProject(context.Background(), "acme", "Cozystack", "Infra", "Ghost"); !errors.Is(err, ErrProjectNotFound) {
+	if err := svc.SetScopeProject(context.Background(), "acme", "Cozystack", "Infra", "Ghost"); !errors.Is(err, ErrProjectNotFound) {
 		t.Fatalf("an unknown target project must be refused, got %v", err)
 	}
-	if err := svc.SetEpicProject(context.Background(), "acme", "Cozystack", "Nope", "Portal"); !errors.Is(err, ErrEpicNotFound) {
+	if err := svc.SetScopeProject(context.Background(), "acme", "Cozystack", "Nope", "Portal"); !errors.Is(err, ErrScopeNotFound) {
 		t.Fatalf("an unknown column must be refused, got %v", err)
 	}
-	if err := svc.SetEpicProject(context.Background(), "acme", "Cozystack", "Infra", "Portal"); err != nil {
+	if err := svc.SetScopeProject(context.Background(), "acme", "Cozystack", "Infra", "Portal"); err != nil {
 		t.Fatal(err)
 	}
 	if fake.count("SetProject e1 Portal") == 0 {
 		t.Fatalf("the state card must be rewritten; log=%v", fake.log)
 	}
-	// The card rides along: it names the (project, epic) pair, so leaving it
+	// The card rides along: it names the (project, scope) pair, so leaving it
 	// behind would file it under a column that no longer exists.
 	if c := fake.get("c1"); c.Project != "Portal" {
 		t.Fatalf("the column's cards must follow it, got %q", c.Project)
 	}
 }
 
-// Deleting an epic with cards is protected; an empty one removes its state card.
-func TestDeleteEpic(t *testing.T) {
-	fake := epicBoard()
+// Deleting an scope with cards is protected; an empty one removes its state card.
+func TestDeleteScope(t *testing.T) {
+	fake := scopeBoard()
 	svc := New(fake)
-	if err := svc.DeleteEpic(context.Background(), "acme", "Infra", "Cozystack"); !errors.Is(err, ErrEpicInUse) {
-		t.Fatalf("an epic with cards must be protected, got %v", err)
+	if err := svc.DeleteScope(context.Background(), "acme", "Infra", "Cozystack"); !errors.Is(err, ErrScopeInUse) {
+		t.Fatalf("an scope with cards must be protected, got %v", err)
 	}
-	if err := svc.SetEpic(context.Background(), "acme", "c1", "", nil); err != nil {
+	if err := svc.SetScope(context.Background(), "acme", "c1", "", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.DeleteEpic(context.Background(), "acme", "Infra", "Cozystack"); err != nil {
+	if err := svc.DeleteScope(context.Background(), "acme", "Infra", "Cozystack"); err != nil {
 		t.Fatal(err)
 	}
 	if fake.count("DeleteCard e1") == 0 {
@@ -122,45 +122,45 @@ func TestDeleteEpic(t *testing.T) {
 	}
 }
 
-// Filing a card under an epic validates the column exists — a typo must not
+// Filing a card under an scope validates the column exists — a typo must not
 // mint a phantom column.
-func TestSetEpicValidates(t *testing.T) {
-	fake := epicBoard()
+func TestSetScopeValidates(t *testing.T) {
+	fake := scopeBoard()
 	svc := New(fake)
-	if err := svc.SetEpic(context.Background(), "acme", "c1", "Nope", nil); err == nil {
-		t.Fatal("an unknown epic must be refused")
+	if err := svc.SetScope(context.Background(), "acme", "c1", "Nope", nil); err == nil {
+		t.Fatal("an unknown scope must be refused")
 	}
-	if err := svc.SetEpic(context.Background(), "acme", "c1", "Infra", nil); err != nil {
+	if err := svc.SetScope(context.Background(), "acme", "c1", "Infra", nil); err != nil {
 		t.Fatalf("a no-op re-file must pass: %v", err)
 	}
 }
 
-// An epic card is created on the Project board: filed under its column, anchored
+// An scope card is created on the Project board: filed under its column, anchored
 // to its week, spanning its dates, and joining NO sprint — so it stays off
 // the day boards until a team takes it up.
-func TestCreateCardUnderEpic(t *testing.T) {
-	fake := epicBoard()
+func TestCreateCardUnderScope(t *testing.T) {
+	fake := scopeBoard()
 	svc := New(fake)
 	card, err := svc.CreateCard(context.Background(), "acme", CreateCardArgs{
-		Title: "KMS encryption", Epic: "Infra", Project: "Cozystack",
+		Title: "KMS encryption", Scope: "Infra", Project: "Cozystack",
 		Start: "2026-09-14", Day: "2026-09-25",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if card.Epic != "Infra" || card.Week != "2026-09-14" {
-		t.Fatalf("epic/week = %q/%q", card.Epic, card.Week)
+	if card.Scope != "Infra" || card.Week != "2026-09-14" {
+		t.Fatalf("scope/week = %q/%q", card.Scope, card.Week)
 	}
 	if card.SprintStart != "" {
-		t.Fatalf("an epic card must join no sprint, got %q", card.SprintStart)
+		t.Fatalf("an scope card must join no sprint, got %q", card.SprintStart)
 	}
 	if card.StartDate != "2026-09-14" || card.Day != "2026-09-25" {
 		t.Fatalf("span = %q..%q", card.StartDate, card.Day)
 	}
 	if _, err := svc.CreateCard(context.Background(), "acme", CreateCardArgs{
-		Title: "typo", Epic: "Nope", Project: "Cozystack",
+		Title: "typo", Scope: "Nope", Project: "Cozystack",
 	}); err == nil {
-		t.Fatal("an unknown epic must be refused on create")
+		t.Fatal("an unknown scope must be refused on create")
 	}
 
 	// A slot stands on the day board from the week it starts in, sprint or no
@@ -180,59 +180,59 @@ func TestCreateCardUnderEpic(t *testing.T) {
 
 // The board parses the hidden state cards into the ordered project and column
 // rosters, and binds each column to its project.
-func TestBoardParsesProjectsAndEpics(t *testing.T) {
+func TestBoardParsesProjectsAndScopes(t *testing.T) {
 	b := board.NewBoard([]board.Card{
 		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "Cozystack"},
-		{ItemID: "e2", Title: board.EpicStateTitle, Epic: "Console", Project: "Cozystack"},
-		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "Infra", Project: "Cozystack"},
-		{ItemID: "e3", Title: board.EpicStateTitle, Epic: "Loose"},
-		{ItemID: "c1", Title: "работа", Epic: "Infra", Project: "Cozystack"},
+		{ItemID: "e2", Title: board.ScopeStateTitle, Scope: "Console", Project: "Cozystack"},
+		{ItemID: "e1", Title: board.ScopeStateTitle, Scope: "Infra", Project: "Cozystack"},
+		{ItemID: "e3", Title: board.ScopeStateTitle, Scope: "Loose"},
+		{ItemID: "c1", Title: "работа", Scope: "Infra", Project: "Cozystack"},
 	})
-	if len(b.Epics) != 3 || b.Epics[0].Name != "Console" || b.Epics[1].Name != "Infra" {
-		t.Fatalf("epics = %v (board order = state-card positions)", b.Epics)
+	if len(b.Scopes) != 3 || b.Scopes[0].Name != "Console" || b.Scopes[1].Name != "Infra" {
+		t.Fatalf("scopes = %v (board order = state-card positions)", b.Scopes)
 	}
-	if col, ok := board.FindEpic(b, "Cozystack", "Infra"); !ok || col.ItemID != "e1" {
-		t.Fatalf("FindEpic = %+v / %v", col, ok)
+	if col, ok := board.FindScope(b, "Cozystack", "Infra"); !ok || col.ItemID != "e1" {
+		t.Fatalf("FindScope = %+v / %v", col, ok)
 	}
 	if len(b.Projects) != 1 || b.Projects[0] != "Cozystack" || b.ProjectStates["Cozystack"] != "p1" {
 		t.Fatalf("projects = %v / %v", b.Projects, b.ProjectStates)
 	}
-	if got := board.EpicsOf(b, "Cozystack"); len(got) != 2 || got[0].Name != "Console" {
-		t.Fatalf("EpicsOf = %v, want the project's columns in board order", got)
+	if got := board.ScopesOf(b, "Cozystack"); len(got) != 2 || got[0].Name != "Console" {
+		t.Fatalf("ScopesOf = %v, want the project's columns in board order", got)
 	}
 	// A column naming no project belongs to none — never silently adopted.
-	if _, ok := board.FindEpic(b, "Cozystack", "Loose"); ok {
+	if _, ok := board.FindScope(b, "Cozystack", "Loose"); ok {
 		t.Fatal("a column with no project must not be adopted by one")
 	}
-	if got := board.EpicsOf(b, ""); len(got) != 1 || got[0].Name != "Loose" {
+	if got := board.ScopesOf(b, ""); len(got) != 1 || got[0].Name != "Loose" {
 		t.Fatalf("the no-project bucket = %v", got)
 	}
 	// The same column name in two projects is two columns, not a clash.
 	two := board.NewBoard([]board.Card{
 		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "A"},
 		{ItemID: "p2", Title: board.ProjectStateTitle, Project: "B"},
-		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "Docs", Project: "A"},
-		{ItemID: "e2", Title: board.EpicStateTitle, Epic: "Docs", Project: "B"},
+		{ItemID: "e1", Title: board.ScopeStateTitle, Scope: "Docs", Project: "A"},
+		{ItemID: "e2", Title: board.ScopeStateTitle, Scope: "Docs", Project: "B"},
 	})
-	if len(two.Epics) != 2 {
-		t.Fatalf("same name in two projects = two columns, got %v", two.Epics)
+	if len(two.Scopes) != 2 {
+		t.Fatalf("same name in two projects = two columns, got %v", two.Scopes)
 	}
-	if a, _ := board.FindEpic(two, "A", "Docs"); a.ItemID != "e1" {
-		t.Fatalf("FindEpic(A, Docs) = %+v", a)
+	if a, _ := board.FindScope(two, "A", "Docs"); a.ItemID != "e1" {
+		t.Fatalf("FindScope(A, Docs) = %+v", a)
 	}
 	if len(b.Cards) != 1 {
 		t.Fatalf("state cards must be split out of Cards, got %d", len(b.Cards))
 	}
 }
 
-// Handing an epic card to a team files it into the team's WEEKLY plan (band +
+// Handing an scope card to a team files it into the team's WEEKLY plan (band +
 // week carry it there); it must NOT join today's sprint — a multi-week slot
 // in the current sprint would smear across the team's whole day grid.
-func TestSetTeamKeepsEpicCardPlanLevel(t *testing.T) {
+func TestSetTeamKeepsScopeCardPlanLevel(t *testing.T) {
 	today := board.TodayIso()
 	fake := newFake([]board.Card{
-		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "Infra", Project: "Cozystack"},
-		{ItemID: "slot", Title: "vGPU rollout", Epic: "Infra", Project: "Cozystack", Week: board.MondayOf(today),
+		{ItemID: "e1", Title: board.ScopeStateTitle, Scope: "Infra", Project: "Cozystack"},
+		{ItemID: "slot", Title: "vGPU rollout", Scope: "Infra", Project: "Cozystack", Week: board.MondayOf(today),
 			StartDate: board.MondayOf(today), Day: board.AddDays(board.MondayOf(today), 18)},
 		{ItemID: "day", Title: "ordinary", Team: "", StartDate: today, Day: today, SprintStart: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
@@ -246,7 +246,7 @@ func TestSetTeamKeepsEpicCardPlanLevel(t *testing.T) {
 		t.Fatalf("team = %q", got.Team)
 	}
 	if got.SprintStart != "" {
-		t.Fatalf("an epic card must stay out of the sprint on team assignment, got %q", got.SprintStart)
+		t.Fatalf("an scope card must stay out of the sprint on team assignment, got %q", got.SprintStart)
 	}
 
 	// An ordinary card still joins the team's sprint — the old behaviour.
@@ -257,7 +257,7 @@ func TestSetTeamKeepsEpicCardPlanLevel(t *testing.T) {
 		t.Fatalf("an ordinary card joins the team sprint, got %q", got.SprintStart)
 	}
 
-	// An epic card ALREADY in work follows the normal rule (it has a sprint).
+	// An scope card ALREADY in work follows the normal rule (it has a sprint).
 	if err := svc.SetSprintStart(context.Background(), "acme", "slot", today); err != nil {
 		t.Fatal(err)
 	}
@@ -265,75 +265,75 @@ func TestSetTeamKeepsEpicCardPlanLevel(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := fake.get("slot"); got.SprintStart != today {
-		t.Fatalf("an in-work epic card keeps sprint semantics, got %q", got.SprintStart)
+		t.Fatalf("an in-work scope card keeps sprint semantics, got %q", got.SprintStart)
 	}
 }
 
 // Filing under a column that does not exist is a rejected input, not an
 // upstream failure: the API must answer 422 (and say which name), so a typo
 // reads as a typo instead of "the server is broken".
-func TestUnknownEpicIsTyped(t *testing.T) {
-	fake := epicBoard()
+func TestUnknownScopeIsTyped(t *testing.T) {
+	fake := scopeBoard()
 	svc := New(fake)
-	err := svc.SetEpic(context.Background(), "acme", "c1", "Ghost", nil)
-	if !errors.Is(err, ErrEpicNotFound) {
-		t.Fatalf("SetEpic error = %v, want ErrEpicNotFound", err)
+	err := svc.SetScope(context.Background(), "acme", "c1", "Ghost", nil)
+	if !errors.Is(err, ErrScopeNotFound) {
+		t.Fatalf("SetScope error = %v, want ErrScopeNotFound", err)
 	}
-	_, err = svc.CreateCard(context.Background(), "acme", CreateCardArgs{Title: "x", Epic: "Ghost", Project: "Cozystack"})
-	if !errors.Is(err, ErrEpicNotFound) {
-		t.Fatalf("CreateCard error = %v, want ErrEpicNotFound", err)
+	_, err = svc.CreateCard(context.Background(), "acme", CreateCardArgs{Title: "x", Scope: "Ghost", Project: "Cozystack"})
+	if !errors.Is(err, ErrScopeNotFound) {
+		t.Fatalf("CreateCard error = %v, want ErrScopeNotFound", err)
 	}
 }
 
 // Column names are unique WITHIN a project: every project gets its own "Docs",
 // and renaming one carries its cards along.
-func TestEpicNamesAreScopedToTheirProject(t *testing.T) {
-	fake := epicBoard()
+func TestScopeNamesAreScopedToTheirProject(t *testing.T) {
+	fake := scopeBoard()
 	svc := New(fake)
 	if err := svc.AddProject(context.Background(), "acme", "Portal"); err != nil {
 		t.Fatal(err)
 	}
 	// "Infra" already exists in Cozystack; in Portal it is a different column.
-	if err := svc.AddEpic(context.Background(), "acme", "Infra", "Portal"); err != nil {
+	if err := svc.AddScope(context.Background(), "acme", "Infra", "Portal"); err != nil {
 		t.Fatalf("the same name in another project must be allowed: %v", err)
 	}
-	if err := svc.AddEpic(context.Background(), "acme", "infra", "Portal"); !errors.Is(err, ErrEpicExists) {
+	if err := svc.AddScope(context.Background(), "acme", "infra", "Portal"); !errors.Is(err, ErrScopeExists) {
 		t.Fatalf("a duplicate INSIDE the project must be refused, got %v", err)
 	}
 	// The card under Cozystack/Infra must not be dragged along by Portal/Infra.
-	if err := svc.DeleteEpic(context.Background(), "acme", "Infra", "Portal"); err != nil {
+	if err := svc.DeleteScope(context.Background(), "acme", "Infra", "Portal"); err != nil {
 		t.Fatalf("Portal's empty column must delete cleanly: %v", err)
 	}
-	if err := svc.DeleteEpic(context.Background(), "acme", "Infra", "Cozystack"); !errors.Is(err, ErrEpicInUse) {
+	if err := svc.DeleteScope(context.Background(), "acme", "Infra", "Cozystack"); !errors.Is(err, ErrScopeInUse) {
 		t.Fatalf("Cozystack's column has a card and must be protected, got %v", err)
 	}
 }
 
 // Renaming a column rewrites its state card and every card filed under it —
 // cards store the name, so the two cannot drift apart.
-func TestRenameEpic(t *testing.T) {
-	fake := epicBoard()
+func TestRenameScope(t *testing.T) {
+	fake := scopeBoard()
 	svc := New(fake)
-	if err := svc.RenameEpic(context.Background(), "acme", "Cozystack", "Nope", "X"); !errors.Is(err, ErrEpicNotFound) {
+	if err := svc.RenameScope(context.Background(), "acme", "Cozystack", "Nope", "X"); !errors.Is(err, ErrScopeNotFound) {
 		t.Fatalf("an unknown column must be refused, got %v", err)
 	}
-	if err := svc.RenameEpic(context.Background(), "acme", "Cozystack", "Infra", " "); err == nil {
+	if err := svc.RenameScope(context.Background(), "acme", "Cozystack", "Infra", " "); err == nil {
 		t.Fatal("an empty name must be refused")
 	}
-	if err := svc.RenameEpic(context.Background(), "acme", "Cozystack", "Infra", "Platform"); err != nil {
+	if err := svc.RenameScope(context.Background(), "acme", "Cozystack", "Infra", "Platform"); err != nil {
 		t.Fatal(err)
 	}
-	if fake.count("SetEpic e1 Platform") == 0 {
+	if fake.count("SetScope e1 Platform") == 0 {
 		t.Fatalf("the state card must be renamed; log=%v", fake.log)
 	}
-	if c := fake.get("c1"); c.Epic != "Platform" {
-		t.Fatalf("the column's cards must follow the rename, got %q", c.Epic)
+	if c := fake.get("c1"); c.Scope != "Platform" {
+		t.Fatalf("the column's cards must follow the rename, got %q", c.Scope)
 	}
 }
 
 // Renaming a project carries its columns and their cards.
 func TestRenameProject(t *testing.T) {
-	fake := epicBoard()
+	fake := scopeBoard()
 	svc := New(fake)
 	if err := svc.RenameProject(context.Background(), "acme", "Ghost", "X"); !errors.Is(err, ErrProjectNotFound) {
 		t.Fatalf("an unknown project must be refused, got %v", err)
@@ -352,7 +352,7 @@ func TestRenameProject(t *testing.T) {
 // A deadline belongs to a project: two projects can both have one on the same
 // week, and dragging a project's line onto its own other line merges them.
 func TestDeadlines(t *testing.T) {
-	fake := epicBoard()
+	fake := scopeBoard()
 	svc := New(fake)
 	ctx := context.Background()
 	if err := svc.AddProject(ctx, "acme", "Portal"); err != nil {
@@ -416,11 +416,11 @@ func TestDeadlines(t *testing.T) {
 // rule: cards created in one week, re-dated to another, stayed in the row they
 // were created in because the week was a second value nobody updated.
 func TestSlotWeekFollowsItsStart(t *testing.T) {
-	fake := epicBoard()
+	fake := scopeBoard()
 	svc := New(fake)
 	ctx := context.Background()
 	card, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
-		Title: "Workshop", Epic: "Infra", Project: "Cozystack",
+		Title: "Workshop", Scope: "Infra", Project: "Cozystack",
 		Start: "2026-08-24", Day: "2026-08-28",
 	})
 	if err != nil {
@@ -459,8 +459,8 @@ func TestSlotWeekIsNotSettable(t *testing.T) {
 	today := board.TodayIso()
 	fake := newFake([]board.Card{
 		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "Cozystack"},
-		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "Infra", Project: "Cozystack"},
-		{ItemID: "slot", Title: "a slot", Epic: "Infra", Project: "Cozystack",
+		{ItemID: "e1", Title: board.ScopeStateTitle, Scope: "Infra", Project: "Cozystack"},
+		{ItemID: "slot", Title: "a slot", Scope: "Infra", Project: "Cozystack",
 			StartDate: "2026-08-24", Day: "2026-08-28", Week: "2026-08-24"},
 		{ItemID: "plan", Title: "a card of a week", Team: "alpha",
 			Week: board.MondayOf(today)},
@@ -488,12 +488,12 @@ func TestSlotWeekIsNotSettable(t *testing.T) {
 func TestBoardRepairsStaleSlotWeeks(t *testing.T) {
 	b := board.NewBoard([]board.Card{
 		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "P"},
-		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "E", Project: "P"},
+		{ItemID: "e1", Title: board.ScopeStateTitle, Scope: "E", Project: "P"},
 		// Written by the old code: dates moved, the week stayed behind.
-		{ItemID: "c1", Title: "stale", Epic: "E", Project: "P",
+		{ItemID: "c1", Title: "stale", Scope: "E", Project: "P",
 			StartDate: "2026-08-06", Day: "2026-08-07", Week: "2026-08-24"},
 		// No start at all: nothing to derive from, so the week stands.
-		{ItemID: "c2", Title: "dateless", Epic: "E", Project: "P", Week: "2026-08-24"},
+		{ItemID: "c2", Title: "dateless", Scope: "E", Project: "P", Week: "2026-08-24"},
 		// Not a slot: a card scheduled for a week keeps its own.
 		{ItemID: "c3", Title: "plan", Week: "2026-08-24"},
 	})
@@ -519,7 +519,7 @@ func TestBoardRepairsStaleSlotWeeks(t *testing.T) {
 // used to die on this: the pull-out wrote the PARENT's week.
 func TestSetWeekOnASlot(t *testing.T) {
 	fake := newFake([]board.Card{
-		{ItemID: "s1", Title: "slot", Epic: "E", Project: "P", Team: "t",
+		{ItemID: "s1", Title: "slot", Scope: "E", Project: "P", Team: "t",
 			StartDate: "2026-08-25", Week: "2026-08-24", Day: "2026-08-28"},
 	}, nil)
 	svc := New(fake)

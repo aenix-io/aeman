@@ -124,7 +124,7 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 	// conflicting write SetWeek refuses — the refusal used to kill the whole
 	// grouping.
 	if card.Week != "" {
-		if p.Week == "" && p.Epic == "" {
+		if p.Week == "" && p.Scope == "" {
 			if err := s.backend.SetWeek(ctx, b, p, card.Week); err != nil {
 				return err
 			}

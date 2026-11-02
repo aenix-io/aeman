@@ -532,7 +532,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/epics": {
+    "/scopes": {
         parameters: {
             query?: never;
             header?: never;
@@ -542,17 +542,17 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Declare an epic column.
-         * @description The project is OPTIONAL, and the schema beside this says so too: named, it must already exist — a project the board does not have is a typo, and is refused (422 `projectNotFound`) — and the column lives with it; left empty, the column goes in the no-project bucket, which is a column home like any other. The name has to be free inside whichever of the two it lands in (422 `epicExists`).
+         * Declare an scope column.
+         * @description The project is OPTIONAL, and the schema beside this says so too: named, it must already exist — a project the board does not have is a typo, and is refused (422 `projectNotFound`) — and the column lives with it; left empty, the column goes in the no-project bucket, which is a column home like any other. The name has to be free inside whichever of the two it lands in (422 `scopeExists`).
          */
-        post: operations["addEpic"];
+        post: operations["addScope"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/epics/actions/delete-epic": {
+    "/scopes/actions/delete-scope": {
         parameters: {
             query?: never;
             header?: never;
@@ -561,15 +561,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Delete an EMPTY epic column; refused while cards sit under it. */
-        post: operations["deleteEpic"];
+        /** Delete an EMPTY scope column; refused while cards sit under it. */
+        post: operations["deleteScope"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/epics/actions/reorder-epics": {
+    "/scopes/actions/reorder-scopes": {
         parameters: {
             query?: never;
             header?: never;
@@ -579,14 +579,14 @@ export interface paths {
         get?: never;
         put?: never;
         /** Apply one project's column order. */
-        post: operations["reorderEpics"];
+        post: operations["reorderScopes"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/epics/actions/set-project": {
+    "/scopes/actions/set-project": {
         parameters: {
             query?: never;
             header?: never;
@@ -599,14 +599,14 @@ export interface paths {
          * Move a column from one project to another; an empty target detaches it.
          * @description Its cards are rewritten with it. The column cannot change REPOSITORY — its stub is written back to the repository that holds it — so a target project of another one is refused (422), and the name must be free in the destination, the no-project bucket included.
          */
-        post: operations["setEpicProject"];
+        post: operations["setScopeProject"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/epics/actions/rename": {
+    "/scopes/actions/rename": {
         parameters: {
             query?: never;
             header?: never;
@@ -619,7 +619,7 @@ export interface paths {
          * Rename a column in place, cards and all.
          * @description A name already used inside the SAME project is refused (422); the same name in another project is fine.
          */
-        post: operations["renameEpic"];
+        post: operations["renameScope"];
         delete?: never;
         options?: never;
         head?: never;
@@ -693,7 +693,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Declare a project — the Project board's top grouping, which owns epic columns.
+         * Declare a project — the Project board's top grouping, which owns scope columns.
          * @description It may be created empty; `domain` picks the repository it is declared in.
          */
         post: operations["addProject"];
@@ -849,7 +849,7 @@ export interface components {
              * @description The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
              * @enum {string}
              */
-            code: "accessUndecided" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "dayIsARecord" | "descriptionTooLong" | "domainConflict" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "epicExists" | "epicInUse" | "epicNotFound" | "epicRequired" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAMonday" | "notAuthenticated" | "notFinished" | "notInProject" | "notOnThisBoard" | "notYoursToDestroy" | "notYoursToPark" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "nowhereToLeaveIt" | "openSubtasks" | "parentNotFound" | "pointsRequired" | "projectExists" | "projectInUse" | "projectNotFound" | "setupRequired" | "subtaskDepth" | "subtaskWeek" | "teamExists" | "teamInUse" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownZone" | "upstreamFailed" | "viewNeedsField" | "weekDerived";
+            code: "accessUndecided" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "dayIsARecord" | "descriptionTooLong" | "domainConflict" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "scopeExists" | "scopeInUse" | "scopeNotFound" | "scopeRequired" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAMonday" | "notAuthenticated" | "notFinished" | "notInProject" | "notOnThisBoard" | "notYoursToDestroy" | "notYoursToPark" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "nowhereToLeaveIt" | "openSubtasks" | "parentNotFound" | "pointsRequired" | "projectExists" | "projectInUse" | "projectNotFound" | "setupRequired" | "subtaskDepth" | "subtaskWeek" | "teamExists" | "teamInUse" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownZone" | "upstreamFailed" | "viewNeedsField" | "weekDerived";
             /** @description Where the person can go to fix the refusal — installing the board's app — for a client to offer as a button. */
             actionUrl?: string;
         };
@@ -895,8 +895,8 @@ export interface components {
             week?: string;
             /** @description The card is on its team's SHELF rather than in the plan — work somebody has read and put aside. Exclusive with `week`: setting one clears the other, at every door. Parking empties the working area, takes the card's subtasks off the board with it, withdraws any unfinished review of it, and puts it at the top of the shelf. Every team has a shelf and nothing declares it. A Project-board slot, a review card and a subtask are refused (422): none of them has a place of its own to be parked out of. */
             parked?: boolean;
-            /** @description The card's column, which is the (project, epic) PAIR — epic names repeat across projects, so anything acting on a column names both halves. */
-            epic?: string;
+            /** @description The card's column, which is the (project, scope) PAIR — scope names repeat across projects, so anything acting on a column names both halves. */
+            scope?: string;
             project?: string;
             reviewOf?: string;
             /** @description On a subtask, the uid of the card it is grouped under. */
@@ -1009,7 +1009,7 @@ export interface components {
             teams: string[];
             projects?: string[];
             deadlines?: components["schemas"]["DeadlineRef"][];
-            epics?: components["schemas"]["EpicRef"][];
+            scopes?: components["schemas"]["ScopeRef"][];
             /** @description Every distinct assignee on the board, in login order, with the numbers beside each — the people roster the pickers offer. Who may READ a repository is the other list, `domains[].members`. */
             members: components["schemas"]["Member"][];
             /** @description The repositories the visitor can read, primary first. The board lists its repositories whatever it spans, so a client reads a SINGLE entry as "no boundaries" — by the COUNT, never by the list being absent — and compares the stamps cards and columns carry against these names. */
@@ -1042,7 +1042,7 @@ export interface components {
             members: string[];
         };
         /** @description One Project-board column: its name and the project that owns it. A client cannot compute the column's repository from the project — the same project NAME may be declared in two repositories with its columns merged under one entry — and it is the COLUMN that decides whether a card may stand in it. */
-        EpicRef: {
+        ScopeRef: {
             name: string;
             project?: string;
             domain?: string;
@@ -1156,7 +1156,7 @@ export interface components {
             /** @description Puts the card straight on its team's shelf. Like `week`, no dates are set and no sprint is joined. */
             parked?: boolean;
             /** @description With `project`, files the card on the Project board under the column that pair identifies. Its row is the week of `dates.start` — `week` anchors it when there are no dates — and the dates may span weeks. */
-            epic?: string;
+            scope?: string;
             project?: string;
             reviewOf?: string;
             /** @description Groups the card as a subtask. A `parent` and a `week` together are refused (422): grouping hands the week to the parent, so the pair asks for two contradictory things. */
@@ -1187,8 +1187,8 @@ export interface components {
              */
             stage?: "" | "locked" | "review" | "recurrent" | "refuse" | "done";
             recurrence?: string;
-            /** @description The two halves of the card's column; empty clears. Epic names repeat across projects, so filing into another project's column names both, while naming only the epic stays inside the card's project. */
-            epic?: string;
+            /** @description The two halves of the card's column; empty clears. Scope names repeat across projects, so filing into another project's column names both, while naming only the scope stays inside the card's project. */
+            scope?: string;
             project?: string;
             dates?: components["schemas"]["CardDatesPatch"];
             /** @description The week the card is scheduled for; empty takes it off the weeks. Giving a STANDING subtask a week pulls it out of its group first — that is what the request means — while clearing one is free. */
@@ -1230,10 +1230,10 @@ export interface components {
              */
             zone?: "" | "urgent" | "unplanned" | "planned" | "niceToHave";
         };
-        /** @description A column, named by its EPIC. The project half may be empty — the no-project bucket is a column like any other, and a column's repository is read off the column's own stub. */
+        /** @description A column, named by its SCOPE. The project half may be empty — the no-project bucket is a column like any other, and a column's repository is read off the column's own stub. */
         PlacementBody: {
             project?: string;
-            epic: string;
+            scope: string;
         };
         NoteBody: {
             text?: string;
@@ -1260,28 +1260,28 @@ export interface components {
         TeamBody: {
             team?: string;
         };
-        AddEpicBody: {
+        AddScopeBody: {
             name?: string;
             project?: string;
         };
-        EpicBody: {
-            epic?: string;
+        ScopeBody: {
+            scope?: string;
             project?: string;
         };
-        ReorderEpicsBody: {
+        ReorderScopesBody: {
             project?: string;
-            epics?: string[];
+            scopes?: string[];
         };
-        SetEpicProjectBody: {
-            epic?: string;
+        SetScopeProjectBody: {
+            scope?: string;
             /** @description The project the column is leaving. */
             from?: string;
             /** @description The project it joins; empty detaches it. */
             project?: string;
         };
-        RenameEpicBody: {
+        RenameScopeBody: {
             project?: string;
-            epic?: string;
+            scope?: string;
             to?: string;
         };
         DeadlineBody: {
@@ -2453,7 +2453,7 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
-    addEpic: {
+    addScope: {
         parameters: {
             query?: never;
             header?: never;
@@ -2462,7 +2462,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AddEpicBody"];
+                "application/json": components["schemas"]["AddScopeBody"];
             };
         };
         responses: {
@@ -2476,7 +2476,7 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
-    deleteEpic: {
+    deleteScope: {
         parameters: {
             query?: never;
             header?: never;
@@ -2485,7 +2485,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["EpicBody"];
+                "application/json": components["schemas"]["ScopeBody"];
             };
         };
         responses: {
@@ -2499,7 +2499,7 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
-    reorderEpics: {
+    reorderScopes: {
         parameters: {
             query?: never;
             header?: never;
@@ -2508,7 +2508,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReorderEpicsBody"];
+                "application/json": components["schemas"]["ReorderScopesBody"];
             };
         };
         responses: {
@@ -2522,7 +2522,7 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
-    setEpicProject: {
+    setScopeProject: {
         parameters: {
             query?: never;
             header?: never;
@@ -2531,7 +2531,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SetEpicProjectBody"];
+                "application/json": components["schemas"]["SetScopeProjectBody"];
             };
         };
         responses: {
@@ -2545,7 +2545,7 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
-    renameEpic: {
+    renameScope: {
         parameters: {
             query?: never;
             header?: never;
@@ -2554,7 +2554,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RenameEpicBody"];
+                "application/json": components["schemas"]["RenameScopeBody"];
             };
         };
         responses: {

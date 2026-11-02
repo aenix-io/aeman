@@ -96,7 +96,7 @@ func EncodeCard(f CardFile) ([]byte, error) {
 		b.WriteString("parked: true\n")
 	}
 	w("project", c.Project)
-	w("epic", c.Epic)
+	w("scope", c.Scope)
 	w("parent", c.Parent)
 	w("reviewOf", c.ReviewOf)
 	wi("reviewRound", c.ReviewRound)
@@ -180,16 +180,9 @@ func DecodeCard(id string, data []byte) (CardFile, error) {
 	if !bytes.HasPrefix(data, []byte(fence)) {
 		return f, errors.New("gitstore: card file has no front-matter")
 	}
-	rest := data[len(fence):]
-	end := bytes.Index(rest, []byte("\n"+fence))
-	var front, body []byte
-	switch {
-	case bytes.HasPrefix(rest, []byte(fence)):
-		front, body = nil, rest[len(fence):]
-	case end >= 0:
-		front, body = rest[:end+1], rest[end+1+len(fence):]
-	default:
-		return f, errors.New("gitstore: card file front-matter is not closed")
+	front, body, err := splitFront(data)
+	if err != nil {
+		return f, err
 	}
 	if err := decodeFront(&f, front); err != nil {
 		return f, err
@@ -198,6 +191,48 @@ func DecodeCard(id string, data []byte) (CardFile, error) {
 	f.Card.Description = desc
 	f.Card.Notes = notes
 	return f, nil
+}
+
+// splitFront cuts a card file at its fences: the front-matter (without the
+// fences) and the body after the closing one. The opening fence has been
+// checked by the caller.
+func splitFront(data []byte) (front, body []byte, err error) {
+	rest := data[len(fence):]
+	end := bytes.Index(rest, []byte("\n"+fence))
+	switch {
+	case bytes.HasPrefix(rest, []byte(fence)):
+		return nil, rest[len(fence):], nil
+	case end >= 0:
+		return rest[:end+1], rest[end+1+len(fence):], nil
+	default:
+		return nil, nil, errors.New("gitstore: card file front-matter is not closed")
+	}
+}
+
+// frontKeys lists the top-level keys of a card file's front-matter, in file
+// order, without reading the card: what a migration asks before deciding
+// whether a file needs rewriting at all.
+func frontKeys(data []byte) ([]string, error) {
+	if !bytes.HasPrefix(data, []byte(fence)) {
+		return nil, errors.New("gitstore: card file has no front-matter")
+	}
+	front, _, err := splitFront(data)
+	if err != nil || len(bytes.TrimSpace(front)) == 0 {
+		return nil, err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(front, &doc); err != nil {
+		return nil, fmt.Errorf("gitstore: front-matter: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, errors.New("gitstore: front-matter is not a mapping")
+	}
+	m := doc.Content[0]
+	keys := make([]string, 0, len(m.Content)/2)
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		keys = append(keys, m.Content[i].Value)
+	}
+	return keys, nil
 }
 
 // decodeFront reads the known keys into the card and keeps the rest.
@@ -270,7 +305,13 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 	strs := map[string]*string{
 		"title": &c.Title, "author": &c.Author, "team": &c.Team, "start": &c.StartDate,
 		"day": &c.Day, "sprint": &c.SprintStart, "week": &c.Week, "project": &c.Project,
-		"epic": &c.Epic, "parent": &c.Parent, "reviewOf": &c.ReviewOf, "recurrence": &c.Recurrence,
+		"scope": &c.Scope, "parent": &c.Parent, "reviewOf": &c.ReviewOf, "recurrence": &c.Recurrence,
+		// `epic` is what the column key was called before schema 2: read as
+		// an alias so a pre-migration file, or a pre-migration day served as
+		// it stood, still files the card under its column; written back as
+		// `scope`. (Nothing to do with the planning level of the same name,
+		// which is a card TYPE — docs/design/hierarchy.md.)
+		"epic": &c.Scope,
 		"link": &c.Link, "github": &c.GitHubID,
 		"movedFrom": &c.MovedFrom, "movedAt": &c.MovedAt, "rank": &c.Rank, "created": &c.CreatedAt,
 	}

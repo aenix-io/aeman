@@ -70,7 +70,7 @@ func sample() CardFile {
 			Day:         "2026-08-28",
 			SprintStart: "2026-08-24",
 			Project:     "portal",
-			Epic:        "Bugs",
+			Scope:       "Bugs",
 			Parent:      "01JB4K2E7QZMX3R8V0N5T9WYC0",
 			Rank:        "a0m",
 			CreatedAt:   "2026-08-26T09:14:03Z",
@@ -119,7 +119,7 @@ func TestCardFileOmitsEmptyFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"assignees:", "team:", "zone:", "stage:", "progress:", "day:", "start:", "sprint:", "week:", "project:", "epic:", "parent:", "reviewOf:", "reviewRound:", "recurrence:", "process:", "task:", "accumulate:", "link:", "github:", "doneFrom:", "movedFrom:", "## Notes"} {
+	for _, key := range []string{"assignees:", "team:", "zone:", "stage:", "progress:", "day:", "start:", "sprint:", "week:", "project:", "scope:", "parent:", "reviewOf:", "reviewRound:", "recurrence:", "process:", "task:", "accumulate:", "link:", "github:", "doneFrom:", "movedFrom:", "## Notes"} {
 		if bytes.Contains(data, []byte(key)) {
 			t.Fatalf("empty %s written:\n%s", key, data)
 		}
@@ -160,10 +160,10 @@ func TestCardFileClearedFieldIsOmitted(t *testing.T) {
 	in := sample()
 	data, _ := EncodeCard(in)
 	out, _ := DecodeCard(in.Card.ItemID, data)
-	out.Card.Epic = ""
+	out.Card.Scope = ""
 	out.Card.Project = ""
 	again, _ := EncodeCard(out)
-	if bytes.Contains(again, []byte("epic:")) || bytes.Contains(again, []byte("project:")) {
+	if bytes.Contains(again, []byte("scope:")) || bytes.Contains(again, []byte("project:")) {
 		t.Fatalf("cleared fields still written:\n%s", again)
 	}
 }

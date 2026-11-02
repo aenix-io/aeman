@@ -15,7 +15,7 @@ func TestTheFakeRecordsWhichRepositoryDeclaredEachEntry(t *testing.T) {
 	f := New([]board.Card{
 		{ItemID: "pr-e", Title: board.ProjectStateTitle, Project: "engineering"},
 		{ItemID: "pr-s", Title: board.ProjectStateTitle, Project: "strategy", Domain: "founders"},
-		{ItemID: "ep-f", Title: board.EpicStateTitle, Epic: "Fundraising", Project: "strategy", Domain: "founders"},
+		{ItemID: "ep-f", Title: board.ScopeStateTitle, Scope: "Fundraising", Project: "strategy", Domain: "founders"},
 	}, nil)
 	b, err := f.LoadBoard(t.Context(), "acme")
 	if err != nil {
@@ -123,7 +123,7 @@ func TestTheFakeHandsOutTheSameBoardEveryTime(t *testing.T) {
 // uses, and passes where production refuses.
 func TestTheFakeCanModelAStampedBoard(t *testing.T) {
 	f := New([]board.Card{
-		{ItemID: "ep-inbox", Title: board.EpicStateTitle, Epic: "Inbox"},
+		{ItemID: "ep-inbox", Title: board.ScopeStateTitle, Scope: "Inbox"},
 	}, nil).InRepository("aeman-db", map[string]string{"ep-inbox": "aeman-db"})
 	b, err := f.LoadBoard(t.Context(), "acme")
 	if err != nil {
@@ -136,7 +136,7 @@ func TestTheFakeCanModelAStampedBoard(t *testing.T) {
 	if !ok || cd != "aeman-db" {
 		t.Fatalf("the column carries the stamp: %q %v", cd, ok)
 	}
-	if got := board.HomeDomain(b, board.Card{Epic: "Inbox"}); got != cd {
+	if got := board.HomeDomain(b, board.Card{Scope: "Inbox"}); got != cd {
 		t.Fatalf("and a card nothing places belongs to the same repository: %q vs %q", got, cd)
 	}
 }

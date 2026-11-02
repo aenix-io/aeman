@@ -369,7 +369,7 @@ func TestInstallKeepsRecentRosterStubs(t *testing.T) {
 	e := store.entry("acme")
 	stubs := []board.Card{
 		{ItemID: "P_NEW", Title: board.ProjectStateTitle, Project: "vault", Domain: "closed"},
-		{ItemID: "E_NEW", Title: board.EpicStateTitle, Project: "vault", Epic: "Risk", Domain: "closed"},
+		{ItemID: "E_NEW", Title: board.ScopeStateTitle, Project: "vault", Scope: "Risk", Domain: "closed"},
 		{ItemID: "D_NEW", Title: board.DeadlineStateTitle, Project: "vault", Week: "2026-09-07", Domain: "closed"},
 	}
 	for _, s := range stubs {
@@ -385,8 +385,8 @@ func TestInstallKeepsRecentRosterStubs(t *testing.T) {
 	if got.ProjectStates["vault"] != "P_NEW" {
 		t.Fatalf("project lost on reload: %v", got.Projects)
 	}
-	if _, ok := board.FindEpic(got, "vault", "Risk"); !ok {
-		t.Fatalf("column lost on reload: %+v", got.Epics)
+	if _, ok := board.FindScope(got, "vault", "Risk"); !ok {
+		t.Fatalf("column lost on reload: %+v", got.Scopes)
 	}
 	if _, ok := board.FindDeadline(got, "vault", "2026-09-07"); !ok {
 		t.Fatalf("deadline lost on reload: %+v", got.Deadlines)

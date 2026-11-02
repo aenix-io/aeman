@@ -16,9 +16,9 @@ import (
 
 // boardRef is embedded in every tool input to select the target board — the
 // name of its primary repository. "project" is aeman's own planning entity (a
-// group of epic columns on the Project board), not the board.
+// group of scope columns on the Project board), not the board.
 type boardRef struct {
-	Board string `json:"board,omitempty" jsonschema:"the board's name (its primary repository); defaults to the server configuration and is ignored when the server pins its board. Not to be confused with an aeman project, which groups epic columns"`
+	Board string `json:"board,omitempty" jsonschema:"the board's name (its primary repository); defaults to the server configuration and is ignored when the server pins its board. Not to be confused with an aeman project, which groups scope columns"`
 }
 
 // cardRef identifies a single card on a board.
@@ -107,7 +107,7 @@ type listCardsInput struct {
 	Team     string `json:"team,omitempty" jsonschema:"team key for the team/triage views; on the me view a comma-separated set filters to those teams; empty is the no-team group / no filter"`
 	Day      string `json:"day,omitempty" jsonschema:"viewed day as yyyy-mm-dd for the team/me views; defaults to today"`
 	User     string `json:"user,omitempty" jsonschema:"GitHub login for the me view; empty is everyone"`
-	Project  string `json:"project,omitempty" jsonschema:"aeman project to scope the project view to — one project's epic columns; empty is every project. Read the roster from get_board metadata.projects"`
+	Project  string `json:"project,omitempty" jsonschema:"aeman project to scope the project view to — one project's scope columns; empty is every project. Read the roster from get_board metadata.projects"`
 	Stage    string `json:"stage,omitempty" jsonschema:"filter by stage: locked, review, recurrent, refuse or done"`
 	Zone     string `json:"zone,omitempty" jsonschema:"filter by semantic zone: urgent, unplanned, planned or niceToHave"`
 	Assignee string `json:"assignee,omitempty" jsonschema:"filter by assignee GitHub login"`
@@ -218,9 +218,9 @@ type createCardInput struct {
 	Start       string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd; defaults to end, else today. A FUTURE day parks the card off the board until that day arrives — it is not shown in the current sprint meanwhile. Sprints are daily and created as they start, so no sprint covers a future day yet: the card deliberately joins NO sprint and the carry-over that reaches its day adopts it. That is the intended way to schedule work ahead; leave the sprint field alone"`
 	End         string `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; defaults to start, else today"`
 	Sprint      string `json:"sprint,omitempty" jsonschema:"sprint start day the card joins; defaults to the team's current sprint"`
-	Week        string `json:"week,omitempty" jsonschema:"schedule the card for a WEEK instead of a day: the week's Monday as yyyy-mm-dd, and no dates are set. Pass view=triage with it — that is the board a week card belongs to, and every other board refuses a week. A card filed under an epic ignores it — the slot's row is the week of its start date"`
-	Epic        string `json:"epic,omitempty" jsonschema:"Project-board column to file the card under, together with project — pass view=project with them, since a column is that board's. MUST be an EXISTING column — read them from get_board metadata.epics; add_epic creates one when the user explicitly asks. The card's week is its row; start/end dates may span several weeks"`
-	Project     string `json:"project,omitempty" jsonschema:"the project half of the column named by epic (columns are the (project, epic) pair — epic names repeat across projects)"`
+	Week        string `json:"week,omitempty" jsonschema:"schedule the card for a WEEK instead of a day: the week's Monday as yyyy-mm-dd, and no dates are set. Pass view=triage with it — that is the board a week card belongs to, and every other board refuses a week. A card filed under an scope ignores it — the slot's row is the week of its start date"`
+	Scope       string `json:"scope,omitempty" jsonschema:"Project-board column to file the card under, together with project — pass view=project with them, since a column is that board's. MUST be an EXISTING column — read them from get_board metadata.scopes; add_scope creates one when the user explicitly asks. The card's week is its row; start/end dates may span several weeks"`
+	Project     string `json:"project,omitempty" jsonschema:"the project half of the column named by scope (columns are the (project, scope) pair — scope names repeat across projects)"`
 	ReviewOf    string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews"`
 	Description string `json:"description,omitempty" jsonschema:"the card's shared free-form body, at create instead of a separate update_card call (what the whole team sees) — and the right place for reference links: include related open PRs and issues in free form as FULL URLs or owner/repo#123 shorthands (links are extracted from anywhere in the text, surfaced on the card, and GitHub refs resolve to live titles/states; read them back with list_links). When the title is a bare GitHub issue/PR URL, that link is kept: appended to an explicit body that does not already name it. With reviewOf the body is SHARED with the card being reviewed, so a create that would overwrite a body standing there is refused — the review is made without one, or both are changed with update_card"`
 	// StartNewSprint controls sprint membership: omit for auto (join the team's
@@ -229,7 +229,7 @@ type createCardInput struct {
 	StartNewSprint *bool `json:"startNewSprint,omitempty" jsonschema:"force a new sprint (true) or join the current one (false); omit for auto"`
 	// View is the BOARD the card is typed into, which is what makes it the
 	// kind of card it is; each board refuses the fields it does not own.
-	View   string `json:"view,omitempty" jsonschema:"the BOARD you are typing the card into, which is what it MEANS: me (the DEFAULT — the card is yours, scheduled for the day, in your team's sprint; it stands on your own board and in your column of the team's grid), team (the lead's grid, where PLANNING is done: the card lands in the Unassigned column unless you name an assignee, and any band is allowed — this is the board for work in the plan, whether it is for somebody else or for the person you are acting for, and the only one that takes urgent/planned/niceToHave), triage (scheduled for a WEEK and standing on no day — pass week), backlog (parked on the team's shelf: read and put aside, on no day and in no week), project (a slot under a column — pass epic and project). A board refuses what it does not own — a parked card typed into a day, a column named on the Me board — and says which field it was"`
+	View   string `json:"view,omitempty" jsonschema:"the BOARD you are typing the card into, which is what it MEANS: me (the DEFAULT — the card is yours, scheduled for the day, in your team's sprint; it stands on your own board and in your column of the team's grid), team (the lead's grid, where PLANNING is done: the card lands in the Unassigned column unless you name an assignee, and any band is allowed — this is the board for work in the plan, whether it is for somebody else or for the person you are acting for, and the only one that takes urgent/planned/niceToHave), triage (scheduled for a WEEK and standing on no day — pass week), backlog (parked on the team's shelf: read and put aside, on no day and in no week), project (a slot under a column — pass scope and project). A board refuses what it does not own — a parked card typed into a day, a column named on the Me board — and says which field it was"`
 	Parent string `json:"parent,omitempty" jsonschema:"uid of the card to group this one under as a subtask (one level deep). A card cannot be both a subtask and scheduled for a week of its own: naming a parent and a week together is refused, since grouping hands a subtask's week to its parent"`
 }
 
@@ -309,7 +309,7 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 		Start:          in.Start,
 		SprintStart:    in.Sprint,
 		Week:           in.Week,
-		Epic:           in.Epic,
+		Scope:          in.Scope,
 		Project:        in.Project,
 		ReviewOf:       in.ReviewOf,
 		StartNewSprint: in.StartNewSprint,
@@ -363,9 +363,9 @@ type updateCardInput struct {
 	Start       *string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd: the card joins the sprint active on that day. A FUTURE day parks it off the board until that day arrives (this is how you schedule work ahead, and how the +1 day / +1 week buttons work). Sprints are daily and created as they start, so no sprint covers a future day yet: the card is left with NO sprint while it waits and the carry-over that reaches its day adopts it — expected, not a mis-scheduled card, and setting sprint by hand would only drag it back onto today's board. Empty clears the dates"`
 	End         *string `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; empty clears it"`
 	Sprint      *string `json:"sprint,omitempty" jsonschema:"sprint start day the card belongs to; empty clears it"`
-	Epic        *string `json:"epic,omitempty" jsonschema:"Project-board column to file the card under; empty clears it. MUST be an EXISTING column from get_board metadata.epics — and columns are identified by the (project, epic) pair, so pass project too unless the card is already in the right project"`
-	Project     *string `json:"project,omitempty" jsonschema:"the project half of the card's column (see epic). Epic names repeat across projects, so filing a card into another project's column needs both"`
-	Week        *string `json:"week,omitempty" jsonschema:"the week the card is scheduled for, its Monday as yyyy-mm-dd; empty takes it off the Triage board's weeks. A Project-board slot (a card with an epic) refuses it — its week IS its start date's week, so move the dates instead and the row follows"`
+	Scope       *string `json:"scope,omitempty" jsonschema:"Project-board column to file the card under; empty clears it. MUST be an EXISTING column from get_board metadata.scopes — and columns are identified by the (project, scope) pair, so pass project too unless the card is already in the right project"`
+	Project     *string `json:"project,omitempty" jsonschema:"the project half of the card's column (see scope). Scope names repeat across projects, so filing a card into another project's column needs both"`
+	Week        *string `json:"week,omitempty" jsonschema:"the week the card is scheduled for, its Monday as yyyy-mm-dd; empty takes it off the Triage board's weeks. A Project-board slot (a card with an scope) refuses it — its week IS its start date's week, so move the dates instead and the row follows"`
 	Parked      *bool   `json:"parked,omitempty" jsonschema:"put the card on its TEAM's backlog, or take it off with false. Every team has a backlog and nothing declares it. It is the third place a card can be: not a week and not the triage strip, but work somebody has read and put aside — 'not now'. Parking clears the week, the person, the sprint and the dates, takes the card's subtasks off the board with it and withdraws any review of it; giving a parked card a week takes it off the shelf. A Project-board slot is refused: its week is another board's to say. A REVIEW card and a SUBTASK are refused too — neither has a place of its own to be parked out of, one follows the card it reviews and the other stands inside its parent, so the shelf would take it out of the only place it is drawn"`
 	ReviewOf    *string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews; empty breaks the link"`
 	Parent      *string `json:"parent,omitempty" jsonschema:"uid of the card to group this one under as a subtask (one level deep; empty ungroups it back to a standalone card); a subtask keeps its own description/notes/log, feeds the parent's derived progress and rides with it through carry-over"`
@@ -405,15 +405,15 @@ func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, 
 			return err
 		}
 	}
-	if in.Epic != nil || in.Project != nil {
-		// A column is the (project, epic) pair. Naming only the epic keeps the
+	if in.Scope != nil || in.Project != nil {
+		// A column is the (project, scope) pair. Naming only the scope keeps the
 		// card's current project, which is what filing inside one project
 		// means; crossing projects needs both.
-		epic := card.Epic
-		if in.Epic != nil {
-			epic = *in.Epic
+		scope := card.Scope
+		if in.Scope != nil {
+			scope = *in.Scope
 		}
-		if err := svc.SetEpic(ctx, boardID, in.UID, epic, in.Project); err != nil {
+		if err := svc.SetScope(ctx, boardID, in.UID, scope, in.Project); err != nil {
 			return err
 		}
 	}
@@ -502,45 +502,45 @@ func (h *server) applyDatePatch(ctx context.Context, svc *boardservice.Service, 
 	return nil
 }
 
-// epicInput names one Project-board column, and the project that owns it.
-type epicInput struct {
+// scopeInput names one Project-board column, and the project that owns it.
+type scopeInput struct {
 	boardRef
-	Name    string `json:"name" jsonschema:"the epic's name — the Project-board column header"`
-	Project string `json:"project,omitempty" jsonschema:"the project the column belongs to (required: epic names repeat across projects, so the pair identifies a column). On set_epic_project this is the TARGET project, and empty detaches the column from every project"`
-	From    string `json:"from,omitempty" jsonschema:"set_epic_project only: the project the column is in today"`
-	To      string `json:"to,omitempty" jsonschema:"rename_epic only: the column's new name"`
+	Name    string `json:"name" jsonschema:"the scope's name — the Project-board column header"`
+	Project string `json:"project,omitempty" jsonschema:"the project the column belongs to (required: scope names repeat across projects, so the pair identifies a column). On set_scope_project this is the TARGET project, and empty detaches the column from every project"`
+	From    string `json:"from,omitempty" jsonschema:"set_scope_project only: the project the column is in today"`
+	To      string `json:"to,omitempty" jsonschema:"rename_scope only: the column's new name"`
 }
 
-func (h *server) addEpic(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {
+func (h *server) addScope(ctx context.Context, _ *mcp.CallToolRequest, in scopeInput) (*mcp.CallToolResult, statusOutput, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.AddEpic(ctx, boardID, in.Name, in.Project); err != nil {
+	if err := svc.AddScope(ctx, boardID, in.Name, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "added"}, nil
 }
 
-// setEpicProject moves a column to another project (empty detaches it).
-func (h *server) setEpicProject(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {
+// setScopeProject moves a column to another project (empty detaches it).
+func (h *server) setScopeProject(ctx context.Context, _ *mcp.CallToolRequest, in scopeInput) (*mcp.CallToolResult, statusOutput, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.SetEpicProject(ctx, boardID, in.From, in.Name, in.Project); err != nil {
+	if err := svc.SetScopeProject(ctx, boardID, in.From, in.Name, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "updated"}, nil
 }
 
-// renameEpic renames a column in place, cards and all.
-func (h *server) renameEpic(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {
+// renameScope renames a column in place, cards and all.
+func (h *server) renameScope(ctx context.Context, _ *mcp.CallToolRequest, in scopeInput) (*mcp.CallToolResult, statusOutput, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.RenameEpic(ctx, boardID, in.Project, in.Name, in.To); err != nil {
+	if err := svc.RenameScope(ctx, boardID, in.Project, in.Name, in.To); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "renamed"}, nil
@@ -682,12 +682,12 @@ func (h *server) reorderProjects(ctx context.Context, _ *mcp.CallToolRequest, in
 	return nil, statusOutput{Status: "reordered"}, nil
 }
 
-func (h *server) deleteEpic(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {
+func (h *server) deleteScope(ctx context.Context, _ *mcp.CallToolRequest, in scopeInput) (*mcp.CallToolResult, statusOutput, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.DeleteEpic(ctx, boardID, in.Name, in.Project); err != nil {
+	if err := svc.DeleteScope(ctx, boardID, in.Name, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "deleted"}, nil
@@ -740,12 +740,12 @@ func (h *server) removeCard(ctx context.Context, _ *mcp.CallToolRequest, in remo
 	return nil, statusOutput{Status: "removed", UID: in.UID}, nil
 }
 
-// columnInput names a Project-board column — the (project, epic) pair,
-// since epic names repeat across projects.
+// columnInput names a Project-board column — the (project, scope) pair,
+// since scope names repeat across projects.
 type columnInput struct {
 	cardRef
 	Project string `json:"project" jsonschema:"the project half of the column"`
-	Epic    string `json:"epic" jsonschema:"the epic half of the column"`
+	Scope   string `json:"scope" jsonschema:"the scope half of the column"`
 }
 
 func (h *server) removeFromProject(ctx context.Context, _ *mcp.CallToolRequest, in columnInput) (*mcp.CallToolResult, statusOutput, error) {
@@ -753,7 +753,7 @@ func (h *server) removeFromProject(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.RemoveFromProject(ctx, boardID, in.UID, in.Project, in.Epic); err != nil {
+	if err := svc.RemoveFromProject(ctx, boardID, in.UID, in.Project, in.Scope); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "removed from project", UID: in.UID}, nil

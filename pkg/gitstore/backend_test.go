@@ -15,7 +15,7 @@ import (
 
 // Backend satisfies boardservice.Backend over one domain's repository. The
 // service speaks the state-card protocol — a stub card whose Title is one of
-// the aeman:*-state markers stands for a team, epic, project, deadline or
+// the aeman:*-state markers stands for a team, scope, project, deadline or
 // process — and the backend routes those onto roster files, so the rules
 // engine does not change while the storage does.
 
@@ -193,8 +193,8 @@ func TestBackendLoadBoardFromFiles(t *testing.T) {
 	if strings.Join(b.TeamOrder, ",") != ",portal" {
 		t.Fatalf("team order = %v (rank a then b)", b.TeamOrder)
 	}
-	if len(b.Epics) != 1 || b.Epics[0].Name != "Bugs" || b.Epics[0].Project != "portal" || b.Epics[0].ItemID != "01JB4EPIC" {
-		t.Fatalf("epics = %+v", b.Epics)
+	if len(b.Scopes) != 1 || b.Scopes[0].Name != "Bugs" || b.Scopes[0].Project != "portal" || b.Scopes[0].ItemID != "01JB4SCOPE" {
+		t.Fatalf("scopes = %+v", b.Scopes)
 	}
 	if len(b.Projects) != 1 || b.Projects[0] != "portal" || b.ProjectStates["portal"] != "01JB4PROJ" {
 		t.Fatalf("projects = %v %v", b.Projects, b.ProjectStates)
@@ -259,15 +259,15 @@ func TestBackendCreateStateCardsWriteRosterFiles(t *testing.T) {
 		t.Fatalf("project file: %v", err)
 	}
 	b, _ = be.LoadBoard(ctx, "acme")
-	epic, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.EpicStateTitle, Epic: "Reliability", Project: "infra"})
+	scope, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.ScopeStateTitle, Scope: "Reliability", Project: "infra"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.ReadFile(EpicPath(proj.ItemID, epic.ItemID)); err != nil {
-		t.Fatalf("epic file under its project: %v", err)
+	if _, err := r.ReadFile(ScopePath(proj.ItemID, scope.ItemID)); err != nil {
+		t.Fatalf("scope file under its project: %v", err)
 	}
-	if _, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.EpicStateTitle, Epic: "X", Project: "nope"}); err == nil {
-		t.Fatal("an epic under an unknown project must be refused")
+	if _, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.ScopeStateTitle, Scope: "X", Project: "nope"}); err == nil {
+		t.Fatal("an scope under an unknown project must be refused")
 	}
 	dl, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.DeadlineStateTitle, Week: "2026-10-05", Project: "infra"})
 	if err != nil {
@@ -277,8 +277,8 @@ func TestBackendCreateStateCardsWriteRosterFiles(t *testing.T) {
 		t.Fatalf("deadline file: %v", err)
 	}
 	b, _ = be.LoadBoard(ctx, "acme")
-	if len(b.Projects) != 2 || len(b.Epics) != 2 || len(b.Deadlines) != 2 {
-		t.Fatalf("roster after creates: %d projects, %d epics, %d deadlines", len(b.Projects), len(b.Epics), len(b.Deadlines))
+	if len(b.Projects) != 2 || len(b.Scopes) != 2 || len(b.Deadlines) != 2 {
+		t.Fatalf("roster after creates: %d projects, %d scopes, %d deadlines", len(b.Projects), len(b.Scopes), len(b.Deadlines))
 	}
 }
 
@@ -497,8 +497,8 @@ func TestBackendRosterStubs(t *testing.T) {
 	ctx := ctxAs("kvaps")
 	b, _ := be.LoadBoard(ctx, "acme")
 
-	epic := board.Card{ItemID: "01JB4EPIC", Title: board.EpicStateTitle, Epic: "Bugs", Project: "portal"}
-	if err := be.SetEpic(ctx, b, epic, "Defects"); err != nil {
+	scope := board.Card{ItemID: "01JB4SCOPE", Title: board.ScopeStateTitle, Scope: "Bugs", Project: "portal"}
+	if err := be.SetScope(ctx, b, scope, "Defects"); err != nil {
 		t.Fatal(err)
 	}
 	proj := board.Card{ItemID: "01JB4PROJ", Title: board.ProjectStateTitle, Project: "portal"}
@@ -511,29 +511,29 @@ func TestBackendRosterStubs(t *testing.T) {
 	}
 
 	b, _ = be.LoadBoard(ctx, "acme")
-	if b.Epics[0].Name != "Defects" || b.Projects[0] != "Portal" || b.Deadlines[0].Week != "2026-09-14" {
-		t.Fatalf("roster after stubs: epics=%+v projects=%v deadlines=%+v", b.Epics, b.Projects, b.Deadlines)
+	if b.Scopes[0].Name != "Defects" || b.Projects[0] != "Portal" || b.Deadlines[0].Week != "2026-09-14" {
+		t.Fatalf("roster after stubs: scopes=%+v projects=%v deadlines=%+v", b.Scopes, b.Projects, b.Deadlines)
 	}
 	// Renaming a project file does not move anything: its id and path stay.
 	if _, err := r.ReadFile(ProjectPath("01JB4PROJ")); err != nil {
 		t.Fatalf("project file moved on rename: %v", err)
 	}
 
-	// Reordering teams and epics goes through MoveCard on their stubs.
-	if _, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.EpicStateTitle, Epic: "Docs", Project: "Portal"}); err != nil {
+	// Reordering teams and scopes goes through MoveCard on their stubs.
+	if _, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.ScopeStateTitle, Scope: "Docs", Project: "Portal"}); err != nil {
 		t.Fatal(err)
 	}
 	b, _ = be.LoadBoard(ctx, "acme")
-	if b.Epics[0].Name != "Defects" || b.Epics[1].Name != "Docs" {
-		t.Fatalf("epics before move = %+v", b.Epics)
+	if b.Scopes[0].Name != "Defects" || b.Scopes[1].Name != "Docs" {
+		t.Fatalf("scopes before move = %+v", b.Scopes)
 	}
-	docs := board.Card{ItemID: b.Epics[1].ItemID, Title: board.EpicStateTitle, Epic: "Docs", Project: "Portal"}
+	docs := board.Card{ItemID: b.Scopes[1].ItemID, Title: board.ScopeStateTitle, Scope: "Docs", Project: "Portal"}
 	if err := be.MoveCard(ctx, b, docs, ""); err != nil {
 		t.Fatal(err)
 	}
 	b, _ = be.LoadBoard(ctx, "acme")
-	if b.Epics[0].Name != "Docs" {
-		t.Fatalf("epic move to top: %+v", b.Epics)
+	if b.Scopes[0].Name != "Docs" {
+		t.Fatalf("scope move to top: %+v", b.Scopes)
 	}
 	team := board.Card{ItemID: "01JB4TEAM", Title: board.SprintStateTitle, Team: "portal"}
 	if err := be.MoveCard(ctx, b, team, ""); err != nil {

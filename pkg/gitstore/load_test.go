@@ -20,7 +20,7 @@ func seedBoard(t *testing.T, r *Repo) {
 		TeamPath("_"):                             "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		TeamPath("01JB4TEAM"):                     "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n  previous: 2026-08-21\n",
 		ProjectPath("01JB4PROJ"):                  "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		EpicPath("01JB4PROJ", "01JB4EPIC"):        "name: Bugs\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
+		ScopePath("01JB4PROJ", "01JB4SCOPE"):      "name: Bugs\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
 		DeadlinePath("01JB4PROJ", "01JB4DL"):      "week: 2026-09-07\ncreated: 2026-06-03T08:00:00Z\n",
 		"cards/c/1/01JB4K2E7QZMX3R8V0N5T9WYC1.md": "---\ntitle: first\nteam: portal\nzone: yellow\nprogress: 40\nrank: b\ncreated: 2026-08-26T09:14:03Z\n---\n\nDetails.\n",
 		"cards/c/2/01JB4K2E7QZMX3R8V0N5T9WYC2.md": "---\ntitle: second\nteam: portal\nrank: a\ncreated: 2026-08-26T09:15:03Z\n---\n",
@@ -59,11 +59,11 @@ func TestLoadReadsTheWholeTree(t *testing.T) {
 	if len(s.Teams) != 2 || s.Teams[0].ID != "_" || s.Teams[1].Name != "portal" || s.Teams[1].Sprint.Current != "2026-08-24" {
 		t.Fatalf("teams = %+v", s.Teams)
 	}
-	// Projects carry their epics and deadlines.
+	// Projects carry their scopes and deadlines.
 	if len(s.Projects) != 1 || s.Projects[0].ID != "01JB4PROJ" || s.Projects[0].Name != "portal" {
 		t.Fatalf("projects = %+v", s.Projects)
 	}
-	if len(s.Projects[0].Epics) != 1 || s.Projects[0].Epics[0].Name != "Bugs" || len(s.Projects[0].Deadlines) != 1 || s.Projects[0].Deadlines[0].Week != "2026-09-07" {
+	if len(s.Projects[0].Scopes) != 1 || s.Projects[0].Scopes[0].Name != "Bugs" || len(s.Projects[0].Deadlines) != 1 || s.Projects[0].Deadlines[0].Week != "2026-09-07" {
 		t.Fatalf("project children = %+v", s.Projects[0])
 	}
 	// What is not ours is named, not silently dropped or misread.

@@ -11,7 +11,7 @@ package board
 // board's carry-over is how those move, and it is not this rule's business.
 func DueDate(c Card) string {
 	switch {
-	case c.Epic != "":
+	case c.Scope != "":
 		return c.Day
 	case c.Week != "":
 		// A card the Triage board scheduled. Being placed in a week IS the
@@ -49,7 +49,7 @@ func DueDate(c Card) string {
 // It is derived, never stored — the card's own dates are the truth, and a
 // flag beside them would be one more thing to drift.
 func Overdue(c Card, today string) bool {
-	if c.Epic == "" {
+	if c.Scope == "" {
 		return false
 	}
 	if Complete(c.Stage, c.Progress) {

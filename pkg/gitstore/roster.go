@@ -12,7 +12,7 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// The roster — teams, projects, epics, deadlines and the board file — is
+// The roster — teams, projects, scopes, deadlines and the board file — is
 // configuration that used to hide in aeman:*-state cards. Here each is a
 // small YAML file at a path that carries identity only.
 
@@ -34,9 +34,9 @@ func TeamPath(id string) string { return "teams/" + id + ".yaml" }
 // ProjectPath is a project's own file.
 func ProjectPath(id string) string { return "projects/" + id + "/project.yaml" }
 
-// EpicPath is one column of a project.
-func EpicPath(projectID, id string) string {
-	return "projects/" + projectID + "/epics/" + id + ".yaml"
+// ScopePath is one column of a project.
+func ScopePath(projectID, id string) string {
+	return "projects/" + projectID + "/scopes/" + id + ".yaml"
 }
 
 // DeadlinePath is one deadline line of a project.
@@ -54,7 +54,7 @@ const (
 	PathCard
 	PathTeam
 	PathProject
-	PathEpic
+	PathScope
 	PathDeadline
 	PathUser
 )
@@ -98,9 +98,9 @@ func ParsePath(p string) (PathKind, []string) {
 		}
 	case len(parts) == 3 && parts[0] == "projects" && parts[2] == "project.yaml":
 		return PathProject, []string{parts[1]}
-	case len(parts) == 4 && parts[0] == "projects" && parts[2] == "epics":
+	case len(parts) == 4 && parts[0] == "projects" && parts[2] == "scopes":
 		if id, ok := strip(parts[3], ".yaml"); ok {
-			return PathEpic, []string{parts[1], id}
+			return PathScope, []string{parts[1], id}
 		}
 	case len(parts) == 4 && parts[0] == "projects" && parts[2] == "deadlines":
 		if id, ok := strip(parts[3], ".yaml"); ok {
@@ -145,8 +145,8 @@ type ProjectFile struct {
 	Extra   []ExtraField
 }
 
-// EpicFile is projects/<pid>/epics/<id>.yaml.
-type EpicFile struct {
+// ScopeFile is projects/<pid>/scopes/<id>.yaml.
+type ScopeFile struct {
 	Name    string
 	Rank    string
 	Created string
@@ -275,8 +275,8 @@ func EncodeProject(f ProjectFile) ([]byte, error) {
 	return w.finish(f.Extra)
 }
 
-// EncodeEpic renders an epic file.
-func EncodeEpic(f EpicFile) ([]byte, error) {
+// EncodeScope renders an scope file.
+func EncodeScope(f ScopeFile) ([]byte, error) {
 	var w yamlWriter
 	w.str("name", f.Name)
 	w.str("rank", f.Rank)
@@ -386,9 +386,9 @@ func DecodeProject(data []byte) (ProjectFile, error) {
 	return f, err
 }
 
-// DecodeEpic parses an epic file.
-func DecodeEpic(data []byte) (EpicFile, error) {
-	var f EpicFile
+// DecodeScope parses an scope file.
+func DecodeScope(data []byte) (ScopeFile, error) {
+	var f ScopeFile
 	extra, err := each(data, func(key string, val *yaml.Node) bool {
 		return setNamed(&f.Name, &f.Rank, &f.Created, key, val)
 	})

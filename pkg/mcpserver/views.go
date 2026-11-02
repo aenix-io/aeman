@@ -164,18 +164,18 @@ func (h *server) reorderTeams(ctx context.Context, _ *mcp.CallToolRequest, in re
 	return nil, statusOutput{Status: "reordered"}, nil
 }
 
-type reorderEpicsInput struct {
+type reorderScopesInput struct {
 	boardRef
 	Project string   `json:"project,omitempty" jsonschema:"the project whose columns these are; empty is the no-project bucket"`
-	Epics   []string `json:"epics" jsonschema:"that project's column names in the order they are to stand in"`
+	Scopes  []string `json:"scopes" jsonschema:"that project's column names in the order they are to stand in"`
 }
 
-func (h *server) reorderEpics(ctx context.Context, _ *mcp.CallToolRequest, in reorderEpicsInput) (*mcp.CallToolResult, statusOutput, error) {
+func (h *server) reorderScopes(ctx context.Context, _ *mcp.CallToolRequest, in reorderScopesInput) (*mcp.CallToolResult, statusOutput, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.ReorderEpics(ctx, boardID, in.Project, in.Epics); err != nil {
+	if err := svc.ReorderScopes(ctx, boardID, in.Project, in.Scopes); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "reordered"}, nil

@@ -34,7 +34,7 @@ const (
 	EventProgress        = "progress"
 	EventAssignee        = "assignee"
 	EventTeam            = "team"
-	EventEpic            = "epic"
+	EventScope           = "scope"
 	EventZone            = "zone"
 	EventSize            = "size"
 	EventReviewSent      = "review-sent"

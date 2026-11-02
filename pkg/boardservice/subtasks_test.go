@@ -395,7 +395,7 @@ func TestDoneOnRecurrentKeepsRecurrence(t *testing.T) {
 // the subtask's week simply clears.
 func TestGroupACardOfAWeekUnderASlot(t *testing.T) {
 	fake := newFake([]board.Card{
-		{ItemID: "slot", Title: "the slot", Epic: "E", Project: "P", Team: "t",
+		{ItemID: "slot", Title: "the slot", Scope: "E", Project: "P", Team: "t",
 			StartDate: "2026-08-25", Week: "2026-08-24", Day: "2026-09-11"},
 		{ItemID: "c1", Title: "a card of a week", Team: "t", Week: "2026-08-31"},
 	}, nil)

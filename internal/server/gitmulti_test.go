@@ -43,8 +43,8 @@ func seedClosedRemote(t *testing.T, remote gitstore.Remote) {
 	_, err = r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
 		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: closed\n")},
 		{Path: gitstore.ProjectPath("01JB4PROJSECRET"), Data: []byte("name: secret\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
-		{Path: gitstore.EpicPath("01JB4PROJSECRET", "01JB4EPICRISK"), Data: []byte("name: Risk\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
-		{Path: "cards/c/3/01JB4K2E7QZMX3R8V0N5T9WYC3.md", Data: []byte("---\ntitle: three-closed\nteam: portal\nproject: secret\nepic: Risk\nzone: yellow\nassignees:\n  - zoe\nprogress: 20\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n")},
+		{Path: gitstore.ScopePath("01JB4PROJSECRET", "01JB4SCOPERISK"), Data: []byte("name: Risk\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
+		{Path: "cards/c/3/01JB4K2E7QZMX3R8V0N5T9WYC3.md", Data: []byte("---\ntitle: three-closed\nteam: portal\nproject: secret\nscope: Risk\nzone: yellow\nassignees:\n  - zoe\nprogress: 20\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n")},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -411,7 +411,7 @@ func TestGitTwoDomainsMovePushesBothAndIsAdopted(t *testing.T) {
 	if err := a.SetProject(ctx, bd, card, "secret"); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.SetEpic(ctx, bd, card, "Risk"); err != nil {
+	if err := a.SetScope(ctx, bd, card, "Risk"); err != nil {
 		t.Fatal(err)
 	}
 	waitQueue(t, a)
@@ -431,8 +431,8 @@ func TestGitTwoDomainsMovePushesBothAndIsAdopted(t *testing.T) {
 	}
 	// The cache learnt the new domain from the commit, not from a reload.
 	now, _ := a.LoadBoard(ctx, "acme")
-	if c := cardByTitle(now, "one"); c.Domain != "closed" || c.Project != "secret" || c.Epic != "Risk" {
-		t.Fatalf("cached card after move = domain %q project %q epic %q", c.Domain, c.Project, c.Epic)
+	if c := cardByTitle(now, "one"); c.Domain != "closed" || c.Project != "secret" || c.Scope != "Risk" {
+		t.Fatalf("cached card after move = domain %q project %q scope %q", c.Domain, c.Project, c.Scope)
 	}
 
 	if err := a.syncNow(ctx, "acme"); err != nil {

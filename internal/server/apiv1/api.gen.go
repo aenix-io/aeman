@@ -183,10 +183,6 @@ const (
 	EmptyNote            ProblemCode = "emptyNote"
 	EmptyTitle           ProblemCode = "emptyTitle"
 	EndBeforeStart       ProblemCode = "endBeforeStart"
-	EpicExists           ProblemCode = "epicExists"
-	EpicInUse            ProblemCode = "epicInUse"
-	EpicNotFound         ProblemCode = "epicNotFound"
-	EpicRequired         ProblemCode = "epicRequired"
 	Forbidden            ProblemCode = "forbidden"
 	GestureNotOffered    ProblemCode = "gestureNotOffered"
 	HistoryTruncated     ProblemCode = "historyTruncated"
@@ -220,6 +216,10 @@ const (
 	ProjectExists        ProblemCode = "projectExists"
 	ProjectInUse         ProblemCode = "projectInUse"
 	ProjectNotFound      ProblemCode = "projectNotFound"
+	ScopeExists          ProblemCode = "scopeExists"
+	ScopeInUse           ProblemCode = "scopeInUse"
+	ScopeNotFound        ProblemCode = "scopeNotFound"
+	ScopeRequired        ProblemCode = "scopeRequired"
 	SetupRequired        ProblemCode = "setupRequired"
 	SubtaskDepth         ProblemCode = "subtaskDepth"
 	SubtaskWeek          ProblemCode = "subtaskWeek"
@@ -275,14 +275,6 @@ func (e ProblemCode) Valid() bool {
 	case EmptyTitle:
 		return true
 	case EndBeforeStart:
-		return true
-	case EpicExists:
-		return true
-	case EpicInUse:
-		return true
-	case EpicNotFound:
-		return true
-	case EpicRequired:
 		return true
 	case Forbidden:
 		return true
@@ -349,6 +341,14 @@ func (e ProblemCode) Valid() bool {
 	case ProjectInUse:
 		return true
 	case ProjectNotFound:
+		return true
+	case ScopeExists:
+		return true
+	case ScopeInUse:
+		return true
+	case ScopeNotFound:
+		return true
+	case ScopeRequired:
 		return true
 	case SetupRequired:
 		return true
@@ -446,17 +446,17 @@ func (e ViewListKind) Valid() bool {
 	}
 }
 
-// AddEpicBody defines model for AddEpicBody.
-type AddEpicBody struct {
-	Name    *string `json:"name,omitempty"`
-	Project *string `json:"project,omitempty"`
-}
-
 // AddProjectBody defines model for AddProjectBody.
 type AddProjectBody struct {
 	// Domain The repository to declare the project in; empty is the primary.
 	Domain *string `json:"domain,omitempty"`
 	Name   *string `json:"name,omitempty"`
+}
+
+// AddScopeBody defines model for AddScopeBody.
+type AddScopeBody struct {
+	Name    *string `json:"name,omitempty"`
+	Project *string `json:"project,omitempty"`
 }
 
 // Board defines model for Board.
@@ -500,9 +500,6 @@ type CardPatch struct {
 	Dates       *CardDatesPatch `json:"dates,omitempty"`
 	Description *string         `json:"description,omitempty"`
 
-	// Epic The two halves of the card's column; empty clears. Epic names repeat across projects, so filing into another project's column names both, while naming only the epic stays inside the card's project.
-	Epic *string `json:"epic,omitempty"`
-
 	// Parent Groups the card under another one; empty ungroups.
 	Parent     *string `json:"parent,omitempty"`
 	Parked     *bool   `json:"parked,omitempty"`
@@ -510,6 +507,9 @@ type CardPatch struct {
 	Project    *string `json:"project,omitempty"`
 	Recurrence *string `json:"recurrence,omitempty"`
 	ReviewOf   *string `json:"reviewOf,omitempty"`
+
+	// Scope The two halves of the card's column; empty clears. Scope names repeat across projects, so filing into another project's column names both, while naming only the scope stays inside the card's project.
+	Scope *string `json:"scope,omitempty"`
 
 	// Size S, M, L or XL in any case; empty takes the size back.
 	Size *string `json:"size,omitempty"`
@@ -552,9 +552,6 @@ type CreateCardRequest struct {
 	Assignees *[]string       `json:"assignees,omitempty"`
 	Dates     *CardDatesInput `json:"dates,omitempty"`
 
-	// Epic With `project`, files the card on the Project board under the column that pair identifies. Its row is the week of `dates.start` — `week` anchors it when there are no dates — and the dates may span weeks.
-	Epic *string `json:"epic,omitempty"`
-
 	// NoSprint Schedules the card for its day without joining any sprint — a "next sprint" create; the next carry-over to reach its day adopts it.
 	NoSprint *bool `json:"noSprint,omitempty"`
 
@@ -565,6 +562,9 @@ type CreateCardRequest struct {
 	Parked   *bool   `json:"parked,omitempty"`
 	Project  *string `json:"project,omitempty"`
 	ReviewOf *string `json:"reviewOf,omitempty"`
+
+	// Scope With `project`, files the card on the Project board under the column that pair identifies. Its row is the week of `dates.start` — `week` anchors it when there are no dates — and the dates may span weeks.
+	Scope *string `json:"scope,omitempty"`
 
 	// Size S, M, L or XL in any case; empty leaves the card unsized.
 	Size           *string `json:"size,omitempty"`
@@ -600,15 +600,6 @@ type DeferCardBody struct {
 
 // DomainInfo One readable repository of the visitor's board: whether they may write it, and which of the board's members can read it — so a reviewer picker offers only people who will see the card.
 type DomainInfo = apiserver.DomainInfo
-
-// EpicBody defines model for EpicBody.
-type EpicBody struct {
-	Epic    *string `json:"epic,omitempty"`
-	Project *string `json:"project,omitempty"`
-}
-
-// EpicRef One Project-board column: its name and the project that owns it. A client cannot compute the column's repository from the project — the same project NAME may be declared in two repositories with its columns merged under one entry — and it is the COLUMN that decides whether a card may stand in it.
-type EpicRef = apiserver.EpicRef
 
 // Link One URL from a card's description. A GitHub issue or pull request is resolved to its live title and state where the server can read it.
 type Link = board.Link
@@ -710,10 +701,10 @@ type PlaceCardBody struct {
 	Week *string `json:"week,omitempty"`
 }
 
-// PlacementBody A column, named by its EPIC. The project half may be empty — the no-project bucket is a column like any other, and a column's repository is read off the column's own stub.
+// PlacementBody A column, named by its SCOPE. The project half may be empty — the no-project bucket is a column like any other, and a column's repository is read off the column's own stub.
 type PlacementBody struct {
-	Epic    string  `json:"epic"`
 	Project *string `json:"project,omitempty"`
+	Scope   string  `json:"scope"`
 }
 
 // PresenceBody defines model for PresenceBody.
@@ -757,16 +748,16 @@ type RemoveCardBody struct {
 	Intent *string `json:"intent,omitempty"`
 }
 
-// RenameEpicBody defines model for RenameEpicBody.
-type RenameEpicBody struct {
-	Epic    *string `json:"epic,omitempty"`
+// RenameProjectBody defines model for RenameProjectBody.
+type RenameProjectBody struct {
 	Project *string `json:"project,omitempty"`
 	To      *string `json:"to,omitempty"`
 }
 
-// RenameProjectBody defines model for RenameProjectBody.
-type RenameProjectBody struct {
+// RenameScopeBody defines model for RenameScopeBody.
+type RenameScopeBody struct {
 	Project *string `json:"project,omitempty"`
+	Scope   *string `json:"scope,omitempty"`
 	To      *string `json:"to,omitempty"`
 }
 
@@ -776,21 +767,30 @@ type RenameTeamBody struct {
 	To   *string `json:"to,omitempty"`
 }
 
-// ReorderEpicsBody defines model for ReorderEpicsBody.
-type ReorderEpicsBody struct {
-	Epics   *[]string `json:"epics,omitempty"`
-	Project *string   `json:"project,omitempty"`
-}
-
 // ReorderProjectsBody defines model for ReorderProjectsBody.
 type ReorderProjectsBody struct {
 	Projects *[]string `json:"projects,omitempty"`
+}
+
+// ReorderScopesBody defines model for ReorderScopesBody.
+type ReorderScopesBody struct {
+	Project *string   `json:"project,omitempty"`
+	Scopes  *[]string `json:"scopes,omitempty"`
 }
 
 // ReorderTeamsBody defines model for ReorderTeamsBody.
 type ReorderTeamsBody struct {
 	Teams *[]string `json:"teams,omitempty"`
 }
+
+// ScopeBody defines model for ScopeBody.
+type ScopeBody struct {
+	Project *string `json:"project,omitempty"`
+	Scope   *string `json:"scope,omitempty"`
+}
+
+// ScopeRef One Project-board column: its name and the project that owns it. A client cannot compute the column's repository from the project — the same project NAME may be declared in two repositories with its columns merged under one entry — and it is the COLUMN that decides whether a card may stand in it.
+type ScopeRef = apiserver.ScopeRef
 
 // SendToReviewBody defines model for SendToReviewBody.
 type SendToReviewBody struct {
@@ -804,15 +804,14 @@ type SendToReviewBody struct {
 // SendToReviewBodyZone Where the review card stands; empty is the unplanned band, which is where the asking belongs.
 type SendToReviewBodyZone string
 
-// SetEpicProjectBody defines model for SetEpicProjectBody.
-type SetEpicProjectBody struct {
-	Epic *string `json:"epic,omitempty"`
-
+// SetScopeProjectBody defines model for SetScopeProjectBody.
+type SetScopeProjectBody struct {
 	// From The project the column is leaving.
 	From *string `json:"from,omitempty"`
 
 	// Project The project it joins; empty detaches it.
 	Project *string `json:"project,omitempty"`
+	Scope   *string `json:"scope,omitempty"`
 }
 
 // Sprint A team's sprint pointer; the empty team is the no-team group.
@@ -1200,21 +1199,6 @@ type DeleteDeadlineJSONRequestBody = DeadlineBody
 // MoveDeadlineJSONRequestBody defines body for MoveDeadline for application/json ContentType.
 type MoveDeadlineJSONRequestBody = MoveDeadlineBody
 
-// AddEpicJSONRequestBody defines body for AddEpic for application/json ContentType.
-type AddEpicJSONRequestBody = AddEpicBody
-
-// DeleteEpicJSONRequestBody defines body for DeleteEpic for application/json ContentType.
-type DeleteEpicJSONRequestBody = EpicBody
-
-// RenameEpicJSONRequestBody defines body for RenameEpic for application/json ContentType.
-type RenameEpicJSONRequestBody = RenameEpicBody
-
-// ReorderEpicsJSONRequestBody defines body for ReorderEpics for application/json ContentType.
-type ReorderEpicsJSONRequestBody = ReorderEpicsBody
-
-// SetEpicProjectJSONRequestBody defines body for SetEpicProject for application/json ContentType.
-type SetEpicProjectJSONRequestBody = SetEpicProjectBody
-
 // PatchPersonJSONRequestBody defines body for PatchPerson for application/json ContentType.
 type PatchPersonJSONRequestBody = PersonPatch
 
@@ -1232,6 +1216,21 @@ type RenameProjectJSONRequestBody = RenameProjectBody
 
 // ReorderProjectsJSONRequestBody defines body for ReorderProjects for application/json ContentType.
 type ReorderProjectsJSONRequestBody = ReorderProjectsBody
+
+// AddScopeJSONRequestBody defines body for AddScope for application/json ContentType.
+type AddScopeJSONRequestBody = AddScopeBody
+
+// DeleteScopeJSONRequestBody defines body for DeleteScope for application/json ContentType.
+type DeleteScopeJSONRequestBody = ScopeBody
+
+// RenameScopeJSONRequestBody defines body for RenameScope for application/json ContentType.
+type RenameScopeJSONRequestBody = RenameScopeBody
+
+// ReorderScopesJSONRequestBody defines body for ReorderScopes for application/json ContentType.
+type ReorderScopesJSONRequestBody = ReorderScopesBody
+
+// SetScopeProjectJSONRequestBody defines body for SetScopeProject for application/json ContentType.
+type SetScopeProjectJSONRequestBody = SetScopeProjectBody
 
 // PatchSprintJSONRequestBody defines body for PatchSprint for application/json ContentType.
 type PatchSprintJSONRequestBody = SprintPatch
@@ -1322,21 +1321,6 @@ type ServerInterface interface {
 	// MoveDeadline Drag a project's deadline to another week.
 	// (POST /deadlines/actions/move)
 	MoveDeadline(w http.ResponseWriter, r *http.Request)
-	// AddEpic Declare an epic column.
-	// (POST /epics)
-	AddEpic(w http.ResponseWriter, r *http.Request)
-	// DeleteEpic Delete an EMPTY epic column; refused while cards sit under it.
-	// (POST /epics/actions/delete-epic)
-	DeleteEpic(w http.ResponseWriter, r *http.Request)
-	// RenameEpic Rename a column in place, cards and all.
-	// (POST /epics/actions/rename)
-	RenameEpic(w http.ResponseWriter, r *http.Request)
-	// ReorderEpics Apply one project's column order.
-	// (POST /epics/actions/reorder-epics)
-	ReorderEpics(w http.ResponseWriter, r *http.Request)
-	// SetEpicProject Move a column from one project to another; an empty target detaches it.
-	// (POST /epics/actions/set-project)
-	SetEpicProject(w http.ResponseWriter, r *http.Request)
 	// GetDayLogs One day's feed for many cards at once — what a day board shows.
 	// (GET /logs)
 	GetDayLogs(w http.ResponseWriter, r *http.Request, params GetDayLogsParams)
@@ -1349,7 +1333,7 @@ type ServerInterface interface {
 	// SetPresence Share the caller's live card selection; an empty card clears it.
 	// (POST /presence)
 	SetPresence(w http.ResponseWriter, r *http.Request)
-	// AddProject Declare a project — the Project board's top grouping, which owns epic columns.
+	// AddProject Declare a project — the Project board's top grouping, which owns scope columns.
 	// (POST /projects)
 	AddProject(w http.ResponseWriter, r *http.Request)
 	// DeleteProject Delete an EMPTY project; refused while it still owns columns.
@@ -1361,6 +1345,21 @@ type ServerInterface interface {
 	// ReorderProjects Apply the shared project order.
 	// (POST /projects/actions/reorder-projects)
 	ReorderProjects(w http.ResponseWriter, r *http.Request)
+	// AddScope Declare an scope column.
+	// (POST /scopes)
+	AddScope(w http.ResponseWriter, r *http.Request)
+	// DeleteScope Delete an EMPTY scope column; refused while cards sit under it.
+	// (POST /scopes/actions/delete-scope)
+	DeleteScope(w http.ResponseWriter, r *http.Request)
+	// RenameScope Rename a column in place, cards and all.
+	// (POST /scopes/actions/rename)
+	RenameScope(w http.ResponseWriter, r *http.Request)
+	// ReorderScopes Apply one project's column order.
+	// (POST /scopes/actions/reorder-scopes)
+	ReorderScopes(w http.ResponseWriter, r *http.Request)
+	// SetScopeProject Move a column from one project to another; an empty target detaches it.
+	// (POST /scopes/actions/set-project)
+	SetScopeProject(w http.ResponseWriter, r *http.Request)
 	// ListSprints Per-team sprint pointers.
 	// (GET /sprints)
 	ListSprints(w http.ResponseWriter, r *http.Request, params ListSprintsParams)
@@ -1949,76 +1948,6 @@ func (siw *ServerInterfaceWrapper) MoveDeadline(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
-// AddEpic operation middleware
-func (siw *ServerInterfaceWrapper) AddEpic(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AddEpic(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteEpic operation middleware
-func (siw *ServerInterfaceWrapper) DeleteEpic(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteEpic(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// RenameEpic operation middleware
-func (siw *ServerInterfaceWrapper) RenameEpic(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RenameEpic(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ReorderEpics operation middleware
-func (siw *ServerInterfaceWrapper) ReorderEpics(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReorderEpics(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// SetEpicProject operation middleware
-func (siw *ServerInterfaceWrapper) SetEpicProject(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SetEpicProject(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // GetDayLogs operation middleware
 func (siw *ServerInterfaceWrapper) GetDayLogs(w http.ResponseWriter, r *http.Request) {
 
@@ -2166,6 +2095,76 @@ func (siw *ServerInterfaceWrapper) ReorderProjects(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReorderProjects(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddScope operation middleware
+func (siw *ServerInterfaceWrapper) AddScope(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddScope(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteScope operation middleware
+func (siw *ServerInterfaceWrapper) DeleteScope(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteScope(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RenameScope operation middleware
+func (siw *ServerInterfaceWrapper) RenameScope(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RenameScope(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReorderScopes operation middleware
+func (siw *ServerInterfaceWrapper) ReorderScopes(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReorderScopes(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetScopeProject operation middleware
+func (siw *ServerInterfaceWrapper) SetScopeProject(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetScopeProject(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3535,11 +3534,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sprints/actions/carry-over", wrapper.CarryOver)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sprints/actions/reorder-teams", wrapper.ReorderTeams)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sprints/actions/delete-team", wrapper.DeleteTeam)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/epics", wrapper.AddEpic)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/epics/actions/delete-epic", wrapper.DeleteEpic)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/epics/actions/reorder-epics", wrapper.ReorderEpics)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/epics/actions/set-project", wrapper.SetEpicProject)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/epics/actions/rename", wrapper.RenameEpic)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/scopes", wrapper.AddScope)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/scopes/actions/delete-scope", wrapper.DeleteScope)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/scopes/actions/reorder-scopes", wrapper.ReorderScopes)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/scopes/actions/set-project", wrapper.SetScopeProject)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/scopes/actions/rename", wrapper.RenameScope)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/deadlines", wrapper.AddDeadline)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/deadlines/actions/delete", wrapper.DeleteDeadline)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/deadlines/actions/move", wrapper.MoveDeadline)
@@ -4310,171 +4309,6 @@ func (response MoveDeadlinedefaultApplicationProblemPlusJSONResponse) VisitMoveD
 	return err
 }
 
-type AddEpicRequestObject struct {
-	Body *AddEpicJSONRequestBody
-}
-
-type AddEpicResponseObject interface {
-	VisitAddEpicResponse(w http.ResponseWriter) error
-}
-
-type AddEpic204Response struct {
-}
-
-func (response AddEpic204Response) VisitAddEpicResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type AddEpicdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response AddEpicdefaultApplicationProblemPlusJSONResponse) VisitAddEpicResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DeleteEpicRequestObject struct {
-	Body *DeleteEpicJSONRequestBody
-}
-
-type DeleteEpicResponseObject interface {
-	VisitDeleteEpicResponse(w http.ResponseWriter) error
-}
-
-type DeleteEpic204Response struct {
-}
-
-func (response DeleteEpic204Response) VisitDeleteEpicResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type DeleteEpicdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response DeleteEpicdefaultApplicationProblemPlusJSONResponse) VisitDeleteEpicResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type RenameEpicRequestObject struct {
-	Body *RenameEpicJSONRequestBody
-}
-
-type RenameEpicResponseObject interface {
-	VisitRenameEpicResponse(w http.ResponseWriter) error
-}
-
-type RenameEpic204Response struct {
-}
-
-func (response RenameEpic204Response) VisitRenameEpicResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type RenameEpicdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response RenameEpicdefaultApplicationProblemPlusJSONResponse) VisitRenameEpicResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ReorderEpicsRequestObject struct {
-	Body *ReorderEpicsJSONRequestBody
-}
-
-type ReorderEpicsResponseObject interface {
-	VisitReorderEpicsResponse(w http.ResponseWriter) error
-}
-
-type ReorderEpics204Response struct {
-}
-
-func (response ReorderEpics204Response) VisitReorderEpicsResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type ReorderEpicsdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response ReorderEpicsdefaultApplicationProblemPlusJSONResponse) VisitReorderEpicsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type SetEpicProjectRequestObject struct {
-	Body *SetEpicProjectJSONRequestBody
-}
-
-type SetEpicProjectResponseObject interface {
-	VisitSetEpicProjectResponse(w http.ResponseWriter) error
-}
-
-type SetEpicProject204Response struct {
-}
-
-func (response SetEpicProject204Response) VisitSetEpicProjectResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type SetEpicProjectdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response SetEpicProjectdefaultApplicationProblemPlusJSONResponse) VisitSetEpicProjectResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type GetDayLogsRequestObject struct {
 	Params GetDayLogsParams
 }
@@ -4746,6 +4580,171 @@ type ReorderProjectsdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response ReorderProjectsdefaultApplicationProblemPlusJSONResponse) VisitReorderProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddScopeRequestObject struct {
+	Body *AddScopeJSONRequestBody
+}
+
+type AddScopeResponseObject interface {
+	VisitAddScopeResponse(w http.ResponseWriter) error
+}
+
+type AddScope204Response struct {
+}
+
+func (response AddScope204Response) VisitAddScopeResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type AddScopedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response AddScopedefaultApplicationProblemPlusJSONResponse) VisitAddScopeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteScopeRequestObject struct {
+	Body *DeleteScopeJSONRequestBody
+}
+
+type DeleteScopeResponseObject interface {
+	VisitDeleteScopeResponse(w http.ResponseWriter) error
+}
+
+type DeleteScope204Response struct {
+}
+
+func (response DeleteScope204Response) VisitDeleteScopeResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteScopedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response DeleteScopedefaultApplicationProblemPlusJSONResponse) VisitDeleteScopeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameScopeRequestObject struct {
+	Body *RenameScopeJSONRequestBody
+}
+
+type RenameScopeResponseObject interface {
+	VisitRenameScopeResponse(w http.ResponseWriter) error
+}
+
+type RenameScope204Response struct {
+}
+
+func (response RenameScope204Response) VisitRenameScopeResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RenameScopedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response RenameScopedefaultApplicationProblemPlusJSONResponse) VisitRenameScopeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReorderScopesRequestObject struct {
+	Body *ReorderScopesJSONRequestBody
+}
+
+type ReorderScopesResponseObject interface {
+	VisitReorderScopesResponse(w http.ResponseWriter) error
+}
+
+type ReorderScopes204Response struct {
+}
+
+func (response ReorderScopes204Response) VisitReorderScopesResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ReorderScopesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ReorderScopesdefaultApplicationProblemPlusJSONResponse) VisitReorderScopesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetScopeProjectRequestObject struct {
+	Body *SetScopeProjectJSONRequestBody
+}
+
+type SetScopeProjectResponseObject interface {
+	VisitSetScopeProjectResponse(w http.ResponseWriter) error
+}
+
+type SetScopeProject204Response struct {
+}
+
+func (response SetScopeProject204Response) VisitSetScopeProjectResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SetScopeProjectdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response SetScopeProjectdefaultApplicationProblemPlusJSONResponse) VisitSetScopeProjectResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -5346,21 +5345,6 @@ type StrictServerInterface interface {
 	// MoveDeadline Drag a project's deadline to another week.
 	// (POST /deadlines/actions/move)
 	MoveDeadline(ctx context.Context, request MoveDeadlineRequestObject) (MoveDeadlineResponseObject, error)
-	// AddEpic Declare an epic column.
-	// (POST /epics)
-	AddEpic(ctx context.Context, request AddEpicRequestObject) (AddEpicResponseObject, error)
-	// DeleteEpic Delete an EMPTY epic column; refused while cards sit under it.
-	// (POST /epics/actions/delete-epic)
-	DeleteEpic(ctx context.Context, request DeleteEpicRequestObject) (DeleteEpicResponseObject, error)
-	// RenameEpic Rename a column in place, cards and all.
-	// (POST /epics/actions/rename)
-	RenameEpic(ctx context.Context, request RenameEpicRequestObject) (RenameEpicResponseObject, error)
-	// ReorderEpics Apply one project's column order.
-	// (POST /epics/actions/reorder-epics)
-	ReorderEpics(ctx context.Context, request ReorderEpicsRequestObject) (ReorderEpicsResponseObject, error)
-	// SetEpicProject Move a column from one project to another; an empty target detaches it.
-	// (POST /epics/actions/set-project)
-	SetEpicProject(ctx context.Context, request SetEpicProjectRequestObject) (SetEpicProjectResponseObject, error)
 	// GetDayLogs One day's feed for many cards at once — what a day board shows.
 	// (GET /logs)
 	GetDayLogs(ctx context.Context, request GetDayLogsRequestObject) (GetDayLogsResponseObject, error)
@@ -5373,7 +5357,7 @@ type StrictServerInterface interface {
 	// SetPresence Share the caller's live card selection; an empty card clears it.
 	// (POST /presence)
 	SetPresence(ctx context.Context, request SetPresenceRequestObject) (SetPresenceResponseObject, error)
-	// AddProject Declare a project — the Project board's top grouping, which owns epic columns.
+	// AddProject Declare a project — the Project board's top grouping, which owns scope columns.
 	// (POST /projects)
 	AddProject(ctx context.Context, request AddProjectRequestObject) (AddProjectResponseObject, error)
 	// DeleteProject Delete an EMPTY project; refused while it still owns columns.
@@ -5385,6 +5369,21 @@ type StrictServerInterface interface {
 	// ReorderProjects Apply the shared project order.
 	// (POST /projects/actions/reorder-projects)
 	ReorderProjects(ctx context.Context, request ReorderProjectsRequestObject) (ReorderProjectsResponseObject, error)
+	// AddScope Declare an scope column.
+	// (POST /scopes)
+	AddScope(ctx context.Context, request AddScopeRequestObject) (AddScopeResponseObject, error)
+	// DeleteScope Delete an EMPTY scope column; refused while cards sit under it.
+	// (POST /scopes/actions/delete-scope)
+	DeleteScope(ctx context.Context, request DeleteScopeRequestObject) (DeleteScopeResponseObject, error)
+	// RenameScope Rename a column in place, cards and all.
+	// (POST /scopes/actions/rename)
+	RenameScope(ctx context.Context, request RenameScopeRequestObject) (RenameScopeResponseObject, error)
+	// ReorderScopes Apply one project's column order.
+	// (POST /scopes/actions/reorder-scopes)
+	ReorderScopes(ctx context.Context, request ReorderScopesRequestObject) (ReorderScopesResponseObject, error)
+	// SetScopeProject Move a column from one project to another; an empty target detaches it.
+	// (POST /scopes/actions/set-project)
+	SetScopeProject(ctx context.Context, request SetScopeProjectRequestObject) (SetScopeProjectResponseObject, error)
 	// ListSprints Per-team sprint pointers.
 	// (GET /sprints)
 	ListSprints(ctx context.Context, request ListSprintsRequestObject) (ListSprintsResponseObject, error)
@@ -6054,161 +6053,6 @@ func (sh *strictHandler) MoveDeadline(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// AddEpic operation middleware
-func (sh *strictHandler) AddEpic(w http.ResponseWriter, r *http.Request) {
-	var request AddEpicRequestObject
-
-	var body AddEpicJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.AddEpic(ctx, request.(AddEpicRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "AddEpic")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(AddEpicResponseObject); ok {
-		if err := validResponse.VisitAddEpicResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// DeleteEpic operation middleware
-func (sh *strictHandler) DeleteEpic(w http.ResponseWriter, r *http.Request) {
-	var request DeleteEpicRequestObject
-
-	var body DeleteEpicJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteEpic(ctx, request.(DeleteEpicRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteEpic")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteEpicResponseObject); ok {
-		if err := validResponse.VisitDeleteEpicResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// RenameEpic operation middleware
-func (sh *strictHandler) RenameEpic(w http.ResponseWriter, r *http.Request) {
-	var request RenameEpicRequestObject
-
-	var body RenameEpicJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.RenameEpic(ctx, request.(RenameEpicRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "RenameEpic")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(RenameEpicResponseObject); ok {
-		if err := validResponse.VisitRenameEpicResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ReorderEpics operation middleware
-func (sh *strictHandler) ReorderEpics(w http.ResponseWriter, r *http.Request) {
-	var request ReorderEpicsRequestObject
-
-	var body ReorderEpicsJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ReorderEpics(ctx, request.(ReorderEpicsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ReorderEpics")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ReorderEpicsResponseObject); ok {
-		if err := validResponse.VisitReorderEpicsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// SetEpicProject operation middleware
-func (sh *strictHandler) SetEpicProject(w http.ResponseWriter, r *http.Request) {
-	var request SetEpicProjectRequestObject
-
-	var body SetEpicProjectJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.SetEpicProject(ctx, request.(SetEpicProjectRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "SetEpicProject")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(SetEpicProjectResponseObject); ok {
-		if err := validResponse.VisitSetEpicProjectResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // GetDayLogs operation middleware
 func (sh *strictHandler) GetDayLogs(w http.ResponseWriter, r *http.Request, params GetDayLogsParams) {
 	var request GetDayLogsRequestObject
@@ -6440,6 +6284,161 @@ func (sh *strictHandler) ReorderProjects(w http.ResponseWriter, r *http.Request)
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReorderProjectsResponseObject); ok {
 		if err := validResponse.VisitReorderProjectsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddScope operation middleware
+func (sh *strictHandler) AddScope(w http.ResponseWriter, r *http.Request) {
+	var request AddScopeRequestObject
+
+	var body AddScopeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddScope(ctx, request.(AddScopeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddScope")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddScopeResponseObject); ok {
+		if err := validResponse.VisitAddScopeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteScope operation middleware
+func (sh *strictHandler) DeleteScope(w http.ResponseWriter, r *http.Request) {
+	var request DeleteScopeRequestObject
+
+	var body DeleteScopeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteScope(ctx, request.(DeleteScopeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteScope")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteScopeResponseObject); ok {
+		if err := validResponse.VisitDeleteScopeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RenameScope operation middleware
+func (sh *strictHandler) RenameScope(w http.ResponseWriter, r *http.Request) {
+	var request RenameScopeRequestObject
+
+	var body RenameScopeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RenameScope(ctx, request.(RenameScopeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RenameScope")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RenameScopeResponseObject); ok {
+		if err := validResponse.VisitRenameScopeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReorderScopes operation middleware
+func (sh *strictHandler) ReorderScopes(w http.ResponseWriter, r *http.Request) {
+	var request ReorderScopesRequestObject
+
+	var body ReorderScopesJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReorderScopes(ctx, request.(ReorderScopesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReorderScopes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReorderScopesResponseObject); ok {
+		if err := validResponse.VisitReorderScopesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetScopeProject operation middleware
+func (sh *strictHandler) SetScopeProject(w http.ResponseWriter, r *http.Request) {
+	var request SetScopeProjectRequestObject
+
+	var body SetScopeProjectJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetScopeProject(ctx, request.(SetScopeProjectRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetScopeProject")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetScopeProjectResponseObject); ok {
+		if err := validResponse.VisitSetScopeProjectResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

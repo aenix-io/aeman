@@ -125,3 +125,70 @@ func TestMigrateSchema2RetiresTheProcessTree(t *testing.T) {
 		t.Fatalf("second run: migrated=%v err=%v head moved %v", again, err, r.Head() != c.Hash)
 	}
 }
+
+// Schema 2 also renames the Project-board column from epic to scope and
+// retires card mirrors (docs/design/hierarchy.md): the column stubs move
+// from projects/<id>/epics/ to projects/<id>/scopes/ with their content
+// untouched, the card key `epic` is rewritten as `scope`, and the `mirrors`
+// key is stripped. Every step of the bump rewrites the SAME cards, so they
+// compose: a card the Process feature, the rename and the mirrors all
+// touched comes out with all three applied, in one write.
+func TestMigrateSchema2ComposesEveryCardRewrite(t *testing.T) {
+	shared := "---\ntitle: shared work\nteam: portal\nproject: engineering\nepic: Cozystack\nmirrors:\n  - {project: strategy, epic: Fundraising}\nprocess: Invoicing\ntask: 01JB4TASK\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n\nThe body stays.\n"
+	columnOnly := "---\ntitle: in a column\nproject: engineering\nepic: Cozystack\nrank: b\ncreated: 2026-08-26T09:15:03Z\n---\n"
+	plain := "---\ntitle: untouched\nteam: portal\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n"
+	stub := "name: Cozystack\nrank: a\ncreated: 2026-06-04T08:00:00Z\n"
+	r := repoWith(t, map[string]string{
+		BoardPath:                                 "schema: 1\ntitle: b\n",
+		TeamPath("01JB4TEAM"):                     "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
+		ProjectPath("01JB4PROJ"):                  "name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		"projects/01JB4PROJ/epics/01JB4COL.yaml":  stub,
+		"cards/c/1/01JB4K2E7QZMX3R8V0N5T9WYC1.md": shared,
+		"cards/c/2/01JB4K2E7QZMX3R8V0N5T9WYC2.md": columnOnly,
+		"cards/c/3/01JB4K2E7QZMX3R8V0N5T9WYC3.md": plain,
+	})
+	head := r.Head()
+	migrated, err := MigrateSchema(r)
+	if err != nil || !migrated {
+		t.Fatalf("migrated=%v err=%v, want a migration", migrated, err)
+	}
+	c, _ := r.CommitObject(r.Head())
+	if len(c.ParentHashes) != 1 || c.ParentHashes[0] != head {
+		t.Fatalf("the whole bump is ONE commit on the old tip, got parents %v", c.ParentHashes)
+	}
+	// Step 3: the column stub moved, content untouched; the old path is gone.
+	if data, err := r.ReadFile(ScopePath("01JB4PROJ", "01JB4COL")); err != nil || string(data) != stub {
+		t.Fatalf("scopes/01JB4COL.yaml = %q (%v), want the stub as it was", data, err)
+	}
+	if _, err := r.ReadFile("projects/01JB4PROJ/epics/01JB4COL.yaml"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("the old column path should be gone, err = %v", err)
+	}
+	// Steps 2, 3 and 4 on ONE card, composed.
+	data, err := r.ReadFile("cards/c/1/01JB4K2E7QZMX3R8V0N5T9WYC1.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	for _, gone := range []string{"epic:", "mirrors:", "process:", "task:"} {
+		if strings.Contains(got, gone) {
+			t.Fatalf("%s survived the bump:\n%s", gone, got)
+		}
+	}
+	for _, kept := range []string{"title: shared work", "team: portal", "project: engineering", "scope: Cozystack", "The body stays."} {
+		if !strings.Contains(got, kept) {
+			t.Fatalf("%q was lost by the bump:\n%s", kept, got)
+		}
+	}
+	// Step 3 alone on a card nothing else touched.
+	if data, _ := r.ReadFile("cards/c/2/01JB4K2E7QZMX3R8V0N5T9WYC2.md"); !strings.Contains(string(data), "scope: Cozystack") || strings.Contains(string(data), "epic:") {
+		t.Fatalf("the column key must be rewritten:\n%s", data)
+	}
+	// A card none of the steps touched is not rewritten.
+	if data, _ := r.ReadFile("cards/c/3/01JB4K2E7QZMX3R8V0N5T9WYC3.md"); string(data) != plain {
+		t.Fatalf("an untouched card was rewritten:\n%s", data)
+	}
+	// And the migrated tree loads as a board whose column holds both cards.
+	if again, err := MigrateSchema(r); err != nil || again || r.Head() != c.Hash {
+		t.Fatalf("second run: migrated=%v err=%v head moved %v", again, err, r.Head() != c.Hash)
+	}
+}

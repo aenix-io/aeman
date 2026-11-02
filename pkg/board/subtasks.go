@@ -24,7 +24,7 @@ func Children(b Board, itemID string) []Card {
 // read it.
 // Cost: one pass over the board's cards per ring of the walk, and the
 // rings are shallow (a card, its subtasks and its review card). A caller
-// that asks for every card of a COLUMN — SetEpicProject does — pays that
+// that asks for every card of a COLUMN — SetScopeProject does — pays that
 // per card; at board scale it is nothing, and a card index would be the
 // answer if a board ever made it one.
 func Followers(b Board, itemID string) []Card {

@@ -78,15 +78,15 @@ type Project struct {
 	ID     string
 	Domain string
 	ProjectFile
-	Epics     []Epic
+	Scopes    []Scope
 	Deadlines []Deadline
 }
 
-// Epic is one column.
-type Epic struct {
+// Scope is one column.
+type Scope struct {
 	ID     string
 	Domain string
-	EpicFile
+	ScopeFile
 }
 
 // Deadline is one deadline line.
@@ -114,7 +114,7 @@ func (s Snapshot) clone() Snapshot {
 	out.Teams = append([]Team(nil), s.Teams...)
 	out.Projects = append([]Project(nil), s.Projects...)
 	for i := range out.Projects {
-		out.Projects[i].Epics = append([]Epic(nil), s.Projects[i].Epics...)
+		out.Projects[i].Scopes = append([]Scope(nil), s.Projects[i].Scopes...)
 		out.Projects[i].Deadlines = append([]Deadline(nil), s.Projects[i].Deadlines...)
 	}
 	return out
@@ -228,11 +228,11 @@ func (l *loader) file(p string, data []byte) error {
 		if f, err = DecodeProject(data); err == nil {
 			l.project(ids[0]).ProjectFile = f
 		}
-	case PathEpic:
-		var f EpicFile
-		if f, err = DecodeEpic(data); err == nil {
+	case PathScope:
+		var f ScopeFile
+		if f, err = DecodeScope(data); err == nil {
 			pr := l.project(ids[0])
-			pr.Epics = append(pr.Epics, Epic{ID: ids[1], EpicFile: f})
+			pr.Scopes = append(pr.Scopes, Scope{ID: ids[1], ScopeFile: f})
 		}
 	case PathDeadline:
 		var f DeadlineFile
@@ -274,7 +274,7 @@ func (l *loader) finish() {
 	})
 	sort.Slice(l.s.Unknown, func(i, j int) bool { return l.s.Unknown[i] < l.s.Unknown[j] })
 	for _, p := range l.projects {
-		sort.Slice(p.Epics, func(i, j int) bool { return byRank(p.Epics[i].Rank, p.Epics[i].ID, p.Epics[j].Rank, p.Epics[j].ID) })
+		sort.Slice(p.Scopes, func(i, j int) bool { return byRank(p.Scopes[i].Rank, p.Scopes[i].ID, p.Scopes[j].Rank, p.Scopes[j].ID) })
 		sort.Slice(p.Deadlines, func(i, j int) bool {
 			return byRank(p.Deadlines[i].Week, p.Deadlines[i].ID, p.Deadlines[j].Week, p.Deadlines[j].ID)
 		})

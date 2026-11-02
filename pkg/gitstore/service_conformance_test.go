@@ -35,34 +35,34 @@ func TestServiceRosterThroughTheBackend(t *testing.T) {
 	if err := svc.AddProject(ctx, "acme", "portal"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.AddEpic(ctx, "acme", "Bugs", "portal"); err != nil {
+	if err := svc.AddScope(ctx, "acme", "Bugs", "portal"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.AddEpic(ctx, "acme", "Bugs", "portal"); err == nil {
+	if err := svc.AddScope(ctx, "acme", "Bugs", "portal"); err == nil {
 		t.Fatal("a duplicate column must be refused by the service")
 	}
-	card, err := svc.CreateCard(ctx, "acme", boardservice.CreateCardArgs{Title: "leak", Team: "portal", Epic: "Bugs", Project: "portal", Start: "2026-08-24", Day: "2026-08-28"})
+	card, err := svc.CreateCard(ctx, "acme", boardservice.CreateCardArgs{Title: "leak", Team: "portal", Scope: "Bugs", Project: "portal", Start: "2026-08-24", Day: "2026-08-28"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.RenameEpic(ctx, "acme", "portal", "Bugs", "Defects"); err != nil {
+	if err := svc.RenameScope(ctx, "acme", "portal", "Bugs", "Defects"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := svc.Board(ctx, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b.Epics) != 1 || b.Epics[0].Name != "Defects" {
-		t.Fatalf("epics after rename = %+v", b.Epics)
+	if len(b.Scopes) != 1 || b.Scopes[0].Name != "Defects" {
+		t.Fatalf("scopes after rename = %+v", b.Scopes)
 	}
 	got, ok := findByID(b, card.ItemID)
-	if !ok || got.Epic != "Defects" || got.Project != "portal" {
+	if !ok || got.Scope != "Defects" || got.Project != "portal" {
 		t.Fatalf("the card did not follow the rename: %+v", got)
 	}
 	// One rename = one commit, whatever it touched, when the server scopes it;
 	// bare, the service's writes each commit — the files still agree.
 	p, _ := CardPath(card.ItemID)
-	if data, _ := r.ReadFile(p); !strings.Contains(string(data), "epic: Defects") {
+	if data, _ := r.ReadFile(p); !strings.Contains(string(data), "scope: Defects") {
 		t.Fatalf("card file not renamed:\n%s", data)
 	}
 }

@@ -129,7 +129,7 @@ func TestMCPListsTools(t *testing.T) {
 		"delete_card", "remove_card", "move_card", "defer_card", "in_progress",
 		"send_to_review", "remove_reviewer", "carry_over",
 		"list_links", "list_log", "list_notes", "add_note", "edit_note", "delete_note",
-		"add_epic", "delete_epic", "set_epic_project", "rename_epic",
+		"add_scope", "delete_scope", "set_scope_project", "rename_scope",
 		"add_project", "delete_project", "reorder_projects", "rename_project", "rename_team",
 		"add_deadline", "delete_deadline", "move_deadline",
 		"reopen_card",
@@ -137,7 +137,7 @@ func TestMCPListsTools(t *testing.T) {
 		"set_capacity", "set_team_capacity",
 		// The gestures and reads the boards have and the tool set did not.
 		"place_card", "untriage_card", "finished_earlier", "list_sprints",
-		"list_day_logs", "reorder_teams", "reorder_epics", "delete_team",
+		"list_day_logs", "reorder_teams", "reorder_scopes", "delete_team",
 		"set_sprint_state",
 	}
 	for _, w := range want {
@@ -532,7 +532,7 @@ func TestTheToolSetHoldsWhatTheBoardsDo(t *testing.T) {
 		// The Triage board's, beside place: a card pulled back out of every week into the strip.
 		"untriage_card", "place_card",
 		// The roster gestures the manage dialogs make.
-		"reorder_teams", "reorder_epics", "delete_team", "set_sprint_state",
+		"reorder_teams", "reorder_scopes", "delete_team", "set_sprint_state",
 		// What a day board reads in one request instead of a log per card.
 		"list_day_logs",
 		// And when each team's sprint began, which every date rule is

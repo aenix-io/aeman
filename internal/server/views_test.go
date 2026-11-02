@@ -141,7 +141,7 @@ func TestACreateMeansWhatTheBoardMeansByIt(t *testing.T) {
 	}
 	// And a board refuses what it does not own, 422, naming the field.
 	rec := do(t, newSrv(), http.MethodPost, "/api/v1/views/me/cards",
-		`{"title":"x","team":"alpha","zone":"planned","epic":"Auth"}`)
+		`{"title":"x","team":"alpha","zone":"planned","scope":"Auth"}`)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("a column named on the Me board answered %d", rec.Code)
 	}

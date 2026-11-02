@@ -17,7 +17,7 @@ var ErrCrossDomain = errors.New("the target project lives in another repository"
 // file follows its parent and a review card's follows its original
 // (MultiBackend cascades the re-file along both links), while each one's
 // own column stays behind, naming a repository that no longer holds it —
-// the very state SetEpic refuses when the card itself is moved.
+// the very state SetScope refuses when the card itself is moved.
 func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
 	return refileGuardOpts(b, c, change, true)
 }
@@ -35,10 +35,10 @@ func refileGuardOpts(b board.Board, c board.Card, change func(*board.Card), ownC
 	// the one check that matters even when the domain does not change —
 	// re-filing a subtask into another column moves no file, and the
 	// column still has to name the repository its parent's file lives in.
-	if ownColumn && after.Epic != "" {
-		if cd, ok := board.ColumnDomain(b, after.Project, after.Epic); ok && cd != to {
+	if ownColumn && after.Scope != "" {
+		if cd, ok := board.ColumnDomain(b, after.Project, after.Scope); ok && cd != to {
 			return fmt.Errorf("%w: the column %q is not in the repository that holds this card",
-				ErrCrossDomain, after.Epic)
+				ErrCrossDomain, after.Scope)
 		}
 	}
 	if to == board.HomeDomain(b, c) {
@@ -47,11 +47,11 @@ func refileGuardOpts(b board.Board, c board.Card, change func(*board.Card), ownC
 	// Only a card that MOVES can strand what rides it, so the follower
 	// scan — the one linear walk here — waits until the move is certain
 	// and until the cheaper refusal above has had its say.
-	// SetEpicProject calls this once per card of a column.
+	// SetScopeProject calls this once per card of a column.
 	followers := board.Followers(b, c.ItemID)
 	for _, f := range followers {
-		if f.Epic != "" {
-			if cd, ok := board.ColumnDomain(b, f.Project, f.Epic); ok && cd != to {
+		if f.Scope != "" {
+			if cd, ok := board.ColumnDomain(b, f.Project, f.Scope); ok && cd != to {
 				return fmt.Errorf("%w: %q follows this card and stands in a column of another repository — take it out of the column first",
 					ErrCrossDomain, f.Title)
 			}

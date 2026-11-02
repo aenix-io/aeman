@@ -21,7 +21,7 @@ func TestTheBoardNamesTheRepositoryOfTeamsAndProjectsOutsideThePrimary(t *testin
 		},
 		Projects:      []string{"backoffice", "strategy"},
 		ProjectStates: map[string]string{"backoffice": "pr-backoffice", "strategy": "pr-strategy"},
-		Epics: []board.EpicCol{
+		Scopes: []board.ScopeCol{
 			{Name: "Cozystack", Project: "backoffice", ItemID: "ep-cozy"},
 			{Name: "Fundraising", Project: "strategy", ItemID: "ep-fund"},
 		},
@@ -49,7 +49,7 @@ func TestTheBoardNamesTheRepositoryOfTeamsAndProjectsOutsideThePrimary(t *testin
 	// declared in two repositories with its columns merged (G13), and the
 	// column is what the server asks about.
 	var closed, open bool
-	for _, e := range got.Epics {
+	for _, e := range got.Scopes {
 		if e.Name == "Fundraising" && e.Domain == "founders" {
 			closed = true
 		}
@@ -58,7 +58,7 @@ func TestTheBoardNamesTheRepositoryOfTeamsAndProjectsOutsideThePrimary(t *testin
 		}
 	}
 	if !closed || !open {
-		t.Fatalf("every column names its own repository, the primary by omission: %+v", got.Epics)
+		t.Fatalf("every column names its own repository, the primary by omission: %+v", got.Scopes)
 	}
 
 	// A board of one repository records no domains at all, and says nothing.

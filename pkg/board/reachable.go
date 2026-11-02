@@ -38,7 +38,7 @@ func Reachable(b Board, today string) map[string]bool {
 		// A state card is the roster.
 		case IsStateTitle(c.Title):
 		// A Project-board column, and the weekly plan.
-		case c.Epic != "":
+		case c.Scope != "":
 		case c.Week != "":
 		// The Triage board's STRIP: nobody has said when, which is a thing to
 		// be looked at rather than a thing that is lost — the strip is the

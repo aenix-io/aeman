@@ -77,7 +77,7 @@ type CardSpec struct {
 	Recurrence string    `json:"recurrence,omitempty"`
 	Dates      CardDates `json:"dates"`
 	// Week is the week the card is scheduled for, a Monday: its row on the
-	// Triage board, and — for an epic card — on the Project board.
+	// Triage board, and — for an scope card — on the Project board.
 	Week string `json:"week,omitempty"`
 	// Parked says the card is on its team's SHELF rather than in the plan.
 	// Every team has one and nothing declares it. Exclusive with Week — a card
@@ -85,10 +85,10 @@ type CardSpec struct {
 	// board and out of the Triage strip: parking is the act of reading the
 	// inbox and saying "not now".
 	Parked bool `json:"parked,omitempty"`
-	// Epic and Project are the column the card is filed under ("" = none) —
-	// the pair, since epic names repeat across projects. The card's Week is
+	// Scope and Project are the column the card is filed under ("" = none) —
+	// the pair, since scope names repeat across projects. The card's Week is
 	// the row, and Dates span the weeks its slot stretches over.
-	Epic     string `json:"epic,omitempty"`
+	Scope    string `json:"scope,omitempty"`
 	Project  string `json:"project,omitempty"`
 	ReviewOf string `json:"reviewOf,omitempty"`
 	// Parent, on a subtask, is the uid of the card it is grouped under.
@@ -233,16 +233,16 @@ type BoardMetadata struct {
 	URL   string   `json:"url,omitempty"`
 	Teams []string `json:"teams"`
 	// Projects lists the Project board's projects, in board order — the top
-	// grouping: a project owns epic columns. (Not the GitHub board, which the
+	// grouping: a project owns scope columns. (Not the GitHub board, which the
 	// caller addresses with owner+board.)
 	Projects []string `json:"projects,omitempty"`
 	// Deadlines are the deadline lines in board order: the week each one sits
 	// on and the project it belongs to. A project holds at most one per week.
 	Deadlines []DeadlineRef `json:"deadlines,omitempty"`
-	// Epics lists the Project board's columns in board order, each naming the
-	// project that owns it. An epic with an empty project belongs to none and
+	// Scopes lists the Project board's columns in board order, each naming the
+	// project that owns it. An scope with an empty project belongs to none and
 	// shows only in the all-projects view.
-	Epics []EpicRef `json:"epics,omitempty"`
+	Scopes []ScopeRef `json:"scopes,omitempty"`
 	// Members is every distinct assignee on the board — the people roster for
 	// pickers (assign, review, view-as) now that clients load one view at a
 	// time and cannot derive it from the cards they hold — with the avatar
@@ -295,10 +295,10 @@ type DomainInfo struct {
 	Members  []string `json:"members"`
 }
 
-// EpicRef is one Project-board column: its name and the project that owns it.
+// ScopeRef is one Project-board column: its name and the project that owns it.
 // The pair travels together because a column is meaningless without knowing
 // which project's grid it belongs in.
-type EpicRef struct {
+type ScopeRef struct {
 	Name    string `json:"name"`
 	Project string `json:"project,omitempty"`
 	// Domain is the repository the column was declared in. The git server
@@ -320,10 +320,10 @@ type DeadlineRef struct {
 // columnDomainOf reads a column's repository the way every rule does —
 // through board.ColumnDomain, which answers in ONE namespace (an
 // unstamped entry belongs to the board's primary). Reading the raw stamp
-// here put two namespaces in one payload: epics[].domain unstamped beside
+// here put two namespaces in one payload: scopes[].domain unstamped beside
 // projectDomains stamped, and a client comparing them found no column at
 // all.
-func columnDomainOf(b board.Board, e board.EpicCol) string {
+func columnDomainOf(b board.Board, e board.ScopeCol) string {
 	d, _ := board.ColumnDomain(b, e.Project, e.Name)
 	return d
 }
@@ -337,11 +337,11 @@ func deadlineWeeks(b board.Board) []DeadlineRef {
 	return out
 }
 
-// epicRefs projects the column roster onto the wire, preserving board order.
-func epicRefs(b board.Board) []EpicRef {
-	out := make([]EpicRef, 0, len(b.Epics))
-	for _, e := range b.Epics {
-		out = append(out, EpicRef{Name: e.Name, Project: e.Project, Domain: columnDomainOf(b, e)})
+// scopeRefs projects the column roster onto the wire, preserving board order.
+func scopeRefs(b board.Board) []ScopeRef {
+	out := make([]ScopeRef, 0, len(b.Scopes))
+	for _, e := range b.Scopes {
+		out = append(out, ScopeRef{Name: e.Name, Project: e.Project, Domain: columnDomainOf(b, e)})
 	}
 	return out
 }
@@ -383,7 +383,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
 		Week:        c.Week,
 		Parked:      c.Parked,
-		Epic:        c.Epic,
+		Scope:       c.Scope,
 		Project:     c.Project,
 		ReviewOf:    c.ReviewOf,
 		Parent:      c.Parent,
@@ -578,7 +578,7 @@ func BoardResourceWithPeople(b board.Board, person func(login string) Member) Bo
 	return BoardInfo{
 		Kind: "Board",
 		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams,
-			Projects: append([]string{}, b.Projects...), Epics: epicRefs(b),
+			Projects: append([]string{}, b.Projects...), Scopes: scopeRefs(b),
 			Deadlines: deadlineWeeks(b), Members: people,
 			TeamDomains: rosterDomains(teams, func(name string) string { return board.TeamDomain(b, name) }),
 			ProjectDomains: rosterDomains(b.Projects, func(name string) string {

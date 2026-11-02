@@ -32,7 +32,7 @@ type Selector struct {
 	// From (defaults to the current week) for Weeks weeks (defaults to 6).
 	From  string
 	Weeks int
-	// Project filters the project view to one project's epic columns. Empty
+	// Project filters the project view to one project's scope columns. Empty
 	// means every project — the all-projects overview. Note this is the
 	// planning entity, NOT the GitHub board (that is addressed by owner+board).
 	Project string
@@ -180,9 +180,9 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	case "me":
 		base = board.MeView(b, sel.User, sel.Day)
 	case "project":
-		// The Project board: every card filed under an epic, whatever its week
-		// — the client lays rows (weeks) and columns (epics) out itself. The
-		// selector filters by PROJECT (an epic's owner), not by team: a project
+		// The Project board: every card filed under an scope, whatever its week
+		// — the client lays rows (weeks) and columns (scopes) out itself. The
+		// selector filters by PROJECT (an scope's owner), not by team: a project
 		// spans teams, and a card is assigned to a team from this very board.
 		for _, c := range b.Cards {
 			// A SUBTASK that carries its own column belongs here on its own
@@ -190,7 +190,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 			// the rule exists for is a parent that lives elsewhere — a week
 			// of its own, the working area — and is in no project view at
 			// all, which left the whole group visible nowhere.
-			if c.Epic == "" {
+			if c.Scope == "" {
 				continue
 			}
 			// A MIRROR is the same card standing in a second column, so a
@@ -277,7 +277,7 @@ func projectViewCards(b board.Board, out []board.Card, project string) []board.C
 	kept := make([]board.Card, 0, len(out))
 	wanted := map[string]bool{}
 	for _, c := range out {
-		if c.Epic == "" {
+		if c.Scope == "" {
 			continue
 		}
 		// The subtask rider ignores the selector, so a child filed under

@@ -123,8 +123,8 @@ func stamp(s *Snapshot, domain string) {
 	}
 	for i := range s.Projects {
 		s.Projects[i].Domain = domain
-		for j := range s.Projects[i].Epics {
-			s.Projects[i].Epics[j].Domain = domain
+		for j := range s.Projects[i].Scopes {
+			s.Projects[i].Scopes[j].Domain = domain
 		}
 		for j := range s.Projects[i].Deadlines {
 			s.Projects[i].Deadlines[j].Domain = domain
@@ -232,7 +232,7 @@ func mergeProjects(parts []Snapshot, aliases []Alias) ([]Project, []Alias) {
 			if older(pr.Created, pr.ID, prev.Created, prev.ID) {
 				winner, loser = &pr, prev
 			}
-			winner.Epics = append(winner.Epics, loser.Epics...)
+			winner.Scopes = append(winner.Scopes, loser.Scopes...)
 			winner.Deadlines = append(winner.Deadlines, loser.Deadlines...)
 			// The NO-PROJECT bucket is not a collision: every repository may
 			// declare its own nameless project file, and their columns are
@@ -248,7 +248,9 @@ func mergeProjects(parts []Snapshot, aliases []Alias) ([]Project, []Alias) {
 	}
 	projects := make([]Project, 0, len(byName))
 	for _, pr := range byName {
-		sort.Slice(pr.Epics, func(i, j int) bool { return byRank(pr.Epics[i].Rank, pr.Epics[i].ID, pr.Epics[j].Rank, pr.Epics[j].ID) })
+		sort.Slice(pr.Scopes, func(i, j int) bool {
+			return byRank(pr.Scopes[i].Rank, pr.Scopes[i].ID, pr.Scopes[j].Rank, pr.Scopes[j].ID)
+		})
 		sort.Slice(pr.Deadlines, func(i, j int) bool {
 			return byRank(pr.Deadlines[i].Week, pr.Deadlines[i].ID, pr.Deadlines[j].Week, pr.Deadlines[j].ID)
 		})

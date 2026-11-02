@@ -85,8 +85,8 @@ func TestPlacingBackASlotStillMovesItsRow(t *testing.T) {
 
 	f := newFake([]board.Card{
 		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "P"},
-		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "E", Project: "P"},
-		{ItemID: "slot", Team: "alpha", Epic: "E", Project: "P", Week: oldWeek,
+		{ItemID: "e1", Title: board.ScopeStateTitle, Scope: "E", Project: "P"},
+		{ItemID: "slot", Team: "alpha", Scope: "E", Project: "P", Week: oldWeek,
 			StartDate: oldWeek, Day: board.AddDays(oldWeek, 13)},
 	}, map[string]board.SprintState{"alpha": {Current: thisWeek}})
 	svc := f2svc(f)

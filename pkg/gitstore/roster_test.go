@@ -8,7 +8,7 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// The roster — teams, projects, epics, deadlines — is configuration that
+// The roster — teams, projects, scopes, deadlines — is configuration that
 // used to hide in state cards. Here each is a file: a
 // name where it has one, a rank, a created time, and the fields the domain
 // gives it. Every path carries identity only.
@@ -17,7 +17,7 @@ func TestRosterPaths(t *testing.T) {
 	cases := map[string]string{
 		TeamPath("01JB4TEAM"):                "teams/01JB4TEAM.yaml",
 		ProjectPath("01JB4PROJ"):             "projects/01JB4PROJ/project.yaml",
-		EpicPath("01JB4PROJ", "01JB4EPIC"):   "projects/01JB4PROJ/epics/01JB4EPIC.yaml",
+		ScopePath("01JB4PROJ", "01JB4SCOPE"): "projects/01JB4PROJ/scopes/01JB4SCOPE.yaml",
 		DeadlinePath("01JB4PROJ", "01JB4DL"): "projects/01JB4PROJ/deadlines/01JB4DL.yaml",
 		BoardPath:                            "board.yaml",
 	}
@@ -40,7 +40,7 @@ func TestParsePathClassifies(t *testing.T) {
 		{"teams/01JB4TEAM.yaml", PathTeam, []string{"01JB4TEAM"}},
 		{"teams/_.yaml", PathTeam, []string{"_"}},
 		{"projects/01JB4PROJ/project.yaml", PathProject, []string{"01JB4PROJ"}},
-		{"projects/01JB4PROJ/epics/01JB4EPIC.yaml", PathEpic, []string{"01JB4PROJ", "01JB4EPIC"}},
+		{"projects/01JB4PROJ/scopes/01JB4SCOPE.yaml", PathScope, []string{"01JB4PROJ", "01JB4SCOPE"}},
 		{"projects/01JB4PROJ/deadlines/01JB4DL.yaml", PathDeadline, []string{"01JB4PROJ", "01JB4DL"}},
 		{"board.yaml", PathBoard, nil},
 		{"README.md", PathUnknown, nil},
@@ -91,7 +91,7 @@ func TestTeamFileRoundTrip(t *testing.T) {
 	}
 }
 
-func TestProjectEpicDeadlineRoundTrip(t *testing.T) {
+func TestProjectScopeDeadlineRoundTrip(t *testing.T) {
 	p, _ := EncodeProject(ProjectFile{Name: "portal", Rank: "b", Created: "2026-06-01T08:00:00Z"})
 	if string(p) != "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n" {
 		t.Fatalf("project:\n%s", p)
@@ -101,10 +101,10 @@ func TestProjectEpicDeadlineRoundTrip(t *testing.T) {
 		t.Fatalf("project decode: %+v %v", pf, err)
 	}
 
-	e, _ := EncodeEpic(EpicFile{Name: "Bugs", Rank: "c", Created: "2026-06-02T08:00:00Z"})
-	ef, err := DecodeEpic(e)
+	e, _ := EncodeScope(ScopeFile{Name: "Bugs", Rank: "c", Created: "2026-06-02T08:00:00Z"})
+	ef, err := DecodeScope(e)
 	if err != nil || ef.Name != "Bugs" || ef.Rank != "c" {
-		t.Fatalf("epic decode: %+v %v", ef, err)
+		t.Fatalf("scope decode: %+v %v", ef, err)
 	}
 
 	d, _ := EncodeDeadline(DeadlineFile{Week: "2026-09-07", Created: "2026-06-03T08:00:00Z"})

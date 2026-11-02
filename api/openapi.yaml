@@ -14,7 +14,7 @@ info:
     board REQUIRES is the board's own rule — it depends on the board the call
     was made through, and it is answered as a refusal naming the field — so
     almost every request schema here marks nothing as required. The few that
-    do are the fields a call means nothing without: a placement's `epic`, a
+    do are the fields a call means nothing without: a placement's `scope`, a
     capacity's number.
 
 
@@ -35,7 +35,7 @@ tags:
     description: A card's work notes.
   - name: Sprints
     description: Per-team sprint pointers and the carry-over.
-  - name: Epics
+  - name: Scopes
     description: The Project board's columns.
   - name: Deadlines
     description: The deadline lines a project draws across the weeks.
@@ -892,65 +892,65 @@ paths:
           description: The team is gone from the roster.
         default:
           $ref: '#/components/responses/Problem'
-  /epics:
+  /scopes:
     post:
-      operationId: addEpic
-      tags: [Epics]
-      summary: Declare an epic column.
+      operationId: addScope
+      tags: [Scopes]
+      summary: Declare an scope column.
       description: >-
         The project is OPTIONAL, and the schema beside this says so too: named,
         it must already exist — a project the board does not have is a typo,
         and is refused (422 `projectNotFound`) — and the column lives with it;
         left empty, the column goes in the no-project bucket, which is a column
         home like any other. The name has to be free inside whichever of the
-        two it lands in (422 `epicExists`).
+        two it lands in (422 `scopeExists`).
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AddEpicBody'
+              $ref: '#/components/schemas/AddScopeBody'
       responses:
         '204':
           description: The column is declared.
         default:
           $ref: '#/components/responses/Problem'
-  /epics/actions/delete-epic:
+  /scopes/actions/delete-scope:
     post:
-      operationId: deleteEpic
-      tags: [Epics]
-      summary: Delete an EMPTY epic column; refused while cards sit under it.
+      operationId: deleteScope
+      tags: [Scopes]
+      summary: Delete an EMPTY scope column; refused while cards sit under it.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EpicBody'
+              $ref: '#/components/schemas/ScopeBody'
       responses:
         '204':
           description: The column is gone.
         default:
           $ref: '#/components/responses/Problem'
-  /epics/actions/reorder-epics:
+  /scopes/actions/reorder-scopes:
     post:
-      operationId: reorderEpics
-      tags: [Epics]
+      operationId: reorderScopes
+      tags: [Scopes]
       summary: Apply one project's column order.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ReorderEpicsBody'
+              $ref: '#/components/schemas/ReorderScopesBody'
       responses:
         '204':
           description: The order is applied.
         default:
           $ref: '#/components/responses/Problem'
-  /epics/actions/set-project:
+  /scopes/actions/set-project:
     post:
-      operationId: setEpicProject
-      tags: [Epics]
+      operationId: setScopeProject
+      tags: [Scopes]
       summary: Move a column from one project to another; an empty target detaches it.
       description: >-
         Its cards are rewritten with it. The column cannot change REPOSITORY —
@@ -962,16 +962,16 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SetEpicProjectBody'
+              $ref: '#/components/schemas/SetScopeProjectBody'
       responses:
         '204':
           description: The column belongs to the other project now.
         default:
           $ref: '#/components/responses/Problem'
-  /epics/actions/rename:
+  /scopes/actions/rename:
     post:
-      operationId: renameEpic
-      tags: [Epics]
+      operationId: renameScope
+      tags: [Scopes]
       summary: Rename a column in place, cards and all.
       description: >-
         A name already used inside the SAME project is refused (422); the same
@@ -981,7 +981,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RenameEpicBody'
+              $ref: '#/components/schemas/RenameScopeBody'
       responses:
         '204':
           description: The column is renamed.
@@ -1046,7 +1046,7 @@ paths:
     post:
       operationId: addProject
       tags: [Projects]
-      summary: Declare a project — the Project board's top grouping, which owns epic columns.
+      summary: Declare a project — the Project board's top grouping, which owns scope columns.
       description: It may be created empty; `domain` picks the repository it is declared in.
       requestBody:
         required: true
@@ -1399,10 +1399,10 @@ components:
             - emptyNote
             - emptyTitle
             - endBeforeStart
-            - epicExists
-            - epicInUse
-            - epicNotFound
-            - epicRequired
+            - scopeExists
+            - scopeInUse
+            - scopeNotFound
+            - scopeRequired
             - forbidden
             - gestureNotOffered
             - historyTruncated
@@ -1588,10 +1588,10 @@ components:
             team has a shelf and nothing declares it. A Project-board slot, a
             review card and a subtask are refused (422): none of them has a
             place of its own to be parked out of.
-        epic:
+        scope:
           type: string
           description: >-
-            The card's column, which is the (project, epic) PAIR — epic names
+            The card's column, which is the (project, scope) PAIR — scope names
             repeat across projects, so anything acting on a column names both
             halves.
         project:
@@ -1897,10 +1897,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DeadlineRef'
-        epics:
+        scopes:
           type: array
           items:
-            $ref: '#/components/schemas/EpicRef'
+            $ref: '#/components/schemas/ScopeRef'
         members:
           type: array
           description: >-
@@ -1987,10 +1987,10 @@ components:
           type: array
           items:
             type: string
-    EpicRef:
+    ScopeRef:
       type: object
       additionalProperties: false
-      x-go-type: apiserver.EpicRef
+      x-go-type: apiserver.ScopeRef
       x-go-type-import:
         path: github.com/aenix-io/aeman/pkg/apiserver
       description: >-
@@ -2257,7 +2257,7 @@ components:
           description: >-
             Puts the card straight on its team's shelf. Like `week`, no dates
             are set and no sprint is joined.
-        epic:
+        scope:
           type: string
           description: >-
             With `project`, files the card on the Project board under the column
@@ -2322,12 +2322,12 @@ components:
             progress into [10, 90].
         recurrence:
           type: string
-        epic:
+        scope:
           type: string
           description: >-
-            The two halves of the card's column; empty clears. Epic names repeat
+            The two halves of the card's column; empty clears. Scope names repeat
             across projects, so filing into another project's column names both,
-            while naming only the epic stays inside the card's project.
+            while naming only the scope stays inside the card's project.
         project:
           type: string
         dates:
@@ -2399,14 +2399,14 @@ components:
     PlacementBody:
       type: object
       description: >-
-        A column, named by its EPIC. The project half may be empty — the
+        A column, named by its SCOPE. The project half may be empty — the
         no-project bucket is a column like any other, and a column's repository
         is read off the column's own stub.
-      required: [epic]
+      required: [scope]
       properties:
         project:
           type: string
-        epic:
+        scope:
           type: string
     NoteBody:
       type: object
@@ -2457,33 +2457,33 @@ components:
       properties:
         team:
           type: string
-    AddEpicBody:
+    AddScopeBody:
       type: object
       properties:
         name:
           type: string
         project:
           type: string
-    EpicBody:
+    ScopeBody:
       type: object
       properties:
-        epic:
+        scope:
           type: string
         project:
           type: string
-    ReorderEpicsBody:
+    ReorderScopesBody:
       type: object
       properties:
         project:
           type: string
-        epics:
+        scopes:
           type: array
           items:
             type: string
-    SetEpicProjectBody:
+    SetScopeProjectBody:
       type: object
       properties:
-        epic:
+        scope:
           type: string
         from:
           type: string
@@ -2491,12 +2491,12 @@ components:
         project:
           type: string
           description: The project it joins; empty detaches it.
-    RenameEpicBody:
+    RenameScopeBody:
       type: object
       properties:
         project:
           type: string
-        epic:
+        scope:
           type: string
         to:
           type: string

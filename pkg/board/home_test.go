@@ -4,7 +4,7 @@ import "testing"
 
 // A mirror is the same card standing in a second Project-board column: one
 // file, one log, one set of dates — shown in both places. The card's own
-// (project, epic) pair stays its home and keeps deciding where it lives
+// (project, scope) pair stays its home and keeps deciding where it lives
 // (the domain rule reads the primary, never a mirror); mirrors only add
 // columns that SHOW it.
 
@@ -13,9 +13,9 @@ import "testing"
 func TestColumnDomainReadsTheColumnsOwnStub(t *testing.T) {
 	b := NewBoard([]Card{
 		{ItemID: "pr-e", Title: ProjectStateTitle, Project: "engineering"},
-		{ItemID: "ep-cozy", Title: EpicStateTitle, Epic: "Cozystack", Project: "engineering"},
-		{ItemID: "ep-far", Title: EpicStateTitle, Epic: "Far", Project: "engineering", Domain: "founders"},
-		{ItemID: "ep-loose", Title: EpicStateTitle, Epic: "Loose"},
+		{ItemID: "ep-cozy", Title: ScopeStateTitle, Scope: "Cozystack", Project: "engineering"},
+		{ItemID: "ep-far", Title: ScopeStateTitle, Scope: "Far", Project: "engineering", Domain: "founders"},
+		{ItemID: "ep-loose", Title: ScopeStateTitle, Scope: "Loose"},
 	})
 	if d, ok := ColumnDomain(b, "engineering", "Cozystack"); !ok || d != "" {
 		t.Fatalf("a primary column names no repository: %q %v", d, ok)
@@ -81,15 +81,15 @@ func TestFollowersWalkTheWholeTreeAndSurviveACycle(t *testing.T) {
 // are the same repository.
 func TestColumnDomainAnswersInThePrimarysName(t *testing.T) {
 	b := NewBoardIn("aeman-db", []Card{
-		{ItemID: "ep-inbox", Title: EpicStateTitle, Epic: "Inbox", Domain: "aeman-db"},
-		{ItemID: "ep-bare", Title: EpicStateTitle, Epic: "Bare"},
+		{ItemID: "ep-inbox", Title: ScopeStateTitle, Scope: "Inbox", Domain: "aeman-db"},
+		{ItemID: "ep-bare", Title: ScopeStateTitle, Scope: "Bare"},
 	})
 	stamped, _ := ColumnDomain(b, "", "Inbox")
 	bare, _ := ColumnDomain(b, "", "Bare")
 	if stamped != "aeman-db" || bare != "aeman-db" {
 		t.Fatalf("both are of the primary: %q and %q", stamped, bare)
 	}
-	if got := HomeDomain(b, Card{Epic: "Inbox"}); got != "aeman-db" {
+	if got := HomeDomain(b, Card{Scope: "Inbox"}); got != "aeman-db" {
 		t.Fatalf("a card nothing places belongs to the primary too: %q", got)
 	}
 }

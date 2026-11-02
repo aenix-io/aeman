@@ -23,7 +23,7 @@ func gridBoard(cards []board.Card) *fakeBackend {
 	today := board.TodayIso()
 	roster := []board.Card{
 		{ItemID: "pr-core", Title: board.ProjectStateTitle, Project: "core"},
-		{ItemID: "ep-auth", Title: board.EpicStateTitle, Epic: "Auth", Project: "core"},
+		{ItemID: "ep-auth", Title: board.ScopeStateTitle, Scope: "Auth", Project: "core"},
 	}
 	return newFake(append(roster, cards...), map[string]board.SprintState{
 		"platform": {Current: today, Previous: board.AddDays(today, -1), ItemID: "st-platform"},
@@ -133,7 +133,7 @@ func mustLoad(t *testing.T, fake *fakeBackend) board.Board {
 func TestTheRemoveNeverDeletesAProjectCard(t *testing.T) {
 	today := board.TodayIso()
 	fake := gridBoard([]board.Card{
-		{ItemID: "c1", Title: "a slot", Team: "platform", Project: "core", Epic: "Auth",
+		{ItemID: "c1", Title: "a slot", Team: "platform", Project: "core", Scope: "Auth",
 			SprintStart: today, StartDate: today, Day: today},
 	})
 	if err := New(fake).Remove(t.Context(), "o", "c1", board.ViewAll, RemoveAuto); err != nil {
@@ -144,8 +144,8 @@ func TestTheRemoveNeverDeletesAProjectCard(t *testing.T) {
 	if !ok {
 		t.Fatal("the × deleted a project card")
 	}
-	if c.Project != "core" || c.Epic != "Auth" {
-		t.Fatalf("the column must stay: project=%q epic=%q", c.Project, c.Epic)
+	if c.Project != "core" || c.Scope != "Auth" {
+		t.Fatalf("the column must stay: project=%q scope=%q", c.Project, c.Scope)
 	}
 }
 
@@ -178,7 +178,7 @@ func TestWorkDoesNotTurnARemoveIntoAMove(t *testing.T) {
 }
 
 // A card carrying only a project name is on no board of its own: the
-// Project board renders columns by epic. So the name is a label, not a home
+// Project board renders columns by scope. So the name is a label, not a home
 // — the × treats the card like any other, and with nowhere else to be it is
 // deleted rather than left alive where no board would show it.
 func TestACardThatOnlyNamesAProjectIsNotSparedByThatName(t *testing.T) {
@@ -216,7 +216,7 @@ func TestACardTheRemoveKeepsIsAlwaysOnSomeBoard(t *testing.T) {
 		c, ok := findCard(b, id)
 		// A slot lives on the Project board; a card with a week stands in
 		// that week's column on Triage.
-		return ok && (c.Epic != "" || c.Week != "")
+		return ok && (c.Scope != "" || c.Week != "")
 	}
 	fake := gridBoard([]board.Card{
 		{ItemID: "c1", Title: "worked, in both", Team: "platform",

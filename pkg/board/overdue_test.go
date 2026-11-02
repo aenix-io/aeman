@@ -14,10 +14,10 @@ func TestOverdue(t *testing.T) {
 		due  string
 		late bool
 	}{
-		{"a slot past its end", Card{Epic: "E", StartDate: "2026-08-03", Day: "2026-08-21"}, "2026-08-21", true},
-		{"a slot still running", Card{Epic: "E", StartDate: "2026-08-03", Day: "2026-09-04"}, "2026-09-04", false},
-		{"a slot ending today is not late yet", Card{Epic: "E", Day: today}, today, false},
-		{"a finished slot is never late", Card{Epic: "E", Day: "2026-08-01", Progress: 100}, "2026-08-01", false},
+		{"a slot past its end", Card{Scope: "E", StartDate: "2026-08-03", Day: "2026-08-21"}, "2026-08-21", true},
+		{"a slot still running", Card{Scope: "E", StartDate: "2026-08-03", Day: "2026-09-04"}, "2026-09-04", false},
+		{"a slot ending today is not late yet", Card{Scope: "E", Day: today}, today, false},
+		{"a finished slot is never late", Card{Scope: "E", Day: "2026-08-01", Progress: 100}, "2026-08-01", false},
 		// A card the Triage board scheduled: it has a day it was owed by, and
 		// nobody outside this board promised it, so it is not late.
 		{"a card scheduled for last week", Card{Week: "2026-08-17"}, "2026-08-21", false},
@@ -45,11 +45,11 @@ func TestAStretchedCardIsOwedByItsEnd(t *testing.T) {
 	// The same, for a kind that DOES wear the mark: a slot inside its reach
 	// is not late, and one past it is.
 	today := "2026-08-27" // Thursday of the week of 24 Aug
-	running := Card{Epic: "E", Week: "2026-08-17", Day: "2026-09-04"}
+	running := Card{Scope: "E", Week: "2026-08-17", Day: "2026-09-04"}
 	if Overdue(running, today) {
 		t.Fatal("a slot still inside its reach is not late")
 	}
-	over := Card{Epic: "E", Week: "2026-08-10", Day: "2026-08-21"}
+	over := Card{Scope: "E", Week: "2026-08-10", Day: "2026-08-21"}
 	if !Overdue(over, today) {
 		t.Fatal("a slot past the end of its reach is late")
 	}
@@ -75,7 +75,7 @@ func TestOnlyAPromiseMadeElsewhereGoesOverdue(t *testing.T) {
 	last := "2026-08-31"  // the Monday before
 	open := func(c Card) Card { c.Progress = 40; return c }
 
-	slot := open(Card{ItemID: "slot", Team: "t", Epic: "Storage", Project: "cozy", Week: last, Day: "2026-09-04"})
+	slot := open(Card{ItemID: "slot", Team: "t", Scope: "Storage", Project: "cozy", Week: last, Day: "2026-09-04"})
 	// A turn the retired Process feature left behind: a recurrent card of
 	// its week, and nothing more.
 	turn := open(Card{ItemID: "turn", Team: "t", Stage: StageRecurrent, Week: last})
