@@ -101,7 +101,13 @@ a review link into a column is refused the same way (`ErrProjectCard`,
 422 `projectCard`): the person takes those off first, or makes a card in
 the column and links the work under the hierarchy. A card scheduled for
 a week and nothing else takes that week's span as its dates on the way
-in, and leaves the weekly plan and its sprint.
+in, and leaves the weekly plan and its sprint. **It lives and dies in its
+column**: a project card cannot exist without a project, so a write that
+empties its `scope` is refused (`ErrProjectCard` — delete it instead),
+there is no remove-from-project door on the API, the MCP or the board,
+and the only ways out of a column are another column or Delete. The one
+entrance stays: a task filed into a column becomes a project card, and
+that is one way.
 
 This reverses the slot rule (the slot clauses of D2 and D6, B14, and the
 week derivation in
@@ -138,8 +144,9 @@ with the feature.
 
 **Mirrors.** A card no longer stands in a second project's column. The
 `mirrors` key, the mirror and unmirror actions and tools, and the
-placement logic in the SPA are removed; `remove-from-project` stays and
-means what is left of it — take the card out of its Scope column. A card
+placement logic in the SPA are removed, and so is `remove-from-project`:
+a project card cannot exist without a project, so there is no door that
+takes its column away — it is deleted, or moved to another column. A card
 that was mirrored stays in its home column.
 
 **The slot rule.** See the section above.

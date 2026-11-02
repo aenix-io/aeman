@@ -269,7 +269,6 @@ security delete-generic-password -s aeman-mcp
 | `set_sprint_state` | Set a team's sprint pointers by hand — the repair tool. `carry_over` is what advances a sprint in the normal course of things. |
 | `move_card` / `defer_card` | Reorder; push the scheduled day ahead. |
 | `send_to_review` / `remove_reviewer` | The review-card cycle (send reassigns when a review card exists). |
-| `remove_from_project` | The Project board's ×: take the card out of its column ({uid, project, scope}). A worked card survives as a working-area orphan, the rest is deleted — never a SUBTASK, whose other home is its parent: there the × only takes the column away. |
 | `carry_over` | Advance a team's sprint and carry its unfinished day cards forward (`dryRun` reports the counts). There is no weekly counterpart: a card left open past the week it was owed in is a debt that stays where it was and shows as overdue. |
 | `add_note` / `edit_note` / `delete_note` | The note thread. |
 | `add_deadline` / `delete_deadline` / `move_deadline` | A project's deadline lines: mark a week, clear it, drag one to another week (two of the same project on one week become one). |

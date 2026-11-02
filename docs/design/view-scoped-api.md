@@ -30,8 +30,7 @@ and, unchanged, the card addressed as itself (the day feed, `GET /api/v1/logs?da
 GET|PATCH|DELETE /api/v1/cards/{uid}                  the object, one uid, one canonical address
 GET    /api/v1/cards/{uid}/log | /links | /notes      its subresources
 POST   /api/v1/cards/{uid}/actions/{a}                pane actions: defer, in-progress, reopen, move,
-                                                      send-to-review, remove-reviewer, mirror, unmirror,
-                                                      remove-from-project
+                                                      send-to-review, remove-reviewer
 ```
 
 ### A view is not a namespace
