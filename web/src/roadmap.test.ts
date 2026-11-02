@@ -118,12 +118,21 @@ describe("statusOf", () => {
     expect(statusOf(card({ type: "goal" }))).toBe("no-items");
   });
 
-  it("reads a task's own stage and bar", () => {
+  it("reads a task's own standing, in order: done, the stage holding it, to do before it moved, else in progress", () => {
     expect(statusOf(card({ progress: 100 }))).toBe("done");
     expect(statusOf(card({ stage: "done", progress: 40 }))).toBe("done");
-    expect(statusOf(card({ progress: 40 }))).toBe("in-progress");
-    expect(statusOf(card({ stage: "review", progress: 50 }))).toBe("in-progress");
+    // A stage that holds the card says who it waits on, and beats the bar.
+    expect(statusOf(card({ stage: "review", progress: 50 }))).toBe("review");
+    expect(statusOf(card({ stage: "locked", progress: 10 }))).toBe("locked");
+    expect(statusOf(card({ stage: "refuse", progress: 10 }))).toBe("refused");
+    // To do while nothing has started; in progress once the bar has moved.
     expect(statusOf(card({ progress: 0 }))).toBe("todo");
+    expect(statusOf(card({ progress: 5 }))).toBe("in-progress");
+    expect(statusOf(card({ progress: 40 }))).toBe("in-progress");
+    expect(statusOf(card({ stage: "recurrent", progress: 0 }))).toBe("todo");
+    expect(statusOf(card({ stage: "recurrent", progress: 30 }))).toBe("in-progress");
+    // Done wins over a held stage: a finished review is finished.
+    expect(statusOf(card({ stage: "done", progress: 100 }))).toBe("done");
   });
 });
 

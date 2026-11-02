@@ -221,15 +221,18 @@ export function rows(
 }
 
 /** RoadmapStatus is the pill a row wears: a planning card's derived
- *  standing (no items, to do, in progress, done — H5), or a task's own
- *  (done, in progress, to do). */
-export type RoadmapStatus = "no-items" | "todo" | "in-progress" | "done";
+ *  standing (no items, to do, in progress, done — H5), or a task's own:
+ *  done, a stage that holds it (review, locked, refused), to do before its
+ *  bar has moved, in progress otherwise. */
+export type RoadmapStatus = "no-items" | "todo" | "in-progress" | "done" | "review" | "locked" | "refused";
 
 /** statusOf is a row's status: for a planning card the server's derived one
  *  (`hierarchy.status`, H5 — no items until something is filed under it,
  *  in progress once a task under it is somebody's or has moved); for a
- *  task, done when complete, in progress when its bar has moved or it waits
- *  on somebody (review, locked), to do otherwise. */
+ *  task, in this order: done when complete; else the stage it is held in —
+ *  review, locked, refused — which says who it waits on; else to do while
+ *  its bar has not moved (nothing started); else in progress. The drawer
+ *  and the Roadmap column read the same answer. */
 export function statusOf(c: Pick<Card, "type" | "hierarchy" | "stage" | "progress">): RoadmapStatus {
   if (isPlanning(c)) {
     return c.hierarchy?.status ?? "no-items";
@@ -237,10 +240,19 @@ export function statusOf(c: Pick<Card, "type" | "hierarchy" | "stage" | "progres
   if (isComplete(c)) {
     return "done";
   }
-  if (isInProgress(c) || (c.progress ?? 0) > 0 || c.stage === "review" || c.stage === "locked") {
-    return "in-progress";
+  if (c.stage === "review") {
+    return "review";
   }
-  return "todo";
+  if (c.stage === "locked") {
+    return "locked";
+  }
+  if (c.stage === "refuse") {
+    return "refused";
+  }
+  if (!isInProgress(c) && (c.progress ?? 0) === 0) {
+    return "todo";
+  }
+  return "in-progress";
 }
 
 export const STATUS_LABEL: Record<RoadmapStatus, string> = {
@@ -248,6 +260,9 @@ export const STATUS_LABEL: Record<RoadmapStatus, string> = {
   todo: "To do",
   "in-progress": "In progress",
   done: "Done",
+  review: "Review",
+  locked: "Locked",
+  refused: "Refused",
 };
 
 /** Bar is a card's span on the timeline: from its start to its end, both

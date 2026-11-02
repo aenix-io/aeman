@@ -5376,6 +5376,23 @@ button.card-age {
   color: var(--on-accent);
 }
 
+/* A stage that holds a task wears the stage's own colour, the same the bar
+   wears on the boards. */
+.roadmap-status-review {
+  background: var(--stage-review);
+  color: var(--on-accent);
+}
+
+.roadmap-status-locked {
+  background: var(--stage-locked);
+  color: var(--on-accent);
+}
+
+.roadmap-status-refused {
+  background: var(--stage-refuse);
+  color: var(--on-accent);
+}
+
 .roadmap-timeline {
   flex: 1;
   min-width: 0;
