@@ -9,7 +9,7 @@ require (
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/lexfrei/keychain v1.2.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	github.com/oapi-codegen/runtime v1.7.0
+	github.com/oapi-codegen/runtime v1.8.0
 	golang.org/x/term v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
 )
