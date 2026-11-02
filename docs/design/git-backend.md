@@ -278,7 +278,10 @@ Rules:
   OLD name as well: `epic`, what `scope` was called before schema 2, is
   an alias of `scope` on read and is written back as `scope` — so a card
   of a pre-migration day still stands in its column, and a writer emits
-  `scope` only.
+  `scope` only. The column stubs are read under their old directory the
+  same way (`projects/<id>/epics/` is `ParsePath`'s PathScope as
+  `scopes/` is), or the card would stand in a column the day's board did
+  not have; new stubs go under `scopes/` only.
 - `type` is the card's LEVEL (`hierarchy.md`): absent for a task, else
   `goal`, `initiative` or `epic` — a planning card, drawn on the Roadmap
   and on no day board. It is written right after the title, and a task

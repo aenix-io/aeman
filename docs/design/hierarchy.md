@@ -205,9 +205,11 @@ listed — the third is one they may not read. The link table in
 A day before the migration is served from the tree as it was, and that
 tree still has `processes/`, `epic:` keys, `task:` keys and `mirrors:`
 lists. The loader ignores the `processes/` directory, reads `epic` as
-`scope`, and keeps `task`, `process`, `accumulate` and `mirrors` as
-unknown keys, so a past-day record opens and shows the cards as they
-stood. Nothing is reconstructed.
+`scope` and the column stubs under `projects/<id>/epics/` as the
+project's scopes (the card alone would otherwise stand in a column the
+board does not have), and keeps `task`, `process`, `accumulate` and
+`mirrors` as unknown keys, so a past-day record opens and shows the cards
+as they stood, columns included. Nothing is reconstructed.
 
 ## Migration: schema 1 → 2
 

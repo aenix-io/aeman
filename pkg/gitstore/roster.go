@@ -98,7 +98,11 @@ func ParsePath(p string) (PathKind, []string) {
 		}
 	case len(parts) == 3 && parts[0] == "projects" && parts[2] == "project.yaml":
 		return PathProject, []string{parts[1]}
-	case len(parts) == 4 && parts[0] == "projects" && parts[2] == "scopes":
+	// `epics/` is what the column directory was called before schema 2: a
+	// tree before the migration — a day read as it stood, a replica still
+	// on schema 1 — keeps its columns this way, as the card key `epic` keeps
+	// its cards filed. New writes go under scopes/ only (ScopePath).
+	case len(parts) == 4 && parts[0] == "projects" && (parts[2] == "scopes" || parts[2] == "epics"):
 		if id, ok := strip(parts[3], ".yaml"); ok {
 			return PathScope, []string{parts[1], id}
 		}

@@ -86,6 +86,11 @@ func TestLoadTakesAPreMigrationTree(t *testing.T) {
 		"processes/01JB4PROC/process.yaml":        "name: Invoicing\nproject: portal\nrank: a\ncreated: 2026-06-04T08:00:00Z\n",
 		"processes/01JB4PROC/tasks/01JB4TASK.md":  "---\ntitle: Invoice ACME\nteam: portal\nrecurrence: month\n---\n",
 		"cards/c/1/01JB4K2E7QZMX3R8V0N5T9WYC1.md": "---\ntitle: a turn\nteam: portal\nstage: recurrent\nweek: 2026-08-24\nprocess: Invoicing\ntask: 01JB4TASK\naccumulate: true\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n\nStill a card.\n",
+		// A column under its old name, and a card filed in it under the old
+		// key: a day before the migration still has its Project board.
+		ProjectPath("01JB4PROJ"):                  "name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		"projects/01JB4PROJ/epics/01JB4COL.yaml":  "name: Cozystack\nrank: a\ncreated: 2026-06-04T08:00:00Z\n",
+		"cards/c/2/01JB4K2E7QZMX3R8V0N5T9WYC2.md": "---\ntitle: a plan\nproject: engineering\nepic: Cozystack\nrank: b\ncreated: 2026-08-26T09:15:03Z\n---\n",
 	}
 	var writes []FileWrite
 	for p, d := range files {
@@ -98,7 +103,7 @@ func TestLoadTakesAPreMigrationTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(s.Cards) != 1 || s.Cards[0].Title != "a turn" || s.Cards[0].Week != "2026-08-24" || s.Cards[0].Stage != board.StageRecurrent {
+	if len(s.Cards) != 2 || s.Cards[0].Title != "a turn" || s.Cards[0].Week != "2026-08-24" || s.Cards[0].Stage != board.StageRecurrent {
 		t.Fatalf("the orphaned turn is an ordinary card of its week: %+v", s.Cards)
 	}
 	if len(s.Broken) != 0 {
@@ -107,6 +112,15 @@ func TestLoadTakesAPreMigrationTree(t *testing.T) {
 	want := []string{"processes/01JB4PROC/process.yaml", "processes/01JB4PROC/tasks/01JB4TASK.md"}
 	if len(s.Unknown) != 2 || s.Unknown[0] != want[0] || s.Unknown[1] != want[1] {
 		t.Fatalf("the retired tree is unknown, not read: %v", s.Unknown)
+	}
+	// The column stub is read under its old directory name, so a day before
+	// the migration shows its Project board — the card key's alias alone
+	// would file the card in a column the board does not have.
+	if s.Cards[1].Scope != "Cozystack" {
+		t.Fatalf("the old `epic` key reads as the scope: %+v", s.Cards[1])
+	}
+	if len(s.Projects) != 1 || len(s.Projects[0].Scopes) != 1 || s.Projects[0].Scopes[0].Name != "Cozystack" {
+		t.Fatalf("the column under its old directory is a scope of the project: %+v", s.Projects)
 	}
 }
 
