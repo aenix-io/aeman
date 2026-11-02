@@ -2243,6 +2243,7 @@ func cardFromInput(in board.CreateInput, itemID string) board.Card {
 	c := board.Card{
 		ItemID:      itemID,
 		Title:       in.Title,
+		Type:        in.Type,
 		Zone:        in.Zone,
 		Day:         in.Day,
 		StartDate:   in.Start,
