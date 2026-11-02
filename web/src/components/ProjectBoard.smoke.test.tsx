@@ -95,7 +95,7 @@ describe("the Project board's grid", () => {
   });
 
   it("gives a card a … menu and no team badge: a project card has no team", () => {
-    const html = draw(board([card()]));
+    const html = draw(board());
     expect(html).toContain('aria-label="Actions on A card in a column"');
     expect(html).toContain("project-slot-menu");
     expect(html).not.toContain("project-slot-team");
