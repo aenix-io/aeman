@@ -22,15 +22,33 @@ const tokenTTL = 5 * time.Minute
 // is also the GitHub side of forge.CLI: the token plus the signed-in login.
 type TokenSource struct {
 	mu     sync.Mutex
+	now    func() time.Time
 	token  string
 	expiry time.Time
+	login  string
+
+	// Unanswered lookups are cached briefly per token. A changed token is a
+	// different credential and must be asked about immediately.
+	unanswered    string
+	unansweredAt  time.Time
+	unansweredErr error
 }
 
-var _ forge.CLI = (*TokenSource)(nil)
+var (
+	_ forge.CLI        = (*TokenSource)(nil)
+	_ forge.Credential = (*TokenSource)(nil)
+)
 
 // NewTokenSource returns a TokenSource backed by `gh auth token`.
 func NewTokenSource() *TokenSource {
-	return &TokenSource{}
+	return &TokenSource{now: time.Now}
+}
+
+func (t *TokenSource) timeNow() time.Time {
+	if t.now != nil {
+		return t.now()
+	}
+	return time.Now()
 }
 
 // Token returns a cached GitHub token, fetching a fresh one when the cache has
@@ -38,8 +56,11 @@ func NewTokenSource() *TokenSource {
 func (t *TokenSource) Token(ctx context.Context) (string, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.tokenLocked(ctx)
+}
 
-	if t.token != "" && time.Now().Before(t.expiry) {
+func (t *TokenSource) tokenLocked(ctx context.Context) (string, error) {
+	if t.token != "" && t.timeNow().Before(t.expiry) {
 		return t.token, nil
 	}
 
@@ -51,63 +72,79 @@ func (t *TokenSource) Token(ctx context.Context) (string, error) {
 	if tok == "" {
 		return "", errors.New("gh returned an empty token; run `gh auth login`")
 	}
+	if tok != t.token {
+		// The login belongs to the token, not to the gh process. Re-reading a
+		// different credential must invalidate the identity cached with the old
+		// one before either can be used for a commit.
+		t.login = ""
+	}
 	t.token = tok
-	t.expiry = time.Now().Add(tokenTTL)
+	t.expiry = t.timeNow().Add(tokenTTL)
 	return tok, nil
 }
 
-// Login returns the login of the currently authenticated GitHub user. The gh
-// identity is one per machine, not per TokenSource, so this is the package
-// Login and shares its process-wide cache.
+// Login returns the login belonging to the source's current token. It is
+// cached per TokenSource and per token so replacing the gh credential makes a
+// running process refresh the identity on the same schedule as the token.
 func (t *TokenSource) Login(ctx context.Context) (string, error) {
-	return login(ctx, t)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	tok, tokenErr := t.tokenLocked(ctx)
+	return t.loginLocked(ctx, tok, tokenErr)
 }
 
-var (
-	loginMu     sync.Mutex
-	cachedLogin string
-	// Unanswered results share the successful cache's lock, but expire and
-	// only apply to the token that was read when the lookup failed.
-	unanswered    string
-	unansweredAt  time.Time
-	unansweredErr error
-	loginTokens   = NewTokenSource()
-	loginNow      = time.Now // tests advance the unanswered window without sleeping
-)
+// TokenAndLogin returns a token and its owner from one locked view of this
+// source, so a refresh cannot split the pair across two credentials.
+func (t *TokenSource) TokenAndLogin(ctx context.Context) (string, string, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
-// Login returns the login of the currently authenticated GitHub user, cached
-// for the lifetime of the process (it is read on every API request in local
-// mode, and the gh identity does not change under a running server).
-// Unanswered lookups are cached per token for forge.UnansweredTTL instead.
-func Login(ctx context.Context) (string, error) {
-	return login(ctx, loginTokens)
+	tok, err := t.tokenLocked(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	login, err := t.loginLocked(ctx, tok, nil)
+	return tok, login, err
 }
 
-func login(ctx context.Context, tokens *TokenSource) (string, error) {
-	loginMu.Lock()
-	defer loginMu.Unlock()
-	if cachedLogin != "" {
-		return cachedLogin, nil
+// loginLocked resolves the identity with t.mu held. tokenErr is kept separate
+// because Login historically still asks gh for its own answer when `gh auth
+// token` fails, but such an answer cannot safely populate a token-keyed cache.
+func (t *TokenSource) loginLocked(ctx context.Context, tok string, tokenErr error) (string, error) {
+	if tokenErr == nil {
+		if t.login != "" {
+			return t.login, nil
+		}
+		if tok == t.unanswered && t.timeNow().Sub(t.unansweredAt) < forge.UnansweredTTL {
+			return "", t.unansweredErr
+		}
 	}
-	// Reuse the source's normal token window rather than running auth token
-	// on every request. A newly read value bypasses the unanswered window.
-	tok, tokenErr := tokens.Token(ctx)
-	if tokenErr == nil && tok == unanswered && loginNow().Sub(unansweredAt) < forge.UnansweredTTL {
-		return "", unansweredErr
-	}
+
 	out, err := Run(ctx, "api", "user", "--jq", ".login")
-	if err != nil || strings.TrimSpace(out) == "" {
-		// Preserve both the underlying error and an empty, nil-error reply.
+	login := strings.TrimSpace(out)
+	if err != nil || login == "" {
 		// Without a token there is no safe cache key. The caller's own
 		// cancellation is not an answer about the shared credential either.
 		if tokenErr == nil && ctx.Err() == nil {
-			unanswered, unansweredAt, unansweredErr = tok, loginNow(), err
+			t.unanswered, t.unansweredAt, t.unansweredErr = tok, t.timeNow(), err
 		}
 		return "", err
 	}
-	unanswered, unansweredErr = "", nil
-	cachedLogin = strings.TrimSpace(out)
-	return cachedLogin, nil
+	if tokenErr == nil {
+		t.unanswered, t.unansweredErr = "", nil
+		t.login = login
+	}
+	return login, nil
+}
+
+var loginTokens = NewTokenSource()
+
+// Login returns the login of the currently authenticated GitHub user using the
+// package's default token source. Callers that need an independent credential
+// source should create a TokenSource and use its Login method.
+func Login(ctx context.Context) (string, error) {
+	return loginTokens.Login(ctx)
 }
 
 // runGH is the seam every gh invocation goes through. Tests replace it so the
