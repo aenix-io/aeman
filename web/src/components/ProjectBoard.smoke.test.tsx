@@ -94,6 +94,14 @@ describe("the Project board's grid", () => {
     expect(html.match(/class="project-cell/g)?.length).toBe(11);
   });
 
+  it("gives a card a … menu and no team badge: a project card has no team", () => {
+    const html = draw();
+    expect(html).toContain('aria-label="Actions on A card in a column"');
+    expect(html).toContain("project-slot-menu");
+    expect(html).not.toContain("project-slot-team");
+    expect(html).not.toContain("border-left-color");
+  });
+
   it("stands a card in its own week, spanning the weeks it reaches", () => {
     const html = draw(board({ cards: [card({ day: nextFriday })] }));
     // The header is row 1 and the window opens two weeks back, so THIS week

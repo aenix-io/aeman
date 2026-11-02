@@ -21,7 +21,10 @@ import {
   slotDragPlan,
 } from "../placements";
 import { deleteWarning, freeSubtasks } from "../removal";
+import { kindOf } from "../roadmap";
 import { Dropdown } from "./Dropdown";
+import { ParentOptionList } from "./ParentPicker";
+import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
 import { isSubtask } from "../subtasks";
@@ -128,9 +131,10 @@ const NUDGE_DELAY_MS = 500;
 
 /** The Project board: weeks as rows and one project's scopes as columns, cards
  *  as slots that may span several weeks (dates start..end). Dragging down an
- *  empty column stretch selects a slot and creates a card in it; assigning a
- *  card to a team (the badge menu) hands it to that team —
- *  which is how work planned here reaches the people who do it. */
+ *  empty column stretch selects a slot and creates a card in it. A project
+ *  card has no team and no owner (H4): the work it stands for is done by
+ *  the tasks filed under the same goal, initiative or epic, which is what
+ *  the card's "…" menu attaches it to. */
 export function ProjectBoard({
   board,
   provider,
@@ -192,9 +196,8 @@ export function ProjectBoard({
     [board.scopes],
   );
 
-  // Cards on the board: filed under one of the visible columns. Teams do not
-  // filter here — a project spans teams, and the badge is where a card is
-  // handed to one.
+  // Cards on the board: filed under one of the visible columns. Nothing
+  // filters by team here — a project card has none.
   const cards = useMemo(() => {
     const shown = new Set(scopes.map((e) => colKey(e.project, e.name)));
     return board.cards.filter((c) => drawnOnProjectBoard(c, shown));
@@ -473,13 +476,16 @@ export function ProjectBoard({
     e: React.PointerEvent<HTMLDivElement>,
   ) => {
     // Only the slot's BODY drags. A press that started on a control inside it
-    // (the team badge, delete, the resize grip) must reach that control: the
+    // (the … menu, delete, the resize grip) must reach that control: the
     // press bubbles up here, and capturing it — plus preventDefault — used to
-    // swallow the click entirely, so the badge could never be pressed.
+    // swallow the click entirely, so the menu could never be pressed.
     if ((e.target as HTMLElement).closest("button, input, .project-slot-resize")) {
       return;
     }
     e.preventDefault();
+    // A press is a click until it travels (DRAG_SLOP): the click that opens
+    // the card's pane must not fire after a drag that moved it.
+    draggedRef.current = false;
     // Remember WHERE on the card the press landed. A press is not yet a drag:
     // it becomes one only once the pointer travels, so a stray click leaves
     // the card exactly where it was.
@@ -508,6 +514,7 @@ export function ProjectBoard({
       if (Math.abs(e.clientX - p.x) < DRAG_SLOP && Math.abs(e.clientY - p.y) < DRAG_SLOP) {
         return;
       }
+      draggedRef.current = true;
       setMove({
         card: p.card,
         span: p.span,
@@ -647,7 +654,7 @@ export function ProjectBoard({
       day: end,
     });
     // Anything done to the new slot before the create lands — dragging it,
-    // stretching it, handing it to a team — waits here for the real uid
+    // stretching it, attaching it under a planning card — waits here for the real uid
     // instead of erroring out with "card is still being created", which is
     // what every other board already does.
     registerPendingCard(
@@ -687,11 +694,74 @@ export function ProjectBoard({
     from: string;
     row: number;
   } | null>(null);
-  // The slot's own menu ("Mark as done" and back). Only one is open at a
-  // time, so a single anchor ref serves whichever handle was last pressed.
-  // It used to be the TEAM menu as well; a project card has no team (H4).
+  // The slot's own "…" menu: open the card, attach it under a goal, an
+  // initiative or an epic, mark it done and back, take it off the plan,
+  // delete it. Only one is open at a time, so a single anchor ref serves
+  // whichever handle was last pressed. "Attach to…" swaps the menu for the
+  // list every "file it under" control draws (ParentOptionList), fed by
+  // the roadmap listing fetched the first time it is asked for.
   const [slotMenu, setSlotMenu] = useState<string | null>(null);
+  const [attachFor, setAttachFor] = useState<string | null>(null);
+  const [roadmapCards, setRoadmapCards] = useState<CardModel[] | null>(null);
+  const [deleting, setDeleting] = useState<CardModel | null>(null);
   const menuAnchor = useRef<HTMLButtonElement | null>(null);
+  // A press on a slot is a click until it travels; a click that follows a
+  // drag must not open the pane (beginMove, moveMove).
+  const draggedRef = useRef(false);
+  useEffect(() => {
+    if (!attachFor || roadmapCards !== null) {
+      return;
+    }
+    let dropped = false;
+    void provider
+      .listCards({ view: "roadmap" })
+      .then((l) => {
+        if (!dropped) {
+          setRoadmapCards(l.cards);
+        }
+      })
+      .catch(() => {
+        if (!dropped) {
+          setRoadmapCards([]);
+        }
+      });
+    return () => {
+      dropped = true;
+    };
+  }, [attachFor, roadmapCards, provider]);
+
+  // Filing a project card under a planning card: the one link of the
+  // hierarchy, written as the drawer's Under picker writes it. The server
+  // holds the level rule and says so in its own words when it refuses.
+  const attachTo = (card: CardModel, parent: CardModel | null) => {
+    setAttachFor(null);
+    const nextId = parent?.itemId ?? "";
+    if ((card.parent ?? "") === nextId) {
+      return;
+    }
+    const before = { parent: card.parent, lineage: card.lineage };
+    patchCard(card.itemId, {
+      parent: nextId || undefined,
+      lineage: parent ? [...(parent.lineage ?? []), { uid: parent.itemId, type: parent.type, title: parent.title }] : undefined,
+    });
+    void provider
+      .patchCard(card.itemId, { parent: nextId })
+      .then((updated) => patchCard(card.itemId, { parent: updated.parent, lineage: updated.lineage }))
+      .catch((err: unknown) => {
+        patchCard(card.itemId, before);
+        onError(errText(err));
+      });
+  };
+
+  // Deleting a project card outright, asked first with the one choice dialog
+  // every × uses. Its linked review card goes with it (the server cascades).
+  const deleteSlot = (card: CardModel) => {
+    removeCard(card.itemId);
+    void provider.deleteCard(card.itemId).catch((err: unknown) => {
+      onError(errText(err));
+      reload();
+    });
+  };
 
   // A column belongs to exactly one project, so adding one is only offered
   // when a single project is in view — otherwise there is no answer to
@@ -1240,8 +1310,8 @@ export function ProjectBoard({
                 </span>
               )}
               {/* With several projects on screen the column header alone is
-                  ambiguous, so it carries its project — as the same round
-                  badge a team wears on a card, not as a second line of text
+                  ambiguous, so it carries its project — as a round badge in
+                  the project's colour, not as a second line of text
                   competing with the column's own name. Inside one project the
                   badge would repeat on every column and is left off. */}
               {/* A column cannot change REPOSITORY — its stub is written
@@ -1434,12 +1504,12 @@ export function ProjectBoard({
                   return;
                 }
                 // The card's own controls live at that same right edge — the
-                // team badge, the delete button. Stepping aside under a
+                // … menu, the delete button. Stepping aside under a
                 // pointer that came to press one of them shrinks the card out
                 // from under the click.
                 if (
                   (ev.target as HTMLElement).closest(
-                    "button, .project-slot-team, .project-slot-actions",
+                    "button, .project-slot-menu, .project-slot-actions",
                   )
                 ) {
                   cancelNudgeTimer();
@@ -1492,7 +1562,6 @@ export function ProjectBoard({
                 // the room.
                 gridColumn: col + 2,
                 gridRow: `${row + 2} / span ${span}`,
-                borderLeftColor: card.team ? teamColor(card.team) : undefined,
                 // Cards sharing weeks in one column split the room between
                 // them instead of hiding each other — the column's width, or
                 // the row's height when the reader let the rows grow. The
@@ -1512,7 +1581,14 @@ export function ProjectBoard({
               onPointerDown={(ev) =>
                 beginMove(card, row, span, { project: e.project, scope: e.name }, ev)
               }
-              onDoubleClick={() => onOpen(card)}
+              // A click opens the card's pane — every board's one way in;
+              // the "…" menu is the second. A press that became a drag is
+              // not a click (draggedRef).
+              onClick={() => {
+                if (!draggedRef.current) {
+                  onOpen(card);
+                }
+              }}
               title={card.title}
             >
               <span className="project-slot-title">
@@ -1547,20 +1623,22 @@ export function ProjectBoard({
                   ×
                 </button>
               </span>
-              {/* The slot's MENU HANDLE — "Mark as done" and back hang off
-                  it. It used to be the TEAM badge; a project card has no
-                  team and no owner (H4) — the work is done by tasks linked
-                  under the hierarchy, not by the column's card. Delete sits
-                  to its LEFT so the handle keeps the slot's edge — it is the
-                  thing you point at, and it must not shift when the
-                  hover-only actions appear. */}
+              {/* The slot's "…" MENU: open, attach under a planning card,
+                  done and back, off the plan, delete. Delete sits to its
+                  LEFT so the handle keeps the slot's edge — it is the thing
+                  you point at, and it must not shift when the hover-only
+                  actions appear. A project card has no team and no owner
+                  (H4), so there is no badge to hand it to one. */}
               <button
                 type="button"
-                className="project-slot-team project-slot-team-empty"
-                title={complete(card) ? "Done — click to reopen" : "Mark as done"}
+                className="project-slot-menu"
+                title="Open, attach, mark as done, remove"
+                aria-label={`Actions on ${card.title}`}
+                aria-haspopup="menu"
                 onClick={(ev) => {
                   ev.stopPropagation();
                   menuAnchor.current = ev.currentTarget;
+                  setAttachFor(null);
                   setSlotMenu(slotMenu === card.itemId ? null : card.itemId);
                 }}
               >
@@ -1576,20 +1654,76 @@ export function ProjectBoard({
               <Dropdown
                 open={slotMenu === card.itemId}
                 anchorRef={menuAnchor}
-                onClose={() => setSlotMenu(null)}
-                className="card-stage-menu"
+                onClose={() => {
+                  setSlotMenu(null);
+                  setAttachFor(null);
+                }}
+                className={attachFor === card.itemId ? "add-card-team-menu drawer-pick-menu" : "card-stage-menu project-slot-actions-menu"}
               >
-                <button
-                  type="button"
-                  className="card-stage-item project-menu-lead"
-                  onClick={() => setDone(card, !complete(card))}
-                >
-                  <span
-                    className="card-stage-dot"
-                    style={{ background: STAGES.done.color }}
+                {attachFor === card.itemId ? (
+                  <ParentOptionList
+                    kind={kindOf(card)}
+                    current={card.parent}
+                    options={roadmapCards}
+                    self={card.itemId}
+                    onPick={(parent) => {
+                      setSlotMenu(null);
+                      attachTo(card, parent);
+                    }}
                   />
-                  {complete(card) ? "Reopen" : "Mark as done"}
-                </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="card-stage-item project-menu-lead"
+                      onClick={() => {
+                        setSlotMenu(null);
+                        onOpen(card);
+                      }}
+                    >
+                      Open
+                    </button>
+                    <button
+                      type="button"
+                      className="card-stage-item"
+                      title="File it under a goal, an initiative or an epic"
+                      onClick={() => setAttachFor(card.itemId)}
+                    >
+                      Attach to goal, initiative or epic…
+                    </button>
+                    <button
+                      type="button"
+                      className="card-stage-item"
+                      onClick={() => setDone(card, !complete(card))}
+                    >
+                      <span
+                        className="card-stage-dot"
+                        style={{ background: STAGES.done.color }}
+                      />
+                      {complete(card) ? "Reopen" : "Mark as done"}
+                    </button>
+                    <button
+                      type="button"
+                      className="card-stage-item"
+                      onClick={() => {
+                        setSlotMenu(null);
+                        removeFromColumn(card, e.project, e.name);
+                      }}
+                    >
+                      Remove from project
+                    </button>
+                    <button
+                      type="button"
+                      className="card-stage-item project-menu-danger"
+                      onClick={() => {
+                        setSlotMenu(null);
+                        setDeleting(card);
+                      }}
+                    >
+                      Delete…
+                    </button>
+                  </>
+                )}
               </Dropdown>
               {/* One grip per edge: the top moves the slot's start, the
                   bottom its end. "from" is whichever edge stays put. */}
@@ -1726,7 +1860,16 @@ export function ProjectBoard({
           )}
         </div>
       )}
-
+      {deleting && (
+        <RemoveChoiceDialog
+          title={deleting.title}
+          progress={deleting.progress ?? 0}
+          choices={["delete"]}
+          subtasks={0}
+          onClose={() => setDeleting(null)}
+          onSubmit={() => deleteSlot(deleting)}
+        />
+      )}
     </div>
   );
 }

@@ -4,49 +4,36 @@ import { KIND_LABEL, allowedParentKinds, kindOf, type RoadmapKind } from "../roa
 import { Dropdown } from "./Dropdown";
 import { KindIcon } from "./KindIcon";
 
-interface ParentPickerProps {
+const ORDER: RoadmapKind[] = ["goal", "initiative", "epic"];
+
+interface ParentOptionListProps {
   /** The kind of the card being filed: it decides which levels are offered
    *  (roadmap.allowedParentKinds, H2). */
   kind: RoadmapKind;
-  /** The parent as the card shows it now — the last crumb of its lineage. */
-  current?: LineageRef;
-  /** Every card the picker may choose from (the roadmap listing); null while
-   *  it is still being fetched. The picker filters by level itself and never
+  /** The card's parent now, marked in the list. */
+  current?: string;
+  /** Every card the list may choose from (the roadmap listing); null while
+   *  it is still being fetched. The list filters by level itself and never
    *  offers the card its own descendants. */
   options: CardModel[] | null;
   /** The card being filed, so it is never offered itself or a card under it. */
   self: string;
-  disabled?: boolean;
-  /** The picker opened: the caller may fetch the options now. */
-  onOpen?: () => void;
   onPick: (parent: CardModel | null) => void;
 }
 
-const ORDER: RoadmapKind[] = ["goal", "initiative", "epic"];
-
-/** ParentPicker is the one control that files a card under a goal, an
- *  initiative or an epic — "Under", in the drawer's sidebar. One choice, or
- *  none: a card sits under at most one parent (H2). It searches by title and
- *  groups what it offers by level, highest first, so a long roadmap stays
- *  readable; the server holds the rule and says so in its own words when it
- *  refuses, which the caller shows. */
-export function ParentPicker({ kind, current, options, self, disabled, onOpen, onPick }: ParentPickerProps) {
-  const [open, setOpen] = useState(false);
+/** ParentOptionList is the body of every "file it under" menu: a search
+ *  box, "None", and the goals, initiatives and epics the card may sit under,
+ *  grouped by level, highest first. The drawer's Under picker and the
+ *  Project board's "Attach to…" draw the same list. */
+export function ParentOptionList({ kind, current, options, self, onPick }: ParentOptionListProps) {
   const [query, setQuery] = useState("");
-  const anchor = useRef<HTMLSpanElement | null>(null);
   const input = useRef<HTMLInputElement | null>(null);
   const allowed = allowedParentKinds(kind);
-
   useEffect(() => {
-    if (open) {
-      onOpen?.();
-      setQuery("");
-      // The list is portalled; focus lands once it is in the document.
-      const t = window.setTimeout(() => input.current?.focus(), 0);
-      return () => window.clearTimeout(t);
-    }
-    return undefined;
-  }, [open, onOpen]);
+    // The list is portalled; focus lands once it is in the document.
+    const t = window.setTimeout(() => input.current?.focus(), 0);
+    return () => window.clearTimeout(t);
+  }, []);
 
   const groups = useMemo(() => {
     if (!options) {
@@ -67,6 +54,73 @@ export function ParentPicker({ kind, current, options, self, disabled, onOpen, o
       .map((k) => ({ kind: k, cards: offered.filter((c) => kindOf(c) === k) }))
       .filter((g) => g.cards.length > 0);
   }, [options, query, allowed, self]);
+
+  return (
+    <>
+      <input
+        ref={input}
+        type="text"
+        className="drawer-pick-search"
+        placeholder="Search the roadmap…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        aria-label="Search"
+      />
+      <button type="button" className="add-card-team-item drawer-pick-none" onClick={() => onPick(null)}>
+        None
+      </button>
+      {groups === null && <span className="add-card-team-item modal-parent-loading">Loading…</span>}
+      {groups?.map((g) => (
+        <div key={g.kind} className="drawer-pick-group" role="group" aria-label={KIND_LABEL[g.kind]}>
+          <div className="drawer-pick-group-label">{KIND_LABEL[g.kind]}s</div>
+          {g.cards.map((c) => (
+            <button
+              key={c.itemId}
+              type="button"
+              className={`add-card-team-item${current === c.itemId ? " drawer-pick-on" : ""}`}
+              onClick={() => onPick(c)}
+            >
+              <KindIcon kind={g.kind} />
+              <span className="drawer-pick-text">{c.title}</span>
+            </button>
+          ))}
+        </div>
+      ))}
+      {groups && groups.length === 0 && (
+        <span className="add-card-team-item modal-parent-loading">
+          {query ? "Nothing on the roadmap matches" : "Nothing of a higher level on the roadmap yet"}
+        </span>
+      )}
+    </>
+  );
+}
+
+interface ParentPickerProps {
+  kind: RoadmapKind;
+  /** The parent as the card shows it now — the last crumb of its lineage. */
+  current?: LineageRef;
+  options: CardModel[] | null;
+  self: string;
+  disabled?: boolean;
+  /** The picker opened: the caller may fetch the options now. */
+  onOpen?: () => void;
+  onPick: (parent: CardModel | null) => void;
+}
+
+/** ParentPicker is the one control that files a card under a goal, an
+ *  initiative or an epic — "Under", in the drawer's sidebar. One choice, or
+ *  none: a card sits under at most one parent (H2). The server holds the
+ *  rule and says so in its own words when it refuses, which the caller
+ *  shows. */
+export function ParentPicker({ kind, current, options, self, disabled, onOpen, onPick }: ParentPickerProps) {
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      onOpen?.();
+    }
+  }, [open, onOpen]);
 
   const pick = (c: CardModel | null) => {
     setOpen(false);
@@ -95,45 +149,7 @@ export function ParentPicker({ kind, current, options, self, disabled, onOpen, o
         {!disabled && <span className="add-card-team-caret">▾</span>}
       </button>
       <Dropdown open={open} anchorRef={anchor} onClose={() => setOpen(false)} className="add-card-team-menu drawer-pick-menu">
-        <input
-          ref={input}
-          type="text"
-          className="drawer-pick-search"
-          placeholder="Search the roadmap…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              setOpen(false);
-            }
-          }}
-          aria-label="Search"
-        />
-        <button type="button" className="add-card-team-item drawer-pick-none" onClick={() => pick(null)}>
-          None
-        </button>
-        {groups === null && <span className="add-card-team-item modal-parent-loading">Loading…</span>}
-        {groups?.map((g) => (
-          <div key={g.kind} className="drawer-pick-group" role="group" aria-label={KIND_LABEL[g.kind]}>
-            <div className="drawer-pick-group-label">{KIND_LABEL[g.kind]}s</div>
-            {g.cards.map((c) => (
-              <button
-                key={c.itemId}
-                type="button"
-                className={`add-card-team-item${current?.uid === c.itemId ? " drawer-pick-on" : ""}`}
-                onClick={() => pick(c)}
-              >
-                <KindIcon kind={g.kind} />
-                <span className="drawer-pick-text">{c.title}</span>
-              </button>
-            ))}
-          </div>
-        ))}
-        {groups && groups.length === 0 && (
-          <span className="add-card-team-item modal-parent-loading">
-            {query ? "Nothing on the roadmap matches" : "Nothing of a higher level on the roadmap yet"}
-          </span>
-        )}
+        {open && <ParentOptionList kind={kind} current={current?.uid} options={options} self={self} onPick={pick} />}
       </Dropdown>
     </span>
   );

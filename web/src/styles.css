@@ -3688,44 +3688,44 @@ button.card-age {
 }
 
 /* The owner badge is always visible once a team is assigned. */
-.project-slot-team {
+/* The slot's "…" menu handle: a small pill at the slot's edge, faint until
+   the slot is pointed at, with a hand's worth of hit area grown mostly
+   VERTICALLY — the row is short and nothing sits above or below it inside
+   the slot — so it never steals a press meant for the title (which starts a
+   drag) or for delete. */
+.project-slot-menu {
   flex: none;
   position: relative;
-  width: 15px;
+  width: 18px;
   height: 15px;
   padding: 0;
   border: none;
-  border-radius: 50%;
+  border-radius: 8px;
   background: var(--hover-overlay);
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  opacity: 0.45;
 }
 
-/* A 15px circle on a 28px row is a small target. Grow the hit area mostly
-   VERTICALLY — the row is short and nothing sits above or below it inside the
-   slot — and only 2px sideways, so it never steals a press meant for the title
-   (which starts a drag) or for delete. */
-.project-slot-team::after {
+.project-slot-menu::after {
   content: "";
   position: absolute;
   inset: -6px -2px;
 }
 
-/* An unassigned card still shows its badge, faintly: it is the only way to
-   hand the card to a team, and a control nobody can see is a control nobody
-   uses. It comes up to full strength when the slot is pointed at. */
-.project-slot-team-empty {
-  opacity: 0.4;
+.project-slot:hover .project-slot-menu,
+.project-slot-menu:focus-visible {
+  opacity: 1;
 }
 
-.project-slot:hover .project-slot-team-empty {
-  opacity: 1;
+.project-menu-danger {
+  color: var(--danger);
 }
 
 .project-slot-stage {
