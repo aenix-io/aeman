@@ -90,7 +90,7 @@ describe("pileRank", () => {
   });
 
   it("puts the project's own work after the debts and before the zones", () => {
-    const slot = card({ epic: "Storage" });
+    const slot = card({ scope: "Storage" });
     expect(pileRank(slot)).toBeGreaterThan(pileRank(card({ overdue: true })));
     expect(pileRank(slot)).toBeLessThan(pileRank(card({ zone: "red" })));
   });
@@ -101,7 +101,7 @@ describe("pileRank", () => {
   // anything a zone decides.
   it("puts the repeating work drawn ahead right after the project's", () => {
     const ghost = { ...card({ zone: "green" }), projected: true };
-    expect(pileRank(ghost)).toBeGreaterThan(pileRank(card({ epic: "Storage" })));
+    expect(pileRank(ghost)).toBeGreaterThan(pileRank(card({ scope: "Storage" })));
     expect(pileRank(ghost)).toBeLessThan(pileRank(card({ zone: "red" })));
   });
 
@@ -326,7 +326,7 @@ describe("brought back into the week being worked", () => {
 
   it("never re-dates a project slot: its dates are its row", () => {
     expect(
-      broughtBack({ startDate: "2026-08-24", day: "2026-08-30", epic: "Auth" }, WEEK, TODAY),
+      broughtBack({ startDate: "2026-08-24", day: "2026-08-30", scope: "Auth" }, WEEK, TODAY),
     ).toBeNull();
   });
 

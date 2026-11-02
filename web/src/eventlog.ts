@@ -17,7 +17,10 @@ export function eventLabel(e: CardEvent): string {
       return to ? `assigned to @${to}` : `unassigned (was @${from})`;
     case "team":
       return `team ${from || "—"} → ${to || "—"}`;
+    // "epic" is the same event from a commit written before schema 2, when
+    // the column was called that: history must keep rendering.
     case "epic":
+    case "scope":
       return `column ${from || "—"} → ${to || "—"}`;
     case "mirror":
       return to ? `mirrored to ${to}` : `no longer mirrored to ${from}`;

@@ -601,7 +601,7 @@ export function TeamBoard({
     // (mirrors boardservice.SetParent).
     patchCard(card.itemId, {
       parent: parentId,
-      ...(card.epic ? {} : { week: undefined }),
+      ...(card.scope ? {} : { week: undefined }),
     });
     autoExpanded.current = null; // the drop keeps the target unfolded
     setExpandedSubs((cur) => new Set(cur).add(parentId));
@@ -997,10 +997,10 @@ export function TeamBoard({
   // answers for it.
     // Only a card in a column can lose one, and finding the linked card
     // is a scan of the board: asked when the question can arise.
-    columnFollows: card.epic
+    columnFollows: card.scope
       ? columnFollows(
           card,
-          { ...rosterOf(board), epics: board.epics, teamDomains: board.teamDomains },
+          { ...rosterOf(board), scopes: board.scopes, teamDomains: board.teamDomains },
           linkedDomainOf(card),
         )
       : true,
@@ -1175,7 +1175,7 @@ export function TeamBoard({
       assignees: [],
       sprintStart: undefined,
       // A slot keeps its dates: they are its row on the Project board.
-      // Only the epic side makes one — a bare project name is a label.
+      // Only the scope side makes one — a bare project name is a label.
       ...(hasColumn(card) ? {} : { startDate: undefined, day: undefined }),
     });
     rollback = () => patchCard(card.itemId, prev);

@@ -9,7 +9,7 @@ const ev = (kind: string, from: string, to: string) => ({ kind, from, to }) as C
 // placement events read as the actions they record.
 describe("eventLabel", () => {
   it("words a column move by its columns", () => {
-    expect(eventLabel(ev("epic", "engineering / Cozystack", "freedom / Launch"))).toBe(
+    expect(eventLabel(ev("scope", "engineering / Cozystack", "freedom / Launch"))).toBe(
       "column engineering / Cozystack → freedom / Launch",
     );
   });

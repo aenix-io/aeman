@@ -419,10 +419,10 @@ export function CardDetail({
                   {card.project}
                 </span>
               )}
-            {card.epic && (
+            {card.scope && (
               <span className="modal-origin-item" title="In this column of the plan">
-                <span className="modal-origin-kind">epic</span>
-                {card.epic}
+                <span className="modal-origin-kind">scope</span>
+                {card.scope}
               </span>
             )}
           </div>

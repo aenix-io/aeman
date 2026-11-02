@@ -53,8 +53,8 @@ describe("the card pane", () => {
   });
 
   it("still says where the card comes from", () => {
-    const html = draw(card({ project: "cozy", epic: "Storage" }));
+    const html = draw(card({ project: "cozy", scope: "Storage" }));
     expect(html).toContain(">project<");
-    expect(html).toContain(">epic<");
+    expect(html).toContain(">scope<");
   });
 });

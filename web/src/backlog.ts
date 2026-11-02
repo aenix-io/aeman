@@ -34,8 +34,8 @@ export function parked(c: Pick<Card, "parked">): boolean {
  *  (removal.ts) while the drawer went on accepting the drop, which made the
  *  same card parkable or not depending on which gesture was used;
  *  ErrNoPlaceOfItsOwn is the server's side of it. */
-export function parkable(c: Pick<Card, "epic" | "reviewOf" | "parent">): boolean {
-  return !c.epic && !c.reviewOf && !c.parent;
+export function parkable(c: Pick<Card, "scope" | "reviewOf" | "parent">): boolean {
+  return !c.scope && !c.reviewOf && !c.parent;
 }
 
 /** ShelfDrop is what a drop on a team's shelf writes.

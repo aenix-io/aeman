@@ -83,9 +83,9 @@ export interface Card {
    *  week; a parked card is on no day board. Every team has a backlog and
    *  nothing declares it. */
   parked?: boolean;
-  /** The column this card is filed under: epic + project TOGETHER, since epic
+  /** The column this card is filed under: scope + project TOGETHER, since scope
    *  names repeat across projects. Its week is the row. */
-  epic?: string;
+  scope?: string;
   project?: string;
   /** A card scheduled ahead — a slot, a card given a week — still open past
    *  the day it was owed by. Derived by the server from its dates. */
@@ -131,7 +131,7 @@ export interface NewCardInput {
   week?: string | null;
   /** Start the card on its team's backlog: no dates, no sprint, no week. */
   parked?: boolean | null;
-  epic?: string | null;
+  scope?: string | null;
   project?: string | null;
   assigneeLogin?: string | null;
   team?: string | null;
@@ -165,10 +165,10 @@ export interface DeadlineRef {
   project: string;
 }
 
-/** EpicRef is one Project-board column: its name and the project that owns
+/** ScopeRef is one Project-board column: its name and the project that owns
  *  it. The pair travels together — a column is meaningless without knowing
  *  which project's grid it belongs in. */
-export interface EpicRef {
+export interface ScopeRef {
   name: string;
   project: string;
   /** The repository the column was declared in — a NAME, compared against
@@ -190,11 +190,11 @@ export interface Board {
    *  /board — the source of truth now that cards load one view at a time. */
   teams: string[];
   /** The Project board's projects, in board order — the top grouping: a
-   *  project owns epic columns. */
+   *  project owns scope columns. */
   projects: string[];
-  /** The Project board's epic columns, in board order, each naming the project
+  /** The Project board's scope columns, in board order, each naming the project
    *  that owns it. An empty project means the column belongs to none. */
-  epics: EpicRef[];
+  scopes: ScopeRef[];
   /** The deadline lines: the week (a Monday) each sits on and the project it
    *  belongs to. A project holds at most one per week. */
   deadlines: DeadlineRef[];
@@ -233,9 +233,9 @@ export interface CardPatch {
   week?: string;
   /** Put the card on its team's backlog, or take it off. */
   parked?: boolean;
-  /** Re-file under a column ("" clears). Naming only the epic keeps the card
+  /** Re-file under a column ("" clears). Naming only the scope keeps the card
    *  inside its project; crossing projects names both halves. */
-  epic?: string;
+  scope?: string;
   project?: string;
   reviewOf?: string;
   /** Group under another card as a subtask ("" ungroups back to standalone). */
@@ -355,31 +355,31 @@ export interface Provider {
   /** Apply a shared team order (moves the hidden sprint-state cards). */
   reorderTeams(teams: string[]): Promise<void>;
 
-  /** Declare a new epic column inside a project (which is required). */
-  addEpic(name: string, project: string): Promise<void>;
-  /** Delete an EMPTY epic column (422 while cards still sit under it). */
-  deleteEpic(name: string, project: string): Promise<void>;
+  /** Declare a new scope column inside a project (which is required). */
+  addScope(name: string, project: string): Promise<void>;
+  /** Delete an EMPTY scope column (422 while cards still sit under it). */
+  deleteScope(name: string, project: string): Promise<void>;
   /** Rename a column in place; its cards follow. */
-  renameEpic(
+  renameScope(
     project: string,
-    epic: string,
+    scope: string,
     to: string,
   ): Promise<void>;
-  /** Apply one project's column order (moves the hidden epic-state cards). */
-  reorderEpics(
+  /** Apply one project's column order (moves the hidden scope-state cards). */
+  reorderScopes(
     project: string,
-    epics: string[],
+    scopes: string[],
   ): Promise<void>;
   /** Move a column between projects ("" detaches it from every project). */
-  setEpicProject(
+  setScopeProject(
     from: string,
-    epic: string,
+    scope: string,
     project: string,
   ): Promise<void>;
   /** Declare a project — the Project board's top grouping. `domain` picks the
    *  repository it is declared in (default: the primary). */
   addProject(name: string, domain?: string): Promise<void>;
-  /** Delete an EMPTY project (422 while it still owns epic columns). */
+  /** Delete an EMPTY project (422 while it still owns scope columns). */
   deleteProject(name: string): Promise<void>;
   /** Apply the shared project order (moves the hidden project-state cards). */
   reorderProjects(names: string[]): Promise<void>;
@@ -405,7 +405,7 @@ export interface Provider {
   deleteTeam(team: string): Promise<void>;
   /** The Project board's ×: take the card out of its column (a worked card
    *  survives as an orphan of the working area; the rest is deleted). */
-  removeFromProject(uid: string, project: string, epic: string): Promise<void>;
+  removeFromProject(uid: string, project: string, scope: string): Promise<void>;
   /** Set a team's sprint pointer directly (current/previous start dates). With
    *  both empty this declares the team; `domain` picks the repository its
    *  roster entry is written to (default: the primary). */

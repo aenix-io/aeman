@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   Board,
   Card as CardModel,
-  EpicRef,
+  ScopeRef,
   Provider,
 } from "../providers/types";
 import { registerPendingCard } from "../api/pending";
@@ -107,10 +107,10 @@ function slotTone(card: CardModel, today: string): string {
   return taken ? "project-slot-taken" : "";
 }
 
-/** colKey is a column's identity: the (project, epic) pair. Epic names repeat
+/** colKey is a column's identity: the (project, scope) pair. Scope names repeat
  *  across projects, so a name alone is not a key. */
-function colKey(project: string, epic: string): string {
-  return `${project}\u0000${epic}`;
+function colKey(project: string, scope: string): string {
+  return `${project}\u0000${scope}`;
 }
 
 const LS_PROGRESS = "aeman.projectProgressOpen";
@@ -130,7 +130,7 @@ const NUDGE_DELAY_MS = 500;
 
 
 
-/** The Project board: weeks as rows and one project's epics as columns, cards
+/** The Project board: weeks as rows and one project's scopes as columns, cards
  *  as slots that may span several weeks (dates start..end). Dragging down an
  *  empty column stretch selects a slot and creates a card in it; assigning a
  *  card to a team (the badge menu) hands it to that team —
@@ -155,7 +155,7 @@ export function ProjectBoard({
   // The chips' selection is owned by the App, so it survives a tab switch.
   const selectFilter = onSetFilter;
 
-  // The columns in view: the selected projects' epics, in board order. Every
+  // The columns in view: the selected projects' scopes, in board order. Every
   // other derived list follows from this one, so a column and its cards can
   // never disagree about being visible. A column is the (project, name) PAIR —
   // "Docs" exists in every project and they are different columns.
@@ -163,46 +163,46 @@ export function ProjectBoard({
   // up — this is the order the columns are drawn in. Null means "the board's".
   const [order, setOrder] = useState<string[] | null>(null);
 
-  const epics = useMemo(() => {
-    const shown = board.epics.filter((e) => !filter || filter.includes(e.project));
+  const scopes = useMemo(() => {
+    const shown = board.scopes.filter((e) => !filter || filter.includes(e.project));
     if (!order) {
       return shown;
     }
-    const at = (e: EpicRef) => {
+    const at = (e: ScopeRef) => {
       const i = order.indexOf(colKey(e.project, e.name));
       return i === -1 ? Number.MAX_SAFE_INTEGER : i;
     };
     return [...shown].sort((a, b) => at(a) - at(b));
-  }, [board.epics, filter, order]);
+  }, [board.scopes, filter, order]);
 
   // The board caught up (or the columns changed under us): stop overriding.
   useEffect(() => {
     if (!order) {
       return;
     }
-    const live = board.epics
+    const live = board.scopes
       .filter((e) => !filter || filter.includes(e.project))
       .map((e) => colKey(e.project, e.name));
     if (live.length === order.length && live.every((k, i) => k === order[i])) {
       setOrder(null);
     }
-  }, [board.epics, filter, order]);
+  }, [board.scopes, filter, order]);
 
   // Columns belonging to no project are reachable through a "No project" chip
   // — but only while such a column exists, so the chip never sits there as a
   // permanently empty option.
-  const looseEpics = useMemo(
-    () => board.epics.some((e) => !e.project),
-    [board.epics],
+  const looseScopes = useMemo(
+    () => board.scopes.some((e) => !e.project),
+    [board.scopes],
   );
 
   // Cards on the board: filed under one of the visible columns. Teams do not
   // filter here — a project spans teams, and the badge is where a card is
   // handed to one.
   const cards = useMemo(() => {
-    const shown = new Set(epics.map((e) => colKey(e.project, e.name)));
+    const shown = new Set(scopes.map((e) => colKey(e.project, e.name)));
     return board.cards.filter((c) => drawnOnProjectBoard(c, shown));
-  }, [board.cards, epics]);
+  }, [board.cards, scopes]);
 
   // The grid itself: the week window, the zoom, the column widths, the
   // measurements and the two hit tests. The selection it is given is which
@@ -210,15 +210,15 @@ export function ProjectBoard({
   // reader who scrolled away from one is not yanked back on return.
   const grid = useWeekGrid({
     dated: cards,
-    columns: epics.length,
+    columns: scopes.length,
     store: { zoom: LS_ZOOM, widths: LS_COLF },
     selection: filter ? [...filter].sort().join("\u0000") : "*",
   });
   const { weeks, today, colFactors, zoom, wrapRef, rowAt } = grid;
-  // The grid's own view of the columns: a key, and the epic it stands for.
+  // The grid's own view of the columns: a key, and the scope it stands for.
   const gridColumns = useMemo(
-    () => epics.map((e) => ({ key: colKey(e.project, e.name), epic: e })),
-    [epics],
+    () => scopes.map((e) => ({ key: colKey(e.project, e.name), scope: e })),
+    [scopes],
   );
 
   // The card currently stepped aside to leave room for a new one beside it.
@@ -243,7 +243,7 @@ export function ProjectBoard({
   } | null>(null);
   const [dragCol, setDragCol] = useState<string | null>(null);
 
-  const beginColDrag = (e: React.PointerEvent, col: EpicRef) => {
+  const beginColDrag = (e: React.PointerEvent, col: ScopeRef) => {
     if ((e.target as HTMLElement).closest("button, input, .project-col-resize")) {
       return;
     }
@@ -268,14 +268,14 @@ export function ProjectBoard({
       d.moved = true;
       setDragCol(d.key);
     }
-    const over = epicAt(e.clientX);
+    const over = scopeAt(e.clientX);
     // Only among its own project's columns: dropping a column into another
     // project's run of columns would be a move between projects, which is a
     // different action with its own menu entry.
     if (!over || over.project !== d.project) {
       return;
     }
-    const keys = epics.map((x) => colKey(x.project, x.name));
+    const keys = scopes.map((x) => colKey(x.project, x.name));
     const from = keys.indexOf(d.key);
     const to = keys.indexOf(colKey(over.project, over.name));
     if (from === -1 || to === -1 || from === to) {
@@ -295,11 +295,11 @@ export function ProjectBoard({
     }
     // Only this project's columns are persisted — the others keep the order
     // the board already has for them.
-    const names = epics.filter((x) => x.project === d.project).map((x) => x.name);
+    const names = scopes.filter((x) => x.project === d.project).map((x) => x.name);
     // The preview order stays up until the Board frame confirms it (or a
     // failure puts the board's own order back).
     void provider
-      .reorderEpics(d.project, names)
+      .reorderScopes(d.project, names)
       .catch((err: unknown) => {
         setOrder(null); // put the board's own order back on screen
         onError(errText(err));
@@ -315,7 +315,7 @@ export function ProjectBoard({
   const dragRef = useRef<typeof drag>(null);
   const moveRef = useRef<typeof move>(null);
   const [drag, setDragState] = useState<{
-    epic: EpicRef;
+    scope: ScopeRef;
     from: number;
     to: number;
     resize?: CardModel;
@@ -324,7 +324,7 @@ export function ProjectBoard({
     edge?: "top" | "bottom";
   } | null>(null);
   const [draft, setDraft] = useState<{
-    epic: EpicRef;
+    scope: ScopeRef;
     from: number;
     to: number;
   } | null>(null);
@@ -332,14 +332,14 @@ export function ProjectBoard({
     dragRef.current = v;
     setDragState(v);
   };
-  // A slot being dragged to another week / epic. It follows the pointer as a
+  // A slot being dragged to another week / scope. It follows the pointer as a
   // preview and only writes on release.
   const [move, setMoveState] = useState<{
     card: CardModel;
     span: number;
     row: number;
-    grabbed: { project: string; epic: string };
-    epic: EpicRef;
+    grabbed: { project: string; scope: string };
+    scope: ScopeRef;
   } | null>(null);
   const setMove = (v: typeof move) => {
     moveRef.current = v;
@@ -351,19 +351,19 @@ export function ProjectBoard({
     card: CardModel;
     row: number;
     span: number;
-    grabbed: { project: string; epic: string };
+    grabbed: { project: string; scope: string };
     grab: number;
     x: number;
     y: number;
   } | null>(null);
 
-  const epicAt = (clientX: number): EpicRef | null => {
+  const scopeAt = (clientX: number): ScopeRef | null => {
     const col = grid.columnAt(clientX);
-    return col === null ? null : (epics[col] ?? null);
+    return col === null ? null : (scopes[col] ?? null);
   };
 
   const beginDrag = (
-    epic: EpicRef,
+    scope: ScopeRef,
     week: number,
     e: React.PointerEvent,
     resize?: CardModel,
@@ -373,7 +373,7 @@ export function ProjectBoard({
     e.stopPropagation();
     // "from" is the edge that stays put: the card's first row when the bottom
     // is pulled, its last row when the top is.
-    setDrag({ epic, from: week, to: week, resize, edge });
+    setDrag({ scope, from: week, to: week, resize, edge });
     armGesture(moveDrag, endDrag, () => setDrag(null));
   };
 
@@ -402,7 +402,7 @@ export function ProjectBoard({
     if (!drag) {
       return;
     }
-    const { epic, from, to, resize } = drag;
+    const { scope, from, to, resize } = drag;
     setDrag(null);
     if (resize && drag.edge === "top") {
       // The top edge moves the slot's START; its end stays. The row follows
@@ -442,7 +442,7 @@ export function ProjectBoard({
     }
     // Pulled upward, "from" is the later row: the slot is the span between
     // them, whichever way the pointer went.
-    setDraft({ epic, from: Math.min(from, to), to: Math.max(from, to) });
+    setDraft({ scope, from: Math.min(from, to), to: Math.max(from, to) });
   };
 
   // armGesture wires a gesture's move/up/cancel to the window for its whole
@@ -473,7 +473,7 @@ export function ProjectBoard({
     card: CardModel,
     row: number,
     span: number,
-    grabbed: { project: string; epic: string },
+    grabbed: { project: string; scope: string },
     e: React.PointerEvent<HTMLDivElement>,
   ) => {
     // Only the slot's BODY drags. A press that started on a control inside it
@@ -517,7 +517,7 @@ export function ProjectBoard({
         span: p.span,
         row: p.row,
         grabbed: p.grabbed,
-        epic: { name: p.grabbed.epic, project: p.grabbed.project },
+        scope: { name: p.grabbed.scope, project: p.grabbed.project },
       });
       return;
     }
@@ -528,9 +528,9 @@ export function ProjectBoard({
       0,
       Math.min(rowAt(e.clientY) - p.grab, weeks.length - p.span),
     );
-    const epic = epicAt(e.clientX) ?? move.epic;
-    if (row !== move.row || colKey(epic.project, epic.name) !== colKey(move.epic.project, move.epic.name)) {
-      setMove({ ...move, row, epic });
+    const scope = scopeAt(e.clientX) ?? move.scope;
+    if (row !== move.row || colKey(scope.project, scope.name) !== colKey(move.scope.project, move.scope.name)) {
+      setMove({ ...move, row, scope });
     }
   };
 
@@ -540,11 +540,11 @@ export function ProjectBoard({
     if (!move) {
       return;
     }
-    const { card, span, row, epic, grabbed } = move;
+    const { card, span, row, scope, grabbed } = move;
     setMove(null);
     const week = weeks[row];
     const end = addDays(weeks[Math.min(row + span - 1, weeks.length - 1)], 4);
-    const target = { project: epic.project, epic: epic.name };
+    const target = { project: scope.project, scope: scope.name };
     const plan = slotDragPlan(grabbed, target);
     const weekChanged = week !== card.week;
     if (plan.kind === "dates" && !weekChanged) {
@@ -552,7 +552,7 @@ export function ProjectBoard({
     }
     const prev = {
       week: card.week,
-      epic: card.epic,
+      scope: card.scope,
       project: card.project,
       startDate: card.startDate,
       day: card.day,
@@ -575,12 +575,12 @@ export function ProjectBoard({
       case "refileHome": {
         patchCard(card.itemId, {
           ...dates,
-          epic: target.epic,
+          scope: target.scope,
           project: target.project,
         });
         void provider
           .patchCard(card.itemId, {
-            epic: target.epic,
+            scope: target.scope,
             project: target.project,
             // No plan.week: the server takes the row from dates.start.
             dates: { start: week, end },
@@ -600,11 +600,11 @@ export function ProjectBoard({
   const roster = rosterOf(board);
 
   // columnDomain: which repository a column was declared in, as the board
-  // states it (metadata.epics[].domain). The server asks the COLUMN, never
+  // states it (metadata.scopes[].domain). The server asks the COLUMN, never
   // its project — one project name may be declared twice, with its columns
   // merged under a single entry (G13).
   const columnDomain = (col: { project: string; name: string }) =>
-    board.epics.find((e) => e.project === col.project && e.name === col.name)?.domain ?? "";
+    board.scopes.find((e) => e.project === col.project && e.name === col.name)?.domain ?? "";
 
   const createSlot = (title: string) => {
     if (!draft || !title.trim()) {
@@ -616,14 +616,14 @@ export function ProjectBoard({
     // project-less column of another repository can hold no such card,
     // and the server says so; the board does not start the gesture.
     if (!canCreateInColumn(
-      { project: draft.epic.project, domain: columnDomain({ project: draft.epic.project, name: draft.epic.name }) },
+      { project: draft.scope.project, domain: columnDomain({ project: draft.scope.project, name: draft.scope.name }) },
       roster,
     )) {
       onError("A card created here would have no team, and this column is not in the repository its project names");
       setDraft(null);
       return;
     }
-    const { epic, from, to } = draft;
+    const { scope, from, to } = draft;
     setDraft(null);
     const week = weeks[from];
     const start = week;
@@ -633,8 +633,8 @@ export function ProjectBoard({
       itemId: tempId,
       title: title.trim(),
       assignees: [],
-      epic: epic.name,
-      project: epic.project,
+      scope: scope.name,
+      project: scope.project,
       week,
       startDate: start,
       day: end,
@@ -643,8 +643,8 @@ export function ProjectBoard({
     });
     const created = provider.createCard({
       title: title.trim(),
-      epic: epic.name,
-      project: epic.project,
+      scope: scope.name,
+      project: scope.project,
       week,
       start,
       day: end,
@@ -666,7 +666,7 @@ export function ProjectBoard({
   };
 
   // ---- columns ----------------------------------------------------------
-  const [addingEpic, setAddingEpic] = useState(false);
+  const [addingScope, setAddingScope] = useState(false);
   // The column being renamed in its header, and whether the project manager
   // dialog is open.
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -706,46 +706,46 @@ export function ProjectBoard({
   // colour and a column header needs its project's badge.
   const multi = targetProject === null;
 
-  const addEpic = (name: string) => {
-    setAddingEpic(false);
+  const addScope = (name: string) => {
+    setAddingScope(false);
     if (!name.trim() || targetProject === null) {
       return;
     }
     void provider
-      .addEpic(name.trim(), targetProject)
+      .addScope(name.trim(), targetProject)
       .catch((err: unknown) => onError(errText(err)));
   };
 
   // Roster writes return as soon as the server's cache has them; the Board
   // watch frame that follows repaints this tab and every other open one. No
   // reload — the same way a card edit on Me or Team never reloads.
-  const deleteEpic = (col: EpicRef) => {
-    if (!window.confirm(`Delete the epic “${col.name}”?`)) {
+  const deleteScope = (col: ScopeRef) => {
+    if (!window.confirm(`Delete the scope “${col.name}”?`)) {
       return;
     }
     void provider
-      .deleteEpic(col.name, col.project)
+      .deleteScope(col.name, col.project)
       .catch((err: unknown) => onError(errText(err)));
   };
 
   // Re-filing a column moves its cards with it: a card's column is the pair,
   // and half a move would leave them in a column that is not theirs.
-  const setEpicProject = (col: EpicRef, to: string) => {
+  const setScopeProject = (col: ScopeRef, to: string) => {
     if (to === col.project) {
       return;
     }
     void provider
-      .setEpicProject(col.project, col.name, to)
+      .setScopeProject(col.project, col.name, to)
       .catch((err: unknown) => onError(errText(err)));
   };
 
-  const renameEpic = (col: EpicRef, to: string) => {
+  const renameScope = (col: ScopeRef, to: string) => {
     setRenaming(null);
     if (!to.trim() || to.trim() === col.name) {
       return;
     }
     void provider
-      .renameEpic(col.project, col.name, to.trim())
+      .renameScope(col.project, col.name, to.trim())
       .catch((err: unknown) => onError(errText(err)));
   };
 
@@ -855,8 +855,8 @@ export function ProjectBoard({
   // The slot's ×: take the card out of its column. An orphaned worked card
   // survives in the working area — only the true delete asks, naming the
   // loss.
-  const removeFromColumn = (card: CardModel, project: string, epic: string) => {
-    const outcome = removeFromProjectOutcome(card, project, epic);
+  const removeFromColumn = (card: CardModel, project: string, scope: string) => {
+    const outcome = removeFromProjectOutcome(card, project, scope);
     // The server would refuse this pair — a column the card does not stand
     // in, or none at all — so nothing is sent and nothing is patched. It
     // takes a stale render to get here; falling through to the last arm
@@ -893,12 +893,12 @@ export function ProjectBoard({
       // orphan: off the Project board, kept by its work.
       patchCard(card.itemId, {
         project: undefined,
-        epic: undefined,
+        scope: undefined,
         week: undefined,
       });
     }
     void provider
-      .removeFromProject(card.itemId, project, epic)
+      .removeFromProject(card.itemId, project, scope)
       .then(() => reload())
       .catch((err: unknown) => {
         onError(errText(err));
@@ -928,7 +928,7 @@ export function ProjectBoard({
       return byCol;
     }
     for (const c of cards) {
-      if (!c.epic) {
+      if (!c.scope) {
         continue;
       }
       // The row is the START date's week. A card's own stored week is only a
@@ -938,14 +938,14 @@ export function ProjectBoard({
         continue;
       }
       let { row, span } = at;
-      let k = colKey(c.project ?? "", c.epic);
+      let k = colKey(c.project ?? "", c.scope);
       // A card being dragged is packed WHERE IT WOULD LAND, not where it came
       // from: the lanes are what make room for it, so computing them from its
       // old place drew it on top of whatever already sat in the new one.
       if (move?.card.itemId === c.itemId) {
         row = move.row;
         span = Math.max(1, Math.min(move.span, weeks.length - row));
-        k = colKey(move.epic.project, move.epic.name);
+        k = colKey(move.scope.project, move.scope.name);
       } else if (drag?.resize?.itemId === c.itemId) {
         // The same for an edge being pulled: the slot's preview is its real
         // extent for as long as the pull lasts.
@@ -966,7 +966,7 @@ export function ProjectBoard({
         // pulling an edge must pin against the column's resting
         // neighbours, not find the map empty and let the slot hop lanes
         // under the pointer.
-        const cols = [colKey(c.project ?? "", c.epic)];
+        const cols = [colKey(c.project ?? "", c.scope)];
         for (const rk of cols) {
           const rl = rest.get(rk) ?? [];
           rl.push({
@@ -984,7 +984,7 @@ export function ProjectBoard({
       }
     }
     if (draft) {
-      const k = colKey(draft.epic.project, draft.epic.name);
+      const k = colKey(draft.scope.project, draft.scope.name);
       const list = byCol.get(k) ?? [];
       list.push({
         card: null,
@@ -1053,7 +1053,7 @@ export function ProjectBoard({
         if (!countedForProgress(c, byId, col)) {
           continue;
         }
-        const k = colKey(col.project, col.epic);
+        const k = colKey(col.project, col.scope);
         byCol.set(k, [...(byCol.get(k) ?? []), c]);
       }
     }
@@ -1100,7 +1100,7 @@ export function ProjectBoard({
   // The lane the packing gave the draft, so the new card sits beside whatever
   // already occupies those weeks rather than on top of it.
   const draftPacked = draft
-    ? (slots.get(colKey(draft.epic.project, draft.epic.name)) ?? []).find(
+    ? (slots.get(colKey(draft.scope.project, draft.scope.name)) ?? []).find(
         (s) => s.card === null,
       )
     : undefined;
@@ -1109,8 +1109,8 @@ export function ProjectBoard({
   const draftWidth = draftPacked?.width ?? 1;
 
   // Where a column sits among the visible ones (-1 while it is filtered out).
-  const colIndex = (e: EpicRef) =>
-    epics.findIndex((x) => colKey(x.project, x.name) === colKey(e.project, e.name));
+  const colIndex = (e: ScopeRef) =>
+    scopes.findIndex((x) => colKey(x.project, x.name) === colKey(e.project, e.name));
 
   // Everything below renders through ONE return: the empty board differs only
   // in its body. An early return here used to leave the shared furniture — the
@@ -1120,7 +1120,7 @@ export function ProjectBoard({
   // is being named: the field belongs there, in the middle of the screen.
   // Flipping to the grid put it in the 34px gutter beside a table that does
   // not exist yet — six pixels tall, in the far corner.
-  const empty = epics.length === 0;
+  const empty = scopes.length === 0;
 
   return (
     <div className="project" ref={wrapRef}>
@@ -1137,7 +1137,7 @@ export function ProjectBoard({
           onRemove={() => undefined}
           canManage={false}
           onManage={onManageProjects}
-          noneChip={looseEpics ? "No project" : undefined}
+          noneChip={looseScopes ? "No project" : undefined}
         />
         {!empty && (
           <ZoomControl zoom={zoom} onChange={grid.setZoom} />
@@ -1146,7 +1146,7 @@ export function ProjectBoard({
       {empty && (
         <div className="project-empty">
           <p>
-            The Project board maps a project&rsquo;s epics (columns) across
+            The Project board maps a project&rsquo;s scopes (columns) across
             weeks (rows).
           </p>
           {board.projects.length === 0 ? (
@@ -1154,35 +1154,35 @@ export function ProjectBoard({
               Start with a project — “manage” above adds one.
             </p>
           ) : targetProject !== null ? (
-            addingEpic ? (
+            addingScope ? (
               <input
                 type="text"
                 className="add-card-input project-empty-input"
                 autoFocus
                 placeholder={
-                  targetProject ? `Epic in ${targetProject}…` : "Epic with no project…"
+                  targetProject ? `Scope in ${targetProject}…` : "Scope with no project…"
                 }
                 onKeyDown={(ev) => {
                   if (ev.key === "Enter") {
-                    addEpic((ev.target as HTMLInputElement).value);
+                    addScope((ev.target as HTMLInputElement).value);
                   } else if (ev.key === "Escape") {
-                    setAddingEpic(false);
+                    setAddingScope(false);
                   }
                 }}
-                onBlur={(ev) => addEpic(ev.target.value)}
+                onBlur={(ev) => addScope(ev.target.value)}
               />
             ) : (
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={() => setAddingEpic(true)}
+                onClick={() => setAddingScope(true)}
               >
-                + Add the first epic{targetProject ? ` of ${targetProject}` : ""}
+                + Add the first scope{targetProject ? ` of ${targetProject}` : ""}
               </button>
             )
           ) : (
             <p className="project-empty-hint">
-              Pick one project above to add its first epic.
+              Pick one project above to add its first scope.
             </p>
           )}
         </div>
@@ -1192,12 +1192,12 @@ export function ProjectBoard({
         grid={grid}
         columns={gridColumns}
         corner={
-          epics.some((e) => colFactors[colKey(e.project, e.name)] !== undefined) && (
+          scopes.some((e) => colFactors[colKey(e.project, e.name)] !== undefined) && (
             <button
               type="button"
               className="project-cols-reset"
               title="Give the columns on this board the same width again (columns not shown keep theirs)"
-              onClick={() => grid.resetColFactors(epics.map((e) => colKey(e.project, e.name)))}
+              onClick={() => grid.resetColFactors(scopes.map((e) => colKey(e.project, e.name)))}
             >
               ⇥⇤
             </button>
@@ -1214,12 +1214,12 @@ export function ProjectBoard({
           className:
             drag &&
             !drag.resize &&
-            colKey(drag.epic.project, drag.epic.name) === c.key &&
+            colKey(drag.scope.project, drag.scope.name) === c.key &&
             row >= Math.min(drag.from, drag.to) &&
             row <= Math.max(drag.from, drag.to)
               ? "project-cell-drag"
               : undefined,
-          onPointerDown: (ev) => beginDrag(c.epic, row, ev),
+          onPointerDown: (ev) => beginDrag(c.scope, row, ev),
           onPointerLeave: () => {
             if (!drag) {
               cancelNudgeTimer();
@@ -1228,24 +1228,24 @@ export function ProjectBoard({
           },
           onPointerCancel: () => setDrag(null),
         })}
-        head={({ epic: e }) => {
+        head={({ scope: e }) => {
           const k = colKey(e.project, e.name);
           if (renaming === k) {
             return (
-              <div key={k} className="project-epic-head">
+              <div key={k} className="project-scope-head">
                 <input
                   type="text"
-                  className="project-epic-input"
+                  className="project-scope-input"
                   autoFocus
                   defaultValue={e.name}
                   onKeyDown={(ev) => {
                     if (ev.key === "Enter") {
-                      renameEpic(e, (ev.target as HTMLInputElement).value);
+                      renameScope(e, (ev.target as HTMLInputElement).value);
                     } else if (ev.key === "Escape") {
                       setRenaming(null);
                     }
                   }}
-                  onBlur={(ev) => renameEpic(e, ev.target.value)}
+                  onBlur={(ev) => renameScope(e, ev.target.value)}
                 />
               </div>
             );
@@ -1253,8 +1253,8 @@ export function ProjectBoard({
           return (
             <div
               key={k}
-              className={`project-epic-head project-epic-head-movable${
-                dragCol === k ? " project-epic-head-dragging" : ""
+              className={`project-scope-head project-scope-head-movable${
+                dragCol === k ? " project-scope-head-dragging" : ""
               }`}
               title={`${e.name} — ${e.project || "no project"} · double-click to rename · drag to reorder`}
               onDoubleClick={() => setRenaming(k)}
@@ -1269,10 +1269,10 @@ export function ProjectBoard({
                 setOrder(null);
               }}
             >
-              <span className="project-epic-name">{e.name}</span>
+              <span className="project-scope-name">{e.name}</span>
               {(colProgress.get(k)?.total ?? 0) > 0 && (
                 <span
-                  className="project-epic-pct"
+                  className="project-scope-pct"
                   title={`${colProgress.get(k)?.done} of ${colProgress.get(k)?.total} cards done`}
                 >
                   {colProgress.get(k)?.pct}%
@@ -1296,14 +1296,14 @@ export function ProjectBoard({
                   e.project,
                   roster,
                 )}
-                entity="epic"
-                onPick={(to) => setEpicProject(e, to)}
+                entity="scope"
+                onPick={(to) => setScopeProject(e, to)}
               />
               <button
                 type="button"
-                className="card-action project-epic-del"
-                title="Delete the epic (must be empty)"
-                onClick={() => deleteEpic(e)}
+                className="card-action project-scope-del"
+                title="Delete the scope (must be empty)"
+                onClick={() => deleteScope(e)}
               >
                 ×
               </button>
@@ -1320,21 +1320,21 @@ export function ProjectBoard({
           );
         }}
         gutter={
-        <div className="project-epic-head project-epic-add">
-          {addingEpic ? (
+        <div className="project-scope-head project-scope-add">
+          {addingScope ? (
             <input
               type="text"
-              className="project-epic-input"
+              className="project-scope-input"
               autoFocus
-              placeholder={targetProject ? `Epic in ${targetProject}…` : "Epic with no project…"}
+              placeholder={targetProject ? `Scope in ${targetProject}…` : "Scope with no project…"}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
-                  addEpic((e.target as HTMLInputElement).value);
+                  addScope((e.target as HTMLInputElement).value);
                 } else if (e.key === "Escape") {
-                  setAddingEpic(false);
+                  setAddingScope(false);
                 }
               }}
-              onBlur={(e) => addEpic(e.target.value)}
+              onBlur={(e) => addScope(e.target.value)}
             />
           ) : (
             <button
@@ -1342,13 +1342,13 @@ export function ProjectBoard({
               className="card-action"
               title={
                 targetProject
-                  ? `Add an epic to ${targetProject}`
+                  ? `Add an scope to ${targetProject}`
                   : targetProject === null
                     ? "Pick one project first — a column belongs to a project"
-                    : "Add an epic that belongs to no project"
+                    : "Add an scope that belongs to no project"
               }
               disabled={targetProject === null}
-              onClick={() => setAddingEpic(true)}
+              onClick={() => setAddingScope(true)}
             >
               +
             </button>
@@ -1424,7 +1424,7 @@ export function ProjectBoard({
           <div
             className="project-slot project-slot-draft"
             style={{
-              gridColumn: colIndex(draft.epic) + 2,
+              gridColumn: colIndex(draft.scope) + 2,
               gridRow: `${draft.from + 2} / span ${draft.to - draft.from + 1}`,
               ...(draftLanes > 1
                 ? {
@@ -1452,14 +1452,14 @@ export function ProjectBoard({
         )}
 
         {/* the slots */}
-        {epics.map((e, col) =>
+        {scopes.map((e, col) =>
           (slots.get(colKey(e.project, e.name)) ?? [])
             .filter((s): s is typeof s & { card: CardModel } => s.card !== null)
             .map(({ card, row, span, lane, lanes, width: laneWidth, stack, stacked }) => (
             <div
               key={`${colKey(e.project, e.name)}\u0000${card.itemId}`}
               className={`project-slot ${slotTone(card, today)}${
-                movingSlot(move, card.itemId, { project: e.project, epic: e.name })
+                movingSlot(move, card.itemId, { project: e.project, scope: e.name })
                   ? " project-slot-moving"
                   : ""
               }${nudged === card.itemId ? " project-slot-nudged" : ""}`}
@@ -1549,7 +1549,7 @@ export function ProjectBoard({
                 ),
               }}
               onPointerDown={(ev) =>
-                beginMove(card, row, span, { project: e.project, epic: e.name }, ev)
+                beginMove(card, row, span, { project: e.project, scope: e.name }, ev)
               }
               onDoubleClick={() => onOpen(card)}
               title={card.title}
@@ -1675,7 +1675,7 @@ export function ProjectBoard({
                         // take that repository's teams — its team is what
                         // decides where it lives (G57).
                         teamsACardCanTake(
-                          columnDomain({ project: "", name: card.epic ?? "" }),
+                          columnDomain({ project: "", name: card.scope ?? "" }),
                           board.teams,
                           board.teamDomains,
                           card.team ?? "",
@@ -1704,7 +1704,7 @@ export function ProjectBoard({
                         on the list. */}
                     {(!card.team ||
                       teamlessIsLawful(
-                        columnDomain({ project: card.project ?? "", name: card.epic ?? "" }),
+                        columnDomain({ project: card.project ?? "", name: card.scope ?? "" }),
                         roster,
                         card.project ?? "",
                       )) && (

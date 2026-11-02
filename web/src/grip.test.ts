@@ -16,7 +16,7 @@ describe("the grip on a card's week", () => {
   // Its weeks are the Project board's: on this board it changes hands, not
   // dates, until the catch is lifted.
   it("pins a project card, and frees it with the catch", () => {
-    const slot = card({ epic: "Storage" });
+    const slot = card({ scope: "Storage" });
     expect(gripOf(slot, { unlocked: false })).toBe("pinned");
     expect(gripOf(slot, { unlocked: true })).toBe("free");
   });
@@ -37,11 +37,11 @@ describe("where the × is drawn on Triage", () => {
   });
 
   it("is not drawn on a project card", () => {
-    expect(removableOnTriage(card({ epic: "Storage" }), false)).toBe(false);
+    expect(removableOnTriage(card({ scope: "Storage" }), false)).toBe(false);
   });
 
   it("is drawn on a project card once the catch is lifted", () => {
-    expect(removableOnTriage(card({ epic: "Storage" }), true)).toBe(true);
+    expect(removableOnTriage(card({ scope: "Storage" }), true)).toBe(true);
   });
 
   // ...but only while there is something to offer. With the catch lifted, a
@@ -51,11 +51,11 @@ describe("where the × is drawn on Triage", () => {
   // only on Escape — an × that does nothing reads as a delete that failed,
   // which is the reading this whole gesture was rebuilt to avoid.
   it("is not drawn when the card has no answer to give", () => {
-    expect(removableOnTriage(card({ epic: "Storage" }), true, [])).toBe(false);
+    expect(removableOnTriage(card({ scope: "Storage" }), true, [])).toBe(false);
     expect(removableOnTriage(card(), false, [])).toBe(false);
   });
 
   it("is drawn once the card has one", () => {
-    expect(removableOnTriage(card({ epic: "Storage" }), true, ["unassign"])).toBe(true);
+    expect(removableOnTriage(card({ scope: "Storage" }), true, ["unassign"])).toBe(true);
   });
 });

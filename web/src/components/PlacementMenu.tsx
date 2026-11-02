@@ -5,19 +5,19 @@ import type { ProjectTargets } from "../placements";
 interface PlacementMenuProps {
   /** The row's label — "Attach to project…". */
   label: string;
-  /** Project → epics targets; a click on a project unfolds its columns. */
+  /** Project → scopes targets; a click on a project unfolds its columns. */
   targets?: ProjectTargets[];
   /** Flat mode — one level, a KEY behind each label: for entries whose
    *  visible text is not what identifies them, so two rows may read alike
    *  and still be told apart. Picking one calls with (key, ""). */
   items?: { key: string; label: string }[];
-  /** Picking a column calls with (project, epic); flat mode with (item, ""). */
-  onPick: (project: string, epic: string) => void;
+  /** Picking a column calls with (project, scope); flat mode with (item, ""). */
+  onPick: (project: string, scope: string) => void;
 }
 
 /** PlacementMenu is the attach section of a card's assign menu: a
  *  row that unfolds IN PLACE into the projects of the card's repository,
- *  each unfolding into its epic columns. In place, not as a flyout: the
+ *  each unfolding into its scope columns. In place, not as a flyout: the
  *  assign menu is a portal that closes on any pointer-down outside its own
  *  DOM, so a nested portal would dismiss it — and an accordion inside a
  *  scrollable menu can never leave the screen, which a flyout chained off
@@ -68,7 +68,7 @@ export function PlacementMenu({ label, targets, items, onPick }: PlacementMenuPr
                 {p.name === "" ? "No project" : p.name}
               </button>
               {project === p.name &&
-                p.epics.map((e) => (
+                p.scopes.map((e) => (
                   <button
                     key={e}
                     type="button"

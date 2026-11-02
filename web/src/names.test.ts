@@ -34,8 +34,8 @@ describe("nameConflict", () => {
   });
 
   it("picks the article for the kind", () => {
-    expect(nameConflict("epic", ["Auth"], "auth")).toBe(
-      "An epic named “Auth” already exists",
+    expect(nameConflict("scope", ["Auth"], "auth")).toBe(
+      "A scope named “Auth” already exists",
     );
   });
 

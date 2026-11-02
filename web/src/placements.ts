@@ -1,17 +1,17 @@
 // Placements: where a card stands on the Project board, and where it may be
 // attached to. The server is the authority (boardservice/refile.go, the
-// epic and project actions); everything here exists so the UI offers only
+// scope and project actions); everything here exists so the UI offers only
 // what the server would accept, and mirrors its outcomes optimistically.
 
 import { addDays } from "./date";
 import { parkable } from "./backlog";
 import { inPrimary, primaryDomain, rosterDomain, type DomainInfo, type RosterDomains } from "./domains";
-import type { Card, CardPatch, EpicRef } from "./providers/types";
+import type { Card, CardPatch, ScopeRef } from "./providers/types";
 
 /** ProjectTargets is one project the picker offers, with its columns. */
 export interface ProjectTargets {
   name: string;
-  epics: string[];
+  scopes: string[];
 }
 
 /** RosterHomes is the roster's side of a domain question: which repository
@@ -69,7 +69,7 @@ export function rosterOf(board: {
  *  no columns is not offered — a column is where a card lands. */
 export function attachTargets(
   projects: readonly string[],
-  epics: readonly EpicRef[],
+  scopes: readonly ScopeRef[],
   cardDomain: string,
   teamBound = true,
   roster: RosterHomes = {},
@@ -77,7 +77,7 @@ export function attachTargets(
   const primary = roster.primary ?? "";
   const home = inPrimary(cardDomain, primary);
   const out: ProjectTargets[] = [];
-  for (const p of projectsWithColumns(projects, epics)) {
+  for (const p of projectsWithColumns(projects, scopes)) {
     // Where the card will BE after the attach, not where it is: the new
     // PROJECT decides (G14), and it carries the card into its own
     // repository — which is the move the no-project bucket and the
@@ -96,11 +96,11 @@ export function attachTargets(
     // merged under one entry (G13), so a column of the OTHER one is not
     // where this project would put the card — the server compares exactly
     // these two and returns 422.
-    const cols = epics
+    const cols = scopes
       .filter((e) => e.project === p && sameRepository(e.domain, lands, roster))
       .map((e) => e.name);
     if (cols.length > 0) {
-      out.push({ name: p, epics: cols });
+      out.push({ name: p, scopes: cols });
     }
   }
   return out;
@@ -122,18 +122,18 @@ export type PlacementRemoval = "orphan" | "delete";
  *  the card out of its column keeps only a WORKED card (someone had it and
  *  moved it) as an orphan of the working area, and deletes the rest. */
 export function removeFromProjectOutcome(
-  card: Pick<Card, "project" | "epic" | "assignees" | "progress" | "parent">,
+  card: Pick<Card, "project" | "scope" | "assignees" | "progress" | "parent">,
   project: string,
-  epic: string,
+  scope: string,
 ): PlacementRemoval | "refused" {
   // The server's two entry guards, mirrored: a column is named by its
-  // EPIC (an empty one is no column), and a card is only removed from a
+  // SCOPE (an empty one is no column), and a card is only removed from a
   // column it stands in. Without them an empty pair "matched" a card
   // standing nowhere and fell through to the deletion branch.
-  if (epic === "") {
+  if (scope === "") {
     return "refused";
   }
-  if ((card.project ?? "") !== (project ?? "") || (card.epic ?? "") !== epic) {
+  if ((card.project ?? "") !== (project ?? "") || (card.scope ?? "") !== scope) {
     return "refused";
   }
   // A subtask's home is its parent: the column goes, the card stays.
@@ -148,7 +148,7 @@ export function removeFromProjectOutcome(
  *  weigh that work twice.
  *
  *  `where` is the figure being computed: a project's line ({project}), or
- *  one column ({project, epic}). The parent answers for that figure when
+ *  one column ({project, scope}). The parent answers for that figure when
  *  it is DRAWN in it (columnsOf), so the question is asked per figure and
  *  not once per card.
  *
@@ -156,12 +156,12 @@ export function removeFromProjectOutcome(
  *  nowhere — deferring to it dropped the child's work from every bar while
  *  its slot sat in the column. */
 export function countedForProgress(
-  card: Pick<Card, "itemId" | "parent" | "project" | "epic">,
+  card: Pick<Card, "itemId" | "parent" | "project" | "scope">,
   byId: ReadonlyMap<
     string,
-    Pick<Card, "itemId" | "project" | "epic" | "startDate" | "week">
+    Pick<Card, "itemId" | "project" | "scope" | "startDate" | "week">
   >,
-  where: { project: string; epic?: string },
+  where: { project: string; scope?: string },
 ): boolean {
   if (!card.parent) {
     return true;
@@ -171,7 +171,7 @@ export function countedForProgress(
     return true;
   }
   return !columnsOf(parent).some(
-    (c) => c.project === where.project && (where.epic === undefined || c.epic === where.epic),
+    (c) => c.project === where.project && (where.scope === undefined || c.scope === where.scope),
   );
 }
 
@@ -179,7 +179,7 @@ export function countedForProgress(
  *  columns — a board's header total, a project's line: a subtask counts
  *  unless its PARENT is drawn in the SAME figure, whose bar already derives
  *  from it. Asked by identity, because such a figure has no single
- *  (project, epic) pair to compare against; countedForProgress asks the
+ *  (project, scope) pair to compare against; countedForProgress asks the
  *  same question of one column or one project. */
 export function countedAmong(
   card: Pick<Card, "parent">,
@@ -195,7 +195,7 @@ export interface CardPlacements {
   /** For a card outside every project: where it may be attached. */
   attach?: ProjectTargets[];
 
-  onAttachProject: (project: string, epic: string) => void;
+  onAttachProject: (project: string, scope: string) => void;
   /** Put the card on its own team's backlog. Absent on work another board
    *  owns — a Project-board slot, whose week is not this board's to take
    *  away. */
@@ -210,7 +210,7 @@ export function placementTargets(
   card: Pick<
     Card,
     | "project"
-    | "epic"
+    | "scope"
     | "domain"
     | "stage"
     | "parent"
@@ -219,12 +219,12 @@ export function placementTargets(
   >,
   board: {
     projects: string[];
-    epics: EpicRef[];
+    scopes: ScopeRef[];
     projectDomains?: RosterDomains;
     domains?: readonly DomainInfo[];
   },
 ): Pick<CardPlacements, "attach"> {
-  if (card.epic) {
+  if (card.scope) {
     return {};
   }
   // A subtask may carry a column of its own (G14), and the Project board's
@@ -237,12 +237,12 @@ export function placementTargets(
       // project (G14) — so a subtask cannot follow a new project into
       // another repository any more than a teamed card can, and the
       // columns there are refusals with a friendly label.
-      attach: attachTargets(board.projects, board.epics, card.domain ?? "", true,
+      attach: attachTargets(board.projects, board.scopes, card.domain ?? "", true,
         rosterOf(board)),
     };
   }
   return {
-    attach: attachTargets(board.projects, board.epics, card.domain ?? "",
+    attach: attachTargets(board.projects, board.scopes, card.domain ?? "",
       !!card.team || !!card.reviewOf, rosterOf(board)),
   };
 }
@@ -268,7 +268,7 @@ export function makeCardPlacements(
   card: Card,
   board: {
     projects: string[];
-    epics: EpicRef[];
+    scopes: ScopeRef[];
     projectDomains?: RosterDomains;
     domains?: readonly DomainInfo[];
     teams?: string[];
@@ -293,15 +293,15 @@ export function makeCardPlacements(
           call(deps.provider.patchCard(card.itemId, { parked: true }));
         }
       : undefined,
-    onAttachProject: (project, epic) => {
-      const patch: Partial<Card> = { project, epic };
+    onAttachProject: (project, scope) => {
+      const patch: Partial<Card> = { project, scope };
       if (!card.startDate && card.week) {
         // The card takes the slot of the week it was taken from — the same
         // dates the server writes (attachSlotDates).
         Object.assign(patch, attachSlotDates(card.week));
       }
       deps.patchCard(card.itemId, patch);
-      call(deps.provider.patchCard(card.itemId, { epic, project }));
+      call(deps.provider.patchCard(card.itemId, { scope, project }));
     },
   };
 }
@@ -315,10 +315,10 @@ export type SlotDrag = { kind: "dates" } | { kind: "refileHome" };
 /** slotDragPlan: what the drop does, given the column the slot was grabbed
  *  in and the column it was dropped on. */
 export function slotDragPlan(
-  grabbed: { project: string; epic: string },
-  target: { project: string; epic: string },
+  grabbed: { project: string; scope: string },
+  target: { project: string; scope: string },
 ): SlotDrag {
-  const same = grabbed.project === target.project && grabbed.epic === target.epic;
+  const same = grabbed.project === target.project && grabbed.scope === target.scope;
   return same ? { kind: "dates" } : { kind: "refileHome" };
 }
 
@@ -326,32 +326,32 @@ export function slotDragPlan(
  *  slot's column as well as its card, so a stale render of the card in a
  *  column it just left never dims. */
 export function movingSlot(
-  move: { card: { itemId: string }; grabbed: { project: string; epic: string } } | null,
+  move: { card: { itemId: string }; grabbed: { project: string; scope: string } } | null,
   itemId: string,
-  col: { project: string; epic: string },
+  col: { project: string; scope: string },
 ): boolean {
   return (
     !!move &&
     move.card.itemId === itemId &&
     move.grabbed.project === col.project &&
-    move.grabbed.epic === col.epic
+    move.grabbed.scope === col.scope
   );
 }
 
 /** drawnOnProjectBoard reports whether the column grid draws this card:
- *  it must stand in one of the shown columns by its (project, epic) pair.
+ *  it must stand in one of the shown columns by its (project, scope) pair.
  *  A SUBTASK counts like any other card — it carries its column, and
  *  hiding it took whole groups off the planner (G57) — but one with no
  *  column of its own is on no Project board at all. `shown` holds the
- *  column keys, project and epic joined by a NUL. */
+ *  column keys, project and scope joined by a NUL. */
 export function drawnOnProjectBoard(
-  card: Pick<Card, "project" | "epic">,
+  card: Pick<Card, "project" | "scope">,
   shown: ReadonlySet<string>,
 ): boolean {
-  if (!card.epic) {
+  if (!card.scope) {
     return false;
   }
-  return shown.has(`${card.project ?? ""}\u0000${card.epic}`);
+  return shown.has(`${card.project ?? ""}\u0000${card.scope}`);
 }
 
 /** teamFollowsParent reports whether a card's team is decided elsewhere: a
@@ -368,15 +368,15 @@ export function teamFollowsParent(card: Pick<Card, "parent">): boolean {
  *  progress bars count what has a slot, whether or not the visible week
  *  window happens to be scrolled to it; what they must not count is a card
  *  with no slot at all, which nobody can see anywhere. */
-export function drawnAsSlot(card: Pick<Card, "epic" | "startDate" | "week">): boolean {
-  return !!card.epic && (!!card.startDate || !!card.week);
+export function drawnAsSlot(card: Pick<Card, "scope" | "startDate" | "week">): boolean {
+  return !!card.scope && (!!card.startDate || !!card.week);
 }
 
 /** hasOriginToShow reports whether the assign menu's origin block has any
  *  content — where the card came from. A COLUMN counts, project or not —
  *  it is where the card stands. */
-export function hasOriginToShow(card: Pick<Card, "project" | "epic">): boolean {
-  return !!card.project || !!card.epic;
+export function hasOriginToShow(card: Pick<Card, "project" | "scope">): boolean {
+  return !!card.project || !!card.scope;
 }
 
 /** projectsAColumnCanJoin narrows the picker that moves a column between
@@ -433,18 +433,18 @@ export function teamsACardCanTake(
  *  project and team (G14). Omitted for the ordinary subtask, which points
  *  at nothing else. */
 export function columnFollows(
-  card: Pick<Card, "project" | "epic" | "team">,
+  card: Pick<Card, "project" | "scope" | "team">,
   roster: RosterHomes & {
-    epics: readonly EpicRef[];
+    scopes: readonly ScopeRef[];
     teamDomains?: RosterDomains;
   },
   linked?: string,
 ): boolean {
-  if (!card.epic) {
+  if (!card.scope) {
     return true;
   }
-  const col = roster.epics.find(
-    (e) => e.name === card.epic && (e.project ?? "") === (card.project ?? ""),
+  const col = roster.scopes.find(
+    (e) => e.name === card.scope && (e.project ?? "") === (card.project ?? ""),
   );
   if (!col) {
     return true;
@@ -458,16 +458,16 @@ export function columnFollows(
   return sameRepository(col.domain, home, roster);
 }
 
-/** columnsOf lists the columns a card is drawn in: its (project, epic) pair,
+/** columnsOf lists the columns a card is drawn in: its (project, scope) pair,
  *  or none for a card outside every column. A column's own bar has to
  *  count exactly what that column shows. */
 export function columnsOf(
-  card: Pick<Card, "project" | "epic">,
-): { project: string; epic: string }[] {
-  if (!card.epic) {
+  card: Pick<Card, "project" | "scope">,
+): { project: string; scope: string }[] {
+  if (!card.scope) {
     return [];
   }
-  return [{ project: card.project ?? "", epic: card.epic }];
+  return [{ project: card.project ?? "", scope: card.scope }];
 }
 
 /** teamlessIsLawful reports whether a card standing in this column may be
@@ -512,10 +512,10 @@ export function canCreateInColumn(
  *  place a person could have used it. */
 export function projectsWithColumns(
   projects: readonly string[],
-  epics: readonly EpicRef[],
+  scopes: readonly ScopeRef[],
 ): string[] {
   const out = projects.slice();
-  if (epics.some((e) => !e.project) && !out.includes("")) {
+  if (scopes.some((e) => !e.project) && !out.includes("")) {
     out.push("");
   }
   return out;
@@ -550,13 +550,13 @@ export type CardMark = "review" | "project" | "";
  *  those dates itself and must go on doing so, and the server cannot tell
  *  which board is asking: a narrowing meant for one board, put in the service,
  *  refused every board that sends the same call. */
-export function datesAreAnotherBoards(c: Pick<Card, "epic">): boolean {
-  return !!c.epic;
+export function datesAreAnotherBoards(c: Pick<Card, "scope">): boolean {
+  return !!c.scope;
 }
 
-export function markOf(c: Pick<Card, "reviewOf" | "epic">): CardMark {
+export function markOf(c: Pick<Card, "reviewOf" | "scope">): CardMark {
   if (c.reviewOf) {
     return "review";
   }
-  return c.epic ? "project" : "";
+  return c.scope ? "project" : "";
 }

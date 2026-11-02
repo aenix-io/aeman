@@ -57,7 +57,7 @@ const board = (cards: Card[], deadlines: { week: string; project: string }[] = [
     cards,
     teams: ["core"],
     projects: [],
-    epics: [],
+    scopes: [],
     deadlines,
     members: [],
     domains: [],
@@ -133,7 +133,7 @@ describe("the Triage board", () => {
     // A slot is a commitment made on the Project board and only passing
     // through this one: its week is that board's to say, so a zone stripe
     // would credit the decision to somebody who did not make it.
-    const html = draw([card({ epic: "Storage", day: thisFriday, zone: "red" })]);
+    const html = draw([card({ scope: "Storage", day: thisFriday, zone: "red" })]);
     expect(html).toContain("triage-slot-project");
     expect(html).not.toContain("triage-slot-zone-red");
   });
@@ -141,7 +141,7 @@ describe("the Triage board", () => {
   it("marks every week a stretched slot passes through", () => {
     // Split across its weeks, each box is the same commitment and wears the
     // same mark — one part carrying a zone stripe would read as two cards.
-    const html = draw([card({ epic: "Storage", day: nextWednesday })]);
+    const html = draw([card({ scope: "Storage", day: nextWednesday })]);
     expect(html.match(/triage-slot-project/g)).toHaveLength(2);
   });
 
@@ -150,7 +150,7 @@ describe("the Triage board", () => {
     const html = draw([
       card({ itemId: "a", title: "If time left", zone: "green" }),
       card({ itemId: "b", title: "Planned", zone: "gray" }),
-      card({ itemId: "c", title: "A slot", epic: "Storage" }),
+      card({ itemId: "c", title: "A slot", scope: "Storage" }),
       card({ itemId: "d", title: "Urgent", zone: "red" }),
       card({ itemId: "e", title: "A debt", zone: "green", overdue: true }),
     ]);
@@ -328,7 +328,7 @@ describe("the Triage board", () => {
     // on the Project board — and only with the catch lifted, since the grip
     // changes that board's own dates. Everything else here is one week's
     // work, and a grip would say something about it nothing else would.
-    expect(draw([card({ epic: "Storage", day: thisFriday })])).not.toContain(
+    expect(draw([card({ scope: "Storage", day: thisFriday })])).not.toContain(
       "triage-slot-resize",
     );
     expect(draw([card()])).not.toContain("triage-slot-resize");
@@ -336,7 +336,7 @@ describe("the Triage board", () => {
 
   it("keeps the × off a project card while the catch is closed", () => {
     // What the × does to one is the Project board's business too.
-    expect(draw([card({ epic: "Storage", day: thisFriday })])).not.toContain(
+    expect(draw([card({ scope: "Storage", day: thisFriday })])).not.toContain(
       "card-action-delete",
     );
     expect(draw([card()])).toContain("card-action-delete");
@@ -345,7 +345,7 @@ describe("the Triage board", () => {
   it("offers a catch to lift, and starts with it closed", () => {
     // Never remembered: a guard that stays open is not a guard, so every
     // visit begins with a project card's weeks held still.
-    const html = draw([card({ epic: "Storage", day: thisFriday })]);
+    const html = draw([card({ scope: "Storage", day: thisFriday })]);
     expect(html).toContain('class="triage-lock"');
     expect(html).toContain('aria-pressed="false"');
     expect(html).not.toContain("triage-lock-open");
@@ -468,7 +468,7 @@ describe("the Triage board", () => {
   });
 
   it("offers every column to be dragged into another place", () => {
-    expect(draw([card()])).toContain("project-epic-head-movable");
+    expect(draw([card()])).toContain("project-scope-head-movable");
   });
 
   it("puts the columns in the order the reader dragged them into", () => {
@@ -493,7 +493,7 @@ describe("the Triage board", () => {
   it("gives a column to every person, with the unassigned first", () => {
     const html = draw([card(), card({ itemId: "c2", assignees: [] })]);
     expect(html).toContain("Unassigned");
-    expect(html.match(/project-epic-head triage-person/g)?.length).toBe(2);
+    expect(html.match(/project-scope-head triage-person/g)?.length).toBe(2);
     // Unassigned stands in the first column.
     expect(html.indexOf("Unassigned")).toBeLessThan(html.indexOf("lexfrei"));
   });

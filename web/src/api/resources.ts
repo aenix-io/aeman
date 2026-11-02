@@ -113,7 +113,7 @@ export function resourceToCard(res: CardResource): Card {
     week: spec.week || undefined,
     parked: spec.parked || undefined,
     size: sizeFromWire(spec.size),
-    epic: spec.epic || undefined,
+    scope: spec.scope || undefined,
     project: spec.project || undefined,
     // A summary listing omits the body: description stays undefined ("not
     // loaded") and the boards fetch it on selection. A full resource with a

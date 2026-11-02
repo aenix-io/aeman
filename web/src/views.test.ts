@@ -7,7 +7,7 @@ import { createView } from "./views";
 // answered with a card that is not the one the person typed.
 describe("which board a create belongs to", () => {
   it("is the Project grid when it names a column", () => {
-    expect(createView({ epic: "Auth", week: "2026-09-07" })).toBe("project");
+    expect(createView({ scope: "Auth", week: "2026-09-07" })).toBe("project");
   });
 
   it("is the drawer when it is parked", () => {
@@ -39,6 +39,6 @@ describe("which board a create belongs to", () => {
   it("lets the shape win over the open board", () => {
     expect(createView({ parked: true }, "triage")).toBe("backlog");
     expect(createView({ week: "2026-09-07" }, "triage")).toBe("triage");
-    expect(createView({ epic: "Auth" }, "project")).toBe("project");
+    expect(createView({ scope: "Auth" }, "project")).toBe("project");
   });
 });

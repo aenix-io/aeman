@@ -935,14 +935,14 @@ export function Card({
                 from. */}
             {hasOriginToShow(card) && (
               <div className="card-assign-origin">
-                {(card.project || card.epic) && (
+                {(card.project || card.scope) && (
                   <span>
                     <span className="card-assign-origin-kind">
                       {card.project ? "project" : "column"}
                     </span>
                     {card.project}
-                    {card.project && card.epic ? " · " : ""}
-                    {card.epic}
+                    {card.project && card.scope ? " · " : ""}
+                    {card.scope}
                   </span>
                 )}
               </div>
@@ -951,8 +951,8 @@ export function Card({
               <PlacementMenu
                 label="Attach to project…"
                 targets={placements.attach}
-                onPick={(project, epic) => {
-                  placements.onAttachProject(project, epic);
+                onPick={(project, scope) => {
+                  placements.onAttachProject(project, scope);
                   setAssignOpen(false);
                 }}
               />

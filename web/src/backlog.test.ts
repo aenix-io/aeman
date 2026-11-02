@@ -16,7 +16,7 @@ describe("what may be parked", () => {
 
   // Its week is another board's to say: a slot's follows its start date.
   it("refuses a project card", () => {
-    expect(parkable(card({ epic: "Auth" }))).toBe(false);
+    expect(parkable(card({ scope: "Auth" }))).toBe(false);
   });
 
   // Neither has a place of its own to be parked out of: a review follows the

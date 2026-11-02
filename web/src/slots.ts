@@ -2,15 +2,15 @@ import { mondayOf } from "./date";
 
 /** The slice of a card the slot rules read. */
 export interface Slotted {
-  epic?: string;
+  scope?: string;
   week?: string;
   day?: string;
 }
 
-/** isSlot reports whether a card is a Project-board slot: an epic column
+/** isSlot reports whether a card is a Project-board slot: an scope column
  *  entry with both boundaries set. A slot's row on that board IS its span. */
 export function isSlot(c: Slotted): boolean {
-  return !!c.epic && !!c.week && !!c.day;
+  return !!c.scope && !!c.week && !!c.day;
 }
 
 /** slotWeekPatch is the week that follows a card's dates. A card in a
@@ -21,8 +21,8 @@ export function isSlot(c: Slotted): boolean {
  *  next full load says otherwise. Empty for a card outside every column,
  *  whose week is its own. */
 export function slotWeekPatch(
-  card: { epic?: string },
+  card: { scope?: string },
   start: string | null | undefined,
 ): { week?: string } {
-  return card.epic && start ? { week: mondayOf(start) } : {};
+  return card.scope && start ? { week: mondayOf(start) } : {};
 }

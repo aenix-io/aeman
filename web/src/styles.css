@@ -3116,7 +3116,7 @@ button.card-age {
   right: 100%;
 }
 
-/* ---- Project board: weeks × epics -------------------------------------- */
+/* ---- Project board: weeks × scopes -------------------------------------- */
 .project {
   flex: 1;
   min-height: 0;
@@ -3153,7 +3153,7 @@ button.card-age {
 }
 
 .project-corner,
-.project-epic-head {
+.project-scope-head {
   position: relative;
   position: sticky;
   top: 0;
@@ -3179,17 +3179,17 @@ button.card-age {
 /* A header can be dragged sideways to reorder the columns (inside one
    project). The grip on its right edge still resizes, and the × still
    deletes — both stop the press before it becomes a drag. */
-.project-epic-head-movable {
+.project-scope-head-movable {
   cursor: grab;
 }
 
-.project-epic-head-dragging {
+.project-scope-head-dragging {
   cursor: grabbing;
   background: var(--hover-overlay);
   opacity: 0.85;
 }
 
-.project-epic-name {
+.project-scope-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3199,7 +3199,7 @@ button.card-age {
 /* The owning project, shown only in the all-projects view — the column name
    alone is ambiguous there. It wears the same round badge a team does on a
    card, so one glance groups the columns without reading anything. */
-.project-epic-avatar {
+.project-scope-avatar {
   flex: none;
   width: 15px;
   height: 15px;
@@ -3213,7 +3213,7 @@ button.card-age {
   line-height: 1;
 }
 
-.project-epic-avatar-none {
+.project-scope-avatar-none {
   background: var(--hover-overlay);
   color: var(--muted);
 }
@@ -3300,7 +3300,7 @@ button.card-age {
 
 /* How far along the columns are: a percentage beside each header, and one
    wide bar under the table for the whole view. */
-.project-epic-pct {
+.project-scope-pct {
   flex: none;
   font-size: 9.5px;
   font-weight: 600;
@@ -3441,17 +3441,17 @@ button.card-age {
   font-size: 13px;
 }
 
-.project-epic-del {
+.project-scope-del {
   opacity: 0;
 }
 
-.project-epic-head:hover .project-epic-del {
+.project-scope-head:hover .project-scope-del {
   opacity: 1;
 }
 
 /* The "add a column" gutter is 34px — far too narrow to type a name in, so
    its field breaks out of it and opens leftward over the last column. */
-.project-epic-add .project-epic-input {
+.project-scope-add .project-scope-input {
   position: absolute;
   right: 3px;
   top: 3px;
@@ -3461,12 +3461,12 @@ button.card-age {
   background: var(--bg);
 }
 
-.project-epic-add {
+.project-scope-add {
   justify-content: center;
 }
 
 /* The rename field in a column header shares that header's width. */
-.project-epic-input {
+.project-scope-input {
   flex: 1;
   min-width: 0;
   width: 140px;

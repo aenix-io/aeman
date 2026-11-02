@@ -67,7 +67,7 @@ export function boardMetadata(
   | "teams"
   | "projects"
   | "deadlines"
-  | "epics"
+  | "scopes"
   | "members"
   | "domains"
   | "teamDomains"
@@ -82,7 +82,7 @@ export function boardMetadata(
       week: d.week,
       project: d.project ?? "",
     })),
-    epics: (info.metadata.epics ?? []).map((e) => ({
+    scopes: (info.metadata.scopes ?? []).map((e) => ({
       name: e.name,
       project: e.project ?? "",
       domain: e.domain || undefined,
@@ -300,8 +300,8 @@ function patchBody(patch: CardPatch): components["schemas"]["CardPatch"] {
   if (patch.parked !== undefined) {
     body.parked = patch.parked;
   }
-  if (patch.epic !== undefined) {
-    body.epic = patch.epic;
+  if (patch.scope !== undefined) {
+    body.scope = patch.scope;
   }
   if (patch.project !== undefined) {
     body.project = patch.project;
@@ -385,8 +385,8 @@ export const apiProvider: Provider = {
     // and the card never passes through the strip on its way there. The
     // drawer's create says so by being made THERE (views.createView), so
     // nothing in the body has to.
-    if (input.epic) {
-      body.epic = input.epic;
+    if (input.scope) {
+      body.scope = input.scope;
       body.project = input.project ?? "";
       // No week: a slot's row is the week of its start date.
     }
@@ -556,51 +556,51 @@ export const apiProvider: Provider = {
     await client.POST("/sprints/actions/delete-team", { body: { team } });
   },
 
-  async removeFromProject(uid: string, project: string, epic: string): Promise<void> {
+  async removeFromProject(uid: string, project: string, scope: string): Promise<void> {
     await client.POST("/cards/{uid}/actions/remove-from-project", {
       params: { path: { uid } },
-      body: { project, epic },
+      body: { project, scope },
     });
   },
 
-  async addEpic(
+  async addScope(
     name: string,
     project: string,
   ): Promise<void> {
-    await client.POST("/epics", { body: { name, project } });
+    await client.POST("/scopes", { body: { name, project } });
   },
 
-  async deleteEpic(
+  async deleteScope(
     name: string,
     project: string,
   ): Promise<void> {
-    await client.POST("/epics/actions/delete-epic", {
-      body: { epic: name, project },
+    await client.POST("/scopes/actions/delete-scope", {
+      body: { scope: name, project },
     });
   },
 
-  async renameEpic(
+  async renameScope(
     project: string,
-    epic: string,
+    scope: string,
     to: string,
   ): Promise<void> {
-    await client.POST("/epics/actions/rename", { body: { project, epic, to } });
+    await client.POST("/scopes/actions/rename", { body: { project, scope, to } });
   },
 
-  async reorderEpics(
+  async reorderScopes(
     project: string,
-    epics: string[],
+    scopes: string[],
   ): Promise<void> {
-    await client.POST("/epics/actions/reorder-epics", { body: { project, epics } });
+    await client.POST("/scopes/actions/reorder-scopes", { body: { project, scopes } });
   },
 
-  async setEpicProject(
+  async setScopeProject(
     from: string,
-    epic: string,
+    scope: string,
     project: string,
   ): Promise<void> {
-    await client.POST("/epics/actions/set-project", {
-      body: { epic, from, project },
+    await client.POST("/scopes/actions/set-project", {
+      body: { scope, from, project },
     });
   },
 

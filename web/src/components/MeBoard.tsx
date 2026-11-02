@@ -1055,7 +1055,7 @@ export function MeBoard({
         : {
             assignees: [],
             sprintStart: undefined,
-            ...(card.epic ? {} : { startDate: undefined, day: undefined }),
+            ...(card.scope ? {} : { startDate: undefined, day: undefined }),
           },
     );
     void provider
@@ -1101,10 +1101,10 @@ export function MeBoard({
   // answers for it.
     // Only a card in a column can lose one, and finding the linked card
     // is a scan of the board: asked when the question can arise.
-    columnFollows: card.epic
+    columnFollows: card.scope
       ? columnFollows(
           card,
-          { ...rosterOf(board), epics: board.epics, teamDomains: board.teamDomains },
+          { ...rosterOf(board), scopes: board.scopes, teamDomains: board.teamDomains },
           linkedDomainOf(card),
         )
       : true,

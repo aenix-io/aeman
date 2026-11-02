@@ -29,7 +29,7 @@ import {
 import type { Card } from "./providers/types";
 
 // The picker offers only columns the server would accept: projects of the
-// card's own repository, each with its epics — a pair the server refuses
+// card's own repository, each with its scopes — a pair the server refuses
 // has no business being clickable.
 /** card builds the slice of a card these rules read, TYPED. A cast through
  *  `unknown` asserts nothing about the shape it hides, and these cases are
@@ -41,7 +41,7 @@ describe("attach targets", () => {
   // The repository rides on the COLUMN, the way the server records it: a
   // column declared in the closed repository carries it, whatever its
   // project is called.
-  const epics = [
+  const scopes = [
     { name: "Cozystack", project: "engineering" },
     { name: "Ingress", project: "engineering" },
     { name: "Launch", project: "freedom" },
@@ -57,20 +57,20 @@ describe("attach targets", () => {
     single: false,
   };
 
-  it("offers the projects of the card's repository, with their epics", () => {
-    const got = attachTargets(projects, epics, "", true, roster);
+  it("offers the projects of the card's repository, with their scopes", () => {
+    const got = attachTargets(projects, scopes, "", true, roster);
     expect(got).toEqual([
-      { name: "engineering", epics: ["Cozystack", "Ingress"] },
-      { name: "freedom", epics: ["Launch"] },
+      { name: "engineering", scopes: ["Cozystack", "Ingress"] },
+      { name: "freedom", scopes: ["Launch"] },
     ]);
     // A card living in the founders repository sees only founders projects.
-    expect(attachTargets(projects, epics, "founders", true, roster)).toEqual([
-      { name: "strategy", epics: ["Fundraising"] },
+    expect(attachTargets(projects, scopes, "founders", true, roster)).toEqual([
+      { name: "strategy", scopes: ["Fundraising"] },
     ]);
   });
 
   it("offers everything on a board that names no domains", () => {
-    const single = epics.map((e) => ({ name: e.name, project: e.project }));
+    const single = scopes.map((e) => ({ name: e.name, project: e.project }));
     expect(attachTargets(projects, single, "").map((p) => p.name)).toEqual(projects);
   });
 
@@ -92,7 +92,7 @@ describe("attachSlotDates", () => {
 // which before it asks anything: an orphan survives, and only the delete is
 // worth a question.
 describe("removeFromProjectOutcome", () => {
-  const base = mk({ project: "engineering", epic: "Cozystack" });
+  const base = mk({ project: "engineering", scope: "Cozystack" });
 
   it("is orphan on the last column of a worked card, delete otherwise", () => {
     const worked = mk({ ...base, assignees: ["kvaps"], progress: 40 });
@@ -113,7 +113,7 @@ describe("removeFromProjectOutcome for a subtask", () => {
   it("orphans instead of deleting, however untouched", () => {
     const card = mk({
       project: "engineering",
-      epic: "Cozystack",
+      scope: "Cozystack",
       parent: "p1",
       assignees: [],
       progress: 0,
@@ -126,7 +126,7 @@ describe("removeFromProjectOutcome for a subtask", () => {
 // column's progress must count it — but never twice: a parent standing in
 // the same project already answers for its children.
 describe("countedForProgress", () => {
-  const child = mk({ itemId: "c1", parent: "p1", project: "engineering", epic: "Cozystack" });
+  const child = mk({ itemId: "c1", parent: "p1", project: "engineering", scope: "Cozystack" });
   const index = (cards: Card[]) => new Map(cards.map((c) => [c.itemId, c]));
 
   it("counts a subtask whose parent is on no board of this project", () => {
@@ -139,7 +139,7 @@ describe("countedForProgress", () => {
     const parent = mk({
       itemId: "p1",
       project: "engineering",
-      epic: "Roadmap",
+      scope: "Roadmap",
       startDate: "2026-08-24",
     });
     expect(countedForProgress(child, index([child, parent]), { project: "engineering" })).toBe(false);
@@ -149,7 +149,7 @@ describe("countedForProgress", () => {
     // A parent attached to a column but carrying no dates is no slot, so
     // nothing counts it — deferring to it dropped the child's work from
     // every bar while its slot was drawn in the column.
-    const parent = mk({ itemId: "p1", project: "engineering", epic: "Roadmap" });
+    const parent = mk({ itemId: "p1", project: "engineering", scope: "Roadmap" });
     expect(countedForProgress(child, index([child, parent]), { project: "engineering" })).toBe(true);
   });
 
@@ -160,17 +160,17 @@ describe("countedForProgress", () => {
     const parent = mk({
       itemId: "p1",
       project: "engineering",
-      epic: "Roadmap",
+      scope: "Roadmap",
       startDate: "2026-08-24",
     });
-    expect(countedForProgress(child, index([child, parent]), { project: "engineering", epic: "Cozystack" })).toBe(true);
+    expect(countedForProgress(child, index([child, parent]), { project: "engineering", scope: "Cozystack" })).toBe(true);
     // The project bar still counts it once: the parent's own progress
     // already derives from this child.
     expect(countedForProgress(child, index([child, parent]), { project: "engineering" })).toBe(false);
   });
 
   it("counts an ordinary card always", () => {
-    const plain = mk({ itemId: "x", project: "engineering", epic: "Cozystack" });
+    const plain = mk({ itemId: "x", project: "engineering", scope: "Cozystack" });
     expect(countedForProgress(plain, index([plain]), { project: "engineering" })).toBe(true);
   });
 });
@@ -184,15 +184,15 @@ describe("placementTargets", () => {
       { name: "closed", writable: true, members: [] },
     ],
     projects: ["engineering"],
-    epics: [{ name: "Cozystack", project: "engineering" }],
+    scopes: [{ name: "Cozystack", project: "engineering" }],
     projectDomains: undefined,
   };
 
   it("offers a card already in a column nothing: it is re-filed on the Project board", () => {
-    const got = placementTargets(mk({ project: "engineering", epic: "Cozystack" }), board);
+    const got = placementTargets(mk({ project: "engineering", scope: "Cozystack" }), board);
     expect(got.attach).toBeUndefined();
     // A no-project column is a column like any other.
-    expect(placementTargets(mk({ epic: "Inbox" }), board).attach).toBeUndefined();
+    expect(placementTargets(mk({ scope: "Inbox" }), board).attach).toBeUndefined();
   });
 
   it("offers a SUBTASK a column to attach to", () => {
@@ -200,10 +200,10 @@ describe("placementTargets", () => {
     // takes the column away must have a way back, or the Project board
     // hands out a one-way door.
     const loose = placementTargets(mk({ parent: "p1", stage: "recurrent" }), board);
-    expect(loose.attach).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
+    expect(loose.attach).toEqual([{ name: "engineering", scopes: ["Cozystack"] }]);
     // One it already carries is enough: nothing more is offered.
     const inColumn = placementTargets(
-      mk({ project: "engineering", epic: "Cozystack", parent: "p1" }),
+      mk({ project: "engineering", scope: "Cozystack", parent: "p1" }),
       board,
     );
     expect(inColumn.attach).toBeUndefined();
@@ -214,20 +214,20 @@ describe("placementTargets", () => {
   // offered a process tie instead; the Process feature is gone, H8.)
   it("offers projects to a recurrent card", () => {
     const got = placementTargets(mk({ stage: "recurrent" }), board);
-    expect(got.attach).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
+    expect(got.attach).toEqual([{ name: "engineering", scopes: ["Cozystack"] }]);
   });
 
   it("offers projects to everything else", () => {
     const got = placementTargets(mk({}), board);
-    expect(got.attach).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
+    expect(got.attach).toEqual([{ name: "engineering", scopes: ["Cozystack"] }]);
   });
 });
 
 // Dragging a slot: a vertical move inside its column is a date change and
 // nothing else; a drop on another column re-files the card there.
 describe("slotDragPlan", () => {
-  const home = { project: "engineering", epic: "Cozystack" };
-  const other = { project: "freedom", epic: "Launch" };
+  const home = { project: "engineering", scope: "Cozystack" };
+  const other = { project: "freedom", scope: "Launch" };
 
   it("a vertical move is a date change only", () => {
     expect(slotDragPlan(home, home)).toEqual({ kind: "dates" });
@@ -243,13 +243,13 @@ describe("slotDragPlan", () => {
 describe("movingSlot", () => {
   const move = {
     card: { itemId: "c1" },
-    grabbed: { project: "freedom", epic: "Launch" },
+    grabbed: { project: "freedom", scope: "Launch" },
   };
   it("dims exactly the grabbed placement", () => {
-    expect(movingSlot(move, "c1", { project: "freedom", epic: "Launch" })).toBe(true);
-    expect(movingSlot(move, "c1", { project: "engineering", epic: "Cozystack" })).toBe(false);
-    expect(movingSlot(move, "c2", { project: "freedom", epic: "Launch" })).toBe(false);
-    expect(movingSlot(null, "c1", { project: "freedom", epic: "Launch" })).toBe(false);
+    expect(movingSlot(move, "c1", { project: "freedom", scope: "Launch" })).toBe(true);
+    expect(movingSlot(move, "c1", { project: "engineering", scope: "Cozystack" })).toBe(false);
+    expect(movingSlot(move, "c2", { project: "freedom", scope: "Launch" })).toBe(false);
+    expect(movingSlot(null, "c1", { project: "freedom", scope: "Launch" })).toBe(false);
   });
 });
 
@@ -262,7 +262,7 @@ describe("makeCardPlacements onAttachProject", () => {
       { name: "closed", writable: true, members: [] },
     ],
     projects: ["engineering", "freedom"],
-    epics: [
+    scopes: [
       { name: "Cozystack", project: "engineering" },
       { name: "Launch", project: "freedom" },
     ],
@@ -315,14 +315,14 @@ describe("drawnOnProjectBoard", () => {
 
   it("draws a card filed under a shown column", () => {
     expect(
-      drawnOnProjectBoard(mk({ project: "engineering", epic: "Cozystack" }), shown),
+      drawnOnProjectBoard(mk({ project: "engineering", scope: "Cozystack" }), shown),
     ).toBe(true);
   });
 
   it("draws a SUBTASK that carries its own column", () => {
     expect(
       drawnOnProjectBoard(
-        mk({ project: "engineering", epic: "Cozystack", parent: "p1" }),
+        mk({ project: "engineering", scope: "Cozystack", parent: "p1" }),
         shown,
       ),
     ).toBe(true);
@@ -350,9 +350,9 @@ describe("teamFollowsParent", () => {
 // then attach) put occupancy into the bar that nothing rendered.
 describe("drawnAsSlot", () => {
   it("needs dates to be a slot", () => {
-    expect(drawnAsSlot(mk({ epic: "Cozystack", startDate: "2026-08-24" }))).toBe(true);
-    expect(drawnAsSlot(mk({ epic: "Cozystack", week: "2026-08-24" }))).toBe(true);
-    expect(drawnAsSlot(mk({ epic: "Cozystack" }))).toBe(false);
+    expect(drawnAsSlot(mk({ scope: "Cozystack", startDate: "2026-08-24" }))).toBe(true);
+    expect(drawnAsSlot(mk({ scope: "Cozystack", week: "2026-08-24" }))).toBe(true);
+    expect(drawnAsSlot(mk({ scope: "Cozystack" }))).toBe(false);
   });
 });
 
@@ -368,7 +368,7 @@ describe("targets on an alias project", () => {
       { name: "closed", writable: true, members: [] },
     ],
     projects: ["portal"],
-    epics: [
+    scopes: [
       { name: "Bugs", project: "portal" },
       { name: "Docs", project: "portal", domain: "closed" },
     ],
@@ -380,7 +380,7 @@ describe("targets on an alias project", () => {
     // another one are not destinations; a card nothing holds is carried
     // by whatever project takes it, and is offered both.
     const got = placementTargets(mk({ team: "platform" }), board);
-    expect(got.attach).toEqual([{ name: "portal", epics: ["Bugs"] }]);
+    expect(got.attach).toEqual([{ name: "portal", scopes: ["Bugs"] }]);
   });
 
   it("offers a closed card nothing under the alias project", () => {
@@ -399,7 +399,7 @@ describe("targets on an alias project", () => {
     // the repository the project itself is in, which the OTHER half of the
     // alias is not.
     const got = placementTargets(mk({}), board);
-    expect(got.attach).toEqual([{ name: "portal", epics: ["Bugs"] }]);
+    expect(got.attach).toEqual([{ name: "portal", scopes: ["Bugs"] }]);
   });
 
 });
@@ -417,7 +417,7 @@ describe("hasOriginToShow", () => {
   });
 
   it("counts a column of no project", () => {
-    expect(hasOriginToShow(mk({ epic: "Inbox" }))).toBe(true);
+    expect(hasOriginToShow(mk({ scope: "Inbox" }))).toBe(true);
   });
 
   it("is false for a card that came from nowhere", () => {
@@ -470,19 +470,19 @@ describe("pickers that must not offer a refusal", () => {
 // deletion nobody sanctioned, which is the shape the server's own guard
 // was written against.
 describe("removeFromProjectOutcome refuses what the server refuses", () => {
-  it("refuses the empty pair — a column is named by its epic", () => {
+  it("refuses the empty pair — a column is named by its scope", () => {
     expect(removeFromProjectOutcome(mk({}), "", "")).toBe("refused");
   });
 
   it("refuses a column the card does not stand in", () => {
-    const card = mk({ project: "engineering", epic: "Cozystack" });
+    const card = mk({ project: "engineering", scope: "Cozystack" });
     expect(removeFromProjectOutcome(card, "freedom", "Launch")).toBe("refused");
   });
 
   it("still answers for the column the card is in", () => {
     const card = mk({
       project: "engineering",
-      epic: "Cozystack",
+      scope: "Cozystack",
       assignees: [],
       progress: 0,
     });
@@ -496,7 +496,7 @@ describe("removeFromProjectOutcome refuses what the server refuses", () => {
 // no-project bucket unreachable. A card its TEAM holds stays put (G46).
 describe("attachTargets and the card's binding", () => {
   const projects = ["engineering", "strategy"];
-  const epics = [
+  const scopes = [
     { name: "Cozystack", project: "engineering" },
     { name: "Fundraising", project: "strategy", domain: "founders" },
   ];
@@ -515,7 +515,7 @@ describe("attachTargets and the card's binding", () => {
   it("offers every column to a card nothing holds", () => {
     const got = placementTargets(mk({}), {
       projects,
-      epics,
+      scopes,
       projectDomains,
       domains,
     });
@@ -525,7 +525,7 @@ describe("attachTargets and the card's binding", () => {
   it("offers a team's card only its own repository", () => {
     const got = placementTargets(mk({ team: "platform" }), {
       projects,
-      epics,
+      scopes,
       projectDomains,
       domains,
     });
@@ -537,10 +537,10 @@ describe("attachTargets and the card's binding", () => {
   // the repository it was in. A foreign bucket column is a refusal with a
   // friendly label.
   it("never offers a foreign no-project bucket", () => {
-    const withBucket = [...epics, { name: "Inbox", project: "", domain: "founders" }];
+    const withBucket = [...scopes, { name: "Inbox", project: "", domain: "founders" }];
     const got = placementTargets(mk({}), {
       projects,
-      epics: withBucket,
+      scopes: withBucket,
       projectDomains,
       domains,
     });
@@ -548,14 +548,14 @@ describe("attachTargets and the card's binding", () => {
   });
 
   it("offers the bucket of the card's own repository", () => {
-    const withBucket = [...epics, { name: "Inbox", project: "" }];
+    const withBucket = [...scopes, { name: "Inbox", project: "" }];
     const got = placementTargets(mk({}), {
       projects,
-      epics: withBucket,
+      scopes: withBucket,
       projectDomains,
       domains,
     });
-    expect(got.attach?.find((p) => p.name === "")?.epics).toEqual(["Inbox"]);
+    expect(got.attach?.find((p) => p.name === "")?.scopes).toEqual(["Inbox"]);
   });
 
   // A column of an ALIAS project (G13) is declared in the other half of the
@@ -647,30 +647,30 @@ describe("projectsWithColumns", () => {
 // (removal.test.ts). A board that could not ask this question let a
 // destructive × through as an ungroup.
 describe("columnFollows", () => {
-  const epics = [
+  const scopes = [
     { name: "Closed", project: "", domain: "founders" },
     { name: "Cozystack", project: "engineering" },
   ];
   const roster = {
-    epics,
+    scopes,
     primary: "aeman-db",
     teamDomains: { founders: "founders" },
     projectDomains: { strategy: "founders" },
   };
 
   it("keeps a column of the repository the card lands in", () => {
-    expect(columnFollows({ epic: "Cozystack", project: "engineering" }, roster)).toBe(true);
-    expect(columnFollows({ epic: "Closed", project: "", team: "founders" }, roster)).toBe(true);
+    expect(columnFollows({ scope: "Cozystack", project: "engineering" }, roster)).toBe(true);
+    expect(columnFollows({ scope: "Closed", project: "", team: "founders" }, roster)).toBe(true);
   });
 
   it("leaves behind a column of the repository the card is leaving", () => {
     // Team "platform" is unstamped, so the card lands in the primary; the
     // column was declared in founders.
-    expect(columnFollows({ epic: "Closed", project: "", team: "platform" }, roster)).toBe(false);
+    expect(columnFollows({ scope: "Closed", project: "", team: "platform" }, roster)).toBe(false);
   });
 
   it("says nothing about a column no roster declares", () => {
-    expect(columnFollows({ epic: "Ghost", project: "", team: "platform" }, roster)).toBe(true);
+    expect(columnFollows({ scope: "Ghost", project: "", team: "platform" }, roster)).toBe(true);
   });
 
   it("has no column to lose when it stands in none", () => {
@@ -681,7 +681,7 @@ describe("columnFollows", () => {
     // A review card takes its original's repository whatever its own team
     // says (G14), so the column of that repository comes along.
     expect(
-      columnFollows({ epic: "Closed", project: "", team: "platform" }, roster, "founders"),
+      columnFollows({ scope: "Closed", project: "", team: "platform" }, roster, "founders"),
     ).toBe(true);
   });
 });
@@ -699,7 +699,7 @@ describe("a board of one repository", () => {
     domains: [{ name: "aeman", writable: true, members: [] }],
     projectDomains: { engineering: "aeman" },
   });
-  const epics = [
+  const scopes = [
     { name: "Inbox", project: "", domain: "aeman" },
     { name: "Cozystack", project: "engineering", domain: "aeman" },
   ];
@@ -722,13 +722,13 @@ describe("a board of one repository", () => {
     // The server's columnFollows answers true here — nothing places the
     // card, so it belongs to the primary, which is where the column is.
     expect(
-      columnFollows({ epic: "Inbox", project: "", team: "" }, { ...roster, epics }),
+      columnFollows({ scope: "Inbox", project: "", team: "" }, { ...roster, scopes }),
     ).toBe(true);
   });
 
   it("offers every column to attach to", () => {
     expect(
-      attachTargets(["engineering"], epics, "aeman", true, roster).map((p) => p.name),
+      attachTargets(["engineering"], scopes, "aeman", true, roster).map((p) => p.name),
     ).toEqual(["engineering", ""]);
   });
 
@@ -742,10 +742,10 @@ describe("a board of one repository", () => {
     expect(canCreateInColumn({ project: "", domain: "aeman" }, unnamed)).toBe(true);
     expect(teamlessIsLawful("aeman", unnamed)).toBe(true);
     expect(
-      columnFollows({ epic: "Inbox", project: "", team: "" }, { ...unnamed, epics }),
+      columnFollows({ scope: "Inbox", project: "", team: "" }, { ...unnamed, scopes }),
     ).toBe(true);
     expect(
-      attachTargets(["engineering"], epics, "aeman", true, unnamed).map((p) => p.name),
+      attachTargets(["engineering"], scopes, "aeman", true, unnamed).map((p) => p.name),
     ).toEqual(["engineering", ""]);
   });
 });
@@ -776,7 +776,7 @@ describe("countedAmong", () => {
 describe("attach targets for a card a LINK holds", () => {
   const board = {
     projects: ["engineering", "strategy"],
-    epics: [
+    scopes: [
       { name: "Cozystack", project: "engineering", domain: "aeman-db" },
       { name: "Fundraising", project: "strategy", domain: "founders" },
     ],
@@ -812,14 +812,14 @@ describe("attach targets for a card a LINK holds", () => {
 // after the weekly plan, whose band the stripe used to be, was taken out.
 describe("markOf", () => {
   it("marks a project's work, and nothing else", () => {
-    expect(markOf({ epic: "Auth" })).toBe("project");
+    expect(markOf({ scope: "Auth" })).toBe("project");
     expect(markOf({})).toBe("");
   });
 
   // A review card of a project card is BOTH; the waiting is the innermost
   // thing about it, so that is what the stripe says.
   it("says review where a card is both", () => {
-    expect(markOf({ reviewOf: "c1", epic: "Auth" })).toBe("review");
+    expect(markOf({ reviewOf: "c1", scope: "Auth" })).toBe("review");
   });
 });
 
@@ -836,7 +836,7 @@ describe("markOf", () => {
 // grids too, because the create they send is identical.
 describe("whose dates a card's are", () => {
   it("keeps a day board off a project card's", () => {
-    expect(datesAreAnotherBoards({ epic: "Auth" })).toBe(true);
+    expect(datesAreAnotherBoards({ scope: "Auth" })).toBe(true);
   });
 
   it("leaves an ordinary card's alone", () => {

@@ -47,7 +47,7 @@ export function viewQueries(
     return [q];
   }
   if (view === "project") {
-    // Every epic-filed card of every project, all weeks: the Project board
+    // Every scope-filed card of every project, all weeks: the Project board
     // lays the table out itself and the project chips filter client-side, so
     // switching projects costs no request.
     return [{ view: "project" }];

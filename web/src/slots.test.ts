@@ -7,7 +7,7 @@ import { isSlot, slotWeekPatch } from "./slots";
 // span it has not got.
 describe("what makes a card a slot", () => {
   it("takes a column and both boundaries", () => {
-    expect(isSlot({ epic: "Webinars", week: "2026-09-28", day: "2026-10-02" })).toBe(true);
+    expect(isSlot({ scope: "Webinars", week: "2026-09-28", day: "2026-10-02" })).toBe(true);
   });
 
   it("is not one without the column", () => {
@@ -15,11 +15,11 @@ describe("what makes a card a slot", () => {
   });
 
   it("is not one with only a start", () => {
-    expect(isSlot({ epic: "Webinars", week: "2026-09-28" })).toBe(false);
+    expect(isSlot({ scope: "Webinars", week: "2026-09-28" })).toBe(false);
   });
 
   it("is not one with only an end", () => {
-    expect(isSlot({ epic: "Webinars", day: "2026-10-02" })).toBe(false);
+    expect(isSlot({ scope: "Webinars", day: "2026-10-02" })).toBe(false);
   });
 });
 
@@ -29,11 +29,11 @@ describe("what makes a card a slot", () => {
 // September stayed on THIS week's row until the next full load.
 describe("the week that follows a slot's dates", () => {
   it("moves with the start date", () => {
-    expect(slotWeekPatch({ epic: "Webinars" }, "2026-09-28")).toEqual({
+    expect(slotWeekPatch({ scope: "Webinars" }, "2026-09-28")).toEqual({
       week: "2026-09-28",
     });
     // Any day of that week is the same row: the Monday.
-    expect(slotWeekPatch({ epic: "Webinars" }, "2026-10-02")).toEqual({
+    expect(slotWeekPatch({ scope: "Webinars" }, "2026-10-02")).toEqual({
       week: "2026-09-28",
     });
   });
@@ -43,6 +43,6 @@ describe("the week that follows a slot's dates", () => {
   });
 
   it("has nothing to move when the dates are cleared", () => {
-    expect(slotWeekPatch({ epic: "Webinars" }, null)).toEqual({});
+    expect(slotWeekPatch({ scope: "Webinars" }, null)).toEqual({});
   });
 });

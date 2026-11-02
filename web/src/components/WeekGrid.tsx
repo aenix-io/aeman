@@ -9,7 +9,7 @@
  * grid, which is what lets a slot span weeks and still sit above the cells.
  *
  * The header cells are the board's too. A column here is a key and nothing
- * more; whether it names an epic or a person is a question this file must
+ * more; whether it names an scope or a person is a question this file must
  * never be able to ask.
  */
 import type { ReactNode, Ref } from "react";

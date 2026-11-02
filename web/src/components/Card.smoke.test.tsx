@@ -36,7 +36,7 @@ function draw(c: Card) {
 
 describe("what a card's left stripe says", () => {
   it("marks a PROJECT card", () => {
-    expect(draw(card({ epic: "Auth", project: "core" }))).toContain("card-project");
+    expect(draw(card({ scope: "Auth", project: "core" }))).toContain("card-project");
   });
 
   it("marks a REVIEW card", () => {
@@ -46,7 +46,7 @@ describe("what a card's left stripe says", () => {
   // A review card of a project card is BOTH; the waiting is the innermost
   // thing about it, so that is what the stripe says.
   it("says review where a card is both", () => {
-    const html = draw(card({ reviewOf: "c0", epic: "Auth" }));
+    const html = draw(card({ reviewOf: "c0", scope: "Auth" }));
     expect(html).toContain("card-review");
     expect(html).not.toContain("card-project");
   });

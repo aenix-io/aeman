@@ -539,7 +539,7 @@ export function TriageBoard({
         // Giving a card a week takes it off its shelf — a card cannot be
         // both parked and planned, and the server says so too (SetWeek).
         parked: undefined,
-        ...(week > thisWeek && !c.epic
+        ...(week > thisWeek && !c.scope
           ? { startDate: undefined, day: undefined, sprintStart: undefined }
           : {}),
         // And one whose days ran out comes back INTO the week with new ones,
@@ -1434,8 +1434,8 @@ export function TriageBoard({
           head={(p) => (
             <div
               key={p.key}
-              className={`project-epic-head triage-person project-epic-head-movable${
-                dragCol === p.key ? " project-epic-head-dragging" : ""
+              className={`project-scope-head triage-person project-scope-head-movable${
+                dragCol === p.key ? " project-scope-head-dragging" : ""
               }`}
               title={`${p.key === NOBODY ? "Unassigned" : displayName(p.key, names)} — drag to reorder`}
               onPointerDown={beginColDrag(p.key)}
@@ -1448,7 +1448,7 @@ export function TriageBoard({
               ) : (
                 <>
                   <Avatar login={p.key} avatars={avatars} names={names} />
-                  <span className="project-epic-name">{displayName(p.key, names)}</span>
+                  <span className="project-scope-name">{displayName(p.key, names)}</span>
                   <PersonLoad
                     member={board.members.find((m) => m.login === p.key)}
                     onSetCapacity={(points) => setCapacity(p.key, points)}
@@ -1762,7 +1762,7 @@ export function TriageBoard({
                         <button
                           type="button"
                           className="card-action card-action-delete"
-                          title={card.epic ? "Take off this board" : "Remove"}
+                          title={card.scope ? "Take off this board" : "Remove"}
                           onClick={(e) => {
                             e.stopPropagation();
                             remove(card);
@@ -1808,7 +1808,7 @@ export function TriageBoard({
                       something about it that nothing else on the board would
                       have said. And only with the catch lifted, since what
                       the grip changes is the Project board's own dates. */}
-                  {part === parts - 1 && card.epic && unlocked && !slot.projected && (
+                  {part === parts - 1 && card.scope && unlocked && !slot.projected && (
                     <div
                       className="project-slot-resize triage-slot-resize"
                       title="Drag down to give the card more weeks"

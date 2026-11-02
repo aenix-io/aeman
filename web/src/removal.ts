@@ -3,9 +3,9 @@ export interface RemovableCard {
   sprintStart?: string;
   startDate?: string;
   progress?: number;
-  /** A Project-board column is the PAIR (project, epic); either side filed
+  /** A Project-board column is the PAIR (project, scope); either side filed
    *  means the card belongs to one. */
-  epic?: string;
+  scope?: string;
   project?: string;
   /** A subtask rides its parent: it has no history of its own. */
   parent?: string;
@@ -27,7 +27,7 @@ export interface RemovalContext {
 /** HomesOf is what the grid × needs to know about a card: where else it is,
  *  and what a delete would take with it. */
 export interface HomesOf {
-  epic?: string;
+  scope?: string;
   project?: string;
   progress?: number;
   title: string;
@@ -90,7 +90,7 @@ export interface RemovalHomes {
   /** Who is carrying the card. Empty means it stands in Unassigned, which is
    *  where the × would otherwise offer to put it. */
   assignees?: string[];
-  epic?: string;
+  scope?: string;
   /** Read by nothing here on purpose: a bare project name is a label, not a
    *  home. It is in the shape so a card can be passed whole. */
   project?: string;
@@ -107,10 +107,10 @@ export function inWorkingArea(c: RemovalHomes): boolean {
 }
 
 /** hasColumn: the card sits in a Project-board column, which the board
- *  renders by its epic. (slots.isSlot is a different question — whether the
+ *  renders by its scope. (slots.isSlot is a different question — whether the
  *  card has taken a ROW on that board — and the two must not be confused.) */
 export function hasColumn(c: RemovalHomes): boolean {
-  return !!c.epic;
+  return !!c.scope;
 }
 
 /** Outcome is what an × does to a card: leave it in a home it still has,
@@ -288,7 +288,7 @@ export function offersRemoval(
 export interface SubtaskPatch {
   parent: undefined;
   assignees?: string[];
-  epic?: undefined;
+  scope?: undefined;
   project?: undefined;
   sprintStart?: string;
   startDate?: string;
@@ -319,7 +319,7 @@ export function subtaskRemovalPatch(
 export interface SubtaskUndo {
   assignees?: string[];
   parent?: string;
-  epic?: string;
+  scope?: string;
   project?: string;
   sprintStart?: string;
   startDate?: string;
@@ -330,7 +330,7 @@ export function subtaskRemovalUndo(c: SubtaskUndo): SubtaskUndo {
   return {
     assignees: c.assignees,
     parent: c.parent,
-    epic: c.epic,
+    scope: c.scope,
     project: c.project,
     sprintStart: c.sprintStart,
     startDate: c.startDate,

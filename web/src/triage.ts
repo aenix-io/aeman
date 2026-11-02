@@ -65,11 +65,11 @@ export function daysRanOut(c: Pick<Card, "startDate" | "day">, week: string): bo
  *  took the current week and stayed invisible everywhere the work is done.
  *  Mirrors the same branch of boardservice.Place. */
 export function broughtBack(
-  c: Pick<Card, "startDate" | "day" | "epic" | "domain">,
+  c: Pick<Card, "startDate" | "day" | "scope" | "domain">,
   week: string,
   today: string,
 ): { startDate: string; day: string } | null {
-  if (week !== mondayOf(today) || c.epic) {
+  if (week !== mondayOf(today) || c.scope) {
     return null;
   }
   if (!daysRanOut(c, week)) {
@@ -153,7 +153,7 @@ export function ordersWithinCell(c: Pick<Card, "reviewOf">): boolean {
  *  Cards of the same rank keep the order the board holds them in, so the
  *  order somebody set by hand still means something among its peers. */
 export function pileRank(
-  c: Pick<Card, "overdue" | "epic" | "zone" | "week"> & { projected?: boolean },
+  c: Pick<Card, "overdue" | "scope" | "zone" | "week"> & { projected?: boolean },
   thisWeek?: string,
 ): number {
   // A DEBT first: its day has passed and it is still open. That is not the
@@ -165,7 +165,7 @@ export function pileRank(
   if (c.overdue || (thisWeek && c.week && c.week < thisWeek)) {
     return 0;
   }
-  if (c.epic) {
+  if (c.scope) {
     return 1;
   }
   // A repeating card drawn ahead of itself: it will take the week's time
@@ -189,7 +189,7 @@ export function pileRank(
 
 /** byPile sorts a cell's cards into that order, leaving equals as they were. */
 export function byPile<T>(
-  of: (item: T) => Pick<Card, "overdue" | "epic" | "zone" | "week"> & { projected?: boolean },
+  of: (item: T) => Pick<Card, "overdue" | "scope" | "zone" | "week"> & { projected?: boolean },
   thisWeek?: string,
 ) {
   return (a: T, b: T) => pileRank(of(a), thisWeek) - pileRank(of(b), thisWeek);
@@ -266,8 +266,8 @@ export type Grip = "free" | "pinned";
  *
  *  Everything else the board draws is the board's own work, and its week is
  *  whichever one somebody drags it to. */
-export function gripOf(c: Pick<Card, "epic">, opts: { unlocked: boolean }): Grip {
-  if (c.epic) {
+export function gripOf(c: Pick<Card, "scope">, opts: { unlocked: boolean }): Grip {
+  if (c.scope) {
     return opts.unlocked ? "free" : "pinned";
   }
   return "free";
@@ -284,14 +284,14 @@ export function gripOf(c: Pick<Card, "epic">, opts: { unlocked: boolean }): Grip
  *  × opened a dialog with no buttons in it, closing only on Escape. An × that
  *  does nothing reads as a delete that failed. */
 export function removableOnTriage(
-  c: Pick<Card, "epic">,
+  c: Pick<Card, "scope">,
   unlocked: boolean,
   choices: readonly unknown[] = [1],
 ): boolean {
   if (choices.length === 0) {
     return false;
   }
-  return !c.epic || unlocked;
+  return !c.scope || unlocked;
 }
 
 /** deferred reports that a card has been scheduled AWAY from today: its start

@@ -31,11 +31,11 @@ export type ViewName =
 export function createView(input: {
   parked?: boolean | null;
   week?: string | null;
-  epic?: string | null;
+  scope?: string | null;
   start?: string | null;
   day?: string | null;
 }, standing?: ViewName): ViewName {
-  if (input.epic) {
+  if (input.scope) {
     return "project";
   }
   if (input.parked) {

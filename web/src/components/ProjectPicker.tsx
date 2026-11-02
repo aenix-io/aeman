@@ -7,7 +7,7 @@ interface ProjectPickerProps {
   current: string;
   /** Every project the menu may offer, in board order. */
   projects: string[];
-  /** What is being filed — "epic" — for the badge's tooltip. */
+  /** What is being filed — "scope" — for the badge's tooltip. */
   entity: string;
   onPick: (project: string) => void;
 }
@@ -28,7 +28,7 @@ export function ProjectPicker({
     <>
       <button
         type="button"
-        className={`project-epic-avatar project-epic-avatar-pick${current ? "" : " project-epic-avatar-none"}`}
+        className={`project-scope-avatar project-scope-avatar-pick${current ? "" : " project-scope-avatar-none"}`}
         style={current ? { background: teamColor(current) } : undefined}
         title={
           current
