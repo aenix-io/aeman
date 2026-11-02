@@ -83,6 +83,20 @@ function MilkdownEditor({ value, readOnly, placeholder, onChange, onSave, onBlur
     // and on the saved text for that reason).
     [readOnly],
   );
+  // A click on a link places the caret in it, as in any editor; a double
+  // click (or Cmd/Ctrl + click) FOLLOWS it, in a new tab, the way an editor
+  // that renders its links is expected to. The link element is what the
+  // pointer landed on, found before ProseMirror sees the event.
+  const followLink = (e: React.MouseEvent<HTMLDivElement>) => {
+    const a = (e.target as HTMLElement | null)?.closest?.("a[href]");
+    const href = a?.getAttribute("href");
+    if (!href) {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    window.open(href, "_blank", "noopener,noreferrer");
+  };
   return (
     <div
       className={`md-editor${readOnly ? " md-editor-readonly" : ""}`}
@@ -90,6 +104,12 @@ function MilkdownEditor({ value, readOnly, placeholder, onChange, onSave, onBlur
         if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
           e.preventDefault();
           onSave();
+        }
+      }}
+      onDoubleClickCapture={followLink}
+      onClickCapture={(e) => {
+        if (e.metaKey || e.ctrlKey) {
+          followLink(e);
         }
       }}
     >
