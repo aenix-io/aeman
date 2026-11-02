@@ -5106,20 +5106,6 @@ button.card-age {
   white-space: nowrap;
 }
 
-.roadmap-chips {
-  max-width: none;
-}
-
-.team-chip-on {
-  border-color: var(--accent);
-  background: var(--accent-glow);
-}
-
-.team-chip-on .team-chip-name {
-  color: var(--accent-emphasis);
-  font-weight: 500;
-}
-
 .roadmap-empty {
   padding: 24px;
   text-align: center;
@@ -5193,52 +5179,55 @@ button.card-age {
 }
 
 .roadmap-cell-title {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   min-width: 0;
+  height: 100%;
 }
 
 .roadmap-toggle {
   flex: none;
-  width: 14px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
+  border-radius: 4px;
   background: transparent;
-  color: var(--faint);
+  color: var(--muted);
   cursor: pointer;
   padding: 0;
-  font-size: 11px;
-  line-height: 1;
+}
+
+.roadmap-toggle:hover {
+  background: var(--hover-overlay);
+  color: var(--fg);
+}
+
+.roadmap-toggle svg {
+  transition: transform 120ms ease;
+}
+
+.roadmap-toggle-open svg {
+  transform: rotate(90deg);
 }
 
 .roadmap-toggle-none {
   cursor: default;
 }
 
-.roadmap-glyph {
-  flex: none;
-  width: 14px;
-  text-align: center;
-  font-size: 11px;
-  line-height: 1;
-}
-
-.roadmap-glyph-goal {
-  color: var(--accent-emphasis);
-}
-
-.roadmap-glyph-initiative {
-  color: var(--accent);
-}
-
-.roadmap-glyph-epic {
-  color: var(--project-mark);
-}
-
-.roadmap-glyph-task,
-.roadmap-glyph-subtask,
-.roadmap-glyph-project {
-  color: var(--muted);
+/* The tree's guides: one thin line per level of depth, drawn from the row's
+   left edge so a reader can follow a branch down the list. */
+.roadmap-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+  pointer-events: none;
 }
 
 .roadmap-title {
@@ -6041,4 +6030,74 @@ button.card-age {
     border-top: 1px solid var(--line-soft);
     overflow: visible;
   }
+}
+
+/* ---- Roadmap: the drag ----
+   A row is dragged onto another (it goes under it) or into the gap before
+   or after it. The rows ARE the preview: while the drag stands over a place
+   it may land, the list reads as it would after the drop, the moved subtree
+   dimmed; over a place it may not, the hovered row says so and nothing
+   moves. */
+.roadmap-row {
+  position: relative;
+  touch-action: none;
+}
+
+.roadmap-body-dragging .roadmap-row {
+  cursor: grabbing;
+}
+
+.roadmap-row-ghost,
+.roadmap-lane-ghost {
+  opacity: 0.45;
+}
+
+.roadmap-row-ghost {
+  background: var(--accent-glow);
+}
+
+.roadmap-row-forbid {
+  cursor: not-allowed;
+  background: var(--danger-tint);
+}
+
+.roadmap-row-drop-into {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.roadmap-row-drop-before::before,
+.roadmap-row-drop-after::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  z-index: 1;
+}
+
+.roadmap-row-drop-before::before {
+  top: -1px;
+}
+
+.roadmap-row-drop-after::after {
+  bottom: -1px;
+}
+
+.roadmap-drag-overlay {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 320px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--bg-raised, var(--bg));
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px var(--drag-shadow, var(--elev-3));
+  font-size: 12.5px;
+  cursor: grabbing;
+}
+
+.roadmap-drag-overlay-forbid {
+  border-color: var(--danger);
 }

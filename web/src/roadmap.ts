@@ -416,15 +416,218 @@ export function allowedParentKinds(kind: RoadmapKind): RoadmapKind[] {
   }
 }
 
-/** GLYPH is the one-character mark a row's kind wears, beside its title. */
-export const GLYPH: Record<RoadmapKind, string> = {
-  goal: "◎",
-  initiative: "◆",
-  epic: "▣",
-  task: "▪",
-  subtask: "↳",
-  project: "▫",
-};
+// ---- drag and drop on the tree ----
+//
+// A row is dragged onto another row (it goes UNDER it) or between two rows
+// (it joins that gap's parent at that place). The level rule decides what
+// may land where (H2), a card never changes its type by being dragged, and
+// the tree shows the subtree where it WOULD land before the pointer is
+// released — the preview is the moved rows themselves, as the Triage board
+// draws a card where it would land.
+
+/** DropZone is where on the hovered row the dragged row stands: its top
+ *  quarter (before it), its bottom quarter (after it), or its middle (under
+ *  it). */
+export type DropZone = "before" | "into" | "after";
+
+/** zoneOf reads the zone off the dragged row's centre as a fraction of the
+ *  hovered row's height (0 at its top, 1 at its bottom). */
+export function zoneOf(fraction: number): DropZone {
+  if (fraction < 0.28) {
+    return "before";
+  }
+  if (fraction > 0.72) {
+    return "after";
+  }
+  return "into";
+}
+
+/** Placement is where a dragged card would come to rest: under which parent
+ *  (null for the top of the tree), at which position among that parent's
+ *  children in listing order. */
+export interface Placement {
+  parent: string | null;
+  index: number;
+}
+
+const parentOf = (c: Pick<Card, "parent">): string | null => c.parent || null;
+
+/** siblingsUnder is a parent's children in listing order — what the tree
+ *  draws under it — without the dragged card, which is leaving its place. */
+function siblingsUnder<T extends Pick<Card, "itemId" | "parent">>(
+  cards: readonly T[],
+  parent: string | null,
+  except: string,
+): T[] {
+  return cards.filter((c) => c.itemId !== except && parentOf(c) === parent);
+}
+
+/** placementFor is where a drop on a row in a zone lands, read off the rows
+ *  as drawn: before a row is its parent's child at the row's place; after a
+ *  row is the next place — unless the row is unfolded with rows under it,
+ *  where "after" is the first place UNDER it, as the eye reads the list;
+ *  into a row is the last place under it. Null when the hovered row is the
+ *  dragged card itself. */
+export function placementFor(
+  cards: readonly Pick<Card, "itemId" | "parent">[],
+  rows: readonly Row[],
+  draggedId: string,
+  overId: string,
+  zone: DropZone,
+): Placement | null {
+  const at = rows.findIndex((r) => r.node.card.itemId === overId);
+  if (at < 0 || overId === draggedId) {
+    return null;
+  }
+  const over = rows[at];
+  const overParent = parentOf(over.node.card);
+  const siblings = siblingsUnder(cards, overParent, draggedId);
+  const index = siblings.findIndex((c) => c.itemId === overId);
+  if (zone === "into") {
+    return { parent: overId, index: siblingsUnder(cards, overId, draggedId).length };
+  }
+  if (zone === "before") {
+    return { parent: overParent, index: Math.max(index, 0) };
+  }
+  const next = rows[at + 1];
+  if (next && next.depth > over.depth) {
+    return { parent: overId, index: 0 };
+  }
+  return { parent: overParent, index: index + 1 };
+}
+
+/** lineageOf is a card's ancestors root first, read off the parent links of
+ *  the listing — and the card itself last, which is what a child filed under
+ *  it carries as its lineage. Walked rather than copied from the card's own
+ *  lineage, which an optimistic card may not have yet. Bounded against a
+ *  cycle written straight into the repository. */
+export function lineageOf(
+  cards: readonly Pick<Card, "itemId" | "parent" | "type" | "title">[],
+  id: string,
+): { uid: string; type?: Card["type"]; title: string }[] {
+  const byId = new Map(cards.map((c) => [c.itemId, c]));
+  const up: { uid: string; type?: Card["type"]; title: string }[] = [];
+  const seen = new Set<string>();
+  for (let cur = byId.get(id); cur && !seen.has(cur.itemId) && up.length < 8; cur = cur.parent ? byId.get(cur.parent) : undefined) {
+    seen.add(cur.itemId);
+    up.unshift({ uid: cur.itemId, type: cur.type, title: cur.title });
+  }
+  return up;
+}
+
+/** isUnder reports a card somewhere below another in the tree, by parent
+ *  links — the dragged subtree, which may not become its own parent. */
+export function isUnder(
+  cards: readonly Pick<Card, "itemId" | "parent">[],
+  id: string,
+  ancestor: string,
+): boolean {
+  const byId = new Map(cards.map((c) => [c.itemId, c]));
+  const seen = new Set<string>();
+  for (let cur = byId.get(id); cur && cur.parent && !seen.has(cur.itemId); cur = byId.get(cur.parent)) {
+    seen.add(cur.itemId);
+    if (cur.parent === ancestor) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** droppable reports whether a card may come to rest under a parent (null
+ *  for the top of the tree): the level rule (H2) — a parent of a higher
+ *  level, a task's one exception being another task, which makes it a
+ *  subtask (one level deep: not under a subtask, not with subtasks of its
+ *  own) — never itself or anything under it, a project card under planning
+ *  cards only (H4), and the top of the tree for planning cards only: a task
+ *  dropped there would leave the Roadmap altogether, which is not a drop
+ *  but a detach, and the × asks for that. A card never changes its type by
+ *  being dragged. */
+export function droppable(
+  cards: readonly Pick<Card, "itemId" | "parent" | "type" | "scope" | "lineage">[],
+  draggedId: string,
+  parent: string | null,
+): boolean {
+  const dragged = cards.find((c) => c.itemId === draggedId);
+  if (!dragged) {
+    return false;
+  }
+  const dk = kindOf(dragged);
+  if (parent === null) {
+    return isPlanning(dragged);
+  }
+  if (parent === draggedId || isUnder(cards, parent, draggedId)) {
+    return false;
+  }
+  const target = cards.find((c) => c.itemId === parent);
+  if (!target) {
+    return false;
+  }
+  const pk = kindOf(target);
+  if (dk === "task" || dk === "subtask") {
+    if (pk === "task") {
+      // A subtask: the target is a task that is not itself a subtask, and
+      // the dragged task has no subtasks of its own (one level deep).
+      return !cards.some((c) => parentOf(c) === draggedId && !isPlanning(c));
+    }
+    return allowedParentKinds("task").includes(pk);
+  }
+  return allowedParentKinds(dk).includes(pk);
+}
+
+/** previewCards is the listing as it would read after the drop: the dragged
+ *  card under its new parent, at its place among the siblings, with the
+ *  lineage the breadcrumb would show. The subtree under it follows by its
+ *  own parent links. The tree built from this IS the preview. */
+export function previewCards(cards: readonly Card[], draggedId: string, placement: Placement): Card[] {
+  const dragged = cards.find((c) => c.itemId === draggedId);
+  if (!dragged) {
+    return [...cards];
+  }
+  const rest = cards.filter((c) => c.itemId !== draggedId);
+  const parent = placement.parent ? rest.find((c) => c.itemId === placement.parent) : undefined;
+  const moved: Card = {
+    ...dragged,
+    parent: placement.parent ?? undefined,
+    lineage: parent ? lineageOf(rest, parent.itemId) : undefined,
+  };
+  const siblings = siblingsUnder(rest, placement.parent, draggedId);
+  let at: number;
+  if (siblings.length === 0) {
+    const p = parent ? rest.indexOf(parent) : -1;
+    at = p < 0 ? rest.length : p + 1;
+  } else if (placement.index >= siblings.length) {
+    at = rest.indexOf(siblings[siblings.length - 1]) + 1;
+  } else {
+    at = rest.indexOf(siblings[placement.index]);
+  }
+  return [...rest.slice(0, at), moved, ...rest.slice(at)];
+}
+
+/** DropCommit is what a drop writes: the new parent when it changed, and
+ *  the card's place among its new siblings as the one move the server's
+ *  ordering takes — after the sibling before it, or before the first one
+ *  when it is first — plus the listing order the board applies at once. */
+export interface DropCommit {
+  parent: string | null;
+  parentChanged: boolean;
+  after: string | null;
+  before: string | null;
+  order: string[];
+}
+
+export function dropCommit(cards: readonly Card[], draggedId: string, placement: Placement): DropCommit {
+  const dragged = cards.find((c) => c.itemId === draggedId);
+  const after = previewCards(cards, draggedId, placement);
+  const siblings = after.filter((c) => parentOf(c) === placement.parent);
+  const i = siblings.findIndex((c) => c.itemId === draggedId);
+  return {
+    parent: placement.parent,
+    parentChanged: (dragged ? parentOf(dragged) : null) !== placement.parent,
+    after: i > 0 ? siblings[i - 1].itemId : null,
+    before: i === 0 && siblings.length > 1 ? siblings[1].itemId : null,
+    order: after.map((c) => c.itemId),
+  };
+}
 
 export const KIND_LABEL: Record<RoadmapKind, string> = {
   goal: "Goal",

@@ -7,13 +7,19 @@ import {
   buildTree,
   childrenNote,
   daysBetween,
+  dropCommit,
+  droppable,
   hierarchyChoices,
+  isUnder,
   kindOf,
   place,
+  placementFor,
   planningRemoval,
   planningRemovalPlan,
+  previewCards,
   rangeFor,
   rows,
+  zoneOf,
   statusOf,
   ticks,
   visibleLevels,
@@ -218,5 +224,107 @@ describe("the hierarchy's × and its two answers", () => {
     expect(childrenNote([goal, ini, epic, task, slot], "i")).toBe("The 2 cards under it move under «Grow».");
     expect(childrenNote([goal, ini], "g")).toBe("The card under it moves to the top.");
     expect(childrenNote([goal, ini], "i")).toBe("");
+  });
+});
+
+// Drag and drop on the tree: where a drop lands, what may land where, and
+// the preview — the listing as it would read after the drop, which the tree
+// draws before the pointer is released. The level rule holds throughout: a
+// card never changes its type by being dragged (H2).
+describe("dragging a row on the Roadmap", () => {
+  const all = [goal, ini, epic, task, sub, slot];
+  const goal2 = card({ itemId: "g2", title: "Retain", type: "goal" });
+  const ini2 = card({ itemId: "i2", title: "Support", type: "initiative", parent: "g2" });
+  const task2 = card({ itemId: "t2", title: "Mail", parent: "e" });
+  const wide = [...all, goal2, ini2, task2];
+  const drawn = (cards = wide) => rows(buildTree(cards), { from: "goal", to: "subtask" }, () => true);
+
+  it("reads the zone off the row's thirds: top before, middle into, bottom after", () => {
+    expect(zoneOf(0.1)).toBe("before");
+    expect(zoneOf(0.5)).toBe("into");
+    expect(zoneOf(0.9)).toBe("after");
+  });
+
+  it("lands before or after the hovered row among its parent's children, or under it", () => {
+    const r = drawn();
+    expect(placementFor(wide, r, "t2", "t", "before")).toEqual({ parent: "e", index: 0 });
+    expect(placementFor(wide, r, "t2", "t", "into")).toEqual({ parent: "t", index: 1 }); // after its subtask
+    // After an unfolded row with rows under it is the first place UNDER it.
+    expect(placementFor(wide, r, "t2", "e", "after")).toEqual({ parent: "e", index: 0 });
+    // After a leaf is the next place beside it.
+    expect(placementFor(wide, r, "t", "t2", "after")).toEqual({ parent: "e", index: 1 });
+    expect(placementFor(wide, r, "t", "t", "into")).toBeNull();
+  });
+
+  it("knows what is under what", () => {
+    expect(isUnder(wide, "s", "g")).toBe(true);
+    expect(isUnder(wide, "g", "s")).toBe(false);
+    expect(isUnder(wide, "t2", "i2")).toBe(false);
+  });
+
+  it("holds the level rule: a parent of a higher level, the top for planning cards only", () => {
+    expect(droppable(wide, "g2", null)).toBe(true);
+    expect(droppable(wide, "g2", "g")).toBe(false); // a goal under nothing
+    expect(droppable(wide, "i2", "g")).toBe(true);
+    expect(droppable(wide, "i2", "e")).toBe(false);
+    expect(droppable(wide, "e", "g2")).toBe(true);
+    expect(droppable(wide, "e", "i2")).toBe(true);
+    expect(droppable(wide, "e", "t")).toBe(false);
+    expect(droppable(wide, "t2", "i2")).toBe(true);
+    expect(droppable(wide, "t2", "g2")).toBe(true);
+    expect(droppable(wide, "t2", null)).toBe(false); // a task at the top would leave the Roadmap
+    expect(droppable(wide, "p", "e")).toBe(true);
+    expect(droppable(wide, "p", "t")).toBe(false); // a project card is nobody's subtask
+  });
+
+  it("makes a subtask of a task dropped on a task, one level deep", () => {
+    expect(droppable(wide, "t2", "t")).toBe(true);
+    expect(droppable(wide, "t", "t2")).toBe(false); // t has a subtask of its own
+    expect(droppable(wide, "t2", "s")).toBe(false); // s is a subtask
+  });
+
+  it("never drops a card on itself or under its own subtree", () => {
+    expect(droppable(wide, "i", "i")).toBe(false);
+    expect(droppable(wide, "i", "e")).toBe(false);
+    expect(droppable(wide, "g", "t")).toBe(false);
+  });
+
+  it("previews the listing as it would read after the drop", () => {
+    const after = previewCards(wide, "e", { parent: "i2", index: 0 });
+    const moved = after.find((c) => c.itemId === "e")!;
+    expect(moved.parent).toBe("i2");
+    expect(moved.lineage).toEqual([
+      { uid: "g2", type: "goal", title: "Retain" },
+      { uid: "i2", type: "initiative", title: "Support" },
+    ]);
+    // The subtree follows by its own links: the task is still the epic's.
+    const tree = buildTree(after);
+    const g2 = tree.find((n) => n.card.itemId === "g2")!;
+    expect(g2.children[0].children.map((n) => n.card.itemId)).toEqual(["e"]);
+    expect(g2.children[0].children[0].children.map((n) => n.card.itemId)).toEqual(["t", "t2"]);
+  });
+
+  it("orders the moved card among its new siblings at the place asked", () => {
+    const first = previewCards(wide, "t2", { parent: "e", index: 0 }).filter((c) => c.parent === "e");
+    expect(first.map((c) => c.itemId)).toEqual(["t2", "t"]);
+    const last = previewCards(wide, "t", { parent: "e", index: 5 }).filter((c) => c.parent === "e");
+    expect(last.map((c) => c.itemId)).toEqual(["t2", "t"]);
+    const top = previewCards(wide, "g2", { parent: null, index: 0 }).filter((c) => !c.parent);
+    expect(top.map((c) => c.itemId)).toEqual(["g2", "g"]);
+  });
+
+  it("commits one parent write and one ordering move", () => {
+    const toFirst = dropCommit(wide, "t2", { parent: "e", index: 0 });
+    expect(toFirst.parentChanged).toBe(false);
+    expect(toFirst.after).toBeNull();
+    expect(toFirst.before).toBe("t");
+    const under = dropCommit(wide, "e", { parent: "i2", index: 0 });
+    expect(under.parentChanged).toBe(true);
+    expect(under.parent).toBe("i2");
+    expect(under.after).toBeNull();
+    expect(under.before).toBeNull(); // the only child: nothing to order against
+    const second = dropCommit(wide, "t2", { parent: "e", index: 1 });
+    expect(second.after).toBe("t");
+    expect(second.order.indexOf("t")).toBeLessThan(second.order.indexOf("t2"));
   });
 });

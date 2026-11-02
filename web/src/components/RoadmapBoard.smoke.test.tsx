@@ -106,10 +106,10 @@ describe("the Roadmap's two panes", () => {
     expect(html).toContain("Invoices");
     expect(html).toContain("Render PDF");
     expect(html).toContain("Send by mail");
-    expect(html).not.toContain("roadmap-row\"><span class=\"roadmap-cell roadmap-cell-title\" style=\"padding-left:6px\"><button type=\"button\" class=\"roadmap-toggle\" aria-label=\"Fold\" aria-expanded=\"true\">▾</button><span class=\"roadmap-glyph roadmap-glyph-goal\"");
+    expect(html).not.toContain("kind-icon-goal"); // the goal is above the range
     // Depth is the indent: the epic one step in, its tasks two.
-    expect(html).toContain('style="padding-left:22px"');
-    expect(html).toContain('style="padding-left:38px"');
+    expect(html).toContain('style="padding-left:24px"');
+    expect(html).toContain('style="padding-left:42px"');
   });
 
   it("wears the server's standing on a planning card and a task's own on a task", () => {
@@ -138,9 +138,25 @@ describe("the Roadmap's two panes", () => {
   it("offers the + and the x on a planning row, and neither on a task", () => {
     const html = draw(board([goal, ini, epic, done, open]));
     expect(html).toContain('aria-label="Add under Billing v2"');
+    expect(html).toContain('aria-label="Add under Invoices"'); // an epic adds a task
     expect(html).toContain('aria-label="Delete Invoices"');
     expect(html).not.toContain('aria-label="Delete Render PDF"');
-    expect(html).not.toContain('aria-label="Add under Invoices"'); // an epic makes nothing below it here
+  });
+
+  it("draws the tree as a tree: a pictogram per kind, a chevron on a row with rows under it, guides by depth", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    expect(html).toContain("kind-icon-initiative");
+    expect(html).toContain("kind-icon-epic");
+    expect(html).toContain("kind-icon-task");
+    expect(html).toContain('class="roadmap-toggle roadmap-toggle-open"'); // the chevron, open, on a row with rows under it
+    expect(html).toContain('class="roadmap-toggle roadmap-toggle-none"'); // and a spacer on a leaf
+    expect(html.match(/roadmap-guide/g)?.length).toBe(1 + 2 + 2); // the epic one deep, its two tasks two deep
+  });
+
+  it("filters by nobody's team: a planning card has none", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    expect(html).not.toContain("team-filter-chip");
+    expect(html).toContain('aria-label="Assignee filter"');
   });
 
   it("keeps the + button's hover-only class off every row: a form that shared it was invisible", () => {

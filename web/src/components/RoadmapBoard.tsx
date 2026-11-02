@@ -1,11 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  pointerWithin,
+  rectIntersection,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragMoveEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 import { registerPendingCard } from "../api/pending";
 import { todayIso } from "../date";
 import type { Board, Card as CardModel, CardType, Provider } from "../providers/types";
 import {
   DEFAULT_DEPTH,
   DELETE_INTENT,
-  GLYPH,
   KIND_LABEL,
   LEVELS,
   STATUS_LABEL,
@@ -13,16 +27,24 @@ import {
   buildTree,
   childrenNote,
   daysBetween,
+  dropCommit,
+  droppable,
   fractionOf,
   hierarchyChoices,
+  isUnder,
   place,
+  placementFor,
   planningRemovalPlan,
+  previewCards,
   rangeFor,
   rows as rowsOf,
   statusOf,
   ticks as ticksOf,
+  zoneOf,
   type DepthRange,
+  type DropZone,
   type HierarchyChoice,
+  type Placement,
   type RoadmapKind,
   type Row,
   type Zoom,
@@ -30,24 +52,28 @@ import {
 import { barColor } from "../stages";
 import { isPlanning } from "../subtasks";
 import { AddCard } from "./AddCard";
+import { KindIcon } from "./KindIcon";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
-// The Roadmap: the hierarchy as a table of rows on the left and a timeline
+// The Roadmap: the hierarchy as a tree of rows on the left and a timeline
 // of bars on the right, one row per card from a goal down to a subtask
 // (docs/design/hierarchy.md, "The Roadmap tab"). What a row IS, which rows a
-// depth range draws, what a row's status is and where its bar lands are
-// roadmap.ts's answers; this component draws them and makes the two
-// gestures the board has — a planning card's create, and its x.
+// depth range draws, what a row's status is, where its bar lands, and what
+// a drag may do are roadmap.ts's answers; this component draws them and
+// makes the board's gestures — a create under a row, its ×, and the drag.
 
 interface RoadmapBoardProps {
   board: Board;
   provider: Provider;
-  /** The board's teams, for the filter chips. */
+  /** The board's teams. Kept for the add form; the Roadmap filters by
+   *  nobody's team, since a planning card has none. */
   roster: string[];
   patchCard: (itemId: string, patch: Partial<CardModel>) => void;
   addCard: (card: CardModel) => void;
   replaceCard: (itemId: string, card: CardModel) => void;
   removeCard: (itemId: string) => void;
+  /** The board's listing order, applied at once after a drop. */
+  reorderCards?: (orderedIds: string[]) => void;
   reload: () => void;
   onError: (message: string) => void;
   onOpen: (card: CardModel) => void;
@@ -63,9 +89,11 @@ const LS_FOLDED = "aeman.roadmap.folded";
 
 /** ROW_PX is the height of one row, on both sides, so the table and the
  *  timeline stay aligned without ever measuring each other. */
-const ROW_PX = 28;
+const ROW_PX = 30;
 const HEAD_PX = 26;
-const TABLE_PX = 520;
+const TABLE_PX = 540;
+/** INDENT_PX is one level of the tree. */
+const INDENT_PX = 18;
 
 /** pxPerDay is how wide a day is drawn at a zoom: three months read a week
  *  at a glance, a year reads a month, and Fit stretches its span to about
@@ -133,26 +161,167 @@ function readFolded(): Set<string> {
 const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** childLevels is what the + on a planning row may make under it: the
- *  levels below its own, down to an epic — a task is a day board's card and
- *  is filed here from its own detail pane, not born here (H7). */
-function childLevels(kind: RoadmapKind): CardType[] {
+ *  levels below its own, and under an epic a TASK — born with no team and
+ *  no day, it stands in the Triage strip until somebody plans it (H7). */
+function childLevels(kind: RoadmapKind): (CardType | "task")[] {
   if (kind === "goal") {
     return ["initiative", "epic"];
   }
   if (kind === "initiative") {
     return ["epic"];
   }
+  if (kind === "epic") {
+    return ["task"];
+  }
   return [];
+}
+
+/** The pointer picks the row under it; when it is over none (the gap at the
+ *  bottom), the nearest overlapping one. */
+const detect: CollisionDetection = (args) => {
+  const within = pointerWithin(args);
+  return within.length > 0 ? within : rectIntersection(args);
+};
+
+/** Hover is where the drag stands: the row under it, the zone of that row,
+ *  the placement that reads as, and whether the level rule allows it. */
+interface Hover {
+  overId: string;
+  zone: DropZone;
+  placement: Placement | null;
+  valid: boolean;
+}
+
+interface RowProps {
+  row: Row;
+  today: string;
+  open: boolean;
+  focus: boolean;
+  ghost: boolean;
+  forbid: boolean;
+  dropZone: DropZone | null;
+  dragging: boolean;
+  onToggle: () => void;
+  onOpen: () => void;
+  onAdd: (() => void) | null;
+  onRemove: (() => void) | null;
+  rowRef: (el: HTMLDivElement | null) => void;
+}
+
+/** RoadmapRow is one line of the table: draggable, a drop target, and the
+ *  row's own controls. The tree is drawn by indent guides and a chevron
+ *  with a hand's worth of hit area, the kind by its pictogram. */
+function RoadmapRow({ row, today, open, focus, ghost, forbid, dropZone, dragging, onToggle, onOpen, onAdd, onRemove, rowRef }: RowProps) {
+  const { node, depth, foldable } = row;
+  const card = node.card;
+  const id = card.itemId;
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id });
+  const { setNodeRef: setDropRef } = useDroppable({ id });
+  const planning = isPlanning(card);
+  const status = statusOf(card);
+  const cls = [
+    "roadmap-row",
+    focus ? "roadmap-row-focus" : "",
+    ghost || isDragging ? "roadmap-row-ghost" : "",
+    forbid ? "roadmap-row-forbid" : "",
+    dropZone && !ghost ? `roadmap-row-drop-${dropZone}` : "",
+    dragging ? "roadmap-row-while-drag" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    <div
+      ref={(el) => {
+        setDragRef(el);
+        setDropRef(el);
+        rowRef(el);
+      }}
+      className={cls}
+      style={{ height: ROW_PX }}
+      onClick={onOpen}
+      {...attributes}
+      {...listeners}
+    >
+      <span className="roadmap-cell roadmap-cell-title" style={{ paddingLeft: 6 + depth * INDENT_PX }}>
+        {Array.from({ length: depth }, (_, i) => (
+          <span key={i} className="roadmap-guide" style={{ left: 6 + i * INDENT_PX + 10 }} aria-hidden="true" />
+        ))}
+        {foldable > 0 ? (
+          <button
+            type="button"
+            className={`roadmap-toggle${open ? " roadmap-toggle-open" : ""}`}
+            aria-label={open ? "Fold" : `Unfold ${foldable}`}
+            aria-expanded={open}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+              <path d="M5.5 3.5 10 8l-4.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        ) : (
+          <span className="roadmap-toggle roadmap-toggle-none" aria-hidden="true" />
+        )}
+        <KindIcon kind={node.kind} size={15} />
+        <span className="roadmap-title" title={card.title}>
+          {card.title}
+        </span>
+        {planning && card.hierarchy && card.hierarchy.total > 0 && (
+          <span className="roadmap-count" title={`${card.hierarchy.done} of ${card.hierarchy.total} tasks done`}>
+            {card.hierarchy.done}/{card.hierarchy.total}
+          </span>
+        )}
+        {onAdd && (
+          <button
+            type="button"
+            className="roadmap-row-add"
+            title={`Add under «${card.title}»`}
+            aria-label={`Add under ${card.title}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAdd();
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            +
+          </button>
+        )}
+        {onRemove && (
+          <button
+            type="button"
+            className="roadmap-row-x"
+            title={`Delete «${card.title}», or take it out from under its parent`}
+            aria-label={`Delete ${card.title}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            ×
+          </button>
+        )}
+      </span>
+      <span className="roadmap-cell roadmap-cell-date">{shortDate(card.startDate, today)}</span>
+      <span className="roadmap-cell roadmap-cell-date">{shortDate(card.day, today)}</span>
+      <span className="roadmap-cell">
+        <span className={`roadmap-status roadmap-status-${status}`}>{STATUS_LABEL[status]}</span>
+      </span>
+    </div>
+  );
 }
 
 export function RoadmapBoard({
   board,
   provider,
-  roster,
   patchCard,
   addCard,
   replaceCard,
   removeCard,
+  reorderCards,
   reload,
   onError,
   onOpen,
@@ -163,7 +332,6 @@ export function RoadmapBoard({
   const [depth, setDepthState] = useState<DepthRange>(readDepth);
   const [zoom, setZoomState] = useState<Zoom>(readZoom);
   const [folded, setFoldedState] = useState<Set<string>>(readFolded);
-  const [teamFilter, setTeamFilter] = useState<string[] | null>(null);
   const [whoFilter, setWhoFilter] = useState<string | null>(null);
   // The planning row the + was pressed on, whose create form is open.
   const [addingUnder, setAddingUnder] = useState<string | null>(null);
@@ -204,17 +372,9 @@ export function RoadmapBoard({
     setFolded(next);
   };
 
-  // The teams and people on the Roadmap, for the chips: the roster's teams
-  // plus any a card names, and every assignee a card carries.
-  const teams = useMemo(() => {
-    const out = new Set(roster);
-    for (const c of board.cards) {
-      if (c.team) {
-        out.add(c.team);
-      }
-    }
-    return [...out];
-  }, [roster, board.cards]);
+  // The people on the Roadmap, for the one filter it has: every assignee a
+  // task carries. There is no team filter — a planning card has no team,
+  // and the rows a lead reads here are the planning cards.
   const people = useMemo(() => {
     const out = new Set<string>();
     for (const c of board.cards) {
@@ -229,14 +389,12 @@ export function RoadmapBoard({
   // lineage names them), so a matching task still stands under its epic
   // and the epic under its goal — a tree with holes is no tree.
   const shown = useMemo(() => {
-    if (!teamFilter && !whoFilter) {
+    if (!whoFilter) {
       return board.cards;
     }
     const keep = new Set<string>();
     for (const c of board.cards) {
-      const teamOk = !teamFilter || teamFilter.includes(c.team ?? "");
-      const whoOk = !whoFilter || c.assignees.includes(whoFilter);
-      if (teamOk && whoOk) {
+      if (c.assignees.includes(whoFilter)) {
         keep.add(c.itemId);
         for (const up of c.lineage ?? []) {
           keep.add(up.uid);
@@ -244,13 +402,120 @@ export function RoadmapBoard({
       }
     }
     return board.cards.filter((c) => keep.has(c.itemId));
-  }, [board.cards, teamFilter, whoFilter]);
+  }, [board.cards, whoFilter]);
 
-  const tree = useMemo(() => buildTree(shown), [shown]);
+  // ---- the drag: where it stands, and the preview of where it would land ----
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [hover, setHover] = useState<Hover | null>(null);
+  const justDropped = useRef(false);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const expanded = (id: string) => !folded.has(id);
+  const baseRows = useMemo(() => rowsOf(buildTree(shown), depth, expanded), [shown, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
+  // While a drag stands over a place it may land, the rows are the listing
+  // as it would read after the drop: the subtree is drawn there, dimmed,
+  // before the pointer is released (roadmap.previewCards).
+  const previewed = dragging && hover?.valid && hover.placement ? previewCards(shown, dragging, hover.placement) : null;
   const rows = useMemo(
-    () => rowsOf(tree, depth, (id) => !folded.has(id)),
-    [tree, depth, folded],
+    () => (previewed ? rowsOf(buildTree(previewed), depth, expanded) : baseRows),
+    [previewed, baseRows, depth, folded], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  const ghosts = useMemo(() => {
+    if (!dragging || !previewed) {
+      return new Set<string>();
+    }
+    const out = new Set<string>([dragging]);
+    for (const c of previewed) {
+      if (isUnder(previewed, c.itemId, dragging)) {
+        out.add(c.itemId);
+      }
+    }
+    return out;
+  }, [dragging, previewed]);
+
+  const onDragStart = (e: DragStartEvent) => {
+    setDragging(String(e.active.id));
+    setHover(null);
+    setAddingUnder(null);
+  };
+  const onDragMove = (e: DragMoveEvent) => {
+    if (!dragging) {
+      return;
+    }
+    const over = e.over;
+    if (!over) {
+      setHover(null);
+      return;
+    }
+    const overId = String(over.id);
+    // The preview puts the dragged rows under the pointer; a reading off
+    // one of them would undo the preview that put them there. Keep what
+    // was read off the row before.
+    if (overId === dragging || (previewed && isUnder(previewed, overId, dragging))) {
+      return;
+    }
+    const lifted = e.active.rect.current.translated;
+    if (!lifted) {
+      return;
+    }
+    const fraction = (lifted.top + lifted.height / 2 - over.rect.top) / Math.max(over.rect.height, 1);
+    const zone = zoneOf(fraction);
+    const placement = placementFor(shown, baseRows, dragging, overId, zone);
+    const valid = !!placement && droppable(shown, dragging, placement.parent);
+    setHover((cur) =>
+      cur && cur.overId === overId && cur.zone === zone && cur.valid === valid ? cur : { overId, zone, placement, valid },
+    );
+  };
+  const settle = () => {
+    setDragging(null);
+    setHover(null);
+    justDropped.current = true;
+    window.setTimeout(() => {
+      justDropped.current = false;
+    }, 0);
+  };
+  const onDragEnd = (e: DragEndEvent) => {
+    const id = String(e.active.id);
+    const h = hover;
+    settle();
+    if (!h || !h.valid || !h.placement) {
+      return;
+    }
+    const card = board.cards.find((c) => c.itemId === id);
+    if (!card) {
+      return;
+    }
+    const commit = dropCommit(shown, id, h.placement);
+    const before = { parent: card.parent, lineage: card.lineage };
+    const parent = commit.parent ? board.cards.find((c) => c.itemId === commit.parent) : undefined;
+    if (commit.parentChanged) {
+      patchCard(id, {
+        parent: commit.parent ?? undefined,
+        lineage: parent ? [...(parent.lineage ?? []), { uid: parent.itemId, type: parent.type, title: parent.title }] : undefined,
+      });
+    }
+    // The listing order is the board's; with a filter on, the order of what
+    // is shown says nothing about the rest, so it is left to the response.
+    if (shown === board.cards) {
+      reorderCards?.(commit.order);
+    }
+    const write = async () => {
+      if (commit.parentChanged) {
+        await provider.patchCard(id, { parent: commit.parent ?? "" });
+      }
+      if (commit.after) {
+        await provider.moveCard(id, commit.after);
+      } else if (commit.before) {
+        await provider.moveCardBefore(id, commit.before);
+      }
+    };
+    void write().catch((err: unknown) => {
+      patchCard(id, before);
+      onError(errText(err));
+      reload();
+    });
+  };
+
   const bars = useMemo(() => rows.map((r) => barOf(r.node.card)), [rows]);
   const range = useMemo(() => rangeFor(zoom, today, bars), [zoom, today, bars]);
   const days = daysBetween(range.from, range.to) + 1;
@@ -285,14 +550,15 @@ export function RoadmapBoard({
     }
   }, [focusRow, rows]);
 
-  // ---- the create: a planning card, at the top or under a planning row ----
-  const createPlanning = (title: string, type: CardType, parent?: string) => {
+  // ---- the create: a planning card at the top, or anything under a planning row ----
+  const createUnder = (title: string, level: CardType | "task", parent?: string) => {
     const trimmed = title.trim();
     if (!trimmed) {
       return;
     }
     const tempId = `tmp-${new Date().toISOString()}`;
     const up = parent ? board.cards.find((c) => c.itemId === parent) : undefined;
+    const type = level === "task" ? undefined : level;
     addCard({
       itemId: tempId,
       title: trimmed,
@@ -305,7 +571,7 @@ export function RoadmapBoard({
       description: "",
       progress: 0,
     });
-    const created = provider.createCard({ title: trimmed, type, parent: parent ?? null });
+    const created = provider.createCard({ title: trimmed, type, parent: parent ?? null, underPlanning: level === "task" });
     registerPendingCard(
       tempId,
       created.then((c) => c.itemId),
@@ -318,10 +584,7 @@ export function RoadmapBoard({
       });
   };
 
-  // ---- the x: the Team board's own question — delete it, or only unlink it ----
-  // The card the × was pressed on, while the dialog asks. One answer
-  // destroys (the rows under it move up a level), the other only takes the
-  // card out from under its parent; the plan for either is roadmap.ts's.
+  // ---- the ×: the Team board's own question — delete it, or only unlink it ----
   const [removeChoice, setRemoveChoice] = useState<CardModel | null>(null);
   const answerRemoval = (card: CardModel, choice: HierarchyChoice) => {
     const plan = planningRemovalPlan(board.cards, card.itemId, choice);
@@ -353,95 +616,9 @@ export function RoadmapBoard({
       </option>
     ));
 
-  const planningOptions = (levels: CardType[]) =>
-    levels.map((k) => ({ key: k, label: KIND_LABEL[k] }));
+  const planningOptions = (levels: (CardType | "task")[]) => levels.map((k) => ({ key: k, label: KIND_LABEL[k] }));
 
-  const row = (r: Row) => {
-    const { node, depth: d, foldable } = r;
-    const card = node.card;
-    const planning = isPlanning(card);
-    const status = statusOf(card);
-    const open = !folded.has(card.itemId);
-    const kids = childLevels(node.kind);
-    return (
-      <div
-        key={card.itemId}
-        ref={(el) => {
-          if (el) {
-            rowRefs.current.set(card.itemId, el);
-          } else {
-            rowRefs.current.delete(card.itemId);
-          }
-        }}
-        className={`roadmap-row${focusRow === card.itemId ? " roadmap-row-focus" : ""}`}
-        style={{ height: ROW_PX }}
-        onClick={() => onOpen(card)}
-      >
-        <span className="roadmap-cell roadmap-cell-title" style={{ paddingLeft: 6 + d * 16 }}>
-          {foldable > 0 ? (
-            <button
-              type="button"
-              className="roadmap-toggle"
-              aria-label={open ? "Fold" : `Unfold ${foldable}`}
-              aria-expanded={open}
-              onClick={(e) => {
-                e.stopPropagation();
-                toggle(card.itemId);
-              }}
-            >
-              {open ? "▾" : "▸"}
-            </button>
-          ) : (
-            <span className="roadmap-toggle roadmap-toggle-none" aria-hidden="true" />
-          )}
-          <span className={`roadmap-glyph roadmap-glyph-${node.kind}`} title={KIND_LABEL[node.kind]} aria-hidden="true">
-            {GLYPH[node.kind]}
-          </span>
-          <span className="roadmap-title" title={card.title}>
-            {card.title}
-          </span>
-          {planning && card.hierarchy && card.hierarchy.total > 0 && (
-            <span className="roadmap-count" title={`${card.hierarchy.done} of ${card.hierarchy.total} tasks done`}>
-              {card.hierarchy.done}/{card.hierarchy.total}
-            </span>
-          )}
-          {planning && kids.length > 0 && (
-            <button
-              type="button"
-              className="roadmap-row-add"
-              title={`Add under «${card.title}»`}
-              aria-label={`Add under ${card.title}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                setAddingUnder(addingUnder === card.itemId ? null : card.itemId);
-              }}
-            >
-              +
-            </button>
-          )}
-          {planning && (
-            <button
-              type="button"
-              className="roadmap-row-x"
-              title={`Delete «${card.title}»`}
-              aria-label={`Delete ${card.title}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                setRemoveChoice(card);
-              }}
-            >
-              ×
-            </button>
-          )}
-        </span>
-        <span className="roadmap-cell roadmap-cell-date">{shortDate(card.startDate, today)}</span>
-        <span className="roadmap-cell roadmap-cell-date">{shortDate(card.day, today)}</span>
-        <span className="roadmap-cell">
-          <span className={`roadmap-status roadmap-status-${status}`}>{STATUS_LABEL[status]}</span>
-        </span>
-      </div>
-    );
-  };
+  const draggedCard = dragging ? board.cards.find((c) => c.itemId === dragging) : null;
 
   const lane = (r: Row, i: number) => {
     const card = r.node.card;
@@ -451,7 +628,12 @@ export function RoadmapBoard({
     const planning = isPlanning(card);
     const fill = planning ? undefined : done ? "var(--stage-done)" : barColor(card.stage);
     return (
-      <div key={card.itemId} className="roadmap-lane" style={{ height: ROW_PX }} onClick={() => onOpen(card)}>
+      <div
+        key={card.itemId}
+        className={`roadmap-lane${ghosts.has(card.itemId) ? " roadmap-lane-ghost" : ""}`}
+        style={{ height: ROW_PX }}
+        onClick={() => onOpen(card)}
+      >
         {placed && bar && (
           <div
             className={[
@@ -490,7 +672,7 @@ export function RoadmapBoard({
             options: planningOptions(["initiative", "epic", "goal"]),
             initial: "initiative",
           }}
-          onCreate={(title, _team, picked) => createPlanning(title, (picked as CardType) || "initiative")}
+          onCreate={(title, _team, picked) => createUnder(title, (picked as CardType) || "initiative")}
         />
         <label className="roadmap-depth">
           <span className="roadmap-depth-label">Hierarchy</span>
@@ -525,30 +707,6 @@ export function RoadmapBoard({
         <span className="roadmap-range" title="The window the timeline shows">
           {shortDate(range.from, today)} – {shortDate(range.to, today)}
         </span>
-        <div className="team-chips roadmap-chips" aria-label="Team filter">
-          {teams.map((t) => {
-            const on = !!teamFilter && teamFilter.includes(t);
-            return (
-              <button
-                key={t || "(no team)"}
-                type="button"
-                className={`team-chip team-filter-chip${on ? " team-chip-on" : ""}`}
-                aria-pressed={on}
-                onClick={() =>
-                  setTeamFilter(
-                    on
-                      ? teamFilter!.length === 1
-                        ? null
-                        : teamFilter!.filter((x) => x !== t)
-                      : [...(teamFilter ?? []), t],
-                  )
-                }
-              >
-                <span className="team-chip-name">{t || "No team"}</span>
-              </button>
-            );
-          })}
-        </div>
         {people.length > 0 && (
           <select
             className="roadmap-who"
@@ -569,66 +727,113 @@ export function RoadmapBoard({
       {rows.length === 0 ? (
         <p className="placeholder roadmap-empty">
           {board.cards.length === 0
-            ? "Nothing on the roadmap yet: add a goal, an initiative or an epic, and file work under it from a card's detail pane."
+            ? "Nothing on the roadmap yet: add a goal, an initiative or an epic, and file work under it from a card's pane."
             : "Nothing to draw at this depth and filter."}
         </p>
       ) : (
-        <div className="roadmap-body">
-          <div className="roadmap-table" style={{ width: TABLE_PX }}>
-            <div className="roadmap-head" style={{ height: HEAD_PX }}>
-              <span className="roadmap-cell roadmap-cell-title">Card</span>
-              <span className="roadmap-cell roadmap-cell-date">Start</span>
-              <span className="roadmap-cell roadmap-cell-date">End</span>
-              <span className="roadmap-cell">Status</span>
-            </div>
-            {rows.map((r) => (
-              <div key={r.node.card.itemId} className="roadmap-rowgroup">
-                {row(r)}
-                {addingRow && addingRow.node.card.itemId === r.node.card.itemId && (
-                  <div className="roadmap-row roadmap-row-form" style={{ paddingLeft: 30 + (r.depth + 1) * 16 }}>
-                    <AddCard
-                      autoOpen
-                      compact
-                      placeholder={`Under «${r.node.card.title}»…`}
-                      forcedTeam={null}
-                      picker={{
-                        title: "Level",
-                        options: planningOptions(childLevels(r.node.kind)),
-                        initial: childLevels(r.node.kind)[0],
-                      }}
-                      onCreate={(title, _team, picked) => {
-                        createPlanning(title, (picked as CardType) || childLevels(r.node.kind)[0], r.node.card.itemId);
-                      }}
-                      onClosed={() => setAddingUnder(null)}
-                    />
-                  </div>
-                )}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={detect}
+          onDragStart={onDragStart}
+          onDragMove={onDragMove}
+          onDragEnd={onDragEnd}
+          onDragCancel={settle}
+        >
+          <div className={`roadmap-body${dragging ? " roadmap-body-dragging" : ""}`}>
+            <div className="roadmap-table" style={{ width: TABLE_PX }}>
+              <div className="roadmap-head" style={{ height: HEAD_PX }}>
+                <span className="roadmap-cell roadmap-cell-title">Card</span>
+                <span className="roadmap-cell roadmap-cell-date">Start</span>
+                <span className="roadmap-cell roadmap-cell-date">End</span>
+                <span className="roadmap-cell">Status</span>
               </div>
-            ))}
-          </div>
-          <div className="roadmap-timeline">
-            <div className="roadmap-track" style={{ width: trackW }}>
-              <div className="roadmap-ticks" style={{ height: HEAD_PX }}>
-                {ticks.map((t) => (
-                  <span key={t.date} className="roadmap-tick" style={{ left: `${fractionOf(t.date, range) * 100}%` }}>
-                    {t.label}
-                  </span>
+              {rows.map((r) => {
+                const card = r.node.card;
+                const planning = isPlanning(card);
+                const kids = childLevels(r.node.kind);
+                const isOver = !!hover && hover.overId === card.itemId;
+                return (
+                  <div key={card.itemId} className="roadmap-rowgroup">
+                    <RoadmapRow
+                      row={r}
+                      today={today}
+                      open={!folded.has(card.itemId)}
+                      focus={focusRow === card.itemId}
+                      ghost={ghosts.has(card.itemId)}
+                      forbid={isOver && !hover.valid}
+                      dropZone={isOver && hover.valid ? hover.zone : null}
+                      dragging={!!dragging}
+                      onToggle={() => toggle(card.itemId)}
+                      onOpen={() => {
+                        if (!justDropped.current && !dragging) {
+                          onOpen(card);
+                        }
+                      }}
+                      onAdd={planning && kids.length > 0 ? () => setAddingUnder(addingUnder === card.itemId ? null : card.itemId) : null}
+                      onRemove={planning ? () => setRemoveChoice(card) : null}
+                      rowRef={(el) => {
+                        if (el) {
+                          rowRefs.current.set(card.itemId, el);
+                        } else {
+                          rowRefs.current.delete(card.itemId);
+                        }
+                      }}
+                    />
+                    {addingRow && addingRow.node.card.itemId === card.itemId && (
+                      <div className="roadmap-row roadmap-row-form" style={{ paddingLeft: 30 + (r.depth + 1) * INDENT_PX }}>
+                        <AddCard
+                          autoOpen
+                          compact
+                          placeholder={`Under «${card.title}»…`}
+                          forcedTeam={null}
+                          picker={{
+                            title: "Level",
+                            options: planningOptions(kids),
+                            initial: kids[0],
+                          }}
+                          onCreate={(title, _team, picked) => {
+                            createUnder(title, (picked as CardType | "task") || kids[0], card.itemId);
+                          }}
+                          onClosed={() => setAddingUnder(null)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="roadmap-timeline">
+              <div className="roadmap-track" style={{ width: trackW }}>
+                <div className="roadmap-ticks" style={{ height: HEAD_PX }}>
+                  {ticks.map((t) => (
+                    <span key={t.date} className="roadmap-tick" style={{ left: `${fractionOf(t.date, range) * 100}%` }}>
+                      {t.label}
+                    </span>
+                  ))}
+                </div>
+                {todayAt !== null && (
+                  <div className="roadmap-today" style={{ left: `${todayAt * 100}%` }} title={`Today, ${today}`} />
+                )}
+                {rows.map((r, i) => (
+                  <div key={r.node.card.itemId} className="roadmap-lanegroup">
+                    {lane(r, i)}
+                    {addingRow && addingRow.node.card.itemId === r.node.card.itemId && (
+                      <div className="roadmap-lane" style={{ height: ROW_PX }} />
+                    )}
+                  </div>
                 ))}
               </div>
-              {todayAt !== null && (
-                <div className="roadmap-today" style={{ left: `${todayAt * 100}%` }} title={`Today, ${today}`} />
-              )}
-              {rows.map((r, i) => (
-                <div key={r.node.card.itemId} className="roadmap-lanegroup">
-                  {lane(r, i)}
-                  {addingRow && addingRow.node.card.itemId === r.node.card.itemId && (
-                    <div className="roadmap-lane" style={{ height: ROW_PX }} />
-                  )}
-                </div>
-              ))}
             </div>
           </div>
-        </div>
+          <DragOverlay dropAnimation={null}>
+            {draggedCard && (
+              <div className={`roadmap-drag-overlay${hover && !hover.valid ? " roadmap-drag-overlay-forbid" : ""}`}>
+                <KindIcon kind={buildTree([draggedCard])[0].kind} size={15} />
+                <span className="roadmap-title">{draggedCard.title}</span>
+              </div>
+            )}
+          </DragOverlay>
+        </DndContext>
       )}
       {removeChoice && (
         <RemoveChoiceDialog
