@@ -21,7 +21,7 @@ GET    /api/v1/views                                  the boards this caller may
 GET    /api/v1/views/{view}/cards?…                   LIST, scoped to that board
 GET    /api/v1/views/{view}/watch?…                   WATCH, the same scope
 POST   /api/v1/views/{view}/cards                     create — what a card MEANS on that board
-POST   /api/v1/views/{view}/cards/{uid}/actions/{g}   a board GESTURE: remove, place, untriage, finished-earlier
+POST   /api/v1/views/{view}/cards/{uid}/actions/{g}   a board GESTURE: remove, place, untriage, finished-earlier, own
 ```
 
 and, unchanged, the card addressed as itself (the day feed, `GET /api/v1/logs?day=&uids=`, stays with it: the uids are given, so no board narrows it):
@@ -88,6 +88,7 @@ Every board but the roadmap refuses `type`: a goal, an initiative or an epic is 
 | `place` | `triage` | give the card a week |
 | `untriage` | `triage` | take the week back, into the strip |
 | `finished-earlier` | `me`, `team` | work done in the sprint before this one, marked done now |
+| `own` | `roadmap`, `me`, `team`, `triage`, `backlog` — every board that draws a task | whose is this: a team and a person, a team alone, or nobody — and where an unplanned card goes when told (`hierarchy.md`, "Owner", H10) |
 
 A gesture asked of a view that does not draw it is **404** — the same answer as asking for a route that is not there, because that is what it is.
 

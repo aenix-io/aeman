@@ -350,6 +350,49 @@ board's cards included, where a double click used to be the only way in).
 The Triage board draws no deadline markers any more — the project cards
 they marked are off it, and the lines stay on the Project board.
 
+## Owner
+
+A task has one owner: a **team**, and a **person** on that team — or
+neither. The Roadmap asks for it in one place (the Owner cell of a task
+row, the Owner row of the drawer) and answers it with one gesture,
+**`own`** (`POST /api/v1/views/{view}/cards/{uid}/actions/own
+{team?, person?}`, MCP `own_card`), offered by every board that draws a
+task — the Roadmap, Me, Team, Triage, its Backlog pane, and `all` — and
+not by the Project board, which draws no task. A person is picked FROM a
+team: a person without a team is refused (`ownerNeedsTeam`), a team
+without a person is the whole answer, both empty takes the owner off.
+
+What the answer **does** depends on whether the card has a plan — a day,
+a week or a sprint — because the Roadmap lists the loose work (H9) and
+giving it a home means putting it where a day board draws it:
+
+- a **person** files an **unplanned** card the way typing it into their
+  Me board would: on the team, today, in the unplanned band, in the
+  team's sprint, off any shelf — so it stands on their Team and Me boards
+  at once. A **planned** card changes hands and keeps its plan; moving
+  team joins that team's sprint, as the Team board's team menu does.
+- a **team alone** parks an **unplanned** card on that team's shelf — its
+  Backlog on Triage — with nobody on it and in no sprint; a **planned**
+  card moves team, keeps its plan, and loses its person.
+- **nobody** takes the team and the person off: a planned card keeps its
+  plan in the no-team group; an unplanned one leaves the shelf, if it was
+  on one, and is the strip's again.
+
+Subtasks follow the task's team and person, as they do everywhere (S9);
+a subtask is not asked, and neither is a review card — its person is
+whoever was asked to review (`ownerFollowsLink`). A planning card and a
+project card carry no owner at all (H3, H4).
+
+**The reviewer** is the other person a task can have, and it has its own
+doors already: a card on review names its reviewer through
+`send-to-review {reviewer}` — which **reassigns** when a review card
+exists, creating one otherwise — and loses them through
+`remove-reviewer`; MCP `send_to_review` / `remove_reviewer` are the same
+pair. The drawer's Reviewer row calls those; there is no second door.
+The reviewer picker offers the people who can read the card's
+repository, as it always has; the server does not refuse a reviewer the
+picker would not offer (a direct writer can name anyone).
+
 ## API and MCP
 
 Removed: every `/processes*` route and schema, `spec.process`,
@@ -375,7 +418,11 @@ Added: `spec.type` (`goal` | `initiative` | `epic`, absent for a task),
 repository); `create_card` takes `type`, `update_card` takes `parent`,
 `list_cards view=roadmap`. No tool per level: a goal is a card. There is
 no door that changes a card's type: the level is fixed at create, and a
-card that should be another level is made again.
+card that should be another level is made again. The gesture `own`
+(`/views/{view}/cards/{uid}/actions/own`, MCP `own_card`) with the
+problem codes `ownerNeedsTeam` and `ownerFollowsLink` (the Owner
+section above); `GET /api/v1/views` lists it on every board that draws a
+task.
 
 ## Rules pinned
 
@@ -450,12 +497,45 @@ card that should be another level is made again.
   (`createView`).
 - H8 — schema 2: the five steps, idempotent, and what a pre-migration
   day still shows.
+- H9 — the Roadmap also lists, below the tree, every open task with no
+  planning card above it (in hand, parked, in the strip); a finished one
+  outside the hierarchy, a project card in none, and a subtask whose
+  parent is out stay out; the gate and the watch follow. Pinned by
+  apiserver `TestTheRoadmapListsTheHierarchy`; server
+  `TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap`.
+- H10 — `own`: a team and a person, a team alone, or nobody; a person
+  files an unplanned card like a Me-board create, a team alone parks it,
+  a planned card only changes hands; a person needs a team; a subtask, a
+  review card, a planning card and a project card are refused; offered by
+  every board that draws a task. Pinned by service
+  `TestOwnGivesLooseWorkAHome`, `TestOwnIsOfferedWhereATaskIsDrawn`;
+  server `TestOwnIsAnsweredByTheBoardsThatDrawATask`,
+  `TestTheCatalogNamesTheBoardsAndTheirGestures`; mcp
+  `TestMCPListsTools`, `TestTheToolSetHoldsWhatTheBoardsDo`.
+- H11 — the reviewer's doors are `send-to-review` (reassigns when a
+  review exists) and `remove-reviewer`, on REST and MCP alike; nothing
+  else sets a reviewer. Pinned by service
+  `TestReassignReviewerOnExistingReview`,
+  `TestReassignReviewerWithoutReviewSendsToReview`,
+  `TestRemoveReviewerDeletesReviewCard`.
 
 Retired: G28, G29, G38, G56 (processes); G15, G54, G57 (mirrors, and the
 subtask-in-a-column rule); B14 and the slot clauses of D2/D6 together
 with the week derivation (the slot rule) — each row kept and marked
 removed, the way B7 is. (D17, the week-planned card on its owner's Me
 board, is not the slot rule and stays.)
+
+## Open questions
+
+- **TODO — the backlog is per team, and should be per value stream.** A
+  shelf belongs to a team today (`board.InBacklog`, keyed by the card's
+  `team`; the Triage drawer draws one per team), and `own` with a team
+  alone parks a card on that team's shelf. The user's direction
+  (2026-11-02) is that the backlog be reworked around the chain that
+  delivers value — a product, a customer, a flow — rather than the
+  organisational unit, because a team is not what a piece of work is
+  waiting FOR. Deferred: the team-keyed shelf stays until the chain is a
+  thing the board can name.
 
 ## Rollout
 
