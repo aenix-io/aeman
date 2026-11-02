@@ -1565,6 +1565,8 @@ export function App() {
             board={board}
             provider={provider}
             roster={roster}
+            avatars={avatars}
+            names={names}
             patchCard={patchCard}
             addCard={addCard}
             replaceCard={replaceCard}

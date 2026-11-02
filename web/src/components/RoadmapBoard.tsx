@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -55,8 +55,13 @@ import {
 } from "../roadmap";
 import { barColor } from "../stages";
 import { isPlanning } from "../subtasks";
+import { teamColor } from "../avatar";
+import { ownerLabel, ownerOf, type Owner } from "../owner";
+import { displayName, type Avatars, type Names } from "../users";
 import { AddCard } from "./AddCard";
+import { Avatar } from "./Avatar";
 import { KindIcon } from "./KindIcon";
+import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
 // The Roadmap: the hierarchy as a tree of rows on the left and a timeline
@@ -69,9 +74,11 @@ import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 interface RoadmapBoardProps {
   board: Board;
   provider: Provider;
-  /** The board's teams. Kept for the add form; the Roadmap filters by
+  /** The board's teams: what the Owner column offers. The Roadmap filters by
    *  nobody's team, since a planning card has none. */
   roster: string[];
+  avatars?: Avatars;
+  names?: Names;
   patchCard: (itemId: string, patch: Partial<CardModel>) => void;
   addCard: (card: CardModel) => void;
   replaceCard: (itemId: string, card: CardModel) => void;
@@ -95,7 +102,7 @@ const LS_FOLDED = "aeman.roadmap.folded";
  *  timeline stay aligned without ever measuring each other. */
 const ROW_PX = 30;
 const HEAD_PX = 26;
-const TABLE_PX = 540;
+const TABLE_PX = 680;
 /** INDENT_PX is one level of the tree. */
 const INDENT_PX = 18;
 
@@ -219,6 +226,9 @@ interface RowProps {
   onOpen: () => void;
   onAdd: (() => void) | null;
   onRemove: (() => void) | null;
+  /** The Owner cell's content, for a task-kind row; nothing on a planning
+   *  card or a project card, which have no owner. */
+  owner: ReactNode;
   rowRef: (el: HTMLDivElement | null) => void;
 }
 
@@ -227,7 +237,7 @@ interface RowProps {
  *  with a hand's worth of hit area, the kind by its pictogram. A drag's
  *  preview is the moved rows themselves, dimmed — the row under the pointer
  *  wears no outline and no line of its own. */
-function RoadmapRow({ row, section, today, open, focus, ghost, forbid, dragging, onToggle, onOpen, onAdd, onRemove, rowRef }: RowProps) {
+function RoadmapRow({ row, section, today, open, focus, ghost, forbid, dragging, onToggle, onOpen, onAdd, onRemove, owner, rowRef }: RowProps) {
   const { node, depth, foldable } = row;
   const card = node.card;
   const id = card.itemId;
@@ -322,6 +332,7 @@ function RoadmapRow({ row, section, today, open, focus, ghost, forbid, dragging,
           </button>
         )}
       </span>
+      <span className="roadmap-cell roadmap-cell-owner">{owner}</span>
       <span className="roadmap-cell roadmap-cell-date">{shortDate(card.startDate, today)}</span>
       <span className="roadmap-cell roadmap-cell-date">{shortDate(card.day, today)}</span>
       <span className="roadmap-cell">
@@ -331,9 +342,26 @@ function RoadmapRow({ row, section, today, open, focus, ghost, forbid, dragging,
   );
 }
 
+/** OwnerCell is what a task row shows in its Owner column: the team's dot
+ *  and the person's picture with the pair spelled out, or a dash — and the
+ *  picker behind it. */
+function OwnerCell({ owner, avatars, names }: { owner: Owner; avatars?: Avatars; names?: Names }) {
+  const label = ownerLabel(owner, (l) => displayName(l, names));
+  return (
+    <span className={`roadmap-owner${owner.team || owner.person ? "" : " roadmap-owner-none"}`} title={label}>
+      {owner.team && <span className="team-dot" style={{ background: teamColor(owner.team) }} />}
+      {owner.person && <Avatar login={owner.person} avatars={avatars} names={names} className="avatar-img roadmap-owner-avatar" />}
+      <span className="roadmap-owner-text">{label}</span>
+    </span>
+  );
+}
+
 export function RoadmapBoard({
   board,
   provider,
+  roster,
+  avatars,
+  names,
   patchCard,
   addCard,
   replaceCard,
@@ -633,6 +661,73 @@ export function RoadmapBoard({
       });
   };
 
+  // ---- the owner: whose is this task, and where does that put it ----
+  // The pair goes to the `own` gesture, which files loose work where the
+  // pair says (a person's on their board today, a team's on its shelf,
+  // nobody's back to the strip); the board applies the team and the person
+  // at once and takes the rest — the day, the band, the sprint, the shelf —
+  // from the answer.
+  const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
+  const own = (card: CardModel, owner: Owner) => {
+    const current = ownerOf(card);
+    if (current.team === owner.team && current.person === owner.person) {
+      return;
+    }
+    const before: Partial<CardModel> = {
+      team: card.team,
+      assignees: card.assignees,
+      startDate: card.startDate,
+      day: card.day,
+      zone: card.zone,
+      sprintStart: card.sprintStart,
+      parked: card.parked,
+    };
+    patchCard(card.itemId, { team: owner.team || undefined, assignees: owner.person ? [owner.person] : [] });
+    void provider
+      .ownCard(card.itemId, owner.team, owner.person)
+      .then((updated) =>
+        patchCard(card.itemId, {
+          team: updated.team,
+          assignees: updated.assignees,
+          startDate: updated.startDate,
+          day: updated.day,
+          zone: updated.zone,
+          sprintStart: updated.sprintStart,
+          parked: updated.parked,
+        }),
+      )
+      .catch((err: unknown) => {
+        patchCard(card.itemId, before);
+        onError(errText(err));
+      });
+  };
+  const ownerCell = (card: CardModel, kind: RoadmapKind) => {
+    if (kind !== "task" && kind !== "subtask") {
+      return null;
+    }
+    const owner = ownerOf(card);
+    const cell = <OwnerCell owner={owner} avatars={avatars} names={names} />;
+    // A subtask's owner is its task's (the server cascades it); the cell
+    // reads and does not offer the menu.
+    if (kind === "subtask") {
+      return cell;
+    }
+    return (
+      <OwnerPicker
+        current={owner}
+        teams={roster}
+        people={members}
+        cards={board.cards}
+        avatars={avatars}
+        names={names}
+        onPick={(o) => own(card, o)}
+        title={`Whose is «${card.title}»`}
+      >
+        {cell}
+      </OwnerPicker>
+    );
+  };
+
   // ---- the ×: the Team board's own question — delete it, or only unlink it ----
   const [removeChoice, setRemoveChoice] = useState<CardModel | null>(null);
   const answerRemoval = (card: CardModel, choice: HierarchyChoice) => {
@@ -792,6 +887,7 @@ export function RoadmapBoard({
             <div className="roadmap-table" style={{ width: TABLE_PX }}>
               <div className="roadmap-head" style={{ height: HEAD_PX }}>
                 <span className="roadmap-cell roadmap-cell-title">Card</span>
+                <span className="roadmap-cell roadmap-cell-owner">Owner</span>
                 <span className="roadmap-cell roadmap-cell-date">Start</span>
                 <span className="roadmap-cell roadmap-cell-date">End</span>
                 <span className="roadmap-cell">Status</span>
@@ -828,6 +924,7 @@ export function RoadmapBoard({
                       }}
                       onAdd={planning && kids.length > 0 ? () => setAddingUnder(addingUnder === card.itemId ? null : card.itemId) : null}
                       onRemove={planning ? () => setRemoveChoice(card) : null}
+                      owner={ownerCell(card, r.node.kind)}
                       rowRef={(el) => {
                         if (el) {
                           rowRefs.current.set(card.itemId, el);

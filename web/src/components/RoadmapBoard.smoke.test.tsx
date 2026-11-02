@@ -162,6 +162,17 @@ describe("the Roadmap's two panes", () => {
     expect(html).not.toContain("roadmap-toggle-none");
   });
 
+  it("shows whose a task is in an Owner column, and offers the menu on a task alone", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    expect(html).toContain(">Owner<");
+    // The done task: core · ann; the open one: the team alone.
+    expect(html).toContain('title="core · ann"');
+    expect(html).toContain('title="core"');
+    // Two tasks, two pickers; a planning row has an empty owner cell.
+    expect(html.match(/class="owner-picker"/g)?.length).toBe(2);
+    expect(html).toContain('class="roadmap-cell roadmap-cell-owner"></span>');
+  });
+
   it("draws a drag's landing place as the moved rows alone: no outline, no line", () => {
     const html = draw(board([goal, ini, epic, done, open]));
     expect(html).not.toContain("roadmap-row-drop-");

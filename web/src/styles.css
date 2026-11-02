@@ -5092,7 +5092,7 @@ button.card-age {
 .roadmap-head,
 .roadmap-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 64px 64px 92px;
+  grid-template-columns: minmax(0, 1fr) 150px 64px 64px 92px;
   align-items: center;
   border-bottom: 1px solid var(--line-soft);
   font-size: 12.5px;
@@ -5133,6 +5133,88 @@ button.card-age {
 .roadmap-cell-date {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* The Owner column: a task's team and person, and the menu that sets them
+   (OwnerPicker). A planning card and a project card have no owner and an
+   empty cell. */
+.roadmap-cell-owner {
+  overflow: visible;
+}
+
+.owner-picker {
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.owner-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.owner-picker-btn:hover:not(:disabled) {
+  border-color: var(--line);
+  background: var(--bg-soft);
+}
+
+.owner-picker-btn:disabled {
+  cursor: default;
+}
+
+.roadmap-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.roadmap-owner-none {
+  color: var(--faint);
+}
+
+.roadmap-owner-avatar {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.roadmap-owner-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.owner-menu .card-assign-col {
+  min-width: 150px;
+}
+
+.owner-col-waiting {
+  opacity: 0.6;
+}
+
+.owner-col-hint {
+  color: var(--faint);
+  cursor: default;
+}
+
+.owner-refused {
+  padding: 6px 10px;
+  font-size: 11.5px;
+  color: var(--danger);
+  border-top: 1px solid var(--line-soft);
 }
 
 .roadmap-cell-title {
