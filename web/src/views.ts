@@ -12,6 +12,7 @@ export type ViewName =
   | "team"
   | "triage"
   | "backlog"
+  | "roadmap"
   | "project"
   | "all";
 
@@ -31,11 +32,22 @@ export type ViewName =
 export function createView(input: {
   parked?: boolean | null;
   week?: string | null;
-  epic?: string | null;
+  scope?: string | null;
   start?: string | null;
   day?: string | null;
+  type?: string | null;
+  underPlanning?: boolean | null;
 }, standing?: ViewName): ViewName {
-  if (input.epic) {
+  // A TYPE is the Roadmap's whole gesture: a goal, an initiative or an epic
+  // is a planning card, and no other board makes one (H7). A TASK born
+  // under a planning card — the "add" in an epic's own pane — is the
+  // Roadmap's too: it lands in the Triage strip until somebody plans it,
+  // and no day board would accept a create with no day and a parent of
+  // that kind.
+  if (input.type || input.underPlanning) {
+    return "roadmap";
+  }
+  if (input.scope) {
     return "project";
   }
   if (input.parked) {

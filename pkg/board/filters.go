@@ -39,8 +39,20 @@ import "slices"
 func TeamGrid(b Board, team, day string) []Card {
 	today := TodayIso()
 	out := []Card{}
+	planning := PlanningIDs(b)
 	for _, c := range b.Cards {
-		if c.Parent != "" || c.Team != team || InBacklog(c) {
+		// The day boards draw TASKS: a goal, an initiative or an epic is the
+		// Roadmap's (H3), and a subtask rides its parent. A task under an
+		// epic is neither — it stands here like any task (H1).
+		if IsPlanning(c) || IsSubtaskIn(c, planning) || c.Team != team || InBacklog(c) {
+			continue
+		}
+		// A card in a Scope column is a PROJECT CARD: the Project board's
+		// plan, not work in hand, whatever its week or dates say (H4,
+		// docs/design/hierarchy.md). It used to stand in its owner's column
+		// once its week came, which put planning placeholders among the
+		// day's work; the two boards are disjoint now.
+		if c.Scope != "" {
 			continue
 		}
 		// Somebody has to have said WHEN, one way or another: a week, a date,
@@ -202,19 +214,22 @@ func inClosedSprint(b Board, c Card) bool {
 func MeView(b Board, user, day string) []Card {
 	today := TodayIso()
 	out := []Card{}
+	planning := PlanningIDs(b)
 	for _, c := range b.Cards {
-		// Subtasks are never listed on their own; they ride with their parent.
-		if c.Parent != "" {
+		// A planning card is the Roadmap's, not a person's day (H3).
+		if IsPlanning(c) {
 			continue
 		}
-		// An epic card lives on the Project board until it joins a sprint: its
-		// week-spanning dates would otherwise smear it across the day boards.
-		// The column is what holds it, and a column needs the epic side —
-		// TeamGrid draws the same line. Unless someone owns it: then it is
-		// that person's work, and their day board is where they look for it;
-		// it shows across the days its own dates cover, like any other dated
-		// card.
-		if c.Epic != "" && c.SprintStart == "" && len(c.Assignees) == 0 {
+		// Subtasks are never listed on their own; they ride with their
+		// parent. A task under an epic is not one (H1).
+		if IsSubtaskIn(c, planning) {
+			continue
+		}
+		// A card in a Scope column is a PROJECT CARD and is drawn on the
+		// Project board alone (H4): it has no owner to look for it here, and
+		// one written before schema 2 that still names one is a plan all the
+		// same. TeamGrid draws the same line.
+		if c.Scope != "" {
 			continue
 		}
 		if user != "" && !slices.Contains(c.Assignees, user) && !childAssigned(b, c.ItemID, user) {

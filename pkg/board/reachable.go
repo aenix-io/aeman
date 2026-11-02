@@ -2,9 +2,8 @@ package board
 
 // Reachable is every card some board still shows: the day boards for the days
 // a person opens (today, and each team's current and previous sprint day), the
-// Project board's columns, the weekly plan and the Process tab, plus the
-// cards that ride one of those — a subtask under its parent, a
-// review card beside its original.
+// Project board's columns and the weekly plan, plus the cards that ride one
+// of those — a subtask under its parent, a review card beside its original.
 //
 // What it does NOT name is a card on no board at all: open, in no column, no
 // plan week, and standing on none of those days. The × used to make them by
@@ -34,13 +33,15 @@ func Reachable(b Board, today string) map[string]bool {
 			}
 		}
 	}
+	planning := PlanningIDs(b)
 	for _, c := range b.Cards {
 		switch {
-		// The Process tab: a task is what turns are copied from, and a state
-		// card is the roster.
-		case c.Title == ProcessTaskTitle || IsStateTitle(c.Title):
+		// A state card is the roster.
+		case IsStateTitle(c.Title):
+		// A goal, an initiative or an epic: the Roadmap draws it (H3).
+		case IsPlanning(c):
 		// A Project-board column, and the weekly plan.
-		case c.Epic != "":
+		case c.Scope != "":
 		case c.Week != "":
 		// The Triage board's STRIP: nobody has said when, which is a thing to
 		// be looked at rather than a thing that is lost — the strip is the
@@ -60,17 +61,15 @@ func Reachable(b Board, today string) map[string]bool {
 		}
 		out[c.ItemID] = true
 	}
-	// The process tasks are split out of Cards by NewBoard; a caller holding
-	// a raw list has them among the cards, and either way they belong to the
-	// Process tab rather than to a day.
-	for _, t := range b.Tasks {
-		out[t.ItemID] = true
-	}
 	// A card that rides another is reachable exactly when that one is: a
 	// subtask is drawn under its parent, a review card beside its original.
-	// Both are one link deep, so one more pass settles them.
+	// Both are one link deep, so one more pass settles them. A task under
+	// an epic rides nothing — it answered for itself above (H1).
 	for _, c := range b.Cards {
-		owner := c.Parent
+		owner := ""
+		if IsSubtaskIn(c, planning) {
+			owner = c.Parent
+		}
 		if owner == "" {
 			owner = c.ReviewOf
 		}

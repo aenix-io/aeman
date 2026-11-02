@@ -291,18 +291,10 @@ func applyDomainRole(card *board.Card, v *rawFieldValue, roles domainFieldRoles)
 		card.SprintStart = v.Date
 	case roles.Week != nil && id == roles.Week.ID && v.Date != "":
 		card.Week = v.Date
-	case roles.Epic != nil && id == roles.Epic.ID && v.Text != "":
-		card.Epic = v.Text
+	case roles.Scope != nil && id == roles.Scope.ID && v.Text != "":
+		card.Scope = v.Text
 	case roles.Project != nil && id == roles.Project.ID && v.Text != "":
 		card.Project = v.Text
-	case roles.Process != nil && id == roles.Process.ID && v.Text != "":
-		card.Process = v.Text
-	case roles.Task != nil && id == roles.Task.ID && v.Text != "":
-		card.Task = v.Text
-	case roles.Accumulate != nil && id == roles.Accumulate.ID && v.Text != "":
-		card.Accumulate = v.Text == "yes"
-	case roles.Paused != nil && id == roles.Paused.ID && v.Text != "":
-		card.Paused = v.Text == "yes"
 	case roles.Team != nil && id == roles.Team.ID && v.Text != "":
 		card.Team = v.Text
 	case roles.ReviewOf != nil && id == roles.ReviewOf.ID && v.Text != "":
@@ -327,12 +319,8 @@ type domainFieldRoles struct {
 	Sprint      *Field
 	Status      *Field
 	Week        *Field
-	Epic        *Field
+	Scope       *Field
 	Project     *Field
-	Process     *Field
-	Task        *Field
-	Accumulate  *Field
-	Paused      *Field
 	Stage       *Field
 	Team        *Field
 	ReviewOf    *Field
@@ -352,12 +340,10 @@ var domainRoleAliases = map[string][]string{
 	"sprint":      {"sprint", "iteration"},
 	"status":      {"status"},
 	"week":        {"week"},
-	"epic":        {"epic"},
+	// The column was called an epic before schema 2, and a Projects v2
+	// board only ever had an "Epic" field: that is the name to recognise.
+	"scope":       {"scope", "epic"},
 	"project":     {"project"},
-	"process":     {"process"},
-	"task":        {"task"},
-	"accumulate":  {"accumulate"},
-	"paused":      {"paused"},
 	"stage":       {"stage"},
 	"team":        {"team"},
 	"reviewOf":    {"review of", "reviewof"},
@@ -389,18 +375,10 @@ func domainRoles(fields []Field) domainFieldRoles {
 			r.Status = f
 		case r.Week == nil && domainMatchesAlias("week", name):
 			r.Week = f
-		case r.Epic == nil && domainMatchesAlias("epic", name):
-			r.Epic = f
+		case r.Scope == nil && domainMatchesAlias("scope", name):
+			r.Scope = f
 		case r.Project == nil && domainMatchesAlias("project", name):
 			r.Project = f
-		case r.Process == nil && domainMatchesAlias("process", name):
-			r.Process = f
-		case r.Task == nil && domainMatchesAlias("task", name):
-			r.Task = f
-		case r.Accumulate == nil && domainMatchesAlias("accumulate", name):
-			r.Accumulate = f
-		case r.Paused == nil && domainMatchesAlias("paused", name):
-			r.Paused = f
 		case r.Stage == nil && domainMatchesAlias("stage", name):
 			r.Stage = f
 		case r.Team == nil && domainMatchesAlias("team", name):

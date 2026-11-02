@@ -99,3 +99,19 @@ describe("the rest of a day on the Me board", () => {
     expect(onMyDay(stranded, board, NEXT_WEEK, TODAY)).toBe(false);
   });
 });
+
+// A card in a Scope column is a PROJECT CARD and is drawn on the Project
+// board alone (H4): it has no owner to look for it here, and one written
+// before schema 2 that still names one is a plan all the same. Mirrors
+// board.MeView.
+describe("a project card is on nobody's Me board", () => {
+  it("is not drawn whatever its dates, sprint or stale owner say", () => {
+    const plan = card({ scope: "Storage", project: "P", startDate: TODAY, day: TODAY, sprintStart: THIS_WEEK });
+    expect(onMyDay(plan, board, TODAY, TODAY)).toBe(false);
+    expect(onMyDay({ ...plan, assignees: ["u"] }, board, TODAY, TODAY)).toBe(false);
+  });
+
+  it("leaves a card that merely names a project as an ordinary task", () => {
+    expect(onMyDay(card({ project: "P", startDate: TODAY, day: TODAY }), board, TODAY, TODAY)).toBe(true);
+  });
+});

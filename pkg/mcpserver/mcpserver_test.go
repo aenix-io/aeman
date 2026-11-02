@@ -129,19 +129,17 @@ func TestMCPListsTools(t *testing.T) {
 		"delete_card", "remove_card", "move_card", "defer_card", "in_progress",
 		"send_to_review", "remove_reviewer", "carry_over",
 		"list_links", "list_log", "list_notes", "add_note", "edit_note", "delete_note",
-		"add_epic", "delete_epic", "set_epic_project", "rename_epic",
+		"add_scope", "delete_scope", "set_scope_project", "rename_scope",
 		"add_project", "delete_project", "reorder_projects", "rename_project", "rename_team",
 		"add_deadline", "delete_deadline", "move_deadline",
-		"list_processes", "add_process", "delete_process", "rename_process",
-		"set_process_project", "set_process_paused",
-		"reorder_processes", "reorder_process_tasks", "reopen_card",
-		"add_process_task", "update_process_task", "delete_process_task",
-		"mirror_card", "unmirror_card", "remove_from_project",
+		"reopen_card",
 		"set_capacity", "set_team_capacity",
 		// The gestures and reads the boards have and the tool set did not.
 		"place_card", "untriage_card", "finished_earlier", "list_sprints",
-		"list_day_logs", "reorder_teams", "reorder_epics", "delete_team",
+		"list_day_logs", "reorder_teams", "reorder_scopes", "delete_team",
 		"set_sprint_state",
+		// The Roadmap's "whose is this" (H10).
+		"own_card",
 	}
 	for _, w := range want {
 		if !names[w] {
@@ -474,25 +472,10 @@ func TestCreateCardDescribesNoRefusalTheServerDoesNotMake(t *testing.T) {
 	}
 }
 
-// Four more descriptions that told an agent something the service does not do.
-// An agent cannot try a gesture to see what happens — the description IS the
-// rule for it — so each of these sent it into a wrong move, and the worst of
-// them destroys a card.
+// Descriptions that told an agent something the service does not do. An agent
+// cannot try a gesture to see what happens — the description IS the rule for
+// it — so each of these sent it into a wrong move.
 func TestDescriptionsMatchWhatTheServiceDoes(t *testing.T) {
-	// update_process_task said the running iteration is "left exactly as it
-	// is". Content is; ROUTING is not: a team or assignee change deletes an
-	// untouched turn and spawns a fresh one for the new owner
-	// (routeOpenIterations, pinned by TestReassigningATurnReplacesTheUntouchedCard).
-	task := toolDescription(t, "update_process_task")
-	if strings.Contains(task, "left exactly as it is") {
-		t.Error("update_process_task still promises the running turn is untouched; reassigning deletes it")
-	}
-	for _, want := range []string{"ROUTING", "deleted"} {
-		if !strings.Contains(task, want) {
-			t.Errorf("update_process_task should say what reassigning does to the live turn (%q)", want)
-		}
-	}
-
 	// A deadline belongs to a PROJECT: one line per project per week, so two
 	// projects due the same week are two lines (board.FindDeadline matches on
 	// both fields; TestDeadlines pins it).
@@ -507,18 +490,11 @@ func TestDescriptionsMatchWhatTheServiceDoes(t *testing.T) {
 		}
 	}
 
-	// The three kinds of roster name do NOT share a namespace: nameFree
-	// switches into three separate maps, so a team may carry a project's name.
+	// The two kinds of roster name do NOT share a namespace: nameFree
+	// switches into separate maps, so a team may carry a project's name.
 	// What is shared is the repositories.
 	if team := toolDescription(t, "rename_team"); strings.Contains(team, "are one namespace") {
-		t.Error("rename_team still claims teams, projects and processes share a namespace; they do not")
-	}
-
-	// And a team name nothing declares does not fail: it declares a team (G39),
-	// so a typo leaves a ghost on the board. The description has to say so,
-	// because an agent types the name rather than picking it from a list.
-	if task := toolDescription(t, "add_process_task"); strings.Contains(task, "MUST be an existing team key") {
-		t.Error("add_process_task still promises a validation nothing performs")
+		t.Error("rename_team still claims teams and projects share a namespace; they do not")
 	}
 
 	// The rules that used to live in the browser are the service's now, so an
@@ -527,8 +503,6 @@ func TestDescriptionsMatchWhatTheServiceDoes(t *testing.T) {
 	// update_card is one tool with twenty of them.
 	update := toolSurface(t, "update_card")
 	for _, want := range []struct{ rule, needle string }{
-		// A process turn moves only inside its own occurrence (G66).
-		{"a turn's week is bounded by its cycle", "occurrence"},
 		// The shelf refuses a review card and a subtask (G66).
 		{"the shelf refuses a card with no place of its own", "a place of its own to be parked out of"},
 		// And a review card takes neither review nor recurrent.
@@ -556,11 +530,12 @@ func TestTheToolSetHoldsWhatTheBoardsDo(t *testing.T) {
 	for _, name := range []string{
 		// The day boards' own answers.
 		"finished_earlier",
-		// The Triage board's, beside place (mirror_card's neighbour on the
-		// grid): a card pulled back out of every week into the strip.
+		// The Triage board's, beside place: a card pulled back out of every week into the strip.
 		"untriage_card", "place_card",
+		// The Roadmap's: whose is this, and where loose work goes when told.
+		"own_card",
 		// The roster gestures the manage dialogs make.
-		"reorder_teams", "reorder_epics", "delete_team", "set_sprint_state",
+		"reorder_teams", "reorder_scopes", "delete_team", "set_sprint_state",
 		// What a day board reads in one request instead of a log per card.
 		"list_day_logs",
 		// And when each team's sprint began, which every date rule is

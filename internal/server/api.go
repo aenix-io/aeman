@@ -155,7 +155,7 @@ func (a surface) GetOpenAPI(context.Context, apiv1.GetOpenAPIRequestObject) (api
 
 // boardRef is the board a request addresses: the one this server is
 // configured with. A client's board query parameter is ignored;
-// "project" in the API is aeman's own planning entity (a group of epic
+// "project" in the API is aeman's own planning entity (a group of scope
 // columns on the Project board) and is a card filter, not an address.
 func (s *Server) boardRef() (boardID string) {
 	return s.gitBoard()
@@ -459,7 +459,7 @@ func (a surface) CreateCard(ctx context.Context, req apiv1.CreateCardRequestObje
 		Zone:           zone,
 		Size:           size,
 		Title:          strOf(in.Title),
-		Epic:           strOf(in.Epic),
+		Scope:          strOf(in.Scope),
 		Project:        strOf(in.Project),
 		ReviewOf:       strOf(in.ReviewOf),
 		Parent:         strOf(in.Parent),
@@ -474,6 +474,10 @@ func (a surface) CreateCard(ctx context.Context, req apiv1.CreateCardRequestObje
 	if in.Assignees != nil && len(*in.Assignees) > 0 {
 		args.Assignee = (*in.Assignees)[0]
 	}
+	// The level is an enum on the wire; the service validates the value.
+	if in.Type != nil {
+		args.Type = string(*in.Type)
+	}
 	card, err := svc.CreateInView(ctx, boardID, view, args)
 	if err != nil {
 		return nil, err
@@ -485,16 +489,11 @@ func (a surface) CreateCard(ctx context.Context, req apiv1.CreateCardRequestObje
 	return apiv1.CreateCard201JSONResponse(apiserver.CardResource(b, card)), nil
 }
 
-// applyGroupingPatch is the parent/process fragment of a card patch: what
-// the card is grouped under.
+// applyGroupingPatch is the parent fragment of a card patch: what the card
+// is grouped under.
 func applyGroupingPatch(ctx context.Context, svc *boardservice.Service, boardID, uid string, p *apiv1.CardPatch) error {
 	if p.Parent != nil {
 		if err := svc.SetParent(ctx, boardID, uid, *p.Parent); err != nil {
-			return err
-		}
-	}
-	if p.Process != nil {
-		if err := svc.SetCardProcess(ctx, boardID, uid, *p.Process); err != nil {
 			return err
 		}
 	}
@@ -525,7 +524,7 @@ func (a surface) PatchCard(ctx context.Context, req apiv1.PatchCardRequestObject
 			return nil, err
 		}
 	}
-	if p.Epic != nil || p.Project != nil {
+	if p.Scope != nil || p.Project != nil {
 		if err := patchColumn(ctx, svc, boardID, uid, p); err != nil {
 			return nil, err
 		}
@@ -714,76 +713,6 @@ func (a surface) ReopenCard(ctx context.Context, req apiv1.ReopenCardRequestObje
 	return apiv1.ReopenCard200JSONResponse(card), nil
 }
 
-// placement runs one of the three column actions. A column is named by its
-// EPIC, and the project half may be empty everywhere: the no-project bucket is
-// a column like any other — a mirror home included, since a column's
-// repository is read off the column's own stub and not off a project
-// (G15/G59). This door used to require a project for a mirror, so a placement
-// the service, the codec, MCP and the docs all accept was a 422 here — and the
-// SPA's own picker, which offers the bucket, drove straight into it.
-func (a surface) placement(in apiv1.PlacementBody,
-	act func(svc *boardservice.Service, boardID, project, epic string) error,
-) (*boardservice.Service, string, error) {
-	if in.Epic == "" {
-		return nil, "", problem(http.StatusUnprocessableEntity, "epicRequired",
-			"the epic is required — a column is named by its epic")
-	}
-	svc, boardID, err := a.s.serviceOf()
-	if err != nil {
-		return nil, "", err
-	}
-	if err := act(svc, boardID, strOf(in.Project), in.Epic); err != nil {
-		return nil, "", err
-	}
-	return svc, boardID, nil
-}
-
-// MirrorCard adds a second Project-board column to the card — the same card
-// shown in both projects, one file and one log.
-func (a surface) MirrorCard(ctx context.Context, req apiv1.MirrorCardRequestObject) (apiv1.MirrorCardResponseObject, error) {
-	svc, boardID, err := a.placement(*req.Body,
-		func(svc *boardservice.Service, boardID, project, epic string) error {
-			return svc.Mirror(ctx, boardID, req.UID, project, epic)
-		})
-	if err != nil {
-		return nil, err
-	}
-	card, err := a.s.cardOf(ctx, svc, boardID, req.UID)
-	if err != nil {
-		return nil, err
-	}
-	return apiv1.MirrorCard200JSONResponse(card), nil
-}
-
-// UnmirrorCard takes one mirror column away.
-func (a surface) UnmirrorCard(ctx context.Context, req apiv1.UnmirrorCardRequestObject) (apiv1.UnmirrorCardResponseObject, error) {
-	svc, boardID, err := a.placement(*req.Body,
-		func(svc *boardservice.Service, boardID, project, epic string) error {
-			return svc.Unmirror(ctx, boardID, req.UID, project, epic)
-		})
-	if err != nil {
-		return nil, err
-	}
-	card, err := a.s.cardOf(ctx, svc, boardID, req.UID)
-	if err != nil {
-		return nil, err
-	}
-	return apiv1.UnmirrorCard200JSONResponse(card), nil
-}
-
-// RemoveFromProject is the Project board's ×: remove the card from one column,
-// with the mirror/promote/last-column rules of the service. It cannot answer
-// with the card the way mirror and unmirror do — its card may no longer exist.
-func (a surface) RemoveFromProject(ctx context.Context, req apiv1.RemoveFromProjectRequestObject) (apiv1.RemoveFromProjectResponseObject, error) {
-	if _, _, err := a.placement(*req.Body,
-		func(svc *boardservice.Service, boardID, project, epic string) error {
-			return svc.RemoveFromProject(ctx, boardID, req.UID, project, epic)
-		}); err != nil {
-		return nil, err
-	}
-	return apiv1.RemoveFromProject204Response{}, nil
-}
-
 // SendToReview sends a card to a reviewer. When a linked review card already
 // exists the action reassigns it instead — the SERVICE decides, so the other
 // door cannot grow a second review card on the same original; the client just
@@ -840,6 +769,19 @@ func (a surface) PlaceCard(ctx context.Context, req apiv1.PlaceCardRequestObject
 		return nil, err
 	}
 	return apiv1.PlaceCard200JSONResponse(card), nil
+}
+
+// OwnCard answers "whose is this" for a task — a team and a person, a team
+// alone, or nobody — and files loose work accordingly (boardservice.Own).
+func (a surface) OwnCard(ctx context.Context, req apiv1.OwnCardRequestObject) (apiv1.OwnCardResponseObject, error) {
+	card, err := a.gesture(ctx, req.View, req.UID, boardservice.GestureOwn,
+		func(svc *boardservice.Service, boardID string) error {
+			return svc.Own(ctx, boardID, req.UID, strOf(req.Body.Team), strOf(req.Body.Person))
+		})
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.OwnCard200JSONResponse(card), nil
 }
 
 // FinishedEarlier sends finished work back to the sprint it was done in — its
@@ -1051,35 +993,35 @@ func (a surface) rosterWrite(ctx context.Context, act func(ctx context.Context, 
 	return act(staleOK(ctx), svc, boardID)
 }
 
-// AddEpic declares a new Project-board column.
-func (a surface) AddEpic(ctx context.Context, req apiv1.AddEpicRequestObject) (apiv1.AddEpicResponseObject, error) {
+// AddScope declares a new Project-board column.
+func (a surface) AddScope(ctx context.Context, req apiv1.AddScopeRequestObject) (apiv1.AddScopeResponseObject, error) {
 	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.AddEpic(ctx, boardID, strOf(req.Body.Name), strOf(req.Body.Project))
+		return svc.AddScope(ctx, boardID, strOf(req.Body.Name), strOf(req.Body.Project))
 	}); err != nil {
 		return nil, err
 	}
-	return apiv1.AddEpic204Response{}, nil
+	return apiv1.AddScope204Response{}, nil
 }
 
-// SetEpicProject moves a column from one project to another; an empty target
+// SetScopeProject moves a column from one project to another; an empty target
 // detaches it.
-func (a surface) SetEpicProject(ctx context.Context, req apiv1.SetEpicProjectRequestObject) (apiv1.SetEpicProjectResponseObject, error) {
+func (a surface) SetScopeProject(ctx context.Context, req apiv1.SetScopeProjectRequestObject) (apiv1.SetScopeProjectResponseObject, error) {
 	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.SetEpicProject(ctx, boardID, strOf(req.Body.From), strOf(req.Body.Epic), strOf(req.Body.Project))
+		return svc.SetScopeProject(ctx, boardID, strOf(req.Body.From), strOf(req.Body.Scope), strOf(req.Body.Project))
 	}); err != nil {
 		return nil, err
 	}
-	return apiv1.SetEpicProject204Response{}, nil
+	return apiv1.SetScopeProject204Response{}, nil
 }
 
-// RenameEpic renames a column in place, cards and all.
-func (a surface) RenameEpic(ctx context.Context, req apiv1.RenameEpicRequestObject) (apiv1.RenameEpicResponseObject, error) {
+// RenameScope renames a column in place, cards and all.
+func (a surface) RenameScope(ctx context.Context, req apiv1.RenameScopeRequestObject) (apiv1.RenameScopeResponseObject, error) {
 	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.RenameEpic(ctx, boardID, strOf(req.Body.Project), strOf(req.Body.Epic), strOf(req.Body.To))
+		return svc.RenameScope(ctx, boardID, strOf(req.Body.Project), strOf(req.Body.Scope), strOf(req.Body.To))
 	}); err != nil {
 		return nil, err
 	}
-	return apiv1.RenameEpic204Response{}, nil
+	return apiv1.RenameScope204Response{}, nil
 }
 
 // RenameProject renames a project in place, columns and cards along with it.
@@ -1122,146 +1064,17 @@ func (a surface) SetTeamCapacity(ctx context.Context, req apiv1.SetTeamCapacityR
 	return apiv1.SetTeamCapacity204Response{}, nil
 }
 
-// patchColumn re-files a card under a column — the (project, epic) pair.
+// patchColumn re-files a card under a column — the (project, scope) pair.
 // Naming only the project keeps the column name the card is already under,
 // which is what moving a card between projects means.
 func patchColumn(ctx context.Context, svc *boardservice.Service, boardID, uid string, p *apiv1.CardPatch) error {
-	epic := ""
-	if p.Epic != nil {
-		epic = *p.Epic
+	scope := ""
+	if p.Scope != nil {
+		scope = *p.Scope
 	} else if card, err := svc.Card(ctx, boardID, uid); err == nil {
-		epic = card.Epic
+		scope = card.Scope
 	}
-	return svc.SetEpic(ctx, boardID, uid, epic, p.Project)
-}
-
-// --- Processes -----------------------------------------------------------------
-
-// ListProcesses is the Process tab: every process with its tasks and each
-// task's history.
-func (a surface) ListProcesses(ctx context.Context, req apiv1.ListProcessesRequestObject) (apiv1.ListProcessesResponseObject, error) {
-	svc, boardID, err := a.s.serviceOf()
-	if err != nil {
-		return nil, err
-	}
-	b, err := svc.Board(staleOK(ctx), boardID)
-	if err != nil {
-		return nil, err
-	}
-	return apiv1.ListProcesses200JSONResponse(apiserver.ProcessesResource(b, strOf(req.Params.Project))), nil
-}
-
-// AddProcess declares a process — recurring work inside a project.
-func (a surface) AddProcess(ctx context.Context, req apiv1.AddProcessRequestObject) (apiv1.AddProcessResponseObject, error) {
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.AddProcess(board.WithDomain(ctx, strOf(req.Body.Domain)), boardID, strOf(req.Body.Name), strOf(req.Body.Project))
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.AddProcess204Response{}, nil
-}
-
-// DeleteProcess deletes an EMPTY process; it is refused while it has tasks.
-func (a surface) DeleteProcess(ctx context.Context, req apiv1.DeleteProcessRequestObject) (apiv1.DeleteProcessResponseObject, error) {
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.DeleteProcess(ctx, boardID, strOf(req.Body.Process))
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.DeleteProcess204Response{}, nil
-}
-
-// RenameProcess renames a process; its tasks follow.
-func (a surface) RenameProcess(ctx context.Context, req apiv1.RenameProcessRequestObject) (apiv1.RenameProcessResponseObject, error) {
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.RenameProcess(ctx, boardID, strOf(req.Body.Process), strOf(req.Body.To))
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.RenameProcess204Response{}, nil
-}
-
-// SetProcessProject moves a process to another project; an empty project is
-// the no-project bucket.
-func (a surface) SetProcessProject(ctx context.Context, req apiv1.SetProcessProjectRequestObject) (apiv1.SetProcessProjectResponseObject, error) {
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.SetProcessProject(ctx, boardID, strOf(req.Body.Process), strOf(req.Body.Project))
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.SetProcessProject204Response{}, nil
-}
-
-// SetProcessPaused pauses a process, or resumes it.
-func (a surface) SetProcessPaused(ctx context.Context, req apiv1.SetProcessPausedRequestObject) (apiv1.SetProcessPausedResponseObject, error) {
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.SetProcessPaused(ctx, boardID, strOf(req.Body.Process), boolOf(req.Body.Paused))
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.SetProcessPaused204Response{}, nil
-}
-
-// ReorderProcesses applies a shared process order.
-func (a surface) ReorderProcesses(ctx context.Context, req apiv1.ReorderProcessesRequestObject) (apiv1.ReorderProcessesResponseObject, error) {
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.ReorderProcesses(ctx, boardID, listOf(req.Body.Processes))
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.ReorderProcesses204Response{}, nil
-}
-
-// ReorderProcessTasks applies one process's task order.
-func (a surface) ReorderProcessTasks(ctx context.Context, req apiv1.ReorderProcessTasksRequestObject) (apiv1.ReorderProcessTasksResponseObject, error) {
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.ReorderProcessTasks(ctx, boardID, strOf(req.Body.Process), listOf(req.Body.Uids))
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.ReorderProcessTasks204Response{}, nil
-}
-
-// AddTask adds what a process iterates on.
-func (a surface) AddTask(ctx context.Context, req apiv1.AddTaskRequestObject) (apiv1.AddTaskResponseObject, error) {
-	svc, boardID, err := a.s.serviceOf()
-	if err != nil {
-		return nil, err
-	}
-	in := req.Body
-	tpl, err := svc.AddProcessTask(staleOK(ctx), boardID, strOf(in.Process), boardservice.TaskArgs{
-		Title: strOf(in.Title), Description: strOf(in.Description), Recurrence: strOf(in.Recurrence),
-		Start: strOf(in.Start), Team: strOf(in.Team), Assignee: strOf(in.Assignee),
-		Accumulate: boolOf(in.Accumulate),
-	})
-	if err != nil {
-		return nil, err
-	}
-	return apiv1.AddTask201JSONResponse{UID: tpl.ItemID}, nil
-}
-
-// PatchTask changes what the NEXT turns will be; the running one is untouched.
-func (a surface) PatchTask(ctx context.Context, req apiv1.PatchTaskRequestObject) (apiv1.PatchTaskResponseObject, error) {
-	in := req.Body
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.UpdateProcessTask(ctx, boardID, req.UID, boardservice.TaskPatch{
-			Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
-			Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
-		})
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.PatchTask204Response{}, nil
-}
-
-// DeleteTask deletes a task; its past turns stay as the record.
-func (a surface) DeleteTask(ctx context.Context, req apiv1.DeleteTaskRequestObject) (apiv1.DeleteTaskResponseObject, error) {
-	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.DeleteProcessTask(ctx, boardID, req.UID)
-	}); err != nil {
-		return nil, err
-	}
-	return apiv1.DeleteTask204Response{}, nil
+	return svc.SetScope(ctx, boardID, uid, scope, p.Project)
 }
 
 // AddDeadline marks a week with one project's deadline line.
@@ -1296,7 +1109,7 @@ func (a surface) MoveDeadline(ctx context.Context, req apiv1.MoveDeadlineRequest
 }
 
 // AddProject declares a project — the Project board's top grouping, which owns
-// epic columns.
+// scope columns.
 func (a surface) AddProject(ctx context.Context, req apiv1.AddProjectRequestObject) (apiv1.AddProjectResponseObject, error) {
 	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
 		return svc.AddProject(board.WithDomain(ctx, strOf(req.Body.Domain)), boardID, strOf(req.Body.Name))
@@ -1306,7 +1119,7 @@ func (a surface) AddProject(ctx context.Context, req apiv1.AddProjectRequestObje
 	return apiv1.AddProject204Response{}, nil
 }
 
-// DeleteProject removes an EMPTY project (422 while it still owns epic
+// DeleteProject removes an EMPTY project (422 while it still owns scope
 // columns — detaching planned work silently is the anti-goal).
 func (a surface) DeleteProject(ctx context.Context, req apiv1.DeleteProjectRequestObject) (apiv1.DeleteProjectResponseObject, error) {
 	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
@@ -1327,26 +1140,26 @@ func (a surface) ReorderProjects(ctx context.Context, req apiv1.ReorderProjectsR
 	return apiv1.ReorderProjects204Response{}, nil
 }
 
-// DeleteEpic removes an EMPTY epic column (422 while cards still sit under
+// DeleteScope removes an EMPTY scope column (422 while cards still sit under
 // it — the Project board's own anti-goal).
-func (a surface) DeleteEpic(ctx context.Context, req apiv1.DeleteEpicRequestObject) (apiv1.DeleteEpicResponseObject, error) {
+func (a surface) DeleteScope(ctx context.Context, req apiv1.DeleteScopeRequestObject) (apiv1.DeleteScopeResponseObject, error) {
 	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.DeleteEpic(ctx, boardID, strOf(req.Body.Epic), strOf(req.Body.Project))
+		return svc.DeleteScope(ctx, boardID, strOf(req.Body.Scope), strOf(req.Body.Project))
 	}); err != nil {
 		return nil, err
 	}
-	return apiv1.DeleteEpic204Response{}, nil
+	return apiv1.DeleteScope204Response{}, nil
 }
 
-// ReorderEpics applies a shared column order, moving the hidden epic-state
+// ReorderScopes applies a shared column order, moving the hidden scope-state
 // cards the way reorder-teams moves sprint-state.
-func (a surface) ReorderEpics(ctx context.Context, req apiv1.ReorderEpicsRequestObject) (apiv1.ReorderEpicsResponseObject, error) {
+func (a surface) ReorderScopes(ctx context.Context, req apiv1.ReorderScopesRequestObject) (apiv1.ReorderScopesResponseObject, error) {
 	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
-		return svc.ReorderEpics(ctx, boardID, strOf(req.Body.Project), listOf(req.Body.Epics))
+		return svc.ReorderScopes(ctx, boardID, strOf(req.Body.Project), listOf(req.Body.Scopes))
 	}); err != nil {
 		return nil, err
 	}
-	return apiv1.ReorderEpics204Response{}, nil
+	return apiv1.ReorderScopes204Response{}, nil
 }
 
 // --- Shared helpers ----------------------------------------------------------------

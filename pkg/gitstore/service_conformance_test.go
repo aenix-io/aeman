@@ -19,7 +19,7 @@ func newService(t *testing.T) (*boardservice.Service, *Backend, *Repo) {
 	t.Helper()
 	r := newRepo(t)
 	if _, err := r.Commit(Action{Name: "init", Summary: "init"}, []FileWrite{
-		{Path: BoardPath, Data: []byte("schema: 1\ntitle: conformance\n")},
+		{Path: BoardPath, Data: []byte("schema: 2\ntitle: conformance\n")},
 		{Path: TeamPath("_"), Data: []byte("rank: a\ncreated: 2026-06-01T08:00:00Z\n")},
 	}); err != nil {
 		t.Fatal(err)
@@ -35,34 +35,34 @@ func TestServiceRosterThroughTheBackend(t *testing.T) {
 	if err := svc.AddProject(ctx, "acme", "portal"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.AddEpic(ctx, "acme", "Bugs", "portal"); err != nil {
+	if err := svc.AddScope(ctx, "acme", "Bugs", "portal"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.AddEpic(ctx, "acme", "Bugs", "portal"); err == nil {
+	if err := svc.AddScope(ctx, "acme", "Bugs", "portal"); err == nil {
 		t.Fatal("a duplicate column must be refused by the service")
 	}
-	card, err := svc.CreateCard(ctx, "acme", boardservice.CreateCardArgs{Title: "leak", Team: "portal", Epic: "Bugs", Project: "portal", Start: "2026-08-24", Day: "2026-08-28"})
+	card, err := svc.CreateCard(ctx, "acme", boardservice.CreateCardArgs{Title: "leak", Scope: "Bugs", Project: "portal", Start: "2026-08-24", Day: "2026-08-28"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.RenameEpic(ctx, "acme", "portal", "Bugs", "Defects"); err != nil {
+	if err := svc.RenameScope(ctx, "acme", "portal", "Bugs", "Defects"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := svc.Board(ctx, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b.Epics) != 1 || b.Epics[0].Name != "Defects" {
-		t.Fatalf("epics after rename = %+v", b.Epics)
+	if len(b.Scopes) != 1 || b.Scopes[0].Name != "Defects" {
+		t.Fatalf("scopes after rename = %+v", b.Scopes)
 	}
 	got, ok := findByID(b, card.ItemID)
-	if !ok || got.Epic != "Defects" || got.Project != "portal" {
+	if !ok || got.Scope != "Defects" || got.Project != "portal" {
 		t.Fatalf("the card did not follow the rename: %+v", got)
 	}
 	// One rename = one commit, whatever it touched, when the server scopes it;
 	// bare, the service's writes each commit — the files still agree.
 	p, _ := CardPath(card.ItemID)
-	if data, _ := r.ReadFile(p); !strings.Contains(string(data), "epic: Defects") {
+	if data, _ := r.ReadFile(p); !strings.Contains(string(data), "scope: Defects") {
 		t.Fatalf("card file not renamed:\n%s", data)
 	}
 }
@@ -197,38 +197,6 @@ func TestServiceCarryOverThroughTheBackend(t *testing.T) {
 	b, _ = svc.Board(ctx, "acme")
 	if paths := changedPathsSince(t, r, head); len(paths) != 1 || paths[0] != TeamPath(b.SprintStates["ops"].ItemID) {
 		t.Fatalf("zero-card carry-over touched %v, want the team file only", paths)
-	}
-}
-
-func TestServiceProcessAndTaskThroughTheBackend(t *testing.T) {
-	svc, _, r := newService(t)
-	ctx := ctxAs("kvaps")
-	if err := svc.AddProject(ctx, "acme", "portal"); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.AddProcess(ctx, "acme", "Invoicing", "portal"); err != nil {
-		t.Fatal(err)
-	}
-	task, err := svc.AddProcessTask(ctx, "acme", "Invoicing", boardservice.TaskArgs{Title: "Invoice ACME", Description: "monthly", Recurrence: "month", Start: "2026-08-03", Team: "portal", Accumulate: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, _ := svc.Board(ctx, "acme")
-	if len(b.Processes) != 1 || b.Processes[0].Name != "Invoicing" || b.Processes[0].Project != "portal" {
-		t.Fatalf("processes = %+v", b.Processes)
-	}
-	if len(b.Tasks) != 1 || b.Tasks[0].ItemID != task.ItemID || !b.Tasks[0].Accumulate || b.Tasks[0].Recurrence != "month" {
-		t.Fatalf("tasks = %+v", b.Tasks)
-	}
-	if _, err := r.ReadFile(TaskPath(b.Processes[0].ItemID, task.ItemID)); err != nil {
-		t.Fatalf("task file: %v", err)
-	}
-	if err := svc.DeleteProcessTask(ctx, "acme", task.ItemID); err != nil {
-		t.Fatal(err)
-	}
-	b, _ = svc.Board(ctx, "acme")
-	if len(b.Tasks) != 0 {
-		t.Fatalf("task not deleted: %+v", b.Tasks)
 	}
 }
 

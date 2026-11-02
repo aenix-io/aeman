@@ -13,7 +13,7 @@ import (
 func TestAnOversizedBlobIsBrokenNotLoaded(t *testing.T) {
 	huge := "---\ntitle: heavy\n---\n" + strings.Repeat("x", maxBlobBytes)
 	r := repoWith(t, map[string]string{
-		BoardPath:               "schema: 1\ntitle: b\n",
+		BoardPath:               "schema: 2\ntitle: b\n",
 		TeamPath("_"):           "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		"cards/a/1/01CARDA1.md": "---\ntitle: fine\nteam: _\nrank: b\n---\n",
 		"cards/a/2/01CARDA2.md": huge,

@@ -101,7 +101,6 @@ var sentinels = []struct {
 	// or missing the one that board is: the view refused the change.
 	{boardservice.ErrNotOnThisBoard, http.StatusUnprocessableEntity, "notOnThisBoard"},
 	{boardservice.ErrViewNeedsField, http.StatusUnprocessableEntity, "viewNeedsField"},
-	{boardservice.ErrOutsideCycle, http.StatusUnprocessableEntity, "outsideCycle"},
 	// Work sent back to the sprint it was done in, where there is nothing
 	// to send or nowhere to send it: rules refusing a change, not a forge
 	// failure.
@@ -110,13 +109,24 @@ var sentinels = []struct {
 	{boardservice.ErrParentNotFound, http.StatusUnprocessableEntity, "parentNotFound"},
 	{boardservice.ErrOpenSubtasks, http.StatusUnprocessableEntity, "openSubtasks"},
 	{boardservice.ErrTeamInUse, http.StatusUnprocessableEntity, "teamInUse"},
-	{boardservice.ErrEpicInUse, http.StatusUnprocessableEntity, "epicInUse"},
-	{boardservice.ErrEpicExists, http.StatusUnprocessableEntity, "epicExists"},
-	{boardservice.ErrEpicNotFound, http.StatusUnprocessableEntity, "epicNotFound"},
+	{boardservice.ErrScopeInUse, http.StatusUnprocessableEntity, "scopeInUse"},
+	{boardservice.ErrScopeExists, http.StatusUnprocessableEntity, "scopeExists"},
+	{boardservice.ErrScopeNotFound, http.StatusUnprocessableEntity, "scopeNotFound"},
 	{boardservice.ErrProjectInUse, http.StatusUnprocessableEntity, "projectInUse"},
 	{boardservice.ErrProjectExists, http.StatusUnprocessableEntity, "projectExists"},
 	{boardservice.ErrProjectNotFound, http.StatusUnprocessableEntity, "projectNotFound"},
-	{boardservice.ErrWeekDerived, http.StatusUnprocessableEntity, "weekDerived"},
+	{boardservice.ErrProjectCard, http.StatusUnprocessableEntity, "projectCard"},
+	// The hierarchy's rules (docs/design/hierarchy.md): a type the board
+	// has not got, a parent that is not of a higher level, and a planning
+	// card asked to carry what only a task carries.
+	{boardservice.ErrUnknownType, http.StatusUnprocessableEntity, "unknownType"},
+	{boardservice.ErrParentLevel, http.StatusUnprocessableEntity, "parentLevel"},
+	{boardservice.ErrReviewCardLink, http.StatusUnprocessableEntity, "reviewCardLink"},
+	{boardservice.ErrPlanningCard, http.StatusUnprocessableEntity, "planningCard"},
+	// Own (H10): a person is picked from a team, and a card whose owner a
+	// link decides — a subtask, a review card — is not asked.
+	{boardservice.ErrOwnerNeedsTeam, http.StatusUnprocessableEntity, "ownerNeedsTeam"},
+	{boardservice.ErrOwnerFollowsLink, http.StatusUnprocessableEntity, "ownerFollowsLink"},
 	{boardservice.ErrNotAMonday, http.StatusUnprocessableEntity, "notAMonday"},
 	{boardservice.ErrUnknownSize, http.StatusUnprocessableEntity, "unknownSize"},
 	{boardservice.ErrBadCapacity, http.StatusUnprocessableEntity, "badCapacity"},
@@ -128,19 +138,8 @@ var sentinels = []struct {
 	{boardservice.ErrNoReviewer, http.StatusUnprocessableEntity, "noReviewer"},
 	{boardservice.ErrEmptyNote, http.StatusUnprocessableEntity, "emptyNote"},
 	{boardservice.ErrEndBeforeStart, http.StatusUnprocessableEntity, "endBeforeStart"},
-	{boardservice.ErrProcessExists, http.StatusUnprocessableEntity, "processExists"},
-	{boardservice.ErrProcessNotFound, http.StatusUnprocessableEntity, "processNotFound"},
-	{boardservice.ErrTurnProcess, http.StatusUnprocessableEntity, "turnProcess"},
-	{boardservice.ErrNotRecurrent, http.StatusUnprocessableEntity, "notRecurrent"},
-	{boardservice.ErrSubtaskTie, http.StatusUnprocessableEntity, "subtaskTie"},
-	{boardservice.ErrProcessInUse, http.StatusUnprocessableEntity, "processInUse"},
-	{boardservice.ErrTaskNotFound, http.StatusUnprocessableEntity, "taskNotFound"},
 	{boardservice.ErrDomainConflict, http.StatusUnprocessableEntity, "domainConflict"},
 	{boardservice.ErrCrossDomain, http.StatusUnprocessableEntity, "crossDomain"},
-	{boardservice.ErrNoColumn, http.StatusUnprocessableEntity, "noColumn"},
-	{boardservice.ErrOwnColumn, http.StatusUnprocessableEntity, "ownColumn"},
-	{boardservice.ErrSubtaskMirror, http.StatusUnprocessableEntity, "subtaskMirror"},
-	{boardservice.ErrNotInProject, http.StatusUnprocessableEntity, "notInProject"},
 }
 
 // problemFor answers a service error. One the table does not name is not a

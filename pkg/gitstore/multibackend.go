@@ -94,18 +94,27 @@ func (mb *MultiBackend) Issues() ([]Alias, []Ghost) {
 	return append([]Alias(nil), mb.aliases...), append([]Ghost(nil), mb.ghosts...)
 }
 
-// LoadBoard merges every domain into the board the service expects.
-func (mb *MultiBackend) LoadBoard(_ context.Context, boardID string) (board.Board, error) {
-	s, err := mb.snapshot()
+// LoadBoard merges every domain into the board the service expects. Inside
+// a scope each domain is read as the action has left it, staged writes
+// included (loadOverlaid), so the doors one action goes through in turn
+// agree on the card.
+func (mb *MultiBackend) LoadBoard(ctx context.Context, boardID string) (board.Board, error) {
+	var staged func(*Repo) map[string][]byte
+	if scopeOf(ctx) != nil {
+		staged = func(r *Repo) map[string][]byte { return stagedIn(ctx, r) }
+	}
+	s, err := loadAllOverlaid(mb.domainList(), staged)
 	if err != nil {
 		return board.Board{}, err
 	}
+	mb.mu.Lock()
+	mb.aliases, mb.ghosts, mb.users = s.Aliases, s.Ghosts, s.Users
+	mb.mu.Unlock()
 	// The board's own repository, by NAME, and before the assembly runs:
 	// the snapshot stamps every entry with its domain's name, the primary
-	// included, and the assembly's own domain rules (declaredMirrors) ask
-	// "the same repository?" while they run — setting the name on the
-	// finished board would answer them in the wrong namespace and drop the
-	// mirrors the service had just written.
+	// included, and the rules that read the board (HomeDomain, ColumnDomain)
+	// ask "the same repository?" in that one namespace — setting the name
+	// on the finished board would answer them in the wrong namespace.
 	bd := boardFromSnapshotIn(mb.primary(), s)
 	bd.Board = boardID
 	return bd, nil
@@ -172,14 +181,21 @@ func (mb *MultiBackend) LoadCards(ctx context.Context, bd board.Board, ids []str
 
 // resolver answers DomainOf's questions from a merged snapshot.
 type resolver struct {
-	cards, projects, teams, processes map[string]string
-	stubs                             map[string]string // roster id → domain
+	cards, projects, teams map[string]string
+	stubs                  map[string]string // roster id → domain
+	// planning is the goals, initiatives and epics: the parents a link to
+	// does not place the child (board.PlanningResolver, H6).
+	planning map[string]bool
 }
 
 func newResolver(s Snapshot) resolver {
-	r := resolver{cards: map[string]string{}, projects: map[string]string{}, teams: map[string]string{}, processes: map[string]string{}, stubs: map[string]string{}}
+	r := resolver{cards: map[string]string{}, projects: map[string]string{}, teams: map[string]string{},
+		stubs: map[string]string{}, planning: map[string]bool{}}
 	for _, c := range s.Cards {
 		r.cards[c.ItemID] = c.Domain
+		if board.IsPlanning(c) {
+			r.planning[c.ItemID] = true
+		}
 	}
 	for _, t := range s.Teams {
 		r.teams[t.Name] = t.Domain
@@ -188,18 +204,11 @@ func newResolver(s Snapshot) resolver {
 	for _, p := range s.Projects {
 		r.projects[p.Name] = p.Domain
 		r.stubs[p.ID] = p.Domain
-		for _, e := range p.Epics {
+		for _, e := range p.Scopes {
 			r.stubs[e.ID] = e.Domain
 		}
 		for _, d := range p.Deadlines {
 			r.stubs[d.ID] = d.Domain
-		}
-	}
-	for _, p := range s.Processes {
-		r.processes[p.Name] = p.Domain
-		r.stubs[p.ID] = p.Domain
-		for _, k := range p.Tasks {
-			r.cards[k.ID] = k.Domain
 		}
 	}
 	for _, a := range s.Aliases {
@@ -209,6 +218,7 @@ func newResolver(s Snapshot) resolver {
 }
 
 func (r resolver) CardDomain(id string) (string, bool)      { d, ok := r.cards[id]; return d, ok }
+func (r resolver) CardIsPlanning(id string) bool            { return r.planning[id] }
 func (r resolver) ProjectDomain(name string) (string, bool) { d, ok := r.projects[name]; return d, ok }
 func (r resolver) TeamDomain(name string) (string, bool)    { d, ok := r.teams[name]; return d, ok }
 
@@ -236,7 +246,7 @@ func (mb *MultiBackend) domainOf(ctx context.Context, r resolver, c board.Card) 
 	if c.Domain != "" {
 		return c.Domain
 	}
-	if isStub(c) || c.Title == board.ProcessTaskTitle {
+	if isStub(c) {
 		if d, ok := r.stubs[c.ItemID]; ok {
 			return d
 		}
@@ -263,8 +273,7 @@ func (mb *MultiBackend) homeOf(r resolver, c board.Card) string {
 
 // CreateCard places a new card by the inheritance rule, a roster stub where
 // the caller asks (default the primary) — except that a column or deadline
-// lives with its project, a task with its process, a process with its
-// project when it has one.
+// lives with its project.
 func (mb *MultiBackend) CreateCard(ctx context.Context, bd board.Board, in board.CreateInput) (board.Card, error) {
 	s, err := mb.snapshot()
 	if err != nil {
@@ -281,21 +290,16 @@ func (mb *MultiBackend) CreateCard(ctx context.Context, bd board.Board, in board
 		if err := nameFree(r, "team", in.Team); err != nil {
 			return board.Card{}, err
 		}
-	case board.ProcessStateTitle:
-		if err := nameFree(r, "process", in.Process); err != nil {
-			return board.Card{}, err
-		}
 	}
 	// The caller's choice — the input's, else the context's (board.WithDomain)
-	// — counts only for what has no home by rule: a team, a project, a
-	// process without a project.
+	// — counts only for what has no home by rule: a team, a project.
 	choice := in.Domain
 	if choice == "" {
 		choice = board.DomainFrom(ctx)
 	}
 	target := ""
 	switch in.Title {
-	case board.EpicStateTitle, board.DeadlineStateTitle:
+	case board.ScopeStateTitle, board.DeadlineStateTitle:
 		if in.Project == "" {
 			// The no-project BUCKET is not one place on the board: every
 			// repository may declare its own nameless project file, and a
@@ -311,18 +315,6 @@ func (mb *MultiBackend) CreateCard(ctx context.Context, bd board.Board, in board
 		}
 		if d, ok := r.projects[in.Project]; ok {
 			target = d
-		}
-	case board.ProcessTaskTitle:
-		if d, ok := r.processes[in.Process]; ok {
-			target = d
-		}
-	case board.ProcessStateTitle:
-		if in.Project != "" {
-			if d, ok := r.projects[in.Project]; ok {
-				target = d
-			}
-		} else {
-			target = choice
 		}
 	case board.ProjectStateTitle, board.SprintStateTitle:
 		target = choice
@@ -371,7 +363,7 @@ func (mb *MultiBackend) refile(ctx context.Context, op string, c board.Card, cha
 	if err != nil {
 		return err
 	}
-	if isStub(c) || c.Title == board.ProcessTaskTitle {
+	if isStub(c) {
 		return apply(src)
 	}
 	// The home is decided from the card as the action currently sees it — an
@@ -512,15 +504,10 @@ func eventsOf(e LogEntry) []board.Event {
 	return out
 }
 
-// stampedDomain is the domain a loaded board records for a card or task, or
-// "" when the board does not carry the card (or was built without stamps).
+// stampedDomain is the domain a loaded board records for a card, or "" when
+// the board does not carry the card (or was built without stamps).
 func stampedDomain(bd board.Board, id string) string {
 	for _, c := range bd.Cards {
-		if c.ItemID == id {
-			return c.Domain
-		}
-	}
-	for _, c := range bd.Tasks {
 		if c.ItemID == id {
 			return c.Domain
 		}
@@ -530,8 +517,14 @@ func stampedDomain(bd board.Board, id string) string {
 
 // cascade moves what the linked-card rules tie to a moved card — its review
 // card and its subtasks, and theirs — into the same domain, in the same
-// action. A linked card already there (or already staged there) is left.
+// action. A linked card already there (or already staged there) is left. A
+// hierarchy link is not a tie: nothing under a goal, an initiative or an epic
+// follows it (H6), and a task under one keeps the repository its own project
+// or team gives it.
 func (mb *MultiBackend) cascade(ctx context.Context, op string, s Snapshot, r resolver, parentID, to string) error {
+	if r.planning[parentID] {
+		return nil
+	}
 	for _, child := range s.Cards {
 		if child.ReviewOf != parentID && child.Parent != parentID {
 			continue
@@ -825,8 +818,6 @@ func nameFree(r resolver, kind, name string) error {
 		_, taken = r.teams[name]
 	case "project":
 		_, taken = r.projects[name]
-	case "process":
-		_, taken = r.processes[name]
 	}
 	if taken {
 		return fmt.Errorf("%w: %s %q", ErrNameTaken, kind, name)
@@ -844,56 +835,9 @@ func (mb *MultiBackend) checkName(kind, name string) error {
 	return nameFree(newResolver(s), kind, name)
 }
 
-// SetEpic may move a card into another project's domain.
-func (mb *MultiBackend) SetEpic(ctx context.Context, bd board.Board, card board.Card, epic string) error {
-	return mb.refile(ctx, "epic", card, func(c *board.Card) { c.Epic = epic }, func(be *Backend) error { return be.SetEpic(ctx, bd, card, epic) })
-}
-
-// SetMirrors writes in the card's own domain: mirrors never move a card
-// (same-repository by the service's guard), so no refile is involved.
-func (mb *MultiBackend) SetMirrors(ctx context.Context, bd board.Board, card board.Card, mirrors []board.Placement) error {
-	be, err := mb.route(ctx, card)
-	if err != nil {
-		return err
-	}
-	return be.SetMirrors(ctx, bd, card, mirrors)
-}
-
-// SetProcess writes in the stub's or task's domain.
-func (mb *MultiBackend) SetProcess(ctx context.Context, bd board.Board, card board.Card, process string) error {
-	if card.Title == board.ProcessStateTitle && process != card.Process {
-		if err := mb.checkName("process", process); err != nil {
-			return err
-		}
-	}
-	be, err := mb.route(ctx, card)
-	if err != nil {
-		return err
-	}
-	return be.SetProcess(ctx, bd, card, process)
-}
-
-// SetTask may move an iteration to its task's domain.
-func (mb *MultiBackend) SetTask(ctx context.Context, bd board.Board, card board.Card, task string) error {
-	return mb.refile(ctx, "task", card, func(c *board.Card) { c.Task = task }, func(be *Backend) error { return be.SetTask(ctx, bd, card, task) })
-}
-
-// SetPaused writes in the process's domain.
-func (mb *MultiBackend) SetPaused(ctx context.Context, bd board.Board, card board.Card, paused bool) error {
-	be, err := mb.route(ctx, card)
-	if err != nil {
-		return err
-	}
-	return be.SetPaused(ctx, bd, card, paused)
-}
-
-// SetAccumulate writes in the task's domain.
-func (mb *MultiBackend) SetAccumulate(ctx context.Context, bd board.Board, card board.Card, on bool) error {
-	be, err := mb.route(ctx, card)
-	if err != nil {
-		return err
-	}
-	return be.SetAccumulate(ctx, bd, card, on)
+// SetScope may move a card into another project's domain.
+func (mb *MultiBackend) SetScope(ctx context.Context, bd board.Board, card board.Card, scope string) error {
+	return mb.refile(ctx, "scope", card, func(c *board.Card) { c.Scope = scope }, func(be *Backend) error { return be.SetScope(ctx, bd, card, scope) })
 }
 
 // SetProject may move a card into another project's domain.

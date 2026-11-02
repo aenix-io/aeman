@@ -28,7 +28,7 @@ func (m mapResolver) TeamDomain(name string) (string, bool) {
 }
 
 var world = mapResolver{
-	cards:    map[string]string{"closedCard": "closed", "sharedCard": "shared", "task1": "closed"},
+	cards:    map[string]string{"closedCard": "closed", "sharedCard": "shared"},
 	projects: map[string]string{"secret": "closed", "portal": "shared"},
 	teams:    map[string]string{"portal": "shared", "ops": "shared"},
 }
@@ -42,20 +42,15 @@ func TestDomainOfLinkedCardsFirst(t *testing.T) {
 		t.Fatalf("review card domain = %q, want closed (the reviewed card's)", got)
 	}
 	// A subtask with its own column still follows its parent.
-	sub := Card{ItemID: "s", Parent: "closedCard", Project: "portal", Epic: "Docs", Team: "portal"}
+	sub := Card{ItemID: "s", Parent: "closedCard", Project: "portal", Scope: "Docs", Team: "portal"}
 	if got := DomainOf(sub, world); got != "closed" {
 		t.Fatalf("subtask domain = %q, want closed (the parent's)", got)
-	}
-	// An iteration follows its task.
-	iter := Card{ItemID: "i", Task: "task1", Team: "ops"}
-	if got := DomainOf(iter, world); got != "closed" {
-		t.Fatalf("iteration domain = %q, want closed (the task's)", got)
 	}
 }
 
 func TestDomainOfProjectThenTeam(t *testing.T) {
 	// A project card lives with its project, whatever its team.
-	if got := DomainOf(Card{ItemID: "p", Project: "secret", Epic: "Bugs", Team: "portal"}, world); got != "closed" {
+	if got := DomainOf(Card{ItemID: "p", Project: "secret", Scope: "Bugs", Team: "portal"}, world); got != "closed" {
 		t.Fatalf("project card domain = %q, want closed", got)
 	}
 	// A card that names a project without a column still follows it.
@@ -69,6 +64,19 @@ func TestDomainOfProjectThenTeam(t *testing.T) {
 	// Nothing at all: the primary domain ("").
 	if got := DomainOf(Card{ItemID: "n"}, world); got != "" {
 		t.Fatalf("bare card domain = %q, want the primary", got)
+	}
+	// A PLANNING card has no team and no project — the people and the
+	// projects are on the tasks under it — so it lives in the primary, on a
+	// board of two repositories like any other; a stray value a direct writer
+	// put on it does not move it into a closed repository.
+	for _, c := range []Card{
+		{ItemID: "g", Type: TypeGoal},
+		{ItemID: "g2", Type: TypeGoal, Team: "portal"},
+		{ItemID: "e", Type: TypeEpic, Project: "secret", Parent: "closedCard"},
+	} {
+		if got := DomainOf(c, world); got != "" {
+			t.Fatalf("planning card %s domain = %q, want the primary", c.ItemID, got)
+		}
 	}
 }
 
@@ -167,16 +175,14 @@ func TestEveryDomainReaderAnswersInThePrimarysNamespace(t *testing.T) {
 		{ItemID: "st-f", Title: SprintStateTitle, Team: "founders", Domain: "founders"},
 		{ItemID: "pr-e", Title: ProjectStateTitle, Project: "engineering"},
 		{ItemID: "pr-s", Title: ProjectStateTitle, Project: "strategy", Domain: "founders"},
-		{ItemID: "ep-c", Title: EpicStateTitle, Project: "engineering", Epic: "Cozystack"},
-		{ItemID: "ep-i", Title: EpicStateTitle, Epic: "Inbox"},
-		{ItemID: "pc-i", Title: ProcessStateTitle, Process: "Invoicing"},
+		{ItemID: "ep-c", Title: ScopeStateTitle, Project: "engineering", Scope: "Cozystack"},
+		{ItemID: "ep-i", Title: ScopeStateTitle, Scope: "Inbox"},
 	})
 	for _, tc := range []struct{ what, got, want string }{
 		{"an unstamped team", TeamDomain(b, "platform"), "aeman-db"},
 		{"a stamped team", TeamDomain(b, "founders"), "founders"},
 		{"an unstamped project", ProjectDomain(b, "engineering"), "aeman-db"},
 		{"a stamped project", ProjectDomain(b, "strategy"), "founders"},
-		{"an unstamped process", ProcessDomain(b, "Invoicing"), "aeman-db"},
 		{"a card its team places", HomeDomain(b, Card{Team: "platform"}), "aeman-db"},
 		{"a card its project places", HomeDomain(b, Card{Project: "strategy"}), "founders"},
 		{"a card NOTHING places", HomeDomain(b, Card{}), "aeman-db"},
@@ -188,19 +194,19 @@ func TestEveryDomainReaderAnswersInThePrimarysNamespace(t *testing.T) {
 	// A column answers by its own stub, the no-project bucket included:
 	// its project cannot be asked, and reading it there would call every
 	// card in the bucket foreign.
-	for _, tc := range []struct{ project, epic, want string }{
+	for _, tc := range []struct{ project, scope, want string }{
 		{"engineering", "Cozystack", "aeman-db"},
 		{"", "Inbox", "aeman-db"},
 	} {
-		cd, ok := ColumnDomain(b, tc.project, tc.epic)
+		cd, ok := ColumnDomain(b, tc.project, tc.scope)
 		if !ok || cd != tc.want {
-			t.Errorf("column %q/%q answers %q (known=%v), want %q", tc.project, tc.epic, cd, ok, tc.want)
+			t.Errorf("column %q/%q answers %q (known=%v), want %q", tc.project, tc.scope, cd, ok, tc.want)
 		}
 	}
 	// Where the card's FILE is, in the same namespace: the stamp, or the
 	// primary when the file carries none. A rule that reads a card's own
-	// stamp raw — the process tie asks whether the card and the process
-	// live together — compares it against answers that ARE normalized.
+	// stamp raw — a mirror asks whether the card and the column live
+	// together — compares it against answers that ARE normalized.
 	for _, tc := range []struct{ what, got, want string }{
 		{"an unstamped card", FileDomain(b, Card{}), "aeman-db"},
 		{"a stamped card", FileDomain(b, Card{Domain: "founders"}), "founders"},
@@ -217,8 +223,5 @@ func TestEveryDomainReaderAnswersInThePrimarysNamespace(t *testing.T) {
 	}
 	if got := TeamDomain(b, "ghosts"); got != "" {
 		t.Errorf("an undeclared team answers %q, want the empty non-answer", got)
-	}
-	if got := ProcessDomain(b, "Nope"); got != "" {
-		t.Errorf("an undeclared process answers %q, want the empty non-answer", got)
 	}
 }

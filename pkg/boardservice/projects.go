@@ -9,16 +9,16 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// ErrProjectInUse is returned when deleting a project that still has epic
-// columns: the epics (and every card under them) would be orphaned into the
+// ErrProjectInUse is returned when deleting a project that still has scope
+// columns: the scopes (and every card under them) would be orphaned into the
 // no-project bucket, quietly detaching planned work from the plan it belongs
-// to. Delete or move the epics first.
-var ErrProjectInUse = errors.New("project still has epics")
+// to. Delete or move the scopes first.
+var ErrProjectInUse = errors.New("project still has scopes")
 
 // ErrProjectExists guards AddProject against doubling a project.
 var ErrProjectExists = errors.New("project already exists")
 
-// ErrProjectNotFound is filing an epic under a project that does not exist —
+// ErrProjectNotFound is filing an scope under a project that does not exist —
 // a typo must not mint a phantom project. It is a rejected input (422), not an
 // upstream failure.
 var ErrProjectNotFound = errors.New("unknown project")
@@ -26,7 +26,7 @@ var ErrProjectNotFound = errors.New("unknown project")
 // AddProject declares a project — the Project board's top-level grouping — by
 // creating its hidden project-state card, whose board position IS the order
 // its chip appears in (the same mechanism as the team roster). A project may
-// be created empty and filled with epics afterwards.
+// be created empty and filled with scopes afterwards.
 func (s *Service) AddProject(ctx context.Context, boardID string, name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -49,19 +49,19 @@ func (s *Service) AddProject(ctx context.Context, boardID string, name string) e
 }
 
 // DeleteProject removes an EMPTY project by deleting its project-state card.
-// A project that still owns epic columns is protected (ErrProjectInUse).
+// A project that still owns scope columns is protected (ErrProjectInUse).
 func (s *Service) DeleteProject(ctx context.Context, boardID string, name string) error {
 	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
-	if epics := board.EpicsOf(b, name); len(epics) > 0 {
-		names := make([]string, 0, len(epics))
-		for _, e := range epics {
+	if scopes := board.ScopesOf(b, name); len(scopes) > 0 {
+		names := make([]string, 0, len(scopes))
+		for _, e := range scopes {
 			names = append(names, e.Name)
 		}
 		return fmt.Errorf("%w: %d (%s) still under %q — delete or move them first",
-			ErrProjectInUse, len(epics), strings.Join(names, ", "), name)
+			ErrProjectInUse, len(scopes), strings.Join(names, ", "), name)
 	}
 	itemID, ok := b.ProjectStates[name]
 	if !ok || itemID == "" {
@@ -72,7 +72,7 @@ func (s *Service) DeleteProject(ctx context.Context, boardID string, name string
 }
 
 // ReorderProjects persists the chip order by walking the project-state cards
-// into the given sequence (mirrors ReorderTeams and ReorderEpics).
+// into the given sequence (mirrors ReorderTeams and ReorderScopes).
 func (s *Service) ReorderProjects(ctx context.Context, boardID string, names []string) error {
 	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
@@ -93,18 +93,18 @@ func (s *Service) ReorderProjects(ctx context.Context, boardID string, names []s
 	return nil
 }
 
-// SetEpicProject moves a column from one project to another ("" detaches it
+// SetScopeProject moves a column from one project to another ("" detaches it
 // into the no-project bucket, where only the all-projects view shows it). The
-// column's cards are rewritten too: a card names the (project, epic) pair, so
+// column's cards are rewritten too: a card names the (project, scope) pair, so
 // leaving them behind would file them under a column that no longer exists.
-func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic, to string) error {
+func (s *Service) SetScopeProject(ctx context.Context, boardID string, from, scope, to string) error {
 	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
-	col, ok := board.FindEpic(b, from, epic)
+	col, ok := board.FindScope(b, from, scope)
 	if !ok || col.ItemID == "" {
-		return fmt.Errorf("%w %q in project %q", ErrEpicNotFound, epic, from)
+		return fmt.Errorf("%w %q in project %q", ErrScopeNotFound, scope, from)
 	}
 	if from == to {
 		return nil
@@ -117,11 +117,11 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 	// The destination may already have a column of this name, and two
 	// columns with one name in one project cannot be told apart. The
 	// NO-PROJECT bucket is a destination like any other here: NewBoard
-	// dedups columns by the (project, epic) pair, so an unbind onto a name
+	// dedups columns by the (project, scope) pair, so an unbind onto a name
 	// already there merges two stubs under one entry — and the losing
 	// stub's cards are then refused at every door, with nothing in the
 	// product to free them.
-	if err := epicNameFree(b, to, epic, ""); err != nil {
+	if err := scopeNameFree(b, to, scope, ""); err != nil {
 		return err
 	}
 	// A column cannot change REPOSITORY. Its stub is handed straight back to
@@ -132,7 +132,7 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 	// stands in: the state G57 forbids, and a trap, since from then on every
 	// guard refuses that card and no gesture frees it. Unbinding (to = "")
 	// moves nothing and is judged below, card by card.
-	colDomain, _ := board.ColumnDomain(b, from, epic) // declared: FindEpic said so
+	colDomain, _ := board.ColumnDomain(b, from, scope) // declared: FindScope said so
 	if to != "" && colDomain != board.ProjectDomain(b, to) {
 		return fmt.Errorf("%w: %q is in another repository than this column, which cannot follow it",
 			ErrCrossDomain, to)
@@ -142,57 +142,32 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 	// after the column's stub has moved leaves the stub in one project and
 	// the cards in another — half a column gone. The destination must not
 	// put a card in a repository its team does not live in (G46), and every
-	// card standing here must be able to FOLLOW: an ordinary card does (its
-	// project decides where it lives), one whose file a link holds does not.
-	// The cross-repository question is settled above, for the column as a
-	// whole. Unbinding to the no-project bucket under mirrors is refused
-	// with the act that fixes it.
+	// card standing here must be able to FOLLOW the column: a project card
+	// does — its project decides where it lives — and one written before
+	// schema 2 that still carries a link or a team may not. refileGuard
+	// cannot see this one, because the move changes nothing about THIS
+	// card's domain and the target column does not exist yet. The
+	// cross-repository question is settled above, for the column as a whole.
 	for _, c := range b.Cards {
-		if !board.InEpic(c, from, epic) {
+		if !board.InScope(c, from, scope) {
 			continue
 		}
 		if err := guardRoster(b, c.Team, to); err != nil {
 			return err
 		}
-		if c.Project == from && c.Epic == epic {
-			// A HOME card's process tie must not leave its repository with
-			// the column: the move re-files the card, and the tie would
-			// stay behind — refused before the stub is re-parented, like
-			// the mirror guards below.
-			if err := refileGuard(b, c, func(a *board.Card) { a.Project = to }); err != nil {
-				return fmt.Errorf("%w (card %q)", err, c.Title)
-			}
-			// And the card must be able to FOLLOW the column. An ordinary
-			// card does — its project decides where it lives — but one
-			// whose file is held by a link (a subtask riding its parent, a
-			// review card its original) stays behind while its project
-			// field is rewritten to name a column that has left: the state
-			// G57 refuses at every other door. refileGuard cannot see this
-			// one, because the move changes nothing about THIS card's
-			// domain and the target column does not exist yet.
-			after := c
-			after.Project = to
-			if board.HomeDomain(b, after) != colDomain {
-				return fmt.Errorf("%w: %q would leave this column's repository — its team or its links decide where it lives, not its project",
-					ErrCrossDomain, c.Title)
-			}
-		}
-		if len(c.Mirrors) > 0 && to == "" {
-			return fmt.Errorf("%w: %q is mirrored — unmirror it before unbinding the column", ErrCrossDomain, c.Title)
+		after := c
+		after.Project = to
+		if board.HomeDomain(b, after) != colDomain {
+			return fmt.Errorf("%w: %q would leave this column's repository — its team or its links decide where it lives, not its project",
+				ErrCrossDomain, c.Title)
 		}
 	}
-	stub := board.Card{ItemID: col.ItemID, Title: board.EpicStateTitle, Epic: epic, Project: from}
+	stub := board.Card{ItemID: col.ItemID, Title: board.ScopeStateTitle, Scope: scope, Project: from}
 	if err := s.backend.SetProject(ctx, b, stub, to); err != nil {
 		return err
 	}
 	for _, c := range b.Cards {
-		if !board.InEpic(c, from, epic) {
-			continue
-		}
-		if board.Mirrored(c, from, epic) {
-			if err := s.renameMirror(ctx, b, c, from, epic, to, epic); err != nil {
-				return err
-			}
+		if !board.InScope(c, from, scope) {
 			continue
 		}
 		if err := s.backend.SetProject(ctx, b, c, to); err != nil {
@@ -204,7 +179,7 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 
 // RenameProject renames a project in place: its own state card, the Project
 // field of every column it owns, and of every card under those columns. As
-// with epics the name is the reference, so all of it moves together.
+// with scopes the name is the reference, so all of it moves together.
 func (s *Service) RenameProject(ctx context.Context, boardID string, from, to string) error {
 	to = strings.TrimSpace(to)
 	if to == "" {
@@ -230,28 +205,13 @@ func (s *Service) RenameProject(ctx context.Context, boardID string, from, to st
 	if err := s.backend.SetProject(ctx, b, stub, to); err != nil {
 		return err
 	}
-	for _, col := range board.EpicsOf(b, from) {
-		colStub := board.Card{ItemID: col.ItemID, Title: board.EpicStateTitle, Epic: col.Name, Project: from}
+	for _, col := range board.ScopesOf(b, from) {
+		colStub := board.Card{ItemID: col.ItemID, Title: board.ScopeStateTitle, Scope: col.Name, Project: from}
 		if err := s.backend.SetProject(ctx, b, colStub, to); err != nil {
 			return err
 		}
 	}
 	for _, c := range b.Cards {
-		// A mirror under the renamed project follows it — independently of
-		// where the card's home is (issue #124: a rename must not strand a
-		// reference).
-		mirrored := false
-		for _, m := range c.Mirrors {
-			if m.Project == from {
-				mirrored = true
-				break
-			}
-		}
-		if mirrored {
-			if err := s.renameMirror(ctx, b, c, from, "", to, ""); err != nil {
-				return err
-			}
-		}
 		if c.Project != from {
 			continue
 		}

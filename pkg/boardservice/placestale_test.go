@@ -1,6 +1,7 @@
 package boardservice
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -12,10 +13,10 @@ import (
 // that says "this is being done now" is dragging it into the week the team is
 // working. That gesture has to put it back on a day board, or the drag lies:
 // the card takes the current week and stays invisible everywhere work is
-// done, which is exactly where nine process turns sat on the production
+// done, which is exactly where nine recurrent cards sat on the production
 // board, three of them a month past their week.
 //
-// The dates it gets are the ones a turn filed for this week would have: from
+// The dates it gets are the ones a card filed for this week would have: from
 // TODAY (not the week's Monday — a start before the current sprint began
 // would join the previous one) through the end of the week.
 func TestPlacingBackAWeekWhoseDaysRanOutPutsTheCardOnTheDayBoard(t *testing.T) {
@@ -24,7 +25,7 @@ func TestPlacingBackAWeekWhoseDaysRanOutPutsTheCardOnTheDayBoard(t *testing.T) {
 	oldWeek := board.AddDays(thisWeek, -14)
 
 	f := newFake([]board.Card{{
-		ItemID: "turn", Team: "alpha", Assignees: []string{"kvaps"}, Task: "t1",
+		ItemID: "turn", Team: "alpha", Assignees: []string{"kvaps"},
 		Stage: board.StageRecurrent, Week: oldWeek,
 		StartDate: oldWeek, Day: board.AddDays(oldWeek, 6),
 	}}, map[string]board.SprintState{"alpha": {Current: thisWeek}})
@@ -74,28 +75,27 @@ func TestPlacingBackLeavesDatesThatStillReachThisWeek(t *testing.T) {
 	}
 }
 
-// A Project-board SLOT is not re-dated by this either: its dates ARE its row,
-// and Place moves them by the delta of the drag (the branch above), which is
-// the Project board's own rule. A dated slot dragged from a week whose days
-// ran out must keep that arithmetic, not be dropped into today.
-func TestPlacingBackASlotStillMovesItsRow(t *testing.T) {
+// A PROJECT card is not on the Triage board to be placed at all (H4): its
+// weeks are the Project board's rows, moved there by its dates. Placing one
+// is refused, and nothing on it moves. (It used to be re-dated by the drag's
+// delta, back when its dates pinned it to this grid.)
+func TestPlacingAProjectCardIsRefused(t *testing.T) {
 	today := board.TodayIso()
 	thisWeek := board.MondayOf(today)
 	oldWeek := board.AddDays(thisWeek, -14)
 
 	f := newFake([]board.Card{
 		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "P"},
-		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "E", Project: "P"},
-		{ItemID: "slot", Team: "alpha", Epic: "E", Project: "P", Week: oldWeek,
-			StartDate: oldWeek, Day: board.AddDays(oldWeek, 13)},
+		{ItemID: "e1", Title: board.ScopeStateTitle, Scope: "E", Project: "P"},
+		{ItemID: "plan", Scope: "E", Project: "P", StartDate: oldWeek, Day: board.AddDays(oldWeek, 13)},
 	}, map[string]board.SprintState{"alpha": {Current: thisWeek}})
 	svc := f2svc(f)
 
-	if err := svc.Place(ctx, "acme", "slot", thisWeek); err != nil {
-		t.Fatal(err)
+	if err := svc.Place(ctx, "acme", "plan", thisWeek); !errors.Is(err, ErrProjectCard) {
+		t.Fatalf("placing a project card = %v, want ErrProjectCard", err)
 	}
-	c := f.get("slot")
-	if c.StartDate != thisWeek || c.Day != board.AddDays(thisWeek, 13) {
-		t.Fatalf("a slot's row moves by the drag's delta, got %s…%s", c.StartDate, c.Day)
+	c := f.get("plan")
+	if c.StartDate != oldWeek || c.Day != board.AddDays(oldWeek, 13) || c.Week != "" {
+		t.Fatalf("the refusal moved something: %+v", c)
 	}
 }

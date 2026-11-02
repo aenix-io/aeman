@@ -23,6 +23,14 @@ import "sort"
 // up, and a backlog nobody had to create is one that is there the first time
 // it is needed. It cannot be made, renamed or removed, so no card can ever be
 // left pointing at a shelf that has gone.
+//
+// TODO(hierarchy): the shelf is keyed by TEAM, and that is the wrong key. A
+// piece of work waits for the chain that delivers value — a product, a
+// customer, a flow — not for the organisational unit, and the user's
+// direction (2026-11-02, docs/design/hierarchy.md "Open questions") is to
+// rework the backlog around that chain. Until the chain is a thing the board
+// can name, `own` with a team alone parks a card on the team's shelf and the
+// Triage drawer draws one shelf per team.
 
 // InBacklog reports whether the card is on its team's shelf.
 func InBacklog(c Card) bool { return c.Parked }

@@ -14,6 +14,7 @@
 // Mirrors pkg/board/backlog.go and the rules boardservice.SetBacklog enforces.
 
 import type { Card, ZoneKey } from "./providers/types";
+import { isPlanning, isSubtask } from "./subtasks";
 
 /** parked reports whether the card is on its team's shelf. */
 export function parked(c: Pick<Card, "parked">): boolean {
@@ -22,11 +23,10 @@ export function parked(c: Pick<Card, "parked">): boolean {
 
 /** parkable reports whether this card may be parked at all.
  *
- *  A Project-board slot and a process TURN are refused: their week is another
- *  board's to say — a slot's follows its start date, a turn's is its process's
- *  record of what that week was owed — so parking one here would edit a plan
- *  this board does not own. The server refuses it too (ErrNotYoursToPark);
- *  this is so the board never offers what would come back as an error.
+ *  A PROJECT card is refused: it is the Project board's plan and stands in
+ *  its column alone (H4), so parking it here would edit a plan this board
+ *  does not own. The server refuses it too (ErrNotYoursToPark); this is so
+ *  the board never offers what would come back as an error.
  *
  *  A REVIEW card and a SUBTASK are refused for the other reason: neither has
  *  a place of its own to be parked out of. One follows the card it reviews,
@@ -35,10 +35,10 @@ export function parked(c: Pick<Card, "parked">): boolean {
  *  (removal.ts) while the drawer went on accepting the drop, which made the
  *  same card parkable or not depending on which gesture was used;
  *  ErrNoPlaceOfItsOwn is the server's side of it. */
-export function parkable(
-  c: Pick<Card, "epic" | "task" | "reviewOf" | "parent">,
-): boolean {
-  return !c.epic && !c.task && !c.reviewOf && !c.parent;
+export function parkable(c: Pick<Card, "scope" | "reviewOf" | "parent" | "lineage" | "type">): boolean {
+  // A planning card has no shelf (H3); a task under an epic has a place of
+  // its own and may be parked like any task (H1).
+  return !c.scope && !c.reviewOf && !isSubtask(c) && !isPlanning(c);
 }
 
 /** ShelfDrop is what a drop on a team's shelf writes.

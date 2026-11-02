@@ -243,19 +243,17 @@ func mergeFile(p string, base, ours, theirs []byte) ([]byte, bool) {
 func mergeByKind(p string, base, ours, theirs []byte) (merged []byte, same, mergeable bool) {
 	kind, ids := ParsePath(p)
 	switch kind {
-	case PathCard, PathTask:
+	case PathCard:
 		id := ids[len(ids)-1]
 		return mergeTyped(base, ours, theirs, func(d []byte) (CardFile, error) { return DecodeCard(id, d) }, EncodeCard)
 	case PathTeam:
 		return mergeTyped(base, ours, theirs, DecodeTeam, EncodeTeam)
 	case PathProject:
 		return mergeTyped(base, ours, theirs, DecodeProject, EncodeProject)
-	case PathEpic:
-		return mergeTyped(base, ours, theirs, DecodeEpic, EncodeEpic)
+	case PathScope:
+		return mergeTyped(base, ours, theirs, DecodeScope, EncodeScope)
 	case PathDeadline:
 		return mergeTyped(base, ours, theirs, DecodeDeadline, EncodeDeadline)
-	case PathProcess:
-		return mergeTyped(base, ours, theirs, DecodeProcess, EncodeProcess)
 	case PathBoard:
 		return mergeTyped(base, ours, theirs, DecodeBoard, EncodeBoard)
 	default:

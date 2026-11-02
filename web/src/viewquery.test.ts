@@ -70,10 +70,9 @@ describe("snapshot selectors", () => {
     expect(snapshotDay("me", PAST, TODAY)).toBe(true);
     expect(snapshotDay("me", TODAY, TODAY)).toBe(false);
     expect(snapshotDay("me", "2026-07-05", TODAY)).toBe(false);
-    // The Project and Process boards are not day boards: a day means nothing
+    // The Project board is not a day board: a day means nothing
     // there, so a snapshot of one would be a claim about nothing.
     expect(snapshotDay("project", PAST, TODAY)).toBe(false);
-    expect(snapshotDay("process", PAST, TODAY)).toBe(false);
   });
 
   // The app calls these without a `today` — the fixed one above keeps the

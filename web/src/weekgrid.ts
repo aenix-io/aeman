@@ -1,7 +1,7 @@
 /** The week grid — the geometry two boards share.
  *
  * A week grid is a table whose rows are weeks and whose columns are something
- * a card belongs to: an epic on the Project board, a person on Triage. The
+ * a card belongs to: an scope on the Project board, a person on Triage. The
  * rows, their labels, how far the window reaches, how wide a column is at a
  * given zoom and where a card's dates land in the grid are the same questions
  * on both, and they are answered here — once, without a DOM — so the two

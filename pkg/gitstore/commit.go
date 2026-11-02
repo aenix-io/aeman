@@ -110,7 +110,7 @@ func (r *Repo) rememberSnapshot(head plumbing.Hash, s Snapshot) {
 // Action is what one commit records.
 type Action struct {
 	// Name is the action kind — today's event kinds plus the actions that
-	// never had one (carry-over, rename-epic, import, sweep, …).
+	// never had one (carry-over, rename-scope, import, sweep, …).
 	Name string
 	// ID ties the commits of one action together across domains; empty
 	// for single-domain actions that need no correlation.

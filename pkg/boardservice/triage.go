@@ -34,23 +34,17 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string) error
 		return err
 	}
 	today := board.TodayIso()
-	if card.Epic != "" && card.Week != "" && card.Day != "" {
-		// A slot's week is its start's week: move the dates, the week
-		// follows (syncSlotWeek).
-		from := board.MondayOf(card.StartDate)
-		if from == "" {
-			from = card.Week
-		}
-		delta := board.DaysBetween(from, week)
-		if delta == 0 {
-			return nil
-		}
-		return s.SetDates(ctx, boardID, itemID, board.AddDays(card.StartDate, delta), board.AddDays(card.Day, delta))
+	// A PROJECT card is not on this board to be placed (H4): its weeks are
+	// the Project board's rows, moved there by its dates.
+	if card.Scope != "" {
+		return fmt.Errorf("%w: %q is a project card — move its dates on the Project board", ErrProjectCard, card.Title)
 	}
-	if err := guardTurnWeek(b, card, week); err != nil {
+	if err := notAPlanningCard(card, "week"); err != nil {
 		return err
 	}
-	if card.Parent != "" {
+	// A subtask given a week leaves its group; a task under an epic keeps
+	// its place in the hierarchy — the week is its own (H1).
+	if board.IsSubtask(b, card) {
 		if err := s.ungroup(ctx, b, card); err != nil {
 			return err
 		}
@@ -105,7 +99,7 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string) error
 	// sprint began would join the PREVIOUS one — through the end of the week.
 	// Only the week being WORKED does this; placing into an earlier one is
 	// filing a record, not saying "this is being done now".
-	if week == board.MondayOf(today) && card.Epic == "" && daysRanOut(card, week) {
+	if week == board.MondayOf(today) && daysRanOut(card, week) {
 		return s.SetDates(ctx, boardID, itemID, today, board.AddDays(week, 6))
 	}
 	// Brought back into the week the team is working, a card that stands on
@@ -116,7 +110,7 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string) error
 	// day, not on anyone's Me, findable by its id alone. A card that already
 	// has a day keeps it: placing it in the week it is already in says
 	// nothing new about when it is being done.
-	if card.StartDate == "" && card.Day == "" && card.SprintStart == "" && card.Epic == "" {
+	if card.StartDate == "" && card.Day == "" && card.SprintStart == "" {
 		sprint := board.ActiveSprint(b, card.Team, today)
 		if sprint == "" {
 			sprint = board.CurrentSprint(b, card.Team)
@@ -151,15 +145,15 @@ func daysRanOut(c board.Card, week string) bool {
 }
 
 // Untriage takes a card out of its week: it is back in the strip, waiting for
-// someone to say when the work is due. A slot is refused — its week is its
-// row on the Project board.
+// someone to say when the work is due. A project card is refused — it is not
+// on this board, and the strip is not where it waits (H4).
 func (s *Service) Untriage(ctx context.Context, boardID, itemID string) error {
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
 	}
-	if card.Epic != "" {
-		return fmt.Errorf("%w: a slot's week is its row — take it off the column instead", ErrWeekDerived)
+	if card.Scope != "" {
+		return fmt.Errorf("%w: %q is a project card — take it off the column instead", ErrProjectCard, card.Title)
 	}
 	if card.Week != "" {
 		if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {

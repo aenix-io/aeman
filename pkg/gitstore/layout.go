@@ -72,6 +72,9 @@ func EncodeCard(f CardFile) ([]byte, error) {
 		}
 	}
 	w("title", c.Title)
+	// The level, right after the title: what the card IS comes before
+	// everything it carries (docs/design/hierarchy.md). A task writes none.
+	w("type", c.Type)
 	if len(c.Assignees) > 0 {
 		items := make([]string, len(c.Assignees))
 		for i, a := range c.Assignees {
@@ -96,34 +99,11 @@ func EncodeCard(f CardFile) ([]byte, error) {
 		b.WriteString("parked: true\n")
 	}
 	w("project", c.Project)
-	w("epic", c.Epic)
-	if len(c.Mirrors) > 0 {
-		// Structured YAML, not a joined string: project and epic names are
-		// user text and no separator survives them (#124's lesson).
-		seq := &yaml.Node{Kind: yaml.SequenceNode}
-		for _, m := range c.Mirrors {
-			seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.MappingNode, Style: yaml.FlowStyle, Content: []*yaml.Node{
-				{Kind: yaml.ScalarNode, Value: "project"}, {Kind: yaml.ScalarNode, Value: m.Project},
-				{Kind: yaml.ScalarNode, Value: "epic"}, {Kind: yaml.ScalarNode, Value: m.Epic},
-			}})
-		}
-		out, err := yaml.Marshal(&yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
-			{Kind: yaml.ScalarNode, Value: "mirrors"}, seq,
-		}})
-		if err != nil {
-			return nil, fmt.Errorf("gitstore: encode mirrors: %w", err)
-		}
-		b.Write(out)
-	}
+	w("scope", c.Scope)
 	w("parent", c.Parent)
 	w("reviewOf", c.ReviewOf)
 	wi("reviewRound", c.ReviewRound)
 	w("recurrence", c.Recurrence)
-	w("process", c.Process)
-	w("task", c.Task)
-	if c.Accumulate {
-		b.WriteString("accumulate: true\n")
-	}
 	w("link", c.Link)
 	w("github", c.GitHubID)
 	w("movedFrom", c.MovedFrom)
@@ -203,51 +183,59 @@ func DecodeCard(id string, data []byte) (CardFile, error) {
 	if !bytes.HasPrefix(data, []byte(fence)) {
 		return f, errors.New("gitstore: card file has no front-matter")
 	}
-	rest := data[len(fence):]
-	end := bytes.Index(rest, []byte("\n"+fence))
-	var front, body []byte
-	switch {
-	case bytes.HasPrefix(rest, []byte(fence)):
-		front, body = nil, rest[len(fence):]
-	case end >= 0:
-		front, body = rest[:end+1], rest[end+1+len(fence):]
-	default:
-		return f, errors.New("gitstore: card file front-matter is not closed")
+	front, body, err := splitFront(data)
+	if err != nil {
+		return f, err
 	}
 	if err := decodeFront(&f, front); err != nil {
 		return f, err
-	}
-	// A hand-written mirror equal to the home pair, or written twice, is
-	// the state the x bug lives in: the slot drawn twice, the x
-	// unmirroring instead of removing. Dropped in a post-pass — post-pass
-	// because a hand-written file guarantees no key order, so the home may
-	// be read after the mirrors.
-	// A subtask carries at most the ONE column of its own (G57, which the
-	// Project board draws); a SECOND placement it may not have, because
-	// its file follows its parent and every mirror would be stranded the
-	// moment the parent changes repository.
-	if f.Card.Parent != "" {
-		f.Card.Mirrors = nil
-	}
-	if len(f.Card.Mirrors) > 0 {
-		seen := map[board.Placement]bool{}
-		kept := f.Card.Mirrors[:0]
-		for _, m := range f.Card.Mirrors {
-			if (m.Project == f.Card.Project && m.Epic == f.Card.Epic) || seen[m] {
-				continue
-			}
-			seen[m] = true
-			kept = append(kept, m)
-		}
-		f.Card.Mirrors = kept
-		if len(f.Card.Mirrors) == 0 {
-			f.Card.Mirrors = nil
-		}
 	}
 	desc, notes := splitBody(string(body))
 	f.Card.Description = desc
 	f.Card.Notes = notes
 	return f, nil
+}
+
+// splitFront cuts a card file at its fences: the front-matter (without the
+// fences) and the body after the closing one. The opening fence has been
+// checked by the caller.
+func splitFront(data []byte) (front, body []byte, err error) {
+	rest := data[len(fence):]
+	end := bytes.Index(rest, []byte("\n"+fence))
+	switch {
+	case bytes.HasPrefix(rest, []byte(fence)):
+		return nil, rest[len(fence):], nil
+	case end >= 0:
+		return rest[:end+1], rest[end+1+len(fence):], nil
+	default:
+		return nil, nil, errors.New("gitstore: card file front-matter is not closed")
+	}
+}
+
+// frontKeys lists the top-level keys of a card file's front-matter, in file
+// order, without reading the card: what a migration asks before deciding
+// whether a file needs rewriting at all.
+func frontKeys(data []byte) ([]string, error) {
+	if !bytes.HasPrefix(data, []byte(fence)) {
+		return nil, errors.New("gitstore: card file has no front-matter")
+	}
+	front, _, err := splitFront(data)
+	if err != nil || len(bytes.TrimSpace(front)) == 0 {
+		return nil, err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(front, &doc); err != nil {
+		return nil, fmt.Errorf("gitstore: front-matter: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, errors.New("gitstore: front-matter is not a mapping")
+	}
+	m := doc.Content[0]
+	keys := make([]string, 0, len(m.Content)/2)
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		keys = append(keys, m.Content[i].Value)
+	}
+	return keys, nil
 }
 
 // decodeFront reads the known keys into the card and keeps the rest.
@@ -310,14 +298,24 @@ func resolveNode(n *yaml.Node, seen map[*yaml.Node]bool) *yaml.Node {
 }
 
 // setKnown stores one front-matter key on the card; false means the key is
-// not one of ours.
+// not one of ours. The keys of a retired feature — `process`, `task`,
+// `accumulate` and `mirrors` (schema 1) — are deliberately NOT ours any
+// more: on a file written before the migration they ride through as Extra,
+// so a record of that day still shows the card as it stood, and the
+// migration strips them once rather than every reader forgetting them.
 func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 	num := func() int { n, _ := strconv.Atoi(val.Value); return n }
 	strs := map[string]*string{
-		"title": &c.Title, "author": &c.Author, "team": &c.Team, "start": &c.StartDate,
+		"title": &c.Title, "type": &c.Type, "author": &c.Author, "team": &c.Team, "start": &c.StartDate,
 		"day": &c.Day, "sprint": &c.SprintStart, "week": &c.Week, "project": &c.Project,
-		"epic": &c.Epic, "parent": &c.Parent, "reviewOf": &c.ReviewOf, "recurrence": &c.Recurrence,
-		"process": &c.Process, "task": &c.Task, "link": &c.Link, "github": &c.GitHubID,
+		"scope": &c.Scope, "parent": &c.Parent, "reviewOf": &c.ReviewOf, "recurrence": &c.Recurrence,
+		// `epic` is what the column key was called before schema 2: read as
+		// an alias so a pre-migration file, or a pre-migration day served as
+		// it stood, still files the card under its column; written back as
+		// `scope`. (Nothing to do with the planning level of the same name,
+		// which is a card TYPE — docs/design/hierarchy.md.)
+		"epic": &c.Scope,
+		"link": &c.Link, "github": &c.GitHubID,
 		"movedFrom": &c.MovedFrom, "movedAt": &c.MovedAt, "rank": &c.Rank, "created": &c.CreatedAt,
 	}
 	if p, ok := strs[key]; ok {
@@ -328,27 +326,6 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 	case "assignees":
 		for _, it := range val.Content {
 			c.Assignees = append(c.Assignees, it.Value)
-		}
-	case "mirrors":
-		for _, it := range val.Content {
-			var m board.Placement
-			for i := 0; i+1 < len(it.Content); i += 2 {
-				switch it.Content[i].Value {
-				case "project":
-					m.Project = it.Content[i+1].Value
-				case "epic":
-					m.Epic = it.Content[i+1].Value
-				}
-			}
-			// A hand-written scalar (`mirrors: [foo]`) decodes to an empty
-			// pair. A column is named by its EPIC, though: the no-project
-			// bucket is a lawful mirror home (G15), so only the epic half
-			// is required — dropping every project-less entry erased the
-			// very placements the service had just accepted.
-			if m.Epic == "" {
-				continue
-			}
-			c.Mirrors = append(c.Mirrors, m)
 		}
 	case "zone":
 		c.Zone = board.ZoneKey(val.Value)
@@ -371,8 +348,6 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 		c.LeftAt = val.Value
 	case "reviewRound":
 		c.ReviewRound = num()
-	case "accumulate":
-		c.Accumulate = val.Value == "true"
 	case "parked":
 		c.Parked = val.Value == "true"
 	default:

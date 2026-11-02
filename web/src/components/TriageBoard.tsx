@@ -21,12 +21,11 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { Board, Card as CardModel, Provider, SizeKey, ZoneKey } from "../providers/types";
 import { registerPendingCard } from "../api/pending";
 import { justMade, noteMade } from "../justmade";
-import { addDays, mondayOf, todayIso } from "../date";
+import { mondayOf, todayIso } from "../date";
 import {
   anchorFor,
   broughtBack,
   byPile,
-  gripOf,
   needsTriage,
   ordersWithinCell,
   orderWith,
@@ -40,6 +39,7 @@ import { BacklogDrawer, dropSpot, type Spot } from "./BacklogDrawer";
 import { markOf } from "../placements";
 import { SIZES, SIZE_ORDER, pointsOf } from "../size";
 import { isComplete } from "../stages";
+import { isSubtask } from "../subtasks";
 import { displayName, type Avatars, type Names } from "../users";
 import { ZONES, ZONE_ORDER } from "../zones";
 import { type Laned, extentOf, laneStyle, packLanes, weekLabel } from "../weekgrid";
@@ -107,10 +107,10 @@ interface Slot extends Laned {
    *  is 0 of 1 and says nothing; a longer one says (1/2), (2/2). */
   part: number;
   parts: number;
-  /** A turn a process is going to file, drawn before it exists. There is no
-   *  card behind it yet, so nothing can be done to it — but the week it
-   *  falls in is already spoken for, and a board that plans weeks ahead has
-   *  to say so. */
+  /** A week a repeating card is going to come round in, drawn before the
+   *  copy exists. There is no card behind it yet, so nothing can be done to
+   *  it — but the week it falls in is already spoken for, and a board that
+   *  plans weeks ahead has to say so. */
   projected?: boolean;
   /** The LINE under a cell's cards: the reviews standing in that cell, and
    *  the key that opens them. `card` is the first of them, so the slot has
@@ -171,7 +171,6 @@ export function TriageBoard({
   // past it. The catch lifts that, for as long as the reader means to: it is
   // deliberately NOT remembered — a guard that stays open is not a guard, and
   // the next visit starts closed again.
-  const [unlocked, setUnlocked] = useState(false);
 
   // The order the reader dragged the columns into, if they have.
   const [order, setOrder] = useState<string[] | null>(readPeopleOrder);
@@ -223,31 +222,14 @@ export function TriageBoard({
   const showDoneIn = useCallback((cell: string) => {
     setOpenDone((open) => new Set(open).add(cell));
   }, []);
-  // The tasks whose turns are MEANT to pile up: with the catch lifted those
-  // are the ones a turn may be carried out of its own cycle for (gripOf).
-  const accumulating = useMemo(() => {
-    const out = new Set<string>();
-    for (const p of board.processes) {
-      for (const t of p.tasks) {
-        if (t.accumulate) {
-          out.add(t.uid);
-        }
-      }
-    }
-    return out;
-  }, [board.processes]);
-
   // The work the weeks ahead are already carrying, drawn before it exists:
-  // the turns the processes are going to file, and the repeating cards that
-  // are going to come round. A paused process sends none, and a week whose
-  // turn is already filed is a card and is drawn as one — the server leaves
-  // those out (board.UpcomingTurns / UpcomingRecurrences), so nothing is
-  // counted twice.
+  // the repeating cards that are going to come round. A week whose copy
+  // already stands is a card and is drawn as one — the server leaves those
+  // out (board.UpcomingRecurrences), so nothing is counted twice.
   const projected = useMemo(() => {
     const out: { key: string; week: string; who: string; card: CardModel }[] = [];
-    // A repeating card that came from no process comes round all the same:
-    // carry-over reseeds it, and the weeks it will land in are as spoken for
-    // as a turn's. The server says which (status.due) — the calendar is its.
+    // Carry-over reseeds a repeating card, and the weeks it will land in are
+    // spoken for. The server says which (status.due) — the calendar is its.
     for (const c of board.cards) {
       if (!c.due?.length || !teams.includes(c.team ?? "")) {
         continue;
@@ -261,32 +243,8 @@ export function TriageBoard({
         });
       }
     }
-    for (const p of board.processes) {
-      for (const t of p.tasks) {
-        if (!teams.includes(t.team ?? "")) {
-          continue;
-        }
-        for (const week of t.due ?? []) {
-          out.push({
-            key: `${p.name}/${t.uid}/${week}`,
-            week,
-            who: t.assignee || NOBODY,
-            // A stand-in, so a projection draws like everything else here.
-            card: {
-              itemId: `~turn/${t.uid}/${week}`,
-              title: t.title,
-              assignees: t.assignee ? [t.assignee] : [],
-              team: t.team,
-              week,
-              task: t.uid,
-              process: p.name,
-            } as CardModel,
-          });
-        }
-      }
-    }
     return out;
-  }, [board.cards, board.processes, teams]);
+  }, [board.cards, teams]);
 
   // The open reviews of the teams on screen. Kept apart from the cards
   // because they are not planned here — a review stands in the week its own
@@ -297,7 +255,7 @@ export function TriageBoard({
         (c) =>
           c.reviewOf &&
           teams.includes(c.team ?? "") &&
-          !c.parent &&
+          !isSubtask(c) &&
           !isComplete(c),
       ),
     [board.cards, teams],
@@ -316,7 +274,7 @@ export function TriageBoard({
         (c) =>
           isComplete(c) &&
           !c.reviewOf &&
-          !c.parent &&
+          !isSubtask(c) &&
           teams.includes(c.team ?? "") &&
           !!placedIn(c),
       ),
@@ -345,7 +303,7 @@ export function TriageBoard({
         continue;
       }
       // A card that HAS a week still has to be work someone is doing.
-      if (week && (c.parent || isComplete(c))) {
+      if (week && (isSubtask(c) || isComplete(c))) {
         continue;
       }
       seen.add(whoOf(c));
@@ -428,7 +386,6 @@ export function TriageBoard({
      *  two of them is how that order is set. */
     at: number;
   } | null>(null);
-  const [stretch, setStretch] = useState<{ card: CardModel; to: number } | null>(null);
   const press = useRef<{
     card: CardModel;
     row: number;
@@ -439,13 +396,8 @@ export function TriageBoard({
      *  is where it lands — without this it followed the cursor itself and
      *  came to rest a card away from where it was let go. */
     hold: number;
-    pinned: boolean;
-    /** The rows the card may be dropped in, when its grip is a window of
-     *  weeks rather than all of them or none (triage.gripOf). */
-    bounds: { first: number; last: number } | null;
   } | null>(null);
   const moveRef = useRef<typeof move>(null);
-  const stretchRef = useRef<typeof stretch>(null);
 
   // onUp is handed the pointer event that ENDED the gesture, because where a
   // card is let go is not always somewhere the grid can name: the backlog
@@ -464,9 +416,7 @@ export function TriageBoard({
       window.removeEventListener("pointercancel", cancel);
       press.current = null;
       moveRef.current = null;
-      stretchRef.current = null;
       setMove(null);
-      setStretch(null);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", up);
@@ -583,7 +533,7 @@ export function TriageBoard({
         // Giving a card a week takes it off its shelf — a card cannot be
         // both parked and planned, and the server says so too (SetWeek).
         parked: undefined,
-        ...(week > thisWeek && !c.epic
+        ...(week > thisWeek && !c.scope
           ? { startDate: undefined, day: undefined, sprintStart: undefined }
           : {}),
         // And one whose days ran out comes back INTO the week with new ones,
@@ -682,7 +632,7 @@ export function TriageBoard({
         // Work another board owns. The drawer never lights it up, so this
         // catches a drag that got there some other way rather than letting
         // the server answer with a 422.
-        onError("A project card or a process turn cannot be parked");
+        onError("A project card cannot be parked");
         return;
       }
       const before = {
@@ -833,29 +783,6 @@ export function TriageBoard({
     [today, choicesFor, doRemove],
   );
 
-  // Stretching: the card's end date moves to the Friday of the week the
-  // pointer let go over. The dates ARE the reach — the same two fields a
-  // Project slot uses — so nothing new is stored for it.
-  const stretchTo = useCallback(
-    (card: CardModel, week: string) => {
-      const from = placedIn(card);
-      if (!from || week < from) {
-        return;
-      }
-      const end = week === from ? "" : addDays(week, 4);
-      if ((card.day ?? "") === end) {
-        return;
-      }
-      const before = { day: card.day };
-      patchCard(card.itemId, { day: end || undefined });
-      void provider
-        .patchCard(card.itemId, { dates: { start: card.startDate ?? "", end } })
-        .then(addCard)
-        .catch(fail(card, before));
-    },
-    [provider, patchCard, addCard, fail],
-  );
-
   // ---- what the grid draws.
   //
   // A card taking more than one week is drawn as ONE CARD PER WEEK, each
@@ -878,7 +805,7 @@ export function TriageBoard({
     const load = new Map<string, number>();
     // What each week CARRIES, in points, counted over exactly the boxes the
     // count above counts — a card of several weeks in each of them, the
-    // strip in the first row, a turn a process has not filed yet at the
+    // strip in the first row, a repeating card drawn ahead of itself at the
     // weight of an unsized card. Two numbers describing different sets is
     // how a week comes to read "1 card, 0 points".
     const weekPts = new Map<string, number>();
@@ -937,8 +864,6 @@ export function TriageBoard({
         row = move.row;
         span = Math.max(1, Math.min(move.span, weeks.length - row));
         col = people[move.col]?.key ?? col;
-      } else if (stretch?.card.itemId === c.itemId) {
-        span = Math.max(1, Math.min(stretch.to - row + 1, weeks.length - row));
       }
       const list = slots.get(col) ?? [];
       for (let i = 0; i < span; i++) {
@@ -1099,7 +1024,6 @@ export function TriageBoard({
     weeks,
     people,
     move,
-    stretch,
     carried,
     overList,
     grid.rowFit,
@@ -1119,26 +1043,10 @@ export function TriageBoard({
       }
       e.preventDefault();
       e.stopPropagation();
-      // How far this card may be carried in TIME (triage.gripOf); the hand it
-      // is in is never in question.
-      const grip = gripOf(card, {
-        unlocked,
-        accumulates: !!card.task && accumulating.has(card.task),
-      });
       press.current = {
         card,
         row: slot.row - slot.part,
         span: slot.parts,
-        pinned: grip === "pinned",
-        // The weeks the grip allows, as row indexes into the board's own
-        // scale. Absent when the card may go anywhere.
-        bounds:
-          typeof grip === "object"
-            ? {
-                first: weeks.findIndex((w) => w >= grip.from),
-                last: weeks.findIndex((w) => w > grip.to) - 1,
-              }
-            : null,
         // Which week of the card was taken hold of, so a card grabbed by its
         // second week does not jump a week up under the pointer.
         grab: slot.part,
@@ -1158,18 +1066,7 @@ export function TriageBoard({
           return;
         }
         const spot = rowSpotAt(ev.clientY);
-        let row = p.pinned
-          ? p.row
-          : Math.max(0, Math.min(spot.row - p.grab, weeks.length - p.span));
-        if (p.bounds) {
-          // Inside its own cycle and no further: the card follows the pointer
-          // to the edge of the window and stops there, rather than being
-          // dragged out and springing back on release.
-          const { first, last } = p.bounds;
-          const lo = first < 0 ? 0 : first;
-          const hi = last < lo ? lo : Math.min(last, weeks.length - p.span);
-          row = Math.max(lo, Math.min(row, hi));
-        }
+        const row = Math.max(0, Math.min(spot.row - p.grab, weeks.length - p.span));
         const next = {
           card: p.card,
           row,
@@ -1212,13 +1109,7 @@ export function TriageBoard({
         // Where it came from, so a card merely put back among its own
         // neighbours is a reorder and nothing more.
         const moved = m.row !== slot.row - slot.part || who !== whoOf(card);
-        if (moved && grip === "pinned") {
-          // Its row is not this board's to set; only the hand it is in
-          // changed.
-          if (who !== whoOf(card)) {
-            assignTo(m.card, who);
-          }
-        } else if (moved) {
+        if (moved) {
           place(m.card, weeks[m.row], who);
         }
         reorder(m.card, m.row, who, m.at);
@@ -1234,8 +1125,6 @@ export function TriageBoard({
       park,
       assignTo,
       reorder,
-      unlocked,
-      accumulating,
     ],
   );
 
@@ -1359,33 +1248,10 @@ export function TriageBoard({
     }
   }, [people]);
 
-  const beginStretch = useCallback(
-    (card: CardModel, slot: Slot) => (e: React.PointerEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const from = slot.row - slot.part;
-      const onMove = (ev: PointerEvent) => {
-        const to = Math.max(from, rowAt(ev.clientY));
-        const next = { card, to };
-        stretchRef.current = next;
-        setStretch(next);
-      };
-      arm(onMove, () => {
-        const s = stretchRef.current;
-        stretchRef.current = null;
-        setStretch(null);
-        if (s) {
-          stretchTo(card, weeks[s.to]);
-        }
-      });
-    },
-    [arm, rowAt, weeks, stretchTo],
-  );
-
-
-  // The card in the reader's hand, however they took hold of it: dragged to
-  // another week, or stretched over more of them.
-  const held = move?.card.itemId ?? stretch?.card.itemId;
+  // The card in the reader's hand: dragged to another week. (It used to be
+  // stretched over more of them as well — the catch-lifted resize of a
+  // project card's span, gone with the project card from this board, H4.)
+  const held = move?.card.itemId;
 
   // How many boxes each cell holds: where the composer stands in it, and how
   // much room the cell keeps free below them.
@@ -1444,11 +1310,6 @@ export function TriageBoard({
     [weeks, today, provider, addCard, replaceCard, removeCard, onError],
   );
 
-  const deadlines = useMemo(
-    () => board.deadlines.filter((d) => weeks.includes(d.week)),
-    [board.deadlines, weeks],
-  );
-
   return (
     <div className="triage" ref={grid.wrapRef}>
       <div className="board-toolbar">
@@ -1467,15 +1328,6 @@ export function TriageBoard({
           onAdd={() => {}}
           onRemove={() => {}}
         />
-        <button
-          type="button"
-          className={`triage-lock${unlocked ? " triage-lock-open" : ""}`}
-          aria-pressed={unlocked}
-          onClick={() => setUnlocked(!unlocked)}
-          title={unlocked ? "Project cards unlocked" : "Project cards locked"}
-        >
-          <Padlock open={unlocked} />
-        </button>
         <ZoomControl zoom={grid.zoom} onChange={grid.setZoom} />
       </div>
 
@@ -1500,8 +1352,8 @@ export function TriageBoard({
           head={(p) => (
             <div
               key={p.key}
-              className={`project-epic-head triage-person project-epic-head-movable${
-                dragCol === p.key ? " project-epic-head-dragging" : ""
+              className={`project-scope-head triage-person project-scope-head-movable${
+                dragCol === p.key ? " project-scope-head-dragging" : ""
               }`}
               title={`${p.key === NOBODY ? "Unassigned" : displayName(p.key, names)} — drag to reorder`}
               onPointerDown={beginColDrag(p.key)}
@@ -1514,7 +1366,7 @@ export function TriageBoard({
               ) : (
                 <>
                   <Avatar login={p.key} avatars={avatars} names={names} />
-                  <span className="project-epic-name">{displayName(p.key, names)}</span>
+                  <span className="project-scope-name">{displayName(p.key, names)}</span>
                   <PersonLoad
                     member={board.members.find((m) => m.login === p.key)}
                     onSetCapacity={(points) => setCapacity(p.key, points)}
@@ -1777,9 +1629,9 @@ export function TriageBoard({
               const progress = done ? 100 : (card.progress ?? 0);
               // The stripe says where the card came FROM, and it is the same
               // answer the day boards draw (placements.markOf): a PROJECT card
-              // wears the project mark and a PROCESS TURN its process's, since
-              // what decides their week is another board and not a zone anyone
-              // set here. Every other card wears its zone.
+              // wears the project mark, since what decides its week is another
+              // board and not a zone anyone set here. Every other card wears
+              // its zone.
               const mark = markOf(card);
               return (
                 <div
@@ -1802,7 +1654,7 @@ export function TriageBoard({
                   }}
                   title={
                     slot.projected
-                      ? `${card.title} — ${card.process} files this turn that week`
+                      ? `${card.title} — comes round again that week`
                       : parts > 1
                         ? `${card.title} — week ${part + 1} of ${parts}`
                         : card.title
@@ -1818,17 +1670,16 @@ export function TriageBoard({
                       being changed. It stands at the slot's right edge, where
                       the Project board keeps its owner badge, so the hover
                       actions land beside it instead of moving it. A projected
-                      turn has no card behind it yet and nothing to size. */}
+                      copy has no card behind it yet and nothing to size. */}
                   {!slot.projected && <SizeChip card={card} onPick={openSizer} />}
                   {!slot.projected &&
-                    (parkable(card) ||
-                      removableOnTriage(card, unlocked, choicesFor(card))) && (
+                    (parkable(card) || removableOnTriage(choicesFor(card))) && (
                     <span className="project-slot-actions">
-                      {removableOnTriage(card, unlocked, choicesFor(card)) && (
+                      {removableOnTriage(choicesFor(card)) && (
                         <button
                           type="button"
                           className="card-action card-action-delete"
-                          title={card.epic ? "Take off this board" : "Remove"}
+                          title="Remove"
                           onClick={(e) => {
                             e.stopPropagation();
                             remove(card);
@@ -1868,19 +1719,6 @@ export function TriageBoard({
                         must not say something else here. */}
                     <i style={{ width: `${progress}%`, background: barColor(card.stage) }} />
                   </span>
-                  {/* Only a PROJECT card has a span to pull: the weeks it
-                      takes are its row on the Project board. Every other card
-                      here is one week's work, and stretching one said
-                      something about it that nothing else on the board would
-                      have said. And only with the catch lifted, since what
-                      the grip changes is the Project board's own dates. */}
-                  {part === parts - 1 && card.epic && unlocked && !slot.projected && (
-                    <div
-                      className="project-slot-resize triage-slot-resize"
-                      title="Drag down to give the card more weeks"
-                      onPointerDown={beginStretch(card, slot)}
-                    />
-                  )}
                 </div>
               );
             }),
@@ -1932,45 +1770,6 @@ export function TriageBoard({
               );
             })()}
 
-          {/* Deadlines: a line at the end of the week they fall in, as on the
-              Project board — what stands above it is due by then.
-              This board shows every project of the team at once, so a bare
-              line said only "something is due" and left the reader to guess
-              whose: each carries its project's NAME in the week column, in
-              that project's own colour, the way the Project board colours its
-              lines when several plans are on screen. Two segments for the
-              reason the Project board has two — one element cannot both cross
-              the sticky week column and sit behind the cards. */}
-          {deadlines.map((d) => {
-            const colour = d.project ? teamColor(d.project) : undefined;
-            const at = weeks.indexOf(d.week) + 2;
-            const label = d.project || "no project";
-            return [
-              <div
-                key={`${d.project}/${d.week}/head`}
-                className="project-deadline project-deadline-head triage-deadline triage-deadline-name"
-                style={{ gridRow: at, gridColumn: 1 }}
-              >
-                <span
-                  className="triage-deadline-label"
-                  style={colour ? { background: colour } : undefined}
-                  title={`Deadline of ${label}, end of that week`}
-                >
-                  {label}
-                </span>
-              </div>,
-              <div
-                key={`${d.project}/${d.week}/body`}
-                className="project-deadline project-deadline-body triage-deadline"
-                style={{
-                  gridRow: at,
-                  gridColumn: "2 / -2",
-                  ...(colour ? { borderTopColor: colour } : {}),
-                }}
-                title={`Deadline of ${label}, end of that week`}
-              />,
-            ];
-          })}
       </WeekGrid>
         <BacklogDrawer
           collapsed={folded}
@@ -2085,27 +1884,6 @@ function ShelfMark() {
       <path d="M8 2.5v6.5" />
       <path d="M5.25 6.5 8 9.25 10.75 6.5" />
       <path d="M3 12.75h10" />
-    </svg>
-  );
-}
-
-/** Padlock is the catch's own glyph — drawn rather than an emoji, so it takes
- *  the colour of the text around it and reads the same in either theme. */
-function Padlock({ open }: { open: boolean }) {
-  return (
-    <svg
-      className="triage-lock-glyph"
-      viewBox="0 0 16 16"
-      width="12"
-      height="12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      aria-hidden="true"
-    >
-      <rect x="2.75" y="7.25" width="8.5" height="6" rx="1.5" />
-      {open ? <path d="M9 7.25V5a2 2 0 0 1 4 0" /> : <path d="M5 7.25V5a2 2 0 0 1 4 0v2.25" />}
     </svg>
   );
 }

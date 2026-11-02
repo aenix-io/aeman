@@ -34,14 +34,14 @@ describe("nameConflict", () => {
   });
 
   it("picks the article for the kind", () => {
-    expect(nameConflict("epic", ["Auth"], "auth")).toBe(
-      "An epic named “Auth” already exists",
+    expect(nameConflict("scope", ["Auth"], "auth")).toBe(
+      "A scope named “Auth” already exists",
     );
   });
 
   it("has nothing to say about a free or an empty name", () => {
-    expect(nameConflict("process", ["Invoicing"], "Runway")).toBeNull();
-    expect(nameConflict("process", ["Invoicing"], "   ")).toBeNull();
+    expect(nameConflict("project", ["Invoicing"], "Runway")).toBeNull();
+    expect(nameConflict("project", ["Invoicing"], "   ")).toBeNull();
     expect(nameConflict("team", [], "anything")).toBeNull();
   });
 });

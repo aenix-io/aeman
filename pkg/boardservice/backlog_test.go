@@ -16,13 +16,12 @@ func backlogBoard() *fakeBackend {
 	today := board.TodayIso()
 	return newFake([]board.Card{
 		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "core"},
-		{ItemID: "ep", Title: board.EpicStateTitle, Epic: "Auth", Project: "core"},
+		{ItemID: "ep", Title: board.ScopeStateTitle, Scope: "Auth", Project: "core"},
 		// An ordinary card, in the working area and scheduled for a week.
 		{ItemID: "plain", Team: "alpha", Assignees: []string{"kvaps"},
 			Week: board.MondayOf(today), SprintStart: today, StartDate: today, Day: today},
-		// A Project-board slot and a process turn: neither is this board's to park.
-		{ItemID: "slot", Team: "alpha", Project: "core", Epic: "Auth", StartDate: today, Day: today},
-		{ItemID: "turn", Team: "alpha", Task: "t1", Week: board.MondayOf(today)},
+		// A Project-board slot: not this board's to park.
+		{ItemID: "slot", Team: "alpha", Project: "core", Scope: "Auth", StartDate: today, Day: today},
 		// A card of the NO-TEAM group, which has a shelf like any other team.
 		{ItemID: "loose", Assignees: []string{"kvaps"}, Week: board.MondayOf(today)},
 		// And one of a SECOND team.
@@ -252,12 +251,11 @@ func TestGroupingUnderAParkedParentTakesTheParentOffItsShelf(t *testing.T) {
 	}
 }
 
-// A PROJECT card and a PROCESS TURN are not this board's to park. Their week
-// is another board's to say — a slot's follows its dates, a turn's is its
-// process's record of what that week was owed — so parking one would take it
-// out of a plan this board does not own.
-func TestProjectAndProcessWorkIsNotParked(t *testing.T) {
-	for _, id := range []string{"slot", "turn"} {
+// A PROJECT card is not this board's to park. Its week is another board's
+// to say — a slot's follows its dates — so parking one would take it out of
+// a plan this board does not own.
+func TestProjectWorkIsNotParked(t *testing.T) {
+	for _, id := range []string{"slot"} {
 		f := backlogBoard()
 		err := New(f).SetBacklog(ctx, "acme", id, true)
 		if !errors.Is(err, ErrNotYoursToPark) {

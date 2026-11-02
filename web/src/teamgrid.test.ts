@@ -184,3 +184,23 @@ describe("the current sprint accumulates its finished work and carry over leaves
     expect(inSprintOn(card({}), OPENED, TODAY, OPENED)).toBe(false);
   });
 });
+
+// A card in a Scope column is a PROJECT CARD: the Project board's plan, not
+// work in hand, whatever its week or dates say (H4, docs/design/hierarchy.md).
+// It used to stand in its owner's column once its week came. Mirrors
+// TestAProjectCardIsOnNoDayBoard.
+describe("a project card is on no day board", () => {
+  const TODAY = "2026-09-16";
+  const WEEK = "2026-09-14";
+  it("is not in hand whatever its week, dates or sprint say", () => {
+    const plan = card({ scope: "Storage", project: "P", week: WEEK, startDate: TODAY, day: TODAY, sprintStart: TODAY });
+    expect(inHandOn(plan, TODAY, TODAY, TODAY)).toBe(false);
+    expect(inHandOn(plan, WEEK, TODAY, TODAY)).toBe(false);
+    // Written before schema 2: an owner it may no longer carry changes nothing.
+    expect(inHandOn({ ...plan, assignees: ["kvaps"] }, TODAY, TODAY, TODAY)).toBe(false);
+  });
+
+  it("leaves a card that merely names a project as an ordinary task", () => {
+    expect(inHandOn(card({ project: "P", startDate: TODAY, day: TODAY }), TODAY, TODAY)).toBe(true);
+  });
+});

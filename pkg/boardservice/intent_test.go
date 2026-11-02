@@ -17,17 +17,15 @@ func intentBoard() *fakeBackend {
 	today := board.TodayIso()
 	return newFake([]board.Card{
 		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "core"},
-		{ItemID: "ep", Title: board.EpicStateTitle, Epic: "Auth", Project: "core"},
+		{ItemID: "ep", Title: board.ScopeStateTitle, Scope: "Auth", Project: "core"},
 		// An ordinary card, in the working area and scheduled for a week.
 		{ItemID: "plain", Team: "alpha", Assignees: []string{"kvaps"}, Week: board.MondayOf(today),
 			SprintStart: today, StartDate: today, Day: today},
 		// Its subtask: a piece of the same work.
 		{ItemID: "kid", Team: "alpha", Parent: "plain", SprintStart: today, StartDate: today},
-		// A project card, and a process turn.
-		{ItemID: "slot", Team: "alpha", Project: "core", Epic: "Auth",
+		// A project card.
+		{ItemID: "slot", Team: "alpha", Project: "core", Scope: "Auth",
 			Assignees: []string{"kvaps"}, SprintStart: today, StartDate: today, Day: today},
-		{ItemID: "turn", Team: "alpha", Task: "t1", Week: board.MondayOf(today),
-			Assignees: []string{"kvaps"}, SprintStart: today, StartDate: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 }
 
@@ -66,13 +64,12 @@ func TestOffTheBoardTakesTheCardAndItsPieces(t *testing.T) {
 	}
 }
 
-// A PROJECT card and a PROCESS TURN are never destroyed by the ×: the one is
-// its Project board's commitment, the other its process's record of a week.
-// Asking for it is refused rather than quietly turned into an unassign — a
-// gesture that does something other than what it says is how the × came to be
-// mistrusted.
+// A PROJECT card is never destroyed by the ×: it is its Project board's
+// commitment. Asking for it is refused rather than quietly turned into an
+// unassign — a gesture that does something other than what it says is how
+// the × came to be mistrusted.
 func TestOffTheBoardIsRefusedForWorkThatIsNotThisBoardsToDestroy(t *testing.T) {
-	for _, id := range []string{"slot", "turn"} {
+	for _, id := range []string{"slot"} {
 		f := intentBoard()
 		if err := New(f).Remove(ctx, "acme", id, board.ViewAll, OffBoard); !errors.Is(err, ErrNotYoursToDestroy) {
 			t.Fatalf("%s off the board = %v, want ErrNotYoursToDestroy", id, err)

@@ -46,7 +46,7 @@ func seedRemote(t *testing.T, remote Remote) plumbing.Hash {
 	t.Helper()
 	r := newRepo(t)
 	h, err := r.Commit(Action{Name: "import", Summary: "seed", At: at("2026-08-01T09:00:00Z")}, []FileWrite{
-		{Path: BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
+		{Path: BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
 		{Path: "cards/a/1/A1.md", Data: []byte("---\ntitle: a\nprogress: 40\n---\n")},
 		{Path: "cards/b/2/B2.md", Data: []byte("---\ntitle: b\n---\n")},
 	})

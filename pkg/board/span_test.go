@@ -64,7 +64,7 @@ func TestAStretchedCardIsOwedByTheEndOfItsReach(t *testing.T) {
 	}
 	// And a kind that wears the mark is not late until then. (A card the
 	// Triage board merely scheduled never wears it at all — TestOverdue.)
-	slot := Card{Epic: "E", Week: monday, Day: later}
+	slot := Card{Scope: "E", Week: monday, Day: later}
 	if Overdue(slot, "2026-09-18") {
 		t.Fatal("a slot stretched into the week after next is not late in between")
 	}

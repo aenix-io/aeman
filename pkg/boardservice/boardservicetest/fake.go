@@ -171,8 +171,8 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	}
 	cards := append([]board.Card{}, f.board.Cards...)
 	// A state seeded in the map becomes a state CARD before the assembly
-	// runs — declaredMirrors reads team domains, so an overlay applied
-	// afterwards judged the mirrors against a board with no teams. A team
+	// runs — the domain rules read team domains, so an overlay applied
+	// afterwards judged them against a board with no teams. A team
 	// whose card is already among the seeded cards keeps that card: two
 	// stubs for one team would let the emptier one win the assembly.
 	seeded := map[string]bool{}
@@ -209,7 +209,7 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	// The stamps InRepository was given are written ON THE CARDS, before
 	// the assembly, the way a real store hands them over (gitstore.stamp):
 	// NewBoardIn reads a state card's own Domain field and the rules it
-	// runs — declaredMirrors above all — read the map it builds. Applied
+	// runs — HomeDomain and ColumnDomain above all — read the map it builds. Applied
 	// afterwards, the stamps arrived too late to be seen by them, and the
 	// published fake answered the domain rules differently from the store
 	// it stands in for, which is the one thing it must not do.
@@ -275,12 +275,11 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 	defer f.mu.Unlock()
 	f.nextID++
 	card := board.Card{
-		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Domain: in.Domain,
+		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Type: in.Type, Domain: in.Domain,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
-		Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
+		Week: in.Week, Scope: in.Scope, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
 		Parked: in.Parked, Size: in.Size,
-		Process: in.Process, Task: in.Task, Recurrence: in.Recurrence,
-		Paused:      in.Paused,
+		Recurrence:  in.Recurrence,
 		Description: in.Body,
 		Parent:      in.Parent, Assignees: []string{},
 	}
@@ -601,24 +600,13 @@ func (f *Backend) SetTeam(_ context.Context, _ board.Board, card board.Card, tea
 	return nil
 }
 
-// SetEpic files the card under a Project-board column.
-func (f *Backend) SetEpic(_ context.Context, _ board.Board, card board.Card, epic string) error {
+// SetScope files the card under a Project-board column.
+func (f *Backend) SetScope(_ context.Context, _ board.Board, card board.Card, scope string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.rec("SetEpic %s %s", card.ItemID, epic)
+	f.rec("SetScope %s %s", card.ItemID, scope)
 	if c := f.card(card.ItemID); c != nil {
-		c.Epic = epic
-	}
-	return nil
-}
-
-// SetMirrors replaces the card's mirror placements.
-func (f *Backend) SetMirrors(_ context.Context, _ board.Board, card board.Card, mirrors []board.Placement) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetMirrors %s %d", card.ItemID, len(mirrors))
-	if c := f.card(card.ItemID); c != nil {
-		c.Mirrors = mirrors
+		c.Scope = scope
 	}
 	return nil
 }
@@ -710,43 +698,3 @@ func (f *Backend) SetSprintState(_ context.Context, _ board.Board, team, current
 
 // Backend must satisfy boardservice.Backend.
 var _ boardservice.Backend = (*Backend)(nil)
-
-func (f *Backend) SetProcess(_ context.Context, _ board.Board, card board.Card, process string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetProcess %s %s", card.ItemID, process)
-	if c := f.card(card.ItemID); c != nil {
-		c.Process = process
-	}
-	return nil
-}
-
-func (f *Backend) SetTask(_ context.Context, _ board.Board, card board.Card, task string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetTask %s %s", card.ItemID, task)
-	if c := f.card(card.ItemID); c != nil {
-		c.Task = task
-	}
-	return nil
-}
-
-func (f *Backend) SetAccumulate(_ context.Context, _ board.Board, card board.Card, on bool) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetAccumulate %s %v", card.ItemID, on)
-	if c := f.card(card.ItemID); c != nil {
-		c.Accumulate = on
-	}
-	return nil
-}
-
-func (f *Backend) SetPaused(_ context.Context, _ board.Board, card board.Card, paused bool) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetPaused %s %v", card.ItemID, paused)
-	if c := f.card(card.ItemID); c != nil {
-		c.Paused = paused
-	}
-	return nil
-}

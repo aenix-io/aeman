@@ -102,14 +102,9 @@ func cardOfPath(path string) string {
 	return uid
 }
 
-// findCardByID looks a card up on the board, roster entries included.
+// findCardByID looks a card up on the board.
 func findCardByID(b board.Board, uid string) (board.Card, bool) {
 	for _, c := range b.Cards {
-		if c.ItemID == uid {
-			return c, true
-		}
-	}
-	for _, c := range b.Tasks {
 		if c.ItemID == uid {
 			return c, true
 		}

@@ -11,6 +11,7 @@
 
 import type {
   Card,
+  CardType,
   Note,
   SprintState,
   StageKey,
@@ -99,6 +100,15 @@ export function resourceToCard(res: CardResource): Card {
     team: spec.team || undefined,
     reviewOf: spec.reviewOf || undefined,
     parent: spec.parent || undefined,
+    type: spec.type || undefined,
+    lineage: res.status?.lineage?.map((l) => ({
+      uid: l.uid,
+      type: (l.type as CardType | undefined) || undefined,
+      title: l.title,
+    })),
+    hierarchy: res.status?.hierarchy
+      ? { status: res.status.hierarchy.status, done: res.status.hierarchy.done, total: res.status.hierarchy.total }
+      : undefined,
     reviewRound: res.status?.reviewRound,
     overdue: res.status?.overdue ?? false,
     asOf: res.status?.asOf,
@@ -106,7 +116,6 @@ export function resourceToCard(res: CardResource): Card {
     triage: res.status?.triage || undefined,
     triageWeek: res.status?.triageWeek || undefined,
     due: res.status?.due,
-    cycle: res.status?.cycle,
     recurrence: spec.recurrence || undefined,
     day: dates.end || undefined,
     startDate: dates.start || undefined,
@@ -114,11 +123,8 @@ export function resourceToCard(res: CardResource): Card {
     week: spec.week || undefined,
     parked: spec.parked || undefined,
     size: sizeFromWire(spec.size),
-    epic: spec.epic || undefined,
+    scope: spec.scope || undefined,
     project: spec.project || undefined,
-    mirrors: spec.mirrors?.length ? spec.mirrors : undefined,
-    process: spec.process || undefined,
-    task: spec.task || undefined,
     // A summary listing omits the body: description stays undefined ("not
     // loaded") and the boards fetch it on selection. A full resource with a
     // genuinely empty body also arrives undefined (the field is omitempty) —

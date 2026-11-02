@@ -48,7 +48,7 @@ func TestUserFileRoundTripAndPath(t *testing.T) {
 // layout, just not read from there).
 func TestLoadAllUsersFromThePrimaryOnly(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:         "schema: 1\ntitle: b\n",
+		BoardPath:         "schema: 2\ntitle: b\n",
 		TeamPath("_"):     "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		UserPath("kvaps"): "capacity: 40\ncreated: 2026-08-28T10:00:00Z\n",
 	})
@@ -124,7 +124,7 @@ func TestSetProgressWritesDoneAtAndReopenClearsIt(t *testing.T) {
 // The last load's users are kept for the server, like the merge's issues.
 func TestMultiBackendUsersFromTheLastLoad(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:         "schema: 1\ntitle: b\n",
+		BoardPath:         "schema: 2\ntitle: b\n",
 		UserPath("kvaps"): "capacity: 40\n",
 	})
 	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}}, BackendOptions{})

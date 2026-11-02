@@ -54,7 +54,7 @@ func TestTheListingAndTheWriteDoorAgree(t *testing.T) {
 	// That evening the card was backoffice's, in the sprint both teams were
 	// in.
 	if _, err := r.Commit(gitstore.Action{Name: "import", Summary: "seed", At: at("2026-08-20T09:00:00Z")}, []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
 		teamFile("01JB4TEAMA", "portal", day, ""),
 		teamFile("01JB4TEAMB", "backoffice", day, ""),
 		card("backoffice", 20),

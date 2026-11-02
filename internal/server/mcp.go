@@ -57,7 +57,7 @@ func (s *Server) mcpServerForRequest(*http.Request) *mcp.Server {
 
 // stampMCPAction groups the writes of one MCP tool call into a single commit,
 // the way actionMiddleware does for an /api/v1 request. Without it a fan-out
-// tool (rename_epic across N cards, carry_over) ran one backend setter per
+// tool (rename_scope across N cards, carry_over) ran one backend setter per
 // card, and each became its own commit with its own full-board re-read: an
 // agent loop wrote tens of thousands of commits into the history in minutes
 // (finding: MCP commit flooding). A read-only call holds an id with no writes

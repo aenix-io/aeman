@@ -34,12 +34,25 @@ var ErrNameTaken = errors.New("gitstore: name already declared on the board")
 
 // LoadAll reads every domain at its branch tip and merges the snapshots.
 func LoadAll(domains []Domain) (Snapshot, error) {
+	return loadAllOverlaid(domains, nil)
+}
+
+// loadAllOverlaid is LoadAll with an action's staged writes laid over each
+// domain's tip (loadOverlaid); staged answers a repository's staged files,
+// nil for none. Nil staged is LoadAll.
+func loadAllOverlaid(domains []Domain, staged func(*Repo) map[string][]byte) (Snapshot, error) {
 	if len(domains) == 0 {
 		return Snapshot{}, ErrNoDomains
 	}
 	var parts []Snapshot
 	for i, d := range domains {
-		s, err := Load(d.Repo)
+		var s Snapshot
+		var err error
+		if staged != nil {
+			s, err = loadOverlaid(d.Repo, staged(d.Repo))
+		} else {
+			s, err = Load(d.Repo)
+		}
 		if err != nil {
 			if i == 0 || !errors.Is(err, ErrEmptyRepository) {
 				return Snapshot{}, err
@@ -123,18 +136,11 @@ func stamp(s *Snapshot, domain string) {
 	}
 	for i := range s.Projects {
 		s.Projects[i].Domain = domain
-		for j := range s.Projects[i].Epics {
-			s.Projects[i].Epics[j].Domain = domain
+		for j := range s.Projects[i].Scopes {
+			s.Projects[i].Scopes[j].Domain = domain
 		}
 		for j := range s.Projects[i].Deadlines {
 			s.Projects[i].Deadlines[j].Domain = domain
-		}
-	}
-	for i := range s.Processes {
-		s.Processes[i].Domain = domain
-		for j := range s.Processes[i].Tasks {
-			s.Processes[i].Tasks[j].Domain = domain
-			s.Processes[i].Tasks[j].Card.Domain = domain
 		}
 	}
 }
@@ -149,7 +155,6 @@ func merge(parts []Snapshot) Snapshot {
 	out.Cards, out.Ghosts = mergeCards(parts)
 	out.Teams, out.Aliases = mergeTeams(parts, out.Aliases)
 	out.Projects, out.Aliases = mergeProjects(parts, out.Aliases)
-	out.Processes, out.Aliases = mergeProcesses(parts, out.Aliases)
 	return out
 }
 
@@ -240,7 +245,7 @@ func mergeProjects(parts []Snapshot, aliases []Alias) ([]Project, []Alias) {
 			if older(pr.Created, pr.ID, prev.Created, prev.ID) {
 				winner, loser = &pr, prev
 			}
-			winner.Epics = append(winner.Epics, loser.Epics...)
+			winner.Scopes = append(winner.Scopes, loser.Scopes...)
 			winner.Deadlines = append(winner.Deadlines, loser.Deadlines...)
 			// The NO-PROJECT bucket is not a collision: every repository may
 			// declare its own nameless project file, and their columns are
@@ -256,7 +261,9 @@ func mergeProjects(parts []Snapshot, aliases []Alias) ([]Project, []Alias) {
 	}
 	projects := make([]Project, 0, len(byName))
 	for _, pr := range byName {
-		sort.Slice(pr.Epics, func(i, j int) bool { return byRank(pr.Epics[i].Rank, pr.Epics[i].ID, pr.Epics[j].Rank, pr.Epics[j].ID) })
+		sort.Slice(pr.Scopes, func(i, j int) bool {
+			return byRank(pr.Scopes[i].Rank, pr.Scopes[i].ID, pr.Scopes[j].Rank, pr.Scopes[j].ID)
+		})
 		sort.Slice(pr.Deadlines, func(i, j int) bool {
 			return byRank(pr.Deadlines[i].Week, pr.Deadlines[i].ID, pr.Deadlines[j].Week, pr.Deadlines[j].ID)
 		})
@@ -264,36 +271,4 @@ func mergeProjects(parts []Snapshot, aliases []Alias) ([]Project, []Alias) {
 	}
 	sort.Slice(projects, func(i, j int) bool { return byRank(projects[i].Rank, projects[i].ID, projects[j].Rank, projects[j].ID) })
 	return projects, aliases
-}
-
-func mergeProcesses(parts []Snapshot, aliases []Alias) ([]Process, []Alias) {
-	byName := map[string]*Process{}
-	for _, p := range parts {
-		for _, pc := range p.Processes {
-			pc := pc
-			prev, seen := byName[pc.Name]
-			if !seen {
-				byName[pc.Name] = &pc
-				continue
-			}
-			winner, loser := prev, &pc
-			if older(pc.Created, pc.ID, prev.Created, prev.ID) {
-				winner, loser = &pc, prev
-			}
-			winner.Tasks = append(winner.Tasks, loser.Tasks...)
-			aliases = append(aliases, Alias{Kind: "process", Name: pc.Name, Domain: loser.Domain, ID: loser.ID, Winner: winner.ID})
-			byName[pc.Name] = winner
-		}
-	}
-	processes := make([]Process, 0, len(byName))
-	for _, pc := range byName {
-		sort.Slice(pc.Tasks, func(i, j int) bool {
-			return byRank(pc.Tasks[i].Card.Rank, pc.Tasks[i].ID, pc.Tasks[j].Card.Rank, pc.Tasks[j].ID)
-		})
-		processes = append(processes, *pc)
-	}
-	sort.Slice(processes, func(i, j int) bool {
-		return byRank(processes[i].Rank, processes[i].ID, processes[j].Rank, processes[j].ID)
-	})
-	return processes, aliases
 }

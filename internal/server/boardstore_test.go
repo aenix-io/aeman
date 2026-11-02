@@ -101,6 +101,7 @@ func seedEntry(store *boardStore, key string, b board.Board) *boardEntry {
 	e.mu.Lock()
 	e.board = b
 	e.loaded = true
+	e.rememberParents()
 	e.mu.Unlock()
 	return e
 }

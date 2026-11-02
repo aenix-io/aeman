@@ -54,14 +54,16 @@ func (s *Service) FinishedEarlier(ctx context.Context, boardID string, itemID st
 	if err != nil {
 		return err
 	}
+	if err := notAPlanningCard(card, "sprint"); err != nil {
+		return err
+	}
 	if !board.Complete(card.Stage, card.Progress) {
 		return fmt.Errorf("%w: %q", ErrNotFinished, card.Title)
 	}
-	// A Project-board slot and a process turn carry their own dates — a slot's
-	// week follows its start, a turn's is its process's record — and the
-	// sprint is not what places them. Moving one would edit a plan this board
-	// does not own.
-	if hasColumn(card) || card.Task != "" {
+	// A Project-board slot carries its own dates — its week follows its
+	// start — and the sprint is not what places it. Moving one would edit a
+	// plan this board does not own.
+	if hasColumn(card) {
 		return fmt.Errorf("%w: %q", ErrNotYoursToPark, card.Title)
 	}
 	previous := board.PreviousSprint(b, card.Team)

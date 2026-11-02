@@ -66,12 +66,14 @@ export function sizeFromWire(raw: string | undefined): SizeKey | undefined {
  *  Mirrors board.PointsOf. */
 export function pointsOf(
   cards: readonly Pick<Card, "itemId" | "parent" | "size" | "reviewOf">[],
-  card: Pick<Card, "itemId" | "size" | "reviewOf">,
+  card: Pick<Card, "itemId" | "size" | "reviewOf" | "type">,
 ): number {
   let sum = 0;
   let has = false;
   for (const k of cards) {
-    if (k.parent === card.itemId) {
+    // An umbrella is a TASK over its subtasks: a goal over its tasks is not
+    // one, and a task under it weighs itself (board.kidsOf).
+    if (k.parent === card.itemId && !card.type) {
       sum += weigh(k);
       has = true;
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ZoneKey } from "./providers/types";
+import type { LineageRef, ZoneKey } from "./providers/types";
 import { ADD_ZONE, acceptsNewCard, mayRemove, sortableWithin } from "./meboard";
 
 // The Me board is the person's own view of the team's work, and what they may
@@ -64,6 +64,21 @@ describe("what the × may remove on the Me board", () => {
 
   it("leaves a card of its own that stands in no zone at all", () => {
     expect(mayRemove({ author: me }, me)).toBe(false);
+  });
+
+  // The parent's KIND decides what the × is judged on (H1): a task under an
+  // epic is a card of the person's like any other, and a subtask — a piece
+  // of the card it hangs under — is exempt whoever wrote it.
+  it("judges a task under an epic like any card, and exempts a subtask", () => {
+    const epic: LineageRef = { uid: "e", type: "epic", title: "Billing" };
+    const underEpic = { author: me, zone: ADD_ZONE, parent: "e", lineage: [epic] };
+    expect(mayRemove(underEpic, me)).toBe(true);
+    expect(mayRemove({ ...underEpic, author: "lllamnyp" }, me)).toBe(false);
+    expect(mayRemove({ ...underEpic, zone: "red" as ZoneKey }, me)).toBe(false);
+    // A task as the parent: no type on the crumb.
+    const task: LineageRef = { uid: "t", title: "the task" };
+    const subtask = { author: "lllamnyp", zone: "red" as ZoneKey, parent: "t", lineage: [task] };
+    expect(mayRemove(subtask, me)).toBe(true);
   });
 
   // A REVIEW card is somebody else's asking, and the × on it belongs to the

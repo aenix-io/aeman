@@ -43,6 +43,54 @@ func TestAGestureIsAnsweredOnlyByTheBoardThatDrawsIt(t *testing.T) {
 	}
 }
 
+// OWN is the Roadmap's "whose is this", offered by every board that draws a
+// task and not by the Project board (H10). Over HTTP it goes through the
+// gesture door like every press: the board is in the address, the card must
+// be drawn there, and the answer's effect is the service's (own_test.go).
+func TestOwnIsAnsweredByTheBoardsThatDrawATask(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "loose", Title: "Arrived"},
+		{ItemID: "slot", Title: "Plan", Scope: "Compliance", Project: "eu"},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/project/cards/slot/actions/own",
+		`{"team":"alpha"}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("own on the Project board answered %d, want 404 (not a gesture it draws)", rec.Code)
+	}
+	// A person without a team is the service's refusal, through the door.
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/roadmap/cards/loose/actions/own",
+		`{"person":"ann"}`); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "ownerNeedsTeam") {
+		t.Fatalf("a person with no team answered %d: %s", rec.Code, rec.Body.String())
+	}
+	// From the Roadmap, which lists the loose card below its tree (H9), a
+	// person takes it home: team, person, today, the unplanned band.
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/roadmap/cards/loose/actions/own",
+		`{"team":"alpha","person":"ann"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("own answered %d: %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Spec struct {
+			Team      string   `json:"team"`
+			Assignees []string `json:"assignees"`
+			Zone      string   `json:"zone"`
+			Dates     struct {
+				Start string `json:"start"`
+			} `json:"dates"`
+		} `json:"spec"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.Team != "alpha" || len(got.Spec.Assignees) != 1 || got.Spec.Assignees[0] != "ann" ||
+		got.Spec.Dates.Start != today || got.Spec.Zone != "unplanned" {
+		t.Fatalf("the card after own: %+v", got.Spec)
+	}
+}
+
 // A person cannot press × on a card they cannot see. An agent standing on the
 // Me board could: it named a board and then acted on somebody else's card, and
 // nothing asked whether that board draws it.
@@ -141,7 +189,7 @@ func TestACreateMeansWhatTheBoardMeansByIt(t *testing.T) {
 	}
 	// And a board refuses what it does not own, 422, naming the field.
 	rec := do(t, newSrv(), http.MethodPost, "/api/v1/views/me/cards",
-		`{"title":"x","team":"alpha","zone":"planned","epic":"Auth"}`)
+		`{"title":"x","team":"alpha","zone":"planned","scope":"Auth"}`)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("a column named on the Me board answered %d", rec.Code)
 	}
@@ -196,12 +244,13 @@ func TestTheCatalogNamesTheBoardsAndTheirGestures(t *testing.T) {
 		got[v.Name] = v.Gestures
 	}
 	want := map[string][]string{
-		"me":      {"remove", "finished-earlier"},
-		"team":    {"remove", "finished-earlier"},
-		"triage":  {"remove", "place", "untriage"},
-		"backlog": {"remove"},
+		"me":      {"remove", "finished-earlier", "own"},
+		"team":    {"remove", "finished-earlier", "own"},
+		"triage":  {"remove", "place", "untriage", "own"},
+		"backlog": {"remove", "own"},
+		"roadmap": {"remove", "own"},
 		"project": {"remove"},
-		"all":     {"remove", "place", "untriage", "finished-earlier"},
+		"all":     {"remove", "place", "untriage", "finished-earlier", "own"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("the catalog lists %v", got)

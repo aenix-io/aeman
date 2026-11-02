@@ -30,7 +30,6 @@ func TestACarryOverAnnouncesTheBoardOnceNotPerCard(t *testing.T) {
 	const (
 		yesterday = "2026-08-30"
 		cards     = 400 // the rows a carry-over walks
-		turns     = 120 // of which this many are process turns
 		tabs      = 12  // open boards, each one an announcement target
 	)
 	remote := gitRemoteN(t, "board")
@@ -39,21 +38,9 @@ func TestACarryOverAnnouncesTheBoardOnceNotPerCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
 		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: " + yesterday + "\n")},
 		{Path: gitstore.ProjectPath("01JB4PROJ"), Data: []byte("name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
-	}
-	// The processes the turns belong to: a real board keeps dozens, each
-	// with its own recurring task, and the roster frame carries all of them.
-	for i := range turns {
-		pid := fmt.Sprintf("01PROC%018d", i)
-		tid := fmt.Sprintf("01TASK%018d", i)
-		files = append(files,
-			gitstore.FileWrite{Path: gitstore.ProcessPath(pid), Data: []byte(fmt.Sprintf(
-				"name: process %d\nproject: portal\nrank: a%d\ncreated: 2026-06-04T08:00:00Z\n", i, i))},
-			gitstore.FileWrite{Path: gitstore.TaskPath(pid, tid), Data: []byte(fmt.Sprintf(
-				"---\ntitle: turn %d\nteam: portal\nrecurrence: week\nrank: a\ncreated: 2026-06-04T08:00:00Z\n---\n\nDo it.\n", i))},
-		)
 	}
 	for i := range cards {
 		id := fmt.Sprintf("01CARRY%017d", i)
@@ -64,9 +51,6 @@ func TestACarryOverAnnouncesTheBoardOnceNotPerCard(t *testing.T) {
 		front := fmt.Sprintf(
 			"---\ntitle: card %d\nteam: portal\nsprint: %s\nstart: %s\nday: %s\nprogress: 30\nrank: a%05d\ncreated: 2026-08-20T09:00:00Z\n",
 			i, yesterday, yesterday, yesterday, i)
-		if i < turns {
-			front += fmt.Sprintf("process: %s\ntask: %s\n", fmt.Sprintf("01PROC%018d", i), fmt.Sprintf("01TASK%018d", i))
-		}
 		files = append(files, gitstore.FileWrite{Path: p, Data: []byte(front + "---\n")})
 	}
 	if _, err := r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, files); err != nil {
@@ -122,8 +106,8 @@ func TestACarryOverAnnouncesTheBoardOnceNotPerCard(t *testing.T) {
 	close(stop)
 	wg.Wait()
 
-	t.Logf("carry-over of %d cards (%d turns) to %d tabs: %v, %d frames, %d of them the whole board",
-		cards, turns, tabs, took, all.Load(), boards.Load())
+	t.Logf("carry-over of %d cards to %d tabs: %v, %d frames, %d of them the whole board",
+		cards, tabs, took, all.Load(), boards.Load())
 	// A tab hears the board once per coalescing window the request spans —
 	// a handful — and never once per card it moved.
 	windows := int64(took/fanoutWindow) + 2

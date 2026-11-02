@@ -7,11 +7,20 @@ import { createView } from "./views";
 // answered with a card that is not the one the person typed.
 describe("which board a create belongs to", () => {
   it("is the Project grid when it names a column", () => {
-    expect(createView({ epic: "Auth", week: "2026-09-07" })).toBe("project");
+    expect(createView({ scope: "Auth", week: "2026-09-07" })).toBe("project");
   });
 
   it("is the drawer when it is parked", () => {
     expect(createView({ parked: true })).toBe("backlog");
+  });
+
+  // A planning card is the Roadmap's whatever board is open, and so is a task
+  // born under one from its parent's own pane: no day board takes a create
+  // with no day and a parent of that kind (H7).
+  it("is the Roadmap for a planning card, and for a task born under one", () => {
+    expect(createView({ type: "epic" }, "me")).toBe("roadmap");
+    expect(createView({ underPlanning: true }, "team")).toBe("roadmap");
+    expect(createView({ underPlanning: false })).toBe("team");
   });
 
   // The week is that board's whole gesture, days or no days: a card started
@@ -39,6 +48,6 @@ describe("which board a create belongs to", () => {
   it("lets the shape win over the open board", () => {
     expect(createView({ parked: true }, "triage")).toBe("backlog");
     expect(createView({ week: "2026-09-07" }, "triage")).toBe("triage");
-    expect(createView({ epic: "Auth" }, "project")).toBe("project");
+    expect(createView({ scope: "Auth" }, "project")).toBe("project");
   });
 });

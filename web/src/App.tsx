@@ -9,17 +9,15 @@ import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { TriageBoard } from "./components/TriageBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
-import { ProcessBoard } from "./components/ProcessBoard";
+import { RoadmapBoard } from "./components/RoadmapBoard";
 import { TeamsModal } from "./components/TeamsModal";
 import { readProjectFilter, writeProjectFilter } from "./projectFilter";
 import {
   boardMetadata,
   membersFrom,
-  processesFrom,
   showingDay,
   standingOn,
 } from "./providers/api/apiProvider";
-import type { ProcessInfo } from "./providers/types";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
 import { DayNav } from "./components/DayNav";
@@ -29,7 +27,14 @@ import { unpushedNotice, type HealthStatus } from "./health";
 import { migrateBoardScopedKeys } from "./storage";
 import { pruneTeamFilter, settlePendingTeams, teamRoster } from "./teams";
 import { forgetMade, justMade } from "./justmade";
-import { queryString, snapshotDay, viewPath, viewQueries, watchQueries } from "./viewquery";
+import {
+  queryString,
+  snapshotDay,
+  viewPath,
+  viewQueries,
+  watchQueries,
+  type ViewMode,
+} from "./viewquery";
 import { frozenProvider } from "./providers/frozen";
 import { todayIso, setBoardTimezone } from "./date";
 import { doneAtAfter } from "./stages";
@@ -51,8 +56,6 @@ const waitingAfterMs = 300;
 // is said, because a banner explaining a thing that already happened is
 // noise.
 
-type ViewMode = "me" | "team" | "triage" | "project" | "process";
-
 const LS_VIEW = "aeman.view";
 const LS_TEAM_FILTER = "aeman.teamFilter";
 const LS_VIEW_AS = "aeman.viewAs";
@@ -67,11 +70,11 @@ function readView(): ViewMode {
   if (raw === "project" || raw === "plan") {
     return "project";
   }
-  if (raw === "process") {
-    return "process";
-  }
   if (raw === "triage") {
     return "triage";
+  }
+  if (raw === "roadmap") {
+    return "roadmap";
   }
   return "me";
 }
@@ -122,15 +125,15 @@ export function App() {
   const [tokenWarningDismissed, setTokenWarningDismissed] = useState(false);
 
   const [view, setView] = useState<ViewMode>(readView);
-  // The project chips' selection, shared by the Project and Process tabs.
+  // The project chips' selection on the Project tab.
   const [projectFilter, setProjectFilterState] = useState<string[] | null>(readProjectFilter);
   const setProjectFilter = (keys: string[] | null) => {
     setProjectFilterState(keys);
     writeProjectFilter(keys);
   };
-  // The project manager: one dialog, reached from the chip row of both the
-  // Project and the Process tab. Its writes return as soon as the server's
-  // cache has them; the Board watch frame repaints — nothing reloads.
+  // The project manager: one dialog, reached from the Project tab's chip
+  // row. Its writes return as soon as the server's cache has them; the Board
+  // watch frame repaints — nothing reloads.
   const [managingProjects, setManagingProjects] = useState(false);
   // `domain` is the repository the project is declared in (multi-domain
   // boards offer the choice; otherwise the server picks the primary).
@@ -303,6 +306,37 @@ export function App() {
   // watch frames; purely ephemeral shared-cursor state.
   const [presence, setPresenceMap] = useState<Record<string, string>>({});
   const [detailCard, setDetailCard] = useState<CardModel | null>(null);
+  // The cards the pane was opened THROUGH: a crumb followed, a child row, the
+  // task a subtask rides — each opens its card in the same drawer, and the
+  // way back is this stack. A board opening a card starts afresh.
+  const [detailStack, setDetailStack] = useState<CardModel[]>([]);
+  const openCard = (c: CardModel) => {
+    setDetailStack([]);
+    setDetailCard(c);
+  };
+  const openWithin = (c: CardModel) => {
+    setDetailStack((s) => (detailCard ? [...s, detailCard] : s));
+    setDetailCard(c);
+  };
+  const backInDetail = () => {
+    setDetailStack((s) => {
+      const prev = s[s.length - 1];
+      setDetailCard(prev ?? null);
+      return s.slice(0, -1);
+    });
+  };
+  const closeDetail = () => {
+    setDetailStack([]);
+    setDetailCard(null);
+  };
+  // A card the Roadmap is asked to REVEAL — a breadcrumb followed from a
+  // detail pane: the tab switches and the row is unfolded and marked.
+  const [roadmapFocus, setRoadmapFocus] = useState<string | null>(null);
+  const revealOnRoadmap = (uid: string) => {
+    closeDetail();
+    setRoadmapFocus(uid);
+    setView("roadmap");
+  };
 
   // Teams are the server's (board.teams). The only team state here is the
   // just-added ones whose create is in flight — shown at once, and gone from
@@ -783,12 +817,9 @@ export function App() {
       // Identity + sprints AND the active view's cards together, swapped in
       // as one board: a reload() must never leave the board empty while the
       // cards are still in flight (loadBoard itself carries no cards).
-      const [loaded, lists, processes] = await Promise.all([
+      const [loaded, lists] = await Promise.all([
         provider.loadBoard(boardQueryRef.current),
         Promise.all(activeQueriesRef.current.map((q) => provider.listCards(q))),
-        // The process structure rides with the board from the start; the
-        // Board watch frame keeps it current afterwards.
-        provider.listProcesses().catch(() => [] as ProcessInfo[]),
       ]);
       setAsOf(listingMoment(lists));
       loadedBoardKey.current = queryString(boardQueryRef.current);
@@ -800,7 +831,6 @@ export function App() {
       setBoard((cur) => ({
         ...loaded,
         cards: mergeCardLists(lists.map((l) => l.cards), cur?.cards, justMade),
-        processes,
       }));
     } catch (err: unknown) {
       // A day the history no longer reaches (410) — or storage that keeps
@@ -853,7 +883,7 @@ export function App() {
           cur
             ? {
                 ...cur,
-                ...(loaded ? { ...loaded, cards: cur.cards, processes: cur.processes } : {}),
+                ...(loaded ? { ...loaded, cards: cur.cards } : {}),
                 cards: mergeCardLists(lists.map((l) => l.cards), cur.cards, justMade),
               }
             : cur,
@@ -1082,17 +1112,12 @@ export function App() {
       if (frame.kind === "Sync") {
         return;
       }
-      // The board's STRUCTURE changed — a project, a column, a deadline, a
-      // process. The frame carries the board itself, so it is applied the way
-      // a Card frame is: no round trip, and our own roster writes need no
-      // reload either.
+      // The board's STRUCTURE changed — a project, a column, a deadline. The
+      // frame carries the board itself, so it is applied the way a Card frame
+      // is: no round trip, and our own roster writes need no reload either.
       if (frame.kind === "Board") {
         const obj = frame.object;
-        setBoard((cur) =>
-          cur
-            ? { ...cur, ...boardMetadata(obj), processes: processesFrom(obj.processes) }
-            : cur,
-        );
+        setBoard((cur) => (cur ? { ...cur, ...boardMetadata(obj) } : cur));
         return;
       }
       // What the board's PEOPLE are holding: cards carried, points carried,
@@ -1401,8 +1426,8 @@ export function App() {
         {/* The day belongs to the app, not to a board: it is the same value
             whichever day board is open, so the control that moves it stands
             with the view tabs rather than being drawn again inside each. The
-            boards that lay every week out at once (Triage, Project, Process)
-            have no day to show. */}
+            boards that lay every week out at once (Triage, Project) have no
+            day to show. */}
         {(view === "me" || view === "team") && (
           <DayNav
             selectedDate={selectedDate}
@@ -1482,20 +1507,20 @@ export function App() {
           <button
             type="button"
             role="tab"
+            aria-selected={view === "roadmap"}
+            className={`segment${view === "roadmap" ? " segment-active" : ""}`}
+            onClick={() => setView("roadmap")}
+          >
+            Roadmap
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={view === "project"}
             className={`segment${view === "project" ? " segment-active" : ""}`}
             onClick={() => setView("project")}
           >
             Project
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={view === "process"}
-            className={`segment${view === "process" ? " segment-active" : ""}`}
-            onClick={() => setView("process")}
-          >
-            Process
           </button>
         </div>
       </div>
@@ -1532,7 +1557,7 @@ export function App() {
             reorderCards={reorderCards}
             reload={reload}
             onError={onError}
-            onOpen={(c) => setDetailCard(c)}
+            onOpen={openCard}
             onPresence={(card) => {
               if (board && config?.login) {
                 void provider
@@ -1555,19 +1580,26 @@ export function App() {
             removeCard={removeCard}
             reload={reload}
             onError={onError}
-            onOpen={(c) => setDetailCard(c)}
+            onOpen={openCard}
           />
         )}
-        {board && view === "process" && (
-          <ProcessBoard
+        {board && view === "roadmap" && (
+          <RoadmapBoard
             board={board}
             provider={provider}
-            filter={projectFilter}
-            onSetFilter={setProjectFilter}
-            onManageProjects={() => setManagingProjects(true)}
+            roster={roster}
             avatars={avatars}
             names={names}
+            patchCard={patchCard}
+            addCard={addCard}
+            replaceCard={replaceCard}
+            removeCard={removeCard}
+            reorderCards={reorderCards}
+            reload={reload}
             onError={onError}
+            onOpen={openCard}
+            focusId={roadmapFocus}
+            onFocused={() => setRoadmapFocus(null)}
           />
         )}
         {board && view === "triage" && (
@@ -1585,7 +1617,7 @@ export function App() {
             removeCard={removeCard}
             reorderCards={reorderCards}
             reload={reload}
-            onOpen={(c) => setDetailCard(c)}
+            onOpen={openCard}
             onError={onError}
           />
         )}
@@ -1616,7 +1648,7 @@ export function App() {
             reload={reload}
             track={trackLoad}
             onError={onError}
-            onOpen={(c) => setDetailCard(c)}
+            onOpen={openCard}
           />
         )}
       </main>
@@ -1640,9 +1672,15 @@ export function App() {
           card={board.cards.find((c) => c.itemId === detailCard.itemId) ?? detailCard}
           board={board}
           provider={provider}
-          onClose={() => setDetailCard(null)}
+          onClose={closeDetail}
           reload={reload}
           patchCard={patchCard}
+          addCard={addCard}
+          removeCard={removeCard}
+          onReveal={revealOnRoadmap}
+          onOpenCard={openWithin}
+          onBack={detailStack.length > 0 ? backInDetail : undefined}
+          onError={onError}
         />
       )}
 

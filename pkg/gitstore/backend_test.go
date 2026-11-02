@@ -15,7 +15,7 @@ import (
 
 // Backend satisfies boardservice.Backend over one domain's repository. The
 // service speaks the state-card protocol — a stub card whose Title is one of
-// the aeman:*-state markers stands for a team, epic, project, deadline or
+// the aeman:*-state markers stands for a team, scope, project, deadline or
 // process — and the backend routes those onto roster files, so the rules
 // engine does not change while the storage does.
 
@@ -76,7 +76,7 @@ func TestMoveRebalancesTheRunWhenTheKeyIsExhausted(t *testing.T) {
 	// Every key strictly between "a" and "a000…01" (32 chars) is 33+ chars.
 	tight := "a" + strings.Repeat("0", 30) + "1"
 	r := repoWith(t, map[string]string{
-		BoardPath:               "schema: 1\ntitle: b\n",
+		BoardPath:               "schema: 2\ntitle: b\n",
 		"cards/a/1/01CARDA1.md": "---\ntitle: first\nrank: a\n---\n",
 		"cards/b/2/01CARDB2.md": "---\ntitle: second\nrank: " + tight + "\n---\n",
 		"cards/c/3/01CARDC3.md": "---\ntitle: third\nrank: b\n---\n",
@@ -160,39 +160,17 @@ func changedPathsSince(t *testing.T, r *Repo, since plumbing.Hash) []string {
 	return paths
 }
 
-// An iteration's id is deterministic — a ULID whose time is the due week's
-// Monday and whose random bits hash the task and the week — so two replicas
-// sweeping the same due task write the SAME path, and the loser's create is
-// a no-op on re-apply (G11); everything else gets a fresh id.
-func TestCreateIterationIDIsDeterministic(t *testing.T) {
+// Every create mints a fresh id: two cards of the same title are two cards.
+// (The one deterministic id the store used to mint — a process turn's — went
+// with the feature.)
+func TestCreateMintsFreshIDs(t *testing.T) {
 	a, _ := newBackend(t)
-	b, _ := newBackend(t)
 	ctx := ctxAs("aeman")
-	in := board.CreateInput{Title: "weekly turn", Team: "portal", Task: "01TASK0000000000000000000A", Week: "2026-08-24"}
 	ba, _ := a.LoadBoard(ctx, "x")
-	bb, _ := b.LoadBoard(ctx, "x")
-	ca, err := a.CreateCard(ctx, ba, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cb, err := b.CreateCard(ctx, bb, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ca.ItemID != cb.ItemID || ca.ItemID != IterationID(in.Task, in.Week) {
-		t.Fatalf("iteration ids %s / %s, want both = %s", ca.ItemID, cb.ItemID, IterationID(in.Task, in.Week))
-	}
-	if got, _ := IDTime(ca.ItemID); got.Format("2006-01-02") != "2026-08-24" {
-		t.Fatalf("iteration id time = %v, want the week's Monday", got)
-	}
-	if IterationID(in.Task, "2026-08-31") == ca.ItemID || IterationID("01TASK0000000000000000000B", in.Week) == ca.ItemID {
-		t.Fatal("another week or task must not collide")
-	}
-	// A caller's explicit id still wins, and a plain card is never derived.
 	other, _ := a.CreateCard(ctx, ba, board.CreateInput{Title: "plain", Team: "portal"})
 	again, _ := a.CreateCard(ctx, ba, board.CreateInput{Title: "plain", Team: "portal"})
-	if other.ItemID == again.ItemID {
-		t.Fatal("plain cards must get fresh ids")
+	if other.ItemID == "" || other.ItemID == again.ItemID {
+		t.Fatalf("plain cards must get fresh ids: %q / %q", other.ItemID, again.ItemID)
 	}
 }
 
@@ -215,20 +193,14 @@ func TestBackendLoadBoardFromFiles(t *testing.T) {
 	if strings.Join(b.TeamOrder, ",") != ",portal" {
 		t.Fatalf("team order = %v (rank a then b)", b.TeamOrder)
 	}
-	if len(b.Epics) != 1 || b.Epics[0].Name != "Bugs" || b.Epics[0].Project != "portal" || b.Epics[0].ItemID != "01JB4EPIC" {
-		t.Fatalf("epics = %+v", b.Epics)
+	if len(b.Scopes) != 1 || b.Scopes[0].Name != "Bugs" || b.Scopes[0].Project != "portal" || b.Scopes[0].ItemID != "01JB4SCOPE" {
+		t.Fatalf("scopes = %+v", b.Scopes)
 	}
 	if len(b.Projects) != 1 || b.Projects[0] != "portal" || b.ProjectStates["portal"] != "01JB4PROJ" {
 		t.Fatalf("projects = %v %v", b.Projects, b.ProjectStates)
 	}
 	if len(b.Deadlines) != 1 || b.Deadlines[0].Week != "2026-09-07" || b.Deadlines[0].Project != "portal" || b.Deadlines[0].ItemID != "01JB4DL" {
 		t.Fatalf("deadlines = %+v", b.Deadlines)
-	}
-	if len(b.Processes) != 1 || b.Processes[0].Name != "Invoicing" || b.Processes[0].Project != "portal" || b.Processes[0].ItemID != "01JB4PROC" {
-		t.Fatalf("processes = %+v", b.Processes)
-	}
-	if len(b.Tasks) != 1 || b.Tasks[0].ItemID != "01JB4TASK" || b.Tasks[0].Process != "Invoicing" || b.Tasks[0].Recurrence != "month" {
-		t.Fatalf("tasks = %+v", b.Tasks)
 	}
 }
 
@@ -287,15 +259,15 @@ func TestBackendCreateStateCardsWriteRosterFiles(t *testing.T) {
 		t.Fatalf("project file: %v", err)
 	}
 	b, _ = be.LoadBoard(ctx, "acme")
-	epic, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.EpicStateTitle, Epic: "Reliability", Project: "infra"})
+	scope, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.ScopeStateTitle, Scope: "Reliability", Project: "infra"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.ReadFile(EpicPath(proj.ItemID, epic.ItemID)); err != nil {
-		t.Fatalf("epic file under its project: %v", err)
+	if _, err := r.ReadFile(ScopePath(proj.ItemID, scope.ItemID)); err != nil {
+		t.Fatalf("scope file under its project: %v", err)
 	}
-	if _, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.EpicStateTitle, Epic: "X", Project: "nope"}); err == nil {
-		t.Fatal("an epic under an unknown project must be refused")
+	if _, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.ScopeStateTitle, Scope: "X", Project: "nope"}); err == nil {
+		t.Fatal("an scope under an unknown project must be refused")
 	}
 	dl, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.DeadlineStateTitle, Week: "2026-10-05", Project: "infra"})
 	if err != nil {
@@ -304,30 +276,9 @@ func TestBackendCreateStateCardsWriteRosterFiles(t *testing.T) {
 	if _, err := r.ReadFile(DeadlinePath(proj.ItemID, dl.ItemID)); err != nil {
 		t.Fatalf("deadline file: %v", err)
 	}
-	proc, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.ProcessStateTitle, Process: "Backups", Project: "infra"})
-	if err != nil {
-		t.Fatal(err)
-	}
 	b, _ = be.LoadBoard(ctx, "acme")
-	task, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.ProcessTaskTitle, Process: "Backups", Recurrence: "week", Start: "2026-08-24", Team: "portal", Body: "Rotate keys\nAll of them."})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.ReadFile(TaskPath(proc.ItemID, task.ItemID)); err != nil {
-		t.Fatalf("task file under its process: %v", err)
-	}
-	b, _ = be.LoadBoard(ctx, "acme")
-	if len(b.Projects) != 2 || len(b.Epics) != 2 || len(b.Deadlines) != 2 || len(b.Processes) != 2 || len(b.Tasks) != 2 {
-		t.Fatalf("roster after creates: %d projects, %d epics, %d deadlines, %d processes, %d tasks", len(b.Projects), len(b.Epics), len(b.Deadlines), len(b.Processes), len(b.Tasks))
-	}
-	var found *board.Card
-	for i := range b.Tasks {
-		if b.Tasks[i].ItemID == task.ItemID {
-			found = &b.Tasks[i]
-		}
-	}
-	if found == nil || found.Title != board.ProcessTaskTitle || found.Process != "Backups" || found.Description != "Rotate keys\nAll of them." || found.Recurrence != "week" {
-		t.Fatalf("task = %+v", found)
+	if len(b.Projects) != 2 || len(b.Scopes) != 2 || len(b.Deadlines) != 2 {
+		t.Fatalf("roster after creates: %d projects, %d scopes, %d deadlines", len(b.Projects), len(b.Scopes), len(b.Deadlines))
 	}
 }
 
@@ -540,60 +491,49 @@ func TestBackendDeleteCardRemovesFile(t *testing.T) {
 	}
 }
 
-// The roster stubs: rename, re-parent, pause, move a deadline, reorder.
+// The roster stubs: rename, re-parent, move a deadline, reorder.
 func TestBackendRosterStubs(t *testing.T) {
 	be, r := newBackend(t)
 	ctx := ctxAs("kvaps")
 	b, _ := be.LoadBoard(ctx, "acme")
 
-	epic := board.Card{ItemID: "01JB4EPIC", Title: board.EpicStateTitle, Epic: "Bugs", Project: "portal"}
-	if err := be.SetEpic(ctx, b, epic, "Defects"); err != nil {
+	scope := board.Card{ItemID: "01JB4SCOPE", Title: board.ScopeStateTitle, Scope: "Bugs", Project: "portal"}
+	if err := be.SetScope(ctx, b, scope, "Defects"); err != nil {
 		t.Fatal(err)
 	}
 	proj := board.Card{ItemID: "01JB4PROJ", Title: board.ProjectStateTitle, Project: "portal"}
 	if err := be.SetProject(ctx, b, proj, "Portal"); err != nil {
 		t.Fatal(err)
 	}
-	proc := board.Card{ItemID: "01JB4PROC", Title: board.ProcessStateTitle, Process: "Invoicing", Project: "portal"}
-	if err := be.SetPaused(ctx, b, proc, true); err != nil {
-		t.Fatal(err)
-	}
-	if err := be.SetProcess(ctx, b, proc, "Billing"); err != nil {
-		t.Fatal(err)
-	}
 	dl := board.Card{ItemID: "01JB4DL", Title: board.DeadlineStateTitle, Week: "2026-09-07", Project: "portal"}
 	if err := be.SetWeek(ctx, b, dl, "2026-09-14"); err != nil {
 		t.Fatal(err)
 	}
-	task := board.Card{ItemID: "01JB4TASK", Title: board.ProcessTaskTitle, Process: "Invoicing"}
-	if err := be.SetAccumulate(ctx, b, task, true); err != nil {
-		t.Fatal(err)
-	}
 
 	b, _ = be.LoadBoard(ctx, "acme")
-	if b.Epics[0].Name != "Defects" || b.Projects[0] != "Portal" || b.Processes[0].Name != "Billing" || !b.Processes[0].Paused || b.Deadlines[0].Week != "2026-09-14" || !b.Tasks[0].Accumulate {
-		t.Fatalf("roster after stubs: epics=%+v projects=%v processes=%+v deadlines=%+v tasks=%+v", b.Epics, b.Projects, b.Processes, b.Deadlines, b.Tasks[0].Accumulate)
+	if b.Scopes[0].Name != "Defects" || b.Projects[0] != "Portal" || b.Deadlines[0].Week != "2026-09-14" {
+		t.Fatalf("roster after stubs: scopes=%+v projects=%v deadlines=%+v", b.Scopes, b.Projects, b.Deadlines)
 	}
 	// Renaming a project file does not move anything: its id and path stay.
 	if _, err := r.ReadFile(ProjectPath("01JB4PROJ")); err != nil {
 		t.Fatalf("project file moved on rename: %v", err)
 	}
 
-	// Reordering teams and epics goes through MoveCard on their stubs.
-	if _, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.EpicStateTitle, Epic: "Docs", Project: "Portal"}); err != nil {
+	// Reordering teams and scopes goes through MoveCard on their stubs.
+	if _, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.ScopeStateTitle, Scope: "Docs", Project: "Portal"}); err != nil {
 		t.Fatal(err)
 	}
 	b, _ = be.LoadBoard(ctx, "acme")
-	if b.Epics[0].Name != "Defects" || b.Epics[1].Name != "Docs" {
-		t.Fatalf("epics before move = %+v", b.Epics)
+	if b.Scopes[0].Name != "Defects" || b.Scopes[1].Name != "Docs" {
+		t.Fatalf("scopes before move = %+v", b.Scopes)
 	}
-	docs := board.Card{ItemID: b.Epics[1].ItemID, Title: board.EpicStateTitle, Epic: "Docs", Project: "Portal"}
+	docs := board.Card{ItemID: b.Scopes[1].ItemID, Title: board.ScopeStateTitle, Scope: "Docs", Project: "Portal"}
 	if err := be.MoveCard(ctx, b, docs, ""); err != nil {
 		t.Fatal(err)
 	}
 	b, _ = be.LoadBoard(ctx, "acme")
-	if b.Epics[0].Name != "Docs" {
-		t.Fatalf("epic move to top: %+v", b.Epics)
+	if b.Scopes[0].Name != "Docs" {
+		t.Fatalf("scope move to top: %+v", b.Scopes)
 	}
 	team := board.Card{ItemID: "01JB4TEAM", Title: board.SprintStateTitle, Team: "portal"}
 	if err := be.MoveCard(ctx, b, team, ""); err != nil {
@@ -637,6 +577,28 @@ func TestBackendLoadCards(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].ItemID != b.Cards[1].ItemID || got[1].ItemID != b.Cards[0].ItemID {
 		t.Fatalf("LoadCards = %+v", got)
+	}
+}
+
+// The reload of ONE card reads its file by the same rules a read of the
+// whole board does (board.SettleCard): the server refreshes the cards a
+// commit wrote with this call, and a column card whose file still carries a
+// week and a band would otherwise flip back to them in the cache — and lose
+// its row on the Project board — until the next full reload.
+func TestLoadCardsReadsACardByTheBoardsRules(t *testing.T) {
+	const id = "01JB4K2E7QZMX3R8V0N5T9WYE1"
+	r := repoWith(t, map[string]string{
+		BoardPath:                 "schema: 2\ntitle: b\n",
+		"cards/e/1/" + id + ".md": "---\ntitle: a slot\nzone: red\nweek: 2026-10-05\nproject: p\nscope: S\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n",
+	})
+	be := NewBackend(r, BackendOptions{})
+	got, err := be.LoadCards(context.Background(), board.Board{}, []string{id})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("LoadCards = %v, %v", got, err)
+	}
+	c := got[0]
+	if c.StartDate != "2026-10-05" || c.Day != "2026-10-09" || c.Week != "" || c.Zone != board.ZoneNone {
+		t.Fatalf("a reloaded column card reads as %+v, want its week's dates, no week, no band", c)
 	}
 }
 

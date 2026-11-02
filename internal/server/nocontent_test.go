@@ -18,10 +18,9 @@ func TestNothingToReturnIs204(t *testing.T) {
 	srv := apiServer(t, Options{}, fake)
 	for _, tc := range []struct{ name, method, target, body string }{
 		{"a project added", http.MethodPost, "/api/v1/projects", `{"name":"engineering"}`},
-		{"an epic added", http.MethodPost, "/api/v1/epics", `{"name":"Launch","project":"engineering"}`},
-		{"an epic renamed", http.MethodPost, "/api/v1/epics/actions/rename", `{"project":"engineering","epic":"Launch","to":"Ship"}`},
+		{"an scope added", http.MethodPost, "/api/v1/scopes", `{"name":"Launch","project":"engineering"}`},
+		{"an scope renamed", http.MethodPost, "/api/v1/scopes/actions/rename", `{"project":"engineering","scope":"Launch","to":"Ship"}`},
 		{"a deadline added", http.MethodPost, "/api/v1/deadlines", `{"week":"2026-08-24","project":"engineering"}`},
-		{"a process added", http.MethodPost, "/api/v1/processes", `{"name":"audit","project":"engineering"}`},
 		{"a team renamed", http.MethodPost, "/api/v1/teams/actions/rename", `{"team":"test","to":"platform"}`},
 		{"a team's capacity set", http.MethodPost, "/api/v1/teams/actions/capacity", `{"team":"platform","points":40}`},
 		{"a card moved", http.MethodPost, "/api/v1/cards/c1/actions/move", `{"after":"c2"}`},

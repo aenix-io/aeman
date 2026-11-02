@@ -91,7 +91,7 @@ func withTargetItem(ctx context.Context, id string) context.Context {
 
 // echoOrigin is clientIDFrom for one card's change: the author's own watch is
 // spared the echo only when THIS card is the one their request addressed. A
-// cascade onto any other card — an epic rename fanning out, a subtask
+// cascade onto any other card — an scope rename fanning out, a subtask
 // following its parent — has no optimistic copy on the author's side, and
 // suppressing it left the author's board stale until a reload (the "renamed
 // column loses its cards" bug). A request that addressed no card (a batch
@@ -189,6 +189,17 @@ type boardEntry struct {
 	// see cardChanged and flushMembers.
 	membersDue bool
 	moved      map[string]string
+	// parentOf is every card's parent as last announced, so a change can
+	// name the planning cards it LEFT as well as the ones it stands under
+	// now: a planning card's standing is derived from the tasks under it
+	// (H5) and never written, so nothing but this fan-out tells a Roadmap
+	// watcher that an epic's counts moved. Seeded from each installed board
+	// and kept by cardChanged.
+	parentOf map[string]string
+	// planning is which cards are goals, initiatives or epics, kept beside
+	// parentOf: with the two the walk to a card's planning ancestors costs
+	// the depth of its chain, never an index of the whole board.
+	planning map[string]bool
 }
 
 // recentGrace is how long a local mutation outweighs a full reload.
@@ -420,16 +431,15 @@ func (e *boardEntry) cached() (board.Board, cacheState) {
 // wrong silently.
 func detached(b board.Board) board.Board {
 	b.Cards = detachedCards(b.Cards)
-	b.Tasks = detachedCards(b.Tasks)
-	b.Epics = slices.Clone(b.Epics)
+	b.Scopes = slices.Clone(b.Scopes)
 	b.Deadlines = slices.Clone(b.Deadlines)
-	b.Processes = slices.Clone(b.Processes)
 	b.Projects = slices.Clone(b.Projects)
 	b.TeamOrder = slices.Clone(b.TeamOrder)
 	b.SprintStates = maps.Clone(b.SprintStates)
 	b.People = maps.Clone(b.People)
 	b.ProjectStates = maps.Clone(b.ProjectStates)
 	b.Domains = maps.Clone(b.Domains)
+	b.DroppedParents = maps.Clone(b.DroppedParents)
 	return b
 }
 
@@ -441,7 +451,6 @@ func detachedCards(cards []board.Card) []board.Card {
 	for i := range out {
 		out[i].Assignees = slices.Clone(out[i].Assignees)
 		out[i].Notes = slices.Clone(out[i].Notes)
-		out[i].Mirrors = slices.Clone(out[i].Mirrors)
 	}
 	return out
 }
@@ -453,43 +462,80 @@ func detachedCards(cards []board.Card) []board.Card {
 // events are suppressed — it already holds the change optimistically — but its
 // membership is still tracked, or later diffs would mis-fire.
 func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
-	// A turn of a process is a card AND a row of the Process tab's history:
-	// its stage changing is a card event to the boards and a structure event
-	// to that tab, which reads the turns from the board rather than from the
-	// card stream.
-	if c.Task != "" {
-		e.rosterBroadcast()
-	}
 	// Every card write can move a number beside a person — its size, who it
 	// is on, whether it is still open, which week it waits in — and the
 	// numbers are summed over cards this watcher may never be sent. So the
 	// people are announced for the burst, whatever the change was: deciding
 	// here which writes matter would mean re-deriving the load to find out.
 	e.loadBroadcast()
+	// The planning cards above the card changed their standing with it —
+	// the chain it joined and the chain it left (H5) — and the server alone
+	// knows by how much, so they are announced to everyone who may read
+	// them, the originator included: it holds its own change, not the
+	// counts the tree derived from it.
+	ancestors := e.ancestorsChanged(c, verb)
 	// Built on demand: on a board whose tabs are all scoped — the ordinary
 	// case — a burst of changes must not pay for a resource nobody is sent.
+	// And built ONCE each: the card's resource and every ancestor's are the
+	// same for every watcher that is sent them, and an ancestor's standing
+	// is a walk over the board — built per watcher it was W × A walks under
+	// the entry lock for one change. One index serves them all.
+	var ix *board.Index
+	index := func() *board.Index {
+		if ix == nil {
+			ix = newIndex(e.board)
+		}
+		return ix
+	}
 	var res apiserver.Card
 	built := false
+	type ancestor struct {
+		card  board.Card
+		ok    bool
+		res   apiserver.Card
+		built bool
+	}
+	resolved := make([]*ancestor, len(ancestors))
+	ancestorAt := func(i int) *ancestor {
+		if resolved[i] == nil {
+			a := &ancestor{}
+			a.card, a.ok = index().Find(ancestors[i])
+			resolved[i] = a
+		}
+		return resolved[i]
+	}
 	scoped := false
 	for sub := range e.watchers {
-		if !sub.resources["cards"] || !sub.rights.canRead(c.Domain) {
+		if !sub.resources["cards"] {
 			continue
 		}
-		if sub.sel == nil {
-			if !mine(origin, sub.clientID) {
-				if !built {
-					res, built = apiserver.CardResource(e.board, c), true
-				}
-				sub.send(watchFrame{Type: verb, Kind: "Card", Object: res})
+		if sub.sel != nil {
+			// What a scoped subscription is told depends on whether this
+			// change moved the card INTO or OUT OF its view — a question
+			// about the whole view. Asking it here (build the view, look
+			// for one uid) is what made a carry-over cost a full board scan
+			// per card per tab; it is answered once for the burst, in
+			// flushMembers, against the view's own projection — which is
+			// where a watcher's rights over an ancestor are applied too.
+			scoped = true
+			continue
+		}
+		if sub.rights.canRead(c.Domain) && !mine(origin, sub.clientID) {
+			if !built {
+				res, built = buildCard(e.board, index(), c), true
 			}
-			continue
+			sub.send(watchFrame{Type: verb, Kind: "Card", Object: res})
 		}
-		// What a scoped subscription is told depends on whether this change
-		// moved the card INTO or OUT OF its view — a question about the
-		// whole view. Asking it here (build the view, look for one uid) is
-		// what made a carry-over cost a full board scan per card per tab; it
-		// is answered once for the burst, in flushMembers.
-		scoped = true
+		for i := range ancestors {
+			a := ancestorAt(i)
+			if !a.ok || !sub.rights.canRead(a.card.Domain) {
+				continue
+			}
+			if !a.built {
+				a.res, a.built = buildCard(e.board, index(), a.card), true
+			}
+			sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: a.res})
+		}
 	}
 	if !scoped {
 		return
@@ -498,6 +544,12 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 		e.moved = map[string]string{}
 	}
 	e.moved[c.ItemID] = origin
+	// Marked as nobody's change, so no watcher's echo suppression swallows
+	// the standing the tree derived: flushMembers sends a MODIFIED for a
+	// touched member to its originator unless the change was its own.
+	for _, id := range ancestors {
+		e.moved[id] = ""
+	}
 	if !e.membersDue {
 		e.membersDue = true
 		time.AfterFunc(e.fanoutDelay(), e.flushMembers)
@@ -519,6 +571,9 @@ func (e *boardEntry) flushMembers() {
 	defer func() { e.noteFanout(time.Since(started)) }()
 	moved := e.moved
 	e.moved = nil
+	// One index for the burst: every resource sent below asks the board the
+	// same questions, for every watcher.
+	ix := board.NewIndex(e.board)
 	for sub := range e.watchers {
 		if sub.sel == nil || !sub.resources["cards"] {
 			continue
@@ -532,9 +587,9 @@ func (e *boardEntry) flushMembers() {
 			}
 			switch {
 			case !sub.members[c.ItemID]:
-				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: apiserver.CardResource(e.board, c)})
+				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: buildCard(e.board, ix, c)})
 			case touched:
-				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: apiserver.CardResource(e.board, c)})
+				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: buildCard(e.board, ix, c)})
 			}
 		}
 		for id := range sub.members {
@@ -542,11 +597,8 @@ func (e *boardEntry) flushMembers() {
 				continue
 			}
 			obj := tombstone(id)
-			for _, c := range e.board.Cards {
-				if c.ItemID == id {
-					obj = apiserver.CardResource(e.board, c)
-					break
-				}
+			if c, ok := ix.Find(id); ok {
+				obj = buildCard(e.board, ix, c)
 			}
 			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})
 		}
@@ -554,11 +606,20 @@ func (e *boardEntry) flushMembers() {
 	}
 }
 
+// buildCard is the resource a watcher is sent. A variable so a test can
+// count how many times a burst builds one.
+var buildCard = apiserver.CardResourceIn
+
+// newIndex is board.NewIndex, a variable so a test can count how often a
+// change reads the whole board's hierarchy.
+var newIndex = board.NewIndex
+
 // reevaluate recomputes every scoped subscription's membership against the
 // cached board and emits the deltas — the board shifted in a way no single
 // card event expresses (a sprint pointer moved, or the day rolled over).
 // The caller holds e.mu.
 func (e *boardEntry) reevaluate(origin string) {
+	ix := board.NewIndex(e.board)
 	for sub := range e.watchers {
 		if sub.sel == nil || !sub.resources["cards"] {
 			continue
@@ -568,7 +629,7 @@ func (e *boardEntry) reevaluate(origin string) {
 		for _, c := range apiserver.FilterCards(sub.view(e.board), *sub.sel) {
 			now[c.ItemID] = true
 			if !sub.members[c.ItemID] && !suppressed {
-				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: apiserver.CardResource(e.board, c)})
+				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: buildCard(e.board, ix, c)})
 			}
 		}
 		for id := range sub.members {
@@ -576,11 +637,8 @@ func (e *boardEntry) reevaluate(origin string) {
 				continue
 			}
 			obj := tombstone(id)
-			for _, c := range e.board.Cards {
-				if c.ItemID == id {
-					obj = apiserver.CardResource(e.board, c)
-					break
-				}
+			if c, ok := ix.Find(id); ok {
+				obj = buildCard(e.board, ix, c)
 			}
 			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})
 		}
@@ -1022,7 +1080,80 @@ func (b *storeBackend) installLocked(e *boardEntry, fresh board.Board) {
 	if hadOld {
 		e.diffNotify(old)
 	}
+	// After the diff, which needs to know where each card stood before.
+	e.rememberParents()
 	e.syncBroadcast()
+}
+
+// rememberParents records every card's parent off the installed board, so
+// the next change to a card can name the chain it left (cardChanged). The
+// caller holds e.mu.
+func (e *boardEntry) rememberParents() {
+	e.parentOf = make(map[string]string, len(e.board.Cards))
+	e.planning = map[string]bool{}
+	for _, c := range e.board.Cards {
+		e.parentOf[c.ItemID] = c.Parent
+		if board.IsPlanning(c) {
+			e.planning[c.ItemID] = true
+		}
+	}
+}
+
+// ancestorsChanged is the planning cards whose standing a card change moved,
+// by id: the planning ancestors of the chain the card stands under now and of
+// the chain it stood under at the last announcement, root first, each once,
+// the card itself excluded. It also records the card's parent and level for
+// next time. A planning card records nothing about progress (H5), so no
+// write reaches it when a task under it changes; this is how the change
+// reaches its watchers. The walk reads the entry's own parent map — the
+// depth of the chain, never an index of the whole board, which a carry-over
+// burst would otherwise build once or twice for every card it moved. The
+// caller holds e.mu with the cache already updated.
+func (e *boardEntry) ancestorsChanged(c board.Card, verb string) []string {
+	if e.parentOf == nil {
+		// A board installed without the seed (a bare test entry): from here
+		// on parents are remembered; this one change cannot name the chain
+		// it left.
+		e.rememberParents()
+	}
+	old, known := e.parentOf[c.ItemID]
+	if verb == "DELETED" {
+		delete(e.parentOf, c.ItemID)
+		delete(e.planning, c.ItemID)
+	} else {
+		e.parentOf[c.ItemID] = c.Parent
+		if board.IsPlanning(c) {
+			e.planning[c.ItemID] = true
+		}
+	}
+	if !known {
+		old = ""
+	}
+	seen := map[string]bool{c.ItemID: true}
+	var out []string
+	add := func(from string) {
+		// Bottom-up along the parent map, bounded the way board.Lineage is:
+		// a repeat (a cycle a direct writer committed) or more hops than the
+		// levels allow ends the walk.
+		const maxHops = 6
+		var chain []string
+		walked := map[string]bool{c.ItemID: true}
+		for id, hops := from, 0; id != "" && hops < maxHops && !walked[id]; id, hops = e.parentOf[id], hops+1 {
+			walked[id] = true
+			chain = append(chain, id)
+		}
+		for i := len(chain) - 1; i >= 0; i-- {
+			if id := chain[i]; e.planning[id] && !seen[id] {
+				seen[id] = true
+				out = append(out, id)
+			}
+		}
+	}
+	add(c.Parent)
+	if old != c.Parent {
+		add(old)
+	}
+	return out
 }
 
 // diffNotify announces everything a full reload changed against the previous
@@ -1086,7 +1217,7 @@ func (e *boardEntry) diffNotify(old board.Board) {
 // data itself already arrived as the diff's ordinary events. The caller holds
 // e.mu.
 // rosterBroadcast tells every watcher that the board's STRUCTURE changed —
-// its projects, epic columns or deadlines. Those live in the board metadata
+// its projects, scope columns or deadlines. Those live in the board metadata
 // rather than in any card, so a client cannot learn about them from the card
 // events it is already receiving: it has to re-read /board, and this is what
 // tells it to. Sent to every watcher regardless of the view it selected,
@@ -1156,8 +1287,7 @@ func (e *boardEntry) flushRoster() {
 	// The frame CARRIES the board, the way a Card frame carries its card: a
 	// client applies it and needs no round trip. A bare "something changed"
 	// signal sent every open tab back to GET /board — a full snapshot each,
-	// which is the opposite of what a cache is for. Processes ride along as
-	// their full structure, since the Process tab is drawn from it.
+	// which is the opposite of what a cache is for.
 	//
 	// Built off e.mu for the same reason flushLoad is: BoardResourceWithPeople
 	// resolves members against the forge, and those lookups must not freeze the
@@ -1165,7 +1295,6 @@ func (e *boardEntry) flushRoster() {
 	for _, g := range groups {
 		raw, err := json.Marshal(watchFrame{Type: "MODIFIED", Kind: "Board", Object: boardFrame{
 			BoardInfo: apiserver.BoardResourceWithPeople(g.board, member),
-			Processes: apiserver.ProcessesResource(g.board, "").Items,
 		}})
 		if err != nil {
 			continue
@@ -1203,11 +1332,11 @@ func rightsKey(r *domainRights) string {
 	return "r\x00" + r.primary + "\x00" + strings.Join(names, "\x00")
 }
 
-// boardFrame is the Board watch frame's object: the board resource plus the
-// process structure, so one frame repaints every roster-driven view.
+// boardFrame is the Board watch frame's object: the board resource, so one
+// frame repaints every roster-driven view. (It used to carry the process
+// structure beside it; a planning card's structure rides the card stream.)
 type boardFrame struct {
 	apiserver.BoardInfo
-	Processes []apiserver.Process `json:"processes"`
 }
 
 // loadBroadcast tells every watcher that what the board's PEOPLE are holding
@@ -1377,23 +1506,6 @@ func (b *storeBackend) createSync(ctx context.Context, bd board.Board, e *boardE
 		return card, err
 	}
 	e.mu.Lock()
-	if card.Title == board.ProcessStateTitle {
-		if _, exists := board.FindProcess(e.board, card.Process); card.Process != "" && !exists {
-			e.board.Processes = append(e.board.Processes,
-				board.Process{Name: card.Process, Project: card.Project, ItemID: card.ItemID})
-		}
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
-		e.mu.Unlock()
-		return card, nil
-	}
-	if card.Title == board.ProcessTaskTitle {
-		e.board.Tasks = append(e.board.Tasks, card)
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
-		e.mu.Unlock()
-		return card, nil
-	}
 	if card.Title == board.DeadlineStateTitle {
 		// A deadline is a line on a week, not a card row.
 		if _, exists := board.FindDeadline(e.board, card.Project, card.Week); card.Week != "" && !exists {
@@ -1420,12 +1532,12 @@ func (b *storeBackend) createSync(ctx context.Context, bd board.Board, e *boardE
 		e.mu.Unlock()
 		return card, nil
 	}
-	if card.Title == board.EpicStateTitle {
+	if card.Title == board.ScopeStateTitle {
 		// A state card is a Project-board column, not a card: surface it as
 		// the board's column roster (clients re-read /board), never as a row.
-		if _, exists := board.FindEpic(e.board, card.Project, card.Epic); card.Epic != "" && !exists {
-			e.board.Epics = append(e.board.Epics, board.EpicCol{
-				Name: card.Epic, Project: card.Project, ItemID: card.ItemID,
+		if _, exists := board.FindScope(e.board, card.Project, card.Scope); card.Scope != "" && !exists {
+			e.board.Scopes = append(e.board.Scopes, board.ScopeCol{
+				Name: card.Scope, Project: card.Project, ItemID: card.ItemID,
 			})
 		}
 		e.markRecent(card.ItemID)
@@ -1460,29 +1572,12 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 		e.sprintChanged(clientIDFrom(ctx), team)
 		break
 	}
-	// Likewise a deleted epic-state card takes its column with it.
-	for i, col := range e.board.Epics {
+	// Likewise a deleted scope-state card takes its column with it.
+	for i, col := range e.board.Scopes {
 		if col.ItemID != card.ItemID {
 			continue
 		}
-		e.board.Epics = append(e.board.Epics[:i:i], e.board.Epics[i+1:]...)
-		e.rosterBroadcast()
-		break
-	}
-	// ...a deleted process or task leaves its roster...
-	for i, p := range e.board.Processes {
-		if p.ItemID != card.ItemID {
-			continue
-		}
-		e.board.Processes = append(e.board.Processes[:i:i], e.board.Processes[i+1:]...)
-		e.rosterBroadcast()
-		break
-	}
-	for i, t := range e.board.Tasks {
-		if t.ItemID != card.ItemID {
-			continue
-		}
-		e.board.Tasks = append(e.board.Tasks[:i:i], e.board.Tasks[i+1:]...)
+		e.board.Scopes = append(e.board.Scopes[:i:i], e.board.Scopes[i+1:]...)
 		e.rosterBroadcast()
 		break
 	}
@@ -1552,8 +1647,8 @@ func moveTeamAfter(order []string, states map[string]board.SprintState, team, af
 	return moveNameAfter(order, ids, team, afterID)
 }
 
-// epicIndexOf finds a column by its state card's item id (-1 = not a column).
-func epicIndexOf(cols []board.EpicCol, itemID string) int {
+// scopeIndexOf finds a column by its state card's item id (-1 = not a column).
+func scopeIndexOf(cols []board.ScopeCol, itemID string) int {
 	for i, c := range cols {
 		if c.ItemID == itemID {
 			return i
@@ -1562,16 +1657,16 @@ func epicIndexOf(cols []board.EpicCol, itemID string) int {
 	return -1
 }
 
-// moveEpicAfter re-slots the column at index from so it follows the column
+// moveScopeAfter re-slots the column at index from so it follows the column
 // whose state card is afterID ("" or unknown = to the front).
-func moveEpicAfter(cols []board.EpicCol, from int, afterID string) []board.EpicCol {
+func moveScopeAfter(cols []board.ScopeCol, from int, afterID string) []board.ScopeCol {
 	col := cols[from]
-	rest := append(append([]board.EpicCol(nil), cols[:from]...), cols[from+1:]...)
+	rest := append(append([]board.ScopeCol(nil), cols[:from]...), cols[from+1:]...)
 	at := 0
-	if i := epicIndexOf(rest, afterID); i >= 0 {
+	if i := scopeIndexOf(rest, afterID); i >= 0 {
 		at = i + 1
 	}
-	out := make([]board.EpicCol, 0, len(rest)+1)
+	out := make([]board.ScopeCol, 0, len(rest)+1)
 	out = append(out, rest[:at]...)
 	out = append(out, col)
 	out = append(out, rest[at:]...)
@@ -1599,7 +1694,7 @@ func nameOfState(ids map[string]string, itemID string) (string, bool) {
 }
 
 // moveNameAfter re-slots name in an ordered roster after the entry owning the
-// afterID state card ("" or unknown = to the front). Teams, epic columns and
+// afterID state card ("" or unknown = to the front). Teams, scope columns and
 // projects all order themselves by their state card's board position, so they
 // all reorder through here.
 func moveNameAfter(order []string, ids map[string]string, name, afterID string) []string {
@@ -1635,22 +1730,12 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 	// The same for the two Project-board rosters: their order IS the board
 	// position of their state cards, so a reorder must land in the cache or
 	// /board keeps serving the old order until the next revalidation.
-	if from := epicIndexOf(e.board.Epics, card.ItemID); from >= 0 {
-		e.board.Epics = moveEpicAfter(e.board.Epics, from, afterID)
+	if from := scopeIndexOf(e.board.Scopes, card.ItemID); from >= 0 {
+		e.board.Scopes = moveScopeAfter(e.board.Scopes, from, afterID)
 		e.rosterBroadcast()
 	}
 	if project, ok := nameOfState(e.board.ProjectStates, card.ItemID); ok {
 		e.board.Projects = moveNameAfter(e.board.Projects, e.board.ProjectStates, project, afterID)
-		e.rosterBroadcast()
-	}
-	// …and for the Process tab's two: processes and their tasks are state
-	// cards whose board position is the order the tab draws.
-	if from := processIndexOf(e.board.Processes, card.ItemID); from >= 0 {
-		e.board.Processes = moveProcessAfter(e.board.Processes, from, afterID)
-		e.rosterBroadcast()
-	}
-	if from := taskIndexOf(e.board.Tasks, card.ItemID); from >= 0 {
-		e.board.Tasks = moveTaskAfter(e.board.Tasks, from, afterID)
 		e.rosterBroadcast()
 	}
 	e.recentMove = time.Now()
@@ -2073,86 +2158,49 @@ func (b *storeBackend) SetTeam(ctx context.Context, bd board.Board, card board.C
 	return nil
 }
 
-func (b *storeBackend) SetEpic(ctx context.Context, bd board.Board, card board.Card, epic string) error {
-	if card.Title == board.EpicStateTitle {
+func (b *storeBackend) SetScope(ctx context.Context, bd board.Board, card board.Card, scope string) error {
+	if card.Title == board.ScopeStateTitle {
 		// Renaming the column itself: the state card is not in the cached card
 		// list (NewBoard splits it out), so mutateCard cannot reach it.
 		e := b.store.entry(storeKey(bd.Board))
 		e.mu.Lock()
-		if i := epicIndexOf(e.board.Epics, card.ItemID); i >= 0 {
-			e.board.Epics[i].Name = epic
+		if i := scopeIndexOf(e.board.Scopes, card.ItemID); i >= 0 {
+			e.board.Scopes[i].Name = scope
 			e.rosterBroadcast()
 		}
 		e.mu.Unlock()
 		b.enqueue(ctx, e, pendingOp{
-			key:    "epic:" + card.ItemID,
+			key:    "scope:" + card.ItemID,
 			itemID: card.ItemID,
-			desc:   "rename the epic " + card.Epic,
+			desc:   "rename the scope " + card.Scope,
 			apply: func(fresh *board.Board) {
-				if i := epicIndexOf(fresh.Epics, card.ItemID); i >= 0 {
-					fresh.Epics[i].Name = epic
+				if i := scopeIndexOf(fresh.Scopes, card.ItemID); i >= 0 {
+					fresh.Scopes[i].Name = scope
 				}
 			},
 			exec: func(ctx context.Context) error {
-				return b.inner.SetEpic(ctx, bd, card, epic)
+				return b.inner.SetScope(ctx, bd, card, scope)
 			},
 		})
 		return nil
 	}
-	b.mutateCard(ctx, bd, card.ItemID, "epic", "file "+cardRef(card)+" under an epic", func(c *board.Card) {
-		c.Epic = epic
+	b.mutateCard(ctx, bd, card.ItemID, "scope", "file "+cardRef(card)+" under an scope", func(c *board.Card) {
+		c.Scope = scope
 	}, func(ctx context.Context) error {
-		return b.inner.SetEpic(ctx, bd, card, epic)
+		return b.inner.SetScope(ctx, bd, card, scope)
 	})
 	return nil
 }
 
-// SetMirrors replaces the card's mirror placements.
-func (b *storeBackend) SetMirrors(ctx context.Context, bd board.Board, card board.Card, mirrors []board.Placement) error {
-	b.mutateCard(ctx, bd, card.ItemID, "mirrors", mirrorsDesc(card, mirrors), func(c *board.Card) {
-		c.Mirrors = mirrors
-	}, func(ctx context.Context) error {
-		return b.inner.SetMirrors(ctx, bd, card, mirrors)
-	})
-	return nil
-}
-
-// tieDesc words the queued tie write by its direction, like mirrorsDesc:
-// the sync log must not report an untie as a tie.
-func tieDesc(card board.Card, process string) string {
-	if process == "" {
-		return "untie " + cardRef(card) + " from its process"
-	}
-	return "tie " + cardRef(card) + " to its process"
-}
-
-// mirrorsDesc words the queued write by its direction — "unmirror" for a
-// shrinking list, "mirror" for a growing one, "rewrite" for a same-length
-// replacement (a renamed column's entries) — so the sync log does not
-// report a removal or a rename as an addition.
-func mirrorsDesc(card board.Card, next []board.Placement) string {
-	switch {
-	case len(next) < len(card.Mirrors):
-		return "unmirror " + cardRef(card)
-	case len(next) == len(card.Mirrors):
-		return "rewrite the mirrors of " + cardRef(card)
-	}
-	return "mirror " + cardRef(card)
-}
-
-// SetProject rebinds an epic column to a project. The target is a hidden
+// SetProject rebinds an scope column to a project. The target is a hidden
 // state card, which is NOT in the cached card list (NewBoard splits it out),
 // so mutateCard cannot reach it: update the roster map directly and queue the
 // write like any other mutation.
 func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card board.Card, project string) error {
 	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
-	if i := epicIndexOf(e.board.Epics, card.ItemID); i >= 0 {
-		e.board.Epics[i].Project = project
-		e.rosterBroadcast()
-	} else if i := processIndexOf(e.board.Processes, card.ItemID); i >= 0 {
-		// A process moved to another project: it is a roster entry, not a row.
-		e.board.Processes[i].Project = project
+	if i := scopeIndexOf(e.board.Scopes, card.ItemID); i >= 0 {
+		e.board.Scopes[i].Project = project
 		e.rosterBroadcast()
 	} else if old, ok := nameOfState(e.board.ProjectStates, card.ItemID); ok {
 		// A project-state card renamed: re-key the roster in place.
@@ -2177,12 +2225,8 @@ func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card boar
 		itemID: card.ItemID,
 		desc:   "file " + cardRef(card) + " under a project",
 		apply: func(fresh *board.Board) {
-			if i := epicIndexOf(fresh.Epics, card.ItemID); i >= 0 {
-				fresh.Epics[i].Project = project
-				return
-			}
-			if i := processIndexOf(fresh.Processes, card.ItemID); i >= 0 {
-				fresh.Processes[i].Project = project
+			if i := scopeIndexOf(fresh.Scopes, card.ItemID); i >= 0 {
+				fresh.Scopes[i].Project = project
 				return
 			}
 			if old, ok := nameOfState(fresh.ProjectStates, card.ItemID); ok {
@@ -2208,151 +2252,8 @@ func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card boar
 // A roster write is applied to the cache at once and to GitHub behind. If a
 // full reload lands while it is still queued, every pending op is replayed
 // over the fresh board — so each of these carries a replay that re-imposes
-// its own change. Without one the reload put the old name (or the old pause)
-// back in the cache and broadcast it to every tab, and only the NEXT reload
-// undid that.
-
-// moveProcessAfter and moveTaskAfter reorder the two Process-tab rosters the
-// way moveEpicAfter does the columns: take the entry out, put it back after
-// the anchor ("" = the front).
-func moveProcessAfter(list []board.Process, from int, afterID string) []board.Process {
-	entry := list[from]
-	out := append(append([]board.Process{}, list[:from]...), list[from+1:]...)
-	at := 0
-	if afterID != "" {
-		for i, p := range out {
-			if p.ItemID == afterID {
-				at = i + 1
-				break
-			}
-		}
-	}
-	return append(out[:at:at], append([]board.Process{entry}, out[at:]...)...)
-}
-
-func moveTaskAfter(list []board.Card, from int, afterID string) []board.Card {
-	entry := list[from]
-	out := append(append([]board.Card{}, list[:from]...), list[from+1:]...)
-	at := 0
-	if afterID != "" {
-		for i, t := range out {
-			if t.ItemID == afterID {
-				at = i + 1
-				break
-			}
-		}
-	}
-	return append(out[:at:at], append([]board.Card{entry}, out[at:]...)...)
-}
-
-// taskIndexOf finds a task in the roster by its item id.
-func taskIndexOf(list []board.Card, itemID string) int {
-	for i := range list {
-		if list[i].ItemID == itemID {
-			return i
-		}
-	}
-	return -1
-}
-
-// processIndexOf finds a process in the roster by the item id of the card
-// that declares it.
-func processIndexOf(list []board.Process, itemID string) int {
-	for i := range list {
-		if list[i].ItemID == itemID {
-			return i
-		}
-	}
-	return -1
-}
-
-// SetProcess renames a process on its state card, re-points a task at a
-// renamed process — or, on an ORDINARY card, ties it to a process
-// (SetCardProcess). The first two are roster rows; the tie is a card row,
-// and skipping the card mutation here left the cache serving process=""
-// right after the write acknowledged it.
-func (b *storeBackend) SetProcess(ctx context.Context, bd board.Board, card board.Card, process string) error {
-	if card.Title != board.ProcessStateTitle && card.Title != board.ProcessTaskTitle {
-		b.mutateCard(ctx, bd, card.ItemID, "process", tieDesc(card, process), func(c *board.Card) {
-			c.Process = process
-		}, func(ctx context.Context) error {
-			return b.inner.SetProcess(ctx, bd, card, process)
-		})
-		return nil
-	}
-	e := b.store.entry(storeKey(bd.Board))
-	e.mu.Lock()
-	for i := range e.board.Processes {
-		if e.board.Processes[i].ItemID == card.ItemID {
-			e.board.Processes[i].Name = process
-		}
-	}
-	for i := range e.board.Tasks {
-		if e.board.Tasks[i].ItemID == card.ItemID {
-			e.board.Tasks[i].Process = process
-		}
-	}
-	e.rosterBroadcast()
-	e.mu.Unlock()
-	b.enqueue(ctx, e, pendingOp{
-		key: "process:" + card.ItemID, itemID: card.ItemID,
-		desc: "rename the process on " + cardRef(card),
-		apply: func(fresh *board.Board) {
-			for i := range fresh.Processes {
-				if fresh.Processes[i].ItemID == card.ItemID {
-					fresh.Processes[i].Name = process
-				}
-			}
-			for i := range fresh.Tasks {
-				if fresh.Tasks[i].ItemID == card.ItemID {
-					fresh.Tasks[i].Process = process
-				}
-			}
-		},
-		exec: func(ctx context.Context) error { return b.inner.SetProcess(ctx, bd, card, process) },
-	})
-	return nil
-}
-
-func (b *storeBackend) SetTask(ctx context.Context, bd board.Board, card board.Card, task string) error {
-	b.mutateCard(ctx, bd, card.ItemID, "task", "link "+cardRef(card)+" to its task", func(c *board.Card) {
-		c.Task = task
-	}, func(ctx context.Context) error {
-		return b.inner.SetTask(ctx, bd, card, task)
-	})
-	return nil
-}
-
-// SetPaused pauses a process: a roster entry, not a card row.
-func (b *storeBackend) SetPaused(ctx context.Context, bd board.Board, card board.Card, paused bool) error {
-	e := b.store.entry(storeKey(bd.Board))
-	e.mu.Lock()
-	if i := processIndexOf(e.board.Processes, card.ItemID); i >= 0 {
-		e.board.Processes[i].Paused = paused
-		e.rosterBroadcast()
-	}
-	e.mu.Unlock()
-	b.enqueue(ctx, e, pendingOp{
-		key: "paused:" + card.ItemID, itemID: card.ItemID,
-		desc: "pause or resume " + cardRef(card),
-		apply: func(fresh *board.Board) {
-			if i := processIndexOf(fresh.Processes, card.ItemID); i >= 0 {
-				fresh.Processes[i].Paused = paused
-			}
-		},
-		exec: func(ctx context.Context) error { return b.inner.SetPaused(ctx, bd, card, paused) },
-	})
-	return nil
-}
-
-func (b *storeBackend) SetAccumulate(ctx context.Context, bd board.Board, card board.Card, on bool) error {
-	b.mutateCard(ctx, bd, card.ItemID, "accumulate", "set accumulate on "+cardRef(card), func(c *board.Card) {
-		c.Accumulate = on
-	}, func(ctx context.Context) error {
-		return b.inner.SetAccumulate(ctx, bd, card, on)
-	})
-	return nil
-}
+// its own change. Without one the reload put the old name back in the cache
+// and broadcast it to every tab, and only the NEXT reload undid that.
 
 func (b *storeBackend) SetRecurrence(ctx context.Context, bd board.Board, card board.Card, cycle string) error {
 	b.mutateCard(ctx, bd, card.ItemID, "recurrence", "set the recurrence of "+cardRef(card), func(c *board.Card) {
@@ -2483,6 +2384,7 @@ func cardFromInput(in board.CreateInput, itemID string) board.Card {
 	c := board.Card{
 		ItemID:      itemID,
 		Title:       in.Title,
+		Type:        in.Type,
 		Zone:        in.Zone,
 		Day:         in.Day,
 		StartDate:   in.Start,
@@ -2491,12 +2393,9 @@ func cardFromInput(in board.CreateInput, itemID string) board.Card {
 		Week:        in.Week,
 		Parked:      in.Parked,
 		Size:        in.Size,
-		Epic:        in.Epic,
+		Scope:       in.Scope,
 		Project:     in.Project,
-		Process:     in.Process,
-		Task:        in.Task,
 		Recurrence:  in.Recurrence,
-		Paused:      in.Paused,
 		Description: in.Body,
 		ReviewOf:    in.ReviewOf,
 		Parent:      in.Parent,
@@ -2533,47 +2432,23 @@ func rosterStubs(b board.Board) map[string]board.Card {
 	for name, id := range b.ProjectStates {
 		out[id] = board.Card{ItemID: id, Title: board.ProjectStateTitle, Project: name, Domain: b.Domains[id]}
 	}
-	for _, p := range b.Processes {
-		out[p.ItemID] = board.Card{ItemID: p.ItemID, Title: board.ProcessStateTitle, Process: p.Name, Project: p.Project, Paused: p.Paused, Domain: b.Domains[p.ItemID]}
-	}
-	for _, e := range b.Epics {
-		out[e.ItemID] = board.Card{ItemID: e.ItemID, Title: board.EpicStateTitle, Epic: e.Name, Project: e.Project, Domain: b.Domains[e.ItemID]}
+	for _, e := range b.Scopes {
+		out[e.ItemID] = board.Card{ItemID: e.ItemID, Title: board.ScopeStateTitle, Scope: e.Name, Project: e.Project, Domain: b.Domains[e.ItemID]}
 	}
 	for _, d := range b.Deadlines {
 		out[d.ItemID] = board.Card{ItemID: d.ItemID, Title: board.DeadlineStateTitle, Week: d.Week, Project: d.Project, Domain: b.Domains[d.ItemID]}
 	}
-	for _, k := range b.Tasks {
-		c := k
-		c.Domain = b.Domains[k.ItemID]
-		out[k.ItemID] = c
-	}
 	return out
 }
 
-// installStub puts a roster stub — a process, task, project, column or
-// deadline state card — into the board's roster, idempotently, and records
-// its domain when it carries one. It reports false for a plain card, which
-// is a row and not the roster's business. A queued create's apply uses it
-// too, so a reload that lands while the create is still pending puts the
-// roster entry back where it belongs instead of leaking a stub row.
+// installStub puts a roster stub — a project, column or deadline state card
+// — into the board's roster, idempotently, and records its domain when it
+// carries one. It reports false for a plain card, which is a row and not the
+// roster's business. A queued create's apply uses it too, so a reload that
+// lands while the create is still pending puts the roster entry back where
+// it belongs instead of leaking a stub row.
 func installStub(target *board.Board, card board.Card) bool {
 	switch card.Title {
-	case board.ProcessStateTitle:
-		if _, exists := board.FindProcess(*target, card.Process); card.Process != "" && !exists {
-			target.Processes = append(target.Processes,
-				board.Process{Name: card.Process, Project: card.Project, ItemID: card.ItemID})
-		}
-	case board.ProcessTaskTitle:
-		exists := false
-		for _, t := range target.Tasks {
-			if t.ItemID == card.ItemID {
-				exists = true
-				break
-			}
-		}
-		if !exists {
-			target.Tasks = append(target.Tasks, card)
-		}
 	case board.ProjectStateTitle:
 		if card.Project != "" && target.ProjectStates[card.Project] == "" {
 			if target.ProjectStates == nil {
@@ -2582,10 +2457,10 @@ func installStub(target *board.Board, card board.Card) bool {
 			target.Projects = append(target.Projects, card.Project)
 			target.ProjectStates[card.Project] = card.ItemID
 		}
-	case board.EpicStateTitle:
-		if _, exists := board.FindEpic(*target, card.Project, card.Epic); card.Epic != "" && !exists {
-			target.Epics = append(target.Epics, board.EpicCol{
-				Name: card.Epic, Project: card.Project, ItemID: card.ItemID,
+	case board.ScopeStateTitle:
+		if _, exists := board.FindScope(*target, card.Project, card.Scope); card.Scope != "" && !exists {
+			target.Scopes = append(target.Scopes, board.ScopeCol{
+				Name: card.Scope, Project: card.Project, ItemID: card.ItemID,
 			})
 		}
 	case board.DeadlineStateTitle:

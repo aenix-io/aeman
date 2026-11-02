@@ -64,7 +64,7 @@ func TestTheGridCrossStillHandsAColumnCardBack(t *testing.T) {
 	today := board.TodayIso()
 	prev := board.AddDays(today, -7)
 	f := newFake([]board.Card{
-		{ItemID: "c1", Team: "alpha", Progress: 40, Epic: "Auth", Project: "freedom",
+		{ItemID: "c1", Team: "alpha", Progress: 40, Scope: "Auth", Project: "freedom",
 			SprintStart: today, StartDate: board.AddDays(today, -1), Day: today,
 			Assignees: []string{"kvaps"}},
 	}, map[string]board.SprintState{"alpha": {Current: today, Previous: prev}})
@@ -76,7 +76,7 @@ func TestTheGridCrossStillHandsAColumnCardBack(t *testing.T) {
 	if c == nil {
 		t.Fatal("a card standing in a column is not deleted by the grid ×")
 	}
-	if c.Epic != "Auth" {
+	if c.Scope != "Auth" {
 		t.Fatalf("it keeps its column: %+v", c)
 	}
 }

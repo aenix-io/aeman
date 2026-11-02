@@ -32,7 +32,7 @@ type Selector struct {
 	// From (defaults to the current week) for Weeks weeks (defaults to 6).
 	From  string
 	Weeks int
-	// Project filters the project view to one project's epic columns. Empty
+	// Project filters the project view to one project's scope columns. Empty
 	// means every project — the all-projects overview. Note this is the
 	// planning entity, NOT the GitHub board (that is addressed by owner+board).
 	Project string
@@ -115,7 +115,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		sel.Weeks = n
 	}
 	switch sel.View {
-	case "", "all", "team", "me", "project", "triage", "backlog":
+	case "", "all", "team", "me", "project", "triage", "backlog", "roadmap":
 	default:
 		return Selector{}, fmt.Errorf("unknown view %q", sel.View)
 	}
@@ -159,6 +159,51 @@ func (s Selector) normalized() Selector {
 	return s
 }
 
+// roadmapCards is the Roadmap's listing (H9): the hierarchy — every goal,
+// initiative and epic, and every card with one of those above it: a task,
+// its subtasks, a project card (docs/design/hierarchy.md) — and, below it,
+// every OPEN task that has no planning card above it yet: the work in hand
+// on the Team and Me boards, the cards parked on a shelf, the strip. The
+// loose work is listed because the Roadmap is where a lead drags it INTO the
+// tree, and a board cannot offer a drag of a card it does not draw.
+//
+// What stays out: a task already FINISHED outside the hierarchy — there is
+// nothing left to plan on it, and a roadmap of every card ever closed is a
+// log; a project card in no hierarchy — the Project board's alone (H4); and
+// a subtask whose parent task is out, since a subtask rides its parent. The
+// tree is the client's to assemble from `parent`; the listing is the cards
+// that make it up.
+func roadmapCards(b board.Board, ix *board.Index) []board.Card {
+	in := map[string]bool{}
+	for _, c := range b.Cards {
+		if board.IsStateTitle(c.Title) {
+			continue
+		}
+		switch {
+		case board.IsPlanning(c) || ix.HasPlanningAncestor(c):
+			in[c.ItemID] = true
+		// Open work with no planning ancestor: a task, parked or in the strip
+		// or on a day board. Not a review card — it follows the card it
+		// reviews, which is the work, and cannot be filed under anything.
+		case c.Scope == "" && c.ReviewOf == "" && !ix.IsSubtask(c) && !board.Complete(c.Stage, c.Progress):
+			in[c.ItemID] = true
+		}
+	}
+	// A subtask rides its parent task: in when it is, out when it is not.
+	for _, c := range b.Cards {
+		if ix.IsSubtask(c) && in[c.Parent] {
+			in[c.ItemID] = true
+		}
+	}
+	var out []board.Card
+	for _, c := range b.Cards {
+		if in[c.ItemID] {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // FilterCards returns the cards matching the selector, in board order. The
 // view rules delegate to the same domain filters the views always used.
 func FilterCards(b board.Board, sel Selector) []board.Card {
@@ -180,33 +225,28 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	case "me":
 		base = board.MeView(b, sel.User, sel.Day)
 	case "project":
-		// The Project board: every card filed under an epic, whatever its week
-		// — the client lays rows (weeks) and columns (epics) out itself. The
-		// selector filters by PROJECT (an epic's owner), not by team: a project
+		// The Project board: every card filed under an scope, whatever its week
+		// — the client lays rows (weeks) and columns (scopes) out itself. The
+		// selector filters by PROJECT (an scope's owner), not by team: a project
 		// spans teams, and a card is assigned to a team from this very board.
 		for _, c := range b.Cards {
-			// A SUBTASK that carries its own column belongs here on its own
-			// merit (G57), not as a rider of a delivered parent: the case
-			// the rule exists for is a parent that lives elsewhere — a week
-			// of its own, the working area — and is in no project view at
-			// all, which left the whole group visible nowhere.
-			if c.Epic == "" {
+			// A card in a column is a PROJECT CARD, and this is the one board
+			// that draws it (H4): no team, no owner, no parent — it stands in
+			// its column on its own merit.
+			if c.Scope == "" {
 				continue
 			}
-			// A MIRROR is the same card standing in a second column, so a
-			// project's view holds every card that stands in one of ITS
-			// columns, home pair or mirror (G15) — the home-only reading
-			// answered an agent asking about a project with less than the
-			// board draws there.
 			if sel.Project != "" && !board.InProject(c, sel.Project) {
 				continue
 			}
 			base = append(base, c)
 		}
 	case "triage":
-		base = triageCards(b, sel)
+		base = triageCards(b, board.NewIndex(b), sel)
 	case "backlog":
 		base = backlogCards(b, sel)
+	case "roadmap":
+		base = roadmapCards(b, board.NewIndex(b))
 	default:
 		base = b.Cards
 	}
@@ -265,49 +305,24 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	return out
 }
 
-// projectViewCards settles what the Project board's query carries. The grid
-// draws a card by its COLUMN, so a subtask without one belongs to no
-// Project board — and the subtask rider would otherwise smuggle in every
-// child of a columned parent, counted by the client's progress bars and
-// drawn by nothing. The PARENT of a delivered subtask rides along instead,
-// column or not: the slot is marked with its title, and the client has no
-// other query to find it in (the motivating parent — a plan card, a
-// working-area card — never carries a column of its own).
-func projectViewCards(b board.Board, out []board.Card, project string) []board.Card {
+// projectViewCards settles what the Project board's query carries: the cards
+// that stand in a column, and nothing that rode in with them. The grid draws
+// a card by its COLUMN, and a project card is nobody's subtask and has none
+// (H4), so a parented card the subtask rider appended — one written before
+// schema 2 — belongs to no Project board and would only be counted by a
+// progress bar that draws nothing.
+func projectViewCards(_ board.Board, out []board.Card, project string) []board.Card {
 	kept := make([]board.Card, 0, len(out))
-	wanted := map[string]bool{}
 	for _, c := range out {
-		if c.Epic == "" {
+		if c.Scope == "" {
 			continue
 		}
-		// The subtask rider ignores the selector, so a child filed under
-		// ANOTHER project came in on its parent's ticket: one project's
-		// columns are what this view is.
 		if project != "" && !board.InProject(c, project) {
 			continue
 		}
 		kept = append(kept, c)
-		if c.Parent != "" {
-			wanted[c.Parent] = true
-		}
 	}
-	if len(wanted) == 0 {
-		return kept
-	}
-	have := map[string]bool{}
-	for _, c := range kept {
-		have[c.ItemID] = true
-	}
-	// In BOARD ORDER, like every other listing: a tail of riders would
-	// reshuffle rows on every refetch, which is what withSubtasks goes out
-	// of its way to avoid for children.
-	ordered := make([]board.Card, 0, len(kept)+len(wanted))
-	for _, c := range b.Cards {
-		if have[c.ItemID] || wanted[c.ItemID] {
-			ordered = append(ordered, c)
-		}
-	}
-	return ordered
+	return kept
 }
 
 // withSubtasks appends the subtasks of every delivered parent, so a view is
@@ -465,13 +480,17 @@ func MarkRecords(list *CardList, records map[string]bool, asOf string) {
 // ListCards builds the LIST response for a selector: resources in board order.
 func ListCards(b board.Board, sel Selector) CardList {
 	cards := FilterCards(b, sel)
-	resource := CardSummaryResource
+	// One index for the whole listing: every resource asks the board the
+	// same questions (lineage, standing, triage, reviewer), and asking them
+	// afresh per card was a walk of the board per card.
+	ix := board.NewIndex(b)
+	resource := CardSummaryResourceIn
 	if sel.Fields == "full" {
-		resource = CardResource
+		resource = CardResourceIn
 	}
 	items := make([]Card, 0, len(cards))
 	for _, c := range cards {
-		items = append(items, resource(b, c))
+		items = append(items, resource(b, ix, c))
 	}
 	return CardList{Kind: "CardList", Items: items}
 }
@@ -480,13 +499,22 @@ func ListCards(b board.Board, sel Selector) CardList {
 // in the weeks asked for, the current sprint (which is the current week's
 // column), the debts owed from earlier weeks — they stand in that column too
 // — and the cards nobody placed at all, which are the triage strip (B3, B5).
-func triageCards(b board.Board, sel Selector) []board.Card {
+func triageCards(b board.Board, ix *board.Index, sel Selector) []board.Card {
 	today := board.TodayIso()
 	until := board.AddDays(sel.From, 7*sel.Weeks)
 	thisWeek := board.MondayOf(today)
 	var out []board.Card
 	for _, c := range b.Cards {
-		if c.Parent != "" || board.IsStateTitle(c.Title) {
+		// A planning card is the Roadmap's (H3); a subtask rides its
+		// parent; a task under an epic stands here like any task (H1).
+		if board.IsPlanning(c) || ix.IsSubtask(c) || board.IsStateTitle(c.Title) {
+			continue
+		}
+		// A PROJECT card is the Project board's plan and stands in no week
+		// here (H4) — NeedsTriage and TriageWeekOf both say so; this is the
+		// same answer given once, before the team gate asks about a team the
+		// card no longer has.
+		if c.Scope != "" {
 			continue
 		}
 		// A REVIEW rides along only when asked. It is not triage work —
@@ -501,7 +529,7 @@ func triageCards(b board.Board, sel Selector) []board.Card {
 		if !teamInSet(c.Team, sel.Team) {
 			continue
 		}
-		if board.NeedsTriage(b, c, today) {
+		if ix.NeedsTriage(c, today) {
 			out = append(out, c)
 			continue
 		}
@@ -554,9 +582,16 @@ func contains(s []string, v string) bool {
 // the weeks has nowhere to put it. Filtering by `backlog` names one list;
 // leaving it empty gives every list the team has.
 func backlogCards(b board.Board, sel Selector) []board.Card {
+	planning := board.PlanningIDs(b)
 	var out []board.Card
 	for _, c := range b.Cards {
-		if c.Parent != "" || board.IsStateTitle(c.Title) {
+		if board.IsPlanning(c) || board.IsSubtaskIn(c, planning) || board.IsStateTitle(c.Title) {
+			continue
+		}
+		// A PROJECT card is never parked — the shelf is not its board's to
+		// offer (ErrNotYoursToPark) — but the storage is a repository anything
+		// may write to, so one carrying both is read as the plan it is (H4).
+		if c.Scope != "" {
 			continue
 		}
 		if !board.InBacklog(c) || !teamInSet(c.Team, sel.Team) {

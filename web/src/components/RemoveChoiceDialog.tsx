@@ -11,6 +11,10 @@ interface RemoveChoiceDialogProps {
   choices: RemoveChoice[];
   /** How many subtasks go with it, if any. */
   subtasks: number;
+  /** What a destroying answer does to what sits under the card, said in
+   *  place of the subtask sentence — the hierarchy's × moves children UP
+   *  rather than taking them along, and the dialog must say which. */
+  note?: string;
   onClose: () => void;
   onSubmit: (choice: RemoveChoice) => void;
 }
@@ -19,6 +23,18 @@ interface RemoveChoiceDialogProps {
  *  where the card ends up. */
 function say(choice: RemoveChoice) {
   switch (choice) {
+    case "detach":
+      return {
+        label: "Take it out from under its parent",
+        note: "It keeps everything else — its boards, its dates, what sits under it — and simply stops being filed here.",
+        danger: false,
+      };
+    case "delete":
+      return {
+        label: "Delete it",
+        note: "The card goes, with its description and its history.",
+        danger: true,
+      };
     case "unassign":
       return {
         label: "Move it to Unassigned",
@@ -58,13 +74,14 @@ function say(choice: RemoveChoice) {
  *  made today that nobody has touched, which goes without ceremony
  *  (`asksFirst`). What it offers is the card's own list: an ordinary card can
  *  be taken off the board, and moved to Unassigned when it has a week or a
- *  column to be left in; a project card or a process turn can only be moved
- *  there, since neither is this board's to destroy. */
+ *  column to be left in; a project card can only be moved there, since it is
+ *  not this board's to destroy. */
 export function RemoveChoiceDialog({
   title,
   progress,
   choices,
   subtasks,
+  note,
   onClose,
   onSubmit,
 }: RemoveChoiceDialogProps) {
@@ -72,9 +89,11 @@ export function RemoveChoiceDialog({
     onSubmit(choice);
     onClose();
   };
-  const destroys = choices.includes("off-board");
-  const family =
-    subtasks > 0 && destroys
+  const hierarchy = choices.includes("delete");
+  const destroys = choices.includes("off-board") || hierarchy;
+  const family = note
+    ? ` ${note}`
+    : subtasks > 0 && destroys
       ? ` Its ${subtasks} subtask${subtasks > 1 ? "s" : ""} go${subtasks > 1 ? "" : "es"} with it.`
       : "";
   // The safe option takes the focus where there is one: a dialog that opens
@@ -96,7 +115,7 @@ export function RemoveChoiceDialog({
       >
         <div className="modal-header">
           <h2 className="modal-title">
-            {destroys ? "Remove from the board?" : "Take it off the day?"}
+            {hierarchy ? "Delete it, or just unlink it?" : destroys ? "Remove from the board?" : "Take it off the day?"}
           </h2>
           <button
             type="button"

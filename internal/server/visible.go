@@ -157,20 +157,11 @@ func (v *visibleBackend) domainOf(ctx context.Context, bd board.Board, c board.C
 }
 
 // stubHome is where a roster stub lives: a column or deadline with its
-// project, a task with its process, else the primary.
+// project, else the primary.
 func (v *visibleBackend) stubHome(whole board.Board, c board.Card) string {
-	switch c.Title {
-	case board.EpicStateTitle, board.DeadlineStateTitle:
+	if c.Title == board.ScopeStateTitle || c.Title == board.DeadlineStateTitle {
 		if d, ok := board.Resolver(whole, v.primary).ProjectDomain(c.Project); ok {
 			return d
-		}
-	case board.ProcessTaskTitle, board.ProcessStateTitle:
-		for _, p := range whole.Processes {
-			if p.Name == c.Process {
-				if d, ok := whole.Domains[p.ItemID]; ok {
-					return d
-				}
-			}
 		}
 	}
 	return v.primary
@@ -227,8 +218,7 @@ func (v *visibleBackend) CreateCard(ctx context.Context, bd board.Board, in boar
 		probe := cardFromInput(in, "")
 		var target string
 		switch {
-		case in.Title == board.ProjectStateTitle, in.Title == board.SprintStateTitle,
-			in.Title == board.ProcessStateTitle && in.Project == "":
+		case in.Title == board.ProjectStateTitle, in.Title == board.SprintStateTitle:
 			// The caller's choice, default the primary.
 			if target, err = v.chosen(ctx, in.Domain); err != nil {
 				return board.Card{}, err
@@ -361,48 +351,11 @@ func (v *visibleBackend) SetTeam(ctx context.Context, bd board.Board, card board
 	return v.Backend.SetTeam(ctx, bd, card, team)
 }
 
-func (v *visibleBackend) SetEpic(ctx context.Context, bd board.Board, card board.Card, epic string) error {
-	if err := v.writeMove(ctx, bd, card, func(c *board.Card) { c.Epic = epic }); err != nil {
+func (v *visibleBackend) SetScope(ctx context.Context, bd board.Board, card board.Card, scope string) error {
+	if err := v.writeMove(ctx, bd, card, func(c *board.Card) { c.Scope = scope }); err != nil {
 		return err
 	}
-	return v.Backend.SetEpic(ctx, bd, card, epic)
-}
-
-func (v *visibleBackend) SetMirrors(ctx context.Context, bd board.Board, card board.Card, mirrors []board.Placement) error {
-	// Mirrors stay in the card's own domain (the service admits nothing
-	// else), so plain write access to it is the whole question.
-	if err := v.write(ctx, bd, card); err != nil {
-		return err
-	}
-	return v.Backend.SetMirrors(ctx, bd, card, mirrors)
-}
-
-func (v *visibleBackend) SetProcess(ctx context.Context, bd board.Board, card board.Card, process string) error {
-	if err := v.write(ctx, bd, card); err != nil {
-		return err
-	}
-	return v.Backend.SetProcess(ctx, bd, card, process)
-}
-
-func (v *visibleBackend) SetTask(ctx context.Context, bd board.Board, card board.Card, task string) error {
-	if err := v.writeMove(ctx, bd, card, func(c *board.Card) { c.Task = task }); err != nil {
-		return err
-	}
-	return v.Backend.SetTask(ctx, bd, card, task)
-}
-
-func (v *visibleBackend) SetPaused(ctx context.Context, bd board.Board, card board.Card, paused bool) error {
-	if err := v.write(ctx, bd, card); err != nil {
-		return err
-	}
-	return v.Backend.SetPaused(ctx, bd, card, paused)
-}
-
-func (v *visibleBackend) SetAccumulate(ctx context.Context, bd board.Board, card board.Card, on bool) error {
-	if err := v.write(ctx, bd, card); err != nil {
-		return err
-	}
-	return v.Backend.SetAccumulate(ctx, bd, card, on)
+	return v.Backend.SetScope(ctx, bd, card, scope)
 }
 
 func (v *visibleBackend) SetProject(ctx context.Context, bd board.Board, card board.Card, project string) error {

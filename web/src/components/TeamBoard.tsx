@@ -23,8 +23,7 @@ import { TeamsModal } from "./TeamsModal";
 import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
-import { slotWeekPatch } from "../slots";
-import { subtaskShows } from "../subtasks";
+import { isSubtask, subtaskParent, subtaskShows } from "../subtasks";
 import {
   asksFirst,
   offersRemoval,
@@ -35,13 +34,7 @@ import {
   subtaskRemovalPatch,
   subtaskRemovalUndo,
 } from "../removal";
-import {
-  columnFollows,
-  datesAreAnotherBoards,
-  makeCardPlacements,
-  rosterOf,
-  type CardPlacements,
-} from "../placements";
+import { makeCardPlacements, type CardPlacements } from "../placements";
 import { parkedLocally } from "../backlog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
@@ -349,10 +342,12 @@ export function TeamBoard({
   const childrenOf = useMemo(() => {
     const m = new Map<string, CardModel[]>();
     for (const c of board.cards) {
-      if (c.parent && subtaskOnDay(c)) {
-        const list = m.get(c.parent) ?? [];
+      // Under a TASK only: a task under an epic is a row of its own.
+      const under = subtaskParent(c);
+      if (under && subtaskOnDay(c)) {
+        const list = m.get(under) ?? [];
         list.push(c);
-        m.set(c.parent, list);
+        m.set(under, list);
       }
     }
     return m;
@@ -463,7 +458,9 @@ export function TeamBoard({
     // the placeholder previewed: groupUnder is the already-validated parent
     // to nest under (null = standalone).
     const parentTo = groupUnder;
-    const parentChanged = (card.parent ?? "") !== (parentTo ?? "");
+    // Judged against the parent AS A TASK: a standalone drop of a task under
+    // an epic is no change, not an unlinking from the epic.
+    const parentChanged = (subtaskParent(card) ?? "") !== (parentTo ?? "");
 
     // 1) Optimistic local state first. A grouped card is not cell-placed, so
     // zone/assignee only apply to standalone drops (including a pull-out).
@@ -559,8 +556,8 @@ export function TeamBoard({
   // one level (the target is already a subtask, or the dragged card has its
   // own subtasks) — the middle-band group drop only offers valid targets.
   const canGroup = (active: CardModel, target: CardModel) =>
-    !target.parent &&
-    target.itemId !== active.parent &&
+    !isSubtask(target) &&
+    target.itemId !== subtaskParent(active) &&
     !(childrenOf.get(active.itemId) ?? []).length;
 
   // itemId → card, for resolving a drop's neighbours.
@@ -592,7 +589,7 @@ export function TeamBoard({
   // Group a dropped card as a subtask; the server enforces depth and hands a
   // scheduled card's week to the parent, which stands for it from then on.
   const handleGroup = (card: CardModel, parentId: string) => {
-    if (card.itemId === parentId || card.parent === parentId) {
+    if (card.itemId === parentId || subtaskParent(card) === parentId) {
       return;
     }
     const prev: Partial<CardModel> = { parent: card.parent, week: card.week };
@@ -601,7 +598,7 @@ export function TeamBoard({
     // (mirrors boardservice.SetParent).
     patchCard(card.itemId, {
       parent: parentId,
-      ...(card.epic ? {} : { week: undefined }),
+      ...(card.scope ? {} : { week: undefined }),
     });
     autoExpanded.current = null; // the drop keeps the target unfolded
     setExpandedSubs((cur) => new Set(cur).add(parentId));
@@ -698,9 +695,9 @@ export function TeamBoard({
       // is about to do (RemoveChoiceDialog), so the card's own anonymous
       // "Delete?" never stands in front of one.
       boardAsks
-      // A project card and a process turn already out of the working area
-      // have nowhere further to go: the × would write nothing, and one that
-      // does nothing reads as a delete that failed.
+      // A project card already out of the working area has nowhere further
+      // to go: the × would write nothing, and one that does nothing reads as
+      // a delete that failed.
       deletable={offersRemoval(card, gridCtx(card))}
       onStage={handleStage}
       onInProgress={handleInProgress}
@@ -717,11 +714,7 @@ export function TeamBoard({
       counterpartAssignees={counterpartAssigneesFor(card)}
       onSetReviewAssignee={handleSetReviewAssignee}
       asOf={selectedDate}
-      // A project card's dates are its ROW on the Project board — the week
-      // it stands in is the Monday of its start, and its span is how many
-      // weeks the work takes. This board does not re-date another board's
-      // commitment in passing (placements.datesAreAnotherBoards).
-      onSetDates={datesAreAnotherBoards(card) ? undefined : handleSetDates}
+      onSetDates={handleSetDates}
       onDefer={handleDefer}
       dimAvatar
       subCount={(childrenOf.get(card.itemId) ?? []).length}
@@ -752,12 +745,13 @@ export function TeamBoard({
   // the add-subtask form (the + flow) hangs after the LAST subtask row — or
   // right under the parent while it has none visible yet.
   const withSubs = (card: CardModel, node: ReactNode): ReactNode => {
-    if (card.parent) {
+    const under = subtaskParent(card);
+    if (under) {
       const wrapped = <div className="subtask-indent">{node}</div>;
-      const subs = childrenOf.get(card.parent) ?? [];
-      const parent = cardsById.get(card.parent);
+      const subs = childrenOf.get(under) ?? [];
+      const parent = cardsById.get(under);
       if (
-        addingSub === card.parent &&
+        addingSub === under &&
         parent &&
         subs[subs.length - 1]?.itemId === card.itemId
       ) {
@@ -795,7 +789,7 @@ export function TeamBoard({
         }
         // A collapsed parent wears its subtasks' presence; expanded, the marks
         // sit on the subtask rows themselves.
-        if (!card.parent && !subsOpen(card.itemId)) {
+        if (!isSubtask(card) && !subsOpen(card.itemId)) {
           return (childrenOf.get(card.itemId) ?? []).some((c) => c.itemId === uid);
         }
         return false;
@@ -811,14 +805,15 @@ export function TeamBoard({
   // Mirror the server's derived-progress rule (board.DerivedProgress) so a
   // parent's bar moves the instant a subtask's does; the server converges it.
   const syncParentBar = (child: CardModel, childValue: number) => {
-    if (!child.parent) {
+    const under = subtaskParent(child);
+    if (!under) {
       return;
     }
-    const parent = cardsById.get(child.parent);
+    const parent = cardsById.get(under);
     if (!parent || isComplete(parent)) {
       return;
     }
-    const kids = board.cards.filter((c) => c.parent === child.parent);
+    const kids = board.cards.filter((c) => c.parent === under);
     if (kids.length === 0) {
       return;
     }
@@ -861,13 +856,13 @@ export function TeamBoard({
         addCard(updated);
         // A review card's progress drives the original's stage server-side,
         // and a subtask's drives its parent's derived bar.
-        if (card.reviewOf || card.parent) {
+        if (card.reviewOf || isSubtask(card)) {
           reload();
         }
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
-        if (card.parent) {
+        if (isSubtask(card)) {
           reload(); // the parent's optimistic derived bar needs the truth back
         }
         onError(errMessage(err));
@@ -930,14 +925,14 @@ export function TeamBoard({
           leavingReview ||
           (enteringReview && hasLinkedReview) ||
           card.reviewOf ||
-          card.parent
+          isSubtask(card)
         ) {
           reload();
         }
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
-        if (card.parent) {
+        if (isSubtask(card)) {
           reload(); // the parent's optimistic derived bar needs the truth back
         }
         onError(errMessage(err));
@@ -962,13 +957,13 @@ export function TeamBoard({
       .setInProgress(card.itemId)
       .then((updated) => {
         addCard(updated);
-        if (card.stage === "review" || card.reviewOf || card.parent) {
+        if (card.stage === "review" || card.reviewOf || isSubtask(card)) {
           reload();
         }
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
-        if (card.parent) {
+        if (isSubtask(card)) {
           reload(); // the parent's optimistic derived bar needs the truth back
         }
         onError(errMessage(err));
@@ -990,34 +985,11 @@ export function TeamBoard({
     current: currentSprint(board, card.team ?? null) ?? undefined,
     previous: previousSprintFor(card) ?? undefined,
     today: todayIso(),
-  // Whether the column a subtask carries can come with it out of the group:
-  // the answer decides whether the × ungroups the card or hands it to the
-  // ordinary law (demote, or delete), and only the roster knows. A review
-  // card's link outranks its own team and project, so the card it points at
-  // answers for it.
-    // Only a card in a column can lose one, and finding the linked card
-    // is a scan of the board: asked when the question can arise.
-    columnFollows: card.epic
-      ? columnFollows(
-          card,
-          { ...rosterOf(board), epics: board.epics, teamDomains: board.teamDomains },
-          linkedDomainOf(card),
-        )
-      : true,
   });
-  // The repository of the card a subtask would still point at once its
-  // parent is gone: its original, or the task it iterates.
-  const linkedDomainOf = (card: CardModel): string | undefined => {
-    const ref = card.reviewOf || card.task;
-    if (!ref) {
-      return undefined;
-    }
-    return cardsById.get(ref)?.domain ?? undefined;
-  };
   const reviewOf = (card: CardModel) =>
     board.cards.find((c) => c.reviewOf === card.itemId)?.title ?? null;
 
-  // placementsFor: the assign menu's attach/mirror section — one shared
+  // placementsFor: the assign menu's attach section — one shared
   // factory (makeCardPlacements), so the boards cannot drift apart.
   const placementsFor = (card: CardModel): CardPlacements | undefined => {
     // A subtask needs no check here: placementTargets refuses one for
@@ -1090,7 +1062,7 @@ export function TeamBoard({
     // ungroups it and leaves it there, so this board asks gridRemoval like
     // it does for everything else instead of sending a DELETE past the
     // rule — which destroyed work the Me board would have kept.
-    if (card.parent && choice === "off-board") {
+    if (isSubtask(card) && choice === "off-board") {
       // The board took the question on (boardAsks), so the board must put
       // it: the card's own prompt has stood down, and deleting in silence
       // is how a worked subtask went in one click.
@@ -1107,7 +1079,7 @@ export function TeamBoard({
       });
       return;
     }
-    if (card.parent) {
+    if (isSubtask(card)) {
       // Out of the group and into its column (the server's answer,
       // gridRemoval). The row must stop being drawn under its parent at
       // once, or the × looks inert; and it must show the SAME optimistic
@@ -1175,7 +1147,7 @@ export function TeamBoard({
       assignees: [],
       sprintStart: undefined,
       // A slot keeps its dates: they are its row on the Project board.
-      // Only the epic side makes one — a bare project name is a label.
+      // Only the scope side makes one — a bare project name is a label.
       ...(hasColumn(card) ? {} : { startDate: undefined, day: undefined }),
     });
     rollback = () => patchCard(card.itemId, prev);
@@ -1215,13 +1187,14 @@ export function TeamBoard({
     // direct change follows the parent, and re-assigning a parent hands the
     // whole family over. A family split across two people lands on two
     // people's Me boards.
-    const target = card.parent ? cardsById.get(card.parent) ?? card : card;
-    const next = card.parent
+    const under = subtaskParent(card);
+    const target = under ? cardsById.get(under) ?? card : card;
+    const next = under
       ? target.assignees.slice(0, 1)
       : login
         ? [login]
         : [];
-    const family = card.parent
+    const family = under
       ? []
       : board.cards.filter((c) => c.parent === card.itemId);
     const prev = card.assignees;
@@ -1397,9 +1370,6 @@ export function TeamBoard({
       startDate: start ?? undefined,
       sprintStart: sprint ?? undefined,
       day: end ?? undefined,
-      // A slot's WEEK follows its start date, or the card keeps standing
-      // in the week it left until the next full load.
-      ...slotWeekPatch(card, start),
     });
     void provider
       .patchCard(card.itemId, {

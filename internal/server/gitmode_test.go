@@ -615,10 +615,9 @@ func TestActionNameFromRoute(t *testing.T) {
 		{http.MethodPatch, "/api/v1/cards/01J/notes/01K"}:             "note-edit",
 		{http.MethodDelete, "/api/v1/cards/01J/notes/01K"}:            "note-delete",
 		{http.MethodPost, "/api/v1/sprints/actions/carry-over"}:       "carry-over",
-		{http.MethodPost, "/api/v1/epics"}:                            "add-epic",
-		{http.MethodPost, "/api/v1/epics/actions/rename"}:             "rename",
+		{http.MethodPost, "/api/v1/scopes"}:                           "add-scope",
+		{http.MethodPost, "/api/v1/scopes/actions/rename"}:            "rename",
 		{http.MethodPost, "/api/v1/projects"}:                         "add-project",
-		{http.MethodPost, "/api/v1/processes/tasks"}:                  "add-task",
 		{http.MethodGet, "/api/v1/views/team/cards"}:                  "",
 	}
 	for in, want := range cases {
@@ -640,7 +639,7 @@ func TestGitModeRefusesCollidingRosterNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: closed\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: closed\n")},
 		{Path: gitstore.TeamPath("01JB4TEAMX"), Data: []byte("name: portal\nrank: a\ncreated: 2026-07-01T08:00:00Z\n")},
 	}); err != nil {
 		t.Fatal(err)

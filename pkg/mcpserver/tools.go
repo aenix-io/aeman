@@ -16,9 +16,9 @@ import (
 
 // boardRef is embedded in every tool input to select the target board — the
 // name of its primary repository. "project" is aeman's own planning entity (a
-// group of epic columns on the Project board), not the board.
+// group of scope columns on the Project board), not the board.
 type boardRef struct {
-	Board string `json:"board,omitempty" jsonschema:"the board's name (its primary repository); defaults to the server configuration and is ignored when the server pins its board. Not to be confused with an aeman project, which groups epic columns"`
+	Board string `json:"board,omitempty" jsonschema:"the board's name (its primary repository); defaults to the server configuration and is ignored when the server pins its board. Not to be confused with an aeman project, which groups scope columns"`
 }
 
 // cardRef identifies a single card on a board.
@@ -107,7 +107,7 @@ type listCardsInput struct {
 	Team     string `json:"team,omitempty" jsonschema:"team key for the team/triage views; on the me view a comma-separated set filters to those teams; empty is the no-team group / no filter"`
 	Day      string `json:"day,omitempty" jsonschema:"viewed day as yyyy-mm-dd for the team/me views; defaults to today"`
 	User     string `json:"user,omitempty" jsonschema:"GitHub login for the me view; empty is everyone"`
-	Project  string `json:"project,omitempty" jsonschema:"aeman project to scope the project view to — one project's epic columns; empty is every project. Read the roster from get_board metadata.projects"`
+	Project  string `json:"project,omitempty" jsonschema:"aeman project to scope the project view to — one project's scope columns; empty is every project. Read the roster from get_board metadata.projects"`
 	Stage    string `json:"stage,omitempty" jsonschema:"filter by stage: locked, review, recurrent, refuse or done"`
 	Zone     string `json:"zone,omitempty" jsonschema:"filter by semantic zone: urgent, unplanned, planned or niceToHave"`
 	Assignee string `json:"assignee,omitempty" jsonschema:"filter by assignee GitHub login"`
@@ -218,9 +218,10 @@ type createCardInput struct {
 	Start       string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd; defaults to end, else today. A FUTURE day parks the card off the board until that day arrives — it is not shown in the current sprint meanwhile. Sprints are daily and created as they start, so no sprint covers a future day yet: the card deliberately joins NO sprint and the carry-over that reaches its day adopts it. That is the intended way to schedule work ahead; leave the sprint field alone"`
 	End         string `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; defaults to start, else today"`
 	Sprint      string `json:"sprint,omitempty" jsonschema:"sprint start day the card joins; defaults to the team's current sprint"`
-	Week        string `json:"week,omitempty" jsonschema:"schedule the card for a WEEK instead of a day: the week's Monday as yyyy-mm-dd, and no dates are set. Pass view=triage with it — that is the board a week card belongs to, and every other board refuses a week. A card filed under an epic ignores it — the slot's row is the week of its start date"`
-	Epic        string `json:"epic,omitempty" jsonschema:"Project-board column to file the card under, together with project — pass view=project with them, since a column is that board's. MUST be an EXISTING column — read them from get_board metadata.epics; add_epic creates one when the user explicitly asks. The card's week is its row; start/end dates may span several weeks"`
-	Project     string `json:"project,omitempty" jsonschema:"the project half of the column named by epic (columns are the (project, epic) pair — epic names repeat across projects)"`
+	Week        string `json:"week,omitempty" jsonschema:"schedule the card for a WEEK instead of a day: the week's Monday as yyyy-mm-dd, and no dates are set. Pass view=triage with it — that is the board a week card belongs to, and every other board refuses a week. A card filed under an scope ignores it — the slot's row is the week of its start date"`
+	Scope       string `json:"scope,omitempty" jsonschema:"Project-board column to file the card under, together with project — pass view=project with them, since a column is that board's. MUST be an EXISTING column — read them from get_board metadata.scopes; add_scope creates one when the user explicitly asks. A card in a column is a PROJECT CARD: it takes no team or assignee (refused) and is nobody's subtask — though it MAY sit under a goal, an initiative or an epic (parent) — its start/end dates are its row and may span several weeks, and the Project board is the one board that draws it"`
+	Type        string `json:"type,omitempty" jsonschema:"makes a PLANNING card — goal, initiative or epic — the levels above the day boards (view=roadmap, where it is required; every other board refuses it). A planning card takes a title, dates (its bar on the Roadmap) and a parent of a HIGHER level (initiative under goal; epic under initiative or goal) — no owner and no team (the people and the teams are on the tasks under it; it lives in the primary repository), no band, no size, and none of a task's day-board state: no sprint, week, shelf, column or review. Its status is derived from the tasks under it and never written. Leave empty for a task"`
+	Project     string `json:"project,omitempty" jsonschema:"the project half of the column named by scope (columns are the (project, scope) pair — scope names repeat across projects)"`
 	ReviewOf    string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews"`
 	Description string `json:"description,omitempty" jsonschema:"the card's shared free-form body, at create instead of a separate update_card call (what the whole team sees) — and the right place for reference links: include related open PRs and issues in free form as FULL URLs or owner/repo#123 shorthands (links are extracted from anywhere in the text, surfaced on the card, and GitHub refs resolve to live titles/states; read them back with list_links). When the title is a bare GitHub issue/PR URL, that link is kept: appended to an explicit body that does not already name it. With reviewOf the body is SHARED with the card being reviewed, so a create that would overwrite a body standing there is refused — the review is made without one, or both are changed with update_card"`
 	// StartNewSprint controls sprint membership: omit for auto (join the team's
@@ -229,8 +230,8 @@ type createCardInput struct {
 	StartNewSprint *bool `json:"startNewSprint,omitempty" jsonschema:"force a new sprint (true) or join the current one (false); omit for auto"`
 	// View is the BOARD the card is typed into, which is what makes it the
 	// kind of card it is; each board refuses the fields it does not own.
-	View   string `json:"view,omitempty" jsonschema:"the BOARD you are typing the card into, which is what it MEANS: me (the DEFAULT — the card is yours, scheduled for the day, in your team's sprint; it stands on your own board and in your column of the team's grid), team (the lead's grid, where PLANNING is done: the card lands in the Unassigned column unless you name an assignee, and any band is allowed — this is the board for work in the plan, whether it is for somebody else or for the person you are acting for, and the only one that takes urgent/planned/niceToHave), triage (scheduled for a WEEK and standing on no day — pass week), backlog (parked on the team's shelf: read and put aside, on no day and in no week), project (a slot under a column — pass epic and project). A board refuses what it does not own — a parked card typed into a day, a column named on the Me board — and says which field it was"`
-	Parent string `json:"parent,omitempty" jsonschema:"uid of the card to group this one under as a subtask (one level deep). A card cannot be both a subtask and scheduled for a week of its own: naming a parent and a week together is refused, since grouping hands a subtask's week to its parent"`
+	View   string `json:"view,omitempty" jsonschema:"the BOARD you are typing the card into, which is what it MEANS: me (the DEFAULT — the card is yours, scheduled for the day, in your team's sprint; it stands on your own board and in your column of the team's grid), team (the lead's grid, where PLANNING is done: the card lands in the Unassigned column unless you name an assignee, and any band is allowed — this is the board for work in the plan, whether it is for somebody else or for the person you are acting for, and the only one that takes urgent/planned/niceToHave), triage (scheduled for a WEEK and standing on no day — pass week), backlog (parked on the team's shelf: read and put aside, on no day and in no week), roadmap (a PLANNING card — a goal, an initiative or an epic: pass type, and a parent of a higher level if it has one — or a TASK under one: no type, pass parent naming a goal, an initiative or an epic; born with no team, no day and no sprint, it stands in the Triage strip of the no-team group and on the Roadmap until somebody dates or weeks it), project (a slot under a column — pass scope and project). A board refuses what it does not own — a parked card typed into a day, a column named on the Me board — and says which field it was"`
+	Parent string `json:"parent,omitempty" jsonschema:"uid of the card this one sits under — the ONE link of the hierarchy, and what it means is the parent's type. A TASK parent groups this card as a subtask (one level deep; a parent and a week together are refused, since grouping hands the week to the parent). A goal, an initiative or an epic as parent files the card in the hierarchy: a task may sit under any of the three, an epic under an initiative or a goal, an initiative under a goal — the parent must be of a higher level (parentLevel) and in the card's own repository (crossDomain) — and nothing else about the card changes"`
 }
 
 func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in createCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
@@ -309,11 +310,12 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 		Start:          in.Start,
 		SprintStart:    in.Sprint,
 		Week:           in.Week,
-		Epic:           in.Epic,
+		Scope:          in.Scope,
 		Project:        in.Project,
 		ReviewOf:       in.ReviewOf,
 		StartNewSprint: in.StartNewSprint,
 		Parent:         in.Parent,
+		Type:           in.Type,
 	})
 	if err != nil {
 		return nil, apiserver.Card{}, err
@@ -363,13 +365,12 @@ type updateCardInput struct {
 	Start       *string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd: the card joins the sprint active on that day. A FUTURE day parks it off the board until that day arrives (this is how you schedule work ahead, and how the +1 day / +1 week buttons work). Sprints are daily and created as they start, so no sprint covers a future day yet: the card is left with NO sprint while it waits and the carry-over that reaches its day adopts it — expected, not a mis-scheduled card, and setting sprint by hand would only drag it back onto today's board. Empty clears the dates"`
 	End         *string `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; empty clears it"`
 	Sprint      *string `json:"sprint,omitempty" jsonschema:"sprint start day the card belongs to; empty clears it"`
-	Epic        *string `json:"epic,omitempty" jsonschema:"Project-board column to file the card under; empty clears it. MUST be an EXISTING column from get_board metadata.epics — and columns are identified by the (project, epic) pair, so pass project too unless the card is already in the right project"`
-	Project     *string `json:"project,omitempty" jsonschema:"the project half of the card's column (see epic). Epic names repeat across projects, so filing a card into another project's column needs both"`
-	Week        *string `json:"week,omitempty" jsonschema:"the week the card is scheduled for, its Monday as yyyy-mm-dd; empty takes it off the Triage board's weeks. A Project-board slot (a card with an epic) refuses it — its week IS its start date's week, so move the dates instead and the row follows. A process TURN keeps to its own OCCURRENCE: the weeks from the one its task came due in through the week before the next due date, since a turn carried past that stands where the next turn belongs and the two read as one process running twice. Outside it is refused — unless the task accumulates (its turns are meant to pile up), and a turn whose occurrence is already past may still come forward into the CURRENT week, which is the only way back for one whose days ran out"`
-	Parked      *bool   `json:"parked,omitempty" jsonschema:"put the card on its TEAM's backlog, or take it off with false. Every team has a backlog and nothing declares it. It is the third place a card can be: not a week and not the triage strip, but work somebody has read and put aside — 'not now'. Parking clears the week, the person, the sprint and the dates, takes the card's subtasks off the board with it and withdraws any review of it; giving a parked card a week takes it off the shelf. A Project-board slot and a process turn are refused: their week is another board's to say. A REVIEW card and a SUBTASK are refused too — neither has a place of its own to be parked out of, one follows the card it reviews and the other stands inside its parent, so the shelf would take it out of the only place it is drawn"`
+	Scope       *string `json:"scope,omitempty" jsonschema:"Project-board column to file the card under. A project card lives and dies in its column: an empty scope on one is refused (delete_card instead), another column is a move. MUST be an EXISTING column from get_board metadata.scopes — and columns are identified by the (project, scope) pair, so pass project too unless the card is already in the right project. A card that carries a team, an assignee or a TASK parent cannot be filed into a column (a project card has none — a planning parent is fine): clear them first. A goal, an initiative or an epic is never filed into a column"`
+	Project     *string `json:"project,omitempty" jsonschema:"the project half of the card's column (see scope). Scope names repeat across projects, so filing a card into another project's column needs both"`
+	Week        *string `json:"week,omitempty" jsonschema:"the week the card is scheduled for, its Monday as yyyy-mm-dd; empty takes it off the Triage board's weeks. A Project-board slot (a card with an scope) refuses it — its week IS its start date's week, so move the dates instead and the row follows"`
+	Parked      *bool   `json:"parked,omitempty" jsonschema:"put the card on its TEAM's backlog, or take it off with false. Every team has a backlog and nothing declares it. It is the third place a card can be: not a week and not the triage strip, but work somebody has read and put aside — 'not now'. Parking clears the week, the person, the sprint and the dates, takes the card's subtasks off the board with it and withdraws any review of it; giving a parked card a week takes it off the shelf. A Project-board slot is refused: its week is another board's to say. A REVIEW card and a SUBTASK are refused too — neither has a place of its own to be parked out of, one follows the card it reviews and the other stands inside its parent, so the shelf would take it out of the only place it is drawn"`
 	ReviewOf    *string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews; empty breaks the link"`
-	Parent      *string `json:"parent,omitempty" jsonschema:"uid of the card to group this one under as a subtask (one level deep; empty ungroups it back to a standalone card); a subtask keeps its own description/notes/log, feeds the parent's derived progress and rides with it through carry-over"`
-	Process     *string `json:"process,omitempty" jsonschema:"tie the card to an EXISTING process — the recurring shelf's counterpart of a column (a typo is not a new process); empty clears"`
+	Parent      *string `json:"parent,omitempty" jsonschema:"uid of the card this one sits under; empty takes it out. Under a TASK it is a subtask (one level deep): it keeps its own description/notes/log, feeds the parent's derived progress and rides with it — team, person, sprint — through carry-over. Under a goal, an initiative or an epic it is filed in the hierarchy and NOTHING else changes; the parent must be of a higher level than the card (an epic may not sit under an epic) and in the card's own repository"`
 }
 
 func (h *server) updateCard(ctx context.Context, _ *mcp.CallToolRequest, in updateCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
@@ -406,15 +407,15 @@ func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, 
 			return err
 		}
 	}
-	if in.Epic != nil || in.Project != nil {
-		// A column is the (project, epic) pair. Naming only the epic keeps the
+	if in.Scope != nil || in.Project != nil {
+		// A column is the (project, scope) pair. Naming only the scope keeps the
 		// card's current project, which is what filing inside one project
 		// means; crossing projects needs both.
-		epic := card.Epic
-		if in.Epic != nil {
-			epic = *in.Epic
+		scope := card.Scope
+		if in.Scope != nil {
+			scope = *in.Scope
 		}
-		if err := svc.SetEpic(ctx, boardID, in.UID, epic, in.Project); err != nil {
+		if err := svc.SetScope(ctx, boardID, in.UID, scope, in.Project); err != nil {
 			return err
 		}
 	}
@@ -461,11 +462,6 @@ func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, 
 			return err
 		}
 	}
-	if in.Process != nil {
-		if err := svc.SetCardProcess(ctx, boardID, in.UID, *in.Process); err != nil {
-			return err
-		}
-	}
 	if in.ReviewOf != nil {
 		if err := svc.SetReviewOf(ctx, boardID, in.UID, *in.ReviewOf); err != nil {
 			return err
@@ -508,148 +504,48 @@ func (h *server) applyDatePatch(ctx context.Context, svc *boardservice.Service, 
 	return nil
 }
 
-// epicInput names one Project-board column, and the project that owns it.
-type epicInput struct {
+// scopeInput names one Project-board column, and the project that owns it.
+type scopeInput struct {
 	boardRef
-	Name    string `json:"name" jsonschema:"the epic's name — the Project-board column header"`
-	Project string `json:"project,omitempty" jsonschema:"the project the column belongs to (required: epic names repeat across projects, so the pair identifies a column). On set_epic_project this is the TARGET project, and empty detaches the column from every project"`
-	From    string `json:"from,omitempty" jsonschema:"set_epic_project only: the project the column is in today"`
-	To      string `json:"to,omitempty" jsonschema:"rename_epic only: the column's new name"`
+	Name    string `json:"name" jsonschema:"the scope's name — the Project-board column header"`
+	Project string `json:"project,omitempty" jsonschema:"the project the column belongs to (required: scope names repeat across projects, so the pair identifies a column). On set_scope_project this is the TARGET project, and empty detaches the column from every project"`
+	From    string `json:"from,omitempty" jsonschema:"set_scope_project only: the project the column is in today"`
+	To      string `json:"to,omitempty" jsonschema:"rename_scope only: the column's new name"`
 }
 
-func (h *server) addEpic(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {
+func (h *server) addScope(ctx context.Context, _ *mcp.CallToolRequest, in scopeInput) (*mcp.CallToolResult, statusOutput, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.AddEpic(ctx, boardID, in.Name, in.Project); err != nil {
+	if err := svc.AddScope(ctx, boardID, in.Name, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "added"}, nil
 }
 
-// setEpicProject moves a column to another project (empty detaches it).
-func (h *server) setEpicProject(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {
+// setScopeProject moves a column to another project (empty detaches it).
+func (h *server) setScopeProject(ctx context.Context, _ *mcp.CallToolRequest, in scopeInput) (*mcp.CallToolResult, statusOutput, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.SetEpicProject(ctx, boardID, in.From, in.Name, in.Project); err != nil {
+	if err := svc.SetScopeProject(ctx, boardID, in.From, in.Name, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "updated"}, nil
 }
 
-// renameEpic renames a column in place, cards and all.
-func (h *server) renameEpic(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {
+// renameScope renames a column in place, cards and all.
+func (h *server) renameScope(ctx context.Context, _ *mcp.CallToolRequest, in scopeInput) (*mcp.CallToolResult, statusOutput, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.RenameEpic(ctx, boardID, in.Project, in.Name, in.To); err != nil {
+	if err := svc.RenameScope(ctx, boardID, in.Project, in.Name, in.To); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "renamed"}, nil
-}
-
-// --- Processes ----------------------------------------------------------------
-
-type listProcessesInput struct {
-	boardRef
-	Project string `json:"project,omitempty" jsonschema:"scope to one project's processes; empty is every project"`
-}
-
-func (h *server) listProcesses(ctx context.Context, _ *mcp.CallToolRequest, in listProcessesInput) (*mcp.CallToolResult, apiserver.ProcessList, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, apiserver.ProcessList{}, err
-	}
-	b, err := svc.Board(ctx, boardID)
-	if err != nil {
-		return nil, apiserver.ProcessList{}, err
-	}
-	return nil, apiserver.ProcessesResource(b, in.Project), nil
-}
-
-type processInput struct {
-	boardRef
-	Name    string `json:"name" jsonschema:"the process's name"`
-	Project string `json:"project,omitempty" jsonschema:"add_process: the project the process is part of (from get_board metadata.projects)"`
-	To      string `json:"to,omitempty" jsonschema:"rename_process only: the new name"`
-	// Domain is the repository to declare a project-less process in; a
-	// process with a project lives with its project.
-	Domain string `json:"domain,omitempty" jsonschema:"add_process only, without a project: the domain (repository) to declare the process in, from get_board metadata.domains; empty = the primary"`
-}
-
-func (h *server) addProcess(ctx context.Context, _ *mcp.CallToolRequest, in processInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.AddProcess(board.WithDomain(ctx, in.Domain), boardID, in.Name, in.Project); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "added"}, nil
-}
-
-func (h *server) deleteProcess(ctx context.Context, _ *mcp.CallToolRequest, in processInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.DeleteProcess(ctx, boardID, in.Name); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "deleted"}, nil
-}
-
-func (h *server) renameProcess(ctx context.Context, _ *mcp.CallToolRequest, in processInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.RenameProcess(ctx, boardID, in.Name, in.To); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "renamed"}, nil
-}
-
-type setProcessProjectInput struct {
-	boardRef
-	Process string `json:"process" jsonschema:"the process to move (required)"`
-	Project string `json:"project" jsonschema:"the project it should belong to, from get_board metadata.projects; empty moves it to the no-project bucket"`
-}
-
-func (h *server) setProcessProject(ctx context.Context, _ *mcp.CallToolRequest, in setProcessProjectInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.SetProcessProject(ctx, boardID, in.Process, in.Project); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "moved"}, nil
-}
-
-type pauseProcessInput struct {
-	boardRef
-	Process string `json:"process" jsonschema:"the process to pause or resume (required)"`
-	Paused  bool   `json:"paused" jsonschema:"true stops it filing iterations, false starts it again"`
-}
-
-func (h *server) setProcessPaused(ctx context.Context, _ *mcp.CallToolRequest, in pauseProcessInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.SetProcessPaused(ctx, boardID, in.Process, in.Paused); err != nil {
-		return nil, statusOutput{}, err
-	}
-	status := "resumed"
-	if in.Paused {
-		status = "paused"
-	}
-	return nil, statusOutput{Status: status}, nil
 }
 
 // reopenCard undoes a done mark, restoring the pre-done progress from the
@@ -663,109 +559,6 @@ func (h *server) reopenCard(ctx context.Context, _ *mcp.CallToolRequest, in card
 		return nil, apiserver.Card{}, err
 	}
 	return h.cardResource(ctx, svc, boardID, in.UID)
-}
-
-type reorderProcessesInput struct {
-	boardRef
-	Processes []string `json:"processes" jsonschema:"every process name in the desired order (from list_processes)"`
-}
-
-func (h *server) reorderProcesses(ctx context.Context, _ *mcp.CallToolRequest, in reorderProcessesInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.ReorderProcesses(ctx, boardID, in.Processes); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "reordered"}, nil
-}
-
-type reorderProcessTasksInput struct {
-	boardRef
-	Process string   `json:"process" jsonschema:"the process whose task order this is (required)"`
-	UIDs    []string `json:"uids" jsonschema:"the task uids in the desired order. A uid belonging to another process is ADOPTED into this one at its position — that is how moving a task between processes lands"`
-}
-
-func (h *server) reorderProcessTasks(ctx context.Context, _ *mcp.CallToolRequest, in reorderProcessTasksInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.ReorderProcessTasks(ctx, boardID, in.Process, in.UIDs); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "reordered"}, nil
-}
-
-type addTaskInput struct {
-	boardRef
-	Process     string `json:"process" jsonschema:"the process this task belongs to (required)"`
-	Title       string `json:"title" jsonschema:"the title every iteration will be created with (required)"`
-	Description string `json:"description,omitempty" jsonschema:"the body every iteration will be created with"`
-	Recurrence  string `json:"recurrence" jsonschema:"the cycle: week, 2weeks, month or quarter (required). Counted on the calendar from start, not from when the last iteration closed"`
-	Start       string `json:"start,omitempty" jsonschema:"the calendar anchor the cycle is counted from, yyyy-mm-dd; defaults to today"`
-	Team        string `json:"team,omitempty" jsonschema:"the team the iterations land in — use a team key from get_board metadata.teams: a name no team carries DECLARES A NEW TEAM rather than failing, so a typo leaves a ghost team on the board"`
-	Assignee    string `json:"assignee,omitempty" jsonschema:"the standing owner (GitHub login); every iteration is assigned to them, the team lead may reassign"`
-	Accumulate  bool   `json:"accumulate,omitempty" jsonschema:"spawn the next iteration even while the previous one is still open, so unpaid months pile up as separate cards. Default false: an open iteration simply goes overdue and the next one waits"`
-}
-
-func (h *server) addProcessTask(ctx context.Context, _ *mcp.CallToolRequest, in addTaskInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	tpl, err := svc.AddProcessTask(ctx, boardID, in.Process, boardservice.TaskArgs{
-		Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
-		Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
-	})
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "added", UID: tpl.ItemID}, nil
-}
-
-type updateTaskInput struct {
-	boardRef
-	UID         string  `json:"uid" jsonschema:"the task's uid, from list_processes (required)"`
-	Title       *string `json:"title,omitempty" jsonschema:"new title for the NEXT iterations"`
-	Description *string `json:"description,omitempty" jsonschema:"new body for the NEXT iterations; empty clears"`
-	Recurrence  *string `json:"recurrence,omitempty" jsonschema:"new cycle: week, 2weeks, month or quarter"`
-	Start       *string `json:"start,omitempty" jsonschema:"new calendar anchor, yyyy-mm-dd"`
-	Team        *string `json:"team,omitempty" jsonschema:"new team (an existing team key)"`
-	Assignee    *string `json:"assignee,omitempty" jsonschema:"new standing owner; empty clears"`
-	Accumulate  *bool   `json:"accumulate,omitempty" jsonschema:"whether the next iteration spawns while the previous is open"`
-}
-
-func (h *server) updateProcessTask(ctx context.Context, _ *mcp.CallToolRequest, in updateTaskInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	err = svc.UpdateProcessTask(ctx, boardID, in.UID, boardservice.TaskPatch{
-		Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
-		Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
-	})
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "updated", UID: in.UID}, nil
-}
-
-type taskRef struct {
-	boardRef
-	UID string `json:"uid" jsonschema:"the task's uid, from list_processes (required)"`
-}
-
-func (h *server) deleteProcessTask(ctx context.Context, _ *mcp.CallToolRequest, in taskRef) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.DeleteProcessTask(ctx, boardID, in.UID); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "deleted", UID: in.UID}, nil
 }
 
 // deadlineInput names a week of the Project board (and, for a move, the week
@@ -891,12 +684,12 @@ func (h *server) reorderProjects(ctx context.Context, _ *mcp.CallToolRequest, in
 	return nil, statusOutput{Status: "reordered"}, nil
 }
 
-func (h *server) deleteEpic(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {
+func (h *server) deleteScope(ctx context.Context, _ *mcp.CallToolRequest, in scopeInput) (*mcp.CallToolResult, statusOutput, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.DeleteEpic(ctx, boardID, in.Name, in.Project); err != nil {
+	if err := svc.DeleteScope(ctx, boardID, in.Name, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "deleted"}, nil
@@ -919,7 +712,7 @@ func (h *server) deleteCard(ctx context.Context, _ *mcp.CallToolRequest, in card
 type removeCardInput struct {
 	cardRef
 	boardStand
-	Intent string `json:"intent,omitempty" jsonschema:"what the x is to do: unassign (empty the working area and leave the card in its week or its column) or off-board (take it away, with the subtasks that were pieces of it). Omit to let the gesture decide, which is what it did before there was a choice. off-board is refused for a Project-board slot and a process turn — those belong to another board's plan; unassign is refused for a card with no week and no column, which would leave it nowhere at all"`
+	Intent string `json:"intent,omitempty" jsonschema:"what the x is to do: unassign (empty the working area and leave the card in its week or its column) or off-board (take it away, with the subtasks that were pieces of it). Omit to let the gesture decide, which is what it did before there was a choice. off-board is refused for a Project-board card — it lives and dies in its column, and delete_card deletes it; unassign is refused for a card with no week and no column, which would leave it nowhere at all"`
 }
 
 func (h *server) removeCard(ctx context.Context, _ *mcp.CallToolRequest, in removeCardInput) (*mcp.CallToolResult, statusOutput, error) {
@@ -947,47 +740,6 @@ func (h *server) removeCard(ctx context.Context, _ *mcp.CallToolRequest, in remo
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "removed", UID: in.UID}, nil
-}
-
-// mirrorInput names a Project-board column — the (project, epic) pair,
-// since epic names repeat across projects.
-type mirrorInput struct {
-	cardRef
-	Project string `json:"project" jsonschema:"the project half of the column"`
-	Epic    string `json:"epic" jsonschema:"the epic half of the column"`
-}
-
-func (h *server) mirrorCard(ctx context.Context, _ *mcp.CallToolRequest, in mirrorInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.Mirror(ctx, boardID, in.UID, in.Project, in.Epic); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "mirrored", UID: in.UID}, nil
-}
-
-func (h *server) unmirrorCard(ctx context.Context, _ *mcp.CallToolRequest, in mirrorInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.Unmirror(ctx, boardID, in.UID, in.Project, in.Epic); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "unmirrored", UID: in.UID}, nil
-}
-
-func (h *server) removeFromProject(ctx context.Context, _ *mcp.CallToolRequest, in mirrorInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.RemoveFromProject(ctx, boardID, in.UID, in.Project, in.Epic); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "removed from project", UID: in.UID}, nil
 }
 
 // --- Card actions --------------------------------------------------------------

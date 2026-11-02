@@ -1,3 +1,43 @@
+import type { Card } from "./providers/types";
+
+/** isPlanning reports a goal, an initiative or an epic — a card the Roadmap
+ *  draws and no day board does. Mirrors board.IsPlanning. */
+export function isPlanning(c: Pick<Card, "type">): boolean {
+  return !!c.type;
+}
+
+/** isSubtask reports a task whose parent is a TASK — the one kind of card
+ *  that rides another: hidden from the boards, drawn under its parent. A
+ *  task under an epic has a parent too and is NOT one (hierarchy.md, H1).
+ *
+ *  The parent's kind is read off the card's lineage, whose last entry is the
+ *  parent, because the day boards never deliver a planning card to look it
+ *  up by. No lineage at all — a card made optimistically a moment ago —
+ *  reads as a subtask, which is what every card with a parent read as
+ *  before. A parent the board does not hold never reaches the client: the
+ *  server drops it when it reads the board (board.dropDanglingParents). */
+export function isSubtask(c: Pick<Card, "parent" | "lineage">): boolean {
+  if (!c.parent) {
+    return false;
+  }
+  const up = c.lineage;
+  if (!up || up.length === 0) {
+    return true;
+  }
+  const parent = up[up.length - 1];
+  return parent.uid !== c.parent || !parent.type;
+}
+
+/** subtaskParent is the TASK a subtask rides — its `parent` — and nothing
+ *  for every other card: a task under an epic carries a parent too, and a
+ *  board that read it as "the card to nest under" drew the task indented
+ *  under nothing, offered it the subtask ×, and unlinked it from its epic on
+ *  the first drag. Every component that needs the parent AS A TASK asks
+ *  this, not `card.parent`. */
+export function subtaskParent(c: Pick<Card, "parent" | "lineage">): string | undefined {
+  return isSubtask(c) ? c.parent : undefined;
+}
+
 /** The slice of a card the subtask-visibility rule reads. */
 export interface SubtaskLike {
   team?: string;

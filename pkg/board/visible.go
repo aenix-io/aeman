@@ -10,17 +10,17 @@ package board
 // NewBoard splits out of the card rows.
 func IsStateTitle(title string) bool {
 	switch title {
-	case SprintStateTitle, ProjectStateTitle, EpicStateTitle, DeadlineStateTitle, ProcessStateTitle, ProcessTaskTitle:
+	case SprintStateTitle, ProjectStateTitle, ScopeStateTitle, DeadlineStateTitle:
 		return true
 	}
 	return false
 }
 
 // Visible is the board as a visitor who can read only some domains sees it.
-// Cards, teams, projects, columns, deadlines, processes and tasks of an
-// unreadable domain are absent. A card whose team is unreadable stays, under
-// its team name — the team's order slot and sprint pointer do not. An entry
-// with no recorded domain belongs to the primary. The input is not modified.
+// Cards, teams, projects, columns and deadlines of an unreadable domain are
+// absent. A card whose team is unreadable stays, under its team name — the
+// team's order slot and sprint pointer do not. An entry with no recorded
+// domain belongs to the primary. The input is not modified.
 func Visible(b Board, primary string, readable func(domain string) bool) Board {
 	can := func(d string) bool {
 		if d == "" {
@@ -32,7 +32,6 @@ func Visible(b Board, primary string, readable func(domain string) bool) Board {
 
 	v := b
 	v.Cards = filterCards(b.Cards, func(c Card) bool { return can(c.Domain) })
-	v.Tasks = filterCards(b.Tasks, func(c Card) bool { return can(c.Domain) })
 
 	v.TeamOrder = nil
 	v.SprintStates = map[string]SprintState{}
@@ -62,22 +61,16 @@ func Visible(b Board, primary string, readable func(domain string) bool) Board {
 		}
 		v.ProjectStates[name] = id
 	}
-	v.Epics = nil
-	for _, e := range b.Epics {
+	v.Scopes = nil
+	for _, e := range b.Scopes {
 		if entry(e.ItemID) {
-			v.Epics = append(v.Epics, e)
+			v.Scopes = append(v.Scopes, e)
 		}
 	}
 	v.Deadlines = nil
 	for _, d := range b.Deadlines {
 		if entry(d.ItemID) {
 			v.Deadlines = append(v.Deadlines, d)
-		}
-	}
-	v.Processes = nil
-	for _, p := range b.Processes {
-		if entry(p.ItemID) {
-			v.Processes = append(v.Processes, p)
 		}
 	}
 	if b.Domains != nil {
@@ -127,11 +120,6 @@ func (r boardResolver) or(d string) string {
 
 func (r boardResolver) CardDomain(id string) (string, bool) {
 	for _, c := range r.b.Cards {
-		if c.ItemID == id {
-			return r.or(c.Domain), true
-		}
-	}
-	for _, c := range r.b.Tasks {
 		if c.ItemID == id {
 			return r.or(c.Domain), true
 		}

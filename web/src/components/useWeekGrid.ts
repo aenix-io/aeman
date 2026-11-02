@@ -242,7 +242,7 @@ export function useWeekGrid({
       onPointerDown: (e) => {
         e.preventDefault();
         e.stopPropagation();
-        const head = (e.currentTarget as HTMLElement).closest(".project-epic-head");
+        const head = (e.currentTarget as HTMLElement).closest(".project-scope-head");
         const from = head ? head.getBoundingClientRect().width : sharedCol;
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
         resizing.current = { key, x: e.clientX, from };
@@ -429,7 +429,7 @@ export function useWeekGrid({
     if (!grid) {
       return null;
     }
-    const heads = grid.querySelectorAll(".project-epic-head:not(.project-epic-add)");
+    const heads = grid.querySelectorAll(".project-scope-head:not(.project-scope-add)");
     for (let i = 0; i < heads.length; i++) {
       const r = heads[i].getBoundingClientRect();
       if (clientX >= r.left && clientX < r.right) {

@@ -93,13 +93,13 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string) (board.Board, error
 	f.rec("LoadBoard")
 	// Assembled the way the real board is. A fake that reproduced the
 	// state-card split by hand never ran the assembly's own rules — the
-	// derived week, the adopted epic, declaredMirrors — so the service was
+	// derived week, the adopted scope, the domain stamps — so the service was
 	// tested against a board nobody has, and the branch's whole claim is
 	// that the assembly and the service must answer alike.
 	cards := append([]board.Card{}, f.b.Cards...)
 	// A state seeded in the map becomes a state CARD before the assembly
-	// runs — declaredMirrors reads team domains, so an overlay applied
-	// afterwards judged the mirrors against a board with no teams. A team
+	// runs — the domain rules read team domains, so an overlay applied
+	// afterwards judged them against a board with no teams. A team
 	// whose card is already among the seeded cards keeps that card: two
 	// stubs for one team would let the emptier one win the assembly.
 	seeded := map[string]bool{}
@@ -187,12 +187,14 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 	defer f.mu.Unlock()
 	f.nextID++
 	card := board.Card{
-		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Domain: in.Domain,
+		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Type: in.Type, Domain: in.Domain,
 		Zone: in.Zone, StartDate: in.Start, Day: in.Day, SprintStart: in.SprintStart,
-		Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
+		Week: in.Week, Scope: in.Scope, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
+		// Parent is deliberately NOT copied: this fake stands for a backend
+		// that cannot write the link at create, so the service's own
+		// grouping (and its compensating delete, parentErr) is exercised.
 		Parked: in.Parked, Size: in.Size,
-		Process: in.Process, Task: in.Task, Recurrence: in.Recurrence,
-		Paused:      in.Paused,
+		Recurrence:  in.Recurrence,
 		Description: in.Body,
 		Assignees:   []string{},
 	}
@@ -468,22 +470,12 @@ func (f *fakeBackend) SetTeam(_ context.Context, _ board.Board, card board.Card,
 	return nil
 }
 
-func (f *fakeBackend) SetMirrors(_ context.Context, _ board.Board, card board.Card, mirrors []board.Placement) error {
+func (f *fakeBackend) SetScope(_ context.Context, _ board.Board, card board.Card, scope string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.rec("SetMirrors %s %d", card.ItemID, len(mirrors))
+	f.rec("SetScope %s %s", card.ItemID, scope)
 	if c := f.get(card.ItemID); c != nil {
-		c.Mirrors = mirrors
-	}
-	return nil
-}
-
-func (f *fakeBackend) SetEpic(_ context.Context, _ board.Board, card board.Card, epic string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetEpic %s %s", card.ItemID, epic)
-	if c := f.get(card.ItemID); c != nil {
-		c.Epic = epic
+		c.Scope = scope
 	}
 	return nil
 }
@@ -1371,8 +1363,10 @@ func TestRemoveGridDeletesWhenNoPreviousSprintAndNowhereElse(t *testing.T) {
 // the weekly plan AND from the Project board, because the grid x had no
 // project-card guard and a same-day card has no earlier sprint to demote into.
 func TestRemoveGridReleasesProjectCardInsteadOfDeleting(t *testing.T) {
-	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Epic: "Journal", Project: "Portal",
-		StartDate: board.TodayIso(), SprintStart: "2026-01-10", Assignees: []string{"bob"}}},
+	// A pre-rule shape: the column card still names a team and a person (a
+	// sprint it cannot carry at all any more — the board reads one off, H4).
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Scope: "Journal", Project: "Portal",
+		StartDate: board.TodayIso(), Assignees: []string{"bob"}}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
 	if err := f2svc(f).Remove(ctx, "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
 		t.Fatal(err)
@@ -1384,7 +1378,7 @@ func TestRemoveGridReleasesProjectCardInsteadOfDeleting(t *testing.T) {
 	if len(c.Assignees) != 0 || c.SprintStart != "" {
 		t.Fatalf("removing from a person hands the card back: %+v", c)
 	}
-	if c.Epic != "Journal" || c.Project != "Portal" {
+	if c.Scope != "Journal" || c.Project != "Portal" {
 		t.Fatalf("it keeps its Project-board column: %+v", c)
 	}
 }
@@ -2650,46 +2644,6 @@ func TestSetDatesIntoFutureLeavesTheSprint(t *testing.T) {
 	if got := fake.get("c1"); got.SprintStart != today {
 		t.Fatalf("back on today's board, sprint = %q, want %q", got.SprintStart, today)
 	}
-}
-
-func (f *fakeBackend) SetProcess(_ context.Context, _ board.Board, card board.Card, process string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetProcess %s %s", card.ItemID, process)
-	if c := f.get(card.ItemID); c != nil {
-		c.Process = process
-	}
-	return nil
-}
-
-func (f *fakeBackend) SetTask(_ context.Context, _ board.Board, card board.Card, task string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetTask %s %s", card.ItemID, task)
-	if c := f.get(card.ItemID); c != nil {
-		c.Task = task
-	}
-	return nil
-}
-
-func (f *fakeBackend) SetAccumulate(_ context.Context, _ board.Board, card board.Card, on bool) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetAccumulate %s %v", card.ItemID, on)
-	if c := f.get(card.ItemID); c != nil {
-		c.Accumulate = on
-	}
-	return nil
-}
-
-func (f *fakeBackend) SetPaused(_ context.Context, _ board.Board, card board.Card, paused bool) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetPaused %s %v", card.ItemID, paused)
-	if c := f.get(card.ItemID); c != nil {
-		c.Paused = paused
-	}
-	return nil
 }
 
 // Reopen undoes a done mark by RESTORING the progress the card had when done

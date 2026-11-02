@@ -37,7 +37,7 @@ import (
 func TestAPersonMayPlanTheirOwnWork(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "core"},
-		{ItemID: "ep", Title: board.EpicStateTitle, Epic: "Auth", Project: "core"},
+		{ItemID: "ep", Title: board.ScopeStateTitle, Scope: "Auth", Project: "core"},
 	}, map[string]board.SprintState{"alpha": {Current: board.TodayIso()}})
 	svc := f2svc(f)
 	me := WithActor(ctx, "kvaps")

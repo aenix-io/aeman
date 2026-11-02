@@ -15,8 +15,9 @@ package board
 // and is not a card of its own; a state card is the board's own bookkeeping.
 func CarryingNow(b Board, today string) map[string]int {
 	out := map[string]int{}
+	planning := PlanningIDs(b)
 	for _, c := range b.Cards {
-		if carriedNow(c, today) {
+		if carriedNow(c, today, planning) {
 			out[c.Assignees[0]]++
 		}
 	}
@@ -26,12 +27,13 @@ func CarryingNow(b Board, today string) map[string]int {
 // carriedNow is the one rule behind CarryingNow and LoadNow: whether a card
 // is on somebody's hands today. Counted or weighed, it has to be the same set
 // of cards, or the number beside a person and the points beside them would
-// describe two different days.
-func carriedNow(c Card, today string) bool {
+// describe two different days. A planning card is not work in hand, whoever
+// owns it; a subtask rides its parent; a task under an epic is a task.
+func carriedNow(c Card, today string, planning map[string]bool) bool {
 	if len(c.Assignees) == 0 || c.Assignees[0] == "" {
 		return false
 	}
-	if c.Parent != "" || IsStateTitle(c.Title) {
+	if IsPlanning(c) || IsSubtaskIn(c, planning) || IsStateTitle(c.Title) {
 		return false
 	}
 	return !Complete(c.Stage, c.Progress) && !PlacedAhead(c, today)

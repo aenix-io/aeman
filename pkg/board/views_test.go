@@ -19,9 +19,8 @@ func TestTheViewsAreTheBoardsAPersonOpens(t *testing.T) {
 			t.Fatalf("%q is a board a person opens and the domain does not know it", name)
 		}
 	}
-	// The Process board draws no cards of its own — it reads the Project
-	// view's — so it is not one of these; neither is the personal board,
-	// which is gone, and neither is a typo.
+	// The Process board is gone (it never was a view: it read the Project
+	// view's cards); so is the personal board; and a typo is not a view.
 	for _, name := range []string{"process", "personal", "", "Me", "week"} {
 		if KnownView(name) {
 			t.Fatalf("%q is not a view and was accepted", name)

@@ -194,64 +194,49 @@ func TestTeamGridDeferredLeavesCurrentSprint(t *testing.T) {
 	}
 }
 
-// A slot is on the day board once its week has come, like everything else.
-//
-// It used to be held back until it joined a sprint — the Project board's
-// column was said to hold it meanwhile — but the Team board is now the same
-// set the Triage board shows for the week, and a slot whose week has arrived
-// is in that set. A card carrying only a PROJECT name is not a slot at all
-// (the Project board renders columns by epic, so it has no column) and shows
-// like any other card.
-func TestTeamGridShowsASlotOnceItsWeekHasCome(t *testing.T) {
-	today := TodayIso()
-	b := NewBoardIn("acme", []Card{
-		{ItemID: "slot", Team: "t", Epic: "E", Project: "P", StartDate: today, Day: today},
-		{ItemID: "project-only", Team: "t", Project: "P", StartDate: today, Day: today},
-		{ItemID: "later", Team: "t", Epic: "E", Project: "P",
-			StartDate: AddDays(MondayOf(today), 21), Day: AddDays(MondayOf(today), 25)},
-	})
-	got := ids(TeamGrid(b, "t", today))
-	if !reflect.DeepEqual(got, []string{"slot", "project-only"}) {
-		t.Fatalf("grid = %v; want this week's slot and the project-only card, and not the slot three weeks out", got)
-	}
-}
-
-// A slot stands on the day grid from the week it starts in, and stays there
-// while it is open — past the end of its span it is a debt, which is the one
-// thing nobody should be able to lose sight of. Before its week it is the
-// Project board's business alone (B1), and after TODAY it is a plan again:
-// a day still to come holds what was put there, not what is still owed.
-func TestTeamGridShowsASlotFromItsWeekUntilItIsDone(t *testing.T) {
+// A card in a Scope column is a PROJECT CARD: the Project board's plan, and
+// nowhere else (H4, docs/design/hierarchy.md). Whatever its week, its dates,
+// its sprint or — in a repository written before schema 2 — its team and
+// assignees say, it is not in hand on the Team grid and not on anyone's Me
+// board. It used to stand in its owner's column once its week came (the slot
+// rule, D17), which put planning placeholders among the day's work and made
+// one card answer two questions; the two boards are disjoint now, and the
+// hierarchy is what connects them. A card carrying only a project NAME is in
+// no column and is an ordinary task, drawn like any other.
+func TestAProjectCardIsOnNoDayBoard(t *testing.T) {
 	today := TodayIso()
 	week := MondayOf(today)
 	b := NewBoardIn("acme", []Card{
-		{ItemID: "slot", Team: "t", Epic: "E", Project: "P",
-			StartDate: AddDays(week, -14), Day: AddDays(today, -1)},
+		{ItemID: "p1", Title: ProjectStateTitle, Project: "P"},
+		{ItemID: "col", Title: ScopeStateTitle, Scope: "E", Project: "P"},
+		// Every reason a task would be in hand today, on a card in a column.
+		{ItemID: "project-card", Scope: "E", Project: "P",
+			Week: week, StartDate: today, Day: today, SprintStart: today},
+		// Written before schema 2: a team and an owner it may no longer carry.
+		{ItemID: "legacy-owned", Team: "t", Assignees: []string{"kvaps"}, Scope: "E", Project: "P",
+			Week: week, StartDate: today, Day: today, SprintStart: today},
+		// A project NAME alone is no column: an ordinary dated task.
+		{ItemID: "project-only", Team: "t", Assignees: []string{"kvaps"}, Project: "P",
+			StartDate: today, Day: today},
 	})
-	b.SprintStates = map[string]SprintState{"t": {Current: AddDays(week, -14)}}
-	// Inside its span, and past the end of it: still open, still in hand.
-	for _, day := range []string{AddDays(week, -14), AddDays(week, -7), AddDays(today, -1), today} {
-		if got := TeamGrid(b, "t", day); len(got) != 1 {
-			t.Fatalf("TeamGrid(%s) = %d card(s); an open slot whose week has come is in hand", day, len(got))
+	b.SprintStates = map[string]SprintState{"t": {Current: today}, "": {Current: today}}
+	if got := ids(TeamGrid(b, "t", today)); !reflect.DeepEqual(got, []string{"project-only"}) {
+		t.Fatalf("Team grid = %v; want the project-only task alone — a card in a column is the Project board's", got)
+	}
+	if got := ids(TeamGrid(b, "", today)); len(got) != 0 {
+		t.Fatalf("the no-team group = %v; a project card has no team and stands in no team's column", got)
+	}
+	if got := ids(MeView(b, "kvaps", today)); !reflect.DeepEqual(got, []string{"project-only"}) {
+		t.Fatalf("Me board = %v; want the project-only task alone", got)
+	}
+	if got := ids(MeView(b, "", today)); !reflect.DeepEqual(got, []string{"project-only"}) {
+		t.Fatalf("everyone's Me board = %v; a project card is on no day board whoever looks", got)
+	}
+	// Nor on any other day: the start of its span, the end, a day between.
+	for _, day := range []string{AddDays(week, -7), week, AddDays(today, -1), AddDays(today, 1)} {
+		if got := ids(TeamGrid(b, "t", day)); slicesContains(got, "legacy-owned") {
+			t.Fatalf("TeamGrid(%s) = %v; the week a project card covers is the Project board's row, not a day's work", day, got)
 		}
-	}
-	// Before its week it is not.
-	if got := TeamGrid(b, "t", AddDays(week, -21)); len(got) != 0 {
-		t.Fatalf("TeamGrid(%s) = %d card(s); a week ahead is on no day board", AddDays(week, -21), len(got))
-	}
-	// And a day still to come is a plan: the debt is today's business, not
-	// tomorrow's — nothing reaches that day any more.
-	if got := TeamGrid(b, "t", AddDays(today, 1)); len(got) != 0 {
-		t.Fatalf("TeamGrid(tomorrow) = %d card(s); a debt stands on today, not on a day nobody planned it for", len(got))
-	}
-	// Finished, it belongs to the day it was finished on.
-	b.Cards[0].Progress = 100
-	b.Cards[0].DoneAt = AddDays(today, -1)
-	if got := TeamGrid(b, "t", AddDays(today, -1)); len(got) != 1 {
-		t.Fatal("the day it was finished keeps it")
-	}
-	if got := TeamGrid(b, "t", today); len(got) != 0 {
-		t.Fatal("and the next day does not")
 	}
 }
 
@@ -274,28 +259,6 @@ func TestTeamGridLetsADeferredCardGo(t *testing.T) {
 	}
 }
 
-// MeView draws the same line, for the same reason.
-func TestMeViewHidesASlotButNotACardThatOnlyNamesAProject(t *testing.T) {
-	today := TodayIso()
-	b := Board{
-		Cards: []Card{
-			{ItemID: "slot", Team: "t", Epic: "E", Project: "P", StartDate: today, Day: today},
-			{ItemID: "project-only", Team: "t", Project: "P", StartDate: today, Day: today, Assignees: []string{"kvaps"}},
-			{ItemID: "owned-slot", Team: "t", Epic: "E", Project: "P", StartDate: today, Day: today, Assignees: []string{"kvaps"}},
-		},
-		SprintStates: map[string]SprintState{"t": {Current: today}},
-	}
-	got := []string{}
-	for _, c := range MeView(b, "kvaps", today) {
-		got = append(got, c.ItemID)
-	}
-	// The owned slot shows because its owner is looking at their own work;
-	// the unowned slot stays on the Project board.
-	if len(got) != 2 {
-		t.Fatalf("MeView = %v; want the project-only card and the owned slot", got)
-	}
-}
-
 // The week's own work stands on the day grid all week — its person's column,
 // or Unassigned when nobody has taken it. This is the set the Triage board
 // shows for that week: what the weekly panel used to hold beside the grid,
@@ -307,11 +270,8 @@ func TestTeamGridCarriesTheWeeksOwnWork(t *testing.T) {
 	b := NewBoard([]Card{
 		// Placed in this week and nothing else: no dates, no sprint.
 		{ItemID: "placed", Team: "t", Week: week},
-		// A slot covering this week, on nobody's day.
-		{ItemID: "slot", Team: "t", Epic: "E", Project: "P",
-			StartDate: AddDays(week, -7), Day: AddDays(week, 4)},
-		// A process turn filed into this week.
-		{ItemID: "turn", Team: "t", Task: "task", Week: week, Stage: StageRecurrent},
+		// A recurrent card standing in this week.
+		{ItemID: "turn", Team: "t", Week: week, Stage: StageRecurrent},
 		// A debt: owed last week, still open — it stands beside this week's
 		// work without leaving the week it was owed in.
 		{ItemID: "debt", Team: "t", Week: AddDays(week, -7)},
@@ -323,7 +283,7 @@ func TestTeamGridCarriesTheWeeksOwnWork(t *testing.T) {
 	b.SprintStates = map[string]SprintState{"t": {Current: today}}
 
 	got := ids(TeamGrid(b, "t", today))
-	want := []string{"placed", "slot", "turn", "debt"}
+	want := []string{"placed", "turn", "debt"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("grid = %v, want %v", got, want)
 	}

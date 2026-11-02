@@ -69,6 +69,19 @@ describe("pointsOf", () => {
     expect(pointsOf(cards, { itemId: "lone", size: "M" })).toBe(2);
     expect(pointsOf(cards, { itemId: "lone" })).toBe(2);
   });
+
+  // Mirrors board.kidsOf: an umbrella is a TASK over its subtasks. A goal,
+  // an initiative or an epic over its tasks is not one — those tasks are
+  // somebody's work on somebody's board and weigh themselves there, and a
+  // goal has no size to weigh at all.
+  it("does not weigh a planning card as the tasks under it", () => {
+    const goal = { itemId: "goal", type: "goal" as const };
+    const t1 = { itemId: "t1", parent: "goal", size: "L" as const };
+    const t2 = { itemId: "t2", parent: "goal", size: "M" as const };
+    const tree = [goal, t1, t2];
+    expect(pointsOf(tree, goal)).toBe(2);
+    expect(pointsOf(tree, t1)).toBe(4);
+  });
 });
 
 describe("what a review weighs", () => {

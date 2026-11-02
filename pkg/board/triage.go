@@ -22,11 +22,25 @@ func PlacedAhead(c Card, today string) bool {
 // A card SENT TO REVIEW is not in that pile either. Its work is done and it
 // is waiting on a reviewer, not on a week: asking the strip's reader for one
 // asks them to decide something nobody is waiting on them to decide.
-func NeedsTriage(_ Board, c Card, _ string) bool {
-	if IsStateTitle(c.Title) {
+func NeedsTriage(b Board, c Card, today string) bool {
+	return needsTriage(c, today, func(c Card) bool { return IsSubtask(b, c) })
+}
+
+// needsTriage is NeedsTriage with the subtask question handed in — the one
+// part of it that reads the board — so an Index answers it for every card
+// of a listing without a walk of the board per card.
+func needsTriage(c Card, _ string, isSubtask func(Card) bool) bool {
+	if IsStateTitle(c.Title) || IsPlanning(c) {
 		return false
 	}
-	if c.Parent != "" || c.ReviewOf != "" || c.Week != "" {
+	// A subtask rides its parent; a task under an epic that nobody has
+	// scheduled is in the strip like any other (H1).
+	if isSubtask(c) || c.ReviewOf != "" || c.Week != "" {
+		return false
+	}
+	// A card in a Scope column is the Project board's plan (H4): somebody
+	// HAS said when — its row there — and the strip is not where it waits.
+	if c.Scope != "" {
 		return false
 	}
 	// A card PARKED on a list is out of the strip. The strip is the inbox —
@@ -55,6 +69,12 @@ func NeedsTriage(_ Board, c Card, _ string) bool {
 // shelf wins, because the drawer is where such a card can be dealt with.
 func TriageWeekOf(_ Board, c Card, _ string) string {
 	if InBacklog(c) {
+		return ""
+	}
+	// A PROJECT card stands in no column of this grid, week or no week: its
+	// weeks are the Project board's rows (H4). It used to be pinned here by
+	// its dates, a commitment the catch had to be lifted to touch.
+	if c.Scope != "" {
 		return ""
 	}
 	if c.Week != "" {

@@ -8,8 +8,8 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// The roster — teams, projects, epics, deadlines, processes — is
-// configuration that used to hide in state cards. Here each is a file: a
+// The roster — teams, projects, scopes, deadlines — is configuration that
+// used to hide in state cards. Here each is a file: a
 // name where it has one, a rank, a created time, and the fields the domain
 // gives it. Every path carries identity only.
 
@@ -17,10 +17,8 @@ func TestRosterPaths(t *testing.T) {
 	cases := map[string]string{
 		TeamPath("01JB4TEAM"):                "teams/01JB4TEAM.yaml",
 		ProjectPath("01JB4PROJ"):             "projects/01JB4PROJ/project.yaml",
-		EpicPath("01JB4PROJ", "01JB4EPIC"):   "projects/01JB4PROJ/epics/01JB4EPIC.yaml",
+		ScopePath("01JB4PROJ", "01JB4SCOPE"): "projects/01JB4PROJ/scopes/01JB4SCOPE.yaml",
 		DeadlinePath("01JB4PROJ", "01JB4DL"): "projects/01JB4PROJ/deadlines/01JB4DL.yaml",
-		ProcessPath("01JB4PROC"):             "processes/01JB4PROC/process.yaml",
-		TaskPath("01JB4PROC", "01JB4TASK"):   "processes/01JB4PROC/tasks/01JB4TASK.md",
 		BoardPath:                            "board.yaml",
 	}
 	for got, want := range cases {
@@ -42,12 +40,14 @@ func TestParsePathClassifies(t *testing.T) {
 		{"teams/01JB4TEAM.yaml", PathTeam, []string{"01JB4TEAM"}},
 		{"teams/_.yaml", PathTeam, []string{"_"}},
 		{"projects/01JB4PROJ/project.yaml", PathProject, []string{"01JB4PROJ"}},
-		{"projects/01JB4PROJ/epics/01JB4EPIC.yaml", PathEpic, []string{"01JB4PROJ", "01JB4EPIC"}},
+		{"projects/01JB4PROJ/scopes/01JB4SCOPE.yaml", PathScope, []string{"01JB4PROJ", "01JB4SCOPE"}},
 		{"projects/01JB4PROJ/deadlines/01JB4DL.yaml", PathDeadline, []string{"01JB4PROJ", "01JB4DL"}},
-		{"processes/01JB4PROC/process.yaml", PathProcess, []string{"01JB4PROC"}},
-		{"processes/01JB4PROC/tasks/01JB4TASK.md", PathTask, []string{"01JB4PROC", "01JB4TASK"}},
 		{"board.yaml", PathBoard, nil},
 		{"README.md", PathUnknown, nil},
+		// The retired Process feature's tree (schema 1) is not of the layout
+		// any more: a pre-migration record names it as unknown and moves on.
+		{"processes/01JB4PROC/process.yaml", PathUnknown, nil},
+		{"processes/01JB4PROC/tasks/01JB4TASK.md", PathUnknown, nil},
 		{"cards/c/1/notes.txt", PathUnknown, nil},
 		{"cards/c/01JB4K2E7QZMX3R8V0N5T9WYC1.md", PathUnknown, nil}, // one level short
 	}
@@ -91,7 +91,7 @@ func TestTeamFileRoundTrip(t *testing.T) {
 	}
 }
 
-func TestProjectEpicDeadlineProcessRoundTrip(t *testing.T) {
+func TestProjectScopeDeadlineRoundTrip(t *testing.T) {
 	p, _ := EncodeProject(ProjectFile{Name: "portal", Rank: "b", Created: "2026-06-01T08:00:00Z"})
 	if string(p) != "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n" {
 		t.Fatalf("project:\n%s", p)
@@ -101,10 +101,10 @@ func TestProjectEpicDeadlineProcessRoundTrip(t *testing.T) {
 		t.Fatalf("project decode: %+v %v", pf, err)
 	}
 
-	e, _ := EncodeEpic(EpicFile{Name: "Bugs", Rank: "c", Created: "2026-06-02T08:00:00Z"})
-	ef, err := DecodeEpic(e)
+	e, _ := EncodeScope(ScopeFile{Name: "Bugs", Rank: "c", Created: "2026-06-02T08:00:00Z"})
+	ef, err := DecodeScope(e)
 	if err != nil || ef.Name != "Bugs" || ef.Rank != "c" {
-		t.Fatalf("epic decode: %+v %v", ef, err)
+		t.Fatalf("scope decode: %+v %v", ef, err)
 	}
 
 	d, _ := EncodeDeadline(DeadlineFile{Week: "2026-09-07", Created: "2026-06-03T08:00:00Z"})
@@ -114,19 +114,6 @@ func TestProjectEpicDeadlineProcessRoundTrip(t *testing.T) {
 	df, err := DecodeDeadline(d)
 	if err != nil || df.Week != "2026-09-07" {
 		t.Fatalf("deadline decode: %+v %v", df, err)
-	}
-
-	pr, _ := EncodeProcess(ProcessFile{Name: "Invoicing", Project: "portal", Paused: true, Rank: "d", Created: "2026-06-04T08:00:00Z"})
-	if !bytes.Contains(pr, []byte("paused: true\n")) || !bytes.Contains(pr, []byte("project: portal\n")) {
-		t.Fatalf("process:\n%s", pr)
-	}
-	prf, err := DecodeProcess(pr)
-	if err != nil || !prf.Paused || prf.Project != "portal" || prf.Name != "Invoicing" {
-		t.Fatalf("process decode: %+v %v", prf, err)
-	}
-	running, _ := EncodeProcess(ProcessFile{Name: "Blog", Rank: "e", Created: "2026-06-04T08:00:00Z"})
-	if bytes.Contains(running, []byte("paused")) || bytes.Contains(running, []byte("project")) {
-		t.Fatalf("false/empty written:\n%s", running)
 	}
 }
 
@@ -138,7 +125,7 @@ func TestBoardFileSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "schema: 1\ntitle: aeman board\n" {
+	if string(data) != "schema: 2\ntitle: aeman board\n" {
 		t.Fatalf("board file:\n%s", data)
 	}
 	b, err := DecodeBoard(data)

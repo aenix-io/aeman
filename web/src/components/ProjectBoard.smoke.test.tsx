@@ -4,7 +4,7 @@ import { ProjectBoard } from "./ProjectBoard";
 import type { Board, Card, Provider } from "../providers/types";
 import { addDays, mondayOf, todayIso } from "../date";
 
-// The Project board draws its own grid — a table of weeks against epics — and
+// The Project board draws its own grid — a table of weeks against scopes — and
 // nothing else in the suite renders it. This is the one test that proves the
 // tree still comes out: the header row, the week labels, the cells and a
 // card's slot, in the grid the reader sees. It is markup only, not a browser:
@@ -38,7 +38,7 @@ const card = (over: Partial<Card> = {}): Card =>
     assignees: [],
     stage: "",
     project: "cozy",
-    epic: "Storage",
+    scope: "Storage",
     week,
     ...over,
   }) as Card;
@@ -50,9 +50,8 @@ const board = (over: Partial<Board> = {}): Board =>
     cards: [card()],
     teams: ["core"],
     projects: ["cozy"],
-    epics: [{ project: "cozy", name: "Storage" }],
+    scopes: [{ project: "cozy", name: "Storage" }],
     deadlines: [],
-    processes: [],
     members: [],
     domains: [],
     ...over,
@@ -82,17 +81,36 @@ function draw(b: Board, filter: string[] | null = ["cozy"]) {
 describe("the Project board's grid", () => {
   it("draws a header for every column and a label for every week", () => {
     const html = draw(board());
-    expect(html).toContain("project-epic-head");
+    expect(html).toContain("project-scope-head");
     expect(html).toContain(">Storage<");
     // The window opens two weeks back and eight ahead: eleven labels, plus
     // the gutter that offers a new column.
     expect(html.match(/project-week[ "]/g)?.length).toBe(11);
-    expect(html).toContain("project-epic-add");
+    expect(html).toContain("project-scope-add");
   });
 
   it("gives the surface one cell per column and week", () => {
     const html = draw(board());
     expect(html.match(/class="project-cell/g)?.length).toBe(11);
+  });
+
+  it("gives a card a … menu and no team badge: a project card has no team", () => {
+    const html = draw(board());
+    expect(html).toContain('aria-label="Actions on A card in a column"');
+    expect(html).toContain("project-slot-menu");
+    expect(html).not.toContain("project-slot-team");
+    expect(html).not.toContain("border-left-color");
+  });
+
+  it("puts no × on a card: deleting is the menu's and the pane's, never a hover's", () => {
+    const html = draw(board());
+    expect(html).not.toContain("project-slot-actions");
+    expect(html).not.toContain("card-action-delete");
+    expect(html).not.toContain('title="Delete"');
+    // Nor a dialog waiting behind it: the menu's Delete acts at once
+    // (projectmenu.ts), and there is no way out of the project but that.
+    expect(html).not.toContain("modal-backdrop");
+    expect(html).not.toContain("Remove from project");
   });
 
   it("stands a card in its own week, spanning the weeks it reaches", () => {
@@ -110,7 +128,7 @@ describe("the Project board's grid", () => {
   });
 
   it("says so when there is no column to draw", () => {
-    const html = draw(board({ epics: [], cards: [] }));
+    const html = draw(board({ scopes: [], cards: [] }));
     expect(html).toContain("project-empty");
     expect(html).not.toContain("project-grid");
   });

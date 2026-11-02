@@ -58,7 +58,6 @@
   --avatar-fg: #24292f;
   --amber: #b8860b;
   --project-mark: #8b5cf6;
-  --process-mark: #58a6ff;
   --cal-range-bg: #dbeafe;
   --warn-bg: #fff8c5;
   --warn-line: #eac54f;
@@ -142,7 +141,6 @@
   /* The project mark. Violet collapses on the red-green axis (minus its red
      content it reads as blue), so it moves to Okabe-Ito reddish-purple. */
   --project-mark: #cc79a7;
-  --process-mark: #0072b2;
 }
 
 /* ---- light + marine (blue-yellow-friendly) ----
@@ -169,7 +167,6 @@
   /* The project mark: under tritanopia violet drifts toward the blues, so it
      moves to reddish-purple (red survives the missing S-cone). */
   --project-mark: #cc79a7;
-  --process-mark: #1f6feb;
 }
 
 /* ---- dark base (dark + default) ----
@@ -199,7 +196,6 @@
   --avatar-fg: #e6edf3;
   --amber: #e3b341;
   --project-mark: #a371f7;
-  --process-mark: #79c0ff;
   --cal-range-bg: #163356;
   --warn-bg: #2d2a10;
   --warn-line: #7a6a1e;
@@ -265,7 +261,6 @@
 
   /* The project mark, dark variant of the light-vivid one. */
   --project-mark: #e592c2;
-  --process-mark: #58a6ff;
 }
 
 /* ---- dark + marine (blue-yellow-friendly) ---- */
@@ -290,7 +285,6 @@
 
   /* The project mark, dark variant of the light-marine one. */
   --project-mark: #e592c2;
-  --process-mark: #79c0ff;
 }
 
 * {
@@ -951,12 +945,10 @@ select {
 }
 
 /* The left stripe says where a card came FROM, wherever the card is met: a
-   PROJECT card is a commitment made on the Project board, a PROCESS TURN is a
-   week its process owes, and a REVIEW card is somebody else's work waiting on
-   this person. Work the day board made itself wears none — the stripe marks
-   what came from elsewhere, which is why it is worth a glance. */
-.card-project::before,
-.card-process::before,
+   PROJECT card is a commitment made on the Project board, and a REVIEW card
+   is somebody else's work waiting on this person. Work the day board made
+   itself wears none — the stripe marks what came from elsewhere, which is
+   why it is worth a glance. */
 .card-review::before {
   content: "";
   position: absolute;
@@ -967,15 +959,6 @@ select {
   border-radius: 5px 0 0 5px;
 }
 
-.card-project::before {
-  background: var(--project-mark);
-}
-
-/* A turn rides its process's own blue — the recurrent stage's, since a turn
-   IS recurrent work and the two must not read as different things. */
-.card-process::before {
-  background: var(--process-mark);
-}
 
 .card-review::before {
   background: var(--stage-review);
@@ -3129,7 +3112,7 @@ button.card-age {
   right: 100%;
 }
 
-/* ---- Project board: weeks × epics -------------------------------------- */
+/* ---- Project board: weeks × scopes -------------------------------------- */
 .project {
   flex: 1;
   min-height: 0;
@@ -3166,7 +3149,7 @@ button.card-age {
 }
 
 .project-corner,
-.project-epic-head {
+.project-scope-head {
   position: relative;
   position: sticky;
   top: 0;
@@ -3192,17 +3175,17 @@ button.card-age {
 /* A header can be dragged sideways to reorder the columns (inside one
    project). The grip on its right edge still resizes, and the × still
    deletes — both stop the press before it becomes a drag. */
-.project-epic-head-movable {
+.project-scope-head-movable {
   cursor: grab;
 }
 
-.project-epic-head-dragging {
+.project-scope-head-dragging {
   cursor: grabbing;
   background: var(--hover-overlay);
   opacity: 0.85;
 }
 
-.project-epic-name {
+.project-scope-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3212,7 +3195,7 @@ button.card-age {
 /* The owning project, shown only in the all-projects view — the column name
    alone is ambiguous there. It wears the same round badge a team does on a
    card, so one glance groups the columns without reading anything. */
-.project-epic-avatar {
+.project-scope-avatar {
   flex: none;
   width: 15px;
   height: 15px;
@@ -3226,7 +3209,7 @@ button.card-age {
   line-height: 1;
 }
 
-.project-epic-avatar-none {
+.project-scope-avatar-none {
   background: var(--hover-overlay);
   color: var(--muted);
 }
@@ -3313,7 +3296,7 @@ button.card-age {
 
 /* How far along the columns are: a percentage beside each header, and one
    wide bar under the table for the whole view. */
-.project-epic-pct {
+.project-scope-pct {
   flex: none;
   font-size: 9.5px;
   font-weight: 600;
@@ -3454,17 +3437,17 @@ button.card-age {
   font-size: 13px;
 }
 
-.project-epic-del {
+.project-scope-del {
   opacity: 0;
 }
 
-.project-epic-head:hover .project-epic-del {
+.project-scope-head:hover .project-scope-del {
   opacity: 1;
 }
 
 /* The "add a column" gutter is 34px — far too narrow to type a name in, so
    its field breaks out of it and opens leftward over the last column. */
-.project-epic-add .project-epic-input {
+.project-scope-add .project-scope-input {
   position: absolute;
   right: 3px;
   top: 3px;
@@ -3474,12 +3457,12 @@ button.card-age {
   background: var(--bg);
 }
 
-.project-epic-add {
+.project-scope-add {
   justify-content: center;
 }
 
 /* The rename field in a column header shares that header's width. */
-.project-epic-input {
+.project-scope-input {
   flex: 1;
   min-width: 0;
   width: 140px;
@@ -3705,44 +3688,44 @@ button.card-age {
 }
 
 /* The owner badge is always visible once a team is assigned. */
-.project-slot-team {
+/* The slot's "…" menu handle: a small pill at the slot's edge, faint until
+   the slot is pointed at, with a hand's worth of hit area grown mostly
+   VERTICALLY — the row is short and nothing sits above or below it inside
+   the slot — so it never steals a press meant for the title (which starts a
+   drag) or for delete. */
+.project-slot-menu {
   flex: none;
   position: relative;
-  width: 15px;
+  width: 18px;
   height: 15px;
   padding: 0;
   border: none;
-  border-radius: 50%;
+  border-radius: 8px;
   background: var(--hover-overlay);
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  opacity: 0.45;
 }
 
-/* A 15px circle on a 28px row is a small target. Grow the hit area mostly
-   VERTICALLY — the row is short and nothing sits above or below it inside the
-   slot — and only 2px sideways, so it never steals a press meant for the title
-   (which starts a drag) or for delete. */
-.project-slot-team::after {
+.project-slot-menu::after {
   content: "";
   position: absolute;
   inset: -6px -2px;
 }
 
-/* An unassigned card still shows its badge, faintly: it is the only way to
-   hand the card to a team, and a control nobody can see is a control nobody
-   uses. It comes up to full strength when the slot is pointed at. */
-.project-slot-team-empty {
-  opacity: 0.4;
+.project-slot:hover .project-slot-menu,
+.project-slot-menu:focus-visible {
+  opacity: 1;
 }
 
-.project-slot:hover .project-slot-team-empty {
-  opacity: 1;
+.project-menu-danger {
+  color: var(--danger);
 }
 
 .project-slot-stage {
@@ -3807,543 +3790,6 @@ button.card-age {
   gap: 12px;
   padding: 64px 0;
   color: var(--muted);
-}
-
-/* ---- Process board: recurring work and how it is going ------------------- */
-.process {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.process-list {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 10px 14px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.process-hint {
-  color: var(--muted);
-  font-size: 13px;
-  padding: 24px 0;
-  text-align: center;
-}
-
-.process-item {
-  border: 1px solid var(--card-border);
-  border-radius: 8px;
-  background: var(--bg);
-}
-
-.process-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.process-head:hover {
-  background: var(--hover-overlay-soft);
-}
-
-.process-caret {
-  width: 10px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.process-name {
-  font-weight: 600;
-  font-size: 13px;
-}
-
-.process-count {
-  color: var(--muted);
-  font-size: 11.5px;
-}
-
-/* The row of dots: one per iteration, how it went. The health of a process
-   is this row — read it before the name. */
-.process-health {
-  margin-left: auto;
-  display: inline-flex;
-  gap: 3px;
-  align-items: center;
-}
-
-.process-health-empty {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.process-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--line);
-}
-
-.process-dot-done {
-  background: var(--stage-done);
-}
-
-.process-dot-late {
-  background: var(--danger);
-}
-
-.process-dot-open {
-  background: var(--line);
-  box-shadow: inset 0 0 0 1.5px var(--muted);
-}
-
-.process-body {
-  border-top: 1px solid var(--line-soft);
-  padding: 6px 12px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-/* Fixed columns, left-aligned: the title takes the room, the facts stand in
-   one column under each other, the dots and the actions each keep their own.
-   Sharing the row by content made every line's facts start somewhere else. */
-.process-task {
-  display: grid;
-  grid-template-columns: minmax(150px, 1fr) 580px 120px 48px;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 8px;
-  border-radius: 6px;
-}
-
-.process-task:hover {
-  background: var(--hover-overlay-soft);
-}
-
-.process-task-main {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.process-task-title {
-  font-size: 12.5px;
-  font-weight: 600;
-}
-
-.process-task-desc {
-  font-size: 11.5px;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.process-task-meta {
-  display: grid;
-  grid-template-columns: 118px 105px 132px 1fr;
-  column-gap: 10px;
-  row-gap: 2px;
-  align-items: center;
-  font-size: 11.5px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.process-task-meta > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* The task's own history: a single left-aligned row under the process's. */
-.process-task > .process-health {
-  margin-left: 0;
-  justify-content: flex-start;
-}
-
-.process-team {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.process-task-actions {
-  display: flex;
-  gap: 2px;
-  opacity: 0;
-}
-
-.process-task:hover .process-task-actions {
-  opacity: 1;
-}
-
-.process-add {
-  align-self: flex-start;
-  margin-top: 2px;
-}
-
-.process-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px;
-  border: 1px dashed var(--accent);
-  border-radius: 6px;
-}
-
-.process-form-desc {
-  min-height: 52px;
-  font-size: 12px;
-}
-
-.process-form-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: flex-end;
-}
-
-.process-form-row label {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.process-form-row select,
-.process-form-row input[type="date"] {
-  font-size: 12px;
-  padding: 3px 6px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
-}
-
-.process-form-check {
-  flex-direction: row !important;
-  align-items: center;
-  gap: 6px !important;
-  padding-bottom: 4px;
-}
-
-.process-form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-/* A process named or renamed in place, and the "+ add a process" row. */
-.process-name-input {
-  font-size: 13px;
-  font-weight: 600;
-  width: 260px;
-}
-
-.process-new {
-  align-self: flex-start;
-}
-
-.process-new.add-card-input {
-  width: 280px;
-  font-size: 13px;
-}
-
-.process-del {
-  opacity: 0;
-  margin-left: 4px;
-}
-
-.process-head:hover .process-del {
-  opacity: 1;
-}
-
-.process-del:disabled {
-  opacity: 0;
-  pointer-events: none;
-}
-
-/* The team and the owner are grid cells of the row, not a pair sharing one:
-   a long team name used to push the owner along, so no two rows started their
-   owner at the same place. */
-.process-task-who {
-  display: contents;
-}
-
-.process-task-none {
-  font-style: italic;
-  opacity: 0.7;
-}
-
-/* The project badge as a control: a column's or a process's project is
-   changed by clicking the badge that shows it. */
-.project-epic-avatar-pick {
-  border: none;
-  cursor: pointer;
-  padding: 0;
-  font: inherit;
-}
-
-.project-epic-avatar-pick:hover {
-  box-shadow: 0 0 0 2px var(--hover-overlay);
-}
-
-/* No project yet: an outline, so the badge is still there to click. */
-.project-epic-avatar-none {
-  background: transparent;
-  border: 1px dashed var(--line);
-  color: var(--muted);
-}
-
-/* A cell that sets what it shows: the team and the owner of a task are
-   picked where they are read, the way a card's badges work. */
-.process-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
-  padding: 2px 5px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.process-cell:hover {
-  border-color: var(--line);
-  background: var(--bg);
-}
-
-.process-cell-team {
-  justify-self: start;
-  max-width: 100%;
-}
-
-.process-cell-owner {
-  justify-self: start;
-  max-width: 100%;
-  min-width: 0;
-}
-
-.process-owner-avatar {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  flex: none;
-}
-
-/* The mark on a cycle that piles up. Only a task that accumulates wears
-   it: not accumulating is what every process does unless told otherwise, and
-   a mark on the ordinary case is noise. */
-.process-cell-cycle {
-  justify-self: start;
-}
-
-.process-accum {
-  display: inline-flex;
-  color: var(--muted);
-}
-
-.process-stack {
-  width: 11px;
-  height: 11px;
-  fill: currentColor;
-  flex: none;
-}
-
-/* The same mark leads the menu entry that sets it. */
-.process-accum-item .process-stack {
-  margin-right: 2px;
-}
-
-/* How many turns are not drawn: the row shows the recent ones, this says how
-   much history stands behind them. */
-.process-health-more {
-  font-size: 10.5px;
-  color: var(--muted);
-  margin-right: 2px;
-}
-
-/* A paused process: still there, still whole, simply not filing. */
-.process-item-paused .process-name,
-.process-item-paused .process-body {
-  opacity: 0.55;
-}
-
-.process-paused-tag {
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--warn, var(--muted));
-  border: 1px solid currentColor;
-  border-radius: 3px;
-  padding: 0 4px;
-}
-
-.process-pause {
-  opacity: 0;
-  margin-left: 4px;
-}
-
-.process-pause svg {
-  width: 11px;
-  height: 11px;
-  fill: currentColor;
-}
-
-.process-head:hover .process-pause,
-.process-item-paused .process-pause {
-  opacity: 1;
-}
-
-/* A task whose create is still upstream: there, but not yet actionable. */
-.process-task-pending {
-  opacity: 0.5;
-  pointer-events: none;
-}
-
-/* One row under the title: the tabs on the left, what the card belongs to on
-   the right, so the badges read as context rather than as part of the title. */
-.modal-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 6px 16px 0;
-}
-
-.modal-toolbar .modal-tabs {
-  margin: 0;
-}
-
-/* Where a card comes from, in its detail and in its badge menu. */
-.modal-origin {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-left: auto;
-  min-width: 0;
-}
-
-.modal-origin-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--fg);
-  background: var(--hover-overlay-soft);
-  border: 1px solid var(--line-soft);
-  border-radius: 999px;
-  padding: 2px 9px;
-}
-
-.modal-origin-kind,
-.card-assign-origin-kind {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-
-.card-assign-origin {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px 8px 6px;
-  font-size: 11.5px;
-  border-bottom: 1px solid var(--line-soft);
-  margin-bottom: 4px;
-}
-
-.card-assign-origin span {
-  display: inline-flex;
-  gap: 5px;
-  align-items: baseline;
-}
-
-.process-rename {
-  opacity: 0;
-  margin-left: 2px;
-}
-
-.process-head:hover .process-rename {
-  opacity: 1;
-}
-
-/* The history row as a control: it still reads as dots, it just answers. */
-.process-health-pick {
-  border: 1px solid transparent;
-  border-radius: 5px;
-  padding: 2px 5px;
-  background: none;
-  cursor: pointer;
-}
-
-.process-health-pick:hover {
-  border-color: var(--line);
-  background: var(--bg);
-}
-
-/* "from <date>" is a control: the date input sits invisibly over the text so
-   a click opens the browser's picker, and the text stays the thing you read. */
-.process-cell-from {
-  position: relative;
-  cursor: pointer;
-}
-
-.process-from-input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
-  border: 0;
-  padding: 0;
-}
-
-.process-toggle-all {
-  margin-left: auto;
-}
-
-/* A card scheduled ahead — a slot, a process turn, a card given a week —
-   still open past the day it was owed by. The line says "this is a debt"
-   wherever the card shows: on the day board, on Triage, on the Project
-   board. It does not move the card; carry-over is still how work moves. */
-.card-overdue {
-  box-shadow: inset 3px 0 0 var(--danger);
-}
-
-/* No line on a late slot: the Project board already tints it red all over,
-   and its left border carries the team colour. The red line belongs to the
-   boards where a debt is not otherwise marked. */
-
-/* Dragging on the Process tab: the lifted thing dims, the list previews. */
-.process-head-dragging {
-  opacity: 0.6;
-}
-
-.process-task-dragging {
-  opacity: 0.6;
-  background: var(--hover-overlay-soft);
-}
-
-.process-task {
-  touch-action: none;
-  cursor: grab;
 }
 
 /* The destructive half of a two-way choice: coloured, but not shouting — it
@@ -4516,7 +3962,7 @@ button.card-age {
   transition: margin-right 90ms ease-out;
 }
 
-/* ---- placements: attach / mirror in the assign menu, mirror markers ---- */
+/* ---- placements: attach in the assign menu ---- */
 
 .card-placements-head,
 .card-placements-project {
@@ -4544,26 +3990,6 @@ button.card-age {
 
 .card-placements-leaf {
   padding-left: 26px;
-}
-
-.card-placements-unmirror {
-  border: none;
-  background: none;
-  cursor: pointer;
-  padding: 0 2px;
-  margin-left: 4px;
-  opacity: 0.5;
-  font-size: 11px;
-}
-
-.card-placements-unmirror:hover {
-  opacity: 1;
-}
-
-.project-slot-mirror {
-  margin-right: 4px;
-  opacity: 0.6;
-  font-size: 11px;
 }
 
 /* A menu row that states a fact instead of offering a choice — a
@@ -4648,8 +4074,8 @@ button.card-age {
   vertical-align: middle;
 }
 
-/* Which repository a new team / project / process is declared in; rendered
-   only when the visitor can write to more than one. */
+/* Which repository a new team / project is declared in; rendered only when
+   the visitor can write to more than one. */
 .domain-select {
   font: inherit;
   font-size: 12px;
@@ -4659,16 +4085,6 @@ button.card-age {
   background: var(--bg);
   color: var(--fg);
   max-width: 12em;
-}
-
-.process-new-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.process-new-row .add-card-input {
-  flex: 1;
 }
 
 /* Older history exists beyond the server's clone horizon. */
@@ -4808,36 +4224,8 @@ button.card-age {
   --mark: var(--zone-red-accent);
 }
 
-/* The catch on a project card's weeks. Closed by default and never
-   remembered: the next visit starts closed again. */
-.triage-lock {
-  /* At the right edge with the scale, not among the board's own readings:
-     it governs the cards, and the reader reaches for it rarely. */
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  color: var(--muted);
-  line-height: 1;
-  padding: 3px 5px;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  opacity: 0.55;
-}
 
-.triage-lock:hover {
-  opacity: 1;
-  color: var(--fg);
-  border-color: var(--line);
-}
 
-/* Open, it says so in the colour of the thing it is holding back. */
-.triage-lock-open {
-  opacity: 1;
-  color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
-}
 
 /* The lock has taken the space before it, so the scale sits against it
    rather than being pushed out again. */
@@ -5137,17 +4525,17 @@ button.card-age {
   padding: 0 4px;
 }
 
-/* A turn a process is going to file: drawn before it exists, so it is drawn
-   as an outline. Nothing can be done to it — there is no card yet — and the
-   cursor says so. */
+/* A week a repeating card is going to come round in: drawn before the copy
+   exists, so it is drawn as an outline. Nothing can be done to it — there is
+   no card yet — and the cursor says so. */
 .triage-slot-coming {
   background: none;
   border-style: dashed;
   /* The mark is NOT this card's left border. A rounded corner is shared
      between the two sides that make it, and a dashed side takes its share in
      dashes: the mark broke off a few pixels above the foot and the bottom-left
-     corner came out grey, so a turn to come wore a scratch where its filed
-     turns wear a stripe. Squaring the corner cured that and cost the ghost its
+     corner came out grey, so a copy to come wore a scratch where the standing
+     cards wear a stripe. Squaring the corner cured that and cost the ghost its
      rounding, which is the shape that says "card" — so the dashes keep every
      corner to themselves and the mark is drawn over the border, below. */
   border-left-color: transparent;
@@ -5158,8 +4546,8 @@ button.card-age {
 
 /* The mark itself: the width of the border it covers, the height of the whole
    card including its top and bottom edges, rounded down the left the way the
-   card is — the same stripe a filed turn wears, and the same one the day
-   boards draw (.card-project, .card-process). */
+   card is — the same stripe a standing card wears, and the same one the day
+   boards draw (.card-project). */
 .triage-slot-coming::before {
   content: "";
   position: absolute;
@@ -5171,19 +4559,6 @@ button.card-age {
   background: var(--mark, var(--muted));
 }
 
-/* A project card is a commitment made on the Project board and a turn is a
-   week its process owes: both pass through this board, and their week is the
-   other one's to say, so they wear their own mark rather than a zone nobody
-   set here. The same two marks the day boards draw down a card's left edge
-   (.card-project, .card-process), so one card reads the same on every board
-   it is met on. */
-.triage-slot-project {
-  --mark: var(--project-mark);
-}
-
-.triage-slot-process {
-  --mark: var(--process-mark);
-}
 
 /* A debt keeps the strong red, whatever zone it is in. */
 .triage-slot.project-slot-late {
@@ -5192,49 +4567,6 @@ button.card-age {
 
 .triage-slot-resize {
   cursor: ns-resize;
-}
-
-.triage-deadline {
-  border-top-color: var(--danger);
-}
-
-/* On this board the head carries the NAME and nothing else. The line's own run
-   begins where the WEEKS do: the piece of it that crossed the dates column
-   hung off the left end of every deadline like a tail and pointed at nothing,
-   since the dates are not a week work can be due in. The border stays, unpainted
-   — the tab is placed against it. */
-.triage-deadline-name {
-  border-top-color: transparent;
-}
-
-/* Whose deadline it is. This board shows every project of the team at once,
-   so the line needs a name: it sits in the week column, just above the line
-   it belongs to, in that project's own colour. Absolute because the line
-   itself is a zero-height border and has no room inside it; right-aligned so
-   the names stack against the columns rather than drifting across the dates
-   under them. */
-.triage-deadline-label {
-  position: absolute;
-  /* Flush with the column's edge, where the line's own run begins. Inset, it
-     left a few pixels of line poking out past the tab's right foot — a tail
-     on every deadline, and one the eye went to instead of the name. Now the
-     tab ends where the weeks start and the line carries straight on. */
-  right: 0;
-  /* Sits ON the line: the tab's flat foot IS the line's own top edge, so the
-     two read as one mark rather than a label floating near a rule. */
-  bottom: 0;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 1px 5px 2px;
-  border-radius: 4px 4px 0 0;
-  background: var(--danger);
-  color: var(--on-accent);
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 1.1;
-  pointer-events: auto;
 }
 
 /* The right edge belongs to the SIZE, which is always on show; the × and the
@@ -5683,4 +5015,1438 @@ button.card-age {
 
 .triage-slot-park:hover {
   color: var(--accent);
+}
+
+/* ---- Roadmap ----
+   The hierarchy as a table on the left and a timeline on the right. The two
+   never measure each other: every row is ROW_PX tall on both sides, so a
+   lane lines up with its row by construction. */
+.roadmap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.roadmap-toolbar {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.roadmap-toolbar .segmented {
+  margin-left: 0;
+}
+
+.roadmap-depth {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.roadmap-depth select,
+.roadmap-who {
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+.roadmap-range {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.roadmap-empty {
+  padding: 24px;
+  text-align: center;
+  max-width: 48ch;
+}
+
+.roadmap-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: auto;
+  margin: 10px 14px 14px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.roadmap-table {
+  flex: none;
+  border-right: 1px solid var(--line);
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--bg);
+}
+
+.roadmap-head,
+.roadmap-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px 64px 64px 92px;
+  align-items: center;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12.5px;
+}
+
+.roadmap-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.roadmap-row {
+  cursor: pointer;
+}
+
+.roadmap-row:hover {
+  background: var(--hover-overlay-soft);
+}
+
+.roadmap-row-focus {
+  box-shadow: inset 3px 0 0 var(--accent);
+  background: var(--accent-glow);
+}
+
+.roadmap-cell {
+  padding: 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.roadmap-cell-date {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The Owner column: a task's team and person, and the menu that sets them
+   (OwnerPicker). A planning card and a project card have no owner and an
+   empty cell. */
+.roadmap-cell-owner {
+  overflow: visible;
+}
+
+.owner-picker {
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.owner-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.owner-picker-btn:hover:not(:disabled) {
+  border-color: var(--line);
+  background: var(--bg-soft);
+}
+
+.owner-picker-btn:disabled {
+  cursor: default;
+}
+
+.roadmap-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.roadmap-owner-none {
+  color: var(--faint);
+}
+
+.roadmap-owner-avatar {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.roadmap-owner-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.owner-menu .card-assign-col {
+  min-width: 150px;
+}
+
+.owner-col-waiting {
+  opacity: 0.6;
+}
+
+.owner-col-hint {
+  color: var(--faint);
+  cursor: default;
+}
+
+.owner-refused {
+  padding: 6px 10px;
+  font-size: 11.5px;
+  color: var(--danger);
+  border-top: 1px solid var(--line-soft);
+}
+
+.roadmap-cell-title {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 100%;
+}
+
+.roadmap-toggle {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.roadmap-toggle:hover {
+  background: var(--hover-overlay);
+  color: var(--fg);
+}
+
+.roadmap-toggle svg {
+  transition: transform 120ms ease;
+}
+
+.roadmap-toggle-open svg {
+  transform: rotate(90deg);
+}
+
+/* A leaf's stand-in for the chevron: the same width, so the indent lines
+   up, and no button — nothing lights up on hover where there is nothing to
+   unfold. */
+.roadmap-toggle-spacer {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+}
+
+/* The sections below the tree: in work, the shelves, unsorted. A header
+   line names each; its lane on the timeline is empty. */
+.roadmap-section {
+  cursor: default;
+  background: var(--bg-soft);
+}
+
+.roadmap-section:hover {
+  background: var(--bg-soft);
+}
+
+.roadmap-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-left: 10px;
+}
+
+.roadmap-lane-section {
+  background: var(--bg-soft);
+  cursor: default;
+}
+
+.roadmap-lane-section:hover {
+  background: var(--bg-soft);
+}
+
+/* The tree's guides: one thin line per level of depth, drawn from the row's
+   left edge so a reader can follow a branch down the list. */
+.roadmap-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+  pointer-events: none;
+}
+
+.roadmap-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.roadmap-count {
+  flex: none;
+  font-size: 11px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.roadmap-row-add,
+.roadmap-row-x {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 3px;
+  opacity: 0;
+}
+
+.roadmap-row:hover .roadmap-row-add,
+.roadmap-row:hover .roadmap-row-x,
+.roadmap-row-add:focus-visible,
+.roadmap-row-x:focus-visible {
+  opacity: 1;
+}
+
+.roadmap-row-add:hover {
+  color: var(--accent);
+}
+
+.roadmap-row-x:hover {
+  color: var(--danger);
+}
+
+/* The inline create under a planning row. Its OWN class: the + button's
+   (.roadmap-row-add) hides until the row is hovered, and a form that shared
+   it opened an invisible row — "the + makes an empty space". */
+.roadmap-row-form {
+  display: block;
+  cursor: default;
+  padding-right: 6px;
+}
+
+.roadmap-status {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: var(--bg-soft);
+  color: var(--muted);
+}
+
+.roadmap-status-in-progress {
+  background: var(--accent-glow);
+  color: var(--accent-emphasis);
+}
+
+.roadmap-status-done {
+  background: var(--stage-done);
+  color: var(--on-accent);
+}
+
+/* A stage that holds a task wears the stage's own colour, the same the bar
+   wears on the boards. */
+.roadmap-status-review {
+  background: var(--stage-review);
+  color: var(--on-accent);
+}
+
+.roadmap-status-locked {
+  background: var(--stage-locked);
+  color: var(--on-accent);
+}
+
+.roadmap-status-refused {
+  background: var(--stage-refuse);
+  color: var(--on-accent);
+}
+
+.roadmap-timeline {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.roadmap-track {
+  position: relative;
+  min-height: 100%;
+}
+
+.roadmap-ticks {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.roadmap-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  padding: 6px 0 0 5px;
+  border-left: 1px solid var(--line-soft);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.roadmap-today {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  border-left: 1px dashed var(--accent);
+  pointer-events: none;
+}
+
+.roadmap-lane {
+  position: relative;
+  border-bottom: 1px solid var(--line-soft);
+  cursor: pointer;
+}
+
+.roadmap-lane:hover {
+  background: var(--hover-overlay-soft);
+}
+
+.roadmap-bar {
+  position: absolute;
+  top: 7px;
+  height: 14px;
+  border-radius: 3px;
+  min-width: 2px;
+  background: var(--bar-default);
+}
+
+.roadmap-bar-goal {
+  background: var(--accent-emphasis);
+  opacity: 0.55;
+}
+
+.roadmap-bar-initiative {
+  background: var(--accent);
+  opacity: 0.7;
+}
+
+.roadmap-bar-epic {
+  background: var(--project-mark);
+  opacity: 0.8;
+}
+
+.roadmap-bar-project {
+  background: var(--slot-taken-bg);
+  border: 1px solid var(--line);
+}
+
+.roadmap-bar-done {
+  opacity: 0.55;
+}
+
+.roadmap-bar-point {
+  width: 10px;
+  height: 10px;
+  top: 9px;
+  border-radius: 50%;
+}
+
+.roadmap-bar-clip-l {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.roadmap-bar-clip-r {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* ---- the detail pane's hierarchy: breadcrumb, parent, children ---- */
+.modal-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 16px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.modal-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.modal-crumb-sep {
+  color: var(--faint);
+  padding: 0 2px;
+}
+
+.modal-crumb-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: var(--accent-emphasis);
+  cursor: pointer;
+}
+
+.modal-crumb-link:hover {
+  text-decoration: underline;
+}
+
+/* A planning crumb's second answer: the Roadmap, which draws it. */
+.modal-crumb-reveal {
+  border: none;
+  background: transparent;
+  padding: 0 2px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.modal-crumb-reveal:hover {
+  color: var(--accent-emphasis);
+}
+
+/* The way back to the card this one was opened from. */
+.drawer-back {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg-soft);
+  padding: 1px 8px;
+  margin-right: 6px;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.drawer-back:hover {
+  border-color: var(--accent);
+}
+
+.drawer-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.drawer-owner-none {
+  color: var(--faint);
+}
+
+.drawer-owner-picker .owner-picker-btn {
+  width: 100%;
+}
+
+.drawer-pick-link .drawer-pick-text {
+  color: var(--accent-emphasis);
+}
+
+.modal-level-count {
+  font-size: 11px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.modal-parent-menu {
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.modal-parent-loading {
+  color: var(--faint);
+  cursor: default;
+}
+
+.modal-dates {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.modal-date {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.modal-date input {
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+.modal-children {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modal-children-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+
+.modal-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+  padding: 4px 2px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.modal-child:hover:not(:disabled) {
+  background: var(--hover-overlay-soft);
+}
+
+.modal-child:disabled {
+  cursor: default;
+}
+
+.modal-child-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- kind pictograms ----
+   One mark per level of the hierarchy, drawn wherever it is (KindIcon):
+   a Roadmap row, a crumb, a parent picker, a child row. The colour is the
+   kind's, the same as the Roadmap's bars. */
+.kind-icon {
+  flex: none;
+  vertical-align: -2px;
+}
+
+.kind-icon-goal {
+  color: var(--accent-emphasis);
+}
+
+.kind-icon-initiative {
+  color: var(--accent);
+}
+
+.kind-icon-epic {
+  color: var(--project-mark);
+}
+
+.kind-icon-task {
+  color: var(--muted);
+}
+
+.kind-icon-subtask {
+  color: var(--faint);
+}
+
+.kind-icon-project {
+  color: var(--muted);
+}
+
+/* ---- the card drawer ----
+   The card's pane slides in from the right and stands over the board the
+   card was met on, laid out like an issue page: the title up top, the
+   description and activity down the main column, the fields in a sidebar
+   of labelled rows, the actions at its foot. */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 90;
+  outline: none;
+}
+
+.drawer {
+  /* As wide as an issue page's panel: the description takes what is left
+     once the fields have their fixed column. A phone gets the whole width. */
+  width: 1040px;
+  max-width: 100vw;
+  height: 100%;
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+  box-shadow: -16px 0 48px var(--elev-3);
+  display: flex;
+  flex-direction: column;
+  animation: drawer-in 160ms ease-out;
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(32px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer {
+    animation: none;
+  }
+}
+
+.drawer-head {
+  padding: 14px 20px 0;
+  border-bottom: 1px solid var(--line-soft);
+  flex: none;
+}
+
+.drawer-crumbs {
+  margin-bottom: 8px;
+}
+
+.drawer-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.drawer-kind {
+  margin-top: 4px;
+}
+
+.drawer-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.drawer-title .modal-title-edit {
+  font-size: 13px;
+  opacity: 0;
+  flex: none;
+}
+
+.drawer-title.modal-title-click:hover .modal-title-edit {
+  opacity: 0.7;
+}
+
+.drawer-title-input {
+  font-size: 18px;
+}
+
+/* The tabs sit at the top of the MAIN column, as wide as it and no wider. */
+.drawer-tabs-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  margin-bottom: 4px;
+}
+
+.drawer-tabs {
+  display: inline-flex;
+  margin: 0;
+}
+
+.drawer-record {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--amber);
+}
+
+.drawer-head {
+  padding-bottom: 12px;
+}
+
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+}
+
+.drawer-main {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 14px 24px 24px;
+  border-right: 1px solid var(--line-soft);
+  display: flex;
+  flex-direction: column;
+}
+
+/* The description fills the column's height: the box grows with the text
+   and scrolls inside itself past that, and the actions stay under it. */
+.drawer-desc {
+  flex: 1 1 auto;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer-desc > * {
+  flex: 1 1 auto;
+}
+
+.drawer-side {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 6px 16px 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 760px) {
+  .drawer-body {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+
+  .drawer-main {
+    overflow: visible;
+    border-right: none;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .drawer-side {
+    overflow: visible;
+  }
+}
+
+.drawer-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 10px 0 6px;
+}
+
+.drawer-desc-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.drawer-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12.5px;
+}
+
+.drawer-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.drawer-value {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 22px;
+  color: var(--fg);
+}
+
+.drawer-none {
+  color: var(--faint);
+}
+
+.drawer-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line-soft);
+  font-size: 12px;
+}
+
+/* A picker takes the row's whole width, and what it says is never cut:
+   "None" read as "N…" in a cell a flex row had shrunk to nothing. */
+.drawer-picker {
+  display: flex;
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.drawer-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 100%;
+  margin-left: -6px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.drawer-pick:hover:not(:disabled) {
+  border-color: var(--line);
+  background: var(--bg-soft);
+}
+
+.drawer-pick:disabled {
+  cursor: default;
+}
+
+.drawer-pick-empty .drawer-pick-text {
+  color: var(--faint);
+}
+
+.drawer-pick-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The progress row: the card's own bar, given room for its handle, and the
+   number beside it. */
+.drawer-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0 2px;
+}
+
+.drawer-progress .card-bar {
+  flex: 1 1 auto;
+  position: relative;
+}
+
+.drawer-progress-pct {
+  flex: none;
+  min-width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* The zone button sat in an inline wrapper and shrank to its text, which
+   then broke mid-word; it takes the row's width like every other pick, and
+   a band's name is one word that never wraps. */
+.drawer-zone {
+  display: block;
+  width: 100%;
+}
+
+.drawer-zone .drawer-pick-text {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.drawer-value > * {
+  min-width: 0;
+}
+
+/* ---- the Markdown editor (MarkdownEditor) ----
+   ProseMirror's document, themed with the board's own tokens; the text is
+   Markdown underneath and reads as the page it would render to. */
+/* No frame: the description reads as the page it is, edge to edge in its
+   column, and the caret is the only sign it is being edited. */
+.md-editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  background: var(--bg);
+  overflow-y: auto;
+}
+
+.md-editor-readonly {
+  background: var(--bg-soft);
+}
+
+.md-editor .milkdown {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.md-editor-doc {
+  min-height: 100%;
+  padding: 6px 0 12px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--fg);
+  outline: none;
+  overflow-wrap: anywhere;
+}
+
+.md-editor-doc > :first-child {
+  margin-top: 0;
+}
+
+.md-editor-doc p {
+  margin: 0 0 0.6em;
+}
+
+.md-editor-doc h1,
+.md-editor-doc h2,
+.md-editor-doc h3,
+.md-editor-doc h4 {
+  margin: 1em 0 0.4em;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+.md-editor-doc h1 {
+  font-size: 1.35em;
+}
+
+.md-editor-doc h2 {
+  font-size: 1.2em;
+}
+
+.md-editor-doc h3 {
+  font-size: 1.08em;
+}
+
+.md-editor-doc ul,
+.md-editor-doc ol {
+  margin: 0 0 0.6em;
+  padding-left: 1.5em;
+}
+
+.md-editor-doc li > p {
+  margin: 0 0 0.2em;
+}
+
+.md-editor-doc a {
+  color: var(--accent-emphasis);
+  text-decoration: underline;
+}
+
+.md-editor-doc code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--code-bg);
+}
+
+.md-editor-doc pre {
+  margin: 0 0 0.8em;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--code-bg);
+  overflow-x: auto;
+}
+
+.md-editor-doc pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.md-editor-doc blockquote {
+  margin: 0 0 0.6em;
+  padding: 2px 12px;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+
+.md-editor-doc hr {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 1em 0;
+}
+
+.md-editor-doc table {
+  border-collapse: collapse;
+  margin: 0 0 0.8em;
+}
+
+.md-editor-doc th,
+.md-editor-doc td {
+  border: 1px solid var(--line);
+  padding: 3px 8px;
+}
+
+.md-editor-doc input[type="checkbox"] {
+  margin-right: 6px;
+}
+
+.drawer-textarea {
+  flex: 1 1 auto;
+  min-height: 280px;
+  resize: none;
+  border: none;
+  border-radius: 0;
+  padding: 6px 0;
+  background: var(--bg);
+}
+
+.drawer-textarea:focus {
+  outline: none;
+}
+
+.drawer-pick-menu {
+  min-width: 260px;
+  max-width: 360px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.drawer-pick-search {
+  width: calc(100% - 12px);
+  margin: 6px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12.5px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.drawer-pick-group-label {
+  padding: 6px 10px 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.drawer-pick-on {
+  font-weight: 600;
+}
+
+.drawer-pick-none {
+  color: var(--muted);
+}
+
+.drawer-dates {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.drawer-dates input {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 4px;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  max-width: 100%;
+}
+
+.drawer-dates-sep {
+  color: var(--faint);
+}
+
+.drawer-actions {
+  margin-top: auto;
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.drawer-action {
+  text-align: left;
+  padding: 6px 6px;
+  margin-left: -6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.drawer-action:hover {
+  background: var(--hover-overlay-soft, var(--bg-soft));
+}
+
+.drawer-action-danger {
+  color: var(--danger);
+}
+
+.drawer-hint {
+  margin: 4px 0;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.drawer-children {
+  margin-top: 18px;
+}
+
+.drawer-children-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 10px 0 2px;
+}
+
+.drawer-child {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 5px;
+}
+
+.drawer-child:hover {
+  background: var(--hover-overlay-soft, var(--bg-soft));
+}
+
+.drawer-child-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.drawer-child-open:disabled {
+  cursor: default;
+}
+
+.drawer-child-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-child-x {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px 8px;
+  cursor: pointer;
+  opacity: 0;
+  border-radius: 4px;
+}
+
+.drawer-child:hover .drawer-child-x,
+.drawer-child-x:focus-visible {
+  opacity: 1;
+}
+
+.drawer-child-x:hover {
+  color: var(--danger);
+}
+
+.drawer-child-pending {
+  padding: 5px 6px;
+  color: var(--faint);
+  font-size: 12.5px;
+  gap: 8px;
+}
+
+.drawer-add {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.drawer-add-level,
+.drawer-add-input {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.drawer-add-input {
+  flex: 1;
+  min-width: 160px;
+}
+
+.drawer-add-hint {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.drawer-add-open {
+  margin-top: 8px;
+  padding: 5px 6px;
+  margin-left: -6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.drawer-add-open:hover {
+  background: var(--hover-overlay-soft, var(--bg-soft));
+}
+
+/* The four standings a planning card can have (H5); a task's own read the
+   same way. Done and in progress were there; to do and no items were not. */
+.roadmap-status-todo {
+  background: var(--bg-soft);
+  color: var(--muted);
+}
+
+.roadmap-status-no-items {
+  background: transparent;
+  color: var(--faint);
+  border: 1px dashed var(--line);
+}
+
+@media (max-width: 760px) {
+  .drawer {
+    width: 100vw;
+  }
+
+  .drawer-body {
+    display: block;
+    overflow-y: auto;
+  }
+
+  .drawer-main {
+    border-right: none;
+    overflow: visible;
+  }
+
+  .drawer-side {
+    border-top: 1px solid var(--line-soft);
+    overflow: visible;
+  }
+}
+
+/* ---- Roadmap: the drag ----
+   A row is dragged onto another (it goes under it) or into the gap before
+   or after it. The rows ARE the preview: while the drag stands over a place
+   it may land, the list reads as it would after the drop, the moved subtree
+   dimmed; over a place it may not, the hovered row says so and nothing
+   moves. */
+.roadmap-row {
+  position: relative;
+  touch-action: none;
+}
+
+.roadmap-body-dragging .roadmap-row {
+  cursor: grabbing;
+}
+
+.roadmap-row-ghost,
+.roadmap-lane-ghost {
+  opacity: 0.45;
+}
+
+.roadmap-row-ghost {
+  background: var(--accent-glow);
+}
+
+/* Over a place the card may not land, the cursor says so and nothing else;
+   over a place it may, the moved rows ARE the whole affordance — no outline
+   on the hovered row, no line in the gap. */
+.roadmap-row-forbid {
+  cursor: not-allowed;
+}
+
+.roadmap-drag-overlay {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 320px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--bg-raised, var(--bg));
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px var(--drag-shadow, var(--elev-3));
+  font-size: 12.5px;
+  cursor: grabbing;
+}
+
+.roadmap-drag-overlay-forbid {
+  border-color: var(--danger);
 }

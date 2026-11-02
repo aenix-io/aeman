@@ -14,7 +14,7 @@ func TestReachableIsEveryCardABoardStillShows(t *testing.T) {
 	const today, cur, prev = "2026-09-02", "2026-09-01", "2026-08-31"
 	b := NewBoard([]Card{
 		{ItemID: "st", Title: SprintStateTitle, Team: "portal", SprintStart: cur, StartDate: prev},
-		{ItemID: "ep", Title: EpicStateTitle, Epic: "Auth", Project: "freedom"},
+		{ItemID: "ep", Title: ScopeStateTitle, Scope: "Auth", Project: "freedom"},
 
 		// On the board today.
 		{ItemID: "today", Team: "portal", SprintStart: cur, StartDate: cur, Day: cur},
@@ -24,7 +24,7 @@ func TestReachableIsEveryCardABoardStillShows(t *testing.T) {
 		// Planned for a later day: it comes back on its own.
 		{ItemID: "deferred", Team: "portal", SprintStart: cur, StartDate: "2026-09-10", Day: "2026-09-10"},
 		// In a Project-board column, which is a board of its own.
-		{ItemID: "slot", Team: "portal", Epic: "Auth", Project: "freedom", Week: "2026-09-07", Day: "2026-09-11"},
+		{ItemID: "slot", Team: "portal", Scope: "Auth", Project: "freedom", Week: "2026-09-07", Day: "2026-09-11"},
 		// Scheduled for a week, which is a column of the Triage board.
 		{ItemID: "week", Team: "portal", Week: "2026-09-07"},
 		// Done, and so off the board on purpose.
@@ -90,18 +90,6 @@ func TestATeamsBoardHoldsItsOwnOpenWorkWhateverSprintItSitsIn(t *testing.T) {
 	}
 	if got := ids(TeamGrid(b, "sales", today)); len(got) != 1 || got[0] != "old-sales" {
 		t.Errorf("sales' board = %v, want its own card alone", got)
-	}
-}
-
-// A process task is the thing turns are copied FROM: it stands on the Process
-// tab, not on a day, and it is not work anyone lost.
-func TestAProcessTaskIsReachable(t *testing.T) {
-	b := NewBoard([]Card{
-		{ItemID: "pr", Title: ProcessStateTitle, Process: "Payments"},
-		{ItemID: "task", Title: ProcessTaskTitle, Process: "Payments", Team: "portal", Recurrence: "month"},
-	})
-	if !Reachable(b, "2026-09-02")["task"] {
-		t.Fatal("a process task lives on the Process tab")
 	}
 }
 

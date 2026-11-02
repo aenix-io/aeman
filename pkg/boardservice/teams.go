@@ -56,12 +56,5 @@ func (s *Service) RenameTeam(ctx context.Context, boardID, from, to string) erro
 			}
 		}
 	}
-	for _, c := range b.Tasks {
-		if c.Team == from {
-			if err := s.backend.SetTeam(ctx, b, c, to); err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }

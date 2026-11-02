@@ -17,6 +17,25 @@ export type SizeKey = "S" | "M" | "L" | "XL";
 /** StageKey is an explicit per-card status that recolours the progress bar. */
 export type StageKey = "locked" | "review" | "recurrent" | "refuse" | "done";
 
+/** CardType is a PLANNING card's level; a task has none. Mirrors the
+ *  board.Type* constants. */
+export type CardType = "goal" | "initiative" | "epic";
+
+/** LineageRef is one ancestor of a card (status.lineage). */
+export interface LineageRef {
+  uid: string;
+  type?: CardType;
+  title: string;
+}
+
+/** HierarchyStatus is a planning card's derived standing (status.hierarchy):
+ *  never stored, read off the tasks under it on every listing. */
+export interface HierarchyStatus {
+  status: "no-items" | "todo" | "in-progress" | "done";
+  done: number;
+  total: number;
+}
+
 /** Note is a dated work note attached to a card (a line of its log). */
 export interface Note {
   id: string;
@@ -45,10 +64,6 @@ export interface Card {
   author?: string;
   /** ISO timestamp the card was created (its age on the board). */
   createdAt?: string;
-  /** Additional Project-board columns the same card stands in — one file,
-   *  one log, one set of dates, shown in every listed project too. Always
-   *  the card's own repository (the server admits nothing else). */
-  mirrors?: { project: string; epic: string }[];
   /** The repository the card lives in (one of the board's domains). Absent on
    *  an older server, which means the primary. */
   domain?: string;
@@ -66,8 +81,21 @@ export interface Card {
   /** On a review card, the itemId of the original card it reviews (review →
    * original; find the reverse by scanning for `reviewOf === original.itemId`). */
   reviewOf?: string;
-  /** On a subtask, the itemId of the card it is grouped under. */
+  /** The itemId of the card this one sits under — the ONE link of the
+   *  hierarchy. What it means is the parent's type: under a task this card is
+   *  a SUBTASK (subtasks.ts isSubtask); under a goal, an initiative or an
+   *  epic it is filed in the hierarchy and nothing else about it changes. */
   parent?: string;
+  /** The card's level. Absent for a task; a PLANNING card — drawn on the
+   *  Roadmap and on no day board — says which (docs/design/hierarchy.md). */
+  type?: CardType;
+  /** Every ancestor, root first: the breadcrumb. Absent on a root. The last
+   *  entry is the parent itself, and its type is what tells a subtask from a
+   *  task under an epic without a lookup. */
+  lineage?: LineageRef[];
+  /** A planning card's derived standing, from the tasks under it. Absent on a
+   *  task. */
+  hierarchy?: HierarchyStatus;
   /** On a review card, its review-round counter (>=2 shown; round 1 implicit). */
   reviewRound?: number;
   /** A recurrent card's reseed cycle: "" = every sprint, "week" | "month". */
@@ -87,15 +115,12 @@ export interface Card {
    *  week; a parked card is on no day board. Every team has a backlog and
    *  nothing declares it. */
   parked?: boolean;
-  /** The column this card is filed under: epic + project TOGETHER, since epic
+  /** The column this card is filed under: scope + project TOGETHER, since scope
    *  names repeat across projects. Its week is the row. */
-  epic?: string;
+  scope?: string;
   project?: string;
-  /** On a process turn: the process it belongs to, and the task it came from. */
-  process?: string;
-  task?: string;
-  /** A card scheduled ahead — a slot, a turn, a card given a week — still
-   *  open past the day it was owed by. Derived by the server from its dates. */
+  /** A card scheduled ahead — a slot, a card given a week — still open past
+   *  the day it was owed by. Derived by the server from its dates. */
   overdue?: boolean;
   /** The moment this card is FROM, when it is a record rather than the live
    *  card: its team's sprint has moved on past the day being looked at. The
@@ -110,16 +135,9 @@ export interface Card {
   triageWeek?: string;
   /** A RECURRENT card's weeks to come: the ones it comes round in over the
    *  planning horizon and no copy of it stands in yet. A team's own repeating
-   *  work is reseeded by carry-over rather than filed by a process, and the
-   *  weeks it will land in are as spoken for as a process turn's. */
+   *  work is reseeded by carry-over, and the weeks it will land in are spoken
+   *  for. */
   due?: string[];
-  /** A process TURN's own occurrence: the first and last week it may stand
-   *  in, both Mondays and both inclusive. A turn is one turn of its
-   *  process's calendar, and carrying it past the next due date would put it
-   *  where the next one belongs. The server sends it (board.CycleWindow) —
-   *  the calendar is its, and a second answer to "when is this next due"
-   *  would be one waiting to disagree. */
-  cycle?: { from: string; to: string };
   /** Free-form card details (the body minus the appended action log).
    *  Undefined until loaded: listings are the board-row shape without the
    *  body, and the boards fetch it when a card is selected or opened. */
@@ -145,14 +163,23 @@ export interface NewCardInput {
   week?: string | null;
   /** Start the card on its team's backlog: no dates, no sprint, no week. */
   parked?: boolean | null;
-  epic?: string | null;
+  scope?: string | null;
   project?: string | null;
   assigneeLogin?: string | null;
   team?: string | null;
   /** On a review card, the itemId of the original card it reviews. */
   reviewOf?: string | null;
-  /** Group the new card as a subtask of this card on create. */
+  /** The card to sit under on create: a task to be a subtask of, or a
+   *  planning card to be filed under (the level rule, H2). */
   parent?: string | null;
+  /** A PLANNING card's level — a goal, an initiative or an epic. Set, the
+   *  create is the Roadmap's (views.ts createView) whatever board is open;
+   *  absent, a task. Fixed for the card's life. */
+  type?: CardType | null;
+  /** A TASK made under a planning card (the add in an epic's pane): the
+   *  create is the Roadmap's, whatever board is open — the task lands in the
+   *  Triage strip until planned. Client-side only; never sent. */
+  underPlanning?: boolean | null;
   /** Force the team's sprint pointer to (re)start on the card's day. */
   startNewSprint?: boolean;
   /** Schedule the card for its day without joining any sprint (a "next
@@ -173,60 +200,16 @@ export interface SprintState {
   };
 }
 
-
-/** ProcessTask is what a process iterates on, plus how the last few
- *  iterations went. */
-export interface ProcessTask {
-  uid: string;
-  title: string;
-  description?: string;
-  recurrence: string;
-  start?: string;
-  team?: string;
-  assignee?: string;
-  accumulate?: boolean;
-  history: { uid: string; week: string; state: "done" | "open" | "late" }[];
-  /** The weeks this task comes due in over the planning horizon and has no
-   *  turn of its own yet — what the process is going to file. A board that
-   *  plans weeks ahead draws them: a week already spoken for by a process is
-   *  not a week the team is free in. A paused process sends none. */
-  due?: string[];
-  /** Counts over ALL turns, including the ones history leaves out. */
-  turns?: number;
-  done?: number;
-  late?: number;
-}
-
-/** ProcessInfo is one process and its tasks. */
-export interface ProcessInfo {
-  name: string;
-  project: string;
-  /** A paused process files no iterations; nothing else about it changes. */
-  paused?: boolean;
-  tasks: ProcessTask[];
-}
-
-/** TaskInput is a task on its way in (create: all; patch: some). */
-export interface TaskInput {
-  title?: string;
-  description?: string;
-  recurrence?: string;
-  start?: string;
-  team?: string;
-  assignee?: string;
-  accumulate?: boolean;
-}
-
 /** DeadlineRef is one deadline line: the week it sits on and whose it is. */
 export interface DeadlineRef {
   week: string;
   project: string;
 }
 
-/** EpicRef is one Project-board column: its name and the project that owns
+/** ScopeRef is one Project-board column: its name and the project that owns
  *  it. The pair travels together — a column is meaningless without knowing
  *  which project's grid it belongs in. */
-export interface EpicRef {
+export interface ScopeRef {
   name: string;
   project: string;
   /** The repository the column was declared in — a NAME, compared against
@@ -248,17 +231,14 @@ export interface Board {
    *  /board — the source of truth now that cards load one view at a time. */
   teams: string[];
   /** The Project board's projects, in board order — the top grouping: a
-   *  project owns epic columns. */
+   *  project owns scope columns. */
   projects: string[];
-  /** The Project board's epic columns, in board order, each naming the project
+  /** The Project board's scope columns, in board order, each naming the project
    *  that owns it. An empty project means the column belongs to none. */
-  epics: EpicRef[];
+  scopes: ScopeRef[];
   /** The deadline lines: the week (a Monday) each sits on and the project it
    *  belongs to. A project holds at most one per week. */
   deadlines: DeadlineRef[];
-  /** The processes with their tasks and history — the Process tab is
-   *  drawn from this, and the Board watch frame refreshes it. */
-  processes: ProcessInfo[];
   /** The people roster from GET /board (login + avatar) for pickers (assign,
    *  review, view-as) and for every avatar the boards draw. */
   members: Member[];
@@ -270,9 +250,6 @@ export interface Board {
    *  one, so the pickers narrow themselves by these. */
   teamDomains?: Record<string, string>;
   projectDomains?: Record<string, string>;
-  /** The repository each process was declared in — a card is only tied to a
-   *  process of its own repository, so the picker narrows itself by this. */
-  processDomains?: Record<string, string>;
   /** Per-team sprint pointers, keyed by team name ("" = the no-team group). */
   sprintStates: Record<string, SprintState>;
 }
@@ -297,12 +274,9 @@ export interface CardPatch {
   week?: string;
   /** Put the card on its team's backlog, or take it off. */
   parked?: boolean;
-  /** Re-file under a column ("" clears). Naming only the epic keeps the card
+  /** Re-file under a column ("" clears). Naming only the scope keeps the card
    *  inside its project; crossing projects names both halves. */
-  epic?: string;
-  /** Tie the card to a process — the recurring shelf's counterpart of a
-   *  column ("" clears). The process must already exist. */
-  process?: string;
+  scope?: string;
   project?: string;
   reviewOf?: string;
   /** Group under another card as a subtask ("" ungroups back to standalone). */
@@ -412,6 +386,14 @@ export interface Provider {
   setTeamCapacity(team: string, points: number): Promise<void>;
   /** Take a card out of every week — back to the triage strip. */
   untriageCard(uid: string): Promise<Card>;
+  /** Whose is this: a team and a person on it, a team alone (person = ""),
+   *  or nobody (both ""). A person files an UNPLANNED card the way the Me
+   *  board would — today, the unplanned band, the team's sprint, off any
+   *  shelf; a team alone parks it on that team's shelf; a planned card only
+   *  changes hands (docs/design/hierarchy.md "Owner", H10). A person needs a
+   *  team (422 ownerNeedsTeam); a subtask and a review card are refused
+   *  (ownerFollowsLink); so are planning and project cards. */
+  ownCard(uid: string, team: string, person: string): Promise<Card>;
   /** Advance a team's sprint to today and carry its unfinished cards forward.
    * dryRun reports the would-be counts without writing. team = null is the
    * no-team group. */
@@ -422,56 +404,39 @@ export interface Provider {
   /** Apply a shared team order (moves the hidden sprint-state cards). */
   reorderTeams(teams: string[]): Promise<void>;
 
-  /** Declare a new epic column inside a project (which is required). */
-  addEpic(name: string, project: string): Promise<void>;
-  /** Delete an EMPTY epic column (422 while cards still sit under it). */
-  deleteEpic(name: string, project: string): Promise<void>;
+  /** Declare a new scope column inside a project (which is required). */
+  addScope(name: string, project: string): Promise<void>;
+  /** Delete an EMPTY scope column (422 while cards still sit under it). */
+  deleteScope(name: string, project: string): Promise<void>;
   /** Rename a column in place; its cards follow. */
-  renameEpic(
+  renameScope(
     project: string,
-    epic: string,
+    scope: string,
     to: string,
   ): Promise<void>;
-  /** Apply one project's column order (moves the hidden epic-state cards). */
-  reorderEpics(
+  /** Apply one project's column order (moves the hidden scope-state cards). */
+  reorderScopes(
     project: string,
-    epics: string[],
+    scopes: string[],
   ): Promise<void>;
   /** Move a column between projects ("" detaches it from every project). */
-  setEpicProject(
+  setScopeProject(
     from: string,
-    epic: string,
+    scope: string,
     project: string,
   ): Promise<void>;
   /** Declare a project — the Project board's top grouping. `domain` picks the
    *  repository it is declared in (default: the primary). */
   addProject(name: string, domain?: string): Promise<void>;
-  /** Delete an EMPTY project (422 while it still owns epic columns). */
+  /** Delete an EMPTY project (422 while it still owns scope columns). */
   deleteProject(name: string): Promise<void>;
   /** Apply the shared project order (moves the hidden project-state cards). */
   reorderProjects(names: string[]): Promise<void>;
   /** Rename a project in place; its columns and their cards follow. */
   renameProject(from: string, to: string): Promise<void>;
-  /** Rename a declared team where it lives; its cards and process tasks
-   *  follow. A name another team has is refused by the server. */
+  /** Rename a declared team where it lives; its cards follow. A name another
+   *  team has is refused by the server. */
   renameTeam(from: string, to: string): Promise<void>;
-  /** The Process tab: every process with its tasks and their history. */
-  listProcesses(project?: string): Promise<ProcessInfo[]>;
-  /** Declare a process in a project; `domain` picks its repository. */
-  addProcess(name: string, project: string, domain?: string): Promise<void>;
-  deleteProcess(name: string): Promise<void>;
-  renameProcess(from: string, to: string): Promise<void>;
-  /** Move a process to another project ("" = the no-project bucket). */
-  setProcessProject(process: string, project: string): Promise<void>;
-  /** Stop a process filing iterations, or start it again. */
-  setProcessPaused(process: string, paused: boolean): Promise<void>;
-  /** Apply a shared process order. */
-  reorderProcesses(processes: string[]): Promise<void>;
-  /** Apply one process's task order; a uid from another process is adopted. */
-  reorderProcessTasks(process: string, uids: string[]): Promise<void>;
-  addTask(process: string, input: TaskInput): Promise<string>;
-  updateTask(uid: string, patch: TaskInput): Promise<void>;
-  deleteTask(uid: string): Promise<void>;
   /** Mark a week with a project's deadline (one per project and week). */
   addDeadline(week: string, project: string): Promise<void>;
   /** Clear a project's deadline on a week. */
@@ -487,15 +452,6 @@ export interface Provider {
   ): Promise<void>;
   /** Delete a team's sprint pointer; rejects while cards still use the team. */
   deleteTeam(team: string): Promise<void>;
-  /** Show the card in a second Project-board column — the same card, one
-   *  file and one log, standing in both projects. */
-  mirrorCard(uid: string, project: string, epic: string): Promise<void>;
-  /** Take one mirror column away; the home and everything else stay. */
-  unmirrorCard(uid: string, project: string, epic: string): Promise<void>;
-  /** The Project board's ×: remove the card from one column (mirror goes /
-   *  home hands over / last column keeps only a worked card, as an orphan
-   *  of the working area). */
-  removeFromProject(uid: string, project: string, epic: string): Promise<void>;
   /** Set a team's sprint pointer directly (current/previous start dates). With
    *  both empty this declares the team; `domain` picks the repository its
    *  roster entry is written to (default: the primary). */

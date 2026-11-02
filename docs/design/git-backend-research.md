@@ -34,7 +34,7 @@ GitHub advertises `shallow`, `deepen-since` and `filter` on both transports.
 
 ## 2. Speed on the real board
 
-Board 37 exported in full: 2481 draft cards, 7 issues, 0 PRs; 100 hidden state cards (37 epic, 7 sprint, 7 project, 14 deadline, 9 process, 26 process-task); bodies 3.1 MB total (median 475 B, p90 3.3 KB, max 30 KB); **20 169 event lines** in 2101 card logs and 725 notes.
+Board 37 exported in full: 2481 draft cards, 7 issues, 0 PRs; 100 hidden state cards (37 scope, 7 sprint, 7 project, 14 deadline, 9 process, 26 process-task); bodies 3.1 MB total (median 475 B, p90 3.3 KB, max 30 KB); **20 169 event lines** in 2101 card logs and 725 notes.
 
 Baseline: paging the whole board out of GraphQL took **1 min 51 s** (50 pages × 50 items via `gh`); the server's own cold load was observed at ~52 s in production.
 
@@ -109,7 +109,7 @@ Loop (go-git has no rebase): commit → push → rejected → fetch → hard-res
 
 ## 6. What the event log is — and is not
 
-Replaying the 20 169 logged events on top of a rewound snapshot and comparing the end state with the real snapshot: **1282 of 2488 cards differ**. By field: `stage` 943 (the log records *derived* states — `in-progress`, `done` — that the snapshot never stores), `zone` 404 and `progress` 293 (moves and clamps that never produced an event), `parent` 178 (the log stores the parent's *title*, the field its *id*), `sprint`/`start`/`day` 60–73 (carry-over and reseed writes without events), `plan`/`week` 10–15, `assignees` 3, `epic` 1.
+Replaying the 20 169 logged events on top of a rewound snapshot and comparing the end state with the real snapshot: **1282 of 2488 cards differ**. By field: `stage` 943 (the log records *derived* states — `in-progress`, `done` — that the snapshot never stores), `zone` 404 and `progress` 293 (moves and clamps that never produced an event), `parent` 178 (the log stores the parent's *title*, the field its *id*), `sprint`/`start`/`day` 60–73 (carry-over and reseed writes without events), `plan`/`week` 10–15, `assignees` 3, `scope` 1.
 
 So the log is an annotation, not a journal: today's state is *not* reconstructible from it. Two consequences for the design:
 

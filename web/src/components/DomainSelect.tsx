@@ -11,7 +11,7 @@ interface DomainSelectProps {
 
 const CLASS = "domain-select";
 
-/** DomainSelect picks the repository a new team / project / process is
+/** DomainSelect picks the repository a new team / project is
  *  declared in. It renders nothing unless the visitor can write to more than
  *  one — a one-repository board never sees it. */
 export function DomainSelect({ domains, value, onChange, className }: DomainSelectProps) {

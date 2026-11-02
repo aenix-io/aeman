@@ -10,35 +10,20 @@ package board
 // web/src/providers/github/githubProvider.ts; such cards never render on a board.
 const SprintStateTitle = "aeman:sprint-state"
 
-// EpicStateTitle marks the hidden card that declares an epic column of the
-// Project board. One card per epic: its Epic field is the epic's name, its
-// Project field is the project the epic belongs to, and its position on the
+// ScopeStateTitle marks the hidden card that declares an scope column of the
+// Project board. One card per scope: its Scope field is the scope's name, its
+// Project field is the project the scope belongs to, and its position on the
 // board is the column order (exactly the team-roster mechanism of sprint-state
-// cards). The card exists so an empty epic — just added, or emptied out —
+// cards). The card exists so an empty scope — just added, or emptied out —
 // still has a column.
-const EpicStateTitle = "aeman:epic-state"
+const ScopeStateTitle = "aeman:scope-state"
 
 // ProjectStateTitle marks the hidden card that declares a project — the
-// Project board's top-level grouping, one step above epics. One card per
+// Project board's top-level grouping, one step above scopes. One card per
 // project: its Project field is the name and its board position is the order
-// the chips appear in. Like an epic, a project exists in its own right, so an
-// empty one can be created first and filled with epics afterwards.
+// the chips appear in. Like an scope, a project exists in its own right, so an
+// empty one can be created first and filled with scopes afterwards.
 const ProjectStateTitle = "aeman:project-state"
-
-// ProcessStateTitle marks the hidden card that declares a process — recurring
-// work the team keeps doing and wants to see itself doing: its Process field
-// is the name, its Project the plan it is part of. A process groups tasks
-// the way a project groups epic columns.
-const ProcessStateTitle = "aeman:process-state"
-
-// ProcessTaskTitle marks the hidden card an iteration is copied FROM. Its
-// Process names the process, its Title and Description are what the iteration
-// will say, Recurrence is its cycle, StartDate the calendar anchor the cycle
-// is counted from, Team the plan the iterations land in, and Assignees the
-// standing owner. Unlike a recurrent card's reseed, which copies the previous
-// iteration (so a rename propagates forever), every iteration comes from
-// here — the live card may be renamed or described freely.
-const ProcessTaskTitle = "aeman:process-task"
 
 // DeadlineStateTitle marks the hidden card that puts a deadline on a week of
 // the Project board — the line across the grid. One card per deadline: its
@@ -92,6 +77,11 @@ type Note struct {
 type Card struct {
 	ItemID string `json:"itemId"`
 	Title  string `json:"title"`
+	// Type says what the card is: "" is a TASK, the day boards' own kind;
+	// "goal", "initiative" and "epic" are the PLANNING cards above it, drawn
+	// on the Roadmap and on no day board (docs/design/hierarchy.md). Fixed
+	// at create; a card never changes level.
+	Type string `json:"type,omitempty"`
 	// Assignees are logins; Author is the login that created the card.
 	Assignees []string `json:"assignees"`
 	Author    string   `json:"author,omitempty"`
@@ -121,39 +111,26 @@ type Card struct {
 	// or the board draws the same work twice and counts it twice against the
 	// week. Read it through board.InBacklog.
 	Parked bool `json:"parked,omitempty"`
-	// Epic names the Project-board column this card belongs to ("" = none). An
-	// epic card's row is its Week; StartDate..Day span the weeks its slot
+	// Scope names the Project-board column this card belongs to ("" = none). An
+	// scope card's row is its Week; StartDate..Day span the weeks its slot
 	// covers when it stretches over more than one.
-	Epic string `json:"epic,omitempty"`
-	// Process, on the two process state cards, is the process's name (on its
-	// own card) or the process a task belongs to. On an ordinary card it
-	// is empty — an iteration points at its task instead.
-	Process string `json:"process,omitempty"`
-	// Task, on an iteration, is the item id of the process task it
-	// was spawned from ("" = not an iteration). The link is what makes the
-	// process's history: its iterations are the cards that name it.
-	Task string `json:"task,omitempty"`
-	// Paused, on a process state card, stops it spawning: the tasks and
-	// their history stay exactly as they are, and nothing new is filed until
-	// it is resumed. Work that stops for a month is not work that was
-	// deleted, and a process nobody can pause gets deleted instead.
-	Paused bool `json:"paused,omitempty"`
-	// Accumulate, on a task, spawns an iteration on every due date even
-	// while the previous one is still open — unpaid months pile up as
-	// separate cards. Off (the default), an open iteration simply goes
-	// overdue and the next one waits for it.
-	Accumulate bool `json:"accumulate,omitempty"`
+	Scope string `json:"scope,omitempty"`
 	// Project is the project side of the card's column. A column is
-	// identified by the PAIR (project, epic), because epic names are unique
+	// identified by the PAIR (project, scope), because scope names are unique
 	// only within a project — "Docs" or "Auth" belong to every project — so a
 	// card filed under a column must name both. On a project-state card it is
-	// the project's own name; on an epic-state card, the project owning it.
+	// the project's own name; on an scope-state card, the project owning it.
 	Project string `json:"project,omitempty"`
 	// ReviewOf, on a review card, is the itemId of the original card it reviews.
 	ReviewOf string `json:"reviewOf,omitempty"`
-	// Parent, on a subtask, is the itemId of the card it belongs to ("" = a
-	// top-level card). Subtasks are one level deep: a parent cannot itself be
-	// a subtask, and a card with subtasks cannot become one.
+	// Parent is the ONE link of the hierarchy: the itemId of the card this
+	// one sits under ("" = a root). The parent's TYPE says what the link
+	// means — read off the parent card, never off this field (H1): under a
+	// task it makes this card a SUBTASK, one level deep (a parent cannot
+	// itself be a subtask, and a card with subtasks cannot become one);
+	// under an epic, an initiative or a goal it files the card in the
+	// hierarchy and changes nothing else about it. A parent is always of a
+	// higher level than its child (H2).
 	Parent string `json:"parent,omitempty"`
 	// Recurrence is a recurrent card's reseed cycle: "" = every sprint (the
 	// default), "week" / "month" = only once that interval has elapsed since
@@ -190,11 +167,6 @@ type Card struct {
 	// GitHubID is the Projects v2 item id a migrated card came from, kept so
 	// the id can still be resolved for a while; empty on cards born later.
 	GitHubID string `json:"githubId,omitempty"`
-	// Mirrors are additional Project-board columns the card stands in — the
-	// same card, one file and one log, shown in more than one project. The
-	// (Project, Epic) pair above stays its home: DomainOf reads it, mirrors
-	// never move the card. See mirrors.go.
-	Mirrors []Placement `json:"mirrors,omitempty"`
 	// Domain names the repository the card lives in ("" = the primary or a
 	// single-domain board). MovedFrom/MovedAt record a cross-domain move,
 	// so a torn move resolves from the tree alone.
@@ -219,8 +191,10 @@ type CreateInput struct {
 	// Domain, on a roster stub (a team, project or process state card), is
 	// the repository to declare it in; "" is the primary. Cards never carry
 	// one — their domain is inherited (see DomainOf).
-	Domain      string  `json:"domain,omitempty"`
-	Title       string  `json:"title"`
+	Domain string `json:"domain,omitempty"`
+	Title  string `json:"title"`
+	// Type is the card's level: "" (a task), "goal", "initiative" or "epic".
+	Type        string  `json:"type,omitempty"`
 	Zone        ZoneKey `json:"zone,omitempty"`
 	Size        SizeKey `json:"size,omitempty"`
 	Day         string  `json:"day,omitempty"`
@@ -235,12 +209,9 @@ type CreateInput struct {
 	// than born in the strip and moved, which is one commit instead of two
 	// and spares every reader the instant in between.
 	Parked     bool   `json:"parked,omitempty"`
-	Epic       string `json:"epic,omitempty"`
+	Scope      string `json:"scope,omitempty"`
 	Project    string `json:"project,omitempty"`
-	Process    string `json:"process,omitempty"`
-	Task       string `json:"task,omitempty"`
 	Recurrence string `json:"recurrence,omitempty"`
-	Paused     bool   `json:"paused,omitempty"`
 	// Body is the draft's description, written with the create rather than
 	// after it: a card that appears without its text, then fills in a second
 	// later, reads as a card the board got wrong.
@@ -256,20 +227,11 @@ type Deadline struct {
 	ItemID  string `json:"itemId,omitempty"`
 }
 
-// Process is recurring work the team keeps doing: its name, the project it
-// is part of, and the hidden card that declares it.
-type Process struct {
-	Name    string `json:"name"`
-	Project string `json:"project,omitempty"`
-	Paused  bool   `json:"paused,omitempty"`
-	ItemID  string `json:"itemId,omitempty"`
-}
-
-// EpicCol is one column of the Project board: its name, the project that owns
-// it, and the hidden epic-state card that declares it. The (Project, Name)
-// pair is the column's identity — epic names repeat across projects, so a name
+// ScopeCol is one column of the Project board: its name, the project that owns
+// it, and the hidden scope-state card that declares it. The (Project, Name)
+// pair is the column's identity — scope names repeat across projects, so a name
 // alone does not identify a column.
-type EpicCol struct {
+type ScopeCol struct {
 	Name    string `json:"name"`
 	Project string `json:"project,omitempty"`
 	ItemID  string `json:"itemId,omitempty"`
@@ -309,20 +271,15 @@ type Board struct {
 	// each team's hidden sprint-state card on the project. That position IS
 	// the team order every client shares (reordering teams moves the card).
 	TeamOrder []string `json:"teamOrder,omitempty"`
-	// Epics lists the Project board's columns in board order (the positions
-	// of the hidden epic-state cards that declare them).
-	Epics []EpicCol `json:"epics,omitempty"`
+	// Scopes lists the Project board's columns in board order (the positions
+	// of the hidden scope-state cards that declare them).
+	Scopes []ScopeCol `json:"scopes,omitempty"`
 	// Deadlines are the weeks carrying a deadline line, in board order.
 	Deadlines []Deadline `json:"deadlines,omitempty"`
-	// Processes lists the board's processes in board order, and Tasks the
-	// cards iterations are copied from (also in board order). Both are split
-	// out of Cards, like every other state card.
-	Processes []Process `json:"processes,omitempty"`
-	Tasks     []Card    `json:"tasks,omitempty"`
 	// Projects lists the project roster in board order (the positions of the
 	// hidden project-state cards) and ProjectStates maps each project to the
-	// card that declares it. A project groups epics: the Project board shows
-	// one project's epics as its columns.
+	// card that declares it. A project groups scopes: the Project board shows
+	// one project's scopes as its columns.
 	Projects      []string          `json:"projects,omitempty"`
 	ProjectStates map[string]string `json:"projectStates,omitempty"`
 	// Primary names the repository a board's own entries belong to — the
@@ -335,10 +292,15 @@ type Board struct {
 	// is the same thing said the other way.
 	Primary string `json:"primary,omitempty"`
 	// Domains maps a roster entry's id — a team's sprint-state card, a
-	// project, an epic column, a deadline, a process, a task — to the domain
+	// project, an scope column, a deadline — to the domain
 	// (repository) it was declared in; cards carry their own Domain. Nil on
 	// a single-domain board, where nothing records one.
 	Domains map[string]string `json:"domains,omitempty"`
+	// DroppedParents names the parents the reading dropped, by the card
+	// that named them: a parent the board does not hold is read as no
+	// parent (NewBoardIn), and a tool that must REPORT such links — the
+	// importer's dangling references, M4 — reads them here.
+	DroppedParents map[string]string `json:"-"`
 }
 
 // NewBoard builds a Board snapshot from the full card list, splitting the hidden sprint-state cards out of Cards into SprintStates (keyed
@@ -349,9 +311,9 @@ func NewBoard(cards []Card) Board { return NewBoardIn("", cards) }
 
 // NewBoardIn is NewBoard for a board whose entries are STAMPED with their
 // domain's name — which is every board the store hands over, the primary
-// included. The assembly's own rules ask "the same repository?" while it
-// runs (declaredMirrors), so the primary's name has to arrive with the
-// cards rather than be set on the result afterwards.
+// included. The rules that read the board (HomeDomain, ColumnDomain) ask
+// "the same repository?" in that one namespace, so the primary's name
+// arrives with the cards rather than being set on the result afterwards.
 func NewBoardIn(primary string, cards []Card) Board {
 	b := Board{Primary: primary,
 		Cards:        make([]Card, 0, len(cards)),
@@ -359,32 +321,16 @@ func NewBoardIn(primary string, cards []Card) Board {
 	}
 	seen := map[string]bool{}
 	winners := map[string]Card{}
-	epicSeen := map[string]bool{}
+	scopeSeen := map[string]bool{}
 	projectSeen := map[string]bool{}
 	deadlineSeen := map[string]bool{}
-	processSeen := map[string]bool{}
-	epicKey := func(project, name string) string { return project + "\x00" + name }
+	scopeKey := func(project, name string) string { return project + "\x00" + name }
 	for _, c := range cards {
 		if c.Domain != "" && IsStateTitle(c.Title) {
 			if b.Domains == nil {
 				b.Domains = map[string]string{}
 			}
 			b.Domains[c.ItemID] = c.Domain
-		}
-		if c.Title == ProcessStateTitle {
-			if c.Process != "" && !processSeen[c.Process] {
-				processSeen[c.Process] = true
-				b.Processes = append(b.Processes, Process{
-					Name: c.Process, Project: c.Project, Paused: c.Paused, ItemID: c.ItemID,
-				})
-			}
-			continue
-		}
-		if c.Title == ProcessTaskTitle {
-			// A task is a whole card — title, description, cycle, owner —
-			// so it is kept as one, just out of the board's card rows.
-			b.Tasks = append(b.Tasks, c)
-			continue
 		}
 		if c.Title == DeadlineStateTitle {
 			// One line per week: a duplicate is a merge that already happened
@@ -397,7 +343,7 @@ func NewBoardIn(primary string, cards []Card) Board {
 			continue
 		}
 		if c.Title == ProjectStateTitle {
-			// Same duplicate rule as epic-state: the first position wins.
+			// Same duplicate rule as scope-state: the first position wins.
 			if c.Project == "" || projectSeen[c.Project] {
 				continue
 			}
@@ -409,16 +355,16 @@ func NewBoardIn(primary string, cards []Card) Board {
 			b.ProjectStates[c.Project] = c.ItemID
 			continue
 		}
-		if c.Title == EpicStateTitle {
+		if c.Title == ScopeStateTitle {
 			// Same duplicate rule as sprint-state: the first position wins
 			// the order, the oldest card wins the state slot.
-			if c.Epic == "" {
+			if c.Scope == "" {
 				continue
 			}
-			if k := epicKey(c.Project, c.Epic); !epicSeen[k] {
-				epicSeen[k] = true
-				b.Epics = append(b.Epics, EpicCol{
-					Name: c.Epic, Project: c.Project, ItemID: c.ItemID,
+			if k := scopeKey(c.Project, c.Scope); !scopeSeen[k] {
+				scopeSeen[k] = true
+				b.Scopes = append(b.Scopes, ScopeCol{
+					Name: c.Scope, Project: c.Project, ItemID: c.ItemID,
 				})
 			}
 			continue
@@ -440,29 +386,19 @@ func NewBoardIn(primary string, cards []Card) Board {
 		}
 		b.Cards = append(b.Cards, c)
 	}
-	// A slot's row is its START date's week, never a week stored beside it.
-	// The two used to be written separately, so editing a card's dates left it
-	// sitting in the week it was created in — the board said one thing and the
-	// card's own dates said another. Deriving here makes every reader agree at
-	// once, and the stored field converges as cards are written.
-	for i := range b.Cards {
-		if b.Cards[i].Epic != "" && b.Cards[i].StartDate != "" {
-			b.Cards[i].Week = MondayOf(b.Cards[i].StartDate)
-		}
-	}
-	// A card can name an epic without naming a project: it predates the pair,
-	// or someone set the Epic field straight in the GitHub UI. When exactly one
+	// A card can name an scope without naming a project: it predates the pair,
+	// or someone set the Scope field straight in the GitHub UI. When exactly one
 	// column bears that name it can only be that one, so it is adopted on READ
 	// — no rewriting of anyone's data, and the next write settles the pair.
 	// An ambiguous name (two projects, one column name) is left unattached
 	// rather than guessed at.
 	for i := range b.Cards {
-		if b.Cards[i].Epic == "" || b.Cards[i].Project != "" {
+		if b.Cards[i].Scope == "" || b.Cards[i].Project != "" {
 			continue
 		}
 		match, count := "", 0
-		for _, col := range b.Epics {
-			if col.Name == b.Cards[i].Epic {
+		for _, col := range b.Scopes {
+			if col.Name == b.Cards[i].Scope {
 				match, count = col.Project, count+1
 			}
 		}
@@ -470,6 +406,10 @@ func NewBoardIn(primary string, cards []Card) Board {
 			b.Cards[i].Project = match
 		}
 	}
+	for i := range b.Cards {
+		b.Cards[i] = SettleCard(b.Cards[i])
+	}
+	dropDanglingParents(&b)
 	for team, c := range winners {
 		b.SprintStates[team] = SprintState{
 			Current:  c.SprintStart,
@@ -477,17 +417,63 @@ func NewBoardIn(primary string, cards []Card) Board {
 			ItemID:   c.ItemID,
 		}
 	}
-
-	// The decoder drops what one file can prove wrong (half pairs,
-	// duplicates, home twins, subtask mirrors); a mirror into another
-	// repository or onto a column nobody declared needs the ROSTER, so it
-	// is dropped here — a writer producing one is silently corrected, not
-	// honoured (G15), and the x's promotion never inherits a home the
-	// service would have refused to mirror to.
-	for i := range b.Cards {
-		b.Cards[i].Mirrors = declaredMirrors(b, b.Cards[i])
-	}
 	return b
+}
+
+// SettleCard applies the reading rules that hold for one card on its own,
+// whatever the file says — the same on a full read of the board and on the
+// reload of a single card, or the two would disagree about one file.
+//
+// A card in a column and a planning card have no band and no size (H4, H3):
+// the Project board draws columns and date rows, the Roadmap draws levels
+// and bars, and a weight belongs to work somebody carries. A file that still
+// says otherwise — a repository migrated before the rule, a direct writer —
+// is read without them, and the card's next rewrite drops the keys; nothing
+// is rewritten for the reading alone. Nor a sprint or a week: no day board
+// draws either kind, so a sprint left on one (a team had picked the card up
+// before the rule) is a sprint a carry-over would move for nothing — and a
+// column card whose week was its only date takes that week as its dates
+// before the week goes, or it would have no row on the Project board and
+// stand on no board at all. A planning card is nobody's and no team's
+// besides (H3): the people and the teams are on the tasks under it.
+func SettleCard(c Card) Card {
+	if c.Scope != "" {
+		if start, day, ok := WeekAsDates(c); ok {
+			c.StartDate, c.Day = start, day
+		}
+	}
+	if c.Scope != "" || IsPlanning(c) {
+		c.Zone, c.Size = ZoneNone, ""
+		c.SprintStart, c.Week = "", ""
+	}
+	if IsPlanning(c) {
+		c.Team, c.Assignees = "", nil
+	}
+	return c
+}
+
+// dropDanglingParents reads a parent the board does not hold as no parent,
+// and names what it dropped in DroppedParents. Every rule reads a card with
+// a parent that is not a planning card as a subtask — hidden from every
+// board — so an epic deleted by a direct writer, or a torn move, would
+// otherwise take its whole subtree off Me, Team, Triage and the Roadmap with
+// nothing to bring it back. Read as a root, the card stands where its own
+// dates and team put it; its next rewrite drops the key. It needs the whole
+// board, which is why it is not part of SettleCard.
+func dropDanglingParents(b *Board) {
+	held := make(map[string]bool, len(b.Cards))
+	for _, c := range b.Cards {
+		held[c.ItemID] = true
+	}
+	for i := range b.Cards {
+		if p := b.Cards[i].Parent; p != "" && !held[p] {
+			if b.DroppedParents == nil {
+				b.DroppedParents = map[string]string{}
+			}
+			b.DroppedParents[b.Cards[i].ItemID] = p
+			b.Cards[i].Parent = ""
+		}
+	}
 }
 
 // olderSprintState reports whether a is the older sprint-state card: earlier
@@ -500,12 +486,26 @@ func olderSprintState(a, b Card) bool {
 	return a.ItemID < b.ItemID
 }
 
-// EpicsOf lists a project's epic columns in board order. A column whose
+// WeekAsDates is the row a card filed into a column takes when its WEEK was
+// its only date: Monday to Friday of that week, the whole of the week it was
+// owed in. The Project board draws a card by its dates and a project card has
+// no week (H4), so the week becomes the dates rather than being lost. Dates
+// the card already has win (ok is false). One rule for every place that
+// makes a project card out of a card with a week: the door that files one
+// into a column, the reading of a file, the schema-2 bump, the importer.
+func WeekAsDates(c Card) (start, day string, ok bool) {
+	if c.Week == "" || c.StartDate != "" {
+		return "", "", false
+	}
+	return c.Week, AddDays(c.Week, 4), true
+}
+
+// ScopesOf lists a project's scope columns in board order. A column whose
 // project is unset belongs to none and shows only in the all-projects view —
 // it is never silently adopted.
-func EpicsOf(b Board, project string) []EpicCol {
-	var out []EpicCol
-	for _, e := range b.Epics {
+func ScopesOf(b Board, project string) []ScopeCol {
+	var out []ScopeCol
+	for _, e := range b.Scopes {
 		if e.Project == project {
 			out = append(out, e)
 		}
@@ -513,41 +513,25 @@ func EpicsOf(b Board, project string) []EpicCol {
 	return out
 }
 
-// FindEpic looks a column up by its identity — the (project, epic) pair.
-func FindEpic(b Board, project, name string) (EpicCol, bool) {
-	for _, e := range b.Epics {
+// FindScope looks a column up by its identity — the (project, scope) pair.
+func FindScope(b Board, project, name string) (ScopeCol, bool) {
+	for _, e := range b.Scopes {
 		if e.Project == project && e.Name == name {
 			return e, true
 		}
 	}
-	return EpicCol{}, false
+	return ScopeCol{}, false
 }
 
-// InEpic reports whether a card is filed under a column. Both halves have to
-// match: the same epic name in another project is a different column.
-func InEpic(c Card, project, name string) bool {
-	if c.Epic == name && c.Project == project {
-		return true
-	}
-	// A mirrored card stands in every one of its columns alike; only the
-	// home pair decides anything beyond being shown (DomainOf, promotion).
-	return Mirrored(c, project, name)
+// InScope reports whether a card is filed under a column. Both halves have to
+// match: the same scope name in another project is a different column.
+func InScope(c Card, project, name string) bool {
+	return c.Scope == name && c.Project == project
 }
 
-// InProject reports whether a card stands in one project's columns — its
-// home pair, or ANY mirror it carries. A mirror is the same card standing
-// in a second column (G15), so a project's listing that read only the home
-// pair answered with less than the board it draws.
+// InProject reports whether a card stands in one project's columns.
 func InProject(c Card, project string) bool {
-	if c.Project == project {
-		return true
-	}
-	for _, m := range c.Mirrors {
-		if m.Project == project {
-			return true
-		}
-	}
-	return false
+	return c.Project == project
 }
 
 // FindDeadline looks a deadline up by its identity — the (project, week) pair.
@@ -558,69 +542,4 @@ func FindDeadline(b Board, project, week string) (Deadline, bool) {
 		}
 	}
 	return Deadline{}, false
-}
-
-// FindProcess looks a process up by name.
-func FindProcess(b Board, name string) (Process, bool) {
-	for _, p := range b.Processes {
-		if p.Name == name {
-			return p, true
-		}
-	}
-	return Process{}, false
-}
-
-// TasksOf lists a process's tasks in board order.
-func TasksOf(b Board, process string) []Card {
-	var out []Card
-	for _, t := range b.Tasks {
-		if t.Process == process {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
-// Iterations lists the cards spawned from a task, in board order.
-func Iterations(b Board, taskID string) []Card {
-	var out []Card
-	for _, c := range b.Cards {
-		if c.Task == taskID {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
-// declaredMirrors keeps the mirror entries the service itself would have
-// admitted: the column exists on the roster and belongs to the repository
-// that holds this card. It asks the COLUMN, exactly as Mirror does — a
-// project name may be declared in two repositories with its columns merged
-// (G13), and the no-project bucket has no project to ask at all, so the
-// project-based answer dropped placements the service had just written.
-// Everything else is a hand edit the decoder could not judge without the
-// roster.
-func declaredMirrors(b Board, c Card) []Placement {
-	if len(c.Mirrors) == 0 {
-		return c.Mirrors
-	}
-	// A fresh slice on purpose: filtering into c.Mirrors[:0] would write
-	// through to the caller's backing array, and NewBoard does not own
-	// the cards it is handed.
-	// Which repository holds this CARD — the question Mirror asks, and the
-	// only one that is the same on both sides. The home COLUMN is a
-	// different question wherever the two disagree (an older write, an
-	// outside writer), and answering it here kept mirrors Mirror refuses.
-	mine := HomeDomain(b, c)
-	kept := make([]Placement, 0, len(c.Mirrors))
-	for _, m := range c.Mirrors {
-		if d, ok := ColumnDomain(b, m.Project, m.Epic); !ok || d != mine {
-			continue
-		}
-		kept = append(kept, m)
-	}
-	if len(kept) == 0 {
-		return nil
-	}
-	return kept
 }

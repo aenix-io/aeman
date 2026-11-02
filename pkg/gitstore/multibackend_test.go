@@ -23,17 +23,17 @@ var _ boardservice.Backend = (*MultiBackend)(nil)
 func twoDomains(t *testing.T) (*MultiBackend, *Repo, *Repo) {
 	t.Helper()
 	shared := repoWith(t, map[string]string{
-		BoardPath:                         "schema: 1\ntitle: b\n",
-		TeamPath("_"):                     "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		TeamPath("01T_PORTAL"):            "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
-		ProjectPath("01P_PORTAL"):         "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		EpicPath("01P_PORTAL", "01E_BUG"): "name: Bugs\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		"cards/a/1/01CARDA1.md":           "---\ntitle: shared card\nteam: portal\nzone: yellow\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n",
+		BoardPath:                          "schema: 2\ntitle: b\n",
+		TeamPath("_"):                      "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		TeamPath("01T_PORTAL"):             "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
+		ProjectPath("01P_PORTAL"):          "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		ScopePath("01P_PORTAL", "01E_BUG"): "name: Bugs\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		"cards/a/1/01CARDA1.md":            "---\ntitle: shared card\nteam: portal\nzone: yellow\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n",
 	})
 	closed := repoWith(t, map[string]string{
-		ProjectPath("01P_SECRET"):          "name: secret\nrank: b\ncreated: 2026-06-02T08:00:00Z\n",
-		EpicPath("01P_SECRET", "01E_RISK"): "name: Risk\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
-		"cards/b/2/01CARDB2.md":            "---\ntitle: closed card\nteam: portal\nproject: secret\nepic: Risk\nrank: a\ncreated: 2026-08-21T09:00:00Z\n---\n",
+		ProjectPath("01P_SECRET"):           "name: secret\nrank: b\ncreated: 2026-06-02T08:00:00Z\n",
+		ScopePath("01P_SECRET", "01E_RISK"): "name: Risk\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
+		"cards/b/2/01CARDB2.md":             "---\ntitle: closed card\nteam: portal\nproject: secret\nscope: Risk\nrank: a\ncreated: 2026-08-21T09:00:00Z\n---\n",
 	})
 	clock := at("2026-08-28T09:00:00Z")
 	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}},
@@ -47,8 +47,8 @@ func TestMultiBackendLoadBoardMergesDomains(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b.Cards) != 2 || len(b.Projects) != 2 || len(b.Epics) != 2 || len(b.TeamOrder) != 2 {
-		t.Fatalf("board = %d cards, %v projects, %d epics, %v teams", len(b.Cards), b.Projects, len(b.Epics), b.TeamOrder)
+	if len(b.Cards) != 2 || len(b.Projects) != 2 || len(b.Scopes) != 2 || len(b.TeamOrder) != 2 {
+		t.Fatalf("board = %d cards, %v projects, %d scopes, %v teams", len(b.Cards), b.Projects, len(b.Scopes), b.TeamOrder)
 	}
 	for _, c := range b.Cards {
 		if c.Domain == "" {
@@ -65,7 +65,7 @@ func TestMultiBackendCreateInheritsDomain(t *testing.T) {
 	ctx := ctxAs("kvaps")
 	b, _ := mb.LoadBoard(ctx, "x")
 
-	inClosed, err := mb.CreateCard(ctx, b, board.CreateInput{Title: "risk item", Team: "portal", Project: "secret", Epic: "Risk"})
+	inClosed, err := mb.CreateCard(ctx, b, board.CreateInput{Title: "risk item", Team: "portal", Project: "secret", Scope: "Risk"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestMultiBackendCreateInheritsDomain(t *testing.T) {
 	if _, err := closed.ReadFile(p); err != nil {
 		t.Fatalf("review card not with its original: %v", err)
 	}
-	sub, err := mb.CreateCard(ctx, b, board.CreateInput{Title: "sub", Team: "portal", Parent: inClosed.ItemID, Project: "portal", Epic: "Bugs"})
+	sub, err := mb.CreateCard(ctx, b, board.CreateInput{Title: "sub", Team: "portal", Parent: inClosed.ItemID, Project: "portal", Scope: "Bugs"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestMultiBackendRefilingIsAMove(t *testing.T) {
 	if err := mb.SetProject(ctx, b, card, "secret"); err != nil {
 		t.Fatal(err)
 	}
-	if err := mb.SetEpic(ctx, b, card, "Risk"); err != nil {
+	if err := mb.SetScope(ctx, b, card, "Risk"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := flush(); err != nil {
@@ -167,7 +167,7 @@ func TestMultiBackendRefilingIsAMove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("moved card not in the closed repository: %v", err)
 	}
-	if !containsAll(string(data), "project: secret", "epic: Risk", "movedFrom: shared", "movedAt: ") {
+	if !containsAll(string(data), "project: secret", "scope: Risk", "movedFrom: shared", "movedAt: ") {
 		t.Fatalf("moved copy:\n%s", data)
 	}
 	if _, err := shared.ReadFile(p); err == nil {
@@ -208,16 +208,16 @@ func TestMultiBackendRefilingIsAMove(t *testing.T) {
 // action, each with movedFrom; a card linked to something else stays.
 func TestMultiBackendMoveCascadesToLinkedCards(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:                         "schema: 1\ntitle: b\n",
-		TeamPath("_"):                     "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		TeamPath("01T_PORTAL"):            "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
-		ProjectPath("01P_PORTAL"):         "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		EpicPath("01P_PORTAL", "01E_BUG"): "name: Bugs\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		"cards/a/1/01CARDA1.md":           "---\ntitle: the work\nteam: portal\nrank: a\n---\n",
-		"cards/r/1/01CARDR1.md":           "---\ntitle: review\nteam: portal\nreviewOf: 01CARDA1\nrank: b\n---\n",
-		"cards/s/1/01CARDS1.md":           "---\ntitle: subtask with own column\nteam: portal\nproject: portal\nepic: Bugs\nparent: 01CARDA1\nrank: c\n---\n",
-		"cards/s/2/01CARDS2.md":           "---\ntitle: sub-subtask\nteam: portal\nparent: 01CARDS1\nrank: d\n---\n",
-		"cards/o/1/01CARDO1.md":           "---\ntitle: unrelated\nteam: portal\nrank: e\n---\n",
+		BoardPath:                          "schema: 2\ntitle: b\n",
+		TeamPath("_"):                      "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		TeamPath("01T_PORTAL"):             "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
+		ProjectPath("01P_PORTAL"):          "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		ScopePath("01P_PORTAL", "01E_BUG"): "name: Bugs\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		"cards/a/1/01CARDA1.md":            "---\ntitle: the work\nteam: portal\nrank: a\n---\n",
+		"cards/r/1/01CARDR1.md":            "---\ntitle: review\nteam: portal\nreviewOf: 01CARDA1\nrank: b\n---\n",
+		"cards/s/1/01CARDS1.md":            "---\ntitle: subtask with own column\nteam: portal\nproject: portal\nscope: Bugs\nparent: 01CARDA1\nrank: c\n---\n",
+		"cards/s/2/01CARDS2.md":            "---\ntitle: sub-subtask\nteam: portal\nparent: 01CARDS1\nrank: d\n---\n",
+		"cards/o/1/01CARDO1.md":            "---\ntitle: unrelated\nteam: portal\nrank: e\n---\n",
 	})
 	closed := repoWith(t, map[string]string{
 		ProjectPath("01P_SECRET"): "name: secret\nrank: b\ncreated: 2026-06-02T08:00:00Z\n",
@@ -289,13 +289,6 @@ func TestMultiBackendCreateHonoursDomainFromContext(t *testing.T) {
 	}
 	if _, err := closed.ReadFile(ProjectPath(proj.ItemID)); err != nil {
 		t.Fatalf("project not declared in the chosen domain: %v", err)
-	}
-	proc, err := mb.CreateCard(ctx, b, board.CreateInput{Title: board.ProcessStateTitle, Process: "audit"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := closed.ReadFile(ProcessPath(proc.ItemID)); err != nil {
-		t.Fatalf("process not declared in the chosen domain: %v", err)
 	}
 	if err := mb.SetSprintState(ctx, b, "ops", "2026-08-31", ""); err != nil {
 		t.Fatal(err)
@@ -382,7 +375,7 @@ func TestMultiBackendCardLogFollowsMoveIntoOldDomain(t *testing.T) {
 // and torn-move ghosts (G22), as of the last load.
 func TestMultiBackendIssuesReportAliasesAndGhosts(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:               "schema: 1\ntitle: b\n",
+		BoardPath:               "schema: 2\ntitle: b\n",
 		TeamPath("01T_NEWER"):   "name: portal\nrank: a\ncreated: 2026-07-01T08:00:00Z\n",
 		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nteam: portal\nrank: a\n---\n",
 	})
@@ -410,7 +403,7 @@ func TestMultiBackendIssuesReportAliasesAndGhosts(t *testing.T) {
 // first domain's.
 func TestMultiBackendLoadCardsPrefersMovedCopy(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:               "schema: 1\ntitle: b\n",
+		BoardPath:               "schema: 2\ntitle: b\n",
 		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nteam: portal\nrank: a\n---\n",
 	})
 	closed := repoWith(t, map[string]string{
@@ -428,7 +421,7 @@ func TestMultiBackendLoadCardsPrefersMovedCopy(t *testing.T) {
 // movedFrom) is a maintainer's problem and is never touched.
 func TestMultiBackendSweepGhosts(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:               "schema: 1\ntitle: b\n",
+		BoardPath:               "schema: 2\ntitle: b\n",
 		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nteam: portal\nrank: a\n---\n",
 		"cards/d/1/01CARDD1.md": "---\ntitle: dup\nteam: portal\nrank: b\n---\n",
 	})
@@ -537,7 +530,7 @@ func indexOf(s, sub string) int {
 // project into another repository — the service refuses that move rather
 // than produce a column declared in one repository and owned by a project
 // of another, with every card in it stranded (G57).
-func TestAnEpicStubStaysInItsRepositoryWhenItsProjectChanges(t *testing.T) {
+func TestAnScopeStubStaysInItsRepositoryWhenItsProjectChanges(t *testing.T) {
 	mb, _, _ := twoDomains(t)
 	ctx := context.Background()
 	b, err := mb.LoadBoard(ctx, "acme")
@@ -547,14 +540,14 @@ func TestAnEpicStubStaysInItsRepositoryWhenItsProjectChanges(t *testing.T) {
 	// The primary repository's column, moved to the CLOSED repository's
 	// project: the write must land where the stub already is.
 	var stub board.Card
-	for _, e := range b.Epics {
+	for _, e := range b.Scopes {
 		if e.Project == "portal" {
-			stub = board.Card{ItemID: e.ItemID, Title: board.EpicStateTitle, Epic: e.Name, Project: e.Project}
+			stub = board.Card{ItemID: e.ItemID, Title: board.ScopeStateTitle, Scope: e.Name, Project: e.Project}
 			break
 		}
 	}
 	if stub.ItemID == "" {
-		t.Fatalf("the fixture must declare a column of portal: %+v", b.Epics)
+		t.Fatalf("the fixture must declare a column of portal: %+v", b.Scopes)
 	}
 	was := b.Domains[stub.ItemID]
 	// The write goes to the backend that HOLDS the stub, so the target
@@ -577,92 +570,6 @@ func TestAnEpicStubStaysInItsRepositoryWhenItsProjectChanges(t *testing.T) {
 	}
 }
 
-// A mirror the service accepts must survive the next LOAD — the store is
-// the only place where the primary's name is known, so a board assembled
-// without it judges a stamped column against an unstamped placement and
-// drops exactly the placements it had just written. Both halves of the
-// rule the branch introduced, over the real MultiBackend rather than a
-// fixture that models the primary as "".
-func TestAMirrorWrittenThroughTheStoreSurvivesTheNextLoad(t *testing.T) {
-	// Two columns in the SHARED repository — a project's and the no-project
-	// bucket, which is a lawful mirror home (G15) — and one in the closed
-	// repository, which is not.
-	shared := repoWith(t, map[string]string{
-		BoardPath:                         "schema: 1\ntitle: b\n",
-		TeamPath("01T_PORTAL"):            "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
-		ProjectPath("01P_PORTAL"):         "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		EpicPath("01P_PORTAL", "01E_BUG"): "name: Bugs\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		ProjectPath("_"):                  "rank: b\ncreated: 2026-06-01T08:00:00Z\n",
-		EpicPath("_", "01E_CHORE"):        "name: Chores\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-	})
-	closed := repoWith(t, map[string]string{
-		ProjectPath("01P_SECRET"):          "name: secret\nrank: c\ncreated: 2026-06-02T08:00:00Z\n",
-		EpicPath("01P_SECRET", "01E_RISK"): "name: Risk\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
-	})
-	clock := at("2026-08-28T09:00:00Z")
-	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}},
-		BackendOptions{Now: func() time.Time { clock = clock.Add(time.Second); return clock }})
-	ctx := ctxAs("kvaps")
-	b, err := mb.LoadBoard(ctx, "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.Primary != "shared" {
-		t.Fatalf("the board must name its primary repository: %q", b.Primary)
-	}
-	card, err := mb.CreateCard(ctx, b, board.CreateInput{
-		Title: "shared work", Team: "portal", Project: "portal", Epic: "Bugs"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b, err = mb.LoadBoard(ctx, "acme"); err != nil {
-		t.Fatal(err)
-	}
-	// The bucket column of the same repository: one file, two columns.
-	if err := mb.SetMirrors(ctx, b, card, []board.Placement{{Epic: "Chores"}}); err != nil {
-		t.Fatal(err)
-	}
-	after, err := mb.LoadBoard(ctx, "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	stored, ok := findByID(after, card.ItemID)
-	if !ok {
-		t.Fatal("the card must come back from the store")
-	}
-	if len(stored.Mirrors) != 1 || stored.Mirrors[0] != (board.Placement{Epic: "Chores"}) {
-		t.Fatalf("the mirror must survive the load: %+v", stored.Mirrors)
-	}
-	// And the column of ANOTHER repository must not: the file that holds
-	// the card is not in it, so the placement names a column its readers
-	// may not have (G15). The store drops it on the way back, whatever a
-	// direct writer put in the file.
-	if err := mb.SetMirrors(ctx, b, stored, []board.Placement{{Project: "secret", Epic: "Risk"}}); err != nil {
-		t.Fatal(err)
-	}
-	// It IS on disk — the store writes what it is told, and a direct writer
-	// could have put it there just the same. The drop is on the way back.
-	cp, _ := CardPath(card.ItemID)
-	data, err := shared.ReadFile(cp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), "Risk") {
-		t.Fatalf("the placement was not written at all:\n%s", data)
-	}
-	after, err = mb.LoadBoard(ctx, "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	stored, ok = findByID(after, card.ItemID)
-	if !ok {
-		t.Fatal("the card is still there")
-	}
-	if len(stored.Mirrors) != 0 {
-		t.Fatalf("a cross-repository placement is not one this card can have: %+v", stored.Mirrors)
-	}
-}
-
 // The grid's × on a subtask standing in a column of its PARENT's
 // repository, against the real store: the pull-out moves the card's FILE to
 // the repository its own team names, the column cannot come with it and is
@@ -673,19 +580,19 @@ func TestAMirrorWrittenThroughTheStoreSurvivesTheNextLoad(t *testing.T) {
 // repository, and no half-moved copy stays behind.
 func TestTheGridRemoveOnASubtaskAcrossRepositories(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:              "schema: 1\ntitle: b\n",
+		BoardPath:              "schema: 2\ntitle: b\n",
 		TeamPath("01T_PORTAL"): "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n  previous: 2026-08-17\n",
 	})
 	closed := repoWith(t, map[string]string{
-		ProjectPath("01P_SECRET"):          "name: secret\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
-		EpicPath("01P_SECRET", "01E_RISK"): "name: Risk\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
+		ProjectPath("01P_SECRET"):           "name: secret\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
+		ScopePath("01P_SECRET", "01E_RISK"): "name: Risk\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
 		// The no-project bucket of the CLOSED repository: a column that
 		// places no card by a project, so a card standing in it is placed
 		// by its own team — in the other repository.
-		ProjectPath("_"):           "rank: b\ncreated: 2026-06-02T08:00:00Z\n",
-		EpicPath("_", "01E_CHORE"): "name: Chores\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
-		"cards/t/1/01PARENT1.md":   "---\ntitle: closed work\nteam: portal\nproject: secret\nepic: Risk\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n",
-		"cards/0/1/01KID00001.md":  "---\ntitle: the child\nteam: portal\nparent: 01PARENT1\nepic: Chores\nstart: 2026-08-20\nsprint: 2026-08-24\nrank: b\ncreated: 2026-08-20T09:00:00Z\n---\n",
+		ProjectPath("_"):            "rank: b\ncreated: 2026-06-02T08:00:00Z\n",
+		ScopePath("_", "01E_CHORE"): "name: Chores\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
+		"cards/t/1/01PARENT1.md":    "---\ntitle: closed work\nteam: portal\nproject: secret\nscope: Risk\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n",
+		"cards/0/1/01KID00001.md":   "---\ntitle: the child\nteam: portal\nparent: 01PARENT1\nscope: Chores\nstart: 2026-08-20\nsprint: 2026-08-24\nrank: b\ncreated: 2026-08-20T09:00:00Z\n---\n",
 	})
 	clock := at("2026-08-28T09:00:00Z")
 	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}},
@@ -763,58 +670,6 @@ func TestCreatingASubtaskInsideOneScope(t *testing.T) {
 	}
 }
 
-// Re-assigning a process task inside ONE scope moves the turn that is
-// already running: "who does it" has to take effect on the card in front
-// of the person, not only on next month's. The routing used to re-read the
-// task it had just written — staged, so a bare store answered with the OLD
-// owner, every open turn matched, and the whole re-route silently did
-// nothing for an embedder.
-func TestReRoutingATasksTurnInsideOneScope(t *testing.T) {
-	mb, _, _ := twoDomains(t)
-	svc := boardservice.New(mb)
-	week := board.MondayOf(board.TodayIso())
-	// The process and the task are requests of their own, as they are in
-	// the product — one commit each.
-	plain := ctxAs("kvaps")
-	if err := svc.AddProcess(plain, "acme", "Invoicing", ""); err != nil {
-		t.Fatal(err)
-	}
-	task, err := svc.AddProcessTask(plain, "acme", "Invoicing", boardservice.TaskArgs{
-		Title: "Invoice ACME", Recurrence: "week", Start: week, Team: "portal", Assignee: "alice",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The edit is the request under test, in the scope its commit is made
-	// in: the routing that follows it reads the task this scope has just
-	// written.
-	ctx, flush := WithScope(plain, Action{Name: "process", ID: "01JB4KA0M2P4R6T8V0X2Z4B6N4"})
-	// The task is due this week, so it filed its turn at once — on alice.
-	// Not asserted here: inside the scope that write is staged, and a plain
-	// load reads the repository as it was. The end state says both things.
-	bob := "bob"
-	if err := svc.UpdateProcessTask(ctx, "acme", task.ItemID,
-		boardservice.TaskPatch{Assignee: &bob}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := flush(); err != nil {
-		t.Fatal(err)
-	}
-	after, err := mb.LoadBoard(ctx, "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	its := board.Iterations(after, task.ItemID)
-	if len(its) != 1 {
-		// 0 means the task's create never filed its turn (the spawn read a
-		// task that was not there yet); 2 means the old one was left behind.
-		t.Fatalf("the task filed one turn and it was re-routed, not doubled: %d", len(its))
-	}
-	if len(its[0].Assignees) != 1 || its[0].Assignees[0] != "bob" {
-		t.Fatalf("the running turn follows the task's new owner: %+v", its[0].Assignees)
-	}
-}
-
 // The NO-PROJECT BUCKET must be creatable, not only readable. This line
 // makes it a home like any other — a column cards stand in, mirror into
 // and are removed from, and the one place a teamless card can be created
@@ -828,29 +683,29 @@ func TestTheNoProjectBucketCanBeCreated(t *testing.T) {
 	ctx := ctxAs("kvaps")
 
 	// A column added outside every project.
-	if err := svc.AddEpic(ctx, "acme", "Chores", ""); err != nil {
+	if err := svc.AddScope(ctx, "acme", "Chores", ""); err != nil {
 		t.Fatalf("a column of no project: %v", err)
 	}
 	b, err := mb.LoadBoard(ctx, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := board.FindEpic(b, "", "Chores"); !ok {
-		t.Fatalf("the bucket holds it: %+v", b.Epics)
+	if _, ok := board.FindScope(b, "", "Chores"); !ok {
+		t.Fatalf("the bucket holds it: %+v", b.Scopes)
 	}
 	if _, err := shared.ReadFile(ProjectPath(bucketProjectID)); err != nil {
 		t.Fatalf("under a nameless project stub: %v", err)
 	}
 
 	// And an existing column unbound INTO it — the gesture G57 describes.
-	if err := svc.SetEpicProject(ctx, "acme", "portal", "Bugs", ""); err != nil {
+	if err := svc.SetScopeProject(ctx, "acme", "portal", "Bugs", ""); err != nil {
 		t.Fatalf("unbinding a column moves it to the bucket: %v", err)
 	}
 	if b, err = mb.LoadBoard(ctx, "acme"); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := board.FindEpic(b, "", "Bugs"); !ok {
-		t.Fatalf("and it is there: %+v", b.Epics)
+	if _, ok := board.FindScope(b, "", "Bugs"); !ok {
+		t.Fatalf("and it is there: %+v", b.Scopes)
 	}
 	// One stub, whatever finds it first.
 	if n := len(b.Projects); n != 2 {
@@ -873,10 +728,10 @@ func TestUnbindingAClosedColumnDoesNotMoveTheBoardsBucket(t *testing.T) {
 	// An EMPTY column of the closed repository — a column with cards in it
 	// refuses the unbind for its own reason (their team would move them out
 	// of it, G57).
-	if err := svc.AddEpic(ctx, "acme", "Audit", "secret"); err != nil {
+	if err := svc.AddScope(ctx, "acme", "Audit", "secret"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.SetEpicProject(ctx, "acme", "secret", "Audit", ""); err != nil {
+	if err := svc.SetScopeProject(ctx, "acme", "secret", "Audit", ""); err != nil {
 		t.Fatalf("unbinding a column moves nothing: %v", err)
 	}
 	if _, err := closed.ReadFile(ProjectPath(bucketProjectID)); err != nil {
@@ -884,7 +739,7 @@ func TestUnbindingAClosedColumnDoesNotMoveTheBoardsBucket(t *testing.T) {
 	}
 
 	// A column added to the bucket now still belongs to the PRIMARY.
-	if err := svc.AddEpic(ctx, "acme", "Chores", ""); err != nil {
+	if err := svc.AddScope(ctx, "acme", "Chores", ""); err != nil {
 		t.Fatalf("a column of no project: %v", err)
 	}
 	if _, err := shared.ReadFile(ProjectPath(bucketProjectID)); err != nil {
@@ -900,7 +755,7 @@ func TestUnbindingAClosedColumnDoesNotMoveTheBoardsBucket(t *testing.T) {
 	// …so the gesture the bucket exists for works: a card with no team and
 	// no project, created in it.
 	if _, err := svc.CreateCard(ctx, "acme", boardservice.CreateCardArgs{
-		Title: "loose work", Epic: "Chores",
+		Title: "loose work", Scope: "Chores",
 	}); err != nil {
 		t.Fatalf("a teamless card belongs in the primary's bucket: %v", err)
 	}
@@ -932,7 +787,7 @@ func TestDeletingAStrayColumnStubWritesNoBucket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stray := board.Card{ItemID: "01STRAYCOLUMN00000000000", Title: board.EpicStateTitle, Epic: "Ghost"}
+	stray := board.Card{ItemID: "01STRAYCOLUMN00000000000", Title: board.ScopeStateTitle, Scope: "Ghost"}
 	if err := mb.DeleteCard(ctx, b, stray); err == nil {
 		t.Log("a stub the roster does not hold deletes nothing; an error is fine either way")
 	}

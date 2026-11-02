@@ -36,19 +36,15 @@ func newRemote(t *testing.T, suffix string) gitstore.Remote {
 }
 
 // fixture is a small board with everything the migration has to handle: a
-// team with a sprint pointer, a project with a column and a deadline, a
-// process with a task, cards with events (one done, one done without a
-// recorded jump), an issue card, a subtask, a review pair, a note without an
-// author, and a dangling parent.
+// team with a sprint pointer, a project with a column and a deadline, cards
+// with events (one done, one done without a recorded jump), an issue card, a
+// subtask, a review pair, a note without an author, and a dangling parent.
 func fixture() *boardservicetest.Backend {
 	cards := []board.Card{
 		{ItemID: "PVTI_proj", Title: board.ProjectStateTitle, Project: "portal", CreatedAt: "2026-06-01T08:00:00Z"},
-		{ItemID: "PVTI_epic", Title: board.EpicStateTitle, Epic: "Bugs", Project: "portal", CreatedAt: "2026-06-02T08:00:00Z"},
+		{ItemID: "PVTI_scope", Title: board.ScopeStateTitle, Scope: "Bugs", Project: "portal", CreatedAt: "2026-06-02T08:00:00Z"},
 		{ItemID: "PVTI_dl", Title: board.DeadlineStateTitle, Week: "2026-09-07", Project: "portal", CreatedAt: "2026-06-03T08:00:00Z"},
-		{ItemID: "PVTI_proc", Title: board.ProcessStateTitle, Process: "Invoicing", Project: "portal", CreatedAt: "2026-06-04T08:00:00Z"},
-		{ItemID: "PVTI_task", Title: board.ProcessTaskTitle, Process: "Invoicing", Recurrence: "month", StartDate: "2026-06-01", Team: "portal",
-			Description: "Invoice ACME\nmonthly", CreatedAt: "2026-06-04T09:00:00Z"},
-		{ItemID: "PVTI_a", Title: "leak", Team: "portal", Zone: board.ZoneYellow, Progress: 100, Epic: "Bugs", Project: "portal",
+		{ItemID: "PVTI_a", Title: "leak", Team: "portal", Zone: board.ZoneYellow, Progress: 100, Scope: "Bugs", Project: "portal",
 			StartDate: "2026-08-24", Day: "2026-08-26", SprintStart: "2026-08-24", Assignees: []string{"kitsunoff"}, Author: "kvaps",
 			CreatedAt: "2026-08-24T09:00:00Z", Description: "Memory leak in the portal.",
 			Notes: []board.Note{
@@ -56,7 +52,9 @@ func fixture() *boardservicetest.Backend {
 				{ID: "PVTI_a:6", Body: "legacy note, nobody signed it", CreatedAt: "2026-08-24T11:00:00Z", Source: "draft"},
 			}},
 		{ItemID: "PVTI_b", Title: "done without a jump", Team: "portal", Zone: board.ZoneGray, Progress: 100, CreatedAt: "2026-08-20T09:00:00Z"},
-		{ItemID: "PVTI_sub", Title: "a subtask", Team: "portal", Parent: "PVTI_a", Zone: board.ZoneYellow, CreatedAt: "2026-08-24T12:00:00Z"},
+		// Grouped under the plain card: a card in a column has no subtasks
+		// (H4), and the importer ungroups one that Projects v2 put there.
+		{ItemID: "PVTI_sub", Title: "a subtask", Team: "portal", Parent: "PVTI_b", Zone: board.ZoneYellow, CreatedAt: "2026-08-24T12:00:00Z"},
 		{ItemID: "PVTI_rev", Title: "review: leak", Team: "portal", ReviewOf: "PVTI_a", Assignees: []string{"timur"}, Zone: board.ZoneRed, CreatedAt: "2026-08-26T10:00:00Z"},
 		{ItemID: "PVTI_orphan", Title: "points at a deleted parent", Team: "portal", Parent: "PVTI_gone", CreatedAt: "2026-08-25T09:00:00Z"},
 		{ItemID: "PVTI_issue", Title: "an issue card", Team: "portal", CreatedAt: "2026-08-22T09:00:00Z"},
@@ -135,8 +133,13 @@ func TestFinalTreeEqualsSnapshot(t *testing.T) {
 			leak = c
 		}
 	}
-	if leak.Progress != 100 || leak.Zone != board.ZoneYellow || leak.Epic != "Bugs" || leak.Project != "portal" || leak.GitHubID != "PVTI_a" {
+	if leak.Progress != 100 || leak.Scope != "Bugs" || leak.Project != "portal" || leak.GitHubID != "PVTI_a" {
 		t.Fatalf("leak = %+v", leak)
+	}
+	// A column entry comes in as a PROJECT CARD (H4): the team, the owner,
+	// the band and the size Projects v2 let it carry are not written.
+	if leak.Team != "" || len(leak.Assignees) != 0 || leak.Zone != board.ZoneNone || leak.Size != "" {
+		t.Fatalf("a card in a column is imported with no team and no owner: %+v", leak)
 	}
 	// doneFrom seeded by the walk Reopen does today: the last jump to ≥100
 	// came from 40.
@@ -146,8 +149,8 @@ func TestFinalTreeEqualsSnapshot(t *testing.T) {
 	if len(leak.Notes) != 2 || leak.Notes[0].Body != "reproduced" || len(leak.Notes[0].ID) != 26 || leak.Notes[1].Author != "" {
 		t.Fatalf("notes = %+v", leak.Notes)
 	}
-	if len(s.Teams) != 2 || len(s.Projects) != 1 || len(s.Projects[0].Epics) != 1 || len(s.Projects[0].Deadlines) != 1 || len(s.Processes) != 1 || len(s.Processes[0].Tasks) != 1 {
-		t.Fatalf("roster: teams=%d projects=%+v processes=%+v", len(s.Teams), s.Projects, s.Processes)
+	if len(s.Teams) != 2 || len(s.Projects) != 1 || len(s.Projects[0].Scopes) != 1 || len(s.Projects[0].Deadlines) != 1 {
+		t.Fatalf("roster: teams=%d projects=%+v", len(s.Teams), s.Projects)
 	}
 	if s.Board.Title != "aeman board" || s.Board.Schema != gitstore.SchemaVersion {
 		t.Fatalf("board = %+v", s.Board)
@@ -155,6 +158,36 @@ func TestFinalTreeEqualsSnapshot(t *testing.T) {
 	if rep.Cards != 6 || rep.Events != 5 || rep.DoneFromSeeded != 1 || rep.DoneWithoutJump != 1 {
 		t.Fatalf("report = %+v", rep)
 	}
+}
+
+// A column entry whose only date was its WEEK (a slot of the weekly plan)
+// comes in with that week's dates, Monday to Friday — the Project board draws
+// a card by its dates, and a project card has no week (H4), so without them
+// the card would stand on no board at all.
+func TestAWeekOnlyColumnEntryComesInWithItsWeeksDates(t *testing.T) {
+	src := boardservicetest.New([]board.Card{
+		{ItemID: "PVTI_proj", Title: board.ProjectStateTitle, Project: "portal", CreatedAt: "2026-06-01T08:00:00Z"},
+		{ItemID: "PVTI_scope", Title: board.ScopeStateTitle, Scope: "Bugs", Project: "portal", CreatedAt: "2026-06-02T08:00:00Z"},
+		{ItemID: "PVTI_slot", Title: "a slot of the week", Scope: "Bugs", Project: "portal", Week: "2026-09-07", CreatedAt: "2026-08-24T09:00:00Z"},
+	}, map[string]board.SprintState{"": {ItemID: "PVTI_noteam"}})
+	remote := newRemote(t, "")
+	if _, err := Run(context.Background(), fakeSource{src}, memory.NewStorage(), remote, base); err != nil {
+		t.Fatal(err)
+	}
+	s, err := gitstore.Load(clone(t, remote))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range s.Cards {
+		if c.Title != "a slot of the week" {
+			continue
+		}
+		if c.StartDate != "2026-09-07" || c.Day != "2026-09-11" || c.Week != "" {
+			t.Fatalf("a week-only column entry came in as start %q day %q week %q, want its week's Monday..Friday", c.StartDate, c.Day, c.Week)
+		}
+		return
+	}
+	t.Fatal("the column entry was not imported")
 }
 
 // The event log becomes history: one commit per event, dated and authored
@@ -224,8 +257,8 @@ func TestDeterministicIDsAndRemappedReferences(t *testing.T) {
 	for _, c := range s.Cards {
 		byGH[c.GitHubID] = c
 	}
-	if byGH["PVTI_sub"].Parent != byGH["PVTI_a"].ItemID || byGH["PVTI_rev"].ReviewOf != byGH["PVTI_a"].ItemID {
-		t.Fatalf("references not remapped: sub.parent=%s rev.reviewOf=%s a=%s", byGH["PVTI_sub"].Parent, byGH["PVTI_rev"].ReviewOf, byGH["PVTI_a"].ItemID)
+	if byGH["PVTI_sub"].Parent != byGH["PVTI_b"].ItemID || byGH["PVTI_rev"].ReviewOf != byGH["PVTI_a"].ItemID {
+		t.Fatalf("references not remapped: sub.parent=%s rev.reviewOf=%s b=%s a=%s", byGH["PVTI_sub"].Parent, byGH["PVTI_rev"].ReviewOf, byGH["PVTI_b"].ItemID, byGH["PVTI_a"].ItemID)
 	}
 	if byGH["PVTI_orphan"].Parent != "" {
 		t.Fatalf("dangling parent kept: %q", byGH["PVTI_orphan"].Parent)
@@ -234,10 +267,6 @@ func TestDeterministicIDsAndRemappedReferences(t *testing.T) {
 		if len(c.ItemID) != 26 || strings.HasPrefix(c.ItemID, "PVTI") {
 			t.Fatalf("id not a ULID: %s", c.ItemID)
 		}
-	}
-	// The task points at its process by name and lives under its directory.
-	if s.Processes[0].Tasks[0].Card.Process != "Invoicing" {
-		t.Fatalf("task = %+v", s.Processes[0].Tasks[0].Card)
 	}
 }
 

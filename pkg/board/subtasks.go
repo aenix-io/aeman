@@ -1,15 +1,29 @@
 package board
 
-// Subtasks: a card may group child cards one level deep. A child carries its
+// Subtasks: a TASK may group child tasks one level deep. A child carries its
 // parent's item id in Parent; it works like any card (own description, notes,
 // log, stage, progress) but rides with its parent through Carry Over and is
 // rendered nested under it.
+//
+// `parent` is also the hierarchy's link (hierarchy.go): a task under an epic
+// carries one too, and is NOT a subtask. Everything here answers for tasks
+// under tasks and stops at a planning card — a goal's children are not its
+// subtasks, do not drive its progress, and do not follow it between
+// repositories.
 
-// Children returns the subtasks of a card, in board order.
+// Children returns the subtasks of a task, in board order: the cards whose
+// parent it is. A planning card has none — what sits under it is the
+// hierarchy's (ChildrenOf), and never its subtasks.
 func Children(b Board, itemID string) []Card {
+	if itemID == "" {
+		return nil
+	}
+	if p, ok := Find(b, itemID); ok && IsPlanning(p) {
+		return nil
+	}
 	var out []Card
 	for _, c := range b.Cards {
-		if c.Parent == itemID {
+		if c.Parent == itemID && !IsPlanning(c) {
 			out = append(out, c)
 		}
 	}
@@ -22,9 +36,13 @@ func Children(b Board, itemID string) []Card {
 // columnless child hides a columned review card. What follows a card
 // cannot be left behind by a move: neither its file nor the rules that
 // read it.
+//
+// A hierarchy link is not one of them: a task under an epic lives where its
+// own project or team lives (H6), so nothing follows a planning card.
+//
 // Cost: one pass over the board's cards per ring of the walk, and the
 // rings are shallow (a card, its subtasks and its review card). A caller
-// that asks for every card of a COLUMN — SetEpicProject does — pays that
+// that asks for every card of a COLUMN — SetScopeProject does — pays that
 // per card; at board scale it is nothing, and a card index would be the
 // answer if a board ever made it one.
 func Followers(b Board, itemID string) []Card {
@@ -32,6 +50,9 @@ func Followers(b Board, itemID string) []Card {
 	// empty reviewOf, so an unset id used to adopt the whole board — and
 	// this is exported for tools that may well pass one.
 	if itemID == "" {
+		return nil
+	}
+	if p, ok := Find(b, itemID); ok && IsPlanning(p) {
 		return nil
 	}
 	var out []Card
@@ -73,10 +94,10 @@ func DerivedProgress(children []Card) int {
 	return sum * 90 / (len(children) * 100)
 }
 
-// OpenChildren reports whether any of a card's subtasks is still unfinished.
+// OpenChildren reports whether any of a task's subtasks is still unfinished.
 func OpenChildren(b Board, itemID string) bool {
-	for _, c := range b.Cards {
-		if c.Parent == itemID && !Complete(c.Stage, c.Progress) {
+	for _, c := range Children(b, itemID) {
+		if !Complete(c.Stage, c.Progress) {
 			return true
 		}
 	}

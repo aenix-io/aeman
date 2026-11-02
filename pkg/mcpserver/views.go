@@ -18,7 +18,7 @@ import (
 
 // boardStand is where a gesture is made from.
 type boardStand struct {
-	View string `json:"view,omitempty" jsonschema:"the BOARD you are acting from, when you are acting AS one: me (your own day board), team (the lead's grid — say team too), triage (the weeks), backlog (a team's parked work), project (the columns), or all when you have no board at all. Left out, nothing is assumed — you are not standing anywhere. Naming a board is how you ask to be held to it: a gesture that board does not draw, or one on a card it does not show, is then refused the way it would be refused of a person looking at that screen"`
+	View string `json:"view,omitempty" jsonschema:"the BOARD you are acting from, when you are acting AS one: me (your own day board), team (the lead's grid — say team too), triage (the weeks), backlog (a team's parked work), roadmap (the hierarchy: goals, initiatives, epics and the cards under them), project (the columns), or all when you have no board at all. Left out, nothing is assumed — you are not standing anywhere. Naming a board is how you ask to be held to it: a gesture that board does not draw, or one on a card it does not show, is then refused the way it would be refused of a person looking at that screen"`
 	Team string `json:"team,omitempty" jsonschema:"the team whose board you are acting from (team and triage); the card's own team by default"`
 	Day  string `json:"day,omitempty" jsonschema:"the day of the day board you are acting from; today by default"`
 	User string `json:"user,omitempty" jsonschema:"whose me board you are acting from; yourself by default"`
@@ -113,6 +113,27 @@ func (h *server) placeCard(ctx context.Context, _ *mcp.CallToolRequest, in place
 	return h.cardResource(ctx, svc, boardID, in.UID)
 }
 
+type ownInput struct {
+	cardRef
+	boardStand
+	Team   string `json:"team,omitempty" jsonschema:"the team the card is handed to; left out with no person, the team comes off"`
+	Person string `json:"person,omitempty" jsonschema:"the person on that team the card is handed to; needs a team"`
+}
+
+func (h *server) ownCard(ctx context.Context, _ *mcp.CallToolRequest, in ownInput) (*mcp.CallToolResult, apiserver.Card, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	if err := h.gestureOn(ctx, svc, boardID, in.boardStand, boardservice.GestureOwn, in.UID); err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	if err := svc.Own(ctx, boardID, in.UID, in.Team, in.Person); err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	return h.cardResource(ctx, svc, boardID, in.UID)
+}
+
 type standOnCard struct {
 	cardRef
 	boardStand
@@ -164,18 +185,18 @@ func (h *server) reorderTeams(ctx context.Context, _ *mcp.CallToolRequest, in re
 	return nil, statusOutput{Status: "reordered"}, nil
 }
 
-type reorderEpicsInput struct {
+type reorderScopesInput struct {
 	boardRef
 	Project string   `json:"project,omitempty" jsonschema:"the project whose columns these are; empty is the no-project bucket"`
-	Epics   []string `json:"epics" jsonschema:"that project's column names in the order they are to stand in"`
+	Scopes  []string `json:"scopes" jsonschema:"that project's column names in the order they are to stand in"`
 }
 
-func (h *server) reorderEpics(ctx context.Context, _ *mcp.CallToolRequest, in reorderEpicsInput) (*mcp.CallToolResult, statusOutput, error) {
+func (h *server) reorderScopes(ctx context.Context, _ *mcp.CallToolRequest, in reorderScopesInput) (*mcp.CallToolResult, statusOutput, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.ReorderEpics(ctx, boardID, in.Project, in.Epics); err != nil {
+	if err := svc.ReorderScopes(ctx, boardID, in.Project, in.Scopes); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "reordered"}, nil

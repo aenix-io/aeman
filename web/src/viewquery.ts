@@ -4,7 +4,7 @@
 import { mondayOf, todayIso } from "./date";
 import { WEEKS_FWD } from "./weekgrid";
 
-export type ViewMode = "me" | "team" | "triage" | "project" | "process";
+export type ViewMode = "me" | "team" | "triage" | "roadmap" | "project";
 
 // TRIAGE_WEEKS is how many weeks the Triage board asks for, the current one
 // included — and it is DERIVED from how many the board draws, never chosen
@@ -46,13 +46,17 @@ export function viewQueries(
     }
     return [q];
   }
-  if (view === "project" || view === "process") {
-    // Every epic-filed card of every project, all weeks: the Project board
+  if (view === "project") {
+    // Every scope-filed card of every project, all weeks: the Project board
     // lays the table out itself and the project chips filter client-side, so
-    // switching projects costs no request. The Process tab reads its own
-    // endpoint for the processes and needs no cards, but keeps the same
-    // selection so flipping between the two tabs costs nothing either.
+    // switching projects costs no request.
     return [{ view: "project" }];
+  }
+  if (view === "roadmap") {
+    // The hierarchy: every planning card and every card under one, board-
+    // wide. The tree is assembled client-side from `parent`; never a
+    // snapshot — it is not a day board (docs/design/hierarchy.md).
+    return [{ view: "roadmap" }];
   }
   const team = teams.join(",");
   if (view === "triage") {
@@ -89,7 +93,7 @@ export function viewQueries(
 
 // snapshotDay reports that a day is one the board can be shown AS IT WAS: a
 // past day on a daily board (Me or Team). Today is live, tomorrow has not
-// happened, and the Project and Process boards are not day boards at all.
+// happened, and the Project board is not a day board at all.
 // Mirrors the server's own condition (boardOfRequest, internal/server/api.go).
 export function snapshotDay(view: ViewMode, day: string, today = todayIso()): boolean {
   return (view === "me" || view === "team") && day !== "" && day < today;
@@ -104,8 +108,11 @@ export function watchQuery(
   teams: string[],
   viewAs?: string,
 ): Record<string, string> {
-  if (view === "project" || view === "process") {
+  if (view === "project") {
     return { view: "project" };
+  }
+  if (view === "roadmap") {
+    return { view: "roadmap" };
   }
   if (view === "me") {
     const q: Record<string, string> = { view: "me", day, reviews: "true" };

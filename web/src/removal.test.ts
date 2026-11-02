@@ -47,15 +47,6 @@ describe("what each × does, one answer for every board", () => {
     expect(gridRemoval({ week: "2026-08-24" }, ctx)).toBe("delete");
   });
 
-  // A PROCESS TURN never runs out: its week is its process's record of what
-  // that week was owed, and destroying it would lose the record.
-  it("always leaves a process turn in its week", () => {
-    expect(gridRemoval({ ...inSprint, week: "2026-08-24", task: "t1" }, ctx)).toBe(
-      "leave",
-    );
-    expect(gridRemoval({ week: "2026-08-24", task: "t1" }, ctx)).toBe("leave");
-  });
-
   // The Me board asked this question on its own and answered it differently
   // for a subtask, which the server then applied to the child alone —
   // splitting it from its parent, and looking like the × had done nothing.
@@ -64,10 +55,10 @@ describe("what each × does, one answer for every board", () => {
     expect(gridRemoval({ ...inSprint, parent: "p", week: "2026-08-24" }, ctx)).toBe(
       "delete",
     );
-    // A COLUMN is the exception: it is a home of its own, drawn and counted
-    // on the Project board (G57), and a card filed under one is never
-    // deleted by either ×.
-    expect(gridRemoval({ ...inSprint, parent: "p", epic: "Auth" }, ctx)).toBe("ungroup");
+    // A column written on a subtask (a repository from before schema 2)
+    // spares it nothing: a card in a column is nobody's subtask (H4), so
+    // the pair is not a home and the × answers for the subtask.
+    expect(gridRemoval({ ...inSprint, parent: "p", scope: "Auth" }, ctx)).toBe("delete");
   });
 
   it("deletes a card of the current sprint, which is nowhere else", () => {
@@ -77,7 +68,7 @@ describe("what each × does, one answer for every board", () => {
   });
 
   it("leaves a slot to its column and deletes a card with nowhere else", () => {
-    expect(gridRemoval({ ...inSprint, epic: "Auth" }, ctx)).toBe("leave");
+    expect(gridRemoval({ ...inSprint, scope: "Auth" }, ctx)).toBe("leave");
     expect(gridRemoval(inSprint, ctx)).toBe("delete");
     // A bare project name is a label, on no board: it spares nothing.
     expect(gridRemoval({ ...inSprint, project: "core" }, ctx)).toBe("delete");
@@ -153,13 +144,13 @@ describe("freeing the subtasks of a deleted parent", () => {
 describe("gridRemoval on a subtask", () => {
   const ctx = { today: "2026-08-24", current: "2026-08-24", previous: "2026-08-17" };
 
-  it("ungroups a subtask that stands in a column, leaving it there", () => {
+  it("deletes a subtask whatever column is written on it (H4: a project card is nobody's subtask)", () => {
     expect(
       gridRemoval(
-        mk({ parent: "p1", project: "engineering", epic: "Cozystack", sprintStart: "2026-08-24" }),
+        mk({ parent: "p1", project: "engineering", scope: "Cozystack", sprintStart: "2026-08-24" }),
         ctx,
       ),
-    ).toBe("ungroup");
+    ).toBe("delete");
   });
 
   it("deletes a subtask with nowhere else to be", () => {
@@ -175,7 +166,7 @@ describe("subtaskRemovalPatch", () => {
   const ctx = { today: "2026-08-24", current: "2026-08-24", previous: "2026-08-17" };
   const kid = {
     parent: "p",
-    epic: "Closed",
+    scope: "Closed",
     project: "strategy",
     sprintStart: "2026-08-24",
     startDate: "2026-08-20",
@@ -190,39 +181,24 @@ describe("subtaskRemovalPatch", () => {
     });
   });
 
-  // A subtask whose column cannot follow it out is DELETED now (the board
-  // drops the row rather than patching it), so the release patch is the
-  // only one there is — and it must not depend on the context, or a board
-  // would patch a card it is about to remove.
-  it("is the same patch whether or not the column can follow", () => {
-    expect(subtaskRemovalPatch(mk(kid), { ...ctx, columnFollows: false })).toEqual(
-      subtaskRemovalPatch(mk(kid), ctx),
-    );
-  });
-
   // The inverse has to cover the gesture: a board that rolls back fewer
   // fields than it patched leaves the card ungrouped and stripped of its
   // column on screen while the server still holds it as a subtask in it.
   it("has an undo for every field it can write", () => {
-    const written = {
-      ...subtaskRemovalPatch(mk(kid), ctx),
-      ...subtaskRemovalPatch(mk(kid), { ...ctx, columnFollows: false }),
-    };
+    const written = subtaskRemovalPatch(mk(kid), ctx);
     const undo = subtaskRemovalUndo(kid);
     for (const key of Object.keys(written)) {
       expect(undo).toHaveProperty(key);
     }
     // …with the card's own values, not empty ones.
     expect(undo.parent).toBe("p");
-    expect(undo.epic).toBe("Closed");
+    expect(undo.scope).toBe("Closed");
     expect(undo.day).toBe("2026-08-24");
   });
 
   it("leaves a card with no end day without one", () => {
     const noDay = { ...kid, day: undefined };
-    expect(
-      subtaskRemovalPatch(mk(noDay), { ...ctx, columnFollows: false }),
-    ).not.toHaveProperty("day");
+    expect(subtaskRemovalPatch(mk(noDay), ctx)).not.toHaveProperty("day");
   });
 });
 
@@ -268,10 +244,9 @@ describe("sending finished work back to the sprint it was done in", () => {
   });
 
   it("is not offered for work another board owns", () => {
-    // A Project-board slot and a process turn carry their own dates, and the
-    // sprint is not what places them.
-    expect(removeChoices({ ...done, epic: "Auth" }, ctx)).not.toContain("finished-earlier");
-    expect(removeChoices({ ...done, task: "t1" }, ctx)).not.toContain("finished-earlier");
+    // A Project-board slot carries its own dates, and the sprint is not what
+    // places it.
+    expect(removeChoices({ ...done, scope: "Auth" }, ctx)).not.toContain("finished-earlier");
   });
 
   it("stands after the answers that destroy, and before the backlog", () => {
@@ -335,10 +310,7 @@ describe("what the × offers", () => {
   });
 
   it("does not offer it to work another board owns", () => {
-    expect(removeChoices({ ...held, epic: "Auth" }, ctx)).not.toContain("backlog");
-    expect(removeChoices({ ...held, task: "t1", week: "2026-08-24" }, ctx)).not.toContain(
-      "backlog",
-    );
+    expect(removeChoices({ ...held, scope: "Auth" }, ctx)).not.toContain("backlog");
   });
 
   it("does not offer it to a card already on the shelf", () => {
@@ -354,36 +326,27 @@ describe("what the × offers", () => {
 
   it("offers a PROJECT card its column and nothing else", () => {
     // The Project board's commitment is not this board's to destroy.
-    expect(removeChoices({ ...held, epic: "Auth" }, ctx)).toEqual(["unassign"]);
-  });
-
-  it("offers a PROCESS TURN its week and nothing else", () => {
-    expect(removeChoices({ ...held, task: "t1", week: "2026-08-24" }, ctx)).toEqual([
-      "unassign",
-    ]);
+    expect(removeChoices({ ...held, scope: "Auth" }, ctx)).toEqual(["unassign"]);
   });
 
   it("offers a project card in Unassigned nothing at all — so no × is drawn", () => {
-    expect(removeChoices({ epic: "Auth" }, ctx)).toEqual([]);
-    expect(offersRemoval({ epic: "Auth" }, ctx)).toBe(false);
+    expect(removeChoices({ scope: "Auth" }, ctx)).toEqual([]);
+    expect(offersRemoval({ scope: "Auth" }, ctx)).toBe(false);
     // Dated, and still nobody's: the × has nothing to do here either.
-    expect(offersRemoval({ epic: "Auth", sprintStart: "2026-08-24" }, ctx)).toBe(false);
-    expect(removeChoices({ task: "t1", week: "2026-08-24" }, ctx)).toEqual([]);
-    expect(offersRemoval({ task: "t1", week: "2026-08-24" }, ctx)).toBe(false);
+    expect(offersRemoval({ scope: "Auth", sprintStart: "2026-08-24" }, ctx)).toBe(false);
   });
 
   it("keeps drawing the × wherever there is something to do", () => {
-    expect(offersRemoval({ ...held, epic: "Auth" }, ctx)).toBe(true);
+    expect(offersRemoval({ ...held, scope: "Auth" }, ctx)).toBe(true);
     expect(offersRemoval({ week: "2026-08-24" }, ctx)).toBe(true);
     expect(offersRemoval({}, ctx)).toBe(true);
   });
 
-  // A SUBTASK is its own case: out of the group where it has a column to be
-  // left in, off the board where it has not.
-  it("takes a subtask out of its group, or off the board", () => {
-    expect(removeChoices({ ...held, parent: "p", epic: "Auth" }, ctx)).toEqual([
-      "ungroup",
-    ]);
+  // A SUBTASK has no home of its own to be left in: the × takes it off the
+  // board. (It used to be left in a column it carried; a card in a column
+  // is nobody's subtask now, H4.)
+  it("takes a subtask off the board", () => {
+    expect(removeChoices({ ...held, parent: "p", scope: "Auth" }, ctx)).toEqual(["off-board"]);
     expect(removeChoices({ ...held, parent: "p" }, ctx)).toEqual(["off-board"]);
   });
 });

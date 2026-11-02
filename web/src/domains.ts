@@ -1,7 +1,7 @@
 // The board's domains — the repositories its cards live in. The first one is
 // the primary; a board with a single domain shows nothing of this at all.
 // Pure helpers shared by the card badge, the create flows (which repository a
-// new team/project/process is declared in) and the reviewer picker.
+// new team/project is declared in) and the reviewer picker.
 
 /** DomainInfo is one repository of the board as GET /board reports it. The
  *  board lists them whatever it spans — one entry for a single-repository

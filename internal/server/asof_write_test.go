@@ -55,7 +55,7 @@ func TestAWriteFromAPastDayIsRefused(t *testing.T) {
 		return when
 	}
 	if _, err := r.Commit(gitstore.Action{Name: "import", Summary: "seed", At: at("2026-08-20T09:00:00Z")}, []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
 		teamFile("01JB4TEAMA", "portal", "2026-08-20", ""),
 		teamFile("01JB4TEAMB", "backoffice", "2026-08-20", ""),
 		card(settled, "portal", 20),

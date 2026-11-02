@@ -56,8 +56,7 @@ Beside the day boards sits **Triage**: the weeks laid out side by side, a column
 ```
 board.yaml                        # schema, title
 teams/<id>.yaml                   # a team and its sprint pointer (teams/_.yaml = no team)
-projects/<id>/project.yaml        # a project; its epic columns and deadlines beside it
-processes/<id>/process.yaml       # recurring work; its tasks beside it
+projects/<id>/project.yaml        # a project; its scope columns and deadlines beside it
 cards/<a>/<b>/<id>.md             # a card: YAML front-matter, description, ## Notes
 ```
 
@@ -84,7 +83,7 @@ make frontend       # build the SPA once into web/dist
 make run            # go run ./cmd/aeman serve
 ```
 
-`aeman serve` flags: `--repo name=url` (repeatable; the board's repositories, primary first — env `AEMAN_REPOS`), `--data` (where the clones live), `--history` (how far back the log is loaded in the background, default 2 weeks) and `--history-max` (how far a card's log may deepen on demand, default a year), `--sync-interval` (fetch cadence, 15 s), `--unpushed-warn` (age of an unpushed commit that turns `/api/healthz` degraded, 5 m), `--committer` and `--author-email`, `--addr`, `--open`, `--verbose`. Each flag has an `AEMAN_*` environment twin; the push credential is `AEMAN_GIT_TOKEN`, never a flag. ("Project" is aeman's own planning entity — a group of epic columns — not a repository.)
+`aeman serve` flags: `--repo name=url` (repeatable; the board's repositories, primary first — env `AEMAN_REPOS`), `--data` (where the clones live), `--history` (how far back the log is loaded in the background, default 2 weeks) and `--history-max` (how far a card's log may deepen on demand, default a year), `--sync-interval` (fetch cadence, 15 s), `--unpushed-warn` (age of an unpushed commit that turns `/api/healthz` degraded, 5 m), `--committer` and `--author-email`, `--addr`, `--open`, `--verbose`. Each flag has an `AEMAN_*` environment twin; the push credential is `AEMAN_GIT_TOKEN`, never a flag. ("Project" is aeman's own planning entity — a group of scope columns — not a repository.)
 
 The board lives on one **forge** — GitHub or GitLab (gitlab.com or self-hosted) — which signs visitors in and answers who may read which repository. `--forge github|gitlab` (`AEMAN_FORGE`) picks it; unset, it follows the primary repository's host: `github.com` → GitHub, a host containing `gitlab` → GitLab, anything else → GitHub unless `AEMAN_GITLAB_URL` is set. `--gitlab-url` (`AEMAN_GITLAB_URL`) names a self-hosted GitLab's base URL (default `https://<host of the primary repository>`). Without OAuth variables the binary runs in the local, single-user mode. The push credential is `AEMAN_GIT_TOKEN` when set, else `GITHUB_TOKEN`/`GH_TOKEN` (GitHub) or `GITLAB_TOKEN` (GitLab), else the OS keychain that `aeman login` writes, else the forge's CLI signed in on the machine (`gh auth login`, `glab auth login`). The identity is whoever that credential belongs to — the same order, so the push and the name on the commits are one account. `AEMAN_GIT_TOKEN` is the exception: it names the server's credential only, and the identity then starts at the forge's own variables.
 

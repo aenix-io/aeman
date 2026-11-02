@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -16,7 +17,7 @@ import (
 
 // Backend is boardservice.Backend over one domain's repository. The service
 // speaks the state-card protocol it always has — a stub card whose Title is
-// an aeman:*-state marker stands for a team, epic, project, deadline or
+// an aeman:*-state marker stands for a team, scope, project, deadline or
 // process — and the backend routes those onto roster files. Every mutation
 // is a commit: on its own when called bare, or folded into the enclosing
 // action's single commit when the context carries a scope (WithScope).
@@ -44,7 +45,6 @@ func NewBackend(repo *Repo, opts BackendOptions) *Backend {
 // Errors the backend reports for the roster protocol.
 var (
 	ErrProjectNotFound = errors.New("gitstore: project not found")
-	ErrProcessNotFound = errors.New("gitstore: process not found")
 	ErrNoteNotFound    = errors.New("gitstore: note not found")
 	ErrCardNotFound    = errors.New("gitstore: card not found")
 )
@@ -66,9 +66,8 @@ type scope struct {
 	cards   map[string]bool
 	// roster names created inside the scope, so a later write in the same
 	// action can find them before anything is committed.
-	projects  map[string]string
-	processes map[string]string
-	teams     map[string]string
+	projects map[string]string
+	teams    map[string]string
 }
 
 // scopePart is one repository's staged writes, and the trailers only its
@@ -113,7 +112,7 @@ func (sc *scope) part(r *Repo) *scopePart {
 // repositories it returns the last commit's hash.
 func WithScope(ctx context.Context, a Action) (context.Context, func() (plumbing.Hash, error)) {
 	sc := &scope{action: a, parts: map[*Repo]*scopePart{}, cards: map[string]bool{},
-		projects: map[string]string{}, processes: map[string]string{}, teams: map[string]string{}}
+		projects: map[string]string{}, teams: map[string]string{}}
 	for _, id := range a.Cards {
 		sc.cards[id] = true
 	}
@@ -262,11 +261,29 @@ func (b *Backend) writeWith(ctx context.Context, op string, cards []string, p st
 
 // ---- loading -----------------------------------------------------------------------
 
+// stagedIn is what an action has written to a repository so far — the files
+// a board read inside the action lays over the tip (loadOverlaid). Nil
+// outside a scope, or when the action has not touched this repository.
+func stagedIn(ctx context.Context, r *Repo) map[string][]byte {
+	sc := scopeOf(ctx)
+	if sc == nil {
+		return nil
+	}
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	part, ok := sc.parts[r]
+	if !ok || len(part.staged) == 0 {
+		return nil
+	}
+	return maps.Clone(part.staged)
+}
+
 // LoadBoard reads the domain and hands the service the shape it expects:
 // the roster files become the state cards NewBoard splits back out, so the
-// duplicate and ordering rules stay in one place.
-func (b *Backend) LoadBoard(_ context.Context, boardID string) (board.Board, error) {
-	s, err := Load(b.repo)
+// duplicate and ordering rules stay in one place. Inside a scope the board
+// is read as the action has left it, staged writes included.
+func (b *Backend) LoadBoard(ctx context.Context, boardID string) (board.Board, error) {
+	s, err := loadOverlaid(b.repo, stagedIn(ctx, b.repo))
 	if err != nil {
 		return board.Board{}, err
 	}
@@ -308,22 +325,11 @@ func boardFromSnapshotIn(primary string, s Snapshot) board.Board {
 		cards = append(cards, board.Card{ItemID: p.ID, Title: board.ProjectStateTitle, Project: p.Name, Rank: p.Rank, CreatedAt: p.Created, Domain: p.Domain})
 	}
 	for _, p := range s.Projects {
-		for _, e := range p.Epics {
-			cards = append(cards, board.Card{ItemID: e.ID, Title: board.EpicStateTitle, Epic: e.Name, Project: p.Name, Rank: e.Rank, CreatedAt: e.Created, Domain: e.Domain})
+		for _, e := range p.Scopes {
+			cards = append(cards, board.Card{ItemID: e.ID, Title: board.ScopeStateTitle, Scope: e.Name, Project: p.Name, Rank: e.Rank, CreatedAt: e.Created, Domain: e.Domain})
 		}
 		for _, d := range p.Deadlines {
 			cards = append(cards, board.Card{ItemID: d.ID, Title: board.DeadlineStateTitle, Week: d.Week, Project: p.Name, CreatedAt: d.Created, Domain: d.Domain})
-		}
-	}
-	for _, pr := range s.Processes {
-		cards = append(cards, board.Card{ItemID: pr.ID, Title: board.ProcessStateTitle, Process: pr.Name, Project: pr.Project, Paused: pr.Paused, Rank: pr.Rank, CreatedAt: pr.Created, Domain: pr.Domain})
-		for _, k := range pr.Tasks {
-			c := k.Card
-			c.ItemID = k.ID
-			c.Title = board.ProcessTaskTitle
-			c.Process = pr.Name
-			c.Domain = k.Domain
-			cards = append(cards, c)
 		}
 	}
 	cards = append(cards, s.Cards...)
@@ -381,7 +387,10 @@ func (b *Backend) LoadCards(ctx context.Context, _ board.Board, ids []string) ([
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, f.Card)
+		// Read by the same rules a read of the whole board applies to one
+		// card, or the reload of a card a commit wrote would disagree with
+		// the board about the same file.
+		out = append(out, board.SettleCard(f.Card))
 	}
 	return out, nil
 }
@@ -413,18 +422,18 @@ func (b *Backend) CreateCard(ctx context.Context, _ board.Board, in board.Create
 		}
 		return board.Card{ItemID: id, Title: in.Title, Project: in.Project, Rank: rank, CreatedAt: created},
 			b.write(ctx, "add-project", nil, ProjectPath(id), data)
-	case board.EpicStateTitle:
+	case board.ScopeStateTitle:
 		pid, pr, err := b.projectByName(ctx, s, in.Project, true)
 		if err != nil {
 			return board.Card{}, err
 		}
-		rank, _ := board.RankBetween(lastRank(len(pr.Epics), func(i int) string { return pr.Epics[i].Rank }), "")
-		data, err := EncodeEpic(EpicFile{Name: in.Epic, Rank: rank, Created: created})
+		rank, _ := board.RankBetween(lastRank(len(pr.Scopes), func(i int) string { return pr.Scopes[i].Rank }), "")
+		data, err := EncodeScope(ScopeFile{Name: in.Scope, Rank: rank, Created: created})
 		if err != nil {
 			return board.Card{}, err
 		}
-		return board.Card{ItemID: id, Title: in.Title, Epic: in.Epic, Project: in.Project, Rank: rank, CreatedAt: created},
-			b.write(ctx, "add-epic", nil, EpicPath(pid, id), data)
+		return board.Card{ItemID: id, Title: in.Title, Scope: in.Scope, Project: in.Project, Rank: rank, CreatedAt: created},
+			b.write(ctx, "add-scope", nil, ScopePath(pid, id), data)
 	case board.DeadlineStateTitle:
 		pid, _, err := b.projectByName(ctx, s, in.Project, true)
 		if err != nil {
@@ -436,29 +445,6 @@ func (b *Backend) CreateCard(ctx context.Context, _ board.Board, in board.Create
 		}
 		return board.Card{ItemID: id, Title: in.Title, Week: in.Week, Project: in.Project, CreatedAt: created},
 			b.write(ctx, "add-deadline", nil, DeadlinePath(pid, id), data)
-	case board.ProcessStateTitle:
-		rank, _ := board.RankBetween(lastRank(len(s.Processes), func(i int) string { return s.Processes[i].Rank }), "")
-		data, err := EncodeProcess(ProcessFile{Name: in.Process, Project: in.Project, Paused: in.Paused, Rank: rank, Created: created})
-		if err != nil {
-			return board.Card{}, err
-		}
-		if sc := scopeOf(ctx); sc != nil {
-			sc.processes[in.Process] = id
-		}
-		return board.Card{ItemID: id, Title: in.Title, Process: in.Process, Project: in.Project, Paused: in.Paused, Rank: rank, CreatedAt: created},
-			b.write(ctx, "add-process", nil, ProcessPath(id), data)
-	case board.ProcessTaskTitle:
-		pid, pr, err := b.processByName(ctx, s, in.Process)
-		if err != nil {
-			return board.Card{}, err
-		}
-		c := cardFromInput(in, id, created, board.ActorFrom(ctx))
-		c.Rank, _ = board.RankBetween(lastRank(len(pr.Tasks), func(i int) string { return pr.Tasks[i].Card.Rank }), "")
-		data, err := EncodeCard(CardFile{Card: c})
-		if err != nil {
-			return board.Card{}, err
-		}
-		return c, b.write(ctx, "add-task", []string{id}, TaskPath(pid, id), data)
 	}
 	c := cardFromInput(in, id, created, board.ActorFrom(ctx))
 	c.Rank, _ = board.RankBetween(lastRank(len(s.Cards), func(i int) string { return s.Cards[i].Rank }), "")
@@ -472,10 +458,10 @@ func (b *Backend) CreateCard(ctx context.Context, _ board.Board, in board.Create
 
 func cardFromInput(in board.CreateInput, id, created, author string) board.Card {
 	c := board.Card{
-		ItemID: id, Title: in.Title, Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
-		Team: in.Team, ReviewOf: in.ReviewOf, Parent: in.Parent, Week: in.Week, Epic: in.Epic,
+		ItemID: id, Title: in.Title, Type: in.Type, Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
+		Team: in.Team, ReviewOf: in.ReviewOf, Parent: in.Parent, Week: in.Week, Scope: in.Scope,
 		Parked: in.Parked, Size: in.Size,
-		Project: in.Project, Process: in.Process, Task: in.Task, Recurrence: in.Recurrence, Paused: in.Paused,
+		Project: in.Project, Recurrence: in.Recurrence,
 		Description: in.Body, CreatedAt: created, Author: author,
 	}
 	if in.Assignee != "" {
@@ -559,20 +545,6 @@ func (b *Backend) bucketProject(ctx context.Context, s Snapshot) (string, Projec
 	return bucketProjectID, Project{ID: bucketProjectID, ProjectFile: ProjectFile{Rank: rank}}, nil
 }
 
-func (b *Backend) processByName(ctx context.Context, s Snapshot, name string) (string, Process, error) {
-	for _, p := range s.Processes {
-		if p.Name == name {
-			return p.ID, p, nil
-		}
-	}
-	if sc := scopeOf(ctx); sc != nil {
-		if id, ok := sc.processes[name]; ok {
-			return id, Process{ID: id}, nil
-		}
-	}
-	return "", Process{}, fmt.Errorf("%w: %q", ErrProcessNotFound, name)
-}
-
 // pathFor is where a card or stub lives.
 func (b *Backend) pathFor(ctx context.Context, s Snapshot, c board.Card) (string, error) {
 	switch c.Title {
@@ -580,9 +552,9 @@ func (b *Backend) pathFor(ctx context.Context, s Snapshot, c board.Card) (string
 		return TeamPath(c.ItemID), nil
 	case board.ProjectStateTitle:
 		return ProjectPath(c.ItemID), nil
-	case board.EpicStateTitle:
+	case board.ScopeStateTitle:
 		pid, err := b.projectOfChild(ctx, s, c, func(p Project) bool {
-			for _, e := range p.Epics {
+			for _, e := range p.Scopes {
 				if e.ID == c.ItemID {
 					return true
 				}
@@ -592,7 +564,7 @@ func (b *Backend) pathFor(ctx context.Context, s Snapshot, c board.Card) (string
 		if err != nil {
 			return "", err
 		}
-		return EpicPath(pid, c.ItemID), nil
+		return ScopePath(pid, c.ItemID), nil
 	case board.DeadlineStateTitle:
 		pid, err := b.projectOfChild(ctx, s, c, func(p Project) bool {
 			for _, d := range p.Deadlines {
@@ -606,21 +578,6 @@ func (b *Backend) pathFor(ctx context.Context, s Snapshot, c board.Card) (string
 			return "", err
 		}
 		return DeadlinePath(pid, c.ItemID), nil
-	case board.ProcessStateTitle:
-		return ProcessPath(c.ItemID), nil
-	case board.ProcessTaskTitle:
-		for _, p := range s.Processes {
-			for _, k := range p.Tasks {
-				if k.ID == c.ItemID {
-					return TaskPath(p.ID, c.ItemID), nil
-				}
-			}
-		}
-		pid, _, err := b.processByName(ctx, s, c.Process)
-		if err != nil {
-			return "", err
-		}
-		return TaskPath(pid, c.ItemID), nil
 	}
 	return CardPath(c.ItemID)
 }
@@ -661,7 +618,7 @@ func cardIDs(c board.Card) []string {
 
 func isStub(c board.Card) bool {
 	switch c.Title {
-	case board.SprintStateTitle, board.ProjectStateTitle, board.EpicStateTitle, board.DeadlineStateTitle, board.ProcessStateTitle:
+	case board.SprintStateTitle, board.ProjectStateTitle, board.ScopeStateTitle, board.DeadlineStateTitle:
 		return true
 	}
 	return false
@@ -772,27 +729,12 @@ func (b *Backend) rankedList(s Snapshot, c board.Card) []ranked {
 		for _, p := range s.Projects {
 			out = append(out, ranked{p.ID, p.Rank})
 		}
-	case board.EpicStateTitle:
+	case board.ScopeStateTitle:
 		for _, p := range s.Projects {
-			for _, e := range p.Epics {
+			for _, e := range p.Scopes {
 				if e.ID == c.ItemID {
-					for _, x := range p.Epics {
+					for _, x := range p.Scopes {
 						out = append(out, ranked{x.ID, x.Rank})
-					}
-					return out
-				}
-			}
-		}
-	case board.ProcessStateTitle:
-		for _, p := range s.Processes {
-			out = append(out, ranked{p.ID, p.Rank})
-		}
-	case board.ProcessTaskTitle:
-		for _, p := range s.Processes {
-			for _, k := range p.Tasks {
-				if k.ID == c.ItemID {
-					for _, x := range p.Tasks {
-						out = append(out, ranked{x.ID, x.Card.Rank})
 					}
 					return out
 				}
@@ -817,10 +759,8 @@ func (b *Backend) setRank(ctx context.Context, s Snapshot, c board.Card, rank st
 		return b.editTeam(ctx, "move", p, func(f *TeamFile) { f.Rank = rank })
 	case board.ProjectStateTitle:
 		return b.editProject(ctx, "move", p, func(f *ProjectFile) { f.Rank = rank })
-	case board.EpicStateTitle:
-		return b.editEpic(ctx, "move", p, func(f *EpicFile) { f.Rank = rank })
-	case board.ProcessStateTitle:
-		return b.editProcess(ctx, "move", p, func(f *ProcessFile) { f.Rank = rank })
+	case board.ScopeStateTitle:
+		return b.editScope(ctx, "move", p, func(f *ScopeFile) { f.Rank = rank })
 	case board.DeadlineStateTitle:
 		return nil // deadlines order by week
 	}
@@ -957,7 +897,7 @@ func (b *Backend) editProject(ctx context.Context, op, p string, fn func(*Projec
 	return b.write(ctx, op, nil, p, out)
 }
 
-func (b *Backend) editEpic(ctx context.Context, op, p string, fn func(*EpicFile)) error {
+func (b *Backend) editScope(ctx context.Context, op, p string, fn func(*ScopeFile)) error {
 	data, ok, err := b.read(ctx, p)
 	if err != nil {
 		return err
@@ -965,12 +905,12 @@ func (b *Backend) editEpic(ctx context.Context, op, p string, fn func(*EpicFile)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNotFound, p)
 	}
-	f, err := DecodeEpic(data)
+	f, err := DecodeScope(data)
 	if err != nil {
 		return err
 	}
 	fn(&f)
-	out, err := EncodeEpic(f)
+	out, err := EncodeScope(f)
 	if err != nil {
 		return err
 	}
@@ -991,26 +931,6 @@ func (b *Backend) editDeadline(ctx context.Context, op, p string, fn func(*Deadl
 	}
 	fn(&f)
 	out, err := EncodeDeadline(f)
-	if err != nil {
-		return err
-	}
-	return b.write(ctx, op, nil, p, out)
-}
-
-func (b *Backend) editProcess(ctx context.Context, op, p string, fn func(*ProcessFile)) error {
-	data, ok, err := b.read(ctx, p)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrProcessNotFound, p)
-	}
-	f, err := DecodeProcess(data)
-	if err != nil {
-		return err
-	}
-	fn(&f)
-	out, err := EncodeProcess(f)
 	if err != nil {
 		return err
 	}
@@ -1201,9 +1121,9 @@ func (b *Backend) SetBacklog(
 	return b.editCard(ctx, "backlog", card, func(f *CardFile) { f.Card.Parked = parked })
 }
 
-// SetEpic files the card under a column, or renames an epic stub.
-func (b *Backend) SetEpic(ctx context.Context, _ board.Board, card board.Card, epic string) error {
-	if card.Title == board.EpicStateTitle {
+// SetScope files the card under a column, or renames an scope stub.
+func (b *Backend) SetScope(ctx context.Context, _ board.Board, card board.Card, scope string) error {
+	if card.Title == board.ScopeStateTitle {
 		s, err := b.snapshot(ctx)
 		if err != nil {
 			return err
@@ -1212,60 +1132,26 @@ func (b *Backend) SetEpic(ctx context.Context, _ board.Board, card board.Card, e
 		if err != nil {
 			return err
 		}
-		return b.editEpic(ctx, "rename-epic", p, func(f *EpicFile) { f.Name = epic })
+		return b.editScope(ctx, "rename-scope", p, func(f *ScopeFile) { f.Name = scope })
 	}
-	return b.editCard(ctx, "epic", card, func(f *CardFile) { f.Card.Epic = epic })
+	return b.editCard(ctx, "scope", card, func(f *CardFile) { f.Card.Scope = scope })
 }
 
-// SetMirrors replaces the card's mirror placements — the additional
-// Project-board columns the same card stands in.
-func (b *Backend) SetMirrors(ctx context.Context, _ board.Board, card board.Card, mirrors []board.Placement) error {
-	return b.editCard(ctx, "mirrors", card, func(f *CardFile) { f.Card.Mirrors = mirrors })
-}
-
-// SetProcess names a process on a stub (rename) or a task (its process).
-func (b *Backend) SetProcess(ctx context.Context, _ board.Board, card board.Card, process string) error {
-	if card.Title == board.ProcessStateTitle {
-		return b.editProcess(ctx, "rename-process", ProcessPath(card.ItemID), func(f *ProcessFile) { f.Name = process })
-	}
-	return b.editCard(ctx, "process", card, func(f *CardFile) { f.Card.Process = process })
-}
-
-// SetTask links an iteration to its task.
-func (b *Backend) SetTask(ctx context.Context, _ board.Board, card board.Card, task string) error {
-	return b.editCard(ctx, "task", card, func(f *CardFile) { f.Card.Task = task })
-}
-
-// SetPaused pauses or resumes a process.
-func (b *Backend) SetPaused(ctx context.Context, _ board.Board, card board.Card, paused bool) error {
-	if card.Title == board.ProcessStateTitle {
-		return b.editProcess(ctx, "pause-process", ProcessPath(card.ItemID), func(f *ProcessFile) { f.Paused = paused })
-	}
-	return b.editCard(ctx, "paused", card, func(f *CardFile) { f.Card.Paused = paused })
-}
-
-// SetAccumulate sets a task's accumulate flag.
-func (b *Backend) SetAccumulate(ctx context.Context, _ board.Board, card board.Card, on bool) error {
-	return b.editCard(ctx, "accumulate", card, func(f *CardFile) { f.Card.Accumulate = on })
-}
-
-// SetProject renames a project stub, re-parents an epic stub, sets a
-// process's project, or files a card under a project.
+// SetProject renames a project stub, re-parents an scope stub, or files a
+// card under a project.
 func (b *Backend) SetProject(ctx context.Context, _ board.Board, card board.Card, project string) error {
 	switch card.Title {
 	case board.ProjectStateTitle:
 		return b.editProject(ctx, "rename-project", ProjectPath(card.ItemID), func(f *ProjectFile) { f.Name = project })
-	case board.EpicStateTitle:
-		return b.moveEpic(ctx, card, project)
-	case board.ProcessStateTitle:
-		return b.editProcess(ctx, "process-project", ProcessPath(card.ItemID), func(f *ProcessFile) { f.Project = project })
+	case board.ScopeStateTitle:
+		return b.moveScope(ctx, card, project)
 	}
 	return b.editCard(ctx, "project", card, func(f *CardFile) { f.Card.Project = project })
 }
 
-// moveEpic moves a column to another project: the epic file's path names
+// moveScope moves a column to another project: the scope file's path names
 // its project, so this is a delete and a create with the same id.
-func (b *Backend) moveEpic(ctx context.Context, card board.Card, project string) error {
+func (b *Backend) moveScope(ctx context.Context, card board.Card, project string) error {
 	s, err := b.snapshot(ctx)
 	if err != nil {
 		return err
@@ -1285,10 +1171,10 @@ func (b *Backend) moveEpic(ctx context.Context, card board.Card, project string)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNotFound, from)
 	}
-	if err := b.write(ctx, "epic-project", nil, from, nil); err != nil {
+	if err := b.write(ctx, "scope-project", nil, from, nil); err != nil {
 		return err
 	}
-	return b.write(ctx, "epic-project", nil, EpicPath(toPID, card.ItemID), data)
+	return b.write(ctx, "scope-project", nil, ScopePath(toPID, card.ItemID), data)
 }
 
 // SetRecurrence sets a recurrent card's cycle.

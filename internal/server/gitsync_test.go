@@ -43,7 +43,7 @@ func seedGitRemote(t *testing.T, remote gitstore.Remote) {
 		t.Fatal(err)
 	}
 	_, err = r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
 		{Path: gitstore.TeamPath("_"), Data: []byte("rank: a\ncreated: 2026-06-01T08:00:00Z\n")},
 		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n")},
 		{Path: "cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md", Data: []byte("---\ntitle: one\nteam: portal\nzone: yellow\nprogress: 40\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n")},

@@ -19,22 +19,20 @@ func fullBoard() board.Board {
 			Title:     id,
 			Assignees: []string{"ann"},
 			Notes:     []board.Note{{ID: "n1", Body: "first"}},
-			Mirrors:   []board.Placement{{Project: "p"}},
 		}
 	}
 	return board.Board{
-		Board:         "acme",
-		Cards:         []board.Card{card("c1")},
-		Tasks:         []board.Card{card("t1")},
-		SprintStates:  map[string]board.SprintState{"alpha": {ItemID: "s1"}},
-		People:        map[string]board.Person{"ann": {Capacity: 20}},
-		TeamOrder:     []string{"alpha"},
-		Epics:         []board.EpicCol{{ItemID: "e1", Name: "epic"}},
-		Deadlines:     []board.Deadline{{ItemID: "d1", Week: "2026-09-14"}},
-		Processes:     []board.Process{{ItemID: "pr1", Name: "proc"}},
-		Projects:      []string{"proj"},
-		ProjectStates: map[string]string{"proj": "ps1"},
-		Domains:       map[string]string{"s1": "primary"},
+		Board:          "acme",
+		Cards:          []board.Card{card("c1")},
+		SprintStates:   map[string]board.SprintState{"alpha": {ItemID: "s1"}},
+		People:         map[string]board.Person{"ann": {Capacity: 20}},
+		TeamOrder:      []string{"alpha"},
+		Scopes:         []board.ScopeCol{{ItemID: "e1", Name: "scope"}},
+		Deadlines:      []board.Deadline{{ItemID: "d1", Week: "2026-09-14"}},
+		Projects:       []string{"proj"},
+		ProjectStates:  map[string]string{"proj": "ps1"},
+		Domains:        map[string]string{"s1": "primary"},
+		DroppedParents: map[string]string{"c1": "gone"},
 	}
 }
 
@@ -56,7 +54,6 @@ func refFields(t reflect.Type) []string {
 // copies the containers hanging off every Card.
 var cardContainerExemptions = map[string]bool{
 	"Board.Cards": true,
-	"Board.Tasks": true,
 }
 
 // A board handed out of the cache must own its containers. Whoever holds one
@@ -90,7 +87,7 @@ func TestDetachedSharesNoContainerWithTheCache(t *testing.T) {
 
 	// Every []Card field of Board, derived rather than listed. A third one
 	// added later is caught above as a container, but its cards' own
-	// Assignees, Notes and Mirrors would stay shared, and a hardcoded pair
+	// Assignees and Notes would stay shared, and a hardcoded pair
 	// of call sites would pass while they did.
 	cards := reflect.TypeFor[[]board.Card]()
 	for i := range bv.NumField() {
@@ -153,10 +150,8 @@ func TestWritingTheCacheDoesNotReachABoardAlreadyHandedOut(t *testing.T) {
 	// field inside a row's own slice, and entries in its maps.
 	e.board.Cards[0].Title = "renamed"
 	e.board.Cards[0].Notes[0].Body = "edited"
-	e.board.Tasks[0].Process = "moved"
 	e.board.Deadlines[0].Week = "2026-12-25"
-	e.board.Epics[0].Name = "recolumned"
-	e.board.Processes[0].Paused = true
+	e.board.Scopes[0].Name = "recolumned"
 	e.board.ProjectStates["proj"] = "other"
 	e.board.People["ann"] = board.Person{Capacity: 99}
 	e.board.Domains["s1"] = "elsewhere"
@@ -167,17 +162,11 @@ func TestWritingTheCacheDoesNotReachABoardAlreadyHandedOut(t *testing.T) {
 	if got := handed.Cards[0].Notes[0].Body; got != "first" {
 		t.Errorf("note body = %q, want %q", got, "first")
 	}
-	if got := handed.Tasks[0].Process; got != "" {
-		t.Errorf("task process = %q, want empty", got)
-	}
 	if got := handed.Deadlines[0].Week; got != "2026-09-14" {
 		t.Errorf("deadline week = %q, want %q", got, "2026-09-14")
 	}
-	if got := handed.Epics[0].Name; got != "epic" {
-		t.Errorf("epic name = %q, want %q", got, "epic")
-	}
-	if handed.Processes[0].Paused {
-		t.Error("process paused through a handed-out board")
+	if got := handed.Scopes[0].Name; got != "scope" {
+		t.Errorf("scope name = %q, want %q", got, "scope")
 	}
 	if got := handed.ProjectStates["proj"]; got != "ps1" {
 		t.Errorf("project state = %q, want %q", got, "ps1")
@@ -207,7 +196,7 @@ func TestDetachedKeepsNilContainersNil(t *testing.T) {
 
 // detached clones board.Board's own containers and each board.Card's, and
 // stops there. That is complete only while every other struct reachable from
-// a board is flat: a slice added to EpicCol or Deadline would slip past the
+// a board is flat: a slice added to ScopeCol or Deadline would slip past the
 // clone and past the guard above, which walks one level and would keep
 // passing.
 //
@@ -237,9 +226,9 @@ func TestTypesBelowTheClonedOnesAreFlat(t *testing.T) {
 		reflect.TypeFor[board.Board](): true,
 		reflect.TypeFor[board.Card]():  true,
 	}
-	// detachedCards runs on Board.Cards and Board.Tasks and nowhere else. Keep
-	// that exemption keyed by path: a Card reached anywhere else keeps sharing
-	// its containers, even though its type is identical to these two.
+	// detachedCards runs on Board.Cards and nowhere else. Keep that exemption
+	// keyed by path: a Card reached anywhere else keeps sharing its
+	// containers, even though its type is identical.
 	cardType := reflect.TypeFor[board.Card]()
 	reachesCard := func(f reflect.Type) bool {
 		for f.Kind() == reflect.Slice || f.Kind() == reflect.Map || f.Kind() == reflect.Pointer {
@@ -281,7 +270,7 @@ func TestTypesBelowTheClonedOnesAreFlat(t *testing.T) {
 				}
 				if reachesCard(f.Type) && !cardContainerExemptions[fieldPath] {
 					found = append(found, gap{fieldPath,
-						"detachedCards only reaches Board.Cards and Board.Tasks, so this card's own containers stay shared"})
+						"detachedCards only reaches Board.Cards, so this card's own containers stay shared"})
 				}
 				switch f.Type.Kind() {
 				case reflect.Slice, reflect.Map:

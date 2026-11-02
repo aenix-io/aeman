@@ -6,20 +6,20 @@ Everything else a writer needs is already written down elsewhere and is not repe
 
 ## The layout
 
-Schema 1 (`board.yaml` says `schema: 1`; a newer number is refused by older servers). One repository is a **domain**; a board is one or more, the first being the primary.
+Schema 2 (`board.yaml` says `schema: 2`; a newer number is refused by older servers). One repository is a **domain**; a board is one or more, the first being the primary.
 
 ```
 board.yaml                         # schema, title (primary only)
 teams/<ulid>.yaml                  # one team; teams/_.yaml is the no-team group (primary only)
 projects/<ulid>/project.yaml       # a project
-projects/<pid>/epics/<ulid>.yaml   # a column of that project
+projects/<pid>/scopes/<ulid>.yaml   # a column of that project
 projects/<pid>/deadlines/<ulid>.yaml
-processes/<ulid>/process.yaml
-processes/<pid>/tasks/<ulid>.md    # a task: card-shaped file, title in the body's first line
 cards/<a>/<b>/<ulid>.md            # a card; a, b = the id's LAST two characters, lower-cased
 users/<login>.yaml                 # a person's roster entry: `capacity: N`, other keys kept (primary only)
 .aeman/migration.yaml              # written once by aeman migrate
 ```
+
+Schema 2 retired the Process feature (H8): a `processes/` tree is no longer part of the layout, and the server's start-up migration deletes it and strips the `process`, `task` and `accumulate` keys from cards in one `schema` commit. A writer meeting a schema-1 repository should not add to that tree — the next server start removes it; a card keeping one of the three keys is read all the same (they ride through as unknown keys) and loses them on the migration.
 
 The path never encodes mutable state: renaming, re-zoning, re-teaming or moving a card in the order keeps its path. Empty directories do not exist (git); a delete removes the file. A writer clones (or fetches) the repository, edits files, commits with the trailers below and pushes; the server picks pushed commits up on its fetch tick (15 s default) and re-applies its own unpushed commits over them field by field.
 
@@ -29,18 +29,25 @@ The path never encodes mutable state: renaming, re-zoning, re-teaming or moving 
 
 YAML front-matter between `---` fences, then the description, then an optional `## Notes` section. Empty fields are omitted. Unknown keys are preserved by the server; do not rely on their order.
 
-Front-matter keys, in the order the server writes them: `title, assignees, author, team, zone, size, stage, progress, doneFrom, doneAt, leftAt, start, day, sprint, week, project, epic, mirrors, parent, reviewOf, reviewRound, recurrence, process, task, accumulate, link, github, movedFrom, movedAt, rank, created`.
+Front-matter keys, in the order the server writes them: `title, type, assignees, author, team, zone, size, stage, progress, doneFrom, doneAt, leftAt, start, day, sprint, week, project, scope, parent, reviewOf, reviewRound, recurrence, link, github, movedFrom, movedAt, rank, created`.
+
+`type` is the card's level (`docs/design/hierarchy.md`): absent for a task, else `goal`, `initiative` or `epic` — a PLANNING card. Written right after the title; a task writes no `type` line. A writer must not emit any other value (this server reads an unknown type as a task, the lowest level) and must not change a card's type after creating it.
+
+`scope` was called `epic` before schema 2 (the column of the Project board; `docs/design/hierarchy.md` renamed it so the word could mean a planning level). This server reads `epic` as an alias of `scope` — a file written before the migration still files the card under its column — and writes `scope`; the schema-2 migration rewrites the key on every card that carries it. A writer must emit `scope`, never `epic`.
 
 One key is READ and dropped rather than written or preserved: `plan` (`wed | fri`), the weekly plan's band, retired in v0.20. An unknown key rides through untouched, so leaving it unknown would have every board re-commit a band nothing means; a writer should not emit it, and may leave an old one where it is — the next write to that card takes it off.
 
 - `zone`: `gray | green | yellow | red` (empty = none). `stage`: `review | locked | recurrent | refuse` (empty = none) — the KEY, one letter from the word: a file written with `refused` carries a stage the board does not have, which this server now refuses to write and no board draws. `done` is not among them: a finished card is `progress: 100` with no stage. `size`: `S | M | L | XL` (empty = unsized) — the letter somebody said; the points (1/2/4/8) are derived and never written, a card with subtasks weighs them rather than itself, and a card with no `size` weighs M wherever a board sums points (B18).
 - `progress`: 0–100; review/locked/refuse clamp to [10, 90] (S1, S7). `doneFrom` is written when progress reaches 100 (the value before) and cleared when it drops below (G3, G23); `Reopen` restores it. `doneAt` is written alongside — the board day (yyyy-mm-dd) the card reached 100 — and cleared the same way (P6). **A writer that closes a card must write it.** The day boards draw finished work by that day and no other (D2), and nothing is guessed from the card's dates, so a card closed without one stands on no day board at all. The exception is a day already gone: there the record is read from the history, and a card that the day OPENED with unfinished and CLOSED with done is taken as finished that day (G60) — which is also why a writer that leaves no `Aeman-Cards` trailer loses the card from the record of the day it closed it on: the trailer is what says which cards a day may have changed at all.
-- Dates are `yyyy-mm-dd`: `start` (startDate), `day` (end of the visible range), `sprint` (sprintStart), `week` (a Monday — the week the card is scheduled for, which is its column on the Triage board; for a card in a Project-board column it is the row, derived from `start`). Timestamps (`created`, `movedAt`) are RFC 3339 UTC.
+- Dates are `yyyy-mm-dd`: `start` (startDate), `day` (end of the visible range), `sprint` (sprintStart), `week` (a Monday — the week the card is scheduled for, which is its column on the Triage board; a card in a Project-board column carries none, H4 — its `start`/`day` are its row there). Timestamps (`created`, `movedAt`) are RFC 3339 UTC.
 - `assignees` is a YAML list of logins. `author` is the creator's login.
-- `parent`, `reviewOf`, `task` are ULIDs of other files. `project`, `epic`, `team`, `process` are **names**, resolved against the roster on read.
+- `parent`, `reviewOf` are ULIDs of other files. `project`, `scope`, `team` are **names**, resolved against the roster on read.
+- **`parent` is the ONE link of the hierarchy, and what it means is the parent's `type`** (H1, H2, `hierarchy.md`). Under a TASK the card is a SUBTASK: one level deep (a subtask's parent is not itself a subtask), it carries no `week`, and it takes its parent's `team`, first assignee and `sprint` — a writer grouping a card under a task must write those too, or the family splits across sprints and Me boards. Under a goal, an initiative or an epic the card is simply filed in the hierarchy and NOTHING else about it changes. A writer must keep the LEVEL RULE: the parent is of a higher level than the child (goal > initiative > epic > task; a task may skip levels), a goal has no parent, and a card has one parent at most — this server refuses the rest (422 `parentLevel`) and reads a cycle without hanging, but a reader of the repository is not so forgiving. A `parent` must be readable to every reader of the child: a planning parent in the PRIMARY repository (where every planning card lives), or any parent whose file stands in the child's own repository — anything else is refused (422 `crossDomain`); a dangling parent — a ULID that is not a card — is dropped when the board is read: the card stands as a root, where its own dates and team put it, and its next rewrite drops the key. A writer deleting a planning card should still re-parent what sat under it to that card's own parent (this server does), or the subtree falls out of the plan it belonged to.
+- **A planning card** (a `type`) carries a `title`, `start`/`day` (its bar on the Roadmap), `parent`, `rank`, `created`, a body and notes — and NONE of `assignees`, `team`, `stage`, `progress`, `zone`, `size`, `week`, `parked`, `sprint`, `scope`/`project`, `reviewOf`, `recurrence`. It has no team and no project, so it lives in the PRIMARY repository: a writer puts a goal, an initiative or an epic there and nowhere else, and an owner or a team written on one is ignored on read. This server refuses every write of those (422 `planningCard`) and derives the card's status from the tasks under it on every read; a writer must not emit them. The day boards do not draw a planning card at all; the Roadmap draws it and every card with one above it.
+- **A card with a `scope` is a PROJECT CARD** (H4, `hierarchy.md`): it carries no `team`, no `assignees`, no `zone`, no `size`, no TASK `parent` and no `reviewOf`, and no card names it as `parent`. A `zone` or a `size` a writer puts on one is ignored on read and dropped at the card's next rewrite. Its row on the Project board is its `start`/`day`, never a `week`: a `week` on one is read as that week's dates, Monday to Friday, when the card has no `start` (and dropped either way), so a writer filing a card into a column writes the dates. A planning parent it MAY carry — a project card sits under an epic like a task does. A writer must not emit the rest on it, must not group a card under it, and must not file a card that carries any of them into a column; this server refuses every such write (422 `projectCard`) and the schema-2 migration strips them off a card written before the rule. A project card lives and dies in its column: a writer must not blank its `scope` (the card would stand on no board) — it moves it to another column or deletes the file; this server refuses the blanking (422 `projectCard`) and has no remove-from-project door. The Team, Me and Triage boards do not draw a card with a `scope` at all.
 - `rank` orders the card in its list (see Ordering). `created` is the creation time.
 - `movedFrom` / `movedAt` appear on a card that was moved between domains (see Moves).
-- `mirrors` is a YAML list of `{project, epic}` entries — the PROJECT half may be empty, since a column of no project is a home like any other and this server both writes and keeps such an entry; the epic half is what names the column — additional columns the SAME card stands in (one file, one log, one set of dates). The home `project`/`epic` pair keeps deciding the card's domain (linked cards first, as everywhere — a parent, reviewOf or task link outranks the pair, G14); every mirror must name a column of the card's own repository, and a rename of an epic or a project must rewrite matching mirror entries too. Because a link outranks the pair, a writer must never give a mirrored card a `reviewOf` that moves it to another repository, nor mirrors to a card whose link already holds its file elsewhere — the server refuses both. A mirror never duplicates the home pair and no pair appears twice, and a subtask (`parent` set) carries none at all; this server drops half-written entries, duplicates, home twins and subtask mirrors on read, and mirrors into another repository or onto an undeclared column when the board is assembled, so a writer producing them is silently corrected, not honoured. A `process` tie obeys the same domain closure from both sides: a writer must not point a card at a process of another repository, and must not move a tied card's file into one. A subtask (`parent` set) carries no mirrors: grouping clears them. The ONE column it may carry must name the repository that holds its file — which is its PARENT's repository, since a link outranks the project (G14); a column stays in the repository it was declared in whatever project owns it — a writer must not re-file a column's stub across repositories — and the column's own repository is the one its epic stub was declared in, which for the no-project bucket is the only thing there is to read. The same holds for a review card (its file follows its original), and it holds in both directions: a writer must not move a card whose subtasks or review card stand in columns of the repository it is leaving: a writer that files a subtask under a column of another repository produces a card the Project board there draws and counts while no reader of that repository holds its file, and the column cannot be deleted while it counts that card — clearing the card's column frees it, and this server repairs the state itself when a deleted parent releases such a child.
+- `mirrors` is no longer written (retired with schema 2, `hierarchy.md`): a card stands in ONE column, its `project`/`scope` pair. A file written before the migration may still carry the key; this server keeps it as an unknown key and the schema-2 migration strips it — a writer must not emit it. The column a card carries must name the repository that holds its file. A project card lives where its project lives, so the two agree wherever a project owns the column; the NO-PROJECT bucket is the case to watch — a real column with no project to ask, declared in one repository, that a card with no project (and so of the primary) cannot stand in. A column stays in the repository it was declared in whatever project owns it — a writer must not re-file a column's stub across repositories — and the column's own repository is the one its scope stub was declared in.
 
 Notes section:
 
@@ -53,39 +60,31 @@ Notes section:
 
 Only the **last** `## Notes` heading in the file is the notes section; a description may contain the words freely. Note ids are ULIDs.
 
-### Task (`processes/<pid>/tasks/<id>.md`)
-
-Same shape as a card. Its `title` field is the marker `aeman:process-task`; the task's **name is the first line of the body**, prefixed `# `; the rest of the body is the iteration's description. `recurrence`, `start` (the cycle anchor), `team`, `assignees`, `accumulate`, `rank` as before.
-
 ### Roster files (YAML)
 
 - `teams/<id>.yaml`: `name`, `rank`, `created`, `sprint: {current, previous}` (dates) and `capacity: {points: N}` — the points a week somebody SET for the team; absent means nobody has, and no board derives one (B20). Unknown keys under `capacity:` are preserved. `teams/_.yaml` has no `name`. The NO-PROJECT bucket is the same shape one level down: its columns hang under a project file with **no `name`** — `projects/_/project.yaml` by convention, though any nameless project file is read as the bucket. This server writes it on demand, when the first column is filed outside every project or an existing column is unbound into the bucket; a writer adding such a column must create or reuse one.
 - `projects/<id>/project.yaml`: `name`, `rank`, `created`.
-- `projects/<pid>/epics/<id>.yaml`: `name`, `rank`, `created`. Column names are unique within a project.
+- `projects/<pid>/scopes/<id>.yaml`: `name`, `rank`, `created`. Column names are unique within a project.
 - `projects/<pid>/deadlines/<id>.yaml`: `week`, `created`. One deadline per project per week.
-- `processes/<id>/process.yaml`: `name`, `project` (name, optional), `paused`, `rank`, `created`.
 
 **A card never names a team the roster lacks** (G39): a write that gives a card a `team:` no `teams/<id>.yaml` declares must create that file (`name`, `rank`, `created`; no `sprint`) in the same commit — the server does so on every path (create, sprint-less create, assignment). A plugin writing `team:` onto a card must do the same, or the card sits on a team that is on no roster and in no column.
 
-**Names are one namespace across every domain**: a team, project or process name may be declared once on the whole board, whichever repository it lands in — the server refuses a create or a rename into a taken name (G38) and refuses to start at all when the repositories it is given already collide, and a plugin writing files must check every domain before declaring one. Duplicate names that reach the files anyway resolve on read to the **oldest** `created` (ties by id); the others are aliases whose cards still count and which `GET /api/healthz` lists for a maintainer to rename (G13). A `teams/_.yaml` outside the primary is ignored. Renaming a team is one action: the team file's `name` changes and every card's `team:` follows in the same commit.
+**Names are one namespace across every domain**: a team or project name may be declared once on the whole board, whichever repository it lands in — the server refuses a create or a rename into a taken name (G38) and refuses to start at all when the repositories it is given already collide, and a plugin writing files must check every domain before declaring one. Duplicate names that reach the files anyway resolve on read to the **oldest** `created` (ties by id); the others are aliases whose cards still count and which `GET /api/healthz` lists for a maintainer to rename (G13). A `teams/_.yaml` outside the primary is ignored. Renaming a team is one action: the team file's `name` changes and every card's `team:` follows in the same commit.
 
 ## Ordering
 
-Every ordered list — cards, teams, projects, a project's columns, processes, a process's tasks — orders by `rank`, a LexoRank-style base-36 key that never ends in `0`, ties broken by id. To insert between two neighbours, pick any key strictly between them (the server uses the midpoint); to append, increment the last key. A key longer than 32 characters is exhausted: the server renumbers the whole list in one commit (G12). A plugin should do the same rather than write a longer key.
+Every ordered list — cards, teams, projects, a project's columns — orders by `rank`, a LexoRank-style base-36 key that never ends in `0`, ties broken by id. To insert between two neighbours, pick any key strictly between them (the server uses the midpoint); to append, increment the last key. A key longer than 32 characters is exhausted: the server renumbers the whole list in one commit (G12). A plugin should do the same rather than write a longer key.
 
 ## Ids
 
-ULIDs: 48-bit millisecond time, 80 random bits. Two derived forms the plugin must reproduce to stay replica-safe:
-
-- A **process iteration**: time = the due week's Monday, random bits = SHA-256 of `("iteration", task id, week)` (the server's `gitstore.IterationID`). Two writers spawning the same turn write the same path; the second create is a no-op.
-- Migration ids (`aeman migrate`): derived from the old item id; not the plugin's concern.
+ULIDs: 48-bit millisecond time, 80 random bits. Every card a writer creates gets a fresh one; the only derived form is the migration's (`aeman migrate`): derived from the old item id; not the plugin's concern.
 
 ## Commits
 
 One action = one commit per touched repository. The message is a summary line, a blank line, then trailers:
 
 ```
-Aeman-Action: <name>            # the action: update, create, delete, move, carry-over, sweep, note, …
+Aeman-Action: <name>            # the action: update, create, delete, move, carry-over, note, …
 Aeman-Action-Id: <ulid>         # shared by every commit of one action, across repositories
 Aeman-Actor: <login>            # absent when the server acted on its own behalf
 Aeman-Cards: <id> <id> …        # every card the commit touched
@@ -103,12 +102,11 @@ Author = the actor (email from the server's `--author-email` template); committe
 A card's domain (repository) is never chosen per card; it follows one rule, linked cards first (G14):
 
 1. a review card (`reviewOf`) lives where the reviewed card lives;
-2. a subtask (`parent`) where its parent lives;
-3. an iteration (`task`) where its task lives;
-4. else a card under a project (`project`/`epic`) where that project is declared;
-5. else where its team is declared; the no-team group and anything unresolved → the primary.
+2. a subtask — a task whose `parent` is a TASK — where its parent lives; a `parent` that is a goal, an initiative or an epic places nothing (H6);
+3. else a card under a project (`project`/`scope`) where that project is declared;
+4. else where its team is declared; the no-team group and anything unresolved → the primary. A planning card is placed by this clause like any other card.
 
-Teams, projects and processes are declared in the domain the **caller** picks (API body field `domain`, MCP argument `domain`), default the primary; a process with a project lives with the project. A visitor sees the union of the domains they can read; a domain they cannot read is absent, not empty (G17). A plugin writing directly must respect where a file belongs: putting a closed project's card into the shared repository leaks it.
+Teams and projects are declared in the domain the **caller** picks (API body field `domain`, MCP argument `domain`), default the primary. A visitor sees the union of the domains they can read; a domain they cannot read is absent, not empty (G17). A plugin writing directly must respect where a file belongs: putting a closed project's card into the shared repository leaks it.
 
 ### Moves
 
@@ -116,15 +114,11 @@ A write that changes what the rule evaluates to is a **move**: the file is creat
 
 ## The × on a team card
 
-**The grid × DELETES a team card** (P10). It used to demote — `start`, `day` and `sprint` moved to the previous sprint's start, with `leftAt: <today>` written beside them so a record of that day could give the card back. It does not any more: a card left alive in a sprint two behind is on no live board and no carry-over ever takes it, which is how the production board came to hold three hundred open cards nobody could see. The × now removes the card's file, together with the files of the subtasks that were pieces of it (a subtask standing in a column of its own is freed into that column instead). The day's record is what keeps the card: reading a day gives the tree that day ended with PLUS every card file the day's own commits deleted, each from the commit that deleted it. A plugin doing this by hand deletes the file — writing `leftAt` on a team card is neither needed nor read. Cards demoted by older versions still carry the mark, and a record still gives those back by it.
-
-## A turn's week (G66)
-
-A process iteration's `week` belongs to the OCCURRENCE it is a turn of: the weeks from the one its task came due in through the week before the next due date. A turn written outside that stands where the NEXT turn belongs, and the projection that asks whether an occurrence has a turn then answers wrongly for both — the same process reads as running twice in one cycle and not at all in the other. Two exceptions: a task with `accumulate` piles its turns up and bounds none of them, and a turn whose occurrence is already past may be brought forward into the CURRENT week (its days ran out, so it is drawn on no day board, and this is the only way back). A task with no calendar at all (per-sprint recurrence) has no occurrence, and its turn does not move in time once it stands in a week; a turn with no week yet is in no occurrence and nothing bounds it.
+**The grid × DELETES a team card** (P10). It used to demote — `start`, `day` and `sprint` moved to the previous sprint's start, with `leftAt: <today>` written beside them so a record of that day could give the card back. It does not any more: a card left alive in a sprint two behind is on no live board and no carry-over ever takes it, which is how the production board came to hold three hundred open cards nobody could see. The × now removes the card's file, together with the files of the subtasks that were pieces of it. The day's record is what keeps the card: reading a day gives the tree that day ended with PLUS every card file the day's own commits deleted, each from the commit that deleted it. A plugin doing this by hand deletes the file — writing `leftAt` on a team card is neither needed nor read. Cards demoted by older versions still carry the mark, and a record still gives those back by it.
 
 ## The team/project pair (G46)
 
-A card's team and its project must be declared in the SAME repository. The domain rule reads the project first, so a card filed under a project of one repository and handed to a team of another lives where the team's people cannot read it — the server refuses that pair (422) on every door: setting a team, filing under a column, creating a card, moving an epic between projects.
+A card's team and its project must be declared in the SAME repository. The domain rule reads the project first, so a card filed under a project of one repository and handed to a team of another lives where the team's people cannot read it — the server refuses that pair (422) on every door: setting a team, creating a card, moving a scope between projects. (Filing a team's card under a column is refused one step earlier: a card in a column carries no team at all, H4.)
 
 A plugin writing the repositories directly must refuse it too, or it will produce cards this server would never create: a founders card sitting in the shared repository under a founders team name, visible to everyone the shared repository is visible to. The check is local — resolve the team's and the project's declaring repository and compare — and a name no roster declares yet is not a conflict, since it is declared in the card's own repository on the way.
 
