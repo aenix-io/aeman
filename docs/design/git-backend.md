@@ -429,6 +429,20 @@ both have landed the cache is authoritative for this replica's readers
 and both commits are on disk. `/api/healthz` shows the oldest unpushed
 commit's age so a stuck half is visible, not silent.
 
+**A board read inside an action sees the action's own writes.** An
+action goes through several doors in turn — Own takes a card off the
+shelf, gives it a team, dates it, bands it and names a person — and each
+door reads the board back before it decides. Inside a scope that read is
+the tip with the action's staged files laid over it (`loadOverlaid`): a
+path the action wrote reads as written, a staged delete as gone,
+everything else as committed. Read from the committed tree instead, a
+later door decides on a card the action no longer has: SetDates read a
+team-less card and gave it the no-team group's sprint over the team's
+current one that SetTeam had just staged. The server's cache never showed
+it, because it applies every write at once; the store on its own — which
+is what an embedder uses — did. The overlay is not memoized: the staged
+set is the action's, not the tip's (G83).
+
 The exception to "one request, one commit" is the **coalesced field
 write**. Dragging a progress slider fires many writes for one intent;
 the write queue already collapses them (DeltaFIFO). Those become **one

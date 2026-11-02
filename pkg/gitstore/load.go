@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"sort"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -139,6 +141,56 @@ func Load(r *Repo) (Snapshot, error) {
 	}
 	r.rememberSnapshot(head, s)
 	return s, nil
+}
+
+// loadOverlaid is Load with an action's staged writes laid over the tip: a
+// path the action has written reads as written (nil: gone), every other path
+// as committed. It is what a board read answers INSIDE a scope, so the doors
+// an action goes through one after another each see the board as the action
+// has left it. Read from the committed tree instead, a later door decides on
+// a card the action no longer has — Own's SetDates read a team-less card and
+// gave it the no-team group's sprint over the team's that SetTeam had just
+// staged. The server's cache never had the problem (it applies every write
+// at once); the store on its own did. Not memoized: the staged set is the
+// action's, not the tip's.
+func loadOverlaid(r *Repo, staged map[string][]byte) (Snapshot, error) {
+	if len(staged) == 0 {
+		return Load(r)
+	}
+	l := &loader{s: Snapshot{}, projects: map[string]*Project{}}
+	if head := r.Head(); !head.IsZero() {
+		c, err := object.GetCommit(r.s, head)
+		if err != nil {
+			return Snapshot{}, err
+		}
+		tree, err := c.Tree()
+		if err != nil {
+			return Snapshot{}, err
+		}
+		err = tree.Files().ForEach(func(f *object.File) error {
+			if _, written := staged[f.Name]; written {
+				return nil // the action's version, below, or gone
+			}
+			data, err := readAll(f)
+			if err != nil {
+				l.s.Broken = append(l.s.Broken, BrokenFile{Path: f.Name, Err: err})
+				return nil //nolint:nilerr // recorded as broken, as Load does
+			}
+			return l.file(f.Name, data)
+		})
+		if err != nil {
+			return Snapshot{}, err
+		}
+	}
+	for _, p := range slices.Sorted(maps.Keys(staged)) {
+		if data := staged[p]; data != nil {
+			if err := l.file(p, data); err != nil {
+				return Snapshot{}, err
+			}
+		}
+	}
+	l.finish()
+	return l.s, nil
 }
 
 // LoadAt reads the snapshot at a commit — the tip, or a past one for the

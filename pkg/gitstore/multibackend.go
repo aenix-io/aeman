@@ -94,12 +94,22 @@ func (mb *MultiBackend) Issues() ([]Alias, []Ghost) {
 	return append([]Alias(nil), mb.aliases...), append([]Ghost(nil), mb.ghosts...)
 }
 
-// LoadBoard merges every domain into the board the service expects.
-func (mb *MultiBackend) LoadBoard(_ context.Context, boardID string) (board.Board, error) {
-	s, err := mb.snapshot()
+// LoadBoard merges every domain into the board the service expects. Inside
+// a scope each domain is read as the action has left it, staged writes
+// included (loadOverlaid), so the doors one action goes through in turn
+// agree on the card.
+func (mb *MultiBackend) LoadBoard(ctx context.Context, boardID string) (board.Board, error) {
+	var staged func(*Repo) map[string][]byte
+	if scopeOf(ctx) != nil {
+		staged = func(r *Repo) map[string][]byte { return stagedIn(ctx, r) }
+	}
+	s, err := loadAllOverlaid(mb.domainList(), staged)
 	if err != nil {
 		return board.Board{}, err
 	}
+	mb.mu.Lock()
+	mb.aliases, mb.ghosts, mb.users = s.Aliases, s.Ghosts, s.Users
+	mb.mu.Unlock()
 	// The board's own repository, by NAME, and before the assembly runs:
 	// the snapshot stamps every entry with its domain's name, the primary
 	// included, and the rules that read the board (HomeDomain, ColumnDomain)

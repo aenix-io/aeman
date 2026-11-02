@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -260,11 +261,29 @@ func (b *Backend) writeWith(ctx context.Context, op string, cards []string, p st
 
 // ---- loading -----------------------------------------------------------------------
 
+// stagedIn is what an action has written to a repository so far — the files
+// a board read inside the action lays over the tip (loadOverlaid). Nil
+// outside a scope, or when the action has not touched this repository.
+func stagedIn(ctx context.Context, r *Repo) map[string][]byte {
+	sc := scopeOf(ctx)
+	if sc == nil {
+		return nil
+	}
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	part, ok := sc.parts[r]
+	if !ok || len(part.staged) == 0 {
+		return nil
+	}
+	return maps.Clone(part.staged)
+}
+
 // LoadBoard reads the domain and hands the service the shape it expects:
 // the roster files become the state cards NewBoard splits back out, so the
-// duplicate and ordering rules stay in one place.
-func (b *Backend) LoadBoard(_ context.Context, boardID string) (board.Board, error) {
-	s, err := Load(b.repo)
+// duplicate and ordering rules stay in one place. Inside a scope the board
+// is read as the action has left it, staged writes included.
+func (b *Backend) LoadBoard(ctx context.Context, boardID string) (board.Board, error) {
+	s, err := loadOverlaid(b.repo, stagedIn(ctx, b.repo))
 	if err != nil {
 		return board.Board{}, err
 	}

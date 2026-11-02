@@ -34,12 +34,25 @@ var ErrNameTaken = errors.New("gitstore: name already declared on the board")
 
 // LoadAll reads every domain at its branch tip and merges the snapshots.
 func LoadAll(domains []Domain) (Snapshot, error) {
+	return loadAllOverlaid(domains, nil)
+}
+
+// loadAllOverlaid is LoadAll with an action's staged writes laid over each
+// domain's tip (loadOverlaid); staged answers a repository's staged files,
+// nil for none. Nil staged is LoadAll.
+func loadAllOverlaid(domains []Domain, staged func(*Repo) map[string][]byte) (Snapshot, error) {
 	if len(domains) == 0 {
 		return Snapshot{}, ErrNoDomains
 	}
 	var parts []Snapshot
 	for i, d := range domains {
-		s, err := Load(d.Repo)
+		var s Snapshot
+		var err error
+		if staged != nil {
+			s, err = loadOverlaid(d.Repo, staged(d.Repo))
+		} else {
+			s, err = Load(d.Repo)
+		}
 		if err != nil {
 			if i == 0 || !errors.Is(err, ErrEmptyRepository) {
 				return Snapshot{}, err
