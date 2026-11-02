@@ -30,6 +30,7 @@ import {
   type RoadmapKind,
 } from "../roadmap";
 import { isPlanning, isSubtask } from "../subtasks";
+import { DescriptionEditor } from "./DescriptionEditor";
 import { KindIcon } from "./KindIcon";
 import { ParentPicker } from "./ParentPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
@@ -427,9 +428,15 @@ export function CardDetail({
 
   // The body arriving (or changing under an untouched pane — a teammate
   // edited it) refreshes the draft; a dirty draft is the user's and stays.
+  // The editor holds its own document, so a saved text it has not seen is
+  // a new editor (the version keys it); while the user types, nothing
+  // arriving may remount it out from under the caret.
+  const [editorVersion, setEditorVersion] = useState(0);
+  const cancelling = useRef(false);
   useEffect(() => {
-    if (!dirty && card.description !== undefined) {
+    if (!dirty && card.description !== undefined && card.description !== description) {
       setDescription(card.description);
+      setEditorVersion((v) => v + 1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card.description]);
@@ -624,61 +631,94 @@ export function CardDetail({
               ✕
             </button>
           </div>
-          <div className="modal-tabs drawer-tabs" role="tablist" aria-label="Card sections">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === "details"}
-              className={`modal-tab${tab === "details" ? " modal-tab-on" : ""}`}
-              onClick={() => setTab("details")}
-            >
-              Details
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === "activity"}
-              className={`modal-tab${tab === "activity" ? " modal-tab-on" : ""}`}
-              onClick={() => setTab("activity")}
-            >
-              Activity
-            </button>
-            {isRecord && <span className="drawer-record">A record of {card.asOf}: read only</span>}
-          </div>
         </header>
 
         <div className="drawer-body">
           <main className="drawer-main">
+            {/* The tabs stand at the top of the main column, as wide as it:
+                they switch what the column shows, and a strip that spanned
+                the whole drawer read as a second header. */}
+            <div className="drawer-tabs-row">
+              <div className="modal-tabs drawer-tabs" role="tablist" aria-label="Card sections">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === "details"}
+                  className={`modal-tab${tab === "details" ? " modal-tab-on" : ""}`}
+                  onClick={() => setTab("details")}
+                >
+                  Details
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === "activity"}
+                  className={`modal-tab${tab === "activity" ? " modal-tab-on" : ""}`}
+                  onClick={() => setTab("activity")}
+                >
+                  Activity
+                </button>
+              </div>
+              {isRecord && <span className="drawer-record">A record of {card.asOf}: read only</span>}
+            </div>
             {tab === "details" && (
               <>
                 <div className="drawer-section-title">Description</div>
-                <textarea
-                  className="modal-textarea drawer-textarea"
-                  value={description}
-                  placeholder={
-                    bodyLoaded || temp
-                      ? "Add a description…"
-                      : bodyFailed
-                        ? "Failed to load the description — close and reopen to retry."
-                        : "Loading the description…"
-                  }
-                  maxLength={16384}
-                  readOnly={isRecord}
-                  disabled={isRecord || (!bodyLoaded && !temp)}
-                  onChange={(e) => {
-                    setDirty(true);
-                    setDescription(e.target.value);
-                  }}
-                />
+                {/* Markdown, edited in place: a click puts the caret where it
+                    lands, the syntax renders as it is typed, the clipboard
+                    carries Markdown. Keyed on the saved text's version so a
+                    body arriving opens a fresh editor and a draft is never
+                    remounted away (DescriptionEditor falls back to a box). */}
+                <div className="drawer-desc">
+                  <DescriptionEditor
+                    key={`${card.itemId}:${editorVersion}`}
+                    draft={description}
+                    value={card.description ?? ""}
+                    pending={!bodyLoaded && !temp}
+                    readOnly={isRecord}
+                    placeholder={
+                      bodyLoaded || temp
+                        ? "Add a description…"
+                        : bodyFailed
+                          ? "Failed to load the description — close and reopen to retry."
+                          : "Loading the description…"
+                    }
+                    onChange={(md) => {
+                      setDirty(md !== (card.description ?? ""));
+                      setDescription(md);
+                    }}
+                    onSave={() => {
+                      if (dirty && (bodyLoaded || temp)) {
+                        saveDescription();
+                      }
+                    }}
+                    onBlur={() => {
+                      // Leaving the editor saves the draft — unless the
+                      // focus is leaving for the Cancel button, which took
+                      // the pointer first and says so.
+                      if (cancelling.current) {
+                        return;
+                      }
+                      if (dirty && (bodyLoaded || temp) && !isRecord) {
+                        saveDescription();
+                      }
+                    }}
+                  />
+                </div>
                 {!isRecord && (
                   <div className="drawer-desc-actions">
                     {dirty && (
                       <button
                         type="button"
                         className="btn"
+                        onPointerDown={() => {
+                          cancelling.current = true;
+                        }}
                         onClick={() => {
+                          cancelling.current = false;
                           setDescription(card.description ?? "");
                           setDirty(false);
+                          setEditorVersion((v) => v + 1);
                         }}
                       >
                         Cancel
