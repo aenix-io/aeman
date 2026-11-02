@@ -306,11 +306,34 @@ export function App() {
   // watch frames; purely ephemeral shared-cursor state.
   const [presence, setPresenceMap] = useState<Record<string, string>>({});
   const [detailCard, setDetailCard] = useState<CardModel | null>(null);
+  // The cards the pane was opened THROUGH: a crumb followed, a child row, the
+  // task a subtask rides — each opens its card in the same drawer, and the
+  // way back is this stack. A board opening a card starts afresh.
+  const [detailStack, setDetailStack] = useState<CardModel[]>([]);
+  const openCard = (c: CardModel) => {
+    setDetailStack([]);
+    setDetailCard(c);
+  };
+  const openWithin = (c: CardModel) => {
+    setDetailStack((s) => (detailCard ? [...s, detailCard] : s));
+    setDetailCard(c);
+  };
+  const backInDetail = () => {
+    setDetailStack((s) => {
+      const prev = s[s.length - 1];
+      setDetailCard(prev ?? null);
+      return s.slice(0, -1);
+    });
+  };
+  const closeDetail = () => {
+    setDetailStack([]);
+    setDetailCard(null);
+  };
   // A card the Roadmap is asked to REVEAL — a breadcrumb followed from a
   // detail pane: the tab switches and the row is unfolded and marked.
   const [roadmapFocus, setRoadmapFocus] = useState<string | null>(null);
   const revealOnRoadmap = (uid: string) => {
-    setDetailCard(null);
+    closeDetail();
     setRoadmapFocus(uid);
     setView("roadmap");
   };
@@ -1534,7 +1557,7 @@ export function App() {
             reorderCards={reorderCards}
             reload={reload}
             onError={onError}
-            onOpen={(c) => setDetailCard(c)}
+            onOpen={openCard}
             onPresence={(card) => {
               if (board && config?.login) {
                 void provider
@@ -1557,7 +1580,7 @@ export function App() {
             removeCard={removeCard}
             reload={reload}
             onError={onError}
-            onOpen={(c) => setDetailCard(c)}
+            onOpen={openCard}
           />
         )}
         {board && view === "roadmap" && (
@@ -1574,7 +1597,7 @@ export function App() {
             reorderCards={reorderCards}
             reload={reload}
             onError={onError}
-            onOpen={(c) => setDetailCard(c)}
+            onOpen={openCard}
             focusId={roadmapFocus}
             onFocused={() => setRoadmapFocus(null)}
           />
@@ -1594,7 +1617,7 @@ export function App() {
             removeCard={removeCard}
             reorderCards={reorderCards}
             reload={reload}
-            onOpen={(c) => setDetailCard(c)}
+            onOpen={openCard}
             onError={onError}
           />
         )}
@@ -1625,7 +1648,7 @@ export function App() {
             reload={reload}
             track={trackLoad}
             onError={onError}
-            onOpen={(c) => setDetailCard(c)}
+            onOpen={openCard}
           />
         )}
       </main>
@@ -1649,13 +1672,14 @@ export function App() {
           card={board.cards.find((c) => c.itemId === detailCard.itemId) ?? detailCard}
           board={board}
           provider={provider}
-          onClose={() => setDetailCard(null)}
+          onClose={closeDetail}
           reload={reload}
           patchCard={patchCard}
           addCard={addCard}
           removeCard={removeCard}
           onReveal={revealOnRoadmap}
-          onOpenCard={(c) => setDetailCard(c)}
+          onOpenCard={openWithin}
+          onBack={detailStack.length > 0 ? backInDetail : undefined}
           onError={onError}
         />
       )}

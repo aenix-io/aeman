@@ -15,8 +15,12 @@ import { SIZES, SIZE_ORDER } from "../size";
 import { STAGES } from "../stages";
 import { Dropdown } from "./Dropdown";
 import { eventLabel } from "../eventlog";
-import { localDateIso } from "../date";
-import { removeFromProjectOutcome } from "../placements";
+import { localDateIso, todayIso } from "../date";
+import { reviewerCandidates } from "../domains";
+import { ownerLabel, ownerOf, type Owner } from "../owner";
+import { teamColor } from "../avatar";
+import { avatarsFrom, displayName, namesFrom } from "../users";
+import type { RemoveChoice } from "../removal";
 import {
   KIND_LABEL,
   STATUS_LABEL,
@@ -26,12 +30,13 @@ import {
   kindOf,
   planningRemoval,
   statusOf,
-  type HierarchyChoice,
   type RoadmapKind,
 } from "../roadmap";
-import { isPlanning, isSubtask } from "../subtasks";
+import { isPlanning, isSubtask, subtaskParent } from "../subtasks";
+import { Avatar } from "./Avatar";
 import { DescriptionEditor } from "./DescriptionEditor";
 import { KindIcon } from "./KindIcon";
+import { OwnerPicker } from "./OwnerPicker";
 import { ParentPicker } from "./ParentPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
@@ -51,8 +56,11 @@ interface CardDetailProps {
   removeCard?: (itemId: string) => void;
   /** A breadcrumb was followed: show that card on the Roadmap. */
   onReveal?: (uid: string) => void;
-  /** A row under a planning card was clicked: open that card here. */
+  /** A crumb, a child row, the task a subtask rides: open that card here,
+   *  in this drawer, with a way back. */
   onOpenCard?: (card: CardModel) => void;
+  /** There is a card to go back to (the pane was opened from another). */
+  onBack?: () => void;
   /** A write the server refused, in its own words (a parent of the wrong
    *  level, another repository, a project card). */
   onError?: (message: string) => void;
@@ -100,6 +108,7 @@ export function CardDetail({
   removeCard,
   onReveal,
   onOpenCard,
+  onBack,
   onError,
 }: CardDetailProps) {
   // A record: what the card was on a day its team has moved past. Nothing
@@ -160,6 +169,163 @@ export function CardDetail({
   // The parent as the pane shows it: the last crumb of the lineage.
   const parentCrumb = card.lineage?.[card.lineage.length - 1];
   const offersParent = !isRecord && allowedParentKinds(kind).length > 0 && !subtask;
+
+  // Going to another card from here — a crumb, the task a subtask rides, a
+  // row under a planning card — opens it in this drawer; the caller keeps
+  // the way back. A card the board does not hold (an ancestor met from a
+  // day board) is fetched by id.
+  const openById = (uid: string) => {
+    if (!onOpenCard) {
+      return;
+    }
+    const here = known.find((c) => c.itemId === uid);
+    if (here) {
+      onOpenCard(here);
+      return;
+    }
+    void provider
+      .getCard(uid)
+      .then(onOpenCard)
+      .catch((err: unknown) => onError?.(errMessage(err)));
+  };
+
+  // ---- whose this is: the owner, and the reviewer when it is on review ----
+  const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
+  const avatars = useMemo(() => avatarsFrom(board.members), [board.members]);
+  const names = useMemo(() => namesFrom(board.members), [board.members]);
+  const owner = ownerOf(card);
+  const setOwner = (next: Owner) => {
+    if (next.team === owner.team && next.person === owner.person) {
+      return;
+    }
+    const before: Partial<CardModel> = {
+      team: card.team,
+      assignees: card.assignees,
+      startDate: card.startDate,
+      day: card.day,
+      zone: card.zone,
+      sprintStart: card.sprintStart,
+      parked: card.parked,
+    };
+    // The team and the person at once; the rest — the day, the band, the
+    // sprint, the shelf — is the gesture's answer (hierarchy.md, "Owner").
+    patchCard(card.itemId, { team: next.team || undefined, assignees: next.person ? [next.person] : [] });
+    void provider
+      .ownCard(card.itemId, next.team, next.person)
+      .then((updated) =>
+        patchCard(card.itemId, {
+          team: updated.team,
+          assignees: updated.assignees,
+          startDate: updated.startDate,
+          day: updated.day,
+          zone: updated.zone,
+          sprintStart: updated.sprintStart,
+          parked: updated.parked,
+        }),
+      )
+      .catch((err: unknown) => {
+        patchCard(card.itemId, before);
+        onError?.(errMessage(err));
+      });
+  };
+  // A card on review has a REVIEW card linked to it, and that card's person
+  // is the reviewer; the pane is opened on either side of the link. The
+  // original is the one the review doors are knocked on.
+  const originalId = card.reviewOf ?? card.itemId;
+  const reviewCard = card.reviewOf ? card : board.cards.find((c) => c.reviewOf === card.itemId);
+  const onReview = !!card.reviewOf || card.stage === "review" || !!reviewCard;
+  const reviewer = reviewCard?.assignees[0] ?? "";
+  const reviewers = useMemo(() => reviewerCandidates(members, board.domains ?? [], card.domain), [members, board.domains, card.domain]);
+  const [reviewerOpen, setReviewerOpen] = useState(false);
+  const reviewerRef = useRef<HTMLSpanElement | null>(null);
+  const setReviewer = (login: string | null) => {
+    setReviewerOpen(false);
+    if ((login ?? "") === reviewer) {
+      return;
+    }
+    if (login === null) {
+      if (!reviewCard) {
+        return;
+      }
+      removeCard?.(reviewCard.itemId);
+      void provider
+        .removeReviewer(originalId)
+        .then((original) => {
+          addCard?.(original);
+          if (card.reviewOf) {
+            onClose();
+          }
+        })
+        .catch((err: unknown) => {
+          addCard?.(reviewCard);
+          onError?.(errMessage(err));
+        });
+      return;
+    }
+    const before = reviewCard?.assignees;
+    if (reviewCard) {
+      patchCard(reviewCard.itemId, { assignees: [login] });
+    }
+    void provider
+      .sendToReview(originalId, login)
+      .then((made) => {
+        if (reviewCard) {
+          patchCard(reviewCard.itemId, { assignees: made.assignees });
+        } else {
+          addCard?.(made);
+        }
+      })
+      .catch((err: unknown) => {
+        if (reviewCard && before) {
+          patchCard(reviewCard.itemId, { assignees: before });
+        }
+        onError?.(errMessage(err));
+      });
+  };
+
+  // ---- a task's subtasks: what rides it, and one more ----
+  const subtasks = useMemo(
+    () => (task && !subtask ? known.filter((c) => subtaskParent(c) === card.itemId || (c.parent === card.itemId && !isPlanning(c))) : []),
+    [known, task, subtask, card.itemId],
+  );
+  const [addingSub, setAddingSub] = useState(false);
+  const [subTitle, setSubTitle] = useState("");
+  const [pendingSubs, setPendingSubs] = useState<string[]>([]);
+  const addSubtask = () => {
+    const t = subTitle.trim();
+    if (!t) {
+      setAddingSub(false);
+      return;
+    }
+    setSubTitle("");
+    setPendingSubs((p) => [...p, t]);
+    const today = todayIso();
+    // The way the Team and Me boards group a card under another: the
+    // parent's team, band and person come along (the server cascades them,
+    // subtask parity), and the day is the parent's own or today.
+    void provider
+      .createCard({
+        title: t,
+        team: card.team ?? null,
+        zone: card.zone ?? "gray",
+        start: card.startDate ?? today,
+        day: card.day ?? card.startDate ?? today,
+        assigneeLogin: card.assignees[0] ?? null,
+        parent: card.itemId,
+      })
+      .then((made) => {
+        setPendingSubs((p) => p.filter((x) => x !== t));
+        const withLineage: CardModel = made.lineage
+          ? made
+          : { ...made, lineage: [...(card.lineage ?? []), { uid: card.itemId, type: card.type, title: card.title }] };
+        setHierarchy((h) => (h && h.forCard === card.itemId ? { ...h, cards: [...h.cards, withLineage] } : h));
+        addCard?.(withLineage);
+      })
+      .catch((err: unknown) => {
+        setPendingSubs((p) => p.filter((x) => x !== t));
+        onError?.(errMessage(err));
+      });
+  };
 
   const setParent = (next: CardModel | null) => {
     const nextId = next?.itemId ?? "";
@@ -247,9 +413,11 @@ export function CardDetail({
   // ---- the × on a child, and the actions on the card itself ----
   // One dialog for all of it: the Team board's own, with the hierarchy's two
   // answers — delete, or only unlink (roadmap.hierarchyChoices).
-  const [choosing, setChoosing] = useState<{ card: CardModel; detachable: boolean } | null>(null);
-  const answer = (target: CardModel, choice: HierarchyChoice) => {
-    if (choice === "detach") {
+  const [choosing, setChoosing] = useState<{ card: CardModel; choices: RemoveChoice[] } | null>(null);
+  const answer = (target: CardModel, choice: RemoveChoice) => {
+    // Detach a child of a planning card, or ungroup a subtask: the same
+    // write — the link goes, the card stays where it is.
+    if (choice === "detach" || choice === "ungroup") {
       const before = { parent: target.parent, lineage: target.lineage };
       patchCard(target.itemId, { parent: undefined, lineage: undefined });
       setHierarchy((h) =>
@@ -302,26 +470,6 @@ export function CardDetail({
         patchCard(card.itemId, prev);
         onError?.(errMessage(err));
       });
-  };
-
-  const removeFromProject = () => {
-    const outcome = removeFromProjectOutcome(card, card.project ?? "", card.scope ?? "");
-    if (outcome === "refused") {
-      reload();
-      return;
-    }
-    const before = { project: card.project, scope: card.scope };
-    if (outcome === "delete") {
-      removeCard?.(card.itemId);
-      onClose();
-    } else {
-      patchCard(card.itemId, { scope: undefined });
-    }
-    void provider.removeFromProject(card.itemId, card.project ?? "", card.scope ?? "").catch((err: unknown) => {
-      patchCard(card.itemId, before);
-      onError?.(errMessage(err));
-      reload();
-    });
   };
 
   const [editingTitle, setEditingTitle] = useState(false);
@@ -395,6 +543,9 @@ export function CardDetail({
     setAddTitle("");
     setAddLevel(childLevels(kindOf(card))[0] ?? "task");
     setWantsOptions(false);
+    setAddingSub(false);
+    setSubTitle("");
+    setReviewerOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card.itemId]);
 
@@ -562,9 +713,16 @@ export function CardDetail({
               planning crumb leads to the Roadmap, which is the one board that
               draws it; a task crumb is a name, since the day boards are where
               a task is met. */}
-          {card.lineage && card.lineage.length > 0 && (
+          {(onBack || (card.lineage && card.lineage.length > 0)) && (
             <nav className="modal-crumbs drawer-crumbs" aria-label="Hierarchy">
-              {card.lineage.map((up, i) => (
+              {onBack && (
+                <button type="button" className="drawer-back" onClick={onBack} title="Back to the card this was opened from">
+                  ‹ Back
+                </button>
+              )}
+              {/* Every crumb opens that card here; a planning crumb also
+                  offers the Roadmap, which is the one board that draws it. */}
+              {card.lineage?.map((up, i) => (
                 <span key={up.uid} className="modal-crumb">
                   {i > 0 && (
                     <span className="modal-crumb-sep" aria-hidden="true">
@@ -572,17 +730,28 @@ export function CardDetail({
                     </span>
                   )}
                   <KindIcon kind={(up.type ?? "task") as RoadmapKind} />
-                  {up.type && onReveal ? (
+                  {onOpenCard ? (
                     <button
                       type="button"
                       className="modal-crumb-link"
-                      title={`Show «${up.title}» on the Roadmap`}
-                      onClick={() => onReveal(up.uid)}
+                      title={`Open «${up.title}»`}
+                      onClick={() => openById(up.uid)}
                     >
                       {up.title}
                     </button>
                   ) : (
                     <span className="modal-crumb-name">{up.title}</span>
+                  )}
+                  {up.type && onReveal && (
+                    <button
+                      type="button"
+                      className="modal-crumb-reveal"
+                      title={`Show «${up.title}» on the Roadmap`}
+                      aria-label={`Show ${up.title} on the Roadmap`}
+                      onClick={() => onReveal(up.uid)}
+                    >
+                      ↗
+                    </button>
                   )}
                 </span>
               ))}
@@ -737,6 +906,84 @@ export function CardDetail({
                   </div>
                 )}
 
+                {/* A task's subtasks: what rides it, each opening here, each
+                    with the × that asks the Team board's question (ungroup,
+                    or delete), and one more typed in — grouped under this
+                    task the way the boards group a card. */}
+                {task && !subtask && (
+                  <section className="drawer-children" aria-label="Subtasks">
+                    <div className="drawer-section-title">
+                      Subtasks
+                      {subtasks.length > 0 && <span className="modal-level-count"> {subtasks.length}</span>}
+                    </div>
+                    {subtasks.map((c) => (
+                      <div key={c.itemId} className="drawer-child">
+                        <button
+                          type="button"
+                          className="drawer-child-open"
+                          onClick={() => onOpenCard?.(c)}
+                          disabled={!onOpenCard}
+                          title={c.title}
+                        >
+                          <KindIcon kind="subtask" />
+                          <span className="drawer-child-title">{c.title}</span>
+                          <span className={`roadmap-status roadmap-status-${statusOf(c)}`}>{STATUS_LABEL[statusOf(c)]}</span>
+                        </button>
+                        {!isRecord && (
+                          <button
+                            type="button"
+                            className="drawer-child-x"
+                            title={`Delete «${c.title}», or take it out of the group`}
+                            aria-label={`Remove ${c.title}`}
+                            onClick={() => setChoosing({ card: c, choices: ["delete", "ungroup"] })}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {pendingSubs.map((t) => (
+                      <div key={`pending-${t}`} className="drawer-child drawer-child-pending">
+                        <span className="drawer-child-title">{t}</span>
+                        <span className="drawer-hint">adding…</span>
+                      </div>
+                    ))}
+                    {!isRecord &&
+                      !temp &&
+                      (addingSub ? (
+                        <form
+                          className="drawer-add"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            addSubtask();
+                          }}
+                        >
+                          <input
+                            type="text"
+                            className="drawer-add-input"
+                            autoFocus
+                            value={subTitle}
+                            placeholder={`New subtask of «${card.title}»…`}
+                            onChange={(e) => setSubTitle(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") {
+                                setAddingSub(false);
+                                setSubTitle("");
+                              }
+                            }}
+                          />
+                          <button type="submit" className="btn btn-primary" disabled={!subTitle.trim()}>
+                            Add
+                          </button>
+                        </form>
+                      ) : (
+                        <button type="button" className="drawer-add-open" onClick={() => setAddingSub(true)}>
+                          + Add subtask
+                        </button>
+                      ))}
+                  </section>
+                )}
+
                 {/* What sits under a planning card, as the Roadmap groups it:
                     the levels below, the tasks, the project cards. A row opens
                     that card here; its × asks the Team board's question. */}
@@ -776,7 +1023,7 @@ export function CardDetail({
                                 className="drawer-child-x"
                                 title={`Delete «${c.title}», or take it out from under here`}
                                 aria-label={`Remove ${c.title}`}
-                                onClick={() => setChoosing({ card: c, detachable: true })}
+                                onClick={() => setChoosing({ card: c, choices: hierarchyChoices(c) })}
                               >
                                 ×
                               </button>
@@ -907,20 +1154,80 @@ export function CardDetail({
                 {!planning && stageLabel && <span className="drawer-chip">{stageLabel}</span>}
               </>,
             )}
+            {/* Whose the task is: its team and the person on it, in the one
+                menu the boards ask it with. A subtask's owner is its task's
+                (the server cascades it) and only reads here. */}
             {task &&
               row(
-                "Assignees",
-                card.assignees.length > 0 ? (
-                  card.assignees.map((a) => (
-                    <span key={a} className="drawer-chip">
-                      {a}
-                    </span>
-                  ))
+                "Owner",
+                subtask ? (
+                  <span className="drawer-owner" title="A subtask's owner is its task's">
+                    {owner.team && <span className="team-dot" style={{ background: teamColor(owner.team) }} />}
+                    {owner.person && <Avatar login={owner.person} avatars={avatars} names={names} className="avatar-img roadmap-owner-avatar" />}
+                    <span className={owner.team || owner.person ? "" : "drawer-none"}>{ownerLabel(owner, (l) => displayName(l, names))}</span>
+                  </span>
                 ) : (
-                  <span className="drawer-none">Nobody yet</span>
+                  <OwnerPicker
+                    current={owner}
+                    teams={board.teams}
+                    people={members}
+                    cards={board.cards}
+                    avatars={avatars}
+                    names={names}
+                    disabled={isRecord || temp}
+                    onPick={setOwner}
+                    className="drawer-owner-picker"
+                  >
+                    <span className={`drawer-owner${owner.team || owner.person ? "" : " drawer-owner-none"}`}>
+                      {owner.team && <span className="team-dot" style={{ background: teamColor(owner.team) }} />}
+                      {owner.person && <Avatar login={owner.person} avatars={avatars} names={names} className="avatar-img roadmap-owner-avatar" />}
+                      <span className="drawer-owner-text">{owner.team || owner.person ? ownerLabel(owner, (l) => displayName(l, names)) : "Nobody yet"}</span>
+                    </span>
+                    {!isRecord && !temp && <span className="add-card-team-caret">▾</span>}
+                  </OwnerPicker>
                 ),
               )}
-            {task && row("Team", card.team ? card.team : <span className="drawer-none">No team</span>)}
+            {/* On review: who is reviewing it — the person on the linked
+                review card — chosen from those who can read the card's
+                repository, as the boards' picker chooses. */}
+            {!planning &&
+              onReview &&
+              row(
+                "Reviewer",
+                <span className="drawer-picker" ref={reviewerRef}>
+                  <button
+                    type="button"
+                    className={`drawer-pick${reviewer ? "" : " drawer-pick-empty"}`}
+                    disabled={isRecord || temp}
+                    aria-haspopup="listbox"
+                    aria-expanded={reviewerOpen}
+                    title="Who reviews it"
+                    onClick={() => setReviewerOpen((o) => !o)}
+                  >
+                    {reviewer && <Avatar login={reviewer} avatars={avatars} names={names} className="avatar-img roadmap-owner-avatar" />}
+                    <span className="drawer-pick-text">{reviewer ? displayName(reviewer, names) : "Nobody yet"}</span>
+                    {!isRecord && !temp && <span className="add-card-team-caret">▾</span>}
+                  </button>
+                  <Dropdown open={reviewerOpen} anchorRef={reviewerRef} onClose={() => setReviewerOpen(false)} className="add-card-team-menu drawer-pick-menu">
+                    {reviewers.map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        className={`add-card-team-item${reviewer === p ? " drawer-pick-on" : ""}`}
+                        onClick={() => setReviewer(p)}
+                      >
+                        <Avatar login={p} avatars={avatars} names={names} />
+                        {displayName(p, names)}
+                      </button>
+                    ))}
+                    {reviewCard && (
+                      <button type="button" className="add-card-team-item drawer-pick-none" onClick={() => setReviewer(null)}>
+                        No reviewer
+                      </button>
+                    )}
+                  </Dropdown>
+                </span>,
+              )}
             {task &&
               row(
                 "Zone",
@@ -993,7 +1300,19 @@ export function CardDetail({
                 )}
             {task && card.sprintStart && row("Sprint", card.sprintStart)}
             {task && card.week && row("Week", card.week)}
-            {subtask && parentCrumb && row("Subtask of", parentCrumb.title)}
+            {subtask &&
+              parentCrumb &&
+              row(
+                "Subtask of",
+                onOpenCard ? (
+                  <button type="button" className="drawer-pick drawer-pick-link" title={`Open «${parentCrumb.title}»`} onClick={() => openById(parentCrumb.uid)}>
+                    <KindIcon kind="task" />
+                    <span className="drawer-pick-text">{parentCrumb.title}</span>
+                  </button>
+                ) : (
+                  parentCrumb.title
+                ),
+              )}
             {/* What this card sits UNDER — the one link of the hierarchy. A
                 subtask's parent is its task and is changed by the group
                 gesture on the boards; everything else picks a planning card
@@ -1022,15 +1341,10 @@ export function CardDetail({
                     {complete ? "Reopen" : "Mark as done"}
                   </button>
                 )}
-                {project && (
-                  <button type="button" className="drawer-action" onClick={removeFromProject}>
-                    Remove from project
-                  </button>
-                )}
                 <button
                   type="button"
                   className="drawer-action drawer-action-danger"
-                  onClick={() => setChoosing({ card, detachable: !!card.parent && !subtask })}
+                  onClick={() => setChoosing({ card, choices: card.parent && !subtask ? hierarchyChoices(card) : ["delete"] })}
                 >
                   {card.parent && !subtask ? "Delete or unlink…" : "Delete…"}
                 </button>
@@ -1048,11 +1362,11 @@ export function CardDetail({
               ? Math.round((100 * choosing.card.hierarchy.done) / Math.max(choosing.card.hierarchy.total, 1))
               : (choosing.card.progress ?? 0)
           }
-          choices={choosing.detachable ? hierarchyChoices(choosing.card) : (["delete"] as HierarchyChoice[])}
+          choices={choosing.choices}
           subtasks={0}
           note={childrenNote(known, choosing.card.itemId)}
           onClose={() => setChoosing(null)}
-          onSubmit={(choice) => answer(choosing.card, choice as HierarchyChoice)}
+          onSubmit={(choice) => answer(choosing.card, choice)}
         />
       )}
     </div>

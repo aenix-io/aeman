@@ -50,12 +50,39 @@ describe("the card drawer", () => {
     expect(html).not.toContain('class="modal-backdrop"');
   });
 
-  it("gives a task every row: people, team, zone, size, and what it sits under", () => {
+  it("gives a task every row: its owner, zone, size, and what it sits under", () => {
     const html = draw(card({ zone: "red", team: "core", assignees: ["ann"], project: "cozy" }));
-    expect(rows(html)).toEqual(["Status", "Assignees", "Team", "Zone", "Size", "Under", "Project"]);
+    expect(rows(html)).toEqual(["Status", "Owner", "Zone", "Size", "Under", "Project"]);
     expect(html).toContain(">urgent<");
-    expect(html).toContain(">ann<");
+    // The owner is the team and the person, in one menu (OwnerPicker).
+    expect(html).toContain("core · ann");
+    expect(html).toContain('class="owner-picker drawer-owner-picker"');
     expect(html).toContain("Mark as done");
+    // A task's subtasks live in the main column, with a way to add one.
+    expect(html).toContain('aria-label="Subtasks"');
+    expect(html).toContain("+ Add subtask");
+  });
+
+  it("asks who reviews a card on review, from those who can read it", () => {
+    const original = card({ itemId: "o", stage: "review", team: "core", assignees: ["ann"] });
+    const review = card({ itemId: "r", reviewOf: "o", team: "core", assignees: ["bob"] });
+    const withBoth = { ...board, cards: [original, review] } as Board;
+    const html = renderToStaticMarkup(
+      <CardDetail card={original} board={withBoth} provider={{} as Provider} onClose={vi.fn()} reload={vi.fn()} patchCard={vi.fn()} />,
+    );
+    expect(rows(html)).toContain("Reviewer");
+    expect(html).toContain(">bob<");
+    // And not on a card that is not on review.
+    expect(rows(draw(card({ team: "core" })))).not.toContain("Reviewer");
+  });
+
+  it("reads a subtask's owner as its task's, and names the task as a way to it", () => {
+    const sub = card({ parent: "t", team: "core", assignees: ["ann"], lineage: [{ uid: "t", title: "Render PDF" }] });
+    const html = draw(sub);
+    expect(rows(html)).toEqual(["Status", "Owner", "Zone", "Size", "Subtask of", "Project"].filter((r) => r !== "Project"));
+    expect(html).not.toContain("owner-picker");
+    expect(html).toContain('title="Open «Render PDF»"');
+    expect(html).not.toContain('aria-label="Subtasks"'); // one level deep: a subtask has none
   });
 
   it("gives a planning card its level, its standing, its dates and what it is under — no band, no size, no people", () => {
@@ -81,7 +108,11 @@ describe("the card drawer", () => {
     expect(rows(html)).toEqual(["Status", "Dates", "Under", "Project", "Scope"]);
     expect(html).not.toContain("modal-size-chip");
     expect(html).not.toContain("modal-zone-btn");
-    expect(html).toContain("Remove from project");
+    expect(html).not.toContain("owner-picker");
+    // A project card lives and dies in its column: no way out of the
+    // project but Delete.
+    expect(html).not.toContain("Remove from project");
+    expect(html).toContain("Delete…");
     expect(html).toContain('type="date"');
   });
 
@@ -99,20 +130,31 @@ describe("the card drawer", () => {
 // sits under, and what sits under a planning card. Mirrors what hierarchy.md
 // gives the detail pane.
 describe("the card drawer and the hierarchy", () => {
-  it("draws the ancestors root first as a breadcrumb, planning crumbs as links to the Roadmap", () => {
+  it("draws the ancestors root first as a breadcrumb, every crumb opening its card, planning crumbs with the Roadmap too", () => {
     const html = draw(card({ parent: "e", lineage }));
     expect(html).toContain("modal-crumbs");
     expect(html.indexOf("Grow")).toBeLessThan(html.indexOf("Invoices"));
     expect(html.match(/modal-crumb-link/g)?.length).toBe(2);
+    expect(html).toContain('title="Open «Grow»"');
+    expect(html.match(/modal-crumb-reveal/g)?.length).toBe(2);
     expect(html).toContain("kind-icon-goal");
     expect(html).toContain("kind-icon-epic");
   });
 
-  it("names a subtask's task as a crumb that is not a link, and offers no parent picker on it", () => {
+  it("names a subtask's task as a crumb that opens it, and offers no parent picker on it", () => {
     const html = draw(card({ parent: "t", lineage: [...lineage, { uid: "t", title: "Render PDF" }] }));
-    expect(html).toContain('class="modal-crumb-name">Render PDF<');
+    expect(html).toContain('title="Open «Render PDF»"');
+    expect(html.match(/modal-crumb-reveal/g)?.length).toBe(2); // the goal and the epic, not the task
     expect(rows(html)).toContain("Subtask of");
     expect(rows(html)).not.toContain("Under");
+  });
+
+  it("offers a way back when the card was opened from another", () => {
+    const html = renderToStaticMarkup(
+      <CardDetail card={card()} board={board} provider={{} as Provider} onClose={vi.fn()} reload={vi.fn()} patchCard={vi.fn()} onBack={vi.fn()} />,
+    );
+    expect(html).toContain('class="drawer-back"');
+    expect(draw(card())).not.toContain('class="drawer-back"');
   });
 
   it("shows the parent in the Under row and offers to change it", () => {

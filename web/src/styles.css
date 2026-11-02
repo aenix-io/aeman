@@ -5510,6 +5510,57 @@ button.card-age {
   text-decoration: underline;
 }
 
+/* A planning crumb's second answer: the Roadmap, which draws it. */
+.modal-crumb-reveal {
+  border: none;
+  background: transparent;
+  padding: 0 2px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.modal-crumb-reveal:hover {
+  color: var(--accent-emphasis);
+}
+
+/* The way back to the card this one was opened from. */
+.drawer-back {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg-soft);
+  padding: 1px 8px;
+  margin-right: 6px;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.drawer-back:hover {
+  border-color: var(--accent);
+}
+
+.drawer-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.drawer-owner-none {
+  color: var(--faint);
+}
+
+.drawer-owner-picker .owner-picker-btn {
+  width: 100%;
+}
+
+.drawer-pick-link .drawer-pick-text {
+  color: var(--accent-emphasis);
+}
+
 .modal-level-count {
   font-size: 11px;
   color: var(--faint);
