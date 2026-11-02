@@ -16,7 +16,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27"
+          # Pinned to the exact patch go.mod declares, not the floating "1.27":
+          # the runner's 1.27.3 emits export data (v5) that golangci-lint
+          # v2.13.2 (built with go1.27.0) cannot read, which broke the lint job
+          # repo-wide. Bump both together when moving to a newer Go.
+          go-version: "1.27.1"
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
@@ -42,7 +46,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27"
+          go-version: "1.27.1" # the exact patch go.mod declares; see go-lint
       # Both artifacts built from api/openapi.yaml are committed: the image
       # copies the tree and builds it (Dockerfile), this job runs make backend
       # and the frontend step above builds the SPA, and an external importer

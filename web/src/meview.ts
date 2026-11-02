@@ -46,6 +46,17 @@ export function onMyDay(
   if (c.startDate && c.startDate > today) {
     return day >= c.startDate;
   }
+  // An OPEN card of the viewer's keeps standing on their LIVE board (today)
+  // even when its sprint has fallen behind the team's current one: a card left
+  // out of a carry-over is still unfinished, and the Me board keeps everything
+  // of theirs that is not closed. It is the open card the range gate (end day
+  // past) and the sprint-span gate (sprint older than the active one) below
+  // would both drop. Scoped to today and to a card that HAS a sprint, so a day
+  // still to come is a plan, a past day reads by its own sprint, and an old
+  // sprint-LESS stray still does not resurface. Mirrors board.MeView.
+  if (day === today && c.sprintStart && !isComplete(c) && (!c.startDate || c.startDate <= day)) {
+    return true;
+  }
   // A card with an end date spans a range: it shows on every day from its
   // start through its end regardless of sprint boundaries.
   if (c.startDate && c.day && c.day >= c.startDate && day >= c.startDate && day <= c.day) {

@@ -81,7 +81,7 @@ That is the whole rule, and every card meets it the same way. It replaced seven 
 Four consequences are worth saying out loud:
 
 - **Open work does not stop when its plan does.** A card's end date says when the work was due to finish, not when it leaves the board: past that day it goes on standing there until somebody finishes it or puts it off. Work that ran over is the work most in need of being looked at.
-- **Today is a state, a day ahead is a plan.** The rule above holds up to today. A day still to COME shows only what somebody actually put on it: a card whose own dates reach that day, or one placed in the week that day belongs to. Today's unfinished work is today's problem, not tomorrow's plan — without that bound every open card stood on every future day, and a month out was simply the team's whole backlog. The **Me view is deliberately the other way**: a person's own board keeps showing everything of theirs that is not closed, whichever day they look at.
+- **Today is a state, a day ahead is a plan.** The rule above holds up to today. A day still to COME shows only what somebody actually put on it: a card whose own dates reach that day, or one placed in the week that day belongs to. Today's unfinished work is today's problem, not tomorrow's plan — without that bound every open card stood on every future day, and a month out was simply the team's whole backlog. The **Me view is deliberately the other way**: a person's own board keeps showing everything of theirs that is not closed, whichever day they look at — an open card stays on its owner's today board even when its sprint has fallen behind the team's current one (left out of a carry-over), the same way the Team grid keeps overran work.
 - **The CURRENT sprint accumulates all its work on every one of its days.** A lead opens the sprint with the team from whichever day they are on — the sprint's own day (the "current sprint" jump), a day in the middle, or today — and each of those days holds everything the sprint has been: the work it opened with, the work typed into it since (most of a sprint is created inside it), and the work already **closed**. A day that showed only what is still open answers "what is left", which is not the question that review asks; and a lead who opened a middle day of the running sprint before carrying it over used to see the closed work missing, which is the bug this rule fixes. **Carry Over is what clears the closed work**: it leaves a finished card on the closing sprint (its `sprintStart` is not moved), so the moment a new sprint opens, that done work belongs to the now-PREVIOUS sprint and drops off today — even a card finished **today** is left behind on the sprint it was carried past, and a previous sprint keeps its closed work only on the days it ran (a record). (A finished card is still on its own `doneAt` day regardless, as every finished card is.) Two other things leave the current sprint too, both the act of taking a card OUT of it: work planned into a week still to come, and work **deferred past today** — sent to tomorrow, a card leaves today's sprint at once and arrives tomorrow; sent three days out, the sprint that opens tomorrow starts without it. Deferring is a hold, not a removal: the card is out of the sprint only while its day has not come, and the morning it arrives it is in the sprint again.
 - **Finished work belongs to the day it recorded** (`doneAt`) and to no other. A card whose writer recorded nothing stands on no day here — nothing is guessed out of its dates, which are a plan rather than a record. Nothing is lost by that, because a day already gone is not answered by this rule at all: it is served as a snapshot, and there the day's own commits say what they finished (below).
 
@@ -116,6 +116,17 @@ The rules above place TODAY's cards on a day. That is what a day-lens is: dates 
   viewed day falls in a sprint the card **spans** — from the one it started in up
   to the sprint it now belongs to: `startDate <= selectedDate` **AND**
   `activeSprint(team, selectedDate) <= sprintStart`.
+- **An open card whose sprint fell behind still stays on TODAY.** When a team
+  carries past a sprint without carrying a card forward (the card was left out of
+  a carry-over), the span rule above drops it: its end date is behind, so no range
+  covers it, and `activeSprint(team, today)` is now newer than its `sprintStart`.
+  But the Me board is the one that keeps everything of the person's that is not
+  closed, the way the Team grid keeps overran work — so an **open** card of theirs
+  whose scheduled day has come shows on the **live today board** however far its
+  sprint has fallen behind. Only on today (a day ahead is a plan), only a card
+  that HAS a sprint (an old sprint-less stray still stays on its own past days,
+  below), and only while open (a done card carried past belongs to its own
+  sprint's days, not today).
 - So **today** shows the current sprint's cards. Rolling **back** into the
   previous sprint's days shows that sprint's cards — including the **carried-over**
   ones, which stay visible on the days of the sprint they came from (not only the
