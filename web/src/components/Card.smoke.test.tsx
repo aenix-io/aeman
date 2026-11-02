@@ -5,10 +5,10 @@ import type { Card } from "../providers/types";
 
 // A card's left stripe says where the card came FROM, and it says it on every
 // board the card is met on — the day boards draw it here, the Triage board on
-// its own slot (.triage-slot-project / -process). It went missing from the
-// day boards once already: the stripe used to be the weekly plan's band, and
-// when the plan was taken out the mark went with it, leaving project and
-// process cards indistinguishable from the day's own work.
+// its own slot (.triage-slot-project). It went missing from the day boards
+// once already: the stripe used to be the weekly plan's band, and when the
+// plan was taken out the mark went with it, leaving project cards
+// indistinguishable from the day's own work.
 
 const card = (over: Partial<Card> = {}): Card =>
   ({
@@ -39,10 +39,6 @@ describe("what a card's left stripe says", () => {
     expect(draw(card({ epic: "Auth", project: "core" }))).toContain("card-project");
   });
 
-  it("marks a PROCESS TURN", () => {
-    expect(draw(card({ task: "t1" }))).toContain("card-process");
-  });
-
   it("marks a REVIEW card", () => {
     expect(draw(card({ reviewOf: "c0" }))).toContain("card-review");
   });
@@ -58,7 +54,6 @@ describe("what a card's left stripe says", () => {
   it("leaves the day board's own work unmarked", () => {
     const html = draw(card({ startDate: "2026-09-03" }));
     expect(html).not.toContain("card-project");
-    expect(html).not.toContain("card-process");
     expect(html).not.toContain("card-review");
   });
 });

@@ -52,7 +52,6 @@ const board = (over: Partial<Board> = {}): Board =>
     projects: ["cozy"],
     epics: [{ project: "cozy", name: "Storage" }],
     deadlines: [],
-    processes: [],
     members: [],
     domains: [],
     ...over,

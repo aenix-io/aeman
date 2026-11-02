@@ -698,9 +698,9 @@ export function TeamBoard({
       // is about to do (RemoveChoiceDialog), so the card's own anonymous
       // "Delete?" never stands in front of one.
       boardAsks
-      // A project card and a process turn already out of the working area
-      // have nowhere further to go: the × would write nothing, and one that
-      // does nothing reads as a delete that failed.
+      // A project card already out of the working area has nowhere further
+      // to go: the × would write nothing, and one that does nothing reads as
+      // a delete that failed.
       deletable={offersRemoval(card, gridCtx(card))}
       onStage={handleStage}
       onInProgress={handleInProgress}
@@ -1006,9 +1006,9 @@ export function TeamBoard({
       : true,
   });
   // The repository of the card a subtask would still point at once its
-  // parent is gone: its original, or the task it iterates.
+  // parent is gone: its original.
   const linkedDomainOf = (card: CardModel): string | undefined => {
-    const ref = card.reviewOf || card.task;
+    const ref = card.reviewOf;
     if (!ref) {
       return undefined;
     }

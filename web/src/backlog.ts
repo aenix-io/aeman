@@ -22,11 +22,10 @@ export function parked(c: Pick<Card, "parked">): boolean {
 
 /** parkable reports whether this card may be parked at all.
  *
- *  A Project-board slot and a process TURN are refused: their week is another
- *  board's to say — a slot's follows its start date, a turn's is its process's
- *  record of what that week was owed — so parking one here would edit a plan
- *  this board does not own. The server refuses it too (ErrNotYoursToPark);
- *  this is so the board never offers what would come back as an error.
+ *  A Project-board slot is refused: its week is another board's to say — it
+ *  follows its start date — so parking one here would edit a plan this board
+ *  does not own. The server refuses it too (ErrNotYoursToPark); this is so
+ *  the board never offers what would come back as an error.
  *
  *  A REVIEW card and a SUBTASK are refused for the other reason: neither has
  *  a place of its own to be parked out of. One follows the card it reviews,
@@ -35,10 +34,8 @@ export function parked(c: Pick<Card, "parked">): boolean {
  *  (removal.ts) while the drawer went on accepting the drop, which made the
  *  same card parkable or not depending on which gesture was used;
  *  ErrNoPlaceOfItsOwn is the server's side of it. */
-export function parkable(
-  c: Pick<Card, "epic" | "task" | "reviewOf" | "parent">,
-): boolean {
-  return !c.epic && !c.task && !c.reviewOf && !c.parent;
+export function parkable(c: Pick<Card, "epic" | "reviewOf" | "parent">): boolean {
+  return !c.epic && !c.reviewOf && !c.parent;
 }
 
 /** ShelfDrop is what a drop on a team's shelf writes.

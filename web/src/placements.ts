@@ -242,24 +242,21 @@ export function countedAmong(
 export interface CardPlacements {
   /** For a card outside every project: where it may be attached. */
   attach?: ProjectTargets[];
-  /** For a recurrent card: the processes it may be tied to. */
-  processes?: string[];
   /** For a card in a column: where it may be mirrored to. */
   mirror?: ProjectTargets[];
 
   onAttachProject: (project: string, epic: string) => void;
-  onAttachProcess: (process: string) => void;
   onMirror: (project: string, epic: string) => void;
   onUnmirror: (project: string, epic: string) => void;
   /** Put the card on its own team's backlog. Absent on work another board
-   *  owns — a Project-board slot or a process turn, whose week is not this
-   *  board's to take away. */
+   *  owns — a Project-board slot, whose week is not this board's to take
+   *  away. */
   onPark?: () => void;
 }
 
-/** placementTargets computes the attach/mirror/process targets for a card
- *  from the board — the same filters the server applies, so the picker
- *  offers only what would be accepted. */
+/** placementTargets computes the attach/mirror targets for a card from the
+ *  board — the same filters the server applies, so the picker offers only
+ *  what would be accepted. */
 export function placementTargets(
   card: Pick<
     Card,
@@ -268,8 +265,6 @@ export function placementTargets(
     | "mirrors"
     | "domain"
     | "stage"
-    | "process"
-    | "task"
     | "parent"
     | "team"
     | "reviewOf"
@@ -277,16 +272,14 @@ export function placementTargets(
   board: {
     projects: string[];
     epics: EpicRef[];
-    processes: { name: string }[];
-    processDomains?: RosterDomains;
     projectDomains?: RosterDomains;
     domains?: readonly DomainInfo[];
   },
-): Pick<CardPlacements, "attach" | "processes" | "mirror"> {
+): Pick<CardPlacements, "attach" | "mirror"> {
   // A subtask carries at most ONE column of its own (G14): the server
-  // refuses it a second placement (ErrSubtaskMirror) and a process tie
-  // (ErrSubtaskTie), because its file rides its parent and both would be
-  // stranded the moment the parent changes repository. Attaching is its
+  // refuses it a second placement (ErrSubtaskMirror), because its file rides
+  // its parent and both would be stranded the moment the parent changes
+  // repository. Attaching is its
   // right, though — and the Project board's × takes that column away, so
   // without the offer the × would be a one-way door. The rule lives here
   // rather than in each board, or the next board to render cards has to
@@ -308,35 +301,9 @@ export function placementTargets(
       mirror: mirrorTargets(card, board.projects, board.epics, rosterOf(board)),
     };
   }
-  if (card.stage === "recurrent") {
-    if (card.task) {
-      // A process TURN belongs to its task, and the task names the
-      // process — the server refuses a re-tie, so the menu offers none.
-      return {};
-    }
-    // The process it is already tied to is where it stands, not a target —
-    // and only processes of the card's own repository: the server refuses
-    // a cross-repository tie, so the menu must not offer one.
-    return {
-      processes: board.processes
-        .map((p) => p.name)
-        .filter(
-          (name) =>
-            name !== card.process &&
-            // Through the one comparison, as the server asks it
-            // (ProcessDomain against FileDomain, both normalized): a raw
-            // pair agrees only while every side happens to be stamped.
-            sameRepository(
-              rosterDomain(board.processDomains, name),
-              card.domain,
-              rosterOf(board),
-            ),
-        ),
-    };
-  }
   return {
     attach: attachTargets(board.projects, board.epics, card.domain ?? "",
-      !!card.team || !!card.reviewOf || !!card.task, rosterOf(board)),
+      !!card.team || !!card.reviewOf, rosterOf(board)),
   };
 }
 
@@ -364,8 +331,6 @@ export function makeCardPlacements(
   board: {
     projects: string[];
     epics: EpicRef[];
-    processes: { name: string }[];
-    processDomains?: RosterDomains;
     projectDomains?: RosterDomains;
     domains?: readonly DomainInfo[];
     teams?: string[];
@@ -399,10 +364,6 @@ export function makeCardPlacements(
       }
       deps.patchCard(card.itemId, patch);
       call(deps.provider.patchCard(card.itemId, { epic, project }));
-    },
-    onAttachProcess: (process) => {
-      deps.patchCard(card.itemId, { process });
-      call(deps.provider.patchCard(card.itemId, { process }));
     },
     onMirror: (project, epic) => {
       deps.patchCard(card.itemId, {
@@ -597,11 +558,9 @@ export function drawnAsSlot(card: Pick<Card, "epic" | "startDate" | "week">): bo
  *  the block itself would draw nothing but its own divider. A COLUMN
  *  counts, project or not — it is where the card stands. */
 export function hasOriginToShow(
-  card: Pick<Card, "process" | "project" | "epic" | "mirrors">,
+  card: Pick<Card, "project" | "epic" | "mirrors">,
 ): boolean {
-  return (
-    !!card.process || !!card.project || !!card.epic || (card.mirrors?.length ?? 0) > 0
-  );
+  return !!card.project || !!card.epic || (card.mirrors?.length ?? 0) > 0;
 }
 
 /** projectsAColumnCanJoin narrows the picker that moves a column between
@@ -751,17 +710,16 @@ export function projectsWithColumns(
 }
 
 /** CardMark is what a card's left stripe says about where the work came FROM:
- *  a REVIEW waiting on this person, a PROJECT board's commitment, a PROCESS's
- *  turn — or nothing, for the day board's own work. The stripe is worth a
- *  glance precisely because it marks what arrived from elsewhere. */
-export type CardMark = "review" | "project" | "process" | "";
+ *  a REVIEW waiting on this person, a PROJECT board's commitment — or
+ *  nothing, for the day board's own work. The stripe is worth a glance
+ *  precisely because it marks what arrived from elsewhere. */
+export type CardMark = "review" | "project" | "";
 
 /** markOf answers it once, for every board that draws the mark: the day
- *  boards down a card's left edge (Card.tsx: .card-review / -project /
- *  -process) and the Triage board on its own slot (.triage-slot-project /
- *  -process). Two boards deciding this separately is how one of them came to
- *  draw no mark at all after the weekly plan — whose band the stripe used to
- *  be — was taken out.
+ *  boards down a card's left edge (Card.tsx: .card-review / -project) and
+ *  the Triage board on its own slot (.triage-slot-project). Two boards
+ *  deciding this separately is how one of them came to draw no mark at all
+ *  after the weekly plan — whose band the stripe used to be — was taken out.
  *
  *  A review card of a project card is BOTH; the waiting is the innermost
  *  thing about it, so that is what the stripe says. Triage never meets a
@@ -776,10 +734,6 @@ export type CardMark = "review" | "project" | "process" | "";
  *  passing — the same thing the Triage board's catch holds still (triage.gripOf
  *  answers "pinned"), said about the dates instead of about the drag.
  *
- *  A process TURN is NOT one: the day somebody works it is the day board's own
- *  business, and its WEEK — which is its process's record of what that week was
- *  owed — is not touched by a date at all.
- *
  *  It is a rule of the DAY BOARDS, not of the server. The Project board sets
  *  those dates itself and must go on doing so, and the server cannot tell
  *  which board is asking: a narrowing meant for one board, put in the service,
@@ -788,14 +742,9 @@ export function datesAreAnotherBoards(c: Pick<Card, "epic">): boolean {
   return !!c.epic;
 }
 
-export function markOf(
-  c: Pick<Card, "reviewOf" | "epic" | "task">,
-): CardMark {
+export function markOf(c: Pick<Card, "reviewOf" | "epic">): CardMark {
   if (c.reviewOf) {
     return "review";
   }
-  if (c.epic) {
-    return "project";
-  }
-  return c.task ? "process" : "";
+  return c.epic ? "project" : "";
 }

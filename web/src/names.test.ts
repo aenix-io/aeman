@@ -40,8 +40,8 @@ describe("nameConflict", () => {
   });
 
   it("has nothing to say about a free or an empty name", () => {
-    expect(nameConflict("process", ["Invoicing"], "Runway")).toBeNull();
-    expect(nameConflict("process", ["Invoicing"], "   ")).toBeNull();
+    expect(nameConflict("project", ["Invoicing"], "Runway")).toBeNull();
+    expect(nameConflict("project", ["Invoicing"], "   ")).toBeNull();
     expect(nameConflict("team", [], "anything")).toBeNull();
   });
 });

@@ -58,8 +58,8 @@ function say(choice: RemoveChoice) {
  *  made today that nobody has touched, which goes without ceremony
  *  (`asksFirst`). What it offers is the card's own list: an ordinary card can
  *  be taken off the board, and moved to Unassigned when it has a week or a
- *  column to be left in; a project card or a process turn can only be moved
- *  there, since neither is this board's to destroy. */
+ *  column to be left in; a project card can only be moved there, since it is
+ *  not this board's to destroy. */
 export function RemoveChoiceDialog({
   title,
   progress,

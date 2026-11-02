@@ -24,9 +24,4 @@ describe("eventLabel", () => {
       "mirrored to freedom / Liftoff",
     );
   });
-
-  it("words a process tie by its direction", () => {
-    expect(eventLabel(ev("process", "", "Invoicing"))).toBe("tied to the process Invoicing");
-    expect(eventLabel(ev("process", "Invoicing", ""))).toBe("untied from the process Invoicing");
-  });
 });

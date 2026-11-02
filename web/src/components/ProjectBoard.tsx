@@ -54,8 +54,8 @@ interface ProjectBoardProps {
   /** Which projects are in view (null = all; "" = the no-project bucket). */
   filter: string[] | null;
   onSetFilter: (keys: string[] | null) => void;
-  /** Opens the project manager, which the App owns — both this tab and the
-   *  Process tab reach it through their chip row. */
+  /** Opens the project manager, which the App owns — this tab reaches it
+   *  through its chip row. */
   onManageProjects: () => void;
   patchCard: (
     itemId: string,
@@ -157,7 +157,7 @@ export function ProjectBoard({
 
   // Which project(s) the chips select; null is every project. "" is the chip
   // for columns that belong to no project.
-  // The chips' selection is owned by the App and shared with the Process tab.
+  // The chips' selection is owned by the App, so it survives a tab switch.
   const selectFilter = onSetFilter;
 
   // The columns in view: the selected projects' epics, in board order. Every

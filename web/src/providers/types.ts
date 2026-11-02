@@ -91,11 +91,8 @@ export interface Card {
    *  names repeat across projects. Its week is the row. */
   epic?: string;
   project?: string;
-  /** On a process turn: the process it belongs to, and the task it came from. */
-  process?: string;
-  task?: string;
-  /** A card scheduled ahead — a slot, a turn, a card given a week — still
-   *  open past the day it was owed by. Derived by the server from its dates. */
+  /** A card scheduled ahead — a slot, a card given a week — still open past
+   *  the day it was owed by. Derived by the server from its dates. */
   overdue?: boolean;
   /** The moment this card is FROM, when it is a record rather than the live
    *  card: its team's sprint has moved on past the day being looked at. The
@@ -110,16 +107,9 @@ export interface Card {
   triageWeek?: string;
   /** A RECURRENT card's weeks to come: the ones it comes round in over the
    *  planning horizon and no copy of it stands in yet. A team's own repeating
-   *  work is reseeded by carry-over rather than filed by a process, and the
-   *  weeks it will land in are as spoken for as a process turn's. */
+   *  work is reseeded by carry-over, and the weeks it will land in are spoken
+   *  for. */
   due?: string[];
-  /** A process TURN's own occurrence: the first and last week it may stand
-   *  in, both Mondays and both inclusive. A turn is one turn of its
-   *  process's calendar, and carrying it past the next due date would put it
-   *  where the next one belongs. The server sends it (board.CycleWindow) —
-   *  the calendar is its, and a second answer to "when is this next due"
-   *  would be one waiting to disagree. */
-  cycle?: { from: string; to: string };
   /** Free-form card details (the body minus the appended action log).
    *  Undefined until loaded: listings are the board-row shape without the
    *  body, and the boards fetch it when a card is selected or opened. */
@@ -173,50 +163,6 @@ export interface SprintState {
   };
 }
 
-
-/** ProcessTask is what a process iterates on, plus how the last few
- *  iterations went. */
-export interface ProcessTask {
-  uid: string;
-  title: string;
-  description?: string;
-  recurrence: string;
-  start?: string;
-  team?: string;
-  assignee?: string;
-  accumulate?: boolean;
-  history: { uid: string; week: string; state: "done" | "open" | "late" }[];
-  /** The weeks this task comes due in over the planning horizon and has no
-   *  turn of its own yet — what the process is going to file. A board that
-   *  plans weeks ahead draws them: a week already spoken for by a process is
-   *  not a week the team is free in. A paused process sends none. */
-  due?: string[];
-  /** Counts over ALL turns, including the ones history leaves out. */
-  turns?: number;
-  done?: number;
-  late?: number;
-}
-
-/** ProcessInfo is one process and its tasks. */
-export interface ProcessInfo {
-  name: string;
-  project: string;
-  /** A paused process files no iterations; nothing else about it changes. */
-  paused?: boolean;
-  tasks: ProcessTask[];
-}
-
-/** TaskInput is a task on its way in (create: all; patch: some). */
-export interface TaskInput {
-  title?: string;
-  description?: string;
-  recurrence?: string;
-  start?: string;
-  team?: string;
-  assignee?: string;
-  accumulate?: boolean;
-}
-
 /** DeadlineRef is one deadline line: the week it sits on and whose it is. */
 export interface DeadlineRef {
   week: string;
@@ -256,9 +202,6 @@ export interface Board {
   /** The deadline lines: the week (a Monday) each sits on and the project it
    *  belongs to. A project holds at most one per week. */
   deadlines: DeadlineRef[];
-  /** The processes with their tasks and history — the Process tab is
-   *  drawn from this, and the Board watch frame refreshes it. */
-  processes: ProcessInfo[];
   /** The people roster from GET /board (login + avatar) for pickers (assign,
    *  review, view-as) and for every avatar the boards draw. */
   members: Member[];
@@ -270,9 +213,6 @@ export interface Board {
    *  one, so the pickers narrow themselves by these. */
   teamDomains?: Record<string, string>;
   projectDomains?: Record<string, string>;
-  /** The repository each process was declared in — a card is only tied to a
-   *  process of its own repository, so the picker narrows itself by this. */
-  processDomains?: Record<string, string>;
   /** Per-team sprint pointers, keyed by team name ("" = the no-team group). */
   sprintStates: Record<string, SprintState>;
 }
@@ -300,9 +240,6 @@ export interface CardPatch {
   /** Re-file under a column ("" clears). Naming only the epic keeps the card
    *  inside its project; crossing projects names both halves. */
   epic?: string;
-  /** Tie the card to a process — the recurring shelf's counterpart of a
-   *  column ("" clears). The process must already exist. */
-  process?: string;
   project?: string;
   reviewOf?: string;
   /** Group under another card as a subtask ("" ungroups back to standalone). */
@@ -452,26 +389,9 @@ export interface Provider {
   reorderProjects(names: string[]): Promise<void>;
   /** Rename a project in place; its columns and their cards follow. */
   renameProject(from: string, to: string): Promise<void>;
-  /** Rename a declared team where it lives; its cards and process tasks
-   *  follow. A name another team has is refused by the server. */
+  /** Rename a declared team where it lives; its cards follow. A name another
+   *  team has is refused by the server. */
   renameTeam(from: string, to: string): Promise<void>;
-  /** The Process tab: every process with its tasks and their history. */
-  listProcesses(project?: string): Promise<ProcessInfo[]>;
-  /** Declare a process in a project; `domain` picks its repository. */
-  addProcess(name: string, project: string, domain?: string): Promise<void>;
-  deleteProcess(name: string): Promise<void>;
-  renameProcess(from: string, to: string): Promise<void>;
-  /** Move a process to another project ("" = the no-project bucket). */
-  setProcessProject(process: string, project: string): Promise<void>;
-  /** Stop a process filing iterations, or start it again. */
-  setProcessPaused(process: string, paused: boolean): Promise<void>;
-  /** Apply a shared process order. */
-  reorderProcesses(processes: string[]): Promise<void>;
-  /** Apply one process's task order; a uid from another process is adopted. */
-  reorderProcessTasks(process: string, uids: string[]): Promise<void>;
-  addTask(process: string, input: TaskInput): Promise<string>;
-  updateTask(uid: string, patch: TaskInput): Promise<void>;
-  deleteTask(uid: string): Promise<void>;
   /** Mark a week with a project's deadline (one per project and week). */
   addDeadline(week: string, project: string): Promise<void>;
   /** Clear a project's deadline on a week. */

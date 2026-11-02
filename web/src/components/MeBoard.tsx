@@ -1110,9 +1110,9 @@ export function MeBoard({
       : true,
   });
   // The repository of the card a subtask would still point at once its
-  // parent is gone: its original, or the task it iterates.
+  // parent is gone: its original.
   const linkedDomainOf = (card: CardModel): string | undefined => {
-    const ref = card.reviewOf || card.task;
+    const ref = card.reviewOf;
     if (!ref) {
       return undefined;
     }

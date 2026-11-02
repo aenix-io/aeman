@@ -47,15 +47,6 @@ describe("what each × does, one answer for every board", () => {
     expect(gridRemoval({ week: "2026-08-24" }, ctx)).toBe("delete");
   });
 
-  // A PROCESS TURN never runs out: its week is its process's record of what
-  // that week was owed, and destroying it would lose the record.
-  it("always leaves a process turn in its week", () => {
-    expect(gridRemoval({ ...inSprint, week: "2026-08-24", task: "t1" }, ctx)).toBe(
-      "leave",
-    );
-    expect(gridRemoval({ week: "2026-08-24", task: "t1" }, ctx)).toBe("leave");
-  });
-
   // The Me board asked this question on its own and answered it differently
   // for a subtask, which the server then applied to the child alone —
   // splitting it from its parent, and looking like the × had done nothing.
@@ -268,10 +259,9 @@ describe("sending finished work back to the sprint it was done in", () => {
   });
 
   it("is not offered for work another board owns", () => {
-    // A Project-board slot and a process turn carry their own dates, and the
-    // sprint is not what places them.
+    // A Project-board slot carries its own dates, and the sprint is not what
+    // places it.
     expect(removeChoices({ ...done, epic: "Auth" }, ctx)).not.toContain("finished-earlier");
-    expect(removeChoices({ ...done, task: "t1" }, ctx)).not.toContain("finished-earlier");
   });
 
   it("stands after the answers that destroy, and before the backlog", () => {
@@ -336,9 +326,6 @@ describe("what the × offers", () => {
 
   it("does not offer it to work another board owns", () => {
     expect(removeChoices({ ...held, epic: "Auth" }, ctx)).not.toContain("backlog");
-    expect(removeChoices({ ...held, task: "t1", week: "2026-08-24" }, ctx)).not.toContain(
-      "backlog",
-    );
   });
 
   it("does not offer it to a card already on the shelf", () => {
@@ -357,19 +344,11 @@ describe("what the × offers", () => {
     expect(removeChoices({ ...held, epic: "Auth" }, ctx)).toEqual(["unassign"]);
   });
 
-  it("offers a PROCESS TURN its week and nothing else", () => {
-    expect(removeChoices({ ...held, task: "t1", week: "2026-08-24" }, ctx)).toEqual([
-      "unassign",
-    ]);
-  });
-
   it("offers a project card in Unassigned nothing at all — so no × is drawn", () => {
     expect(removeChoices({ epic: "Auth" }, ctx)).toEqual([]);
     expect(offersRemoval({ epic: "Auth" }, ctx)).toBe(false);
     // Dated, and still nobody's: the × has nothing to do here either.
     expect(offersRemoval({ epic: "Auth", sprintStart: "2026-08-24" }, ctx)).toBe(false);
-    expect(removeChoices({ task: "t1", week: "2026-08-24" }, ctx)).toEqual([]);
-    expect(offersRemoval({ task: "t1", week: "2026-08-24" }, ctx)).toBe(false);
   });
 
   it("keeps drawing the × wherever there is something to do", () => {

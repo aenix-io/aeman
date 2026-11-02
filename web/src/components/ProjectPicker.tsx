@@ -7,12 +7,12 @@ interface ProjectPickerProps {
   current: string;
   /** Every project the menu may offer, in board order. */
   projects: string[];
-  /** What is being filed — "epic" or "process" — for the badge's tooltip. */
+  /** What is being filed — "epic" — for the badge's tooltip. */
   entity: string;
   onPick: (project: string) => void;
 }
 
-/** The round badge a column or a process wears for its project, and the menu
+/** The round badge a column wears for its project, and the menu
  *  behind it. The badge is the affordance: what it shows is what the thing
  *  belongs to, and clicking it is how that is changed — the same gesture as a
  *  card's team badge, so there is one way to re-file anything on the board. */

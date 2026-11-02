@@ -9,17 +9,14 @@ import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { TriageBoard } from "./components/TriageBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
-import { ProcessBoard } from "./components/ProcessBoard";
 import { TeamsModal } from "./components/TeamsModal";
 import { readProjectFilter, writeProjectFilter } from "./projectFilter";
 import {
   boardMetadata,
   membersFrom,
-  processesFrom,
   showingDay,
   standingOn,
 } from "./providers/api/apiProvider";
-import type { ProcessInfo } from "./providers/types";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
 import { DayNav } from "./components/DayNav";
@@ -51,7 +48,7 @@ const waitingAfterMs = 300;
 // is said, because a banner explaining a thing that already happened is
 // noise.
 
-type ViewMode = "me" | "team" | "triage" | "project" | "process";
+type ViewMode = "me" | "team" | "triage" | "project";
 
 const LS_VIEW = "aeman.view";
 const LS_TEAM_FILTER = "aeman.teamFilter";
@@ -66,9 +63,6 @@ function readView(): ViewMode {
   // still lands on the Project board rather than silently on Me.
   if (raw === "project" || raw === "plan") {
     return "project";
-  }
-  if (raw === "process") {
-    return "process";
   }
   if (raw === "triage") {
     return "triage";
@@ -122,15 +116,15 @@ export function App() {
   const [tokenWarningDismissed, setTokenWarningDismissed] = useState(false);
 
   const [view, setView] = useState<ViewMode>(readView);
-  // The project chips' selection, shared by the Project and Process tabs.
+  // The project chips' selection on the Project tab.
   const [projectFilter, setProjectFilterState] = useState<string[] | null>(readProjectFilter);
   const setProjectFilter = (keys: string[] | null) => {
     setProjectFilterState(keys);
     writeProjectFilter(keys);
   };
-  // The project manager: one dialog, reached from the chip row of both the
-  // Project and the Process tab. Its writes return as soon as the server's
-  // cache has them; the Board watch frame repaints — nothing reloads.
+  // The project manager: one dialog, reached from the Project tab's chip
+  // row. Its writes return as soon as the server's cache has them; the Board
+  // watch frame repaints — nothing reloads.
   const [managingProjects, setManagingProjects] = useState(false);
   // `domain` is the repository the project is declared in (multi-domain
   // boards offer the choice; otherwise the server picks the primary).
@@ -783,12 +777,9 @@ export function App() {
       // Identity + sprints AND the active view's cards together, swapped in
       // as one board: a reload() must never leave the board empty while the
       // cards are still in flight (loadBoard itself carries no cards).
-      const [loaded, lists, processes] = await Promise.all([
+      const [loaded, lists] = await Promise.all([
         provider.loadBoard(boardQueryRef.current),
         Promise.all(activeQueriesRef.current.map((q) => provider.listCards(q))),
-        // The process structure rides with the board from the start; the
-        // Board watch frame keeps it current afterwards.
-        provider.listProcesses().catch(() => [] as ProcessInfo[]),
       ]);
       setAsOf(listingMoment(lists));
       loadedBoardKey.current = queryString(boardQueryRef.current);
@@ -800,7 +791,6 @@ export function App() {
       setBoard((cur) => ({
         ...loaded,
         cards: mergeCardLists(lists.map((l) => l.cards), cur?.cards, justMade),
-        processes,
       }));
     } catch (err: unknown) {
       // A day the history no longer reaches (410) — or storage that keeps
@@ -853,7 +843,7 @@ export function App() {
           cur
             ? {
                 ...cur,
-                ...(loaded ? { ...loaded, cards: cur.cards, processes: cur.processes } : {}),
+                ...(loaded ? { ...loaded, cards: cur.cards } : {}),
                 cards: mergeCardLists(lists.map((l) => l.cards), cur.cards, justMade),
               }
             : cur,
@@ -1082,17 +1072,12 @@ export function App() {
       if (frame.kind === "Sync") {
         return;
       }
-      // The board's STRUCTURE changed — a project, a column, a deadline, a
-      // process. The frame carries the board itself, so it is applied the way
-      // a Card frame is: no round trip, and our own roster writes need no
-      // reload either.
+      // The board's STRUCTURE changed — a project, a column, a deadline. The
+      // frame carries the board itself, so it is applied the way a Card frame
+      // is: no round trip, and our own roster writes need no reload either.
       if (frame.kind === "Board") {
         const obj = frame.object;
-        setBoard((cur) =>
-          cur
-            ? { ...cur, ...boardMetadata(obj), processes: processesFrom(obj.processes) }
-            : cur,
-        );
+        setBoard((cur) => (cur ? { ...cur, ...boardMetadata(obj) } : cur));
         return;
       }
       // What the board's PEOPLE are holding: cards carried, points carried,
@@ -1401,8 +1386,8 @@ export function App() {
         {/* The day belongs to the app, not to a board: it is the same value
             whichever day board is open, so the control that moves it stands
             with the view tabs rather than being drawn again inside each. The
-            boards that lay every week out at once (Triage, Project, Process)
-            have no day to show. */}
+            boards that lay every week out at once (Triage, Project) have no
+            day to show. */}
         {(view === "me" || view === "team") && (
           <DayNav
             selectedDate={selectedDate}
@@ -1488,15 +1473,6 @@ export function App() {
           >
             Project
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={view === "process"}
-            className={`segment${view === "process" ? " segment-active" : ""}`}
-            onClick={() => setView("process")}
-          >
-            Process
-          </button>
         </div>
       </div>
 
@@ -1556,18 +1532,6 @@ export function App() {
             reload={reload}
             onError={onError}
             onOpen={(c) => setDetailCard(c)}
-          />
-        )}
-        {board && view === "process" && (
-          <ProcessBoard
-            board={board}
-            provider={provider}
-            filter={projectFilter}
-            onSetFilter={setProjectFilter}
-            onManageProjects={() => setManagingProjects(true)}
-            avatars={avatars}
-            names={names}
-            onError={onError}
           />
         )}
         {board && view === "triage" && (

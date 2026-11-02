@@ -348,9 +348,9 @@ export function CardDetail({
               Activity
             </button>
           </div>
-          {/* Where this card comes from. A turn of a process and a slot of a
-              project look like ordinary cards on a day board, and the first
-              question about one is always "what is this part of?". */}
+          {/* Where this card comes from. A slot of a project looks like an
+              ordinary card on a day board, and the first question about one
+              is always "what is this part of?". */}
           <div className="modal-origin">
             {/* What kind of work it is, and the one thing here that can be
                 said from anywhere: a card met on a board with no zone areas
@@ -413,12 +413,6 @@ export function CardDetail({
                 ))}
               </span>
             </span>
-              {card.process && (
-                <span className="modal-origin-item" title="A turn of this process">
-                  <span className="modal-origin-kind">process</span>
-                  {card.process}
-                </span>
-              )}
               {card.project && (
                 <span className="modal-origin-item" title="Part of this project">
                   <span className="modal-origin-kind">project</span>

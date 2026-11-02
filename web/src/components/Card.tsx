@@ -38,9 +38,8 @@ interface CardProps {
   onProgress: (card: CardModel, value: number) => void;
   onDelete: (card: CardModel) => void;
   /** Whether the × is offered at all. A board hides it where it has nothing
-   *  to do — a project card or a process turn already out of the working
-   *  area, which the × would hand back to a place it is already in
-   *  (removal.offersRemoval). */
+   *  to do — a project card already out of the working area, which the ×
+   *  would hand back to a place it is already in (removal.offersRemoval). */
   deletable?: boolean;
   /** The board will put its own question to the user, so the card must not
    *  ask first. */
@@ -581,9 +580,9 @@ export function Card({
     <div
       className={`card${selected ? " card-selected" : ""}${card.overdue ? " card-overdue" : ""}${(selectedBy?.length ?? 0) > 0 ? " card-peer-selected" : ""}${
         // Where the card came FROM, said by the stripe down its left edge: a
-        // Project-board commitment, a week its process owes, or somebody
-        // else's work waiting on this person. A review card is the innermost
-        // of the three — it IS the waiting — so it wins where they meet.
+        // Project-board commitment, or somebody else's work waiting on this
+        // person. A review card is the innermost of the two — it IS the
+        // waiting — so it wins where they meet.
         markOf(card) ? ` card-${markOf(card)}` : ""
       }${dimAvatar ? " card-dim-avatar" : ""}${
         groupTarget ? " card-group-target" : ""
@@ -936,12 +935,6 @@ export function Card({
                 from. */}
             {hasOriginToShow(card) && (
               <div className="card-assign-origin">
-                {card.process && (
-                  <span>
-                    <span className="card-assign-origin-kind">process</span>
-                    {card.process}
-                  </span>
-                )}
                 {(card.project || card.epic) && (
                   <span>
                     <span className="card-assign-origin-kind">
@@ -979,16 +972,6 @@ export function Card({
                 targets={placements.attach}
                 onPick={(project, epic) => {
                   placements.onAttachProject(project, epic);
-                  setAssignOpen(false);
-                }}
-              />
-            )}
-            {placements?.processes && (
-              <PlacementMenu
-                label="Attach to process…"
-                flat={placements.processes}
-                onPick={(process) => {
-                  placements.onAttachProcess(process);
                   setAssignOpen(false);
                 }}
               />

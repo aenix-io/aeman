@@ -95,17 +95,14 @@ describe("pileRank", () => {
     expect(pileRank(slot)).toBeLessThan(pileRank(card({ zone: "red" })));
   });
 
-  // A process turn is a commitment made elsewhere too, and it will take the
-  // week's time whether or not anybody plans around it — so it reads right
-  // after the project's work and before anything a zone decides. Already
-  // filed or only drawn ahead makes no difference to the week it costs.
-  it("puts the processes' work right after the project's", () => {
-    const turn = card({ task: "t1", zone: "green" });
+  // A repeating card drawn ahead of itself is a commitment made elsewhere
+  // too, and it will take the week's time whether or not anybody plans
+  // around it — so it reads right after the project's work and before
+  // anything a zone decides.
+  it("puts the repeating work drawn ahead right after the project's", () => {
     const ghost = { ...card({ zone: "green" }), projected: true };
-    for (const c of [turn, ghost]) {
-      expect(pileRank(c)).toBeGreaterThan(pileRank(card({ epic: "Storage" })));
-      expect(pileRank(c)).toBeLessThan(pileRank(card({ zone: "red" })));
-    }
+    expect(pileRank(ghost)).toBeGreaterThan(pileRank(card({ epic: "Storage" })));
+    expect(pileRank(ghost)).toBeLessThan(pileRank(card({ zone: "red" })));
   });
 
   it("leaves a card of no zone at the back", () => {
@@ -294,9 +291,9 @@ describe("deferred", () => {
 // A card whose days ran out is drawn only on the Triage grid, in the week it
 // was owed in. Dragging it into the week the team is working is the gesture
 // that says "this is being done now", so it has to come back with days, or the
-// drag moves the column and nothing else — which is where nine process turns
-// sat on the production board, three of them a month past their week. Mirrors
-// boardservice.Place / daysRanOut.
+// drag moves the column and nothing else — which is where nine recurring
+// cards sat on the production board, three of them a month past their week.
+// Mirrors boardservice.Place / daysRanOut.
 describe("brought back into the week being worked", () => {
   const TODAY = "2026-09-09";
   const WEEK = "2026-09-07";

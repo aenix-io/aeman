@@ -35,7 +35,7 @@ const thisFriday = addDays(week, 4);
 // Wednesday and Friday of the NEXT one: a card reaching into a second week.
 const nextWednesday = addDays(week, 9);
 const nextFriday = addDays(week, 11);
-// The two Mondays after this one — turns still to come, and deadlines.
+// The two Mondays after this one — repeats still to come, and deadlines.
 const nextWeek = addDays(week, 7);
 const weekAfter = addDays(week, 14);
 
@@ -59,7 +59,6 @@ const board = (cards: Card[], deadlines: { week: string; project: string }[] = [
     projects: [],
     epics: [],
     deadlines,
-    processes: [],
     members: [],
     domains: [],
     sprintStates: {},
@@ -299,59 +298,28 @@ describe("the Triage board", () => {
     expect(html).toContain("Sent to review");
   });
 
-  it("draws the turns a process is going to file in the weeks they fall in", () => {
-    // Not cards yet, but the weeks are already carrying them: a week spoken
-    // for by a process is not a week the team is free in.
-    const html = renderToStaticMarkup(
-      <TriageBoard
-        board={
-          {
-            ...board([card()]),
-            processes: [
-              {
-                name: "Duty",
-                project: "",
-                tasks: [
-                  {
-                    uid: "t1",
-                    title: "Rotate the keys",
-                    recurrence: "week",
-                    team: "core",
-                    assignee: "lexfrei",
-                    history: [],
-                    due: [nextWeek, weekAfter],
-                  },
-                ],
-              },
-            ],
-          } as unknown as Board
-        }
-        provider={{} as Provider}
-        roster={["core"]}
-        teamFilter={["core"]}
-        onSetFilter={vi.fn()}
-        avatars={{}}
-        names={{}}
-        patchCard={vi.fn()}
-        addCard={vi.fn()}
-        replaceCard={vi.fn()}
-        removeCard={vi.fn()}
-        reorderCards={vi.fn()}
-        reload={vi.fn()}
-        onOpen={vi.fn()}
-        onError={vi.fn()}
-      />,
-    );
-    // One in each week it is due in, in the column of whoever holds the task,
+  it("draws the weeks a recurrent card is going to come round in", () => {
+    // Not cards yet, but the weeks are already carrying them: a week a
+    // repeating card will land in is not a week the team is free in. The
+    // server says which weeks (status.due); the board only draws them.
+    const html = draw([
+      card({
+        title: "Rotate the keys",
+        stage: "recurrent",
+        recurrence: "week",
+        assignees: ["lexfrei"],
+        due: [nextWeek, weekAfter],
+      }),
+    ]);
+    // One in each week it is due in, in the column of whoever holds the card,
     // drawn as what it is — an outline, with nothing to press.
     expect(html.match(/triage-slot-coming/g)?.length).toBe(2);
-    expect(html).toContain("Rotate the keys");
     expect(html).toContain("grid-row:3");
     expect(html).toContain("grid-row:4");
-    // …and both weeks count it: a turn nobody has filed yet is work those
-    // weeks are already spoken for, so it weighs like any unsized card (2)
-    // beside their dates. The points and the card count must describe the
-    // same set of boxes, or a week reads "1 card, 0 points".
+    // …and both weeks count it: a copy not yet filed is work those weeks are
+    // already spoken for, so it weighs like any unsized card (2) beside
+    // their dates. The points and the card count must describe the same set
+    // of boxes, or a week reads "1 card, 0 points".
     expect(html.match(/class="triage-points[^"]*">2</g)?.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -550,14 +518,5 @@ describe("the Triage board", () => {
     // would make them indistinguishable.
     const colours = [...html.matchAll(/border-top-color:([^;"]+)/g)].map((m) => m[1]);
     expect(new Set(colours).size).toBeGreaterThan(1);
-  });
-
-  // A PROCESS TURN passes through this board too: its week is its process's
-  // to say, so it wears the process mark rather than a zone nobody set here
-  // — the same mark the day boards draw down its left edge.
-  it("stripes a process turn with the process mark, not a zone", () => {
-    const html = draw([card({ task: "t1", zone: "red" })]);
-    expect(html).toContain("triage-slot-process");
-    expect(html).not.toContain("triage-slot-zone-red");
   });
 });

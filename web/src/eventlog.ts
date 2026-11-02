@@ -21,8 +21,6 @@ export function eventLabel(e: CardEvent): string {
       return `column ${from || "—"} → ${to || "—"}`;
     case "mirror":
       return to ? `mirrored to ${to}` : `no longer mirrored to ${from}`;
-    case "process":
-      return to ? `tied to the process ${to}` : `untied from the process ${from}`;
     case "zone":
       return `zone ${from || "—"} → ${to || "—"}`;
     case "review-sent":

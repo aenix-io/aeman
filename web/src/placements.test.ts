@@ -236,7 +236,6 @@ describe("placementTargets", () => {
     projects: ["engineering"],
     epics: [{ name: "Cozystack", project: "engineering" }],
     projectDomains: undefined,
-    processes: [{ name: "Invoicing" }, { name: "Reporting" }],
   };
 
   it("offers mirrors to a card already in a column", () => {
@@ -248,19 +247,17 @@ describe("placementTargets", () => {
   it("offers a SUBTASK a column to attach to, but never a second one", () => {
     // A subtask may carry ONE column of its own (G14, G57) — so the × that
     // takes the column away must have a way back, or the Project board
-    // hands out a one-way door. What it may not have is a SECOND placement
-    // or a process tie: its file rides its parent, and both would be
-    // stranded the moment the parent changes repository.
+    // hands out a one-way door. What it may not have is a SECOND placement:
+    // its file rides its parent, and the second column would be stranded the
+    // moment the parent changes repository.
     const inColumn = placementTargets(
       mk({ project: "engineering", epic: "Cozystack", parent: "p1" }),
       board,
     );
     expect(inColumn.mirror).toBeUndefined();
-    expect(inColumn.processes).toBeUndefined();
 
     const loose = placementTargets(mk({ parent: "p1", stage: "recurrent" }), board);
     expect(loose.attach).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
-    expect(loose.processes).toBeUndefined();
   });
 
   it("offers a subtask already in a column nothing more", () => {
@@ -274,7 +271,6 @@ describe("placementTargets", () => {
     );
     expect(got.mirror).toBeUndefined();
     expect(got.attach).toBeUndefined();
-    expect(got.processes).toBeUndefined();
   });
 
   it("offers a card in a no-project column the mirrors of its repository", () => {
@@ -286,36 +282,13 @@ describe("placementTargets", () => {
     expect(got.attach).toBeUndefined();
   });
 
-  it("offers processes to a recurrent card", () => {
+  // A recurrent card is a card like any other here: it comes round by
+  // carry-over, and a column is where it may be attached. (It used to be
+  // offered a process tie instead; the Process feature is gone, H8.)
+  it("offers projects to a recurrent card", () => {
     const got = placementTargets(mk({ stage: "recurrent" }), board);
-    expect(got.processes).toEqual(["Invoicing", "Reporting"]);
-    expect(got.attach).toBeUndefined();
-  });
-
-  it("drops the process the card is already tied to", () => {
-    // Only works because spec.process round-trips: the server serves the
-    // stored tie back, so after a re-list the card carries it here.
-    const got = placementTargets(mk({ stage: "recurrent", process: "Invoicing" }), board);
-    expect(got.processes).toEqual(["Reporting"]);
-  });
-
-  it("offers a process TURN nothing — its process is its task's", () => {
-    const got = placementTargets(mk({ stage: "recurrent", task: "t1" }), board);
-    expect(got.processes).toBeUndefined();
-    expect(got.attach).toBeUndefined();
+    expect(got.attach).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
     expect(got.mirror).toBeUndefined();
-  });
-
-  it("offers only processes of the card's own repository", () => {
-    // The server refuses a cross-repository tie (ErrCrossDomain), so the
-    // menu must not offer one: dead items ending in a 422 are not targets.
-    const multi = { ...board, processDomains: { Reporting: "founders" } };
-    expect(placementTargets(mk({ stage: "recurrent" }), multi).processes).toEqual([
-      "Invoicing",
-    ]);
-    expect(
-      placementTargets(mk({ stage: "recurrent", domain: "founders" }), multi).processes,
-    ).toEqual(["Reporting"]);
   });
 
   it("offers projects to everything else", () => {
@@ -491,7 +464,6 @@ describe("makeCardPlacements onAttachProject", () => {
       { name: "Launch", project: "freedom" },
     ],
     projectDomains: undefined,
-    processes: [],
   };
   const run = (card: Card, act?: (p: CardPlacements) => void) => {
     const patches: Partial<Card>[] = [];
@@ -623,7 +595,6 @@ describe("targets on an alias project", () => {
       { name: "Docs", project: "portal", domain: "closed" },
     ],
     projectDomains: undefined,
-    processes: [],
   };
 
   it("attaches a primary card only to the primary column", () => {
@@ -679,9 +650,8 @@ describe("hasOriginToShow", () => {
     expect(hasOriginToShow(mk({ epic: "Inbox" }))).toBe(true);
   });
 
-  it("counts a project, a process and a mirror", () => {
+  it("counts a project and a mirror", () => {
     expect(hasOriginToShow(mk({ project: "engineering" }))).toBe(true);
-    expect(hasOriginToShow(mk({ process: "Invoicing" }))).toBe(true);
     expect(
       hasOriginToShow({ mirrors: [{ project: "freedom", epic: "Launch" }] } as Card),
     ).toBe(true);
@@ -783,7 +753,6 @@ describe("attachTargets and the card's binding", () => {
     const got = placementTargets(mk({}), {
       projects,
       epics,
-      processes: [],
       projectDomains,
       domains,
     });
@@ -794,7 +763,6 @@ describe("attachTargets and the card's binding", () => {
     const got = placementTargets(mk({ team: "platform" }), {
       projects,
       epics,
-      processes: [],
       projectDomains,
       domains,
     });
@@ -810,7 +778,6 @@ describe("attachTargets and the card's binding", () => {
     const got = placementTargets(mk({}), {
       projects,
       epics: withBucket,
-      processes: [],
       projectDomains,
       domains,
     });
@@ -822,7 +789,6 @@ describe("attachTargets and the card's binding", () => {
     const got = placementTargets(mk({}), {
       projects,
       epics: withBucket,
-      processes: [],
       projectDomains,
       domains,
     });
@@ -943,7 +909,7 @@ describe("makeCardPlacements onUnmirror", () => {
     } as Card;
     makeCardPlacements(
       card,
-      { projects: ["engineering", "freedom"], epics: [], processes: [] },
+      { projects: ["engineering", "freedom"], epics: [] },
       {
         provider: {
           patchCard: () => Promise.resolve(undefined),
@@ -1069,24 +1035,20 @@ describe("a board of one repository", () => {
   // The two rules that reached the payload's stamps without the one
   // comparison: a card the store stamped and a picker reading the roster
   // raw agreed only while both happened to carry the same string.
-  it("offers the mirrors and the processes of its own repository", () => {
+  it("offers the mirrors of its own repository", () => {
     const card = mk({ project: "engineering", epic: "Cozystack", mirrors: [] });
     const board = {
       projects: ["engineering"],
       epics,
-      processes: [{ name: "Invoicing" }],
-      processDomains: { Invoicing: "aeman" },
       projectDomains: { engineering: "aeman" },
       domains: [{ name: "aeman", writable: true, members: [] }],
     };
     // A card with NO stamp of its own — the shape a hand-built board and an
     // older payload both produce — belongs to the primary, which is where
-    // both the columns and the process are.
+    // the columns are.
     expect(placementTargets(card, board).mirror).toEqual([
       { name: "", epics: ["Inbox"] },
     ]);
-    const chore = mk({ stage: "recurrent" });
-    expect(placementTargets(chore, board).processes).toEqual(["Invoicing"]);
   });
 
   it("offers every column to attach to", () => {
@@ -1143,7 +1105,6 @@ describe("attach targets for a card a LINK holds", () => {
       { name: "Cozystack", project: "engineering", domain: "aeman-db" },
       { name: "Fundraising", project: "strategy", domain: "founders" },
     ],
-    processes: [],
     projectDomains: { engineering: "aeman-db", strategy: "founders" },
     domains: [
       { name: "aeman-db", writable: true, members: [] },
@@ -1175,9 +1136,8 @@ describe("attach targets for a card a LINK holds", () => {
 // boards deciding it apart is how one of them came to draw nothing at all
 // after the weekly plan, whose band the stripe used to be, was taken out.
 describe("markOf", () => {
-  it("marks a project's work, a process's turn, and neither", () => {
+  it("marks a project's work, and nothing else", () => {
     expect(markOf({ epic: "Auth" })).toBe("project");
-    expect(markOf({ task: "t1" })).toBe("process");
     expect(markOf({})).toBe("");
   });
 
@@ -1206,13 +1166,5 @@ describe("whose dates a card's are", () => {
 
   it("leaves an ordinary card's alone", () => {
     expect(datesAreAnotherBoards({})).toBe(false);
-  });
-
-  // A process TURN's dates are the day somebody works it, which is the day
-  // board's own business — its WEEK is the process's record, and nothing here
-  // touches that.
-  it("does not take a process turn's away", () => {
-    // Its WEEK is the process's record; the day somebody works it is not.
-    expect(datesAreAnotherBoards({ epic: undefined })).toBe(false);
   });
 });

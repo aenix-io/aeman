@@ -106,7 +106,6 @@ export function resourceToCard(res: CardResource): Card {
     triage: res.status?.triage || undefined,
     triageWeek: res.status?.triageWeek || undefined,
     due: res.status?.due,
-    cycle: res.status?.cycle,
     recurrence: spec.recurrence || undefined,
     day: dates.end || undefined,
     startDate: dates.start || undefined,
@@ -117,8 +116,6 @@ export function resourceToCard(res: CardResource): Card {
     epic: spec.epic || undefined,
     project: spec.project || undefined,
     mirrors: spec.mirrors?.length ? spec.mirrors : undefined,
-    process: spec.process || undefined,
-    task: spec.task || undefined,
     // A summary listing omits the body: description stays undefined ("not
     // loaded") and the boards fetch it on selection. A full resource with a
     // genuinely empty body also arrives undefined (the field is omitempty) —

@@ -1,7 +1,5 @@
-/** The project chips' selection, shared by the Project and Process tabs: the
- *  two are views of the same plan, and switching between them must not lose
- *  which project you were looking at. null = every project; "" = the
- *  no-project bucket. Remembered per browser. */
+/** The project chips' selection on the Project tab. null = every project;
+ *  "" = the no-project bucket. Remembered per browser. */
 
 const LS_FILTER = "aeman.projectFilter";
 

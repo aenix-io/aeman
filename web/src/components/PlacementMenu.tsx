@@ -7,11 +7,9 @@ interface PlacementMenuProps {
   label: string;
   /** Project → epics targets; a click on a project unfolds its columns. */
   targets?: ProjectTargets[];
-  /** Flat mode — processes have no columns, so the list is one level. */
-  flat?: string[];
-  /** Flat mode with a KEY behind each label: for entries whose visible text
-   *  is not what identifies them, so two rows may read alike and still be
-   *  told apart. Picking one calls with (key, ""). */
+  /** Flat mode — one level, a KEY behind each label: for entries whose
+   *  visible text is not what identifies them, so two rows may read alike
+   *  and still be told apart. Picking one calls with (key, ""). */
   items?: { key: string; label: string }[];
   /** Picking a column calls with (project, epic); flat mode with (item, ""). */
   onPick: (project: string, epic: string) => void;
@@ -24,12 +22,10 @@ interface PlacementMenuProps {
  *  DOM, so a nested portal would dismiss it — and an accordion inside a
  *  scrollable menu can never leave the screen, which a flyout chained off
  *  a flyout regularly does. */
-export function PlacementMenu({ label, targets, flat, items, onPick }: PlacementMenuProps) {
+export function PlacementMenu({ label, targets, items, onPick }: PlacementMenuProps) {
   const [open, setOpen] = useState(false);
   const [project, setProject] = useState<string | null>(null);
-  // One shape inside: a plain string is its own key, which is what every
-  // caller that has nothing else to say by wants.
-  const leaves = items ?? (flat ?? []).map((f) => ({ key: f, label: f }));
+  const leaves = items ?? [];
   const cols = targets ?? [];
   if (cols.length === 0 && leaves.length === 0) {
     return null;

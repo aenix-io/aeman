@@ -58,7 +58,6 @@
   --avatar-fg: #24292f;
   --amber: #b8860b;
   --project-mark: #8b5cf6;
-  --process-mark: #58a6ff;
   --cal-range-bg: #dbeafe;
   --warn-bg: #fff8c5;
   --warn-line: #eac54f;
@@ -142,7 +141,6 @@
   /* The project mark. Violet collapses on the red-green axis (minus its red
      content it reads as blue), so it moves to Okabe-Ito reddish-purple. */
   --project-mark: #cc79a7;
-  --process-mark: #0072b2;
 }
 
 /* ---- light + marine (blue-yellow-friendly) ----
@@ -169,7 +167,6 @@
   /* The project mark: under tritanopia violet drifts toward the blues, so it
      moves to reddish-purple (red survives the missing S-cone). */
   --project-mark: #cc79a7;
-  --process-mark: #1f6feb;
 }
 
 /* ---- dark base (dark + default) ----
@@ -199,7 +196,6 @@
   --avatar-fg: #e6edf3;
   --amber: #e3b341;
   --project-mark: #a371f7;
-  --process-mark: #79c0ff;
   --cal-range-bg: #163356;
   --warn-bg: #2d2a10;
   --warn-line: #7a6a1e;
@@ -265,7 +261,6 @@
 
   /* The project mark, dark variant of the light-vivid one. */
   --project-mark: #e592c2;
-  --process-mark: #58a6ff;
 }
 
 /* ---- dark + marine (blue-yellow-friendly) ---- */
@@ -290,7 +285,6 @@
 
   /* The project mark, dark variant of the light-marine one. */
   --project-mark: #e592c2;
-  --process-mark: #79c0ff;
 }
 
 * {
@@ -951,12 +945,11 @@ select {
 }
 
 /* The left stripe says where a card came FROM, wherever the card is met: a
-   PROJECT card is a commitment made on the Project board, a PROCESS TURN is a
-   week its process owes, and a REVIEW card is somebody else's work waiting on
-   this person. Work the day board made itself wears none — the stripe marks
-   what came from elsewhere, which is why it is worth a glance. */
+   PROJECT card is a commitment made on the Project board, and a REVIEW card
+   is somebody else's work waiting on this person. Work the day board made
+   itself wears none — the stripe marks what came from elsewhere, which is
+   why it is worth a glance. */
 .card-project::before,
-.card-process::before,
 .card-review::before {
   content: "";
   position: absolute;
@@ -969,12 +962,6 @@ select {
 
 .card-project::before {
   background: var(--project-mark);
-}
-
-/* A turn rides its process's own blue — the recurrent stage's, since a turn
-   IS recurrent work and the two must not read as different things. */
-.card-process::before {
-  background: var(--process-mark);
 }
 
 .card-review::before {
@@ -3809,543 +3796,6 @@ button.card-age {
   color: var(--muted);
 }
 
-/* ---- Process board: recurring work and how it is going ------------------- */
-.process {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.process-list {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 10px 14px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.process-hint {
-  color: var(--muted);
-  font-size: 13px;
-  padding: 24px 0;
-  text-align: center;
-}
-
-.process-item {
-  border: 1px solid var(--card-border);
-  border-radius: 8px;
-  background: var(--bg);
-}
-
-.process-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.process-head:hover {
-  background: var(--hover-overlay-soft);
-}
-
-.process-caret {
-  width: 10px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.process-name {
-  font-weight: 600;
-  font-size: 13px;
-}
-
-.process-count {
-  color: var(--muted);
-  font-size: 11.5px;
-}
-
-/* The row of dots: one per iteration, how it went. The health of a process
-   is this row — read it before the name. */
-.process-health {
-  margin-left: auto;
-  display: inline-flex;
-  gap: 3px;
-  align-items: center;
-}
-
-.process-health-empty {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.process-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--line);
-}
-
-.process-dot-done {
-  background: var(--stage-done);
-}
-
-.process-dot-late {
-  background: var(--danger);
-}
-
-.process-dot-open {
-  background: var(--line);
-  box-shadow: inset 0 0 0 1.5px var(--muted);
-}
-
-.process-body {
-  border-top: 1px solid var(--line-soft);
-  padding: 6px 12px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-/* Fixed columns, left-aligned: the title takes the room, the facts stand in
-   one column under each other, the dots and the actions each keep their own.
-   Sharing the row by content made every line's facts start somewhere else. */
-.process-task {
-  display: grid;
-  grid-template-columns: minmax(150px, 1fr) 580px 120px 48px;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 8px;
-  border-radius: 6px;
-}
-
-.process-task:hover {
-  background: var(--hover-overlay-soft);
-}
-
-.process-task-main {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.process-task-title {
-  font-size: 12.5px;
-  font-weight: 600;
-}
-
-.process-task-desc {
-  font-size: 11.5px;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.process-task-meta {
-  display: grid;
-  grid-template-columns: 118px 105px 132px 1fr;
-  column-gap: 10px;
-  row-gap: 2px;
-  align-items: center;
-  font-size: 11.5px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.process-task-meta > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* The task's own history: a single left-aligned row under the process's. */
-.process-task > .process-health {
-  margin-left: 0;
-  justify-content: flex-start;
-}
-
-.process-team {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.process-task-actions {
-  display: flex;
-  gap: 2px;
-  opacity: 0;
-}
-
-.process-task:hover .process-task-actions {
-  opacity: 1;
-}
-
-.process-add {
-  align-self: flex-start;
-  margin-top: 2px;
-}
-
-.process-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px;
-  border: 1px dashed var(--accent);
-  border-radius: 6px;
-}
-
-.process-form-desc {
-  min-height: 52px;
-  font-size: 12px;
-}
-
-.process-form-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: flex-end;
-}
-
-.process-form-row label {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.process-form-row select,
-.process-form-row input[type="date"] {
-  font-size: 12px;
-  padding: 3px 6px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
-}
-
-.process-form-check {
-  flex-direction: row !important;
-  align-items: center;
-  gap: 6px !important;
-  padding-bottom: 4px;
-}
-
-.process-form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-/* A process named or renamed in place, and the "+ add a process" row. */
-.process-name-input {
-  font-size: 13px;
-  font-weight: 600;
-  width: 260px;
-}
-
-.process-new {
-  align-self: flex-start;
-}
-
-.process-new.add-card-input {
-  width: 280px;
-  font-size: 13px;
-}
-
-.process-del {
-  opacity: 0;
-  margin-left: 4px;
-}
-
-.process-head:hover .process-del {
-  opacity: 1;
-}
-
-.process-del:disabled {
-  opacity: 0;
-  pointer-events: none;
-}
-
-/* The team and the owner are grid cells of the row, not a pair sharing one:
-   a long team name used to push the owner along, so no two rows started their
-   owner at the same place. */
-.process-task-who {
-  display: contents;
-}
-
-.process-task-none {
-  font-style: italic;
-  opacity: 0.7;
-}
-
-/* The project badge as a control: a column's or a process's project is
-   changed by clicking the badge that shows it. */
-.project-epic-avatar-pick {
-  border: none;
-  cursor: pointer;
-  padding: 0;
-  font: inherit;
-}
-
-.project-epic-avatar-pick:hover {
-  box-shadow: 0 0 0 2px var(--hover-overlay);
-}
-
-/* No project yet: an outline, so the badge is still there to click. */
-.project-epic-avatar-none {
-  background: transparent;
-  border: 1px dashed var(--line);
-  color: var(--muted);
-}
-
-/* A cell that sets what it shows: the team and the owner of a task are
-   picked where they are read, the way a card's badges work. */
-.process-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
-  padding: 2px 5px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.process-cell:hover {
-  border-color: var(--line);
-  background: var(--bg);
-}
-
-.process-cell-team {
-  justify-self: start;
-  max-width: 100%;
-}
-
-.process-cell-owner {
-  justify-self: start;
-  max-width: 100%;
-  min-width: 0;
-}
-
-.process-owner-avatar {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  flex: none;
-}
-
-/* The mark on a cycle that piles up. Only a task that accumulates wears
-   it: not accumulating is what every process does unless told otherwise, and
-   a mark on the ordinary case is noise. */
-.process-cell-cycle {
-  justify-self: start;
-}
-
-.process-accum {
-  display: inline-flex;
-  color: var(--muted);
-}
-
-.process-stack {
-  width: 11px;
-  height: 11px;
-  fill: currentColor;
-  flex: none;
-}
-
-/* The same mark leads the menu entry that sets it. */
-.process-accum-item .process-stack {
-  margin-right: 2px;
-}
-
-/* How many turns are not drawn: the row shows the recent ones, this says how
-   much history stands behind them. */
-.process-health-more {
-  font-size: 10.5px;
-  color: var(--muted);
-  margin-right: 2px;
-}
-
-/* A paused process: still there, still whole, simply not filing. */
-.process-item-paused .process-name,
-.process-item-paused .process-body {
-  opacity: 0.55;
-}
-
-.process-paused-tag {
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--warn, var(--muted));
-  border: 1px solid currentColor;
-  border-radius: 3px;
-  padding: 0 4px;
-}
-
-.process-pause {
-  opacity: 0;
-  margin-left: 4px;
-}
-
-.process-pause svg {
-  width: 11px;
-  height: 11px;
-  fill: currentColor;
-}
-
-.process-head:hover .process-pause,
-.process-item-paused .process-pause {
-  opacity: 1;
-}
-
-/* A task whose create is still upstream: there, but not yet actionable. */
-.process-task-pending {
-  opacity: 0.5;
-  pointer-events: none;
-}
-
-/* One row under the title: the tabs on the left, what the card belongs to on
-   the right, so the badges read as context rather than as part of the title. */
-.modal-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 6px 16px 0;
-}
-
-.modal-toolbar .modal-tabs {
-  margin: 0;
-}
-
-/* Where a card comes from, in its detail and in its badge menu. */
-.modal-origin {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-left: auto;
-  min-width: 0;
-}
-
-.modal-origin-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--fg);
-  background: var(--hover-overlay-soft);
-  border: 1px solid var(--line-soft);
-  border-radius: 999px;
-  padding: 2px 9px;
-}
-
-.modal-origin-kind,
-.card-assign-origin-kind {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-
-.card-assign-origin {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px 8px 6px;
-  font-size: 11.5px;
-  border-bottom: 1px solid var(--line-soft);
-  margin-bottom: 4px;
-}
-
-.card-assign-origin span {
-  display: inline-flex;
-  gap: 5px;
-  align-items: baseline;
-}
-
-.process-rename {
-  opacity: 0;
-  margin-left: 2px;
-}
-
-.process-head:hover .process-rename {
-  opacity: 1;
-}
-
-/* The history row as a control: it still reads as dots, it just answers. */
-.process-health-pick {
-  border: 1px solid transparent;
-  border-radius: 5px;
-  padding: 2px 5px;
-  background: none;
-  cursor: pointer;
-}
-
-.process-health-pick:hover {
-  border-color: var(--line);
-  background: var(--bg);
-}
-
-/* "from <date>" is a control: the date input sits invisibly over the text so
-   a click opens the browser's picker, and the text stays the thing you read. */
-.process-cell-from {
-  position: relative;
-  cursor: pointer;
-}
-
-.process-from-input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
-  border: 0;
-  padding: 0;
-}
-
-.process-toggle-all {
-  margin-left: auto;
-}
-
-/* A card scheduled ahead — a slot, a process turn, a card given a week —
-   still open past the day it was owed by. The line says "this is a debt"
-   wherever the card shows: on the day board, on Triage, on the Project
-   board. It does not move the card; carry-over is still how work moves. */
-.card-overdue {
-  box-shadow: inset 3px 0 0 var(--danger);
-}
-
-/* No line on a late slot: the Project board already tints it red all over,
-   and its left border carries the team colour. The red line belongs to the
-   boards where a debt is not otherwise marked. */
-
-/* Dragging on the Process tab: the lifted thing dims, the list previews. */
-.process-head-dragging {
-  opacity: 0.6;
-}
-
-.process-task-dragging {
-  opacity: 0.6;
-  background: var(--hover-overlay-soft);
-}
-
-.process-task {
-  touch-action: none;
-  cursor: grab;
-}
-
 /* The destructive half of a two-way choice: coloured, but not shouting — it
    is a legitimate answer, not a trap. */
 .sprint-choice-btn-danger strong {
@@ -4648,8 +4098,8 @@ button.card-age {
   vertical-align: middle;
 }
 
-/* Which repository a new team / project / process is declared in; rendered
-   only when the visitor can write to more than one. */
+/* Which repository a new team / project is declared in; rendered only when
+   the visitor can write to more than one. */
 .domain-select {
   font: inherit;
   font-size: 12px;
@@ -4659,16 +4109,6 @@ button.card-age {
   background: var(--bg);
   color: var(--fg);
   max-width: 12em;
-}
-
-.process-new-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.process-new-row .add-card-input {
-  flex: 1;
 }
 
 /* Older history exists beyond the server's clone horizon. */
@@ -5137,17 +4577,17 @@ button.card-age {
   padding: 0 4px;
 }
 
-/* A turn a process is going to file: drawn before it exists, so it is drawn
-   as an outline. Nothing can be done to it — there is no card yet — and the
-   cursor says so. */
+/* A week a repeating card is going to come round in: drawn before the copy
+   exists, so it is drawn as an outline. Nothing can be done to it — there is
+   no card yet — and the cursor says so. */
 .triage-slot-coming {
   background: none;
   border-style: dashed;
   /* The mark is NOT this card's left border. A rounded corner is shared
      between the two sides that make it, and a dashed side takes its share in
      dashes: the mark broke off a few pixels above the foot and the bottom-left
-     corner came out grey, so a turn to come wore a scratch where its filed
-     turns wear a stripe. Squaring the corner cured that and cost the ghost its
+     corner came out grey, so a copy to come wore a scratch where the standing
+     cards wear a stripe. Squaring the corner cured that and cost the ghost its
      rounding, which is the shape that says "card" — so the dashes keep every
      corner to themselves and the mark is drawn over the border, below. */
   border-left-color: transparent;
@@ -5158,8 +4598,8 @@ button.card-age {
 
 /* The mark itself: the width of the border it covers, the height of the whole
    card including its top and bottom edges, rounded down the left the way the
-   card is — the same stripe a filed turn wears, and the same one the day
-   boards draw (.card-project, .card-process). */
+   card is — the same stripe a standing card wears, and the same one the day
+   boards draw (.card-project). */
 .triage-slot-coming::before {
   content: "";
   position: absolute;
@@ -5171,18 +4611,13 @@ button.card-age {
   background: var(--mark, var(--muted));
 }
 
-/* A project card is a commitment made on the Project board and a turn is a
-   week its process owes: both pass through this board, and their week is the
-   other one's to say, so they wear their own mark rather than a zone nobody
-   set here. The same two marks the day boards draw down a card's left edge
-   (.card-project, .card-process), so one card reads the same on every board
-   it is met on. */
+/* A project card is a commitment made on the Project board: it passes through
+   this board, and its week is the other one's to say, so it wears its own
+   mark rather than a zone nobody set here. The same mark the day boards draw
+   down a card's left edge (.card-project), so one card reads the same on
+   every board it is met on. */
 .triage-slot-project {
   --mark: var(--project-mark);
-}
-
-.triage-slot-process {
-  --mark: var(--process-mark);
 }
 
 /* A debt keeps the strong red, whatever zone it is in. */

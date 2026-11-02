@@ -24,7 +24,6 @@ const READS = new Set([
   "loadBoard",
   "listCards",
   "getCard",
-  "listProcesses",
   "listLinks",
   "listLog",
   "listDayLogs",

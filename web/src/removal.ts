@@ -96,9 +96,6 @@ export interface RemovalHomes {
   project?: string;
   /** A week is a home: the Triage board draws every card that has one. */
   week?: string;
-  /** On a process TURN, the task it came from. Its week is that process's
-   *  record of what the week was owed, so the × never empties it. */
-  task?: string;
   sprintStart?: string;
   startDate?: string;
   day?: string;
@@ -155,16 +152,14 @@ export function gridRemoval(
   // the day grid puts it back in that week rather than destroying it. Only
   // while it IS in the working area, though — a card that is nothing but its
   // week has no second home to be handed to, and an × that always answered
-  // "back to your week" could never remove one at all. A PROCESS TURN is the
-  // exception and never runs out of homes: its week is its process's record
-  // of what that week was owed.
+  // "back to your week" could never remove one at all.
   //
   // This mirrors boardservice.removeFromGrid exactly. It once said only
   // `if (c.week)` while the server had moved on — so the dialog promised a
   // card already in Unassigned that it would be moved to Unassigned, and the
   // server deleted it. The card vanished under a sentence saying it would
   // not.
-  if (c.week && !hasColumn(c) && (inWorkingArea(c) || c.task)) {
+  if (c.week && !hasColumn(c) && inWorkingArea(c)) {
     return "leave";
   }
   return hasColumn(c) ? "leave" : "delete";
@@ -216,10 +211,9 @@ export type RemoveChoice =
  *  - An ordinary card can go OFF THE BOARD. If it also has somewhere to be
  *    left — a week, a column — and it is standing in the working area, it can
  *    be UNASSIGNED into that instead.
- *  - A PROJECT card and a PROCESS TURN can only be unassigned: the one is the
- *    Project board's commitment, the other its process's record of a week,
- *    and neither is this board's to destroy. Once already unassigned they
- *    have no × at all — an × that does nothing reads as a delete that failed.
+ *  - A PROJECT card can only be unassigned: it is the Project board's
+ *    commitment and not this board's to destroy. Once already unassigned it
+ *    has no × at all — an × that does nothing reads as a delete that failed.
  *  - A SUBTASK is its own case: the × takes it OUT OF THE GROUP when it has a
  *    column to be left in, and off the board when it has not.
  *  - And the BACKLOG stands under all of them, wherever the card could be
@@ -228,8 +222,8 @@ export type RemoveChoice =
  *    unasked takes the first answer — a card made today at 0% is still
  *    deleted without ceremony, as it always was, rather than quietly shelved.
  *
- *  Parking is not offered for work another board owns (a slot, a turn), for a
- *  card already on the shelf, or for a SUBTASK or a REVIEW: those two follow
+ *  Parking is not offered for work another board owns (a slot), for a card
+ *  already on the shelf, or for a SUBTASK or a REVIEW: those two follow
  *  the card they belong to, and parking one alone would put it where nothing
  *  draws it — out of sight of the very card it is part of.
  *
@@ -244,7 +238,6 @@ export type RemoveChoice =
 export function removeChoices(
   c: RemovalHomes &
     Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent"> & {
-      task?: string;
       parked?: boolean;
       reviewOf?: string;
     },
@@ -254,18 +247,16 @@ export function removeChoices(
     return gridRemoval(c, ctx) === "ungroup" ? ["ungroup"] : ["off-board"];
   }
   const shelve: RemoveChoice[] =
-    !c.parked && !hasColumn(c) && !c.task && !c.reviewOf ? ["backlog"] : [];
+    !c.parked && !hasColumn(c) && !c.reviewOf ? ["backlog"] : [];
   // Only where it would MOVE the card: finished work, standing in the current
   // sprint, with an earlier sprint to send it to. Never for work another board
-  // owns — a slot and a turn carry their own dates, and the sprint is not what
-  // places them.
+  // owns — a slot carries its own dates, and the sprint is not what places it.
   const finishedEarlier: RemoveChoice[] =
     (c.progress ?? 0) >= 100 &&
     !!ctx.previous &&
     !!ctx.current &&
     c.sprintStart === ctx.current &&
-    !hasColumn(c) &&
-    !c.task
+    !hasColumn(c)
       ? ["finished-earlier"]
       : [];
   // Unassigned is where a card with NOBODY on it stands, and that — not its
@@ -276,7 +267,7 @@ export function removeChoices(
   const somewhereElse = hasColumn(c) || !!c.week;
   const unassign: RemoveChoice[] =
     somewhereElse && (c.assignees?.length ?? 0) > 0 ? ["unassign"] : [];
-  if (hasColumn(c) || c.task) {
+  if (hasColumn(c)) {
     return unassign;
   }
   return ["off-board", ...unassign, ...finishedEarlier, ...shelve];
@@ -285,10 +276,7 @@ export function removeChoices(
 /** offersRemoval reports whether the × is drawn at all: only where it has
  *  something it could do. */
 export function offersRemoval(
-  c: RemovalHomes &
-    Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent"> & {
-      task?: string;
-    },
+  c: RemovalHomes & Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent">,
   ctx: RemovalContext,
 ): boolean {
   return removeChoices(c, ctx).length > 0;

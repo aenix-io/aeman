@@ -33,9 +33,7 @@ import type {
   CarryReport,
   NewCardInput,
   Note,
-  ProcessInfo,
   Provider,
-  TaskInput,
   ZoneKey,
 } from "../types";
 
@@ -74,7 +72,6 @@ export function boardMetadata(
   | "domains"
   | "teamDomains"
   | "projectDomains"
-  | "processDomains"
 > {
   return {
     title: info.metadata.title ?? "",
@@ -102,17 +99,7 @@ export function boardMetadata(
     // from offering a pair the server will refuse.
     teamDomains: info.metadata.teamDomains ?? undefined,
     projectDomains: info.metadata.projectDomains ?? undefined,
-    processDomains: info.metadata.processDomains ?? undefined,
   };
-}
-
-/** processesFrom adapts the wire's processes to the internal model, whose
- *  `project` is always a string: the wire omits it on a process that belongs
- *  to none. */
-export function processesFrom(
-  items: components["schemas"]["Process"][],
-): ProcessInfo[] {
-  return items.map((p) => ({ ...p, project: p.project ?? "" }));
 }
 
 /** ApiError is a non-2xx answer: the problem's detail (or the status text)
@@ -246,7 +233,7 @@ async function answered<T>(call: Promise<{ data?: T }>): Promise<T> {
 }
 
 // inDomain is the optional `domain` of a declare request: the repository a new
-// team/project/process is filed in. Omitted, the server picks the primary.
+// team/project is filed in. Omitted, the server picks the primary.
 function inDomain(domain?: string): { domain?: string } {
   return domain ? { domain } : {};
 }
@@ -316,9 +303,6 @@ function patchBody(patch: CardPatch): components["schemas"]["CardPatch"] {
   if (patch.epic !== undefined) {
     body.epic = patch.epic;
   }
-  if (patch.process !== undefined) {
-    body.process = patch.process;
-  }
   if (patch.project !== undefined) {
     body.project = patch.project;
   }
@@ -342,7 +326,6 @@ export const apiProvider: Provider = {
       // after this from the App's first view fetch.
       cards: [],
       ...boardMetadata(info),
-      processes: [],
       sprintStates: sprintStatesFrom(sprints.items),
     };
   },
@@ -661,84 +644,6 @@ export const apiProvider: Provider = {
     to: string,
   ): Promise<void> {
     await client.POST("/projects/actions/rename", { body: { project: from, to } });
-  },
-
-  async listProcesses(project?: string): Promise<ProcessInfo[]> {
-    const res = await answered(
-      client.GET("/processes", { params: { query: project ? { project } : {} } }),
-    );
-    return processesFrom(res.items);
-  },
-
-  async addProcess(name: string, project: string, domain?: string): Promise<void> {
-    await client.POST("/processes", {
-      body: { name, project, ...inDomain(domain) },
-    });
-  },
-
-  async deleteProcess(name: string): Promise<void> {
-    await client.POST("/processes/actions/delete-process", {
-      body: { process: name },
-    });
-  },
-
-  async renameProcess(from: string, to: string): Promise<void> {
-    await client.POST("/processes/actions/rename", { body: { process: from, to } });
-  },
-
-  async setProcessProject(
-    process: string,
-    project: string,
-  ): Promise<void> {
-    await client.POST("/processes/actions/set-project", {
-      body: { process, project },
-    });
-  },
-
-  async setProcessPaused(
-    process: string,
-    paused: boolean,
-  ): Promise<void> {
-    await client.POST("/processes/actions/set-paused", {
-      body: { process, paused },
-    });
-  },
-
-  async reorderProcesses(processes: string[]): Promise<void> {
-    await client.POST("/processes/actions/reorder", { body: { processes } });
-  },
-
-  async reorderProcessTasks(
-    process: string,
-    uids: string[],
-  ): Promise<void> {
-    await client.POST("/processes/tasks/actions/reorder", {
-      body: { process, uids },
-    });
-  },
-
-  async addTask(
-    process: string,
-    input: TaskInput,
-  ): Promise<string> {
-    const res = await answered(
-      client.POST("/processes/tasks", { body: { process, ...input } }),
-    );
-    return res.uid;
-  },
-
-  async updateTask(
-    uid: string,
-    patch: TaskInput,
-  ): Promise<void> {
-    await client.PATCH("/processes/tasks/{uid}", {
-      params: { path: { uid } },
-      body: patch,
-    });
-  },
-
-  async deleteTask(uid: string): Promise<void> {
-    await client.DELETE("/processes/tasks/{uid}", { params: { path: { uid } } });
   },
 
   async addDeadline(
