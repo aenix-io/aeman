@@ -191,9 +191,11 @@ func LeafTasks(b Board, id string) []Card {
 		}
 		frontier = next
 	}
+	// A review card is not one either: it is a copy of the card it reviews,
+	// made for the asking, and the original answers for the work.
 	var out []Card
 	for _, c := range b.Cards {
-		if !IsPlanning(c) && subtree[c.Parent] {
+		if !IsPlanning(c) && c.ReviewOf == "" && subtree[c.Parent] {
 			out = append(out, c)
 		}
 	}

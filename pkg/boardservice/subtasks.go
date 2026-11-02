@@ -230,11 +230,21 @@ func (s *Service) linkInHierarchy(ctx context.Context, b board.Board, card, p bo
 		return nil
 	}
 	// Leaving a TASK parent for the hierarchy is a pull-out of the group as
-	// well: the old parent loses a subtask and its derived bar.
+	// well: the old parent loses a subtask and its derived bar — and the
+	// person is handed over as the ungroup gesture hands it (S8): a subtask
+	// usually rides its task's person and has none of its own, and one that
+	// left ownerless stood in Unassigned and on nobody's Me board.
 	wasSubtask := board.IsSubtask(b, card)
 	oldTitle := ""
-	if op, ok := findCard(b, card.Parent); ok {
+	op, hadParent := findCard(b, card.Parent)
+	if hadParent {
 		oldTitle = op.Title
+	}
+	if wasSubtask && hadParent && len(card.Assignees) == 0 && len(op.Assignees) > 0 {
+		if err := s.backend.SetAssignee(ctx, b, card, op.Assignees[0]); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventAssignee, "", op.Assignees[0])
 	}
 	if err := s.backend.SetParent(ctx, b, card, p.ItemID); err != nil {
 		return err

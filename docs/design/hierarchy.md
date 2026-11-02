@@ -254,8 +254,10 @@ cards parked on a team's shelf, and the strip (H9). The loose work is
 listed because the Roadmap is where a lead drags it into the tree, and a
 board cannot offer a drag of a card it does not draw. A task already
 finished outside the hierarchy is not listed (nothing left to plan on
-it), nor is a project card in no hierarchy (the Project board's), and a
-subtask follows its parent task in or out. The listing is the card
+it), nor is a project card in no hierarchy (the Project board's), nor a
+review card (it follows the card it reviews, which is the work — the
+owner picker refuses it and so does the link), and a subtask follows its
+parent task in or out. The listing is the card
 listing of the view (`GET /api/v1/views/roadmap/cards`), with the same
 watch; the tree is assembled from `parent` on the client, and the loose
 work is grouped by what it is — in hand, parked, unsorted. The
@@ -498,17 +500,23 @@ task.
 - H1 — one link, `parent`, kind read off the parent; a task under a task
   is a subtask and the only kind that is one. A DANGLING parent — one not
   on the board — reads as a subtask, as it always did: nothing dangles off
-  a planning card, since deleting one re-parents its children. Pinned by
+  a planning card, since deleting one re-parents its children. A subtask
+  that leaves its task for a planning card is pulled out of the group the
+  way the ungroup gesture pulls it: one with no person of its own takes
+  its task's. Pinned by
   board `TestASubtaskIsATaskUnderATask`, `TestParentOfAndChildrenOf`,
   `TestSubtaskHelpersStopAtPlanningCards`,
   `TestPlanningCardsAreOnNoDayBoardAndTasksUnderThemAre`; service
-  `TestTheLevelRuleGovernsTheParent`, `TestCarryOverCarriesATaskUnderAnEpic`;
+  `TestTheLevelRuleGovernsTheParent`, `TestCarryOverCarriesATaskUnderAnEpic`,
+  `TestASubtaskLeavingForAnEpicTakesItsTasksPerson`;
   web `hierarchy.test.ts` (`isSubtask`).
 - H2 — the level rule: a parent is of a higher level (`board.Level`: goal >
   initiative > epic > task; an unknown type is a task); one parent;
-  optional; a task may skip levels. Pinned by board
+  optional; a task may skip levels; a review card sits under nothing of
+  its own (`ErrReviewCardLink`). Pinned by board
   `TestTheLevelsAreStrictlyOrdered`, `TestLineageIsEveryAncestorRootFirst`;
-  service `TestTheLevelRuleGovernsTheParent`; apiserver
+  service `TestTheLevelRuleGovernsTheParent`,
+  `TestAReviewCardSitsUnderNothingOfItsOwn`; apiserver
   `TestACardResourceCarriesItsLineageAndHierarchy`.
 - H3 — a planning card is drawn on the Roadmap and on no day board, is
   never carried, weighed or overdue, and has no stage, progress, band,

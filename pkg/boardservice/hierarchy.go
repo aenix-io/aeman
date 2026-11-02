@@ -23,6 +23,10 @@ var ErrUnknownType = errors.New("a card is a task, a goal, an initiative or an e
 // makes a cycle impossible to write.
 var ErrParentLevel = errors.New("a parent is of a higher level than its child")
 
+// ErrReviewCardLink is a review card filed under a goal, an initiative or an
+// epic: it follows the card it reviews and sits under nothing of its own.
+var ErrReviewCardLink = errors.New("a review card follows the card it reviews and sits under nothing of its own")
+
 // ErrPlanningCard is a goal, an initiative or an epic asked to carry what a
 // TASK carries: a stage, a progress, a band, a week, a shelf, a sprint, a
 // column, a review. A planning card is drawn on the Roadmap and on no day
@@ -81,6 +85,13 @@ func planningCardCannotBe(args CreateCardArgs) error {
 // in which at least one side is a planning card (H2, H6). The subtask rules
 // — two tasks — are setParentOf's own and are not asked here.
 func hierarchyLinkAllowed(b board.Board, child, parent board.Card) error {
+	// A review card follows the card it reviews — it stands where the
+	// original stands and goes when it goes — and sits under nothing of its
+	// own: under an epic it would count as one more task of the epic while
+	// the original already answers for the work.
+	if child.ReviewOf != "" {
+		return fmt.Errorf("%w: %q", ErrReviewCardLink, child.Title)
+	}
 	if board.Level(parent.Type) <= board.Level(child.Type) {
 		return fmt.Errorf("%w: %s %q cannot sit under %s %q", ErrParentLevel,
 			articled(child.Type), child.Title, articled(parent.Type), parent.Title)

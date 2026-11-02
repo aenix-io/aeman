@@ -2952,7 +2952,7 @@ func linksArePossible(b board.Board, args CreateCardArgs) error {
 			return ErrParentNotFound
 		}
 		asked := board.Card{Title: args.Title, Type: args.Type, Team: args.Team,
-			Project: args.Project, Scope: args.Scope, Parent: args.Parent}
+			Project: args.Project, Scope: args.Scope, Parent: args.Parent, ReviewOf: args.ReviewOf}
 		if args.Assignee != "" {
 			asked.Assignees = []string{args.Assignee}
 		}

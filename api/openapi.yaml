@@ -1468,6 +1468,7 @@ components:
             - projectExists
             - projectInUse
             - projectNotFound
+            - reviewCardLink
             - setupRequired
             - subtaskDepth
             - subtaskWeek
@@ -2365,7 +2366,9 @@ components:
             grouping hands the week to the parent. A goal, an initiative or an
             epic as parent files the card in the hierarchy; the parent must be
             of a higher level than the card (422 `parentLevel`) and in the
-            card's own repository (422 `crossDomain`).
+            card's own repository (422 `crossDomain`). A review card follows
+            the card it reviews and sits under nothing of its own (422
+            `reviewCardLink`).
         type:
           type: string
           description: >-

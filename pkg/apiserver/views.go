@@ -183,7 +183,10 @@ func roadmapCards(b board.Board) []board.Card {
 		switch {
 		case board.IsPlanning(c) || board.HasPlanningAncestor(b, c):
 			in[c.ItemID] = true
-		case c.Scope == "" && !board.IsSubtaskIn(c, planning) && !board.Complete(c.Stage, c.Progress):
+		// Open work with no planning ancestor: a task, parked or in the strip
+		// or on a day board. Not a review card — it follows the card it
+		// reviews, which is the work, and cannot be filed under anything.
+		case c.Scope == "" && c.ReviewOf == "" && !board.IsSubtaskIn(c, planning) && !board.Complete(c.Stage, c.Progress):
 			in[c.ItemID] = true
 		}
 	}

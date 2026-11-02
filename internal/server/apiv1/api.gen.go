@@ -241,6 +241,7 @@ const (
 	ProjectExists        ProblemCode = "projectExists"
 	ProjectInUse         ProblemCode = "projectInUse"
 	ProjectNotFound      ProblemCode = "projectNotFound"
+	ReviewCardLink       ProblemCode = "reviewCardLink"
 	ScopeExists          ProblemCode = "scopeExists"
 	ScopeInUse           ProblemCode = "scopeInUse"
 	ScopeNotFound        ProblemCode = "scopeNotFound"
@@ -373,6 +374,8 @@ func (e ProblemCode) Valid() bool {
 	case ProjectInUse:
 		return true
 	case ProjectNotFound:
+		return true
+	case ReviewCardLink:
 		return true
 	case ScopeExists:
 		return true
@@ -585,7 +588,7 @@ type CreateCardRequest struct {
 	// NoSprint Schedules the card for its day without joining any sprint — a "next sprint" create; the next carry-over to reach its day adopts it.
 	NoSprint *bool `json:"noSprint,omitempty"`
 
-	// Parent The card this one sits under. A TASK parent groups the card as a subtask — a `parent` and a `week` together are then refused (422): grouping hands the week to the parent. A goal, an initiative or an epic as parent files the card in the hierarchy; the parent must be of a higher level than the card (422 `parentLevel`) and in the card's own repository (422 `crossDomain`).
+	// Parent The card this one sits under. A TASK parent groups the card as a subtask — a `parent` and a `week` together are then refused (422): grouping hands the week to the parent. A goal, an initiative or an epic as parent files the card in the hierarchy; the parent must be of a higher level than the card (422 `parentLevel`) and in the card's own repository (422 `crossDomain`). A review card follows the card it reviews and sits under nothing of its own (422 `reviewCardLink`).
 	Parent *string `json:"parent,omitempty"`
 
 	// Parked Puts the card straight on its team's shelf. Like `week`, no dates are set and no sprint is joined.

@@ -121,6 +121,7 @@ var sentinels = []struct {
 	// card asked to carry what only a task carries.
 	{boardservice.ErrUnknownType, http.StatusUnprocessableEntity, "unknownType"},
 	{boardservice.ErrParentLevel, http.StatusUnprocessableEntity, "parentLevel"},
+	{boardservice.ErrReviewCardLink, http.StatusUnprocessableEntity, "reviewCardLink"},
 	{boardservice.ErrPlanningCard, http.StatusUnprocessableEntity, "planningCard"},
 	// Own (H10): a person is picked from a team, and a card whose owner a
 	// link decides — a subtask, a review card — is not asked.
