@@ -115,7 +115,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		sel.Weeks = n
 	}
 	switch sel.View {
-	case "", "all", "team", "me", "project", "triage", "backlog":
+	case "", "all", "team", "me", "project", "triage", "backlog", "roadmap":
 	default:
 		return Selector{}, fmt.Errorf("unknown view %q", sel.View)
 	}
@@ -200,6 +200,20 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		base = triageCards(b, sel)
 	case "backlog":
 		base = backlogCards(b, sel)
+	case "roadmap":
+		// The hierarchy: every goal, initiative and epic, and every card
+		// with one of those above it — a task, its subtasks, a project card
+		// (docs/design/hierarchy.md). A task with no parent is on the day
+		// boards and not here. The tree is the client's to assemble from
+		// `parent`; the listing is the cards that make it up.
+		for _, c := range b.Cards {
+			if board.IsStateTitle(c.Title) {
+				continue
+			}
+			if board.IsPlanning(c) || board.HasPlanningAncestor(b, c) {
+				base = append(base, c)
+			}
+		}
 	default:
 		base = b.Cards
 	}
@@ -452,9 +466,12 @@ func triageCards(b board.Board, sel Selector) []board.Card {
 	today := board.TodayIso()
 	until := board.AddDays(sel.From, 7*sel.Weeks)
 	thisWeek := board.MondayOf(today)
+	planning := board.PlanningIDs(b)
 	var out []board.Card
 	for _, c := range b.Cards {
-		if c.Parent != "" || board.IsStateTitle(c.Title) {
+		// A planning card is the Roadmap's (H3); a subtask rides its
+		// parent; a task under an epic stands here like any task (H1).
+		if board.IsPlanning(c) || board.IsSubtaskIn(c, planning) || board.IsStateTitle(c.Title) {
 			continue
 		}
 		// A PROJECT card is the Project board's plan and stands in no week
@@ -529,9 +546,10 @@ func contains(s []string, v string) bool {
 // the weeks has nowhere to put it. Filtering by `backlog` names one list;
 // leaving it empty gives every list the team has.
 func backlogCards(b board.Board, sel Selector) []board.Card {
+	planning := board.PlanningIDs(b)
 	var out []board.Card
 	for _, c := range b.Cards {
-		if c.Parent != "" || board.IsStateTitle(c.Title) {
+		if board.IsPlanning(c) || board.IsSubtaskIn(c, planning) || board.IsStateTitle(c.Title) {
 			continue
 		}
 		// A PROJECT card is never parked — the shelf is not its board's to

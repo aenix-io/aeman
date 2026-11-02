@@ -1194,9 +1194,11 @@ components:
       in: path
       required: true
       description: >-
-        The board the caller is standing on: me, team, triage, backlog, project,
-        or all — the escape hatch, which has to be said out loud. A board nobody
-        has is a route that is not there (404).
+        The board the caller is standing on: me, team, triage, backlog, roadmap,
+        project, or all — the escape hatch, which has to be said out loud. A
+        board nobody has is a route that is not there (404). The roadmap lists
+        the hierarchy — every goal, initiative and epic, and every card with one
+        above it — and a create there is a planning card (`type` required).
       schema:
         type: string
     NoteId:
@@ -1430,7 +1432,9 @@ components:
             - noteTooLong
             - nowhereToLeaveIt
             - openSubtasks
+            - parentLevel
             - parentNotFound
+            - planningCard
             - pointsRequired
             - projectExists
             - projectInUse
@@ -1448,6 +1452,7 @@ components:
             - unknownRoute
             - unknownSize
             - unknownStage
+            - unknownType
             - unknownZone
             - upstreamFailed
             - viewNeedsField
@@ -1599,7 +1604,18 @@ components:
           type: string
         parent:
           type: string
-          description: On a subtask, the uid of the card it is grouped under.
+          description: >-
+            The uid of the card this one sits under — the one link of the
+            hierarchy. Its meaning is the parent's `type`: under a task this
+            card is a subtask; under a goal, an initiative or an epic it is
+            filed in the hierarchy and nothing else about it changes.
+        type:
+          type: string
+          description: >-
+            The card's level. Absent for a task; `goal`, `initiative` or `epic`
+            for a PLANNING card, which the Roadmap draws and no day board
+            does. Fixed at create.
+          enum: [goal, initiative, epic]
     CardDates:
       type: object
       additionalProperties: false
@@ -1692,6 +1708,51 @@ components:
             knows it has links to show. GET /cards/{uid}/links resolves them.
           items:
             $ref: '#/components/schemas/CardLinkRef'
+        lineage:
+          type: array
+          description: >-
+            Every ancestor of the card, ROOT FIRST — the breadcrumb a detail
+            pane draws above it, a task parent included. Absent on a root.
+          items:
+            $ref: '#/components/schemas/LineageRef'
+        hierarchy:
+          $ref: '#/components/schemas/Hierarchy'
+    LineageRef:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.LineageRef
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: One ancestor of a card.
+      required: [uid, title]
+      properties:
+        uid:
+          type: string
+        type:
+          type: string
+          description: The ancestor's level; absent for a task.
+        title:
+          type: string
+    Hierarchy:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.Hierarchy
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: >-
+        A PLANNING card's derived standing, from the tasks under it through
+        every level: done when every one is complete (and there is one), in
+        progress when any has started or finished, backlog otherwise — with
+        the counts. Never stored; absent on a task.
+      required: [status, done, total]
+      properties:
+        status:
+          type: string
+          enum: [backlog, in-progress, done]
+        done:
+          type: integer
+        total:
+          type: integer
     CardLinkRef:
       type: object
       additionalProperties: false
@@ -2269,9 +2330,21 @@ components:
         parent:
           type: string
           description: >-
-            Groups the card as a subtask. A `parent` and a `week` together are
-            refused (422): grouping hands the week to the parent, so the pair
-            asks for two contradictory things.
+            The card this one sits under. A TASK parent groups the card as a
+            subtask — a `parent` and a `week` together are then refused (422):
+            grouping hands the week to the parent. A goal, an initiative or an
+            epic as parent files the card in the hierarchy; the parent must be
+            of a higher level than the card (422 `parentLevel`) and in the
+            card's own repository (422 `crossDomain`).
+        type:
+          type: string
+          description: >-
+            Makes a PLANNING card — on the roadmap view, where it is required;
+            every other board refuses it (422 `notOnThisBoard`). A planning card
+            takes its dates, its owner, a team and a parent, and none of a task's
+            day-board state (422 `planningCard` for a column, a week, a shelf, a
+            review or a sprint).
+          enum: [goal, initiative, epic]
         startNewSprint:
           type: boolean
         noSprint:
@@ -2343,7 +2416,12 @@ components:
           type: string
         parent:
           type: string
-          description: Groups the card under another one; empty ungroups.
+          description: >-
+            Puts the card under another one; empty takes it out. Under a TASK
+            the card becomes a subtask (its team, person and sprint follow);
+            under a goal, an initiative or an epic it is filed in the hierarchy
+            and nothing else changes. The level rule and the repository rule
+            hold (422 `parentLevel`, `crossDomain`).
     CardDatesPatch:
       type: object
       properties:

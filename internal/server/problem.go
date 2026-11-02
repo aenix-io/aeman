@@ -116,6 +116,12 @@ var sentinels = []struct {
 	{boardservice.ErrProjectExists, http.StatusUnprocessableEntity, "projectExists"},
 	{boardservice.ErrProjectNotFound, http.StatusUnprocessableEntity, "projectNotFound"},
 	{boardservice.ErrProjectCard, http.StatusUnprocessableEntity, "projectCard"},
+	// The hierarchy's rules (docs/design/hierarchy.md): a type the board
+	// has not got, a parent that is not of a higher level, and a planning
+	// card asked to carry what only a task carries.
+	{boardservice.ErrUnknownType, http.StatusUnprocessableEntity, "unknownType"},
+	{boardservice.ErrParentLevel, http.StatusUnprocessableEntity, "parentLevel"},
+	{boardservice.ErrPlanningCard, http.StatusUnprocessableEntity, "planningCard"},
 	{boardservice.ErrNotAMonday, http.StatusUnprocessableEntity, "notAMonday"},
 	{boardservice.ErrUnknownSize, http.StatusUnprocessableEntity, "unknownSize"},
 	{boardservice.ErrBadCapacity, http.StatusUnprocessableEntity, "badCapacity"},

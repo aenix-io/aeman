@@ -200,6 +200,7 @@ func TestTheCatalogNamesTheBoardsAndTheirGestures(t *testing.T) {
 		"team":    {"remove", "finished-earlier"},
 		"triage":  {"remove", "place", "untriage"},
 		"backlog": {"remove"},
+		"roadmap": {"remove"},
 		"project": {"remove"},
 		"all":     {"remove", "place", "untriage", "finished-earlier"},
 	}

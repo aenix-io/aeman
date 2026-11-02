@@ -91,8 +91,34 @@ type CardSpec struct {
 	Scope    string `json:"scope,omitempty"`
 	Project  string `json:"project,omitempty"`
 	ReviewOf string `json:"reviewOf,omitempty"`
-	// Parent, on a subtask, is the uid of the card it is grouped under.
+	// Parent is the uid of the card this one sits under — the ONE link of
+	// the hierarchy. What it means is the parent's type: under a task this
+	// card is a subtask; under a goal, an initiative or an epic it is filed
+	// in the hierarchy and nothing else about it changes
+	// (docs/design/hierarchy.md).
 	Parent string `json:"parent,omitempty"`
+	// Type is the card's level: absent for a task, else "goal",
+	// "initiative" or "epic" — a PLANNING card, drawn on the Roadmap and on
+	// no day board. Fixed at create.
+	Type string `json:"type,omitempty"`
+}
+
+// LineageRef is one ancestor of a card, in status.lineage: root first, so a
+// client draws the breadcrumb straight from the list.
+type LineageRef struct {
+	UID   string `json:"uid"`
+	Type  string `json:"type,omitempty"`
+	Title string `json:"title"`
+}
+
+// Hierarchy is a planning card's derived standing (status.hierarchy): where
+// the tasks under it stand, through every level, and how many of them there
+// are. Never stored — read off the tree on every listing.
+type Hierarchy struct {
+	// Status is backlog, in-progress or done (board.HierarchyStatus).
+	Status string `json:"status"`
+	Done   int    `json:"done"`
+	Total  int    `json:"total"`
 }
 
 // DueWeeksAhead is the planning horizon a recurrent card's coming weeks are
@@ -150,6 +176,12 @@ type CardStatus struct {
 	// They ride the status so a summary listing, which omits the description
 	// itself, still tells a row it has links to show.
 	Links []CardLinkRef `json:"links,omitempty"`
+	// Lineage is every ancestor of the card, root first — the breadcrumb a
+	// detail pane draws above it. Absent on a root.
+	Lineage []LineageRef `json:"lineage,omitempty"`
+	// Hierarchy is a PLANNING card's derived standing, from the tasks under
+	// it. Absent on a task, whose stage and progress are its own.
+	Hierarchy *Hierarchy `json:"hierarchy,omitempty"`
 }
 
 // maxStatusLinks bounds the derived refs a status carries; the full resolved
@@ -387,6 +419,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Project:     c.Project,
 		ReviewOf:    c.ReviewOf,
 		Parent:      c.Parent,
+		Type:        c.Type,
 	}
 	status := CardStatus{
 		Complete:    board.Complete(c.Stage, c.Progress),
@@ -400,6 +433,13 @@ func CardResource(b board.Board, c board.Card) Card {
 		TriageWeek:  board.TriageWeekOf(b, c, board.TodayIso()),
 	}
 	status.Due = board.UpcomingRecurrences(b, c, board.TodayIso(), DueWeeksAhead)
+	for _, a := range board.Lineage(b, c) {
+		status.Lineage = append(status.Lineage, LineageRef{UID: a.ItemID, Type: a.Type, Title: a.Title})
+	}
+	if board.IsPlanning(c) {
+		st, done, total := board.HierarchyStatus(b, c)
+		status.Hierarchy = &Hierarchy{Status: st, Done: done, Total: total}
+	}
 	for _, l := range board.ExtractLinks(c.Description) {
 		// A row needs an indicator and a menu, not an inventory: a
 		// pathological body of hundreds of URLs must not make the "light"

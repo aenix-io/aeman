@@ -474,6 +474,10 @@ func (a surface) CreateCard(ctx context.Context, req apiv1.CreateCardRequestObje
 	if in.Assignees != nil && len(*in.Assignees) > 0 {
 		args.Assignee = (*in.Assignees)[0]
 	}
+	// The level is an enum on the wire; the service validates the value.
+	if in.Type != nil {
+		args.Type = string(*in.Type)
+	}
 	card, err := svc.CreateInView(ctx, boardID, view, args)
 	if err != nil {
 		return nil, err

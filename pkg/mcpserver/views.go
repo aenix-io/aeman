@@ -18,7 +18,7 @@ import (
 
 // boardStand is where a gesture is made from.
 type boardStand struct {
-	View string `json:"view,omitempty" jsonschema:"the BOARD you are acting from, when you are acting AS one: me (your own day board), team (the lead's grid — say team too), triage (the weeks), backlog (a team's parked work), project (the columns), or all when you have no board at all. Left out, nothing is assumed — you are not standing anywhere. Naming a board is how you ask to be held to it: a gesture that board does not draw, or one on a card it does not show, is then refused the way it would be refused of a person looking at that screen"`
+	View string `json:"view,omitempty" jsonschema:"the BOARD you are acting from, when you are acting AS one: me (your own day board), team (the lead's grid — say team too), triage (the weeks), backlog (a team's parked work), roadmap (the hierarchy: goals, initiatives, epics and the cards under them), project (the columns), or all when you have no board at all. Left out, nothing is assumed — you are not standing anywhere. Naming a board is how you ask to be held to it: a gesture that board does not draw, or one on a card it does not show, is then refused the way it would be refused of a person looking at that screen"`
 	Team string `json:"team,omitempty" jsonschema:"the team whose board you are acting from (team and triage); the card's own team by default"`
 	Day  string `json:"day,omitempty" jsonschema:"the day of the day board you are acting from; today by default"`
 	User string `json:"user,omitempty" jsonschema:"whose me board you are acting from; yourself by default"`

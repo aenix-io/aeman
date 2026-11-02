@@ -77,6 +77,27 @@ func (e CardPatchZone) Valid() bool {
 	}
 }
 
+// Defines values for CreateCardRequestType.
+const (
+	Epic       CreateCardRequestType = "epic"
+	Goal       CreateCardRequestType = "goal"
+	Initiative CreateCardRequestType = "initiative"
+)
+
+// Valid indicates whether the value is a known member of the CreateCardRequestType enum.
+func (e CreateCardRequestType) Valid() bool {
+	switch e {
+	case Epic:
+		return true
+	case Goal:
+		return true
+	case Initiative:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateCardRequestZone.
 const (
 	CreateCardRequestZoneEmpty      CreateCardRequestZone = ""
@@ -211,7 +232,9 @@ const (
 	NoteTooLong          ProblemCode = "noteTooLong"
 	NowhereToLeaveIt     ProblemCode = "nowhereToLeaveIt"
 	OpenSubtasks         ProblemCode = "openSubtasks"
+	ParentLevel          ProblemCode = "parentLevel"
 	ParentNotFound       ProblemCode = "parentNotFound"
+	PlanningCard         ProblemCode = "planningCard"
 	PointsRequired       ProblemCode = "pointsRequired"
 	ProjectCard          ProblemCode = "projectCard"
 	ProjectExists        ProblemCode = "projectExists"
@@ -234,6 +257,7 @@ const (
 	UnknownRoute         ProblemCode = "unknownRoute"
 	UnknownSize          ProblemCode = "unknownSize"
 	UnknownStage         ProblemCode = "unknownStage"
+	UnknownType          ProblemCode = "unknownType"
 	UnknownZone          ProblemCode = "unknownZone"
 	UpstreamFailed       ProblemCode = "upstreamFailed"
 	ViewNeedsField       ProblemCode = "viewNeedsField"
@@ -332,7 +356,11 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case OpenSubtasks:
 		return true
+	case ParentLevel:
+		return true
 	case ParentNotFound:
+		return true
+	case PlanningCard:
 		return true
 	case PointsRequired:
 		return true
@@ -377,6 +405,8 @@ func (e ProblemCode) Valid() bool {
 	case UnknownSize:
 		return true
 	case UnknownStage:
+		return true
+	case UnknownType:
 		return true
 	case UnknownZone:
 		return true
@@ -500,7 +530,7 @@ type CardPatch struct {
 	Dates       *CardDatesPatch `json:"dates,omitempty"`
 	Description *string         `json:"description,omitempty"`
 
-	// Parent Groups the card under another one; empty ungroups.
+	// Parent Puts the card under another one; empty takes it out. Under a TASK the card becomes a subtask (its team, person and sprint follow); under a goal, an initiative or an epic it is filed in the hierarchy and nothing else changes. The level rule and the repository rule hold (422 `parentLevel`, `crossDomain`).
 	Parent     *string `json:"parent,omitempty"`
 	Parked     *bool   `json:"parked,omitempty"`
 	Progress   *int    `json:"progress,omitempty"`
@@ -555,7 +585,7 @@ type CreateCardRequest struct {
 	// NoSprint Schedules the card for its day without joining any sprint — a "next sprint" create; the next carry-over to reach its day adopts it.
 	NoSprint *bool `json:"noSprint,omitempty"`
 
-	// Parent Groups the card as a subtask. A `parent` and a `week` together are refused (422): grouping hands the week to the parent, so the pair asks for two contradictory things.
+	// Parent The card this one sits under. A TASK parent groups the card as a subtask — a `parent` and a `week` together are then refused (422): grouping hands the week to the parent. A goal, an initiative or an epic as parent files the card in the hierarchy; the parent must be of a higher level than the card (422 `parentLevel`) and in the card's own repository (422 `crossDomain`).
 	Parent *string `json:"parent,omitempty"`
 
 	// Parked Puts the card straight on its team's shelf. Like `week`, no dates are set and no sprint is joined.
@@ -572,10 +602,16 @@ type CreateCardRequest struct {
 	Team           *string `json:"team,omitempty"`
 	Title          *string `json:"title,omitempty"`
 
+	// Type Makes a PLANNING card — on the roadmap view, where it is required; every other board refuses it (422 `notOnThisBoard`). A planning card takes its dates, its owner, a team and a parent, and none of a task's day-board state (422 `planningCard` for a column, a week, a shelf, a review or a sprint).
+	Type *CreateCardRequestType `json:"type,omitempty"`
+
 	// Week Schedules the card for a WEEK (its Monday) instead of a day: no dates are set and no sprint is joined.
 	Week *string                `json:"week,omitempty"`
 	Zone *CreateCardRequestZone `json:"zone,omitempty"`
 }
+
+// CreateCardRequestType Makes a PLANNING card — on the roadmap view, where it is required; every other board refuses it (422 `notOnThisBoard`). A planning card takes its dates, its owner, a team and a parent, and none of a task's day-board state (422 `planningCard` for a column, a week, a shelf, a review or a sprint).
+type CreateCardRequestType string
 
 // CreateCardRequestZone defines model for CreateCardRequest.Zone.
 type CreateCardRequestZone string
@@ -600,6 +636,12 @@ type DeferCardBody struct {
 
 // DomainInfo One readable repository of the visitor's board: whether they may write it, and which of the board's members can read it — so a reviewer picker offers only people who will see the card.
 type DomainInfo = apiserver.DomainInfo
+
+// Hierarchy A PLANNING card's derived standing, from the tasks under it through every level: done when every one is complete (and there is one), in progress when any has started or finished, backlog otherwise — with the counts. Never stored; absent on a task.
+type Hierarchy = apiserver.Hierarchy
+
+// LineageRef One ancestor of a card.
+type LineageRef = apiserver.LineageRef
 
 // Link One URL from a card's description. A GitHub issue or pull request is resolved to its live title and state where the server can read it.
 type Link = board.Link

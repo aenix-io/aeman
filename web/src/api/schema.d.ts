@@ -849,7 +849,7 @@ export interface components {
              * @description The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
              * @enum {string}
              */
-            code: "accessUndecided" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "dayIsARecord" | "descriptionTooLong" | "domainConflict" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "scopeExists" | "scopeInUse" | "scopeNotFound" | "scopeRequired" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAMonday" | "notAuthenticated" | "notFinished" | "notInProject" | "notOnThisBoard" | "notYoursToDestroy" | "notYoursToPark" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "nowhereToLeaveIt" | "openSubtasks" | "parentNotFound" | "pointsRequired" | "projectExists" | "projectInUse" | "projectNotFound" | "setupRequired" | "subtaskDepth" | "subtaskWeek" | "teamExists" | "teamInUse" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownZone" | "upstreamFailed" | "viewNeedsField" | "projectCard";
+            code: "accessUndecided" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "dayIsARecord" | "descriptionTooLong" | "domainConflict" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "scopeExists" | "scopeInUse" | "scopeNotFound" | "scopeRequired" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAMonday" | "notAuthenticated" | "notFinished" | "notInProject" | "notOnThisBoard" | "notYoursToDestroy" | "notYoursToPark" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "nowhereToLeaveIt" | "openSubtasks" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "projectExists" | "projectInUse" | "projectNotFound" | "setupRequired" | "subtaskDepth" | "subtaskWeek" | "teamExists" | "teamInUse" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField" | "projectCard";
             /** @description Where the person can go to fix the refusal — installing the board's app — for a client to offer as a button. */
             actionUrl?: string;
         };
@@ -899,8 +899,13 @@ export interface components {
             scope?: string;
             project?: string;
             reviewOf?: string;
-            /** @description On a subtask, the uid of the card it is grouped under. */
+            /** @description The uid of the card this one sits under — the one link of the hierarchy. Its meaning is the parent's `type`: under a task this card is a subtask; under a goal, an initiative or an epic it is filed in the hierarchy and nothing else about it changes. */
             parent?: string;
+            /**
+             * @description The card's level. Absent for a task; `goal`, `initiative` or `epic` for a PLANNING card, which the Roadmap draws and no day board does. Fixed at create.
+             * @enum {string}
+             */
+            type?: "goal" | "initiative" | "epic";
         };
         /** @description The card's date model: the scheduled start, the end of its visible range, and the sprint it belongs to. PATCHing `start` runs the calendar rule — the sprint follows the sprint that was active on the start day — so patch only `end` or `sprint` for a granular change. */
         CardDates: {
@@ -933,6 +938,23 @@ export interface components {
             leftAt?: string;
             /** @description The references extracted from the description, unresolved and capped — they ride the status so a row that omits the description still knows it has links to show. GET /cards/{uid}/links resolves them. */
             links?: components["schemas"]["CardLinkRef"][];
+            /** @description Every ancestor of the card, ROOT FIRST — the breadcrumb a detail pane draws above it, a task parent included. Absent on a root. */
+            lineage?: components["schemas"]["LineageRef"][];
+            hierarchy?: components["schemas"]["Hierarchy"];
+        };
+        /** @description One ancestor of a card. */
+        LineageRef: {
+            uid: string;
+            /** @description The ancestor's level; absent for a task. */
+            type?: string;
+            title: string;
+        };
+        /** @description A PLANNING card's derived standing, from the tasks under it through every level: done when every one is complete (and there is one), in progress when any has started or finished, backlog otherwise — with the counts. Never stored; absent on a task. */
+        Hierarchy: {
+            /** @enum {string} */
+            status: "backlog" | "in-progress" | "done";
+            done: number;
+            total: number;
         };
         /** @description One reference extracted from a description, unresolved. */
         CardLinkRef: {
@@ -1159,8 +1181,13 @@ export interface components {
             scope?: string;
             project?: string;
             reviewOf?: string;
-            /** @description Groups the card as a subtask. A `parent` and a `week` together are refused (422): grouping hands the week to the parent, so the pair asks for two contradictory things. */
+            /** @description The card this one sits under. A TASK parent groups the card as a subtask — a `parent` and a `week` together are then refused (422): grouping hands the week to the parent. A goal, an initiative or an epic as parent files the card in the hierarchy; the parent must be of a higher level than the card (422 `parentLevel`) and in the card's own repository (422 `crossDomain`). */
             parent?: string;
+            /**
+             * @description Makes a PLANNING card — on the roadmap view, where it is required; every other board refuses it (422 `notOnThisBoard`). A planning card takes its dates, its owner, a team and a parent, and none of a task's day-board state (422 `planningCard` for a column, a week, a shelf, a review or a sprint).
+             * @enum {string}
+             */
+            type?: "goal" | "initiative" | "epic";
             startNewSprint?: boolean;
             /** @description Schedules the card for its day without joining any sprint — a "next sprint" create; the next carry-over to reach its day adopts it. */
             noSprint?: boolean;
@@ -1195,7 +1222,7 @@ export interface components {
             week?: string;
             parked?: boolean;
             reviewOf?: string;
-            /** @description Groups the card under another one; empty ungroups. */
+            /** @description Puts the card under another one; empty takes it out. Under a TASK the card becomes a subtask (its team, person and sprint follow); under a goal, an initiative or an epic it is filed in the hierarchy and nothing else changes. The level rule and the repository rule hold (422 `parentLevel`, `crossDomain`). */
             parent?: string;
         };
         CardDatesPatch: {
@@ -1426,7 +1453,7 @@ export interface components {
     parameters: {
         /** @description The card's own address, a ULID assigned at creation. */
         Uid: string;
-        /** @description The board the caller is standing on: me, team, triage, backlog, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). */
+        /** @description The board the caller is standing on: me, team, triage, backlog, roadmap, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
         View: string;
         /** @description The note's id inside the card. */
         NoteId: string;
@@ -1548,7 +1575,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, triage, backlog, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). */
+                /** @description The board the caller is standing on: me, team, triage, backlog, roadmap, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
             };
             cookie?: never;
@@ -1572,7 +1599,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, triage, backlog, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). */
+                /** @description The board the caller is standing on: me, team, triage, backlog, roadmap, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
             };
             cookie?: never;
@@ -1631,7 +1658,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, triage, backlog, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). */
+                /** @description The board the caller is standing on: me, team, triage, backlog, roadmap, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
             };
             cookie?: never;
@@ -1679,7 +1706,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, triage, backlog, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). */
+                /** @description The board the caller is standing on: me, team, triage, backlog, roadmap, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
                 /** @description The card's own address, a ULID assigned at creation. */
                 uid: components["parameters"]["Uid"];
@@ -1734,7 +1761,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, triage, backlog, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). */
+                /** @description The board the caller is standing on: me, team, triage, backlog, roadmap, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
                 /** @description The card's own address, a ULID assigned at creation. */
                 uid: components["parameters"]["Uid"];
@@ -1791,7 +1818,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, triage, backlog, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). */
+                /** @description The board the caller is standing on: me, team, triage, backlog, roadmap, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
                 /** @description The card's own address, a ULID assigned at creation. */
                 uid: components["parameters"]["Uid"];
@@ -1844,7 +1871,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, triage, backlog, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). */
+                /** @description The board the caller is standing on: me, team, triage, backlog, roadmap, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
                 /** @description The card's own address, a ULID assigned at creation. */
                 uid: components["parameters"]["Uid"];
