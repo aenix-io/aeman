@@ -128,6 +128,41 @@ func TestAnUnknownRouteIsAProblem(t *testing.T) {
 	}
 }
 
+// ServeMux canonicalises a path before matching it and normally answers the
+// first request with a redirect and an HTML body. The JSON surface owns that
+// answer too: an unclean path is not silently changed into another operation,
+// and a client can decode the same problem shape it gets for every other path
+// no route serves. Config and health live outside v1 but inside the same JSON
+// surface, so they carry the guarantee as well.
+func TestAnUncleanAPIPathIsAProblem(t *testing.T) {
+	srv := apiServer(t, Options{}, boardservicetest.New(nil, nil))
+	for _, target := range []string{
+		"/api/v1/cards//notes",
+		"/api/v1/cards/x/../notes",
+		"/api/v1/cards/./notes",
+		"/api//config",
+		"/api/config/../healthz",
+		"/api/x/../healthz",
+	} {
+		t.Run(target, func(t *testing.T) {
+			rec := do(t, srv, http.MethodGet, target, "")
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want 404 (%s)", rec.Code, rec.Body.String())
+			}
+			if location := rec.Header().Get("Location"); location != "" {
+				t.Errorf("Location = %q, want no redirect", location)
+			}
+			p := decodeProblem(t, rec)
+			if p.Code != "unknownRoute" {
+				t.Fatalf("code = %q, want unknownRoute", p.Code)
+			}
+			if !strings.Contains(p.Detail, target) {
+				t.Errorf("detail = %q; it must retain the path that was refused", p.Detail)
+			}
+		})
+	}
+}
+
 // A path too long to echo is clipped, and the clip lands on a rune boundary.
 // Cutting by bytes splits a multi-byte rune, and the half that survives is
 // not text — it reaches the reader as U+FFFD. Testing that the detail is

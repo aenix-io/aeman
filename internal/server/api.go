@@ -49,6 +49,38 @@ func (s *Server) handleUnknownRoute(w http.ResponseWriter, r *http.Request) {
 		"no such route: "+clipForDetail(r.Method)+" "+clipForDetail(r.URL.Path)))
 }
 
+// rejectUncleanAPIPath keeps ServeMux from answering a request for the JSON
+// surface itself. ServeMux redirects paths containing an empty, dot or parent
+// segment before it consults any pattern; that redirect is HTML, and following
+// it can turn the request into a different API operation. An unclean path is
+// not a route, so give it the same problem the API catch-all gives every other
+// path that is not a route. EscapedPath is deliberate: it is the form ServeMux
+// cleans, so an escaped slash or dot is not mistaken for a redirect it would
+// write.
+func (s *Server) rejectUncleanAPIPath(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") && pathNeedsCleaning(r.URL.EscapedPath()) {
+			s.handleUnknownRoute(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// pathNeedsCleaning recognises the segments for which ServeMux performs its
+// canonical-path redirect. The first empty segment is the leading slash and a
+// final one is an ordinary trailing slash; any other empty segment is a doubled
+// slash.
+func pathNeedsCleaning(p string) bool {
+	segments := strings.Split(p, "/")
+	for i, segment := range segments {
+		if segment == "." || segment == ".." || segment == "" && i != 0 && i != len(segments)-1 {
+			return true
+		}
+	}
+	return false
+}
+
 // clipForDetail bounds one piece of a request on its way into a problem. The
 // cut lands on a rune boundary: splitting a multi-byte rune leaves half a
 // character, which is not text and reaches the reader as U+FFFD.
