@@ -140,7 +140,7 @@ var columnCardKeys = map[string]bool{"scope": true, "epic": true}
 // projectCardCannotCarryKeys are the keys step 5 takes off a card in a
 // column: a project card has no team, no owner, no parent, no band and no
 // size (H4).
-var projectCardCannotCarryKeys = map[string]bool{"team": true, "assignees": true, "parent": true, "zone": true, "size": true}
+var projectCardCannotCarryKeys = map[string]bool{"team": true, "assignees": true, "parent": true, "zone": true, "size": true, "sprint": true, "week": true}
 
 // cardsInColumns lists the ids of the cards that stand in a column, read off
 // their front-matter keys alone — what step 5 needs to recognise a card
@@ -236,6 +236,10 @@ func schema2(tree *object.Tree) ([]FileWrite, error) {
 		case cf.Card.Scope != "":
 			cf.Card.Team, cf.Card.Assignees, cf.Card.Parent = "", nil, ""
 			cf.Card.Zone, cf.Card.Size = "", ""
+			// And no sprint, no week: the runtime door that files a card into
+			// a column clears both, and a sprint on a card no day board draws
+			// is one a carry-over would move for nothing.
+			cf.Card.SprintStart, cf.Card.Week = "", ""
 		case inColumn[cf.Card.Parent]:
 			cf.Card.Parent = ""
 			touched = true

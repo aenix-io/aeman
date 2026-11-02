@@ -1363,8 +1363,10 @@ func TestRemoveGridDeletesWhenNoPreviousSprintAndNowhereElse(t *testing.T) {
 // the weekly plan AND from the Project board, because the grid x had no
 // project-card guard and a same-day card has no earlier sprint to demote into.
 func TestRemoveGridReleasesProjectCardInsteadOfDeleting(t *testing.T) {
+	// A pre-rule shape: the column card still names a team and a person (a
+	// sprint it cannot carry at all any more — the board reads one off, H4).
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Scope: "Journal", Project: "Portal",
-		StartDate: board.TodayIso(), SprintStart: "2026-01-10", Assignees: []string{"bob"}}},
+		StartDate: board.TodayIso(), Assignees: []string{"bob"}}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
 	if err := f2svc(f).Remove(ctx, "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
 		t.Fatal(err)

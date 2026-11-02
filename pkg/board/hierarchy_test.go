@@ -240,18 +240,23 @@ func TestHierarchyStatusIsDerivedFromTheLeafTasks(t *testing.T) {
 func TestACardInAColumnOrOfALevelReadsWithNoZoneOrSize(t *testing.T) {
 	t.Parallel()
 	b := NewBoard([]Card{
-		{ItemID: "plan", Scope: "Infra", Project: "P", Zone: ZoneRed, Size: SizeM},
-		{ItemID: "epic", Type: TypeEpic, Zone: ZoneYellow, Size: SizeXL},
-		{ItemID: "task", Team: "t", Zone: ZoneGreen, Size: SizeS},
+		{ItemID: "plan", Scope: "Infra", Project: "P", Zone: ZoneRed, Size: SizeM, SprintStart: "2026-08-24", Week: "2026-08-24"},
+		{ItemID: "epic", Type: TypeEpic, Zone: ZoneYellow, Size: SizeXL, SprintStart: "2026-08-24", Week: "2026-08-24"},
+		{ItemID: "task", Team: "t", Zone: ZoneGreen, Size: SizeS, SprintStart: "2026-08-24", Week: "2026-08-24"},
 	})
 	for _, id := range []string{"plan", "epic"} {
 		c, _ := Find(b, id)
 		if c.Zone != ZoneNone || c.Size != "" {
 			t.Errorf("%s reads with zone %q size %q, want neither", id, c.Zone, c.Size)
 		}
+		// Nor a sprint or a week: no day board draws it, so a sprint on it
+		// is a sprint a carry-over would move for nothing (H3, H4).
+		if c.SprintStart != "" || c.Week != "" {
+			t.Errorf("%s reads with sprint %q week %q, want neither", id, c.SprintStart, c.Week)
+		}
 	}
-	if c, _ := Find(b, "task"); c.Zone != ZoneGreen || c.Size != SizeS {
-		t.Errorf("a task keeps its band and size, got %q %q", c.Zone, c.Size)
+	if c, _ := Find(b, "task"); c.Zone != ZoneGreen || c.Size != SizeS || c.SprintStart == "" || c.Week == "" {
+		t.Errorf("a task keeps its band, size, sprint and week, got %+v", c)
 	}
 }
 

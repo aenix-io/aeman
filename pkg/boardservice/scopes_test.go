@@ -290,8 +290,17 @@ func TestAProjectCardTakesNoTeamNoOwnerNoWeek(t *testing.T) {
 	if err := svc.SetWeek(ctx, "acme", "legacy", ""); err != nil {
 		t.Fatalf("taking a stale week off a project card: %v", err)
 	}
-	if got := fake.get("legacy"); got.Team != "" || len(got.Assignees) != 0 || got.Week != "" || got.SprintStart != "" {
-		t.Fatalf("the stale fields stayed: %+v", got)
+	if got := fake.get("legacy"); got.Team != "" || len(got.Assignees) != 0 {
+		t.Fatalf("the stale team and owner stayed: %+v", got)
+	}
+	// A stale week or sprint is not even READ off a project card (H4, the
+	// on-read strip): every reader sees neither, whatever the file still
+	// says, and schema 2 takes the keys off the file itself.
+	if b, _ := fake.LoadBoard(ctx, "acme"); func() bool {
+		c, _ := findCard(b, "legacy")
+		return c.Week != "" || c.SprintStart != ""
+	}() {
+		t.Fatalf("a project card read with a week or a sprint")
 	}
 
 	// An ordinary card still joins the team's sprint on assignment.

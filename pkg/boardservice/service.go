@@ -757,6 +757,13 @@ func selectCarry(b board.Board, team, old, today string) (carry, reseed, relocat
 		if board.IsPlanning(c) || board.IsSubtaskIn(c, planning) {
 			continue
 		}
+		// A project card is no sprint's work either (H4): it has no team, so it
+		// sits in the no-team group, and its dates are its row on the Project
+		// board — the adoption rule below would read them as a next-sprint
+		// create and give it the sprint every other door refuses.
+		if c.Scope != "" {
+			continue
+		}
 		if c.Team != team {
 			continue
 		}

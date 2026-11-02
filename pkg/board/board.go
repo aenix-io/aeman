@@ -410,9 +410,13 @@ func NewBoardIn(primary string, cards []Card) Board {
 	// A planning card is nobody's and no team's besides (H3): the people
 	// and the teams are on the tasks under it, and the Roadmap reads them
 	// off the tree.
+	// Nor a sprint or a week: no day board draws either kind, so a sprint
+	// left on one (a team had picked the card up before the rule) is a
+	// sprint a carry-over would move for nothing and nothing else reads.
 	for i := range b.Cards {
 		if b.Cards[i].Scope != "" || IsPlanning(b.Cards[i]) {
 			b.Cards[i].Zone, b.Cards[i].Size = ZoneNone, ""
+			b.Cards[i].SprintStart, b.Cards[i].Week = "", ""
 		}
 		if IsPlanning(b.Cards[i]) {
 			b.Cards[i].Team, b.Cards[i].Assignees = "", nil

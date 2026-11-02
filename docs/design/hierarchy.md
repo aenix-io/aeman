@@ -219,8 +219,11 @@ G18), in this order:
 3. rename `projects/<id>/epics/` to `projects/<id>/scopes/` and rewrite
    `epic:` to `scope:` on every card;
 4. strip `mirrors` from every card;
-5. strip `team`, `assignees`, `parent`, `zone` and `size` from every card
-   that has a `scope`, and `parent` from every card grouped under one
+5. strip `team`, `assignees`, `parent`, `zone`, `size`, `sprint` and `week`
+   from every card that has a `scope` (the door that files a card into a
+   column clears the sprint and the week as well, and a sprint on a card no
+   day board draws is one a carry-over would move for nothing), and
+   `parent` from every card grouped under one
    (decision taken
    2026-11-02: a card in a column was created as a plan and stays one; a
    plan is never a subtask and has none — and before schema 2 every
@@ -431,8 +434,12 @@ giving it a home means putting it where a day board draws it:
 - a **person** files an **unplanned** card the way typing it into their
   Me board would: on the team, today, in the unplanned band, in the
   team's sprint, off any shelf — so it stands on their Team and Me boards
-  at once. A **planned** card changes hands and keeps its plan; moving
-  team joins that team's sprint, as the Team board's team menu does.
+  at once. A **planned** card changes hands and keeps its plan, its sprint
+  included: a card in a sprint joins the new team's current one, as the
+  Team board's team menu does; a card in **no** sprint — placed into a week
+  ahead, where no sprint covers the week yet — stays in none, or next
+  week's plan would be this sprint's unfinished work and the next
+  carry-over would carry it.
 - a **team alone** parks an **unplanned** card on that team's shelf — its
   Backlog on Triage — with nobody on it and in no sprint; a **planned**
   card moves team, keeps its plan, and loses its person.

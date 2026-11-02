@@ -67,7 +67,7 @@ func (s *Service) Own(ctx context.Context, boardID string, itemID, team, person 
 	}
 	switch {
 	case person != "":
-		return s.ownByPerson(ctx, boardID, card, team, person)
+		return s.ownByPerson(ctx, boardID, b, card, team, person)
 	case team != "":
 		return s.ownByTeam(ctx, boardID, b, card, team)
 	}
@@ -86,7 +86,7 @@ func unplanned(c board.Card) bool {
 // team's sprint — through the same doors (SetTeam joins the sprint as the
 // Team board's team menu does, SetDates and SetZone are the pane's own), so
 // the two cannot read differently.
-func (s *Service) ownByPerson(ctx context.Context, boardID string, card board.Card, team, person string) error {
+func (s *Service) ownByPerson(ctx context.Context, boardID string, b board.Board, card board.Card, team, person string) error {
 	if unplanned(card) {
 		if card.Parked {
 			if err := s.SetBacklog(ctx, boardID, card.ItemID, false); err != nil {
@@ -106,11 +106,24 @@ func (s *Service) ownByPerson(ctx context.Context, boardID string, card board.Ca
 		return s.SetAssignee(ctx, boardID, card.ItemID, person)
 	}
 	if card.Team != team {
-		if err := s.SetTeam(ctx, boardID, card.ItemID, team, ""); err != nil {
+		if err := s.changeHands(ctx, boardID, b, card, team); err != nil {
 			return err
 		}
 	}
 	return s.SetAssignee(ctx, boardID, card.ItemID, person)
+}
+
+// changeHands moves a PLANNED card to a team and keeps its plan as it is —
+// its sprint included. A card in a sprint joins the new team's current one,
+// as the Team board's team menu does; a card in NO sprint stays in none: a
+// card placed into a week ahead has no sprint by design (B1 — no sprint
+// covers that week yet), and SetTeam would give it today's, which makes a
+// plan for next week this sprint's unfinished work and carries it over.
+func (s *Service) changeHands(ctx context.Context, boardID string, b board.Board, card board.Card, team string) error {
+	if card.SprintStart == "" {
+		return s.moveTeamOffTheDay(ctx, b, card, team)
+	}
+	return s.SetTeam(ctx, boardID, card.ItemID, team, "")
 }
 
 // ownByTeam puts the card on a team with nobody on it. Unplanned, it goes
@@ -127,7 +140,7 @@ func (s *Service) ownByTeam(ctx context.Context, boardID string, b board.Board, 
 		if card.Team == team {
 			return nil
 		}
-		return s.SetTeam(ctx, boardID, card.ItemID, team, "")
+		return s.changeHands(ctx, boardID, b, card, team)
 	}
 	if err := s.moveTeamOffTheDay(ctx, b, card, team); err != nil {
 		return err

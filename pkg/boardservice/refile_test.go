@@ -57,11 +57,12 @@ func TestARefusedGroupingLeavesTheWeekAlone(t *testing.T) {
 	if err := svc.SetParent(ctx, "acme", "c1", "far"); !errors.Is(err, ErrProjectCard) {
 		t.Fatalf("the grouping is refused: %v", err)
 	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Week != "2026-08-24" {
+	// The FILE is what the refusal must leave alone: a project card's week is
+	// not even read off it any more (H4), so the raw store is asked.
+	if c := f.get("c1"); c.Week != "2026-08-24" {
 		t.Fatalf("the refused grouping must not have taken the week: %+v", c)
 	}
+	b, _ := f.LoadBoard(ctx, "acme")
 	parent, _ := findCard(b, "far")
 	if parent.Week != "" {
 		t.Fatalf("nor handed it to the parent: %+v", parent)

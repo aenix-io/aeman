@@ -24,6 +24,9 @@ func ownSeed(today string) *fakeBackend {
 			StartDate: lastWeek, Day: lastWeek, SprintStart: lastWeek, Zone: board.ZoneRed},
 		// Parked on alpha's shelf.
 		{ItemID: "parked", Title: "Someday", Team: "alpha", Parked: true, Zone: board.ZoneGray},
+		// Placed into a week AHEAD on the Triage board: a week, no team, no
+		// sprint — by design, since no sprint covers that week yet (B1).
+		{ItemID: "ahead", Title: "Next week", Week: board.AddDays(board.MondayOf(today), 7)},
 		// The kinds OWN refuses.
 		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
 		{ItemID: "slot", Title: "Legal", Scope: "Compliance", Project: "eu"},
@@ -87,6 +90,26 @@ func TestOwnGivesLooseWorkAHome(t *testing.T) {
 		// Moving team joins that team's sprint, as the Team board's team menu does.
 		if c.SprintStart != today {
 			t.Fatalf("sprint = %s, want alpha's current %s", c.SprintStart, today)
+		}
+	})
+
+	t.Run("a card planned for a week ahead changes hands without joining a sprint", func(t *testing.T) {
+		// Its week is its plan; a sprint would make it this sprint's unfinished
+		// work, which the next carry-over carries — and the week-ahead rule
+		// said it is on no day board until its Monday (B1). Neither a person
+		// nor a team alone may give it one.
+		for _, person := range []string{"ann", ""} {
+			f := ownSeed(today)
+			if err := f2svc(f).Own(ctx, "acme", "ahead", "alpha", person); err != nil {
+				t.Fatal(err)
+			}
+			c := *f.get("ahead")
+			if c.Team != "alpha" || c.Week == "" || c.Parked {
+				t.Fatalf("person=%q: got %+v, want alpha's, in its week, on no shelf", person, c)
+			}
+			if c.SprintStart != "" {
+				t.Fatalf("person=%q: a week-ahead card was put in a sprint %q", person, c.SprintStart)
+			}
 		}
 	})
 
