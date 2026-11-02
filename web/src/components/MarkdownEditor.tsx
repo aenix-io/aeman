@@ -3,10 +3,31 @@ import { Editor, defaultValueCtx, editorViewOptionsCtx, rootCtx } from "@milkdow
 import { clipboard } from "@milkdown/kit/plugin/clipboard";
 import { history } from "@milkdown/kit/plugin/history";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
-import { commonmark } from "@milkdown/kit/preset/commonmark";
+import { commonmark, hardbreakSchema } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
+import { $remark } from "@milkdown/kit/utils";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
+import remarkBreaks from "remark-breaks";
 import "@milkdown/kit/prose/view/style/prosemirror.css";
+
+// Line breaks the way a GitHub comment reads them: a single newline is a
+// line break, not a space, so two lines typed one under the other stay two
+// lines (remark-breaks on the way in)...
+const breaks = $remark("breaks", () => remarkBreaks);
+
+// ...and a line break is written back as a plain newline, so the saved text
+// is the text the person typed — not "\" or two trailing spaces, which is
+// what remark would otherwise write for a break and which no other reader
+// of the file expects.
+const hardbreakAsNewline = hardbreakSchema.extendSchema((prev) => (ctx) => ({
+  ...prev(ctx),
+  toMarkdown: {
+    match: (node) => node.type.name === "hardbreak",
+    runner: (state) => {
+      state.addNode("text", undefined, "\n");
+    },
+  },
+}));
 
 export interface MarkdownEditorProps {
   /** The text as saved. The editor is remounted (keyed by the caller) when
@@ -52,6 +73,8 @@ function MilkdownEditor({ value, readOnly, placeholder, onChange, onSave, onBlur
         })
         .use(commonmark)
         .use(gfm)
+        .use(breaks)
+        .use(hardbreakAsNewline)
         .use(listener)
         .use(clipboard)
         .use(history),
