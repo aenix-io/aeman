@@ -102,6 +102,17 @@ describe("the Project board's grid", () => {
     expect(html).not.toContain("border-left-color");
   });
 
+  it("puts no × on a card: deleting is the menu's and the pane's, never a hover's", () => {
+    const html = draw(board());
+    expect(html).not.toContain("project-slot-actions");
+    expect(html).not.toContain("card-action-delete");
+    expect(html).not.toContain('title="Delete"');
+    // Nor a dialog waiting behind it: the menu's Delete acts at once
+    // (projectmenu.ts), and there is no way out of the project but that.
+    expect(html).not.toContain("modal-backdrop");
+    expect(html).not.toContain("Remove from project");
+  });
+
   it("stands a card in its own week, spanning the weeks it reaches", () => {
     const html = draw(board({ cards: [card({ day: nextFriday })] }));
     // The header is row 1 and the window opens two weeks back, so THIS week

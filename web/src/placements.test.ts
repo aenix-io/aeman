@@ -15,7 +15,6 @@ import {
   placementTargets,
   projectsAColumnCanJoin,
   projectsWithColumns,
-  removeFromProjectOutcome,
   rosterOf,
   slotDragPlan,
   teamlessIsLawful,
@@ -87,19 +86,6 @@ describe("attachSlotDates", () => {
 // The Project board's × means two different things, and the UI must know
 // which before it asks anything: an orphan survives, and only the delete is
 // worth a question.
-describe("removeFromProjectOutcome", () => {
-  const base = mk({ project: "engineering", scope: "Cozystack" });
-
-  // Progress is the one trace of work a project card can carry: it has no
-  // owner (H4). Moved, it is kept as an orphan; untouched, it is deleted —
-  // and the UI asks first.
-  it("is orphan for a card somebody moved, delete otherwise", () => {
-    const moved = mk({ ...base, progress: 40 });
-    expect(removeFromProjectOutcome(moved, "engineering", "Cozystack")).toBe("orphan");
-    const idle = mk({ ...base, progress: 0 });
-    expect(removeFromProjectOutcome(idle, "engineering", "Cozystack")).toBe("delete");
-  });
-});
 
 // A card in a column is a PROJECT CARD and stands there alone (H4): the
 // picker offers a column only to a card nothing holds — no team, no owner,
@@ -393,26 +379,6 @@ describe("pickers that must not offer a refusal", () => {
 // outcome that says "delete" where the server says "no such column" is a
 // deletion nobody sanctioned, which is the shape the server's own guard
 // was written against.
-describe("removeFromProjectOutcome refuses what the server refuses", () => {
-  it("refuses the empty pair — a column is named by its scope", () => {
-    expect(removeFromProjectOutcome(mk({}), "", "")).toBe("refused");
-  });
-
-  it("refuses a column the card does not stand in", () => {
-    const card = mk({ project: "engineering", scope: "Cozystack" });
-    expect(removeFromProjectOutcome(card, "freedom", "Launch")).toBe("refused");
-  });
-
-  it("still answers for the column the card is in", () => {
-    const card = mk({
-      project: "engineering",
-      scope: "Cozystack",
-      assignees: [],
-      progress: 0,
-    });
-    expect(removeFromProjectOutcome(card, "engineering", "Cozystack")).toBe("delete");
-  });
-});
 
 // Attaching asks where the card will BE. A card whose project decides is
 // carried along by the new one, so a column of another repository is a

@@ -115,32 +115,6 @@ export function attachSlotDates(week: string): { startDate: string; day: string 
   return { startDate: week, day: addDays(week, 4) };
 }
 
-/** Outcome of the Project board's × on a card — what the server will do, so
- *  the UI patches the same thing and asks only before a delete. */
-export type PlacementRemoval = "orphan" | "delete";
-
-/** removeFromProjectOutcome mirrors boardservice.RemoveFromProject: taking
- *  the card out of its column keeps only a card somebody MOVED — its
- *  progress is the one trace of work a project card can carry, since it has
- *  no owner (H4) — as an orphan a lead can hand on, and deletes the rest. */
-export function removeFromProjectOutcome(
-  card: Pick<Card, "project" | "scope" | "progress">,
-  project: string,
-  scope: string,
-): PlacementRemoval | "refused" {
-  // The server's two entry guards, mirrored: a column is named by its
-  // SCOPE (an empty one is no column), and a card is only removed from a
-  // column it stands in. Without them an empty pair "matched" a card
-  // standing nowhere and fell through to the deletion branch.
-  if (scope === "") {
-    return "refused";
-  }
-  if ((card.project ?? "") !== (project ?? "") || (card.scope ?? "") !== scope) {
-    return "refused";
-  }
-  return (card.progress ?? 0) > 0 ? "orphan" : "delete";
-}
-
 /** canBeFiledIntoAColumn reports whether the picker may offer a card a
  *  column at all. A card in a column is a PROJECT CARD and stands there alone
  *  (H4): one that carries a team, an owner, a parent or a review link is

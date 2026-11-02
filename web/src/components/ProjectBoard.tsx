@@ -16,15 +16,13 @@ import {
   drawnAsSlot,
   drawnOnProjectBoard,
   movingSlot,
-  removeFromProjectOutcome,
   rosterOf,
   slotDragPlan,
 } from "../placements";
-import { deleteWarning, freeSubtasks } from "../removal";
+import { slotMenuItems } from "../projectmenu";
 import { kindOf } from "../roadmap";
 import { Dropdown } from "./Dropdown";
 import { ParentOptionList } from "./ParentPicker";
-import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
 import { isSubtask } from "../subtasks";
@@ -703,7 +701,6 @@ export function ProjectBoard({
   const [slotMenu, setSlotMenu] = useState<string | null>(null);
   const [attachFor, setAttachFor] = useState<string | null>(null);
   const [roadmapCards, setRoadmapCards] = useState<CardModel[] | null>(null);
-  const [deleting, setDeleting] = useState<CardModel | null>(null);
   const menuAnchor = useRef<HTMLButtonElement | null>(null);
   // A press on a slot is a click until it travels; a click that follows a
   // drag must not open the pane (beginMove, moveMove).
@@ -904,60 +901,6 @@ export function ProjectBoard({
   // carried it, and an honest fallback when it did not.
   const subtaskTitle = (title: string | undefined) =>
     title ? `Subtask of «${title}»` : "Subtask — its parent is not on this board";
-
-  // The slot's ×: take the card out of its column. An orphaned worked card
-  // survives in the working area — only the true delete asks, naming the
-  // loss.
-  const removeFromColumn = (card: CardModel, project: string, scope: string) => {
-    const outcome = removeFromProjectOutcome(card, project, scope);
-    // The server would refuse this pair — a column the card does not stand
-    // in, or none at all — so nothing is sent and nothing is patched. It
-    // takes a stale render to get here; falling through to the last arm
-    // emptied the card's column on the screen over a request the server
-    // never accepted, and the truth came back only with the reload.
-    if (outcome === "refused") {
-      // Only a stale render gets here — the card is not in the column the
-      // click named — so the screen is what is wrong: re-read it rather
-      // than leave a click that did nothing and said nothing.
-      reload();
-      return;
-    }
-    if (outcome === "delete") {
-      // The server cascades to the linked review card: the question names
-      // everything that goes, or the person agrees to less than happens.
-      const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
-      const warning =
-        deleteWarning(card, linkedReview?.title ?? null) ?? `Delete "${card.title}"?`;
-      if (!window.confirm(warning)) {
-        return;
-      }
-      removeCard(card.itemId);
-      // …and everything the server takes with it: the linked review card
-      // goes, the subtasks are FREED into standalone cards. The other two
-      // boards mirror both; here the reload papered over a window showing
-      // state the server does not hold.
-      if (linkedReview) {
-        removeCard(linkedReview.itemId);
-      }
-      for (const f of freeSubtasks(board.cards, card.itemId)) {
-        patchCard(f.itemId, f.patch);
-      }
-    } else {
-      // orphan: off the Project board, kept by its work.
-      patchCard(card.itemId, {
-        project: undefined,
-        scope: undefined,
-        week: undefined,
-      });
-    }
-    void provider
-      .removeFromProject(card.itemId, project, scope)
-      .then(() => reload())
-      .catch((err: unknown) => {
-        onError(errText(err));
-        reload();
-      });
-  };
 
   // While a slot is being stretched, its span follows the pointer — the drag
   // has to be visible on the thing being dragged, not only on the cursor.
@@ -1610,25 +1553,12 @@ export function ProjectBoard({
                   </span>
                 )}
               </span>
-              <span className="project-slot-actions">
-                <button
-                  type="button"
-                  className="card-action card-action-delete"
-                  title="Delete"
-                  onClick={(ev) => {
-                    ev.stopPropagation();
-                    removeFromColumn(card, e.project, e.name);
-                  }}
-                >
-                  ×
-                </button>
-              </span>
               {/* The slot's "…" MENU: open, attach under a planning card,
-                  done and back, off the plan, delete. Delete sits to its
-                  LEFT so the handle keeps the slot's edge — it is the thing
-                  you point at, and it must not shift when the hover-only
-                  actions appear. A project card has no team and no owner
-                  (H4), so there is no badge to hand it to one. */}
+                  done and back, delete (projectmenu.ts). There is no × on
+                  the slot — deleting is reached through the menu and the
+                  card's pane, nowhere a hover lands on by accident. A
+                  project card has no team and no owner (H4), so there is no
+                  badge to hand it to one. */}
               <button
                 type="button"
                 className="project-slot-menu"
@@ -1672,57 +1602,61 @@ export function ProjectBoard({
                     }}
                   />
                 ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="card-stage-item project-menu-lead"
-                      onClick={() => {
-                        setSlotMenu(null);
-                        onOpen(card);
-                      }}
-                    >
-                      Open
-                    </button>
-                    <button
-                      type="button"
-                      className="card-stage-item"
-                      title="File it under a goal, an initiative or an epic"
-                      onClick={() => setAttachFor(card.itemId)}
-                    >
-                      Attach to goal, initiative or epic…
-                    </button>
-                    <button
-                      type="button"
-                      className="card-stage-item"
-                      onClick={() => setDone(card, !complete(card))}
-                    >
-                      <span
-                        className="card-stage-dot"
-                        style={{ background: STAGES.done.color }}
-                      />
-                      {complete(card) ? "Reopen" : "Mark as done"}
-                    </button>
-                    <button
-                      type="button"
-                      className="card-stage-item"
-                      onClick={() => {
-                        setSlotMenu(null);
-                        removeFromColumn(card, e.project, e.name);
-                      }}
-                    >
-                      Remove from project
-                    </button>
-                    <button
-                      type="button"
-                      className="card-stage-item project-menu-danger"
-                      onClick={() => {
-                        setSlotMenu(null);
-                        setDeleting(card);
-                      }}
-                    >
-                      Delete…
-                    </button>
-                  </>
+                  slotMenuItems(card).map((item) => {
+                    switch (item.key) {
+                      case "open":
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            className="card-stage-item project-menu-lead"
+                            onClick={() => {
+                              setSlotMenu(null);
+                              onOpen(card);
+                            }}
+                          >
+                            {item.label}
+                          </button>
+                        );
+                      case "attach":
+                        // The menu swaps for the one list every "file it
+                        // under" control draws, anchored where the menu was
+                        // — the card's pane does not open for this.
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            className="card-stage-item"
+                            title="File it under a goal, an initiative or an epic"
+                            onClick={() => setAttachFor(card.itemId)}
+                          >
+                            {item.label}
+                          </button>
+                        );
+                      case "done":
+                        return (
+                          <button key={item.key} type="button" className="card-stage-item" onClick={() => setDone(card, !item.reopen)}>
+                            <span className="card-stage-dot" style={{ background: STAGES.done.color }} />
+                            {item.label}
+                          </button>
+                        );
+                      default:
+                        // At once: the pick is the confirmation.
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            className="card-stage-item project-menu-danger"
+                            onClick={() => {
+                              setSlotMenu(null);
+                              deleteSlot(card);
+                            }}
+                          >
+                            {item.label}
+                          </button>
+                        );
+                    }
+                  })
                 )}
               </Dropdown>
               {/* One grip per edge: the top moves the slot's start, the
@@ -1859,16 +1793,6 @@ export function ProjectBoard({
             </div>
           )}
         </div>
-      )}
-      {deleting && (
-        <RemoveChoiceDialog
-          title={deleting.title}
-          progress={deleting.progress ?? 0}
-          choices={["delete"]}
-          subtasks={0}
-          onClose={() => setDeleting(null)}
-          onSubmit={() => deleteSlot(deleting)}
-        />
       )}
     </div>
   );
