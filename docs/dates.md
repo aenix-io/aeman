@@ -32,7 +32,8 @@ Also:
   calendar's end field edits it.
 - **Week** (`week`, date) — the week the card is scheduled for (its Monday):
   the column it stands in on the Triage board (a REVIEW card is the one exception: it has no week of its own — that belongs to the card it reviews — and stands in the week its own dates fall in). A card in a Project-board
-  column has one too, derived from its start date — there it is the row.
+  column has none: it is a PROJECT card, on no weekly plan, and its dates are
+  its row there (H4, `docs/design/hierarchy.md`).
 - Hidden per-team **`aeman:sprint-state`** card: `Sprint Start` = the team's
   **current** sprint date, `Start` = its **previous** sprint date. Read via
   `currentSprint(team)` / `previousSprint(team)`.
@@ -85,7 +86,7 @@ Four consequences are worth saying out loud:
 - **The CURRENT sprint accumulates all its work on every one of its days.** A lead opens the sprint with the team from whichever day they are on — the sprint's own day (the "current sprint" jump), a day in the middle, or today — and each of those days holds everything the sprint has been: the work it opened with, the work typed into it since (most of a sprint is created inside it), and the work already **closed**. A day that showed only what is still open answers "what is left", which is not the question that review asks; and a lead who opened a middle day of the running sprint before carrying it over used to see the closed work missing, which is the bug this rule fixes. **Carry Over is what clears the closed work**: it leaves a finished card on the closing sprint (its `sprintStart` is not moved), so the moment a new sprint opens, that done work belongs to the now-PREVIOUS sprint and drops off today — even a card finished **today** is left behind on the sprint it was carried past, and a previous sprint keeps its closed work only on the days it ran (a record). (A finished card is still on its own `doneAt` day regardless, as every finished card is.) Two other things leave the current sprint too, both the act of taking a card OUT of it: work planned into a week still to come, and work **deferred past today** — sent to tomorrow, a card leaves today's sprint at once and arrives tomorrow; sent three days out, the sprint that opens tomorrow starts without it. Deferring is a hold, not a removal: the card is out of the sprint only while its day has not come, and the morning it arrives it is in the sprint again.
 - **Finished work belongs to the day it recorded** (`doneAt`) and to no other. A card whose writer recorded nothing stands on no day here — nothing is guessed out of its dates, which are a plan rather than a record. Nothing is lost by that, because a day already gone is not answered by this rule at all: it is served as a snapshot, and there the day's own commits say what they finished (below).
 
-A card filed under a Project-board **column** (an scope) is not on the day grid until it joins a sprint: its multi-week span would smear across every day it covers, and the column is where it is shown meanwhile. A card that merely carries a project NAME has no column — the Project board renders columns by scope — so it is an ordinary dated card and shows like one. The Me view draws the same line, with one exception: a slot someone owns shows on that person's own board, because then it is their work.
+A card filed under a Project-board **column** (a scope) is a **project card**: the Project board's plan, not work in hand, and the Project board is the one board that draws it — never the Team grid, the Me board or the Triage board, whatever its week, dates or sprint say (H4, `docs/design/hierarchy.md`). It has no team and no owner, is nobody's subtask and has none, and is never sent to review; the work it stands for is done by tasks linked under the hierarchy, not by the column's card. It used to stand in its owner's column on the Team grid once its week came, which put planning placeholders among the day's work and made one card answer two questions. A card that merely carries a project NAME has no column — the Project board renders columns by scope — so it is an ordinary dated card and shows like one. The Me view draws the same line.
 
 ### The week a card is scheduled for
 
@@ -112,6 +113,9 @@ The rules above place TODAY's cards on a day. That is what a day-lens is: dates 
 - The history has an edge. The server keeps a horizon (`--history`, two weeks by default) and deepens on demand up to `--history-max` (a year); a day behind that is refused (410) rather than answered with the oldest state at hand.
 
 ### Me view — one person's day (`selectedDate`)
+- A card in a Project-board **column** is on nobody's Me board (H4): it is a
+  project card with no owner, and one written before schema 2 that still
+  names one is a plan all the same.
 - A card (assigned to the viewer) shows when its scheduled day has arrived and the
   viewed day falls in a sprint the card **spans** — from the one it started in up
   to the sprint it now belongs to: `startDate <= selectedDate` **AND**
@@ -207,7 +211,12 @@ to a Project-board column, takes the slot of that week: Monday to Friday, the
 whole of the week it was owed in, so the new slot's row is the very week the
 card was scheduled for — it does not jump elsewhere on the way to the Project
 board (G55). A card that already carries dates keeps them: the attach never
-rewrites a schedule someone chose.
+rewrites a schedule someone chose. Either way the card **leaves the weekly
+plan and its sprint** — a project card is on neither (H4) — and only a card
+nothing holds can be attached at all: one that carries a team, an owner, a
+parent or a review link is somebody's work in hand, and filing it into a
+column is refused (`projectCard`, 422); the person takes those off first, or
+makes a card in the column and links the work under the hierarchy.
 
 ### When work is owed
 
@@ -238,27 +247,11 @@ board red, and a mark that is everywhere says nothing where it matters.
 - A subtask is a normal card in every other way: own description, own log and
   notes, own stage/progress, own assignee. It can be pulled back out as a
   standalone card at any time (clear the parent).
-- **On the Project board** a subtask that carries its own column is drawn as
-  an ordinary slot, marked `↳` with its parent's title: grouping work under a
-  parent must not take it off the planner, and a parent commonly lives
-  elsewhere (a week of its own, the working area), so hiding the children left a
-  whole group visible in no column at all. Its team badge is read-only there —
-  a subtask's team follows its parent — and the slot's × only takes the column
-  away: the card still rides its parent, so it is never deleted from there. The
-  column may be re-attached afterwards. The day grid's × on such a card
-  takes it OUT OF THE GROUP and leaves it in its column: a subtask's person
-  and sprint are its parent's, so releasing it while still grouped would
-  break that pair or be undone by the next carry-over. The column must name the repository
-  that actually holds the card — the one its parent lives in.
-- The project's progress line counts such a card unless its **parent stands in
-  the same project** and is drawn there itself, whose own bar already derives
-  from its children: counting both would weigh that work twice on one screen. A
-  parent nothing draws — a column with no dates is no slot — answers for
-  nothing, and the child counts. A column's own bar asks the narrower question:
-  it drops the child only when the parent stands in that same column. Both
-  read the column the parent is DRAWN in. A figure that spans
-  columns (the board's header total) asks it by identity instead: the
-  parent is either drawn in that figure or it is not.
+- A card in a Project-board **column** is nobody's subtask and has none (H4):
+  a subtask rides its parent's team, person and sprint onto the day boards,
+  and a project card has none of those to give or to take. Grouping either
+  way is refused, and the Project board's bars count every slot once — there
+  is no parent and child to weigh together.
 - **Derived progress**: while a card has subtasks its bar derives from them —
   the average of the subtasks' effective progress (done = 100) scaled into
   0–90%. The final done / 100% is always a human decision on the parent, and a

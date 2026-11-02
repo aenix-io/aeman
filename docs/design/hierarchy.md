@@ -81,9 +81,19 @@ no assignees** (a write that sets either is refused), and it is **not
 drawn on Me, Team or Triage**. Its week is no longer derived from its
 dates, and nothing syncs it. It stands in its Scope column on the
 Project board, may be placed under an epic, initiative or goal, and
-shows on the Roadmap under that parent.
+shows on the Roadmap under that parent. It is **nobody's subtask and
+has none** — a subtask rides its parent's team, person and sprint onto
+the day boards, and a project card has none of those to give or to take
+— and it is **never sent to review**; the one trace of work it carries
+is its progress. Filing a card that carries a team, an owner, a parent
+or a review link into a column is refused the same way (`ErrProjectCard`,
+422 `projectCard`): the person takes those off first, or makes a card in
+the column and links the work under the hierarchy. A card scheduled for
+a week and nothing else takes that week's span as its dates on the way
+in, and leaves the weekly plan and its sprint.
 
-This reverses the slot rule (D17 and the week derivation in
+This reverses the slot rule (the slot clauses of D2 and D6, B14, and the
+week derivation in
 `board.NewBoardIn`), under which a project card with a week stood in its
 owner's column on the Team grid. In practice it put planning
 placeholders among the day's work and made the same card answer two
@@ -185,9 +195,10 @@ G18), in this order:
 3. rename `projects/<id>/epics/` to `projects/<id>/scopes/` and rewrite
    `epic:` to `scope:` on every card;
 4. strip `mirrors` from every card;
-5. strip `team` and `assignees` from every card that has a `scope`
-   (decision taken 2026-11-02: a card in a column was created as a plan
-   and stays one).
+5. strip `team`, `assignees` and `parent` from every card that has a
+   `scope`, and `parent` from every card grouped under one (decision taken
+   2026-11-02: a card in a column was created as a plan and stays one; a
+   plan is nobody's subtask and has none).
 
 Idempotent — a step that finds nothing to do writes nothing — and
 rehearsed against `aeman-db-dev` before the production repositories see
@@ -258,8 +269,20 @@ Added: `spec.type` (`goal` | `initiative` | `epic`, absent for a task),
   is a subtask and the only kind that is one.
 - H2 — the level rule: a parent is of a higher level; one parent; optional.
 - H3 — a planning card is drawn on the Roadmap and on no day board.
-- H4 — a project card has no team and no assignees, and is drawn on the
-  Project board and the Roadmap only.
+- H4 — a project card stands in its column alone: no team, no owner, no
+  week, nobody's subtask, no subtasks, never a review; drawn on the Project
+  board and the Roadmap only. Pinned by board
+  `TestAProjectCardIsOnNoDayBoard`, `TestAProjectCardIsNotOnTheTriageBoard`;
+  apiserver `TestProjectViewDeliversWhatStandsInAColumnAndNothingElse`;
+  service `TestAProjectCardTakesNoTeamNoOwnerNoWeek`,
+  `TestAProjectCardIsMadeWithoutATeamOrAnOwner`,
+  `TestFilingACardIntoAColumnTakesItOffThePlansItWasOn`,
+  `TestAProjectCardIsNobodysSubtaskAndHasNone`,
+  `TestReDatingAProjectCardMovesItsRowAndNothingElse`,
+  `TestPlacingAProjectCardIsRefused`; gitstore
+  `TestMigrateSchema2TakesAProjectCardOutOfEverybodysHands`; web
+  `teamgrid.test.ts`, `meview.test.ts`, `triage.test.ts`,
+  `placements.test.ts`.
 - H5 — derived status and progress, never stored.
 - H6 — `parent` never crosses a domain; a hierarchy link does not move
   the child.
@@ -267,9 +290,11 @@ Added: `spec.type` (`goal` | `initiative` | `epic`, absent for a task),
 - H8 — schema 2: the five steps, idempotent, and what a pre-migration
   day still shows.
 
-Retired: G28, G29, G38, G56 (processes); G15, G54, G57 (mirrors); D17
-and the week derivation in D2/D6 (the slot rule) — each row kept and
-marked removed, the way B7 is.
+Retired: G28, G29, G38, G56 (processes); G15, G54, G57 (mirrors, and the
+subtask-in-a-column rule); B14 and the slot clauses of D2/D6 together
+with the week derivation (the slot rule) — each row kept and marked
+removed, the way B7 is. (D17, the week-planned card on its owner's Me
+board, is not the slot rule and stays.)
 
 ## Rollout
 
