@@ -77,6 +77,11 @@ type Note struct {
 type Card struct {
 	ItemID string `json:"itemId"`
 	Title  string `json:"title"`
+	// Type says what the card is: "" is a TASK, the day boards' own kind;
+	// "goal", "initiative" and "epic" are the PLANNING cards above it, drawn
+	// on the Roadmap and on no day board (docs/design/hierarchy.md). Fixed
+	// at create; a card never changes level.
+	Type string `json:"type,omitempty"`
 	// Assignees are logins; Author is the login that created the card.
 	Assignees []string `json:"assignees"`
 	Author    string   `json:"author,omitempty"`
@@ -118,9 +123,14 @@ type Card struct {
 	Project string `json:"project,omitempty"`
 	// ReviewOf, on a review card, is the itemId of the original card it reviews.
 	ReviewOf string `json:"reviewOf,omitempty"`
-	// Parent, on a subtask, is the itemId of the card it belongs to ("" = a
-	// top-level card). Subtasks are one level deep: a parent cannot itself be
-	// a subtask, and a card with subtasks cannot become one.
+	// Parent is the ONE link of the hierarchy: the itemId of the card this
+	// one sits under ("" = a root). The parent's TYPE says what the link
+	// means — read off the parent card, never off this field (H1): under a
+	// task it makes this card a SUBTASK, one level deep (a parent cannot
+	// itself be a subtask, and a card with subtasks cannot become one);
+	// under an epic, an initiative or a goal it files the card in the
+	// hierarchy and changes nothing else about it. A parent is always of a
+	// higher level than its child (H2).
 	Parent string `json:"parent,omitempty"`
 	// Recurrence is a recurrent card's reseed cycle: "" = every sprint (the
 	// default), "week" / "month" = only once that interval has elapsed since
@@ -181,8 +191,10 @@ type CreateInput struct {
 	// Domain, on a roster stub (a team, project or process state card), is
 	// the repository to declare it in; "" is the primary. Cards never carry
 	// one — their domain is inherited (see DomainOf).
-	Domain      string  `json:"domain,omitempty"`
-	Title       string  `json:"title"`
+	Domain string `json:"domain,omitempty"`
+	Title  string `json:"title"`
+	// Type is the card's level: "" (a task), "goal", "initiative" or "epic".
+	Type        string  `json:"type,omitempty"`
 	Zone        ZoneKey `json:"zone,omitempty"`
 	Size        SizeKey `json:"size,omitempty"`
 	Day         string  `json:"day,omitempty"`

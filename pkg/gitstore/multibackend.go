@@ -173,12 +173,19 @@ func (mb *MultiBackend) LoadCards(ctx context.Context, bd board.Board, ids []str
 type resolver struct {
 	cards, projects, teams map[string]string
 	stubs                  map[string]string // roster id → domain
+	// planning is the goals, initiatives and epics: the parents a link to
+	// does not place the child (board.PlanningResolver, H6).
+	planning map[string]bool
 }
 
 func newResolver(s Snapshot) resolver {
-	r := resolver{cards: map[string]string{}, projects: map[string]string{}, teams: map[string]string{}, stubs: map[string]string{}}
+	r := resolver{cards: map[string]string{}, projects: map[string]string{}, teams: map[string]string{},
+		stubs: map[string]string{}, planning: map[string]bool{}}
 	for _, c := range s.Cards {
 		r.cards[c.ItemID] = c.Domain
+		if board.IsPlanning(c) {
+			r.planning[c.ItemID] = true
+		}
 	}
 	for _, t := range s.Teams {
 		r.teams[t.Name] = t.Domain
@@ -201,6 +208,7 @@ func newResolver(s Snapshot) resolver {
 }
 
 func (r resolver) CardDomain(id string) (string, bool)      { d, ok := r.cards[id]; return d, ok }
+func (r resolver) CardIsPlanning(id string) bool            { return r.planning[id] }
 func (r resolver) ProjectDomain(name string) (string, bool) { d, ok := r.projects[name]; return d, ok }
 func (r resolver) TeamDomain(name string) (string, bool)    { d, ok := r.teams[name]; return d, ok }
 
@@ -499,8 +507,14 @@ func stampedDomain(bd board.Board, id string) string {
 
 // cascade moves what the linked-card rules tie to a moved card — its review
 // card and its subtasks, and theirs — into the same domain, in the same
-// action. A linked card already there (or already staged there) is left.
+// action. A linked card already there (or already staged there) is left. A
+// hierarchy link is not a tie: nothing under a goal, an initiative or an epic
+// follows it (H6), and a task under one keeps the repository its own project
+// or team gives it.
 func (mb *MultiBackend) cascade(ctx context.Context, op string, s Snapshot, r resolver, parentID, to string) error {
+	if r.planning[parentID] {
+		return nil
+	}
 	for _, child := range s.Cards {
 		if child.ReviewOf != parentID && child.Parent != parentID {
 			continue

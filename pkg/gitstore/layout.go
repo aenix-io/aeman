@@ -72,6 +72,9 @@ func EncodeCard(f CardFile) ([]byte, error) {
 		}
 	}
 	w("title", c.Title)
+	// The level, right after the title: what the card IS comes before
+	// everything it carries (docs/design/hierarchy.md). A task writes none.
+	w("type", c.Type)
 	if len(c.Assignees) > 0 {
 		items := make([]string, len(c.Assignees))
 		for i, a := range c.Assignees {
@@ -303,7 +306,7 @@ func resolveNode(n *yaml.Node, seen map[*yaml.Node]bool) *yaml.Node {
 func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 	num := func() int { n, _ := strconv.Atoi(val.Value); return n }
 	strs := map[string]*string{
-		"title": &c.Title, "author": &c.Author, "team": &c.Team, "start": &c.StartDate,
+		"title": &c.Title, "type": &c.Type, "author": &c.Author, "team": &c.Team, "start": &c.StartDate,
 		"day": &c.Day, "sprint": &c.SprintStart, "week": &c.Week, "project": &c.Project,
 		"scope": &c.Scope, "parent": &c.Parent, "reviewOf": &c.ReviewOf, "recurrence": &c.Recurrence,
 		// `epic` is what the column key was called before schema 2: read as

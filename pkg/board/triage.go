@@ -22,11 +22,13 @@ func PlacedAhead(c Card, today string) bool {
 // A card SENT TO REVIEW is not in that pile either. Its work is done and it
 // is waiting on a reviewer, not on a week: asking the strip's reader for one
 // asks them to decide something nobody is waiting on them to decide.
-func NeedsTriage(_ Board, c Card, _ string) bool {
-	if IsStateTitle(c.Title) {
+func NeedsTriage(b Board, c Card, _ string) bool {
+	if IsStateTitle(c.Title) || IsPlanning(c) {
 		return false
 	}
-	if c.Parent != "" || c.ReviewOf != "" || c.Week != "" {
+	// A subtask rides its parent; a task under an epic that nobody has
+	// scheduled is in the strip like any other (H1).
+	if IsSubtask(b, c) || c.ReviewOf != "" || c.Week != "" {
 		return false
 	}
 	// A card in a Scope column is the Project board's plan (H4): somebody

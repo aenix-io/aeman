@@ -39,8 +39,12 @@ import "slices"
 func TeamGrid(b Board, team, day string) []Card {
 	today := TodayIso()
 	out := []Card{}
+	planning := PlanningIDs(b)
 	for _, c := range b.Cards {
-		if c.Parent != "" || c.Team != team || InBacklog(c) {
+		// The day boards draw TASKS: a goal, an initiative or an epic is the
+		// Roadmap's (H3), and a subtask rides its parent. A task under an
+		// epic is neither — it stands here like any task (H1).
+		if IsPlanning(c) || IsSubtaskIn(c, planning) || c.Team != team || InBacklog(c) {
 			continue
 		}
 		// A card in a Scope column is a PROJECT CARD: the Project board's
@@ -210,9 +214,15 @@ func inClosedSprint(b Board, c Card) bool {
 func MeView(b Board, user, day string) []Card {
 	today := TodayIso()
 	out := []Card{}
+	planning := PlanningIDs(b)
 	for _, c := range b.Cards {
-		// Subtasks are never listed on their own; they ride with their parent.
-		if c.Parent != "" {
+		// A planning card is the Roadmap's, not a person's day (H3).
+		if IsPlanning(c) {
+			continue
+		}
+		// Subtasks are never listed on their own; they ride with their
+		// parent. A task under an epic is not one (H1).
+		if IsSubtaskIn(c, planning) {
 			continue
 		}
 		// A card in a Scope column is a PROJECT CARD and is drawn on the

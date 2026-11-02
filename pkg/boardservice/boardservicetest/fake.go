@@ -275,7 +275,7 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 	defer f.mu.Unlock()
 	f.nextID++
 	card := board.Card{
-		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Domain: in.Domain,
+		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Type: in.Type, Domain: in.Domain,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Week: in.Week, Scope: in.Scope, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
 		Parked: in.Parked, Size: in.Size,

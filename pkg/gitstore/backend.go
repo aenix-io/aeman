@@ -436,7 +436,7 @@ func (b *Backend) CreateCard(ctx context.Context, _ board.Board, in board.Create
 
 func cardFromInput(in board.CreateInput, id, created, author string) board.Card {
 	c := board.Card{
-		ItemID: id, Title: in.Title, Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
+		ItemID: id, Title: in.Title, Type: in.Type, Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Team: in.Team, ReviewOf: in.ReviewOf, Parent: in.Parent, Week: in.Week, Scope: in.Scope,
 		Parked: in.Parked, Size: in.Size,
 		Project: in.Project, Recurrence: in.Recurrence,

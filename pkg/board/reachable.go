@@ -33,10 +33,13 @@ func Reachable(b Board, today string) map[string]bool {
 			}
 		}
 	}
+	planning := PlanningIDs(b)
 	for _, c := range b.Cards {
 		switch {
 		// A state card is the roster.
 		case IsStateTitle(c.Title):
+		// A goal, an initiative or an epic: the Roadmap draws it (H3).
+		case IsPlanning(c):
 		// A Project-board column, and the weekly plan.
 		case c.Scope != "":
 		case c.Week != "":
@@ -60,9 +63,13 @@ func Reachable(b Board, today string) map[string]bool {
 	}
 	// A card that rides another is reachable exactly when that one is: a
 	// subtask is drawn under its parent, a review card beside its original.
-	// Both are one link deep, so one more pass settles them.
+	// Both are one link deep, so one more pass settles them. A task under
+	// an epic rides nothing — it answered for itself above (H1).
 	for _, c := range b.Cards {
-		owner := c.Parent
+		owner := ""
+		if IsSubtaskIn(c, planning) {
+			owner = c.Parent
+		}
 		if owner == "" {
 			owner = c.ReviewOf
 		}

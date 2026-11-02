@@ -41,9 +41,16 @@ type DomainResolver interface {
 //  1. a review card lives where the card it reviews lives — its team is the
 //     original's and its project is empty, so the team rule would leak a
 //     review of a closed card into the shared repository;
-//  2. a subtask lives where its parent lives, whatever column it carries;
+//  2. a subtask — a task whose parent is a TASK — lives where its parent
+//     lives, whatever column it carries;
 //  3. an unlinked card filed under a project lives where the project lives;
 //  4. any other card lives where its team lives.
+//
+// A hierarchy link does not place the child (H6): a task under an epic
+// lives where its own project or team lives, and the resolver's
+// PlanningResolver half is what tells the two parents apart. A resolver
+// without it reads every parent as a task — which every parent was before
+// the field existed.
 //
 // An unknown reference falls through to the next rule; nothing deciding
 // means the primary domain, "".
@@ -51,6 +58,11 @@ func DomainOf(c Card, r DomainResolver) string {
 	for _, ref := range []string{c.ReviewOf, c.Parent} {
 		if ref == "" {
 			continue
+		}
+		if ref == c.Parent {
+			if pr, ok := r.(PlanningResolver); ok && pr.CardIsPlanning(ref) {
+				continue
+			}
 		}
 		if d, ok := r.CardDomain(ref); ok {
 			return d

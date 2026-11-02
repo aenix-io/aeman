@@ -86,8 +86,11 @@ func PointsOf(b Board, c Card) int {
 // weighing more than one card builds the index once and weighs against it.
 func kidsOf(b Board) map[string]childSum {
 	out := map[string]childSum{}
+	planning := PlanningIDs(b)
 	for _, c := range b.Cards {
-		if c.Parent == "" {
+		// An umbrella is a TASK over its subtasks. A goal over its tasks is
+		// not one — it is not weighed, and a task under it weighs itself.
+		if !IsSubtaskIn(c, planning) {
 			continue
 		}
 		k := out[c.Parent]
@@ -173,9 +176,10 @@ func weigh(c Card) int {
 // the number is honest on a board nobody has sized yet.
 func LoadNow(b Board, today string) map[string]int {
 	kids := kidsOf(b)
+	planning := PlanningIDs(b)
 	out := map[string]int{}
 	for _, c := range b.Cards {
-		if !carriedNow(c, today) {
+		if !carriedNow(c, today, planning) {
 			continue
 		}
 		out[c.Assignees[0]] += carriedWith(kids, c)
