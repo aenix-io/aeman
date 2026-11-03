@@ -704,7 +704,7 @@ func (h *server) deleteCard(ctx context.Context, _ *mcp.CallToolRequest, in card
 type removeCardInput struct {
 	cardRef
 	boardStand
-	Intent string `json:"intent,omitempty" jsonschema:"what the x is to do: unassign (take the card out of work and put it back in its team's backlog — parked, no person, no day, no sprint; a Project-board card is left in its column instead) or off-board (take it away, with the subtasks that were pieces of it). Omit to let the gesture decide, which is what it did before there was a choice. off-board is refused for a Project-board card — it lives and dies in its column, and delete_card deletes it; unassign is refused for a review card, which has no place of its own"`
+	Intent string `json:"intent,omitempty" jsonschema:"what the x is to do: unassign (take the card out of work and put it back in its team's backlog — parked, no person, no day, no sprint; a Project-board card is left in its column instead) or off-board (take it away, with the subtasks that were pieces of it). Omit to let the gesture decide, which is what it did before there was a choice. off-board is refused for a Project-board card — it lives and dies in its column, and delete_card deletes it; on a REVIEW card unassign is back to backlog — the reviewer taken off, the review waiting at the top of its task's team backlog with nobody on it, the task still on review — and off-board or no intent withdraws the review: the task goes back to In progress and the review card goes"`
 }
 
 func (h *server) removeCard(ctx context.Context, _ *mcp.CallToolRequest, in removeCardInput) (*mcp.CallToolResult, statusOutput, error) {
