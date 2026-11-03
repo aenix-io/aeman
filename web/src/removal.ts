@@ -187,7 +187,8 @@ export type RemoveChoice =
   | "backlog"
   | "finished-earlier"
   | "detach"
-  | "delete";
+  | "delete"
+  | "withdraw";
 
 /** removeChoices is what the × may do to this card WHERE IT STANDS, in the
  *  order the dialog lists them, and the × is drawn only where the list is
@@ -237,6 +238,13 @@ export function removeChoices(
   // of the group is the drawer's own choice, not the ×'s.
   if (isSubtask(c)) {
     return ["off-board"];
+  }
+  // A review NOBODY HAS TAKEN — the Backlog's needs-a-reviewer item — has
+  // one answer: WITHDRAW the review (K10). The card goes and the task leaves
+  // review, back to In progress (boardservice.withdrawReview). Deleting the
+  // card alone would leave the task on review with no review card.
+  if (c.reviewOf && c.parked && (c.assignees?.length ?? 0) === 0) {
+    return ["withdraw"];
   }
   // A REVIEW somebody has is offered it too (K10): back to the backlog takes
   // the reviewer off, and it waits for one again in the reviewed task's team
@@ -354,6 +362,24 @@ export function subtaskRemovalUndo(c: SubtaskUndo): SubtaskUndo {
   };
 }
 
+/** withdrawPatch is what the TASK shows the moment its review is withdrawn:
+ *  back to In progress the way the stage menu's In progress puts it
+ *  (board.ApplyInProgress, SetInProgress) — the stage cleared, the progress
+ *  nudged into its band at the edges only. */
+export function withdrawPatch(task: { stage?: string; progress?: number }): {
+  stage: undefined;
+  progress: number;
+} {
+  const cur = task.progress ?? 0;
+  let progress = cur;
+  if (cur < 10) {
+    progress = 10;
+  } else if (task.stage === "done" || cur >= 100) {
+    progress = 90;
+  }
+  return { stage: undefined, progress };
+}
+
 /** removeIntent is the intent an × answer is sent to the remove action as,
  *  or null for an answer that is a gesture of its own (finished-earlier, the
  *  hierarchy's two). Both KEEPING answers are the server's unassign: it parks
@@ -365,6 +391,7 @@ export function removeIntent(choice: RemoveChoice): "unassign" | "off-board" | n
     case "unassign":
       return "unassign";
     case "off-board":
+    case "withdraw":
       return "off-board";
     default:
       return null;

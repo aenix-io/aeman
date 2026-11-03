@@ -212,7 +212,10 @@ paths:
         review; a Project-board slot is left in its column) —
         and `off-board` takes it away with the subtasks that were pieces of
         it. Omitted, the gesture decides for itself. `off-board` on a
-        Project-board slot is 422 — it belongs to another board's plan.
+        Project-board slot is 422 — it belongs to another board's plan. On a
+        review nobody has taken (parked, nobody on it) `off-board` and no
+        intent WITHDRAW the review: the reviewed task goes back to In
+        progress and the review card goes.
 
 
         From the Me board the × is the narrow one: a person takes off their own

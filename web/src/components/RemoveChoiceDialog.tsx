@@ -12,6 +12,9 @@ interface RemoveChoiceDialogProps {
   /** A REVIEW card: its backlog answer takes the reviewer off (K10), and
    *  the dialog says so. */
   review?: boolean;
+  /** The title of the task a review card reviews: the withdrawal says what
+   *  becomes of it. */
+  reviewing?: string;
   /** How many subtasks go with it, if any. */
   subtasks: number;
   /** What a destroying answer does to what sits under the card, said in
@@ -91,6 +94,7 @@ export function RemoveChoiceDialog({
   progress,
   choices,
   review = false,
+  reviewing,
   subtasks,
   note,
   onClose,
@@ -100,6 +104,45 @@ export function RemoveChoiceDialog({
     onSubmit(choice);
     onClose();
   };
+  // A review nobody has taken has one answer, and it is about the TASK:
+  // withdrawing the review takes it off review, back to In progress (K10).
+  // The question says that, and Cancel is the armed button.
+  if (choices.length === 1 && choices[0] === "withdraw") {
+    return (
+      <div className="modal-backdrop" onClick={onClose}>
+        <div
+          className="modal modal-narrow"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Withdraw the review?"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              onClose();
+            }
+          }}
+        >
+          <div className="modal-header">
+            <h2 className="modal-title">Withdraw the review?</h2>
+            <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+              ✕
+            </button>
+          </div>
+          <div className="modal-body">
+            <p className="sprint-choice-text">«{reviewing ?? title.replace(/^review: /, "")}» goes back to In progress.</p>
+            <div className="take-dialog-actions">
+              <button type="button" className="btn" autoFocus onClick={onClose}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => pick("withdraw")}>
+                Withdraw
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
   const hierarchy = choices.includes("delete");
   const destroys = choices.includes("off-board") || hierarchy;
   const family = note

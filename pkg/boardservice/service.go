@@ -1172,6 +1172,13 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, vie
 		}
 		return s.deleteWithCascade(ctx, b, c)
 	}
+	// A review NOBODY HAS TAKEN — the Backlog's needs-a-reviewer item — is
+	// not deleted by itself: taken off the board, by name or by the × deciding
+	// for itself, it WITHDRAWS the review (withdrawReview). Deleting the card
+	// alone left the task on review with no review card at all.
+	if board.NeedsReviewer(c) && intent != Unassign {
+		return s.withdrawReview(ctx, boardID, b, c)
+	}
 	subtask := board.IsSubtask(b, c)
 	// OFF THE BOARD is taken at its word: the card goes even though its
 	// backlog would have kept it, and the subtasks that were pieces of it go

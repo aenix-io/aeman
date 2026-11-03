@@ -31,7 +31,15 @@ import {
 import type { LineageRef } from "../providers/types";
 import { justMade, noteMade } from "../justmade";
 import { ownerOf, type Owner } from "../owner";
-import { asksFirst, freeSubtasks, removeChoices, removeIntent, unaskedRemoval, type RemoveChoice } from "../removal";
+import {
+  asksFirst,
+  freeSubtasks,
+  removeChoices,
+  removeIntent,
+  unaskedRemoval,
+  withdrawPatch,
+  type RemoveChoice,
+} from "../removal";
 import { SIZES, SIZE_ORDER } from "../size";
 import { currentSprint, previousSprint } from "../sprint";
 import { todayIso } from "../date";
@@ -334,7 +342,8 @@ export function BacklogBoard({
 
   // ---- the ×: the same × as everywhere else (removal.ts) ----
   // On a card in its backlog the one answer it has is "off the board"; the
-  // backlog answer is withheld from a card already there.
+  // backlog answer is withheld from a card already there. A review nobody
+  // has taken is withdrawn instead (removal.removeChoices).
   const choicesFor = useCallback(
     (card: CardModel) =>
       removeChoices(card, {
@@ -349,6 +358,14 @@ export function BacklogBoard({
       const intent = removeIntent(choice);
       if (!intent) {
         return;
+      }
+      // Withdrawing a review nobody has taken: the card goes and its task
+      // leaves review, back to In progress (K10) — both shown at once.
+      if (choice === "withdraw") {
+        const task = board.cards.find((c) => c.itemId === card.reviewOf);
+        if (task) {
+          patchCard(task.itemId, withdrawPatch(task));
+        }
       }
       if (intent === "off-board") {
         for (const freed of freeSubtasks(board.cards, card.itemId)) {
@@ -365,7 +382,9 @@ export function BacklogBoard({
   );
   const [asking, setAsking] = useState<CardModel | null>(null);
   const remove = (card: CardModel) => {
-    if (asksFirst(card, justMade(card.itemId))) {
+    // The withdrawal always asks: it changes the TASK, which is not the card
+    // the × was pressed on.
+    if (asksFirst(card, justMade(card.itemId)) || choicesFor(card).includes("withdraw")) {
       setAsking(card);
       return;
     }
@@ -477,6 +496,7 @@ export function BacklogBoard({
         <RemoveChoiceDialog
           title={asking.title}
           review={!!asking.reviewOf}
+          reviewing={board.cards.find((c) => c.itemId === asking.reviewOf)?.title}
           progress={asking.progress ?? 0}
           choices={choicesFor(asking)}
           subtasks={board.cards.filter((c) => c.parent === asking.itemId).length}

@@ -74,3 +74,26 @@ describe("the choice dialog, asked by the hierarchy's ×", () => {
     expect(html).not.toMatch(/week/i);
   });
 });
+
+// The withdrawal asks in its own words: what happens to the TASK, which is
+// what the person loses sight of — it leaves review, back to In progress.
+describe("the choice dialog, asked by a review nobody has taken", () => {
+  it("asks to withdraw the review and says the task goes back to In progress", () => {
+    const html = renderToStaticMarkup(
+      <RemoveChoiceDialog
+        title="review: Invoices"
+        reviewing="Invoices"
+        progress={0}
+        choices={["withdraw"]}
+        subtasks={0}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(html).toContain("Withdraw the review?");
+    expect(html).toContain("«Invoices» goes back to In progress.");
+    expect(html).toMatch(/>Withdraw</);
+    expect(html).toMatch(/>Cancel</);
+    expect(html).not.toContain("Remove from the board?");
+  });
+});

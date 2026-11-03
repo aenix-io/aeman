@@ -149,3 +149,48 @@ func TestWithdrawingTheReviewTakesTheUnassignedCardAway(t *testing.T) {
 		})
 	}
 }
+
+// The × on a review NOBODY HAS TAKEN — the Backlog's needs-a-reviewer item —
+// WITHDRAWS the review (K10): the review card goes, and the task leaves the
+// review stage back to work in progress, through the same cancellation the
+// task leaving review performs. A bare delete would leave the task on
+// review with no review card at all. Taken off the board by name or by the
+// × deciding for itself, it is the same withdrawal, and the task's log says
+// it once: the stage left review. (No reviewer is recorded as removed —
+// there was none.)
+func TestTheRemoveOnAReviewNobodyHasTakenWithdrawsTheReview(t *testing.T) {
+	for name, intent := range map[string]RemoveIntent{"off the board": OffBoard, "the × deciding": RemoveAuto} {
+		t.Run(name, func(t *testing.T) {
+			f := reviewSeed()
+			svc := New(f)
+			if err := svc.SetStage(ctx, "acme", "t", board.StageReview); err != nil {
+				t.Fatal(err)
+			}
+			r := reviewOf(f, "t")
+			before := len(f.eventsOf("t"))
+			if err := svc.Remove(ctx, "acme", r.ItemID, board.ViewBacklog, intent); err != nil {
+				t.Fatalf("remove = %v", err)
+			}
+			if f.get(r.ItemID) != nil {
+				t.Fatal("the review card is still on the board")
+			}
+			task := f.get("t")
+			if task == nil {
+				t.Fatal("withdrawing the review deleted the task")
+			}
+			if task.Stage != board.StageNone {
+				t.Fatalf("the task is still on %q; it goes back to work in progress", task.Stage)
+			}
+			if task.Progress != 60 {
+				t.Fatalf("progress = %d, want the task's own 60 kept", task.Progress)
+			}
+			kinds := map[string]int{}
+			for _, e := range f.eventsOf("t")[before:] {
+				kinds[e.Kind]++
+			}
+			if kinds[board.EventStage] != 1 || len(kinds) != 1 {
+				t.Fatalf("the task's log = %v, want the stage left review, once, and nothing else", kinds)
+			}
+		})
+	}
+}

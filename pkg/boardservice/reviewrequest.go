@@ -141,3 +141,34 @@ func (s *Service) returnReview(ctx context.Context, b board.Board, review board.
 	}
 	return nil
 }
+
+// withdrawReview is the × on a review nobody has taken (K10): the review is
+// called off. The task leaves the review stage back to work in progress —
+// the In progress the stage menu sets (SetInProgress: the stage cleared,
+// the progress nudged into its band), whose cancellation
+// takes the review card away and records it on the task — and a review card
+// that cancellation spares (somebody put progress on it) goes too, since
+// the × asked for exactly that. A review whose task is gone just goes.
+func (s *Service) withdrawReview(ctx context.Context, boardID string, b board.Board, review board.Card) error {
+	original, found := findCard(b, review.ReviewOf)
+	if found && original.Stage == board.StageReview {
+		if err := s.SetInProgress(ctx, boardID, original.ItemID); err != nil {
+			return err
+		}
+		after, err := s.backend.LoadBoard(ctx, boardID)
+		if err != nil {
+			return err
+		}
+		if _, still := findCard(after, review.ItemID); !still {
+			return nil
+		}
+		b = after
+	}
+	if err := s.deleteWithCascade(ctx, b, review); err != nil {
+		return err
+	}
+	if found {
+		s.logReviewCancelled(ctx, b, original, review)
+	}
+	return nil
+}

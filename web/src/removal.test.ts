@@ -8,6 +8,7 @@ import {
   removeChoices,
   backlogPatch,
   unaskedRemoval,
+  withdrawPatch,
   subtaskRemovalPatch,
   subtaskRemovalUndo,
   type RemovableCard,
@@ -407,5 +408,35 @@ describe("the backlog answer, optimistically", () => {
 
   it("leaves a review's team when its task is not on this board", () => {
     expect(backlogPatch({ team: "beta", reviewOf: "gone" }, cards)).not.toHaveProperty("team");
+  });
+});
+
+// The × on a review NOBODY HAS TAKEN — the Backlog's needs-a-reviewer item —
+// WITHDRAWS the review (K10): the card goes and the task leaves review, back
+// to In progress. It is the only answer, sent as off-board; the server turns
+// it into the withdrawal (boardservice.withdrawReview).
+describe("the × on a review nobody has taken", () => {
+  const ctx = { today: "2026-08-28" };
+
+  it("offers the withdrawal and nothing else", () => {
+    expect(removeChoices({ reviewOf: "t", parked: true }, ctx)).toEqual(["withdraw"]);
+    expect(removeChoices({ reviewOf: "t", parked: true, assignees: [] }, ctx)).toEqual(["withdraw"]);
+  });
+
+  it("offers a review somebody has its own answers, not the withdrawal", () => {
+    expect(removeChoices({ reviewOf: "t", assignees: ["bob"], sprintStart: "2026-08-24" }, ctx)).not.toContain("withdraw");
+  });
+
+  it("sends the withdrawal as off-board", () => {
+    expect(removeIntent("withdraw")).toBe("off-board");
+  });
+
+  // The task goes back to In progress the way the stage menu's In progress
+  // puts it (board.ApplyInProgress): the stage cleared, the progress nudged
+  // into its band at the edges only.
+  it("puts the task back to In progress, its progress nudged into the band", () => {
+    expect(withdrawPatch({ stage: "review", progress: 60 })).toEqual({ stage: undefined, progress: 60 });
+    expect(withdrawPatch({ stage: "review", progress: 5 })).toEqual({ stage: undefined, progress: 10 });
+    expect(withdrawPatch({ stage: "review", progress: 100 })).toEqual({ stage: undefined, progress: 90 });
   });
 });

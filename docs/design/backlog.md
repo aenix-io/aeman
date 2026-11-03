@@ -148,6 +148,10 @@ Decided 2026-11-03 with the owner (K10).
   reviewed task's team backlog; the task stays on review (K12).
 - **Withdrawing the review** — the task leaving the review stage, finished
   or deleted — takes the card away, as it takes an untouched assigned one.
+  The × on a review nobody has taken, on the Backlog, is that withdrawal:
+  after "Withdraw the review? «task» goes back to In progress." the task
+  goes back to In progress and the card goes — never a bare delete that
+  would leave the task on review with no review card.
 - **K1**: a review nobody has taken is parked (it is in the backlog); one
   with a reviewer follows the card it reviews, as before.
 - **Schema 3** gives every open task already on review with no review card
