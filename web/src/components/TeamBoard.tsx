@@ -187,8 +187,7 @@ export function TeamBoard({
   );
 
   // What the people are WORKING ON on the day being looked at, and nothing
-  // else — the same set the Triage board shows for that day, less anything
-  // put off to later. The rule itself is teamgrid.inHandOn, which mirrors
+  // else — work in hand (K1), never the backlog. The rule itself is teamgrid.inHandOn, which mirrors
   // board.TeamGrid.
   const filteredCards = useMemo(
     () =>
@@ -206,7 +205,7 @@ export function TeamBoard({
   // Columns are PEOPLE: the distinct assignees among the filtered cards (me
   // first). Columns come from everyone with a card in the selected teams in ANY
   // sprint (past or future), so a person's column stays (empty) on days they
-  // have no cards. The Unassigned column is always shown for triage.
+  // have no cards. The Unassigned column is always shown.
   const engineers = useMemo(() => {
     const set = new Set<string>();
     for (const card of inFilter) {
@@ -470,7 +469,6 @@ export function TeamBoard({
       optimistic.parent = parentTo ?? undefined;
       patch.parent = parentTo ?? "";
       if (parentTo) {
-        optimistic.week = undefined;
         autoExpanded.current = null; // the drop keeps the target unfolded
         setExpandedSubs((cur) => new Set(cur).add(parentTo as string));
       }
@@ -586,20 +584,13 @@ export function TeamBoard({
     return () => document.removeEventListener("keydown", onKey);
   }, [selectedCardId, childrenOf]);
 
-  // Group a dropped card as a subtask; the server enforces depth and hands a
-  // scheduled card's week to the parent, which stands for it from then on.
+  // Group a dropped card as a subtask; the server enforces depth.
   const handleGroup = (card: CardModel, parentId: string) => {
     if (card.itemId === parentId || subtaskParent(card) === parentId) {
       return;
     }
-    const prev: Partial<CardModel> = { parent: card.parent, week: card.week };
-    // The week goes to the parent; a COLUMN card keeps its own — that is
-    // the row the Project board draws it in, not a week anyone set here
-    // (mirrors boardservice.SetParent).
-    patchCard(card.itemId, {
-      parent: parentId,
-      ...(card.scope ? {} : { week: undefined }),
-    });
+    const prev: Partial<CardModel> = { parent: card.parent };
+    patchCard(card.itemId, { parent: parentId });
     autoExpanded.current = null; // the drop keeps the target unfolded
     setExpandedSubs((cur) => new Set(cur).add(parentId));
     void provider
@@ -1046,11 +1037,15 @@ export function TeamBoard({
         });
       return;
     }
-    // The answer that destroys nothing: the work is kept, off the plan, on
-    // its team's shelf.
+    // The answer that destroys nothing: the task goes back to its team's
+    // backlog — nobody, no day, no sprint (K3) — through the ×'s own action,
+    // the unassign intent (removal.removeIntent).
     if (choice === "backlog") {
       patchCard(card.itemId, parkedLocally());
-      void provider.patchCard(card.itemId, { parked: true }).catch((err: unknown) => {
+      void provider.removeCard(card.itemId, "unassign").catch((err: unknown) => {
+        if (isGone(err)) {
+          return;
+        }
         onError(errMessage(err));
         reload();
       });
@@ -1100,16 +1095,12 @@ export function TeamBoard({
       return;
     }
     let rollback: () => void;
-    // This × empties the working area (mirrors boardservice.Remove). With a
-    // WEEK of its own or a Project-board column to fall back on the card
-    // goes there, leaving the working area entirely, dates and all: a card
-    // whose start is the viewed day shows on the grid whatever its sprint
-    // says, which is how a handed-back card used to sit in two places at
-    // once. With nowhere else to be, the working area was the only place it
-    // was, and removing it from there deletes it — after a question when the
-    // card carries work or a review card, which the delete takes with it.
-    // Its subtasks go with it: they are pieces of the same work, and the
-    // dialog says how many.
+    // This × empties the working area (mirrors boardservice.Remove). Taken
+    // off the board, the card is deleted — after a question when it carries
+    // work or a review card, which the delete takes with it — and its
+    // subtasks go with it: they are pieces of the same work, and the dialog
+    // says how many. A PROJECT card's Unassigned answer (below) leaves it in
+    // its column.
     if (choice === "off-board") {
       const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
       const warning = deleteWarning(card, linkedReview?.title ?? null);

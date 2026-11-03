@@ -756,14 +756,13 @@ export function MeBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCardId, childrenOf]);
 
-  // Group a dropped card as a subtask; the server enforces depth and hands a
-  // scheduled card's week to the parent, which stands for it from then on.
+  // Group a dropped card as a subtask; the server enforces depth.
   const handleGroup = (card: CardModel, parentId: string) => {
     if (card.itemId === parentId || subtaskParent(card) === parentId) {
       return;
     }
-    const prev: Partial<CardModel> = { parent: card.parent, week: card.week };
-    patchCard(card.itemId, { parent: parentId, week: undefined });
+    const prev: Partial<CardModel> = { parent: card.parent };
+    patchCard(card.itemId, { parent: parentId });
     autoExpanded.current = null; // the drop keeps the target unfolded
     setExpandedSubs((cur) => new Set(cur).add(parentId));
     void provider
@@ -1035,8 +1034,8 @@ export function MeBoard({
   // it leaves today's board and is found by stepping back; the server records
   // the move and the re-list converges its outcome.
   // releaseCard hands the card to the server's smart × and takes what it
-  // decides: a card with a Project-board column or a week of its own is
-  // released to it, never destroyed. The re-list brings back whatever the
+  // decides: a card with a Project-board column is released to it, never
+  // destroyed. The re-list brings back whatever the
   // rule did.
   const releaseCard = (card: CardModel) => {
     // Show the outcome at once, as every other × on this board does: the
@@ -1097,8 +1096,8 @@ export function MeBoard({
   // board gets, from the same place (gridRemoval, mirroring
   // boardservice.Remove). This board used to decide on its own and sent
   // everything that was not demotable to DELETE /cards/{uid}, destroying a
-  // card the other board would have left in its week: one gesture,
-  // two boards, opposite outcomes.
+  // card the other board would have kept: one gesture, two boards, opposite
+  // outcomes.
   const choicesFor = (card: CardModel): RemoveChoice[] =>
     removeChoices(card, gridCtx(card));
 
@@ -1122,11 +1121,15 @@ export function MeBoard({
         });
       return;
     }
-    // The answer that destroys nothing: the work is kept, off the plan, on
-    // its team's shelf.
+    // The answer that destroys nothing: the task goes back to its team's
+    // backlog — nobody, no day, no sprint (K3) — through the ×'s own action,
+    // the unassign intent (removal.removeIntent).
     if (chosen === "backlog") {
       patchCard(card.itemId, parkedLocally());
-      void provider.patchCard(card.itemId, { parked: true }).catch((err: unknown) => {
+      void provider.removeCard(card.itemId, "unassign").catch((err: unknown) => {
+        if (isGone(err)) {
+          return;
+        }
         onError(errMessage(err));
         reload();
       });
@@ -1145,8 +1148,8 @@ export function MeBoard({
     if (!choice) {
       return;
     }
-    // Anything but destroying it is the release: a card handed back to its
-    // week or its column, a subtask taken out of its group.
+    // Anything but destroying it is the release: a project card handed back
+    // to its column, a subtask taken out of its group.
     if (choice !== "off-board") {
       releaseCard(card);
       return;
@@ -1423,7 +1426,6 @@ export function MeBoard({
       optimistic.parent = parentTo ?? undefined;
       patch.parent = parentTo ?? "";
       if (parentTo) {
-        optimistic.week = undefined;
         autoExpanded.current = null; // the drop keeps the target unfolded
         setExpandedSubs((cur) => new Set(cur).add(parentTo as string));
       }

@@ -1,23 +1,9 @@
 // The LIST/watch selectors for a board view, shared by the data fetch and the
 // scoped watch so both cover exactly what the active board shows.
 
-import { mondayOf, todayIso } from "./date";
-import { WEEKS_FWD } from "./weekgrid";
+import { todayIso } from "./date";
 
-export type ViewMode = "me" | "team" | "triage" | "roadmap" | "project";
-
-// TRIAGE_WEEKS is how many weeks the Triage board asks for, the current one
-// included — and it is DERIVED from how many the board draws, never chosen
-// beside it. The grid runs from this Monday to WEEKS_FWD after it, both ends
-// inclusive, so that is what the fetch must cover.
-//
-// The two used to be separate numbers, 6 asked for and 9 drawn, and the three
-// rows past the window were a trap: a card dropped in one was written with a
-// week the listing does not return, so after the next reload it stood on no
-// board at all — not Triage (outside the window), not the day boards (a week
-// ahead is on none), not Project (no column) — and could be found only by its
-// uid.
-export const TRIAGE_WEEKS = WEEKS_FWD + 1;
+export type ViewMode = "me" | "team" | "backlog" | "roadmap" | "project";
 
 // viewQueries builds the LIST selectors for a board view — possibly several,
 // fetched together and merged. Me is the reader's own day: the server resolves
@@ -59,34 +45,11 @@ export function viewQueries(
     return [{ view: "roadmap" }];
   }
   const team = teams.join(",");
-  if (view === "triage") {
-    // The weeks ahead of the shown teams, from the current one: the
-    // placed cards, the current sprint, the debts and the triage strip
-    // (docs/design/triage.md). Never a snapshot — it is not a day board.
-    //
-    // The parked work rides along in a second selection, because a card on a
-    // list has no week and no window of weeks can reach it. It is fetched
-    // whether or not the drawer is open: the drawer says how much each list
-    // is holding, and a count that only becomes true after you open it is
-    // not a count you can plan around.
-    //
-    // reviews=true because the board OFFERS to draw them (the reviews
-    // toggle): a review is not triage work — nobody is waiting on a week for
-    // it — but it is work in the reviewer's hands and counts in their load,
-    // and one whose dates ran out stood on no board at all. Asked for once
-    // and hidden client-side rather than re-fetched on the toggle, so
-    // pressing it costs nothing and the watch scope does not change under
-    // the board while it is being read.
-    return [
-      {
-        view: "triage",
-        team,
-        from: mondayOf(today),
-        weeks: String(TRIAGE_WEEKS),
-        reviews: "true",
-      },
-      { view: "backlog", team },
-    ];
+  if (view === "backlog") {
+    // Each shown team's parked open tasks, in the server's BacklogOrder
+    // (K2, docs/design/backlog.md). Not a day board: no day, never a
+    // snapshot. The no-team group is the empty member of the set.
+    return [{ view: "backlog", team }];
   }
   return [{ view: "team", team, day, reviews: "true", ...snap }];
 }
@@ -101,7 +64,9 @@ export function snapshotDay(view: ViewMode, day: string, today = todayIso()): bo
 
 // watchQuery is the scoped-watch selector for a view. The Team board watches
 // every card of the teams it shows (view=all&team=set, no day), so a change
-// streams whatever day it lands on; the Me board watches its own day.
+// streams whatever day it lands on; the Backlog board watches the same, so a
+// card taken into work, re-teamed or finished — one that LEAVES a backlog —
+// is heard too (K6); the Me board watches its own day.
 export function watchQuery(
   view: ViewMode,
   day: string,
@@ -171,4 +136,27 @@ export function viewOf(query: string): string {
     }
   }
   return "all";
+}
+
+/** storedView is the board a remembered tab name opens. A name a board used
+ *  to have still lands on the board that carries it now: "plan" was the
+ *  Project tab, "nixon" the Team tab — and "triage" was retired for the
+ *  Backlog (docs/design/backlog.md, K9), so a browser that remembered it
+ *  lands on the board that replaced it rather than silently on Me. */
+export function storedView(raw: string | null): ViewMode {
+  switch (raw) {
+    case "team":
+    case "nixon":
+      return "team";
+    case "project":
+    case "plan":
+      return "project";
+    case "backlog":
+    case "triage":
+      return "backlog";
+    case "roadmap":
+      return "roadmap";
+    default:
+      return "me";
+  }
 }

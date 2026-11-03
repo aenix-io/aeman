@@ -26,6 +26,9 @@ export interface LineageRef {
   uid: string;
   type?: CardType;
   title: string;
+  /** The ancestor's end date, when it has one. The Backlog board shows the
+   *  nearest planning card's as the due date of the task under it. */
+  end?: string;
 }
 
 /** HierarchyStatus is a planning card's derived standing (status.hierarchy):
@@ -107,20 +110,17 @@ export interface Card {
   /** ISO date (yyyy-mm-dd) the sprint this card belongs to was started.
    * This is what the boards orient by (day/startDate are just metadata). */
   sprintStart?: string;
-  /** ISO date (yyyy-mm-dd) of the WEEK this card is scheduled for — the row
-   *  it stands in on the Triage board. */
-  week?: string;
-  /** On its team's SHELF rather than in the plan — a third place beside a
-   *  week and the strip: work somebody has read and put aside. Exclusive with
-   *  week; a parked card is on no day board. Every team has a backlog and
-   *  nothing declares it. */
+  /** PARKED in its team's backlog rather than in work (K1): a task is one or
+   *  the other — in work when it has a date or a sprint, parked otherwise —
+   *  and a parked card is on no day board. Every team has a backlog and
+   *  nothing declares it (docs/design/backlog.md). */
   parked?: boolean;
   /** The column this card is filed under: scope + project TOGETHER, since scope
-   *  names repeat across projects. Its week is the row. */
+   *  names repeat across projects. Its start date's week is the row. */
   scope?: string;
   project?: string;
-  /** A card scheduled ahead — a slot, a card given a week — still open past
-   *  the day it was owed by. Derived by the server from its dates. */
+  /** A card scheduled ahead — a slot — still open past the day it was owed
+   *  by. Derived by the server from its dates. */
   overdue?: boolean;
   /** The moment this card is FROM, when it is a record rather than the live
    *  card: its team's sprint has moved on past the day being looked at. The
@@ -129,15 +129,6 @@ export interface Card {
   /** The board day (yyyy-mm-dd) the card reached done; cleared when it
    *  reopens. */
   doneAt?: string;
-  /** Nobody placed the card in a week and it is not being worked (B3). */
-  triage?: boolean;
-  /** The Monday of the Triage column the card stands in (B5). */
-  triageWeek?: string;
-  /** A RECURRENT card's weeks to come: the ones it comes round in over the
-   *  planning horizon and no copy of it stands in yet. A team's own repeating
-   *  work is reseeded by carry-over, and the weeks it will land in are spoken
-   *  for. */
-  due?: string[];
   /** Free-form card details (the body minus the appended action log).
    *  Undefined until loaded: listings are the board-row shape without the
    *  body, and the boards fetch it when a card is selected or opened. */
@@ -160,8 +151,7 @@ export interface NewCardInput {
   size?: SizeKey;
   day?: string | null;
   start?: string | null;
-  week?: string | null;
-  /** Start the card on its team's backlog: no dates, no sprint, no week. */
+  /** Start the card in its team's backlog: no dates, no sprint (K3). */
   parked?: boolean | null;
   scope?: string | null;
   project?: string | null;
@@ -177,8 +167,9 @@ export interface NewCardInput {
    *  absent, a task. Fixed for the card's life. */
   type?: CardType | null;
   /** A TASK made under a planning card (the add in an epic's pane): the
-   *  create is the Roadmap's, whatever board is open — the task lands in the
-   *  Triage strip until planned. Client-side only; never sent. */
+   *  create is the Roadmap's, whatever board is open — the task is parked in
+   *  the no-team backlog until taken into work (K3). Client-side only; never
+   *  sent. */
   underPlanning?: boolean | null;
   /** Force the team's sprint pointer to (re)start on the card's day. */
   startNewSprint?: boolean;
@@ -270,9 +261,10 @@ export interface CardPatch {
   /** "" clears the stage; "done" marks the card done (derived server-side). */
   stage?: StageKey | "";
   dates?: { start?: string; end?: string; sprint?: string };
-  /** The week the card is scheduled for ("" takes it off the Triage weeks). */
-  week?: string;
-  /** Put the card on its team's backlog, or take it off. */
+  /** Put the card in its team's backlog, or take it out. Taking a parked task
+   *  out alone — with no date and no sprint to be in work by — is refused
+   *  (422 takeIntoWork): giving it a date, a sprint or a person is what takes
+   *  it into work (K4). */
   parked?: boolean;
   /** Re-file under a column ("" clears). Naming only the scope keeps the card
    *  inside its project; crossing projects names both halves. */
@@ -367,30 +359,21 @@ export interface Provider {
   ): Promise<Card>;
   /** Delete the linked review card; returns the original. */
   removeReviewer(uid: string): Promise<Card>;
-  /** Place a card in a week of the Triage board — which is what triaging it
-   *  means (docs/design/triage.md). */
-  placeCard(uid: string, week: string): Promise<Card>;
   /** Send finished work back to the sprint it was done in, its dates and the
    *  day it counts as done along with it. Refused (422) on work still going,
    *  and where there is no earlier sprint to send it to. */
   finishedEarlier(uid: string): Promise<Card>;
-  /** Set how many points a week a person gets through — the number the Triage
-   *  board measures their load against; 0 takes it back, leaving them with
-   *  none. The caller reloads: these numbers are the server's, summed over
-   *  cards the caller may not be holding, so there is nothing to patch in
-   *  place and no second fetch to make here. */
-  setCapacity(login: string, points: number): Promise<void>;
-  /** Set how many points a week a TEAM gets through — the number the Triage
-   *  board holds each week's scheduled points against. A number of its own,
-   *  not a sum of the team's people; 0 takes it back. */
+  /** Set how many points a week a TEAM gets through. A number of its own,
+   *  not a sum of the team's people; 0 takes it back. Kept in the team file,
+   *  the API and the MCP; no board reads it until a backlog shows load
+   *  again (docs/design/backlog.md). The caller reloads. */
   setTeamCapacity(team: string, points: number): Promise<void>;
-  /** Take a card out of every week — back to the triage strip. */
-  untriageCard(uid: string): Promise<Card>;
   /** Whose is this: a team and a person on it, a team alone (person = ""),
-   *  or nobody (both ""). A person files an UNPLANNED card the way the Me
-   *  board would — today, the unplanned band, the team's sprint, off any
-   *  shelf; a team alone parks it on that team's shelf; a planned card only
-   *  changes hands (docs/design/hierarchy.md "Owner", H10). A person needs a
+   *  or nobody (both ""). A person takes an UNPLANNED card into work the way
+   *  the Me board would — today, the unplanned band, the team's sprint, out
+   *  of its backlog (K4); a team alone parks it in that team's backlog, and
+   *  a parked card handed to another team stays parked (K5); nobody parks it
+   *  in the no-team backlog (K3); a planned card only changes hands (docs/design/hierarchy.md "Owner", H10). A person needs a
    *  team (422 ownerNeedsTeam); a subtask and a review card are refused
    *  (ownerFollowsLink); so are planning and project cards. */
   ownCard(uid: string, team: string, person: string): Promise<Card>;

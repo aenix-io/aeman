@@ -7,7 +7,7 @@ import { resourceToCard, sprintStateFrom, type WatchFrame } from "./api/resource
 import type { Board, Card as CardModel, SprintState } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
-import { TriageBoard } from "./components/TriageBoard";
+import { BacklogBoard } from "./components/BacklogBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
 import { RoadmapBoard } from "./components/RoadmapBoard";
 import { TeamsModal } from "./components/TeamsModal";
@@ -30,6 +30,7 @@ import { forgetMade, justMade } from "./justmade";
 import {
   queryString,
   snapshotDay,
+  storedView,
   viewPath,
   viewQueries,
   watchQueries,
@@ -61,22 +62,7 @@ const LS_TEAM_FILTER = "aeman.teamFilter";
 const LS_VIEW_AS = "aeman.viewAs";
 
 function readView(): ViewMode {
-  const raw = localStorage.getItem(LS_VIEW);
-  if (raw === "team" || raw === "nixon") {
-    return "team";
-  }
-  // "plan" is the tab's pre-rename name — an existing localStorage entry
-  // still lands on the Project board rather than silently on Me.
-  if (raw === "project" || raw === "plan") {
-    return "project";
-  }
-  if (raw === "triage") {
-    return "triage";
-  }
-  if (raw === "roadmap") {
-    return "roadmap";
-  }
-  return "me";
+  return storedView(localStorage.getItem(LS_VIEW));
 }
 
 function readStringList(key: string): string[] | null {
@@ -659,7 +645,7 @@ export function App() {
   );
   const activeKey = activeQueries.map(queryString).join("|");
   // Which BOARD the reader is standing on, for the gestures made on it: the ×,
-  // the drop into a week, the pull back into the strip. It is the listing's own
+  // the owner picker, a create. It is the listing's own
   // selector minus what only a listing needs, so the server judges a press
   // against exactly the board the person is looking at.
   const standingKey = useMemo(() => {
@@ -1426,7 +1412,7 @@ export function App() {
         {/* The day belongs to the app, not to a board: it is the same value
             whichever day board is open, so the control that moves it stands
             with the view tabs rather than being drawn again inside each. The
-            boards that lay every week out at once (Triage, Project) have no
+            boards that are not of a day (Backlog, Roadmap, Project) have no
             day to show. */}
         {(view === "me" || view === "team") && (
           <DayNav
@@ -1498,11 +1484,11 @@ export function App() {
           <button
             type="button"
             role="tab"
-            aria-selected={view === "triage"}
-            className={`segment${view === "triage" ? " segment-active" : ""}`}
-            onClick={() => setView("triage")}
+            aria-selected={view === "backlog"}
+            className={`segment${view === "backlog" ? " segment-active" : ""}`}
+            onClick={() => setView("backlog")}
           >
-            Triage
+            Backlog
           </button>
           <button
             type="button"
@@ -1602,8 +1588,8 @@ export function App() {
             onFocused={() => setRoadmapFocus(null)}
           />
         )}
-        {board && view === "triage" && (
-          <TriageBoard
+        {board && view === "backlog" && (
+          <BacklogBoard
             board={board}
             provider={provider}
             roster={roster}
@@ -1613,7 +1599,6 @@ export function App() {
             names={names}
             patchCard={patchCard}
             addCard={addCard}
-            replaceCard={replaceCard}
             removeCard={removeCard}
             reorderCards={reorderCards}
             reload={reload}

@@ -53,8 +53,6 @@ const CARD_WRITES = new Set([
   "reopen",
   "sendToReview",
   "removeReviewer",
-  "placeCard",
-  "untriageCard",
   "ownCard",
   "addNote",
   "editNote",

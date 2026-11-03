@@ -7,11 +7,18 @@ import { createView } from "./views";
 // answered with a card that is not the one the person typed.
 describe("which board a create belongs to", () => {
   it("is the Project grid when it names a column", () => {
-    expect(createView({ scope: "Auth", week: "2026-09-07" })).toBe("project");
+    expect(createView({ scope: "Auth" })).toBe("project");
   });
 
-  it("is the drawer when it is parked", () => {
+  it("is the Backlog board when it is parked", () => {
     expect(createView({ parked: true })).toBe("backlog");
+  });
+
+  // A task typed into a Backlog column is parked on that team, last (K3):
+  // the board the reader stands on says so whether or not the add box does.
+  it("is the Backlog board for anything typed while standing on it", () => {
+    expect(createView({}, "backlog")).toBe("backlog");
+    expect(createView({ parked: true }, "backlog")).toBe("backlog");
   });
 
   // A planning card is the Roadmap's whatever board is open, and so is a task
@@ -23,14 +30,11 @@ describe("which board a create belongs to", () => {
     expect(createView({ underPlanning: false })).toBe("team");
   });
 
-  // The week is that board's whole gesture, days or no days: a card started
-  // in the row that IS NOW carries today's dates as well and is still a card
-  // of the Triage board (the server takes them for the current week alone).
-  it("is a Triage cell whenever the card is a week's", () => {
-    expect(createView({ week: "2026-09-07" })).toBe("triage");
-    expect(createView({ week: "2026-09-07", start: "2026-09-08", day: "2026-09-08" })).toBe(
-      "triage",
-    );
+  // K9: there is no Triage board to create on, and a week names no board —
+  // a task has none (K7). A day card is a day board's.
+  it("never answers Triage", () => {
+    expect(createView({ start: "2026-09-08", day: "2026-09-08" })).toBe("team");
+    expect(createView({}, "team")).not.toBe("triage");
   });
 
   // A day card is the board the reader is STANDING on: the Me board and the
@@ -43,11 +47,10 @@ describe("which board a create belongs to", () => {
     expect(createView({})).toBe("team");
   });
 
-  // The shape still wins where it names a board of its own: the backlog
-  // drawer stands on another board's screen.
+  // The shape still wins where it names a board of its own.
   it("lets the shape win over the open board", () => {
-    expect(createView({ parked: true }, "triage")).toBe("backlog");
-    expect(createView({ week: "2026-09-07" }, "triage")).toBe("triage");
-    expect(createView({ scope: "Auth" }, "project")).toBe("project");
+    expect(createView({ parked: true }, "team")).toBe("backlog");
+    expect(createView({ scope: "Auth" }, "backlog")).toBe("project");
+    expect(createView({ type: "epic" }, "backlog")).toBe("roadmap");
   });
 });

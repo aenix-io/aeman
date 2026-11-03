@@ -71,7 +71,8 @@ const errMessage = (err: unknown) => (err instanceof Error ? err.message : Strin
 
 /** childLevels is what a planning card's pane may make under it: the levels
  *  below its own, and under an epic a TASK — born here with no team and no
- *  day, it stands in the Triage strip until somebody plans it (H7). */
+ *  day, it is parked in the no-team backlog until somebody takes it into
+ *  work (H7, K3). */
 function childLevels(kind: RoadmapKind): (CardType | "task")[] {
   if (kind === "goal") {
     return ["initiative", "epic"];
@@ -509,7 +510,7 @@ export function CardDetail({
   }, []);
   // What kind of work this is. It is set by which area of the Team board a
   // card stands in, which is no help when the card is met anywhere else —
-  // and on the Triage board a column is a person, so there is no area to
+  // and on the Backlog board a column is a team, so there is no area to
   // drop it into at all.
   const zoneRef = useRef<HTMLSpanElement | null>(null);
   const [zoneOpen, setZoneOpen] = useState(false);
@@ -1100,7 +1101,7 @@ export function CardDetail({
                           </button>
                           {addLevel === "task" && (
                             <span className="drawer-hint drawer-add-hint">
-                              A task made here has no team and no day: it lands in Triage until somebody plans it.
+                              A task made here has no team and no day: it waits in the no-team backlog until somebody takes it into work.
                             </span>
                           )}
                         </form>
@@ -1336,7 +1337,6 @@ export function CardDetail({
                   </>,
                 )}
             {task && card.sprintStart && row("Sprint", card.sprintStart)}
-            {task && card.week && row("Week", card.week)}
             {subtask &&
               parentCrumb &&
               row(

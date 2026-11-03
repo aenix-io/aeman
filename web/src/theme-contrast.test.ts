@@ -93,9 +93,7 @@ const cell = {
   "dark vivid": [":root", ':root[data-palette="vivid"]', ':root[data-theme="dark"]', ':root[data-theme="dark"][data-palette="vivid"]'],
   "dark marine": [":root", ':root[data-palette="marine"]', ':root[data-theme="dark"]', ':root[data-theme="dark"][data-palette="marine"]'],
 };
-const ZONE_BGS = ["--zone-red-bg", "--zone-yellow-bg", "--zone-gray-bg", "--zone-green-bg",
-  // The Triage board's internal lane is a zone area too, cards and all.
-  "--lane-internal-bg"];
+const ZONE_BGS = ["--zone-red-bg", "--zone-yellow-bg", "--zone-gray-bg", "--zone-green-bg"];
 
 // AA is 4.5 for normal text, 3.0 for large/secondary. --fg is body text (held
 // to AAA 7), --muted is secondary text (AA 4.5). --faint is the dim tier
@@ -147,7 +145,7 @@ describe("done vs in-progress bar separation", () => {
 // invisible, though: it is drawn on the bar's own track, and if the two are
 // too close the card reads as untouched rather than refused. Held against the
 // track it sits in rather than against the page, which is the surface behind
-// it (styles.css: .triage-slot-bar / .card-bar use --line-soft).
+// it (styles.css: .card-bar uses --line-soft).
 describe("a refused bar is visible in the track it sits in", () => {
   for (const [name, sels] of Object.entries(cell)) {
     it(`${name}: --stage-refuse stands out from --line-soft`, () => {

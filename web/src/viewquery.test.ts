@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { addDays, todayIso } from "./date";
-import { WEEKS_FWD } from "./weekgrid";
 import {
   queryString,
   snapshotDay,
-  TRIAGE_WEEKS,
+  storedView,
   viewPath,
   viewQueries,
   watchQueries,
@@ -133,43 +132,40 @@ describe("queryString", () => {
   });
 });
 
-// The Triage board asks for exactly the weeks it draws.
-//
-// They were two separate numbers — six fetched, nine drawn — and the rows past
-// the window were a trap: a card dropped in one carried a week the listing
-// does not return, so after the next reload it stood on no board at all. Not
-// Triage (outside the window), not the day boards (a week ahead is on none),
-// not Project (no column). A live card openable only by its uid.
-describe("the Triage window", () => {
-  it("covers every row the grid draws", () => {
-    // The grid runs from this Monday through WEEKS_FWD after it, inclusive.
-    expect(TRIAGE_WEEKS).toBe(WEEKS_FWD + 1);
+// The Backlog board lists each selected team's parked open tasks, in the
+// server's BacklogOrder (K2) — and it WATCHES what the Team board watches,
+// every card of those teams (K6): a card parked, taken into work, re-teamed or
+// finished by anybody is a card that enters or leaves a backlog, and only a
+// watch wider than the listing hears the leaving.
+describe("the Backlog board", () => {
+  it("lists the backlog view of the shown teams, and nothing about a day", () => {
+    expect(viewQueries("backlog", TODAY, ["alpha", "beta"], undefined, TODAY)).toEqual([
+      { view: "backlog", team: "alpha,beta" },
+    ]);
   });
 
-  it("asks the server for that window, starting at this Monday", () => {
-    const [q] = viewQueries("triage", TODAY, ["alpha"], undefined, TODAY);
-    expect(q.view).toBe("triage");
-    expect(q.weeks).toBe(String(TRIAGE_WEEKS));
+  it("names the no-team group as the empty member of the team set", () => {
+    const [q] = viewQueries("backlog", TODAY, ["", "portal"], undefined, TODAY);
+    expect(q.team).toBe(",portal");
   });
 
-  it("asks for the review cards too, and hides them on the board instead", () => {
-    // The board offers to draw reviews. Fetching them once and hiding them
-    // client-side is what makes the toggle instant — and keeps the watch
-    // scope from changing under a board that is being read.
-    const [q] = viewQueries("triage", TODAY, ["alpha"], undefined, TODAY);
-    expect(q.reviews).toBe("true");
+  it("is never a snapshot: a past day changes nothing about a backlog", () => {
+    const [q] = viewQueries("backlog", "2026-06-01", ["alpha"], undefined, TODAY);
+    expect(q.snapshot).toBeUndefined();
+    expect(snapshotDay("backlog", "2026-06-01", TODAY)).toBe(false);
   });
 
-  it("asks for the parked work as well — no week puts it in no window", () => {
-    // A parked card has no week at all, so the weeks query cannot reach it
-    // however wide the window is. The drawer is fetched beside the grid
-    // rather than when it opens, so its counts are right before it does.
-    const qs = viewQueries("triage", TODAY, ["alpha", "beta"], undefined, TODAY);
-    const parked = qs.find((q) => q.view === "backlog");
-    expect(parked).toBeDefined();
-    expect(parked?.team).toBe("alpha,beta");
-    // And it asks for every list the teams have, not one of them.
-    expect(parked?.backlog).toBeUndefined();
+  it("watches every card of its teams, the Team board's watch (K6)", () => {
+    expect(watchQuery("backlog", TODAY, ["alpha", "beta"])).toEqual({ view: "all", team: "alpha,beta" });
+    expect(watchQueries("backlog", TODAY, ["alpha"])).toEqual(watchQueries("team", TODAY, ["alpha"]));
+  });
+
+  // K9: there is no Triage view to ask for any more.
+  it("asks for no week window: from and weeks are gone (K9)", () => {
+    for (const q of viewQueries("backlog", TODAY, ["alpha"], undefined, TODAY)) {
+      expect(q.from).toBeUndefined();
+      expect(q.weeks).toBeUndefined();
+    }
   });
 });
 
@@ -177,8 +173,8 @@ describe("the Triage window", () => {
 // and the watch address the same board the same way, off the same string.
 describe("where a selector is fetched", () => {
   it("puts the board in the path and leaves the rest", () => {
-    expect(viewPath(queryString({ view: "triage", team: "portal", weeks: "9" }), "cards")).toBe(
-      "/views/triage/cards?team=portal&weeks=9",
+    expect(viewPath(queryString({ view: "backlog", team: "portal" }), "cards")).toBe(
+      "/views/backlog/cards?team=portal",
     );
     expect(viewPath(queryString({ view: "me", day: "2026-09-11" }), "watch")).toBe(
       "/views/me/watch?day=2026-09-11",
@@ -193,5 +189,23 @@ describe("where a selector is fetched", () => {
   // the bare collection used to do, minus the guessing.
   it("falls back to the escape hatch", () => {
     expect(viewPath("", "cards")).toBe("/views/all/cards");
+  });
+});
+
+// The tab this browser remembers. A name a board used to have still lands on
+// the board that carries it now — and the retired Triage lands on the Backlog
+// that replaced it (K9), not silently on Me.
+describe("the remembered tab", () => {
+  it("lands a remembered Triage on the Backlog (K9)", () => {
+    expect(storedView("triage")).toBe("backlog");
+    expect(storedView("backlog")).toBe("backlog");
+  });
+
+  it("keeps the older renames, and falls back to Me", () => {
+    expect(storedView("plan")).toBe("project");
+    expect(storedView("nixon")).toBe("team");
+    expect(storedView("roadmap")).toBe("roadmap");
+    expect(storedView(null)).toBe("me");
+    expect(storedView("whatever")).toBe("me");
   });
 });
