@@ -260,6 +260,7 @@ func (s *Service) syncParentProgress(ctx context.Context, b board.Board, parentI
 	if !ok || board.IsPlanning(p) {
 		return nil
 	}
+	reopened := false
 	if board.Complete(p.Stage, p.Progress) {
 		// A complete parent stays the human's final call — unless an
 		// UNFINISHED subtask just joined or reopened: done cannot stand on
@@ -274,6 +275,7 @@ func (s *Service) syncParentProgress(ctx context.Context, b board.Board, parentI
 			s.logEvent(ctx, b, p, board.EventStage, string(board.StageDone), "")
 			p.Stage = board.StageNone
 		}
+		reopened = true
 	}
 	var children []board.Card
 	seen := false
@@ -294,14 +296,19 @@ func (s *Service) syncParentProgress(ctx context.Context, b board.Board, parentI
 		return nil
 	}
 	derived := board.DerivedProgress(children)
-	if derived == p.Progress {
-		return nil
+	if derived != p.Progress {
+		if err := s.backend.SetProgress(ctx, b, p, derived); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, p, board.EventProgress,
+			strconv.Itoa(p.Progress), strconv.Itoa(derived))
+		p.Progress = derived
 	}
-	if err := s.backend.SetProgress(ctx, b, p, derived); err != nil {
-		return err
+	// Un-done by an open subtask, a finished parent that never had a place
+	// is open work with none: it is parked (K1).
+	if reopened {
+		return s.keepPlaced(ctx, b, p, board.IsSubtask(b, p))
 	}
-	s.logEvent(ctx, b, p, board.EventProgress,
-		strconv.Itoa(p.Progress), strconv.Itoa(derived))
 	return nil
 }
 

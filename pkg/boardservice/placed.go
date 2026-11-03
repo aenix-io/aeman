@@ -27,7 +27,8 @@ import (
 // pull-out of a group and a hierarchy move (ungroupWith, linkInHierarchy),
 // the release of a deleted parent's subtasks (freeChildren), and the writes
 // that make finished work open again (SetProgress, SetStage, SetInProgress,
-// Reopen).
+// Reopen, an open subtask un-doing its parent in syncParentProgress, a review
+// card sending its original back to review in syncReviewLink).
 func (s *Service) keepPlaced(ctx context.Context, b board.Board, c board.Card, subtask bool) error {
 	if !board.Unplaced(c, subtask) {
 		return nil

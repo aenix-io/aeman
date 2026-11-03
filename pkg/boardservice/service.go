@@ -2180,10 +2180,14 @@ func (s *Service) syncReviewLink(ctx context.Context, b board.Board, card board.
 	}
 	if next == board.StageNone {
 		s.logEvent(ctx, b, original, board.EventReviewPassed, reviewer, "")
-	} else {
-		s.logEvent(ctx, b, original, board.EventStage, string(original.Stage), string(board.StageReview))
+		return nil
 	}
-	return nil
+	s.logEvent(ctx, b, original, board.EventStage, string(original.Stage), string(board.StageReview))
+	// Back on review, finished work is open again; one that never had a
+	// place is parked (K1).
+	after := original
+	after.Stage = board.StageReview
+	return s.keepPlaced(ctx, b, after, board.IsSubtask(b, original))
 }
 
 // --- Review linkage --------------------------------------------------------

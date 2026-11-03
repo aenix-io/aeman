@@ -192,3 +192,60 @@ func TestASubtaskIsNeverParked(t *testing.T) {
 		t.Fatalf("a backlog create under an epic = %+v, %v", c, err)
 	}
 }
+
+// Two more doors make finished work open again without the task's own
+// progress write: an OPEN subtask joining (or reopening under) a finished
+// parent un-dones the parent (syncParentProgress), and a review card sliding
+// back below 100 puts its finished original back on review
+// (syncReviewLink). A finished task that never had a place — history:
+// schema 3 parks only open ones — reopened there is parked too (K1).
+func TestAParentReopenedByASubtaskWithNoPlaceIsParked(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "p", Title: "finished, never placed", Team: "alpha", Progress: 100, Stage: board.StageDone},
+		{ItemID: "c", Title: "open work", Team: "alpha", Progress: 20, SprintStart: board.TodayIso()},
+	}, map[string]board.SprintState{"alpha": {Current: board.TodayIso(), ItemID: "s1"}})
+	if err := New(f).SetParent(ctx, "acme", "c", "p"); err != nil {
+		t.Fatal(err)
+	}
+	if p := f.get("p"); board.Complete(p.Stage, p.Progress) || !p.Parked {
+		t.Fatalf("the reopened parent with no place is parked: %+v", p)
+	}
+}
+
+func TestAnOriginalSentBackToReviewWithNoPlaceIsParked(t *testing.T) {
+	today := board.TodayIso()
+	f := newFake([]board.Card{
+		{ItemID: "o", Title: "finished, never placed", Team: "alpha", Progress: 100},
+		{ItemID: "r", Title: "review: it", Team: "alpha", ReviewOf: "o", Progress: 100,
+			Assignees: []string{"bob"}, SprintStart: today, StartDate: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	if err := New(f).SetProgress(ctx, "acme", "r", 50); err != nil {
+		t.Fatal(err)
+	}
+	if o := f.get("o"); o.Stage != board.StageReview || !o.Parked {
+		t.Fatalf("the original back on review with no place is parked: %+v", o)
+	}
+}
+
+// The × that unassigns a subtask of a PARKED parent pulls it out of the
+// group — which already parks it, it has no place of its own — and then
+// parks it as the gesture says. The log says so once: a second "parked"
+// event for the same request is a lie about two changes.
+func TestUnassigningASubtaskOfAParkedParentLogsOneBacklogEvent(t *testing.T) {
+	f := placedFixture(board.Card{ItemID: "t", Title: "unrelated", Team: "alpha", SprintStart: board.TodayIso()})
+	if err := New(f).Remove(ctx, "acme", "k", board.ViewAll, Unassign); err != nil {
+		t.Fatal(err)
+	}
+	if c := f.get("k"); c == nil || !c.Parked || c.Parent != "" {
+		t.Fatalf("the subtask is out of its group and parked: %+v", c)
+	}
+	n := 0
+	for _, e := range f.eventsOf("k") {
+		if e.Kind == board.EventBacklog {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("backlog events = %d, want 1: %+v", n, f.eventsOf("k"))
+	}
+}
