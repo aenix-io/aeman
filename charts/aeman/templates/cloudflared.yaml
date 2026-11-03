@@ -1,0 +1,88 @@
+{{- if .Values.cloudflared.enabled }}
+{{- if not .Values.cloudflared.tunnelId }}
+{{- fail "cloudflared.tunnelId is required when cloudflared.enabled" }}
+{{- end }}
+{{- if not .Values.cloudflared.existingSecret }}
+{{- fail "cloudflared.existingSecret (a Secret with credentials.json) is required when cloudflared.enabled" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "aeman.fullname" . }}-cloudflared
+  labels:
+    {{- include "aeman.labels" . | nindent 4 }}
+data:
+  config.yml: |
+    tunnel: {{ .Values.cloudflared.tunnelId }}
+    credentials-file: /etc/cloudflared/creds/credentials.json
+    protocol: {{ .Values.cloudflared.protocol }}
+    retries: 5
+    grace-period: 30s
+    metrics: 0.0.0.0:2000
+    no-autoupdate: true
+    ingress:
+      - hostname: {{ .Values.cloudflared.hostname }}
+        service: http://{{ include "aeman.fullname" . }}:{{ .Values.service.port }}
+      - service: http_status:404
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aeman.fullname" . }}-cloudflared
+  labels:
+    {{- include "aeman.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cloudflared
+spec:
+  replicas: {{ .Values.cloudflared.replicas }}
+  selector:
+    matchLabels:
+      {{- include "aeman.cloudflaredSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ .Values.cloudflared | toJson | sha256sum }}
+      labels:
+        {{- include "aeman.cloudflaredSelectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cloudflared
+          image: "{{ .Values.cloudflared.image.repository }}:{{ .Values.cloudflared.image.tag }}"
+          args:
+            - tunnel
+            - --config
+            - /etc/cloudflared/config/config.yml
+            - run
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 4
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cloudflared/config
+              readOnly: true
+            - name: creds
+              mountPath: /etc/cloudflared/creds
+              readOnly: true
+          resources:
+            {{- toYaml .Values.cloudflared.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "aeman.fullname" . }}-cloudflared
+        - name: creds
+          secret:
+            secretName: {{ .Values.cloudflared.existingSecret }}
+{{- end }}

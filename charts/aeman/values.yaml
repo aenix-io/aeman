@@ -1,0 +1,95 @@
+# aeman runs as ONE replica: the board cache, the write queue and the git
+# clones under /data have exactly one writer. 0 parks it (maintenance, a
+# move between hosts); anything above 1 is refused.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/aenix-io/aeman
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# The Secret holding the AEMAN_* settings that must not live in values:
+# AEMAN_SESSION_KEY, AEMAN_GITHUB_CLIENT_SECRET, AEMAN_GITHUB_APP_KEY (base64 of
+# the PEM), AEMAN_GIT_TOKEN*, ... Every key becomes an environment variable.
+# Create it out of band, e.g.
+#   kubectl create secret generic aeman-env --from-env-file=aeman.env
+# See docs/deploy.md for the full list of variables.
+existingSecret: ""
+
+# Plain (non-secret) AEMAN_* settings, rendered as environment variables.
+# They win over the same keys in existingSecret.
+env: {}
+#  AEMAN_BASE_URL: https://aeman.example.com
+#  AEMAN_REPOS: aeman-db=https://github.com/example/aeman-db.git
+#  AEMAN_TZ: Europe/Prague
+#  AEMAN_GITHUB_CLIENT_ID: Iv1.xxxxxxxx
+#  AEMAN_GITHUB_APP_ID: "123456"
+
+# Soft heap ceiling for the Go runtime. Keep it below the memory limit so the
+# collector works harder before the kernel kills the pod.
+goMemLimit: 1600MiB
+
+service:
+  type: ClusterIP
+  port: 8765
+
+# /data holds the shallow clones of the board repositories and the session
+# store (sign-ins and MCP clients). Losing it costs a re-clone and a re-login,
+# never board data — the repositories are the source of truth.
+persistence:
+  enabled: true
+  storageClass: ""
+  size: 5Gi
+  accessMode: ReadWriteOnce
+  existingClaim: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 2Gi
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Plain Ingress (with cert-manager). Use this OR the Cloudflare tunnel below.
+ingress:
+  enabled: false
+  className: ""
+  host: aeman.example.com
+  # cert-manager ClusterIssuer; empty = no TLS annotation.
+  clusterIssuer: ""
+  tlsSecretName: aeman-tls
+  annotations:
+    # The boards keep a long-lived watch stream open.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+
+# A Cloudflare Tunnel connector in front of the service, for an instance
+# published through Cloudflare without an ingress. The tunnel credentials
+# (the <tunnel-id>.json written by `cloudflared tunnel create`) live in a
+# Secret created out of band, under the key `credentials.json`.
+cloudflared:
+  enabled: false
+  image:
+    repository: cloudflare/cloudflared
+    tag: "2026.10.7"
+  replicas: 1
+  tunnelId: ""
+  hostname: aeman.example.com
+  existingSecret: ""
+  # http2 over TCP/443: QUIC drops silently on some networks while the
+  # process stays alive, so nothing restarts it.
+  protocol: http2
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi

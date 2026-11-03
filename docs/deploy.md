@@ -98,3 +98,33 @@ A user whose token can't read that board sees an access-denied screen rather tha
 - **Cert storage:** the `caddy_data` volume persists issued certificates across restarts.
 - **Local single-user mode:** without a client id/secret pair the binary runs as a single-user local tool on the identity of whoever its token belongs to — the forge's token variables, then the OS keychain that `aeman login` writes, then the forge CLI signed in on the machine (`gh` on GitHub, `glab` on GitLab). See [api.md](api.md#aeman-login).
 - **Behind Cloudflare Tunnel instead of Caddy?** Drop the `caddy` service, add a `cloudflared` service with your tunnel token, and route the public hostname to `http://aeman:8765`; keep `AEMAN_BASE_URL` pointed at the public HTTPS URL.
+
+
+## Kubernetes (Helm)
+
+The chart in `charts/aeman` runs the same image as one replica (the board cache and the clones under `/data` have exactly one writer, so the Deployment uses `Recreate` and must not be scaled). Settings come from environment variables, as with Compose: secrets from a Secret you create, plain values from `env`.
+
+```sh
+# every AEMAN_* secret, one per line (the same file Compose reads as .env)
+kubectl -n aeman create secret generic aeman-env --from-env-file=aeman.env
+
+helm upgrade -i aeman charts/aeman -n aeman \
+  --set existingSecret=aeman-env \
+  --set persistence.storageClass=replicated \
+  --set ingress.enabled=true --set ingress.className=nginx \
+  --set ingress.host=aeman.example.com --set ingress.clusterIssuer=letsencrypt-prod
+```
+
+`/data` is a PersistentVolumeClaim (kept on uninstall): the shallow clones and the session store. Losing it costs a re-clone and a re-login, never board data. `goMemLimit` sets `GOMEMLIMIT`; keep it under the memory limit.
+
+To publish through a Cloudflare Tunnel instead of an Ingress, put the tunnel's credentials JSON in a Secret under the key `credentials.json` and enable the connector the chart ships:
+
+```sh
+kubectl -n aeman create secret generic aeman-tunnel --from-file=credentials.json=<tunnel-id>.json
+helm upgrade -i aeman charts/aeman -n aeman --reuse-values \
+  --set ingress.enabled=false \
+  --set cloudflared.enabled=true --set cloudflared.tunnelId=<tunnel-id> \
+  --set cloudflared.hostname=aeman.example.com --set cloudflared.existingSecret=aeman-tunnel
+```
+
+Only one connector set may serve a tunnel while you move an instance: stop the old one before the new one starts, or Cloudflare balances requests between the two.
