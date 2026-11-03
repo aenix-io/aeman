@@ -2511,6 +2511,23 @@ func (s *Service) SetAssignee(ctx context.Context, boardID string, itemID, login
 			return err
 		}
 	}
+	// A REVIEW card's person is its reviewer, and naming one or clearing it
+	// is the owner picker's gesture at this door too (K10, K12): a person on
+	// a review nobody has taken TAKES it into work; nobody on a taken review
+	// while its task is on review hands it back to the backlog. Writing the
+	// field alone left a parked review with somebody on it — on no board —
+	// or one in work with nobody.
+	if card.ReviewOf != "" {
+		if login != "" && board.NeedsReviewer(card) {
+			return s.takeReview(ctx, b, card, login)
+		}
+		if login == "" && len(card.Assignees) > 0 {
+			if original, ok := findCard(b, card.ReviewOf); ok && original.Stage == board.StageReview &&
+				!board.Complete(card.Stage, card.Progress) {
+				return s.returnReview(ctx, b, card)
+			}
+		}
+	}
 	// A subtask always belongs to its parent's PERSON, the way it always
 	// belongs to the parent's team: a direct change follows the parent
 	// instead of drifting away from it. A family that drifts apart lands on

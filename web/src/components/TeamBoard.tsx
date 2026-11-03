@@ -34,6 +34,7 @@ import {
   removeChoices,
   backlogPatch,
   withdrawPatch,
+  reviewAssigneePatch,
   unaskedRemoval,
   type RemoveChoice,
   deleteWarning,
@@ -507,7 +508,9 @@ export function TeamBoard({
           fromMeta.kind !== "cell" ||
           fromMeta.engineer !== toMeta.engineer)
       ) {
-        optimistic.assignees = wantAssignees;
+        // A review card's person is its reviewer: the server takes or hands
+        // it back (K10, K12), and the board shows the same at once.
+        Object.assign(optimistic, reviewAssigneePatch(card, wantAssignees));
         patch.assignees = wantAssignees;
       }
     }

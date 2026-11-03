@@ -9,6 +9,7 @@ import {
   backlogPatch,
   unaskedRemoval,
   withdrawPatch,
+  reviewAssigneePatch,
   subtaskRemovalPatch,
   subtaskRemovalUndo,
   type RemovableCard,
@@ -443,5 +444,25 @@ describe("the × on a review nobody has taken", () => {
     expect(withdrawPatch({ stage: "review", progress: 60 })).toEqual({ stage: undefined, progress: 60 });
     expect(withdrawPatch({ stage: "review", progress: 5 })).toEqual({ stage: undefined, progress: 10 });
     expect(withdrawPatch({ stage: "review", progress: 100 })).toEqual({ stage: undefined, progress: 90 });
+  });
+});
+
+// The Team drag of a REVIEW card into a column names its reviewer, and the
+// server reads that as the owner picker's gesture (K10, K12): into
+// Unassigned, a taken review goes back to the backlog with nobody on it; a
+// person on a review nobody has taken takes it into work. The board shows
+// the same at once.
+describe("a review card's person, set by a drag", () => {
+  it("hands a taken review back to the backlog when nobody is named", () => {
+    expect(reviewAssigneePatch({ reviewOf: "t", assignees: ["bob"] }, [])).toMatchObject({ parked: true, assignees: [], zone: "gray" });
+  });
+
+  it("takes an unclaimed review into work when a person is named", () => {
+    expect(reviewAssigneePatch({ reviewOf: "t", assignees: [], parked: true }, ["ann"])).toMatchObject({ parked: false, assignees: ["ann"] });
+  });
+
+  it("is a plain change of person on anything else", () => {
+    expect(reviewAssigneePatch({ assignees: ["bob"] }, [])).toEqual({ assignees: [] });
+    expect(reviewAssigneePatch({ reviewOf: "t", assignees: ["bob"] }, ["ann"])).toEqual({ assignees: ["ann"] });
   });
 });

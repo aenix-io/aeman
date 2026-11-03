@@ -1,4 +1,5 @@
 import { keepPlaced, parkedLocally, type PlaceFields } from "./backlog";
+import type { Card } from "./providers/types";
 import type { LineageRef } from "./providers/types";
 import { isSubtask } from "./subtasks";
 
@@ -402,4 +403,22 @@ export function removeIntent(choice: RemoveChoice): "unassign" | "off-board" | n
     default:
       return null;
   }
+}
+
+/** reviewAssigneePatch is what a change of person shows at once, the way
+ *  the server answers it (boardservice.SetAssignee): on a REVIEW card nobody
+ *  named takes a taken review back to the backlog — parked, nobody, no day
+ *  (K12) — and a person on a review nobody has taken takes it into work
+ *  (K10). Any other change is the person alone. */
+export function reviewAssigneePatch(
+  c: { reviewOf?: string; assignees: string[]; parked?: boolean },
+  want: string[],
+): Partial<Card> {
+  if (c.reviewOf && want.length === 0 && c.assignees.length > 0) {
+    return parkedLocally();
+  }
+  if (c.reviewOf && want.length > 0 && c.parked && c.assignees.length === 0) {
+    return { assignees: want, parked: false };
+  }
+  return { assignees: want };
 }
