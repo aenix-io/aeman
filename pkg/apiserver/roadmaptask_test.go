@@ -102,15 +102,15 @@ func TestATaskIsDueWhenItsNearestPlanningCardEnds(t *testing.T) {
 	}
 }
 
-// A review card names the card it REVIEWS (status.reviewed: its uid and
-// title), so a client can show "Reviews: «task»" and open it without
+// A review card names the card it REVIEWS (status.reviewed: its uid, title
+// and people), so a client can show "Reviews: «task»" and open it without
 // looking the task up — the Backlog and the Team board may not hold it. Any
 // other card names nothing, and a review whose task is gone names nothing
 // either.
 func TestAReviewCardNamesTheCardItReviews(t *testing.T) {
 	t.Parallel()
 	b := board.NewBoard([]board.Card{
-		{ItemID: "task", Title: "Receipts", Team: "alpha", Stage: board.StageReview},
+		{ItemID: "task", Title: "Receipts", Team: "alpha", Stage: board.StageReview, Assignees: []string{"ann"}},
 		{ItemID: "rev", Title: "review: Receipts", ReviewOf: "task", Team: "alpha", Parked: true},
 		{ItemID: "orphan", Title: "review: gone", ReviewOf: "gone", Team: "alpha", Parked: true},
 	})
@@ -118,6 +118,12 @@ func TestAReviewCardNamesTheCardItReviews(t *testing.T) {
 	got := CardResource(b, rev).Status.Reviewed
 	if got == nil || got.UID != "task" || got.Title != "Receipts" {
 		t.Fatalf("the review card's reviewed = %+v, want «Receipts»", got)
+	}
+	// And whose that task is: the review's counterpart, drawn as the small
+	// avatar on a review card wherever it stands — the Backlog too, which
+	// does not hold the task.
+	if len(got.Assignees) != 1 || got.Assignees[0] != "ann" {
+		t.Fatalf("the reviewed task's people = %v, want [ann]", got.Assignees)
 	}
 	for _, id := range []string{"task", "orphan"} {
 		c, _ := board.Find(b, id)

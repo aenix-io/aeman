@@ -31,6 +31,14 @@ export interface LineageRef {
   end?: string;
 }
 
+/** ReviewedRef is the card a review card reviews (status.reviewed). */
+export interface ReviewedRef {
+  uid: string;
+  title: string;
+  /** Whose the reviewed card is: the review's counterpart. */
+  assignees?: string[];
+}
+
 /** HierarchyStatus is a planning card's derived standing (status.hierarchy):
  *  never stored, read off the tasks under it on every listing. */
 export interface HierarchyStatus {
@@ -96,9 +104,10 @@ export interface Card {
    *  entry is the parent itself, and its type is what tells a subtask from a
    *  task under an epic without a lookup. */
   lineage?: LineageRef[];
-  /** On a REVIEW card, the card it reviews (status.reviewed): its uid and
-   *  title, so the drawer and the backlog row can name it and open it. */
-  reviewed?: LineageRef;
+  /** On a REVIEW card, the card it reviews (status.reviewed): its uid, title
+   *  and people, so the drawer and the backlog row can name it, open it and
+   *  draw whose it is. */
+  reviewed?: ReviewedRef;
   /** A task's due date, the server's (status.dueDate): its nearest
    *  planning card's end. */
   dueDate?: string;

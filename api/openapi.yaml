@@ -1695,10 +1695,11 @@ components:
             $ref: '#/components/schemas/LineageRef'
         reviewed:
           allOf:
-            - $ref: '#/components/schemas/LineageRef'
+            - $ref: '#/components/schemas/ReviewedRef'
           description: >-
-            On a REVIEW card, the card it reviews — its uid and title — so a
-            client can name it and open it without looking it up. Absent on
+            On a REVIEW card, the card it reviews — its uid, title and people
+            — so a client can name it, open it and draw whose it is without
+            looking it up. Absent on
             every other card, and when the reviewed card is gone.
         dueDate:
           type: string
@@ -1710,6 +1711,24 @@ components:
             reviews is.
         hierarchy:
           $ref: '#/components/schemas/Hierarchy'
+    ReviewedRef:
+      type: object
+      description: >-
+        The card a review card reviews: its uid, title and people (its
+        assignees — the review's counterpart, drawn as the small avatar on a
+        review card).
+      required: [uid, title]
+      properties:
+        uid:
+          type: string
+        type:
+          type: string
+        title:
+          type: string
+        assignees:
+          type: array
+          items:
+            type: string
     LineageRef:
       type: object
       additionalProperties: false

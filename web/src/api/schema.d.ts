@@ -915,11 +915,18 @@ export interface components {
             links?: components["schemas"]["CardLinkRef"][];
             /** @description Every ancestor of the card, ROOT FIRST — the breadcrumb a detail pane draws above it, a task parent included. Absent on a root. A review card, which hangs under nothing of its own, carries the planning chain of the task it reviews. */
             lineage?: components["schemas"]["LineageRef"][];
-            /** @description On a REVIEW card, the card it reviews — its uid and title — so a client can name it and open it without looking it up. Absent on every other card, and when the reviewed card is gone. */
-            reviewed?: components["schemas"]["LineageRef"];
+            /** @description On a REVIEW card, the card it reviews — its uid, title and people — so a client can name it, open it and draw whose it is without looking it up. Absent on every other card, and when the reviewed card is gone. */
+            reviewed?: components["schemas"]["ReviewedRef"];
             /** @description A task's due date: the end of its NEAREST planning card (goal, initiative or epic) — never one borrowed from a farther ancestor. Absent with no planning card above it, when the nearest has no end, and on a planning card. A review card is due when the task it reviews is. */
             dueDate?: string;
             hierarchy?: components["schemas"]["Hierarchy"];
+        };
+        /** @description The card a review card reviews: its uid, title and people (its assignees — the review's counterpart, drawn as the small avatar on a review card). */
+        ReviewedRef: {
+            uid: string;
+            type?: string;
+            title: string;
+            assignees?: string[];
         };
         /** @description One ancestor of a card. */
         LineageRef: {

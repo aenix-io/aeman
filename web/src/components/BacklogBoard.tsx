@@ -46,6 +46,8 @@ import { currentSprint, previousSprint } from "../sprint";
 import { todayIso } from "../date";
 import type { Avatars, Names } from "../users";
 import { AddCard } from "./AddCard";
+import { Avatar } from "./Avatar";
+import { displayName } from "../users";
 import { InsertGap } from "./InsertGap";
 import { Dropdown } from "./Dropdown";
 import { KindIcon } from "./KindIcon";
@@ -445,6 +447,26 @@ export function BacklogBoard({
       <OwnerBadge owner={ownerOf(c)} avatars={avatars} names={names} label={false} />
     </OwnerPicker>
   );
+  // A review card's counterpart — whose the reviewed task is — as the Team
+  // and Me boards draw it on a review card: the small round avatar on the
+  // card's own avatar (Card.tsx). The people are the server's
+  // (status.reviewed), since the backlog does not hold the task.
+  const counterpart = (c: CardModel) => {
+    const people = c.reviewOf ? (c.reviewed?.assignees ?? []) : [];
+    if (people.length === 0) {
+      return null;
+    }
+    return (
+      <button
+        type="button"
+        className="card-counterpart-avatar-btn"
+        title={`In implementation: ${people.map((p) => displayName(p, names)).join(", ")}`}
+        onClick={() => c.reviewed && openParent(c.reviewed.uid)}
+      >
+        <Avatar login={people[0]} avatars={avatars} names={names} className="card-counterpart-avatar" />
+      </button>
+    );
+  };
   const [taking, setTaking] = useState<CardModel | null>(null);
 
   return (
@@ -481,7 +503,12 @@ export function BacklogBoard({
                       onRemove={() => remove(c)}
                       onPickSize={openSizer}
                       onOpenParent={openParent}
-                      owner={ownerControls(c)}
+                      owner={
+                        <>
+                          {ownerControls(c)}
+                          {counterpart(c)}
+                        </>
+                      }
                       onTake={c.assignees.length === 0 ? () => setTaking(c) : undefined}
                     />
                     {!carried && gap(i + 1)}

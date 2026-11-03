@@ -168,6 +168,25 @@ describe("the Backlog board", () => {
     expect(html.indexOf("review: Invoices")).toBeLessThan(html.indexOf("Rotate the certificates"));
   });
 
+  // A review card shows whose the REVIEWED task is as the Team and Me boards
+  // show it on a review card: the same small round counterpart avatar, on
+  // the card's avatar. The people come from the server (status.reviewed).
+  it("draws the reviewed task's owner as a review card's small counterpart avatar", () => {
+    const review = card({
+      itemId: "r1",
+      title: "review: Invoices",
+      team: "portal",
+      reviewOf: "t9",
+      reviewed: { uid: "t9", title: "Invoices", assignees: ["ann"] },
+    });
+    const html = draw(board([review, first]));
+    const row = html.slice(html.indexOf('data-card="r1"'), html.indexOf('data-card="p1"'));
+    expect(row).toMatch(/<button[^>]*class="card-counterpart-avatar-btn"[^>]*title="In implementation: ann"/);
+    expect(row).toContain("card-counterpart-avatar");
+    const task = html.slice(html.indexOf('data-card="p1"'));
+    expect(task).not.toContain("card-counterpart-avatar");
+  });
+
   it("draws nothing that is not a parked open task of a shown team (K1, K2)", () => {
     const html = draw(
       board([

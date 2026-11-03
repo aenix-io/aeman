@@ -111,6 +111,16 @@ type LineageRef struct {
 	End string `json:"end,omitempty"`
 }
 
+// ReviewedRef is the card a review card reviews, in status.reviewed: enough
+// to name it, open it and draw whose it is (the small counterpart avatar)
+// without a lookup.
+type ReviewedRef struct {
+	UID       string   `json:"uid"`
+	Type      string   `json:"type,omitempty"`
+	Title     string   `json:"title"`
+	Assignees []string `json:"assignees,omitempty"`
+}
+
 // Hierarchy is a planning card's derived standing (status.hierarchy): where
 // the tasks under it stand, through every level, and how many of them there
 // are. Never stored — read off the tree on every listing.
@@ -160,10 +170,11 @@ type CardStatus struct {
 	// Lineage is every ancestor of the card, root first — the breadcrumb a
 	// detail pane draws above it. Absent on a root.
 	Lineage []LineageRef `json:"lineage,omitempty"`
-	// Reviewed is, on a REVIEW card, the card it reviews — its uid and title
-	// — so a client shows "Reviews: «task»" and opens it without a lookup.
+	// Reviewed is, on a REVIEW card, the card it reviews — its uid, title and
+	// people — so a client shows "Reviews: «task»", opens it and draws whose
+	// it is without a lookup.
 	// Absent on every other card, and when the reviewed card is gone.
-	Reviewed *LineageRef `json:"reviewed,omitempty"`
+	Reviewed *ReviewedRef `json:"reviewed,omitempty"`
 	// DueDate is a task's due date (named apart from the retired Triage
 	// status.due, a list of weeks): the end of its NEAREST planning card — the
 	// epic it is for — never one borrowed from a farther ancestor. Absent
@@ -444,7 +455,8 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 	// a task parent.
 	if c.ReviewOf != "" {
 		if original, ok := ix.Find(c.ReviewOf); ok {
-			status.Reviewed = &LineageRef{UID: original.ItemID, Type: original.Type, Title: original.Title}
+			status.Reviewed = &ReviewedRef{UID: original.ItemID, Type: original.Type, Title: original.Title,
+				Assignees: original.Assignees}
 		}
 	}
 	if c.ReviewOf != "" && c.Parent == "" {

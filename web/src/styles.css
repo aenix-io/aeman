@@ -4426,6 +4426,7 @@ button.card-age {
 }
 
 .backlog-row-owner {
+  position: relative;
   flex: none;
   display: inline-flex;
   align-items: center;

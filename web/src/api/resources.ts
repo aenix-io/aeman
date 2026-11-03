@@ -110,7 +110,11 @@ export function resourceToCard(res: CardResource): Card {
     })),
     dueDate: res.status?.dueDate || undefined,
     reviewed: res.status?.reviewed
-      ? { uid: res.status.reviewed.uid, title: res.status.reviewed.title }
+      ? {
+          uid: res.status.reviewed.uid,
+          title: res.status.reviewed.title,
+          ...(res.status.reviewed.assignees?.length ? { assignees: res.status.reviewed.assignees } : {}),
+        }
       : undefined,
     hierarchy: res.status?.hierarchy
       ? { status: res.status.hierarchy.status, done: res.status.hierarchy.done, total: res.status.hierarchy.total }

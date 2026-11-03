@@ -833,6 +833,14 @@ type ReorderTeamsBody struct {
 	Teams *[]string `json:"teams,omitempty"`
 }
 
+// ReviewedRef The card a review card reviews: its uid, title and people (its assignees — the review's counterpart, drawn as the small avatar on a review card).
+type ReviewedRef struct {
+	Assignees *[]string `json:"assignees,omitempty"`
+	Title     string    `json:"title"`
+	Type      *string   `json:"type,omitempty"`
+	UID       string    `json:"uid"`
+}
+
 // ScopeBody defines model for ScopeBody.
 type ScopeBody struct {
 	Project *string `json:"project,omitempty"`
