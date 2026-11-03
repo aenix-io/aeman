@@ -101,7 +101,7 @@ func TestCreatingACardWithATeamAndProjectFromDifferentRepositoriesIsRefused(t *t
 	fake := twoRepoBoard(nil)
 	svc := New(fake)
 	_, err := svc.CreateCard(t.Context(), "o", CreateCardArgs{
-		Title: "new", Team: "founders", Project: "backoffice", Week: "2026-08-24",
+		Title: "new", Team: "founders", Project: "backoffice",
 	})
 	if !errors.Is(err, ErrDomainConflict) {
 		t.Fatalf("create across repositories = %v, want ErrDomainConflict", err)

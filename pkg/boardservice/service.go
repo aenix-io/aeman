@@ -278,7 +278,7 @@ func (s *Service) MeView(ctx context.Context, boardID string, user, day string) 
 type CreateCardArgs struct {
 	// Type is the card's level: "" (a task), "goal", "initiative" or "epic".
 	// A planning card is drawn on the Roadmap and on no day board; it is
-	// born with no sprint, band, week, shelf, column or review
+	// born with no sprint, band, backlog, column or review
 	// (docs/design/hierarchy.md). Fixed at create.
 	Type string
 	Team string
@@ -293,18 +293,16 @@ type CreateCardArgs struct {
 	// joins (defaults: the day, and the team's current sprint).
 	Start       string
 	SprintStart string
-	// Week creates a card scheduled for a WEEK instead of a day card: no
-	// dates are set and no sprint is joined or started.
-	Week string
-	// Parked creates the card on its team's SHELF instead of in the plan.
-	// Like Week, no dates are set and no sprint is joined: a parked card is on
-	// no day. Born there rather than born in the strip and moved — one commit,
-	// and no instant in between where the card stands somewhere nobody put it.
+	// Parked creates the card in its team's BACKLOG instead of in work: no
+	// dates are set and no sprint is joined, since a parked card is on no
+	// day. Born there rather than born somewhere else and moved — one
+	// commit, and no instant in between where the card stands somewhere
+	// nobody put it. It lands last in the backlog (a new card's rank is the
+	// board's last).
 	Parked bool
 	// Scope + Project create a Project-board card: filed under the column that
-	// pair identifies, its Week is the row (defaulting to the Monday of Start,
-	// then of today), Start/Day may span several weeks, and no sprint is
-	// joined — the card lives on the Project board until a team picks it up.
+	// pair identifies, Start/Day are its row and may span several weeks, and
+	// no sprint is joined — the card lives on the Project board.
 	Scope   string
 	Project string
 	// ReviewOf marks the new card as the review of the given item.
@@ -313,11 +311,10 @@ type CreateCardArgs struct {
 	Parent         string
 	StartNewSprint *bool
 	// Undated leaves the card on NO day: the Roadmap's task, born under a
-	// planning card with nothing but a title (and dates, when given), stands
-	// in the Triage strip of the no-team group until somebody dates or weeks
-	// it — a day it was not given must not be invented for it, or it would
-	// land on today's board for a team it does not have. It joins no sprint
-	// either.
+	// planning card with nothing but a title (and dates, when given). With
+	// no dates it is PARKED in the no-team group's backlog (K3) — a day it
+	// was not given must not be invented for it, or it would land on today's
+	// board for a team it does not have. It joins no sprint either.
 	Undated bool
 	// NoSprint schedules the card for its day without joining any sprint — a
 	// "next sprint" create: the card lives on its own day only until the first
@@ -334,7 +331,6 @@ type CreateCardArgs struct {
 // the day and the card joins that fresh sprint. It mirrors handleCreate in
 // TeamBoard.tsx / MeBoard.tsx.
 func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCardArgs) (board.Card, error) {
-	// A week is a Monday wherever one is given, this door included.
 	if err := guardTitle(args.Title); err != nil {
 		return board.Card{}, err
 	}
@@ -345,9 +341,6 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 		if parsed, ok := board.ParseSize(string(args.Size)); !ok || parsed != args.Size {
 			return board.Card{}, fmt.Errorf("%w: %q", ErrUnknownSize, args.Size)
 		}
-	}
-	if err := guardWeek(args.Week); err != nil {
-		return board.Card{}, err
 	}
 	if err := guardDay(args.Day, args.Start, args.SprintStart); err != nil {
 		return board.Card{}, err
@@ -393,17 +386,15 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 		return s.createPlanningCard(ctx, b, args, linkDescription, pendingRef)
 	}
 	// An scope card lives on the Project board: filed under its column,
-	// anchored to its week row, optionally spanning several weeks via
-	// start..day. It joins no sprint.
+	// its row its dates, optionally spanning several weeks via start..day.
+	// It joins no sprint.
 	if args.Scope != "" {
 		return s.createScopeCard(ctx, b, args, linkDescription, pendingRef)
 	}
-	// A card given a WEEK and no day is scheduled for that week alone.
-	if args.Week != "" && args.Start == "" && args.Day == "" && args.SprintStart == "" {
-		return s.createWeekCard(ctx, b, args, linkDescription, pendingRef)
-	}
-	// A card born on a SHELF, for the same reason: it is on no day.
-	if args.Parked {
+	// A card born in a BACKLOG is on no day. So is the Roadmap's task when it
+	// was given no dates: it has no place but its backlog (K3), and the
+	// no-team group's is the one it has, since it has no team either.
+	if args.Parked || (args.Undated && args.Start == "" && args.Day == "") {
 		return s.createParkedCard(ctx, b, args, linkDescription, pendingRef)
 	}
 	// Start and Day (the end/due date) default to each other so a create with
@@ -475,15 +466,11 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	// a stray top-level card.
 	// Start is the scheduled day; SprintStart is the sprint the card belongs to.
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
-		Title: args.Title,
-		Zone:  args.Zone,
-		Size:  args.Size,
-		Day:   day,
-		Start: start,
-		// The week the caller asked for, when they asked for one: a card
-		// started in the week being worked belongs to that week AND to
-		// today, and the two are not in conflict.
-		Week:        args.Week,
+		Title:       args.Title,
+		Zone:        args.Zone,
+		Size:        args.Size,
+		Day:         day,
+		Start:       start,
 		SprintStart: sprint,
 		Assignee:    args.Assignee,
 		Team:        args.Team,
@@ -553,37 +540,8 @@ func (s *Service) resolveTitleAsync(ctx context.Context, b board.Board, card boa
 	})
 }
 
-// createWeekCard files a card scheduled for a WEEK and nothing else — the
-// Triage board's own create, where the week IS the decision. It takes no band
-// (that is a promise on the weekly panel, and nobody makes one by scheduling
-// work) and no dates: defaulting a start to today would put the card on
-// today's board, which is what choosing a week ahead was for (B1). Place says
-// the same thing from the other side.
-func (s *Service) createWeekCard(ctx context.Context, b board.Board, args CreateCardArgs, linkDescription string, pendingRef *board.Link) (board.Card, error) {
-	if err := s.declareTeam(ctx, b, args.Team); err != nil {
-		return board.Card{}, err
-	}
-	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
-		Title:    args.Title,
-		Zone:     args.Zone,
-		Size:     args.Size,
-		Week:     args.Week,
-		Assignee: args.Assignee,
-		Team:     args.Team,
-		ReviewOf: args.ReviewOf,
-		Parent:   args.Parent,
-	})
-	card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
-	if err == nil {
-		s.resolveTitleAsync(ctx, b, card, pendingRef)
-		s.logEvent(ctx, b, card, board.EventCreated, "", "")
-	}
-	return card, err
-}
-
-// createParkedCard makes a card that starts life on a shelf: no dates, no
-// sprint, no week — the same nothing a card given only a week gets, because a
-// parked card is on no day either.
+// createParkedCard makes a card that starts life in its team's backlog: no
+// dates and no sprint, because a parked card is on no day.
 func (s *Service) createParkedCard(ctx context.Context, b board.Board, args CreateCardArgs, linkDescription string, pendingRef *board.Link) (board.Card, error) {
 	if err := s.declareTeam(ctx, b, args.Team); err != nil {
 		return board.Card{}, err
@@ -603,12 +561,21 @@ func (s *Service) createParkedCard(ctx context.Context, b board.Board, args Crea
 		Parent:   args.Parent,
 	})
 	card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
-	if err == nil {
-		s.resolveTitleAsync(ctx, b, card, pendingRef)
-		s.logEvent(ctx, b, card, board.EventCreated, "", "")
-		s.logEvent(ctx, b, card, board.EventBacklog, "", backlogLabel(card))
+	if err != nil {
+		return card, err
 	}
-	return card, err
+	s.resolveTitleAsync(ctx, b, card, pendingRef)
+	s.logEvent(ctx, b, card, board.EventCreated, "", "")
+	s.logEvent(ctx, b, card, board.EventBacklog, "", backlogLabel(card))
+	// Born under a parent — the Roadmap's task under its epic — it is linked
+	// the way every create is, through the one grouping door.
+	if args.Parent != "" {
+		if perr := s.groupOrUndo(ctx, b, card, args.Parent); perr != nil {
+			return board.Card{}, perr
+		}
+		card.Parent = args.Parent
+	}
+	return card, nil
 }
 
 // createScopeCard files a new card on the Project board: under an existing
@@ -1040,6 +1007,9 @@ func (s *Service) Defer(ctx context.Context, boardID string, itemID string, days
 	}
 	s.logEvent(ctx, b, c, board.EventDates,
 		board.DateRange(c.StartDate, c.Day), board.DateRange(target, c.Day))
+	if err := s.takenIntoWork(ctx, b, c, target); err != nil {
+		return err
+	}
 	// A card created today has no history to keep: its sprint moves with it.
 	// A PROJECT card is in no sprint to begin with (H4): its dates are its
 	// row on the Project board, and deferring moves the row and nothing else.
@@ -1124,6 +1094,9 @@ func (s *Service) SetDates(ctx context.Context, boardID string, itemID, start, e
 	s.logEvent(ctx, b, c, board.EventDates,
 		board.DateRange(c.StartDate, c.Day), board.DateRange(start, end))
 	s.logEvent(ctx, b, c, board.EventSprint, c.SprintStart, sprint)
+	if err := s.takenIntoWork(ctx, b, c, start+end); err != nil {
+		return err
+	}
 	return s.syncChildrenSprint(ctx, b, c.ItemID, sprint)
 }
 
@@ -1143,15 +1116,9 @@ func (s *Service) syncChildrenSprint(ctx context.Context, b board.Board, parentI
 	return nil
 }
 
-// Remove is the smart × — one method, the backend decides the outcome. A
-// card has two homes — the working area (a sprint and its days) and the
-// weekly plan (a band and its week) — and each × empties one of them. It
-// RemoveIntent is which of the two things an × means. The gesture used to
-// decide for itself — a card with a week was ALWAYS handed back to that week,
-// so taking one off the board took two presses, the second landing on a card
-// that no longer looked like the one the person meant to remove. The board
-// asks now (RemoveChoiceDialog offers what the card allows), so the request
-// carries the answer.
+// RemoveIntent is which of the things an × means. The board asks
+// (RemoveChoiceDialog offers what the card allows), so the request carries
+// the answer.
 type RemoveIntent string
 
 const (
@@ -1161,20 +1128,22 @@ const (
 	// not care — an agent, an embedder, the API with no intent in the body —
 	// gets the old behaviour by saying nothing.
 	RemoveAuto RemoveIntent = ""
-	// Unassign empties the WORKING AREA and leaves the card where it still
-	// belongs: its week, or its Project-board column. It destroys nothing.
+	// Unassign takes the card out of work and puts it back in its team's
+	// BACKLOG — parked, no person, no day, no sprint (K3); a project card is
+	// left in its Project-board column instead. It destroys nothing.
 	Unassign RemoveIntent = "unassign"
 	// OffBoard takes the card away, with the subtasks that were pieces of it.
 	OffBoard RemoveIntent = "off-board"
 )
 
-// mirrors handleGridDelete in TeamBoard.tsx: the card leaves the working area
-// — assignee, sprint and dates cleared (a slot keeps its dates: they are its
-// row) — and stays wherever else it is: the WEEK it is scheduled for, or its
-// Project-board column. With neither it was nowhere else, and it is deleted
-// (cascading its review card; subtasks are freed into standalone cards). What
-// it carries changes nothing here — the UI asks first when there is work to
-// lose.
+// Remove is the smart ×. Asked nothing (RemoveAuto) it mirrors gridRemoval
+// in web/src/removal.ts: the card leaves the working area — assignee, sprint
+// and dates cleared (a slot keeps its dates: they are its row) — and stays in
+// its Project-board column when it has one; with none it was nowhere else,
+// and it is deleted (cascading its review card and the subtasks that were
+// pieces of it). Asked to UNASSIGN, it puts the card back in its team's
+// backlog. What it carries changes nothing here — the UI asks first when
+// there is work to lose.
 func (s *Service) Remove(ctx context.Context, boardID string, itemID string, view board.View, intent RemoveIntent) error {
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
@@ -1188,7 +1157,7 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, vie
 	}
 	// A PLANNING card has no working area to be emptied: the × on the
 	// Roadmap takes it off the board, and what sat under it moves up to its
-	// parent (reparentChildren). "Leave it in its week" means nothing here.
+	// parent (reparentChildren). "Back to its backlog" means nothing here.
 	if board.IsPlanning(c) {
 		if intent != OffBoard {
 			return notAPlanningCard(c, "working area to be left")
@@ -1196,9 +1165,9 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, vie
 		return s.deleteWithCascade(ctx, b, c)
 	}
 	subtask := board.IsSubtask(b, c)
-	// OFF THE BOARD is taken at its word: the card goes even though its week
-	// or its column would have kept it, and the subtasks that were pieces of
-	// it go along. Only what this board put on itself, though — a slot
+	// OFF THE BOARD is taken at its word: the card goes even though its
+	// backlog would have kept it, and the subtasks that were pieces of it go
+	// along. Only what this board put on itself, though — a slot
 	// belongs to another board's plan (ErrNotYoursToDestroy). A SUBTASK is
 	// not answered here: the × on one means "out of the group", which the
 	// arm below still decides.
@@ -1208,40 +1177,21 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, vie
 		}
 		return s.deleteGroup(ctx, b, c)
 	}
-	// UNASSIGN needs somewhere to leave the card. With no week and no column
-	// emptying the working area would leave it with no person, no dates and
-	// no home at all — the state this rule exists to prevent — so the caller
-	// is told to say OffBoard if that is what they meant.
-	if intent == Unassign && !subtask && !hasColumn(c) && c.Week == "" {
-		return fmt.Errorf("%w: %q", ErrNowhereToLeaveIt, c.Title)
-	}
-	// UNASSIGN destroys nothing, and it says so on the button. It is answered
-	// here rather than left to the gesture below, which asks a different
-	// question: the gesture hands a card back to its week only while the card
-	// is IN the working area, because a card that is nothing but its week has
-	// no second home for the × to hand it to — and so, having nowhere to be
-	// put, it is deleted. That is the right answer to "×" and the wrong one
-	// to "leave it in its week": a card dragged into a week ahead IS nothing
-	// but its week (Place clears the dates and the sprint), so the safe
-	// option deleted the very cards the Triage board makes.
-	if intent == Unassign && c.Week != "" && !hasColumn(c) {
-		if len(c.Assignees) > 0 {
-			if err := s.backend.SetAssignee(ctx, b, c, ""); err != nil {
-				return err
-			}
-			s.logEvent(ctx, b, c, board.EventAssignee, c.Assignees[0], "")
-		}
-		// A subtask is pulled out of its group first: standing under a parent
-		// is a home of its own, and leaving it there would make the × look
-		// like it had done nothing. A task under an epic keeps its place in
-		// the hierarchy — that is not where it is being taken off.
+	// UNASSIGN puts the card back in its team's BACKLOG (K3): parked, no
+	// person, no day, no sprint — SetBacklog's own emptying. It used to put
+	// the card "back in its week" and was refused when it had none; a card
+	// can always go to its backlog, so it never needs a second home. A
+	// SUBTASK is pulled out of its group first, since standing under a parent
+	// is not a place of its own (ErrNoPlaceOfItsOwn); a REVIEW card is the
+	// one refusal, for the same reason. A project card is answered below:
+	// its column keeps it.
+	if intent == Unassign && !hasColumn(c) {
 		if subtask {
 			if err := s.ungroupWith(ctx, b, c, false); err != nil {
 				return err
 			}
-			c.Parent = ""
 		}
-		return s.leaveWorkingArea(ctx, b, c)
+		return s.SetBacklog(ctx, boardID, itemID, true)
 	}
 	// A subtask has no sprint history of its own: it rides its parent, so
 	// demoting it alone would split the family across two sprints — the very
@@ -1262,27 +1212,10 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, vie
 // not follow it out of the group, is answered by the SAME law rather than a
 // second copy of it.
 func (s *Service) removeFromGrid(ctx context.Context, b board.Board, c board.Card) error {
-	// A card scheduled for a WEEK has the Triage board to go back to, so this
-	// × takes it out of the working area and leaves it there — whatever it
-	// carries. Only while it IS in the working area: a card that is nothing
-	// but its week has no second home to be handed to, and an × that always
-	// answered "back to your week" could never remove one at all. A slot's
-	// week is derived from its start date rather than stored, so it is
-	// answered by the column arm below instead.
-	if c.Week != "" && !hasColumn(c) && inWorkingArea(c) {
-		if len(c.Assignees) > 0 {
-			if err := s.backend.SetAssignee(ctx, b, c, ""); err != nil {
-				return err
-			}
-			s.logEvent(ctx, b, c, board.EventAssignee, c.Assignees[0], "")
-		}
-		return s.leaveWorkingArea(ctx, b, c)
-	}
-	// A card has two homes — the working area (a sprint and its days) and the
-	// weekly plan (a band and its week) — and this × empties the first one.
-	// With a Project-board column to fall back on the card simply goes there;
-	// with none, it was nowhere else, and removing it from the only place it
-	// was is deletion.
+	// With a Project-board column to fall back on the card simply goes
+	// there; with none, it was nowhere else, and removing it from the only
+	// place it was is deletion. (Keeping it is the UNASSIGN answer, which
+	// parks it in its backlog — Remove answers that above.)
 	//
 	// It used to be a DEMOTE for a card of the current sprint: the dates and
 	// the sprint moved back one, and the card lived on in the sprint before
@@ -1324,8 +1257,8 @@ func (s *Service) deleteGroup(ctx context.Context, b board.Board, card board.Car
 }
 
 // A card is somewhere when a board shows it: the working area (a sprint or
-// its dates, on the day grids), the weekly plan (a band), or the Project
-// board (a column). Emptying its last one is what deletion means here.
+// its dates, on the day grids), its team's backlog, or the Project board (a
+// column). Emptying its last one is what deletion means here.
 
 // inWorkingArea reports whether the card is in the working area — in a
 // sprint, or on the day grid by its dates.
@@ -1361,9 +1294,8 @@ func (s *Service) childrenLeaveWorkingArea(ctx context.Context, b board.Board, p
 
 // hasColumn reports whether the card sits in a Project-board column. The
 // column is the pair (project, scope) and the SCOPE side is what puts the card
-// in one: the Project board renders columns by scope and the weekly plan
-// derives a slot's band by scope, so a card carrying only a project name is
-// on no board — a label, not a home.
+// in one: the Project board renders columns by scope, so a card carrying only
+// a project name is on no board — a label, not a home.
 func hasColumn(c board.Card) bool { return c.Scope != "" }
 
 // leaveWorkingArea takes a card out of the day grid: the sprint goes, and so
@@ -1506,8 +1438,8 @@ func (s *Service) cancelLinkedReview(ctx context.Context, b board.Board, origina
 	// the closing sprint instead when it sat in the current one — the thought
 	// being that it should not linger on the new sprint — and what that made
 	// was worse than lingering: a card with the link broken, no progress and
-	// no week, which is precisely the shape the Triage strip holds up as work
-	// nobody has scheduled. It stood there asking to be planned, wearing the
+	// no week, which was precisely the shape the Triage strip held up as work
+	// nobody had scheduled. It stood there asking to be planned, wearing the
 	// title of a review that had been called off, and appeared on nobody's own
 	// board, because its day and sprint were yesterday's. Seen on the live
 	// board, and nobody could say what it was for.
@@ -1856,9 +1788,11 @@ var ErrBadCapacity = errors.New("a capacity is 0 (unset) to 999 points a week")
 const maxCapacity = 999
 
 // SetPersonCapacity records the points a week a lead set for a person — the
-// number the Triage board measures their load against. Zero takes it back, and
-// the board then has no number at all: it draws the load alone rather than
-// inventing a limit (board.CapacityOfPerson). Somebody has to say it —
+// number their load is measured against. Zero takes it back, and the board
+// then has no number at all rather than inventing a limit
+// (board.CapacityOfPerson). No board draws it at the moment: the Triage
+// board's load panel went with the board, and a backlog will show load
+// again (docs/design/backlog.md). Somebody has to say it —
 // a lead reading four weeks of the person's record with the derive-capacity
 // skill, or knowing better than the record does: a half week, a newcomer,
 // somebody covering for two.
@@ -1995,7 +1929,7 @@ func (s *Service) SetDay(ctx context.Context, boardID string, itemID, day string
 	}
 	s.logEvent(ctx, b, card, board.EventDates,
 		board.DateRange(card.StartDate, card.Day), board.DateRange(card.StartDate, day))
-	return nil
+	return s.takenIntoWork(ctx, b, card, day)
 }
 
 // SetStart sets a card's start date (date = "" clears it).
@@ -2012,7 +1946,7 @@ func (s *Service) SetStart(ctx context.Context, boardID string, itemID, date str
 	}
 	s.logEvent(ctx, b, card, board.EventDates,
 		board.DateRange(card.StartDate, card.Day), board.DateRange(date, card.Day))
-	return nil
+	return s.takenIntoWork(ctx, b, card, date)
 }
 
 // SetSprintStart sets the start day of the sprint a card belongs to (date = ""
@@ -2032,22 +1966,24 @@ func (s *Service) SetSprintStart(ctx context.Context, boardID string, itemID, da
 		return err
 	}
 	s.logEvent(ctx, b, card, board.EventSprint, card.SprintStart, date)
+	if err := s.takenIntoWork(ctx, b, card, date); err != nil {
+		return err
+	}
 	return s.syncChildrenSprint(ctx, b, card.ItemID, date)
 }
 
-// SetWeek sets a card's plan week, a Monday (week = "" clears it).
-// SetWeek moves a WEEKLY-PLAN card to another week. A Project-board slot is
-// refused: its week comes from its start date, and accepting a second value
-// here is exactly how the two came to disagree.
-// SetBacklog puts a card on its team's shelf, or takes it off.
-// Parking is the decision "not now" — the act that moves a card out of the
-// inbox without pretending it is planned.
+// SetBacklog parks a task in its team's backlog, or takes it out.
 //
-// Every team has a shelf and nothing declares it, so this can never be refused
-// for want of one. It empties the WORKING AREA on the way: the week, the
-// person, the sprint and the dates. A parked card carrying an owner and a day
-// reads as somebody's work in progress when nobody is doing it — which is the
-// confusion the third state exists to end.
+// Every team has a backlog and nothing declares it, so parking can never be
+// refused for want of one. It empties the WORKING AREA on the way: the
+// person, the sprint and the dates. A parked card carrying an owner and a
+// day reads as somebody's work in progress when nobody is doing it.
+//
+// Taking a card OUT is taking it into work (K1, K4): the doors that give it
+// a date, a sprint or a person unpark it themselves (takenIntoWork).
+// parked=false alone on a task that is not in work would leave it in
+// neither place, and is refused (ErrTakeIntoWork); on one that is in work —
+// a direct writer can write both — it just drops the flag.
 func (s *Service) SetBacklog(ctx context.Context, boardID string, itemID string, parked bool) error {
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
@@ -2071,15 +2007,17 @@ func (s *Service) SetBacklog(ctx context.Context, boardID string, itemID string,
 	if parked && (card.ReviewOf != "" || board.IsSubtask(b, card)) {
 		return fmt.Errorf("%w: %q", ErrNoPlaceOfItsOwn, card.Title)
 	}
+	if !parked && board.InBacklog(card) && !board.InWork(card) {
+		return fmt.Errorf("%w: %q", ErrTakeIntoWork, card.Title)
+	}
 	if err := s.backend.SetBacklog(ctx, b, card, parked); err != nil {
 		return err
 	}
 	s.logEvent(ctx, b, card, board.EventBacklog, backlogLabel(card), backlogLabel(
 		board.Card{Team: card.Team, Parked: parked}))
 	if !parked {
-		// Coming OFF the shelf reorders nothing: the card is going back to the
-		// strip to be given a week, and its place among the parked work is not
-		// something the strip has an opinion about.
+		// Coming OUT reorders nothing: the card is in work, and its place
+		// among the parked work is not the day board's business.
 		return nil
 	}
 	// It lands at the TOP of the shelf. A shelf nobody has sorted reads
@@ -2125,11 +2063,6 @@ func (s *Service) SetBacklog(ctx context.Context, boardID string, itemID string,
 		}
 		s.logEvent(ctx, b, card, board.EventAssignee, card.Assignees[0], "")
 	}
-	if card.Week != "" {
-		if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {
-			return err
-		}
-	}
 	return s.leaveWorkingArea(ctx, b, card)
 }
 
@@ -2151,66 +2084,19 @@ func teamLabel(team string) string {
 	return team
 }
 
-func (s *Service) SetWeek(ctx context.Context, boardID string, itemID, week string) error {
-	if err := guardWeek(week); err != nil {
-		return err
-	}
-	b, card, err := s.loadCard(ctx, boardID, itemID)
-	if err != nil {
-		return err
-	}
-	if err := notAPlanningCard(card, "week"); err != nil {
-		return err
-	}
-	if card.Scope != "" {
-		// A PROJECT card is on no weekly plan (H4): its dates are its row on
-		// the Project board. Clearing a week it should not have (one written
-		// before schema 2) is allowed; giving it one is refused.
-		if week == "" {
-			if card.Week == "" {
-				return nil
-			}
-			if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {
-				return err
-			}
-			s.logEvent(ctx, b, card, board.EventWeek, card.Week, "")
-			return nil
-		}
-		return fmt.Errorf("%w: %q is a project card — move its dates instead", ErrProjectCard, card.Title)
-	}
-	// A card is a subtask or a card of its own week, never both (G58) — and a
-	// WEEK given to a standing subtask is how a person says "take it out of
-	// the group and schedule it". A refusal here would leave them with no
-	// gesture at all: grouping has already taken the card's week, and the ×
-	// deletes it, so a card dropped under the wrong parent could not be
-	// freed. Clearing a week is not that request and ungroups nothing. A
-	// task under an epic is not in a group: its week is its own.
-	if week != "" && board.IsSubtask(b, card) {
-		if err := s.ungroup(ctx, b, card); err != nil {
-			return err
-		}
-		card.Parent = ""
-	}
-	if err := s.backend.SetWeek(ctx, b, card, week); err != nil {
-		return err
-	}
-	s.logEvent(ctx, b, card, board.EventWeek, card.Week, week)
-	return s.leaveShelf(ctx, b, card, week)
-}
-
-// leaveShelf takes a card off its shelf when it is given a WEEK. Scheduling is
-// the same decision from the other side: the card has been planned, so the
-// shelf lets go. A card on a shelf AND in a week would be drawn in both, and
-// counted against the week from a place that is not supposed to be a plan.
+// takenIntoWork unparks a card that a door has just given a date or a
+// sprint (K4): taking a task into work is what takes it out of its backlog,
+// and it leaves the backlog at once — the backlog never shows work in hand,
+// and a parked card is on no day board, so leaving the flag would put the
+// card the person just dated nowhere at all.
 //
-// It lives here, alone, because EVERY door that gives a card a week has to
-// answer this and they do not all go through one another: SetWeek is the
-// plain one, Place is the Triage board's (it has its own dates work to do),
-// and grouping hands a parent its subtask's week. Place was written without
-// it, and a card dragged out of the backlog onto the grid stayed in the
-// drawer — drawn in its week and on its shelf at once.
-func (s *Service) leaveShelf(ctx context.Context, b board.Board, card board.Card, week string) error {
-	if week == "" || !board.InBacklog(card) {
+// It lives here, alone, because every door that gives a card a date or a
+// sprint has to answer it and they do not all go through one another:
+// SetDates is the drawer's, SetStart, SetDay and SetSprintStart are the
+// plain field writes, Defer is the day boards'. Own with a person goes
+// through SetDates. Clearing a date is not taking anything into work.
+func (s *Service) takenIntoWork(ctx context.Context, b board.Board, card board.Card, given string) error {
+	if given == "" || !board.InBacklog(card) {
 		return nil
 	}
 	if err := s.backend.SetBacklog(ctx, b, card, false); err != nil {
@@ -2589,9 +2475,14 @@ func (s *Service) SetTeam(ctx context.Context, boardID string, itemID, team, day
 	}
 	// A project card losing a stale team joins no sprint: no day board draws
 	// it. Nor does a planning card — its team is whose plan it is, not whose
-	// sprint (H3).
+	// sprint (H3). Nor a PARKED task: handed to another team it lands in
+	// that team's backlog, still parked (K5), and a sprint would put it in
+	// work and in the backlog at once. Its sprint stays as it is (none).
 	if card.Scope != "" || board.IsPlanning(card) {
 		sprintStart = ""
+	}
+	if board.InBacklog(card) {
+		sprintStart = card.SprintStart
 	}
 	if err := s.setTeamOne(ctx, b, card, team, sprintStart); err != nil {
 		return err
@@ -2815,7 +2706,7 @@ func (s *Service) DeleteCard(ctx context.Context, boardID string, itemID string)
 // off their own board what they PUT there and what the plan has not taken up
 // — their own card, still standing in the band that board adds in. Anything
 // else is somebody's plan: work another person scheduled for them, or work
-// they scheduled on the Team or Triage board, where planning is done and where
+// they scheduled on the Team board, where planning is done and where
 // that × lives. Their answer to work they will not do is the REFUSED stage,
 // which leaves the card standing for their lead to see and decide.
 //
@@ -2971,12 +2862,9 @@ func linksArePossible(b board.Board, args CreateCardArgs) error {
 				return err
 			}
 		} else {
-			// Two tasks: a SUBTASK, one level deep, with no week of its own.
+			// Two tasks: a SUBTASK, one level deep.
 			if board.IsSubtask(b, p) {
 				return ErrSubtaskDepth
-			}
-			if args.Week != "" {
-				return ErrSubtaskWeek
 			}
 			// A card in a column is nobody's subtask and has none (H4); the
 			// create door says so before anything is written.

@@ -9,14 +9,14 @@ import (
 
 // OWN is the Roadmap's one answer to "whose is this": a team, and a person on
 // that team, or neither (docs/design/hierarchy.md "Owner", H10). What the
-// answer DOES depends on whether the card has a plan — a day, a week or a
-// sprint — because the Roadmap is where loose work gets a home, and a home
+// answer DOES depends on whether the card is in work — a date or a sprint —
+// because the Roadmap is where loose work gets a home, and a home
 // is somewhere the day boards draw.
 
 func ownSeed(today string) *fakeBackend {
 	lastWeek := board.AddDays(board.MondayOf(today), -7)
 	return newFake([]board.Card{
-		// In the strip: nobody has said when, or whose.
+		// Unplaced: nobody has said when, or whose — the strip's old shape.
 		{ItemID: "strip", Title: "Arrived"},
 		{ItemID: "strip-sub", Title: "Arrived piece", Parent: "strip"},
 		// Planned: dated last week, on beta's board, in beta's sprint.
@@ -24,9 +24,8 @@ func ownSeed(today string) *fakeBackend {
 			StartDate: lastWeek, Day: lastWeek, SprintStart: lastWeek, Zone: board.ZoneRed},
 		// Parked on alpha's shelf.
 		{ItemID: "parked", Title: "Someday", Team: "alpha", Parked: true, Zone: board.ZoneGray},
-		// Placed into a week AHEAD on the Triage board: a week, no team, no
-		// sprint — by design, since no sprint covers that week yet (B1).
-		{ItemID: "ahead", Title: "Next week", Week: board.AddDays(board.MondayOf(today), 7)},
+		// Dated for a day still to come: in work, in no sprint yet.
+		{ItemID: "ahead", Title: "Next week", StartDate: board.AddDays(today, 7), Day: board.AddDays(today, 7)},
 		// The kinds OWN refuses.
 		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
 		{ItemID: "slot", Title: "Legal", Scope: "Compliance", Project: "eu"},
@@ -93,26 +92,6 @@ func TestOwnGivesLooseWorkAHome(t *testing.T) {
 		}
 	})
 
-	t.Run("a card planned for a week ahead changes hands without joining a sprint", func(t *testing.T) {
-		// Its week is its plan; a sprint would make it this sprint's unfinished
-		// work, which the next carry-over carries — and the week-ahead rule
-		// said it is on no day board until its Monday (B1). Neither a person
-		// nor a team alone may give it one.
-		for _, person := range []string{"ann", ""} {
-			f := ownSeed(today)
-			if err := f2svc(f).Own(ctx, "acme", "ahead", "alpha", person); err != nil {
-				t.Fatal(err)
-			}
-			c := *f.get("ahead")
-			if c.Team != "alpha" || c.Week == "" || c.Parked {
-				t.Fatalf("person=%q: got %+v, want alpha's, in its week, on no shelf", person, c)
-			}
-			if c.SprintStart != "" {
-				t.Fatalf("person=%q: a week-ahead card was put in a sprint %q", person, c.SprintStart)
-			}
-		}
-	})
-
 	t.Run("a team alone on an unplanned card parks it on that team's shelf", func(t *testing.T) {
 		f := ownSeed(today)
 		if err := f2svc(f).Own(ctx, "acme", "strip", "alpha", ""); err != nil {
@@ -122,8 +101,8 @@ func TestOwnGivesLooseWorkAHome(t *testing.T) {
 		if c.Team != "alpha" || len(c.Assignees) != 0 || !c.Parked {
 			t.Fatalf("owner = %s/%v parked=%t", c.Team, c.Assignees, c.Parked)
 		}
-		// On the shelf and on no day: no dates, no sprint — the Triage
-		// backlog of alpha is where it waits (H9).
+		// In the backlog and on no day: no dates, no sprint — alpha's
+		// backlog is where it waits (K3).
 		if c.StartDate != "" || c.Day != "" || c.SprintStart != "" {
 			t.Fatalf("a parked card got a plan: %s..%s sprint=%s", c.StartDate, c.Day, c.SprintStart)
 		}
@@ -140,16 +119,36 @@ func TestOwnGivesLooseWorkAHome(t *testing.T) {
 		}
 	})
 
-	t.Run("nobody on a parked card hands it to the strip", func(t *testing.T) {
-		f := ownSeed(today)
-		if err := f2svc(f).Own(ctx, "acme", "parked", "", ""); err != nil {
-			t.Fatal(err)
-		}
-		c := *f.get("parked")
-		if c.Team != "" || len(c.Assignees) != 0 || c.Parked || c.SprintStart != "" {
-			t.Fatalf("not the strip's: %+v", c)
+	t.Run("a dated card in no sprint changes hands without joining one", func(t *testing.T) {
+		// A card dated for a day still to come joins no sprint until the
+		// carry-over that reaches its day adopts it; neither a person nor a
+		// team alone may give it one.
+		for _, person := range []string{"ann", ""} {
+			f := ownSeed(today)
+			if err := f2svc(f).Own(ctx, "acme", "ahead", "alpha", person); err != nil {
+				t.Fatal(err)
+			}
+			c := *f.get("ahead")
+			if c.Team != "alpha" || c.StartDate == "" || c.Parked || c.SprintStart != "" {
+				t.Fatalf("person=%q: got %+v, want alpha's, dated, in no sprint and no backlog", person, c)
+			}
 		}
 	})
+
+	// K3: own with NOBODY on a card with no plan parks it in the no-team
+	// group's backlog — there is no strip to hand it to any more.
+	for _, id := range []string{"parked", "strip"} {
+		t.Run("nobody on an unplanned card parks it in the no-team backlog: "+id, func(t *testing.T) {
+			f := ownSeed(today)
+			if err := f2svc(f).Own(ctx, "acme", id, "", ""); err != nil {
+				t.Fatal(err)
+			}
+			c := *f.get(id)
+			if c.Team != "" || len(c.Assignees) != 0 || !c.Parked || c.SprintStart != "" || c.StartDate != "" {
+				t.Fatalf("not in the no-team backlog: %+v", c)
+			}
+		})
+	}
 
 	t.Run("nobody on a planned card keeps its plan in the no-team group", func(t *testing.T) {
 		f := ownSeed(today)
@@ -187,7 +186,7 @@ func TestOwnGivesLooseWorkAHome(t *testing.T) {
 // wherever the card was opened. The Project board draws no task.
 func TestOwnIsOfferedWhereATaskIsDrawn(t *testing.T) {
 	t.Parallel()
-	for _, v := range []board.View{board.ViewRoadmap, board.ViewMe, board.ViewTeam, board.ViewTriage, board.ViewBacklog, board.ViewAll} {
+	for _, v := range []board.View{board.ViewRoadmap, board.ViewMe, board.ViewTeam, board.ViewBacklog, board.ViewAll} {
 		if !Offers(v, GestureOwn) {
 			t.Errorf("%s does not offer own", v)
 		}

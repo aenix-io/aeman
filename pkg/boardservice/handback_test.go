@@ -6,12 +6,11 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// A card can be in two places at once: the working area (a sprint and its
-// days) and the WEEK it is scheduled for, which is its column on the Triage
-// board. The × empties the working area, and where the card goes is decided
-// by what it has left — its week, its Project-board column, or nothing, in
-// which case it is deleted. A card filed under a column always has that
-// column to go home to, so the × never destroys it.
+// The grid × asked nothing (RemoveAuto) empties the working area, and where
+// the card goes is decided by what it has left — its Project-board column,
+// or nothing, in which case it is deleted. The × that says UNASSIGN puts it
+// back in its team's backlog instead (K3, intent_test.go). A card filed under
+// a column always has that column to go home to, so the × never destroys it.
 //
 // The Unassigned column is not special in any of this: it is the day grid
 // like every other column, and a card made there and removed there is gone
@@ -60,72 +59,6 @@ func TestTheGridRemoveDeletesACardThatIsNowhereElse(t *testing.T) {
 	if _, ok := findCard(b, "c1"); ok {
 		t.Fatal("a card with no week and no column must be deleted by the ×")
 	}
-}
-
-// The same card, once it is also scheduled for a WEEK, has somewhere to
-// stay: the × takes it out of the working area — off the day grid, dates and
-// all — and leaves it in that week, on the Triage board.
-func TestTheRemoveLeavesACardThatIsScheduledForAWeek(t *testing.T) {
-	today := board.TodayIso()
-	week := board.MondayOf(today)
-	fake := gridBoard([]board.Card{
-		{ItemID: "c1", Title: "taken out of its week", Team: "platform", Assignees: []string{"kvaps"},
-			Week: week, SprintStart: today, StartDate: today, Day: today},
-	})
-	svc := New(fake)
-	if err := svc.Remove(t.Context(), "o", "c1", board.ViewAll, RemoveAuto); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := fake.LoadBoard(t.Context(), "o")
-	c, ok := findCard(b, "c1")
-	if !ok {
-		t.Fatal("a card scheduled for a week must not be deleted by the ×")
-	}
-	if c.Week != week {
-		t.Fatalf("it must keep the week it is scheduled for: week=%q", c.Week)
-	}
-	if c.SprintStart != "" || len(c.Assignees) != 0 || c.StartDate != "" || c.Day != "" {
-		t.Fatalf("it must leave the working area: %+v", c)
-	}
-	// It is still ON the grid — in Unassigned, which is where the week's own
-	// work stands — but it is nobody's and has no day: the × emptied the
-	// working area, it did not take the card off the board.
-	if !onGrid(t, fake, "c1") {
-		t.Fatal("the week's own work stands in Unassigned, not nowhere")
-	}
-}
-
-// And pressed again on the card that is now nothing but its week, the ×
-// deletes it: there is no second home left to hand it to. An × that always
-// answered "back to your week" could never remove such a card at all.
-func TestTheRemovePressedTwiceEmptiesTheLastHome(t *testing.T) {
-	today := board.TodayIso()
-	fake := gridBoard([]board.Card{
-		{ItemID: "c1", Title: "in both", Team: "platform", Week: board.MondayOf(today),
-			SprintStart: today, StartDate: today, Day: today},
-	})
-	svc := New(fake)
-	if err := svc.Remove(t.Context(), "o", "c1", board.ViewAll, RemoveAuto); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := findCard(mustLoad(t, fake), "c1"); !ok {
-		t.Fatal("the first × leaves the card in its week")
-	}
-	if err := svc.Remove(t.Context(), "o", "c1", board.ViewAll, RemoveAuto); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := findCard(mustLoad(t, fake), "c1"); ok {
-		t.Fatal("emptied of its last home, the card must be gone")
-	}
-}
-
-func mustLoad(t *testing.T, fake *fakeBackend) board.Board {
-	t.Helper()
-	b, err := fake.LoadBoard(t.Context(), "o")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
 }
 
 // A card filed under a Project-board column is never destroyed by the ×: its
@@ -198,8 +131,8 @@ func TestACardThatOnlyNamesAProjectIsNotSparedByThatName(t *testing.T) {
 
 // The invariant behind all of it: a card the × keeps is a card some board
 // still shows. Sparing one for what it carries — a person, a progress bar —
-// left it alive with no sprint, no dates, no week and no column: findable
-// nowhere, deletable nowhere.
+// left it alive with no sprint, no dates and no column: findable nowhere,
+// deletable nowhere. Unassigned, it is in its backlog; ×'d there, it goes.
 func TestACardTheRemoveKeepsIsAlwaysOnSomeBoard(t *testing.T) {
 	today := board.TodayIso()
 	shown := func(t *testing.T, fake *fakeBackend, id string) bool {
@@ -214,17 +147,17 @@ func TestACardTheRemoveKeepsIsAlwaysOnSomeBoard(t *testing.T) {
 			}
 		}
 		c, ok := findCard(b, id)
-		// A slot lives on the Project board; a card with a week stands in
-		// that week's column on Triage.
-		return ok && (c.Scope != "" || c.Week != "")
+		// A slot lives on the Project board; a parked task in its team's
+		// backlog.
+		return ok && (c.Scope != "" || board.InBacklog(c))
 	}
 	fake := gridBoard([]board.Card{
-		{ItemID: "c1", Title: "worked, in both", Team: "platform",
-			Assignees: []string{"kvaps"}, Progress: 40, Week: board.MondayOf(today),
+		{ItemID: "c1", Title: "worked", Team: "platform",
+			Assignees: []string{"kvaps"}, Progress: 40,
 			SprintStart: today, StartDate: today, Day: today},
 	})
 	svc := New(fake)
-	if err := svc.Remove(t.Context(), "o", "c1", board.ViewAll, RemoveAuto); err != nil {
+	if err := svc.Remove(t.Context(), "o", "c1", board.ViewAll, Unassign); err != nil {
 		t.Fatal(err)
 	}
 	if !shown(t, fake, "c1") {
@@ -244,12 +177,12 @@ func TestACardTheRemoveKeepsIsAlwaysOnSomeBoard(t *testing.T) {
 func TestSubtasksLeaveTheWorkingAreaWithTheirParent(t *testing.T) {
 	today := board.TodayIso()
 	fake := gridBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform", Week: board.MondayOf(today),
+		{ItemID: "p", Title: "parent", Team: "platform",
 			SprintStart: today, StartDate: today, Day: today},
 		{ItemID: "s", Title: "child", Team: "platform", Parent: "p",
 			SprintStart: today, StartDate: today, Day: today},
 	})
-	if err := New(fake).Remove(t.Context(), "o", "p", board.ViewAll, RemoveAuto); err != nil {
+	if err := New(fake).Remove(t.Context(), "o", "p", board.ViewAll, Unassign); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
@@ -272,10 +205,10 @@ func TestSubtasksLeaveTheWorkingAreaWithTheirParent(t *testing.T) {
 func TestLeavingTheWorkingAreaIsRecorded(t *testing.T) {
 	today := board.TodayIso()
 	fake := gridBoard([]board.Card{
-		{ItemID: "c1", Title: "in both", Team: "platform", Week: board.MondayOf(today),
+		{ItemID: "c1", Title: "in work", Team: "platform",
 			SprintStart: today, StartDate: today, Day: today},
 	})
-	if err := New(fake).Remove(t.Context(), "o", "c1", board.ViewAll, RemoveAuto); err != nil {
+	if err := New(fake).Remove(t.Context(), "o", "c1", board.ViewAll, Unassign); err != nil {
 		t.Fatal(err)
 	}
 	if !fake.saw("AppendEvent c1 sprint " + today + "->") {

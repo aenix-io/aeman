@@ -759,8 +759,8 @@ func TestCarryOverAdoptsSprintlessDayCards(t *testing.T) {
 		{ItemID: "n2", Team: "alpha", StartDate: "2999-01-01"},
 		// A finished sprint-less card is not work to adopt.
 		{ItemID: "n3", Team: "alpha", StartDate: today, Stage: board.StageDone},
-		// A card scheduled for a week, with no dates, has no sprint by design.
-		{ItemID: "p1", Team: "alpha", Week: "2026-01-05"},
+		// A card parked in the backlog has no sprint by design.
+		{ItemID: "p1", Team: "alpha", Parked: true},
 		// Another team's sprint-less card is not this carry-over's business.
 		{ItemID: "n4", Team: "beta", StartDate: today},
 		// An old sprint-less stray (scheduled before the closing sprint even
@@ -1323,28 +1323,6 @@ func TestRemoveGridDeletesACardOutsideTheCurrentSprintWithNowhereElseToBe(t *tes
 	}
 }
 
-// The same card, also scheduled for a WEEK, has somewhere to stay: it
-// leaves the working area — dates and all, or the day grid would go on
-// listing it — and keeps its week.
-func TestRemoveGridLeavesACardThatIsScheduledForAWeek(t *testing.T) {
-	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", SprintStart: "2026-01-03",
-		StartDate: "2026-01-03", Day: "2026-01-03", Week: "2026-01-05"}},
-		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
-	if err := f2svc(f).Remove(ctx, "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
-		t.Fatal(err)
-	}
-	c := f.get("c1")
-	if c == nil {
-		t.Fatalf("a card with a week is not deleted by the grid x; log=%v", f.log)
-	}
-	if c.Week != "2026-01-05" {
-		t.Fatalf("it keeps the week it is scheduled for: %+v", c)
-	}
-	if c.SprintStart != "" || c.StartDate != "" || c.Day != "" {
-		t.Fatalf("it leaves the working area entirely: %+v", c)
-	}
-}
-
 func TestRemoveGridDeletesWhenNoPreviousSprintAndNowhereElse(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", SprintStart: "2026-01-10"}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10"}})
@@ -1396,30 +1374,6 @@ func TestRemoveGridDeletesAnAssignedButUntouchedCard(t *testing.T) {
 	}
 	if f.get("c1") != nil {
 		t.Fatalf("an untouched card that is nowhere else is deleted; log=%v", f.log)
-	}
-}
-
-// A card carrying progress, scheduled for a week, is handed back into that
-// week: it still has somewhere to be. (With no week and no column it would
-// simply be deleted — work makes the delete worth confirming, not worth
-// turning into a move; the UI asks before it comes here.)
-func TestRemoveGridHandsBackAWorkedCardIntoItsWeek(t *testing.T) {
-	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", StartDate: board.TodayIso(),
-		SprintStart: "2026-01-10", Assignees: []string{"bob"}, Progress: 40,
-		Week: board.MondayOf(board.TodayIso())}},
-		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
-	if err := f2svc(f).Remove(ctx, "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
-		t.Fatal(err)
-	}
-	c := f.get("c1")
-	if c == nil {
-		t.Fatalf("a card with a week is not deleted by the x; log=%v", f.log)
-	}
-	if c.Week != board.MondayOf(board.TodayIso()) {
-		t.Fatalf("it keeps the week it is scheduled for: %+v", c)
-	}
-	if c.SprintStart != "" || len(c.Assignees) != 0 || c.StartDate != "" {
-		t.Fatalf("and it leaves the working area, work or no work: %+v", c)
 	}
 }
 
@@ -1966,46 +1920,13 @@ func TestReReviewRelocatesToNewSprintWithCounter(t *testing.T) {
 	}
 }
 
-// The × on a card that is also scheduled for a WEEK takes it out of the
-// working area and leaves it in that week — the same outcome whatever it
-// carries. It used to depend on the progress bar: an untouched card went
-// back while a worked one did the opposite, shedding its week and staying on
-// the grid, so one gesture meant two different things.
-func TestGridRemoveOnACardTakenOutOfItsWeek(t *testing.T) {
-	f := newFake([]board.Card{
-		{ItemID: "fresh", Team: "alpha", Week: "2026-07-06",
-			Assignees: []string{"bob"}, SprintStart: "2026-07-03", StartDate: "2026-07-03"},
-		{ItemID: "worked", Team: "alpha", Week: "2026-07-06",
-			Assignees: []string{"bob"}, SprintStart: "2026-07-03", StartDate: "2026-07-03", Progress: 40},
-	}, nil)
-	svc := f2svc(f)
-	for _, id := range []string{"fresh", "worked"} {
-		if err := svc.Remove(ctx, "acme", id, board.ViewAll, RemoveAuto); err != nil {
-			t.Fatal(err)
-		}
-		c := f.get(id)
-		if c == nil {
-			t.Fatalf("%s: a card with a week is not deleted by the ×", id)
-		}
-		if len(c.Assignees) != 0 || c.SprintStart != "" || c.StartDate != "" {
-			t.Fatalf("%s: it leaves the working area: %+v", id, c)
-		}
-		if c.Week != "2026-07-06" {
-			t.Fatalf("%s: it keeps the week it is scheduled for: %+v", id, c)
-		}
-	}
-	if f.count("DeleteCard") != 0 {
-		t.Fatalf("nothing is deleted here; log=%v", f.log)
-	}
-}
-
 // Mutations record activity events with the acting user from the context; the
 // event log is best-effort and no-op changes are not recorded.
 func TestMutationsRecordEvents(t *testing.T) {
 	today := board.TodayIso()
 	f := newFake([]board.Card{
 		{ItemID: "c1", Team: "alpha", Progress: 40, SprintStart: today},
-		{ItemID: "p1", Team: "alpha", Week: "2026-07-06"},
+		{ItemID: "p1", Team: "alpha", Parked: true},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	svc := f2svc(f)
 	actx := WithActor(ctx, "kvaps")
@@ -2075,19 +1996,15 @@ func TestReviewCycleRecordsEvents(t *testing.T) {
 	}
 }
 
-// Date, sprint and week changes are recorded with full from->to values —
+// Date and sprint changes are recorded with full from->to values —
 // the day-state replay feature reconstructs a card's state per day from these.
 func TestDateAndSprintEvents(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "c1", Team: "alpha", StartDate: "2026-07-01", Day: "2026-07-02", SprintStart: "2026-07-01"},
-		{ItemID: "p1", Team: "alpha", Week: "2026-06-29"},
 	}, nil)
 	svc := f2svc(f)
 	actx := WithActor(ctx, "kvaps")
 	if err := svc.SetDates(actx, "acme", "c1", "2026-07-03", "2026-07-04"); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.SetWeek(actx, "acme", "p1", "2026-07-06"); err != nil {
 		t.Fatal(err)
 	}
 	var dates, sprint bool
@@ -2101,15 +2018,6 @@ func TestDateAndSprintEvents(t *testing.T) {
 	}
 	if !dates || !sprint {
 		t.Fatalf("c1 events = %+v, want dates + sprint", f.eventsOf("c1"))
-	}
-	var week bool
-	for _, e := range f.eventsOf("p1") {
-		if e.Kind == board.EventWeek && e.From == "2026-06-29" && e.To == "2026-07-06" {
-			week = true
-		}
-	}
-	if !week {
-		t.Fatalf("p1 events = %+v, want the week move", f.eventsOf("p1"))
 	}
 }
 
@@ -2150,22 +2058,6 @@ func TestReviewCrossEvents(t *testing.T) {
 	}
 	if !removed {
 		t.Fatalf("orig events = %+v, want reviewer-removed", f.eventsOf("orig"))
-	}
-}
-
-// Creating a card scheduled for a WEEK records the created event too (that
-// branch returns earlier than the day branch and must not skip the hook).
-func TestWeekCreateRecordsEvent(t *testing.T) {
-	f := newFake(nil, nil)
-	card, err := f2svc(f).CreateCard(WithActor(ctx, "kvaps"), "acme", CreateCardArgs{
-		Title: "Plan it", Team: "alpha", Week: "2026-07-06",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	evs := f.eventsOf(card.ItemID)
-	if len(evs) != 1 || evs[0].Kind != board.EventCreated || evs[0].Actor != "kvaps" {
-		t.Fatalf("week card events = %+v, want created", evs)
 	}
 }
 

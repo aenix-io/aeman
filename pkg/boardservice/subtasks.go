@@ -18,13 +18,6 @@ var ErrSubtaskDepth = errors.New("subtasks are one level deep")
 // board (or cannot hold subtasks).
 var ErrParentNotFound = errors.New("parent card not found")
 
-// ErrSubtaskWeek is asking for a card that is both a subtask and scheduled
-// for a week of its own. A subtask has no week — grouping hands its week to
-// the parent — so the pair is two contradictory requests, and answering it
-// by scheduling the PARENT for the week named for the child mutates a card
-// nobody asked about.
-var ErrSubtaskWeek = errors.New("a subtask has no week of its own")
-
 // ErrNotYoursToRefuse is refusing a card that is not on the person doing the
 // refusing. REFUSE is a first-person act — "I am not doing this" — so only
 // the person carrying the work may say it; a lead marking somebody else's
@@ -40,9 +33,9 @@ var ErrNotYoursToRefuse = errors.New("only the person a card is on can refuse it
 // edit a plan this board does not own.
 var ErrNotYoursToPark = errors.New("this work is not this board's to park")
 
-// ErrNoPlaceOfItsOwn is a review card or a subtask sent to a shelf. The
-// backlog holds work with a WEEK of its own to give up; a review follows the
-// card it reviews and a subtask stands inside its parent, so parking one
+// ErrNoPlaceOfItsOwn is a review card or a subtask sent to a backlog. The
+// backlog holds tasks with a place of their own; a review follows the card
+// it reviews and a subtask stands inside its parent, so parking one
 // takes it out of the only place it was ever drawn and puts it somewhere
 // nothing looks. Every × on both already withheld the answer (removal.ts);
 // the rule is here so the gesture is refused wherever it is made.
@@ -63,11 +56,11 @@ var ErrNotYoursToRemove = errors.New("only the person who created a card can rem
 // what it says is how the × came to be mistrusted.
 var ErrNotYoursToDestroy = errors.New("this card is not this board's to destroy")
 
-// ErrNowhereToLeaveIt is asking to unassign a card that has nowhere to be
-// left: no week, no column. Emptying the working area would leave it with no
-// person, no dates and no home — alive on no board anyone can open. Taking it
-// OFF the board is the answer for such a card, and the caller has to say so.
-var ErrNowhereToLeaveIt = errors.New("the card has nowhere to be left: no week, no column")
+// ErrTakeIntoWork is taking a task out of its backlog with nothing to put it
+// into: parked:false on a task with no date and no sprint would leave it in
+// neither place (K1). A task leaves its backlog by being taken into work —
+// a date, a sprint, or own with a person — and each of those unparks it.
+var ErrTakeIntoWork = errors.New("a task leaves its backlog by being taken into work: give it a date, a sprint or a person")
 
 // ErrOpenSubtasks is returned when a card with unfinished subtasks is being
 // completed — closing the parent is the human's final call, made only once
@@ -120,7 +113,7 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 	// A card in a column is nobody's subtask and has none (H4): a subtask
 	// rides its parent's team, person and sprint onto the day boards, and a
 	// project card has none of those to give or to take. EVERY refusal fires
-	// before anything is written — the weekly-plan handover below writes on
+	// before anything is written — the handover below writes on
 	// the parent, and a refusal after it would leave the cache holding a
 	// state the commit never made.
 	if card.Scope != "" {
@@ -128,25 +121,6 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 	}
 	if p.Scope != "" {
 		return fmt.Errorf("%w: %q stands in a column and groups nothing under it", ErrProjectCard, p.Title)
-	}
-	// A card scheduled for a WEEK hands that week to the parent, which stands
-	// for it from then on; a parent that has a week of its own keeps it and
-	// the subtask's simply clears.
-	if card.Week != "" {
-		if p.Week == "" {
-			if err := s.backend.SetWeek(ctx, b, p, card.Week); err != nil {
-				return err
-			}
-			// A PARKED parent handed a week comes off its shelf like any
-			// other card given one — it would otherwise stand in that week
-			// and sit in the drawer at the same time.
-			if err := s.leaveShelf(ctx, b, p, card.Week); err != nil {
-				return err
-			}
-		}
-		if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {
-			return err
-		}
 	}
 	// A subtask always belongs to its parent's PERSON: grouping hands the
 	// child over, so a family is never split across two people's Me boards.

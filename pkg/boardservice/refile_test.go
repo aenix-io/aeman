@@ -41,34 +41,6 @@ func TestAttachingToAForeignNoProjectColumnIsRefused(t *testing.T) {
 	}
 }
 
-// Every refusal fires BEFORE anything is written. The grouping's week
-// handover ran first, so a refused grouping still took the child's week away
-// and gave it to the parent — in the cache only, since the commit never
-// happened: the board then showed a state git had never held. The refusal
-// here is H4's (a card in a column is nobody's subtask); the rule it pins is
-// the order.
-func TestARefusedGroupingLeavesTheWeekAlone(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "far", Title: "parent elsewhere", Team: "platform"},
-		{ItemID: "c1", Title: "planned child", Project: "engineering", Scope: "Cozystack",
-			Week: "2026-08-24"},
-	})
-	svc := New(f)
-	if err := svc.SetParent(ctx, "acme", "c1", "far"); !errors.Is(err, ErrProjectCard) {
-		t.Fatalf("the grouping is refused: %v", err)
-	}
-	// The FILE is what the refusal must leave alone: a project card's week is
-	// not even read off it any more (H4), so the raw store is asked.
-	if c := f.get("c1"); c.Week != "2026-08-24" {
-		t.Fatalf("the refused grouping must not have taken the week: %+v", c)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	parent, _ := findCard(b, "far")
-	if parent.Week != "" {
-		t.Fatalf("nor handed it to the parent: %+v", parent)
-	}
-}
-
 // The remaining doors onto G57's invariant. A card's column must name the
 // repository that holds its file, and EVERY act that moves the file has to
 // say so — the guard that knows the rule was reached from three of them
@@ -298,74 +270,6 @@ func TestCreatingIntoAColumnOfAnotherRepositoryIsRefused(t *testing.T) {
 	}
 	if n := f.count("CreateCard"); n != 0 {
 		t.Fatalf("and both refusals come before the write: %d creates", n)
-	}
-}
-
-// A subtask has no week of its own — grouping hands it to the parent — so a
-// create asking for both is asking for two contradictory things. It used to
-// be answered by scheduling THE PARENT for the week the request named for
-// the child: a mutation of a card nobody asked about.
-func TestCreatingACardOfAWeekUnderAParentIsRefused(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform"},
-	})
-	svc := New(f)
-	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
-		Title: "planned child", Team: "platform", Parent: "p", Week: "2026-08-24",
-	}); !errors.Is(err, ErrSubtaskWeek) {
-		t.Fatalf("a subtask has no week of its own: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	parent, _ := findCard(b, "p")
-	if parent.Week != "" {
-		t.Fatalf("and the parent keeps its own schedule: %+v", parent)
-	}
-	if n := f.count("CreateCard"); n != 0 {
-		t.Fatalf("the refusal comes before the write: %d creates", n)
-	}
-}
-
-// A card is a subtask or a card of its own week, never both (G58) — and a
-// WEEK given to a standing subtask is how a person says "take it out of the
-// group and schedule it". A refusal here would leave them with no gesture:
-// grouping has already taken the card's week, and the × deletes a subtask,
-// so a card dropped under the wrong parent could not be freed at all. It is
-// pulled out, and the week lands on the card that comes back.
-func TestGivingAStandingSubtaskAWeekTakesItOutOfTheGroup(t *testing.T) {
-	f := columnBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "kid", Title: "child", Team: "platform", Parent: "p"},
-	})
-	svc := New(f)
-	if err := svc.SetWeek(ctx, "acme", "kid", "2026-08-24"); err != nil {
-		t.Fatalf("the week takes it out of the group: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "kid")
-	if c.Parent != "" {
-		t.Fatalf("out of the group: %+v", c)
-	}
-	if c.Week != "2026-08-24" {
-		t.Fatalf("with the week it was given: %+v", c)
-	}
-	// Clearing is still free, and still means nothing more than clearing.
-	if err := svc.SetWeek(ctx, "acme", "kid", ""); err != nil {
-		t.Fatalf("clearing is free: %v", err)
-	}
-	b, _ = f.LoadBoard(ctx, "acme")
-	if c, _ := findCard(b, "kid"); c.Parent != "" {
-		t.Fatalf("and does not regroup anything: %+v", c)
-	}
-}
-
-// The CREATE door still refuses the pair: a card born as both is a request
-// for two contradictory things, and there is no gesture to interpret.
-func TestCreatingACardThatIsBothIsStillRefused(t *testing.T) {
-	f := columnBoard([]board.Card{{ItemID: "p", Title: "parent", Team: "platform"}})
-	if _, err := New(f).CreateCard(ctx, "acme", CreateCardArgs{
-		Title: "both", Team: "platform", Parent: "p", Week: "2026-08-24",
-	}); !errors.Is(err, ErrSubtaskWeek) {
-		t.Fatalf("a create names one or the other: %v", err)
 	}
 }
 

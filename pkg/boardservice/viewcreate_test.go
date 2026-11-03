@@ -50,57 +50,6 @@ func TestEachBoardCreatesItsOwnKindOfCard(t *testing.T) {
 		}
 	})
 
-	t.Run("a Triage week is a week and no day", func(t *testing.T) {
-		f := seed()
-		week := board.MondayOf(today)
-		c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewTriage,
-			CreateCardArgs{Title: "later", Team: "alpha", Week: week})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if c.Week != week {
-			t.Fatalf("week = %q, want %q", c.Week, week)
-		}
-		if c.Day != "" || c.StartDate != "" || c.SprintStart != "" {
-			t.Fatalf("a week card stands on a day: %q/%q/%q", c.StartDate, c.Day, c.SprintStart)
-		}
-	})
-
-	// The row that IS NOW is the exception, and the board's own add form
-	// relies on it: a card started in the current week belongs to today as
-	// well, so it carries the week AND the days. One started in a week ahead
-	// waits for its Monday and stands on no day at all (B1).
-	t.Run("a card started in the week being worked carries its days", func(t *testing.T) {
-		f := seed()
-		c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewTriage,
-			CreateCardArgs{Title: "now", Team: "alpha", Week: board.MondayOf(today), Start: today, Day: today})
-		if err != nil {
-			t.Fatalf("a card started in the current week = %v, want it taken", err)
-		}
-		if c.Day != today || c.Week != board.MondayOf(today) {
-			t.Fatalf("day/week = %q/%q, want today inside the current week", c.Day, c.Week)
-		}
-	})
-
-	t.Run("and one started in a week ahead does not", func(t *testing.T) {
-		f := seed()
-		ahead := board.AddDays(board.MondayOf(today), 7)
-		if _, err := f2svc(f).CreateInView(ctx, "acme", board.ViewTriage,
-			CreateCardArgs{Title: "later", Team: "alpha", Week: ahead, Start: today, Day: today}); !errors.Is(err, ErrNotOnThisBoard) {
-			t.Fatalf("a dated card filed into a week ahead = %v, want ErrNotOnThisBoard", err)
-		}
-	})
-
-	// The week is the whole gesture there: a column with no week is not a
-	// column, so the board cannot mean anything by it.
-	t.Run("and a Triage create without one is refused", func(t *testing.T) {
-		f := seed()
-		_, err := f2svc(f).CreateInView(ctx, "acme", board.ViewTriage, CreateCardArgs{Title: "later", Team: "alpha"})
-		if !errors.Is(err, ErrViewNeedsField) {
-			t.Fatalf("a week card with no week = %v, want ErrViewNeedsField", err)
-		}
-	})
-
 	// The Project board's own half of the same rule: a card of that board
 	// stands in a COLUMN, and one without is on no row at all.
 	t.Run("and a Project create without a column is refused", func(t *testing.T) {
@@ -111,14 +60,16 @@ func TestEachBoardCreatesItsOwnKindOfCard(t *testing.T) {
 		}
 	})
 
-	t.Run("the drawer parks it", func(t *testing.T) {
+	// The Backlog's add box: a task created there is parked on that team,
+	// on no day and in no sprint.
+	t.Run("the backlog parks it", func(t *testing.T) {
 		f := seed()
 		c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewBacklog, CreateCardArgs{Title: "someday", Team: "alpha"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !c.Parked || c.Week != "" || c.SprintStart != "" {
-			t.Fatalf("parked=%v week=%q sprint=%q, want the shelf alone", c.Parked, c.Week, c.SprintStart)
+		if !c.Parked || c.Team != "alpha" || board.InWork(c) {
+			t.Fatalf("parked=%v team=%q in work=%v, want alpha's backlog alone", c.Parked, c.Team, board.InWork(c))
 		}
 	})
 
@@ -198,8 +149,8 @@ func TestEachBoardCreatesItsOwnKindOfCard(t *testing.T) {
 		}{
 			{board.ViewMe, CreateCardArgs{Title: "x", Parked: true}, "parked"},
 			{board.ViewMe, CreateCardArgs{Title: "x", Scope: "Auth"}, "scope"},
-			{board.ViewTriage, CreateCardArgs{Title: "x", Week: board.AddDays(board.MondayOf(today), 7), Day: today}, "day"},
-			{board.ViewBacklog, CreateCardArgs{Title: "x", Week: "2026-09-07"}, "week"},
+			{board.ViewBacklog, CreateCardArgs{Title: "x", Day: today}, "day"},
+			{board.ViewBacklog, CreateCardArgs{Title: "x", Scope: "Auth"}, "scope"},
 			{board.ViewProject, CreateCardArgs{Title: "x", Scope: "Auth", Parked: true}, "parked"},
 		} {
 			f := seed()
@@ -246,14 +197,10 @@ func TestAGestureIsOfferedByTheBoardThatDrawsIt(t *testing.T) {
 		view board.View
 		want bool
 	}{
-		{GesturePlace, board.ViewTriage, true},
-		{GesturePlace, board.ViewMe, false},
-		{GesturePlace, board.ViewTeam, false},
-		{GestureUntriage, board.ViewTriage, true},
-		{GestureUntriage, board.ViewProject, false},
 		{GestureFinishedEarlier, board.ViewMe, true},
 		{GestureFinishedEarlier, board.ViewTeam, true},
-		{GestureFinishedEarlier, board.ViewTriage, false},
+		{GestureFinishedEarlier, board.ViewBacklog, false},
+		{GestureOwn, board.ViewBacklog, true},
 	} {
 		if got := Offers(tc.view, tc.g); got != tc.want {
 			t.Fatalf("%s on %s = %v, want %v", tc.g, tc.view, got, tc.want)
@@ -261,16 +208,15 @@ func TestAGestureIsOfferedByTheBoardThatDrawsIt(t *testing.T) {
 	}
 	// The escape hatch draws every one of them: a caller that said "all" has
 	// no board to be refused by.
-	for _, g := range []Gesture{GestureRemove, GesturePlace, GestureUntriage, GestureFinishedEarlier} {
+	for _, g := range []Gesture{GestureRemove, GestureFinishedEarlier, GestureOwn} {
 		if !Offers(board.ViewAll, g) {
 			t.Fatalf("view=all refused %s", g)
 		}
 	}
 	// In a stable order, because a client reads this instead of being told
 	// the surface: the × first, then the board's own presses.
-	if got := Gestures(board.ViewTriage); len(got) != 4 ||
-		got[0] != GestureRemove || got[1] != GesturePlace || got[2] != GestureUntriage || got[3] != GestureOwn {
-		t.Fatalf("the Triage board draws %v, want remove, place, untriage, own in that order", got)
+	if got := Gestures(board.ViewBacklog); len(got) != 2 || got[0] != GestureRemove || got[1] != GestureOwn {
+		t.Fatalf("the Backlog draws %v, want remove, own in that order", got)
 	}
 	if got := Gestures(board.ViewProject); len(got) != 1 || got[0] != GestureRemove {
 		t.Fatalf("the Project board draws %v, want the × alone", got)
@@ -282,7 +228,7 @@ func TestAGestureIsOfferedByTheBoardThatDrawsIt(t *testing.T) {
 // their own board what they put there themselves and what the plan has not
 // taken up: their own card, still standing in the band this board adds in.
 // Anything else is somebody's plan — work another person scheduled for them,
-// or work they scheduled on the Team or Triage board, where that × lives —
+// or work they scheduled on the Team board, where that × lives —
 // and their answer to work they will not do is the refused stage, which
 // leaves the card standing for their lead.
 func TestTheMeBoardsRemovalIsTheNarrowOne(t *testing.T) {
@@ -291,10 +237,10 @@ func TestTheMeBoardsRemovalIsTheNarrowOne(t *testing.T) {
 	seed := func() *fakeBackend {
 		return newFake([]board.Card{
 			{ItemID: "mine", Title: "came up today", Team: "alpha", Author: "kvaps",
-				Assignees: []string{"kvaps"}, Zone: board.ZoneYellow, Week: board.MondayOf(today),
+				Assignees: []string{"kvaps"}, Zone: board.ZoneYellow,
 				StartDate: today, Day: today, SprintStart: today},
 			{ItemID: "planned", Title: "in the plan", Team: "alpha", Author: "kvaps",
-				Assignees: []string{"kvaps"}, Zone: board.ZoneGray, Week: board.MondayOf(today),
+				Assignees: []string{"kvaps"}, Zone: board.ZoneGray,
 				StartDate: today, Day: today, SprintStart: today},
 		}, map[string]board.SprintState{"alpha": {Current: today}})
 	}
@@ -330,7 +276,7 @@ func TestTheMeBoardsRemovalIsTheNarrowOne(t *testing.T) {
 	t.Run("and a card nothing attributes is nobody's to take off it", func(t *testing.T) {
 		f := seed()
 		f.b.Cards = append(f.b.Cards, board.Card{ItemID: "stray", Title: "from nowhere", Team: "alpha",
-			Assignees: []string{"kvaps"}, Zone: board.ZoneYellow, Week: board.MondayOf(today),
+			Assignees: []string{"kvaps"}, Zone: board.ZoneYellow,
 			StartDate: today, Day: today, SprintStart: today})
 		if err := f2svc(f).Remove(me, "acme", "stray", board.ViewMe, Unassign); !errors.Is(err, ErrNotYoursToRemove) {
 			t.Fatalf("removing an unattributed card from my own board = %v, want ErrNotYoursToRemove", err)
@@ -338,7 +284,7 @@ func TestTheMeBoardsRemovalIsTheNarrowOne(t *testing.T) {
 		// The team's grid still takes it: that × is the wide one.
 		f2 := seed()
 		f2.b.Cards = append(f2.b.Cards, board.Card{ItemID: "stray", Title: "from nowhere", Team: "alpha",
-			Assignees: []string{"kvaps"}, Zone: board.ZoneYellow, Week: board.MondayOf(today),
+			Assignees: []string{"kvaps"}, Zone: board.ZoneYellow,
 			StartDate: today, Day: today, SprintStart: today})
 		if err := f2svc(f2).Remove(me, "acme", "stray", board.ViewTeam, Unassign); err != nil {
 			t.Fatalf("the team grid's × on the same card = %v, want it taken", err)
