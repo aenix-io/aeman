@@ -389,9 +389,24 @@ commit. Version 2 was the hierarchy (`hierarchy.md`); version 3 is the team
 backlog (`backlog.md`, K8): one idempotent pass parks every task that had
 a `week` and no `start`/`day`/`sprint`, takes the `week` off every task,
 and parks every open task that had no date, no sprint, no week and no
-`parked` — the shape the retired Triage strip held. A subtask or a review
-card loses a stray week and is not parked; ranks are untouched. A writer
+`parked` — the shape the retired Triage strip held. A subtask (a card
+whose parent is not a planning card, or is not in the tree at all, as
+`board.IsSubtask` reads it) or a review card loses a stray week and is not
+parked; ranks are untouched. It also gives every open task on review with
+no review card its review card (K10): parked, nobody on it, of the task's
+team, at the top of the order, the oldest task's first. That card is a pure
+function of the tree, so two replicas bumping before either pushes write
+the same file at the same path: its id is `DeriveID(<the task ULID's time>,
+"schema3-review", <the task's id>)`, its `created` is that same time, and
+its rank sits before the smallest rank the repository holds. A writer
 targeting schema 3 must leave every open task in one of the two places.
+
+A review card made at RUNTIME — a task put on review with nobody to review
+it (`requestReview`) — gets a fresh ULID like every create: two replicas
+asking at once can each make one, and the rebase replays both. That is a
+race between two people pressing the same button within one sync, rare
+and visible (two review cards for one task); the second one is removed by
+hand or withdrawn with the ×.
 
 ### First start
 

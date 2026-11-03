@@ -667,6 +667,16 @@ func (b *Backend) MoveCard(ctx context.Context, _ board.Board, card board.Card, 
 	return b.setRank(ctx, s, card, rank)
 }
 
+// setCardRank writes the card's rank as given — the MultiBackend's board-wide
+// top, worked out over every domain's cards.
+func (b *Backend) setCardRank(ctx context.Context, card board.Card, rank string) error {
+	s, err := b.snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	return b.setRank(ctx, s, card, rank)
+}
+
 // rebalance renumbers the card's whole list — the card placed after afterID
 // — in ONE commit (G12): the key space between two neighbours is exhausted,
 // and a run of short keys is the cure, not an ever longer key. Under the

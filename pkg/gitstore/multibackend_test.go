@@ -795,3 +795,34 @@ func TestDeletingAStrayColumnStubWritesNoBucket(t *testing.T) {
 		t.Fatal("and it must not have written the bucket's project stub")
 	}
 }
+
+// THE TOP OF THE BOARD IS THE TOP OF EVERY DOMAIN. Moving a card to the top
+// (afterID "") — a review nobody has taken being made, a card parked at the
+// top of its backlog — puts it before every card of the merged board, not
+// only before the cards of its own repository: the board's order is one
+// list across the domains (K10's "top of the board's order").
+func TestMultiBackendTopIsTheTopOfTheMergedBoard(t *testing.T) {
+	mb, _, _ := twoDomains(t)
+	ctx := ctxAs("kvaps")
+	b, err := mb.LoadBoard(ctx, "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var card board.Card
+	for _, c := range b.Cards {
+		if c.ItemID == "01CARDB2" {
+			card = c
+		}
+	}
+	if err := mb.MoveCard(ctx, b, card, ""); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = mb.LoadBoard(ctx, "x")
+	ranks := map[string]string{}
+	for _, c := range b.Cards {
+		ranks[c.ItemID] = c.Rank
+	}
+	if ranks["01CARDB2"] >= ranks["01CARDA1"] {
+		t.Fatalf("the closed card ranks %q, the shared one %q: the top is not the board's", ranks["01CARDB2"], ranks["01CARDA1"])
+	}
+}

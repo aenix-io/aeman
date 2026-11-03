@@ -317,3 +317,50 @@ func TestSchema3RanksTheMadeReviewsOldestTaskFirst(t *testing.T) {
 		t.Fatalf("review ranks = %v, want the older task's first and both before every card", ranks)
 	}
 }
+
+// TWO REPLICAS BUMPING THE SAME TREE WRITE THE SAME REVIEW CARD. The review
+// card schema 3 makes for a task on review is a pure function of the tree:
+// its id is derived from the task's (DeriveID over the task's ULID time and
+// the "schema3-review" namespace), and so are its created time (the task's
+// own ULID time) and its rank — so two replicas that migrate before either
+// pushes write byte-identical files at the same path, and the rebase finds
+// nothing to reconcile rather than two review cards for one task.
+func TestSchema3MakesTheSameReviewCardOnEveryReplica(t *testing.T) {
+	const onReview = "01JB4K2E7QZMX3R8V0N5T9WYG1"
+	path := func(id string) string { p, _ := CardPath(id); return p }
+	tree := map[string]string{
+		BoardPath:             "schema: 2\ntitle: b\n",
+		TeamPath("01JB4TEAM"): "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
+		path(onReview):        "---\ntitle: Invoices\nteam: portal\nstage: review\nprogress: 50\nsprint: 2026-11-02\nrank: m\ncreated: 2026-10-01T09:00:00Z\n---\n",
+	}
+	made := func() map[string]string {
+		r := repoWith(t, tree)
+		if _, err := MigrateSchema(r); err != nil {
+			t.Fatal(err)
+		}
+		snap, err := Load(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]string{}
+		for _, c := range snap.Cards {
+			if c.ReviewOf == onReview {
+				data, err := r.ReadFile(path(c.ItemID))
+				if err != nil {
+					t.Fatal(err)
+				}
+				out[c.ItemID] = string(data)
+			}
+		}
+		return out
+	}
+	one, two := made(), made()
+	if len(one) != 1 || len(two) != 1 {
+		t.Fatalf("review cards made = %d and %d, want one each", len(one), len(two))
+	}
+	for id, data := range one {
+		if two[id] != data {
+			t.Fatalf("the two replicas wrote different review cards:\n%v\n%v", one, two)
+		}
+	}
+}

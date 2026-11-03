@@ -454,11 +454,21 @@ func schema3Reviews(cards []board.Card, now time.Time) ([]FileWrite, error) {
 		}
 		ranks[i], next = rank, rank
 	}
-	created := now.UTC().Format(time.RFC3339)
 	var writes []FileWrite
 	for i, c := range asking {
 		rank := ranks[i]
-		id := NewID(now)
+		// A pure function of the tree, so two replicas bumping it before
+		// either pushes write the same file at the same path: the id is
+		// derived from the task's (its ULID time, the "schema3-review"
+		// namespace, the task's id), and the created time is that ULID
+		// time too. A task id that is not a ULID falls back to the bump's
+		// own moment for the time.
+		at := now
+		if t, err := IDTime(c.ItemID); err == nil {
+			at = t
+		}
+		id := DeriveID(at, "schema3-review", c.ItemID)
+		created := at.UTC().Format(time.RFC3339)
 		review := CardFile{Card: board.Card{
 			ItemID: id, Title: "review: " + c.Title, Team: c.Team, Zone: board.ZoneGray,
 			ReviewOf: c.ItemID, Parked: true, Rank: rank, CreatedAt: created,
