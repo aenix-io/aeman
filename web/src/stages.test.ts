@@ -12,8 +12,7 @@ import {
   isWorkable,
   deferredPast,
   doneAtAfter,
-  finishedOn,
-} from "./stages";
+  finishedOn, offersInProgress, stageChoices } from "./stages";
 import type { StageKey } from "./providers/types";
 
 // The stages are mirrored from pkg/board/stages.go and status.go, and until
@@ -194,5 +193,21 @@ describe("doneAtAfter", () => {
       "2026-09-01",
     );
     expect(doneAtAfter({ progress: 40 }, { title: "renamed" }, TODAY)).toBeUndefined();
+  });
+});
+
+// The stage menu offers what the server takes (ADR 0002). A PROJECT card is
+// done or not done (#288): review, locked and In progress are refused for
+// it (projectCard), so the menu offers Done alone and no In progress. A task
+// is offered the stages as before.
+describe("the stage menu", () => {
+  it("offers a project card Done alone, and no In progress", () => {
+    expect(stageChoices({ scope: "Security" })).toEqual(["done"]);
+    expect(offersInProgress({ scope: "Security" })).toBe(false);
+  });
+
+  it("offers a task every stage and In progress", () => {
+    expect(stageChoices({})).toEqual(["locked", "review", "recurrent", "refuse", "done"]);
+    expect(offersInProgress({})).toBe(true);
   });
 });

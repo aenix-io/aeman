@@ -3,7 +3,8 @@ import { type JSX, useMemo, useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
 import {
   STAGES,
-  STAGE_ORDER,
+  stageChoices,
+  offersInProgress,
   ME_ONLY_STAGES,
   DEFAULT_BAR_COLOR,
   barColor,
@@ -422,18 +423,22 @@ export function Card({
         onClose={() => setMenuOpen(false)}
         className="card-stage-menu"
       >
-        <button
-          type="button"
-          className={`card-stage-item${isInProgress(card) ? " card-stage-item-active" : ""}`}
-          onClick={pickInProgress}
-        >
-          <span
-            className="card-stage-dot"
-            style={{ background: DEFAULT_BAR_COLOR }}
-          />
-          In Progress
-        </button>
-        {STAGE_ORDER.map((stage) =>
+        {/* A project card is done or not done (#288): Done alone, no In
+            progress — the menu offers what the server takes. */}
+        {offersInProgress(card) && (
+          <button
+            type="button"
+            className={`card-stage-item${isInProgress(card) ? " card-stage-item-active" : ""}`}
+            onClick={pickInProgress}
+          >
+            <span
+              className="card-stage-dot"
+              style={{ background: DEFAULT_BAR_COLOR }}
+            />
+            In Progress
+          </button>
+        )}
+        {stageChoices(card).map((stage) =>
           // Refused is the owner's own answer and is offered only on their
           // board; elsewhere the stage still RENDERS on a card that carries
           // it — the lead has to see it — but cannot be chosen.
