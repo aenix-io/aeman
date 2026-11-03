@@ -10,6 +10,7 @@ import { TeamBoard } from "./components/TeamBoard";
 import { BacklogBoard } from "./components/BacklogBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
 import { RoadmapBoard } from "./components/RoadmapBoard";
+import { followFrame, followPatch } from "./detail";
 import { PROJECT_CARDS_KEY, storedProjectCards } from "./roadmap";
 import { TeamsModal } from "./components/TeamsModal";
 import { readProjectFilter, writeProjectFilter } from "./projectFilter";
@@ -969,6 +970,10 @@ export function App() {
         });
         return changed ? { ...cur, cards } : cur;
       });
+      // The drawer's card follows the same patch when no board lists it — a
+      // card opened by uid — or it would show the old one until a reload.
+      setDetailCard((d) => followPatch(d, itemId, patch));
+      setDetailStack((st) => (st.some((c) => c.itemId === itemId) ? st.map((c) => followPatch(c, itemId, patch) ?? c) : st));
     },
     [],
   );
@@ -1160,6 +1165,8 @@ export function App() {
             fn(card.itemId, deleted);
           }
         };
+        // The drawer's card hears its frames even when no board lists it.
+        setDetailCard((d) => followFrame(d, card, frame.type === "DELETED"));
         if (frame.type === "DELETED") {
           removeCard(card.itemId);
           notifyCardFrame(true);
