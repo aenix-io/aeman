@@ -91,8 +91,44 @@ func TestABacklogCreateIsBornWhereItWasTyped(t *testing.T) {
 		}
 	})
 
+	// The Team and Me boards' cells are slices of the same board order: a
+	// card typed into the gap between two cards of a cell is born there, in
+	// that cell — the person, the team and the band the cell is — and in the
+	// create's own request.
+	t.Run("a day board's cell takes it where it was typed, its person and band kept", func(t *testing.T) {
+		f := newFake([]board.Card{
+			{ItemID: "x", Title: "first", Team: "alpha", Assignees: []string{"bob"}, Zone: board.ZoneGray,
+				StartDate: board.TodayIso(), Day: board.TodayIso(), SprintStart: board.TodayIso()},
+			{ItemID: "y", Title: "second", Team: "alpha", Assignees: []string{"bob"}, Zone: board.ZoneGray,
+				StartDate: board.TodayIso(), Day: board.TodayIso(), SprintStart: board.TodayIso()},
+		}, map[string]board.SprintState{"alpha": {Current: board.TodayIso(), ItemID: "s1"}})
+		c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewTeam,
+			CreateCardArgs{Title: "between", Team: "alpha", Assignee: "bob", Zone: board.ZoneGray, After: "x"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Zone != board.ZoneGray || len(c.Assignees) != 1 || c.Assignees[0] != "bob" || !board.InWork(c) {
+			t.Fatalf("born in bob's planned cell, in work: %+v", c)
+		}
+		if !logged(f, "MoveCard "+c.ItemID+" after=x") {
+			t.Fatalf("not placed after «first»; calls: %v", f.log)
+		}
+		me := board.WithActor(ctx, "bob")
+		m, err := f2svc(f).CreateInView(me, "acme", board.ViewMe,
+			CreateCardArgs{Title: "came up", Team: "alpha", Zone: board.ZoneYellow, Before: "x"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.Zone != board.ZoneYellow || len(m.Assignees) != 1 || m.Assignees[0] != "bob" {
+			t.Fatalf("born on bob's Me board, unplanned: %+v", m)
+		}
+		if !logged(f, "MoveCard "+m.ItemID+" after=") {
+			t.Fatalf("not placed above «first»; calls: %v", f.log)
+		}
+	})
+
 	t.Run("a board that is not a ranked list refuses a place by name", func(t *testing.T) {
-		for _, view := range []board.View{board.ViewMe, board.ViewTeam, board.ViewRoadmap, board.ViewProject} {
+		for _, view := range []board.View{board.ViewRoadmap, board.ViewProject} {
 			f := seed()
 			_, err := f2svc(f).CreateInView(ctx, "acme", view,
 				CreateCardArgs{Title: "x", After: "a", Type: map[bool]string{true: board.TypeEpic}[view == board.ViewRoadmap],

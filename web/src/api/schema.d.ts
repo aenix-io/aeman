@@ -1170,9 +1170,9 @@ export interface components {
             startNewSprint?: boolean;
             /** @description Schedules the card for its day without joining any sprint — a "next sprint" create; the next carry-over to reach its day adopts it. */
             noSprint?: boolean;
-            /** @description On the backlog view, the uid of the card the new one is placed right AFTER, in the same request — the insert "+" between two backlog cards. One of `after` and `before`, or neither (the card lands last); both are 422 `twoPlaces`, an anchor the board does not have is 404 `cardNotFound` and nothing is made. Every other board refuses it (422 `notOnThisBoard`); `view=all` takes it. */
+            /** @description On the backlog, team and me views, the uid of the card the new one is placed right AFTER, in the same request — the insert "+" between two cards of a backlog or of a Team/Me cell (the cell's person and band are the create's own fields). One of `after` and `before`, or neither (the card lands last); both are 422 `twoPlaces`, an anchor the board does not have is 404 `cardNotFound` and nothing is made. The roadmap and project views refuse it (422 `notOnThisBoard`); `view=all` takes it. */
             after?: string;
-            /** @description On the backlog view, the uid of the card the new one is placed right BEFORE — the "+" above the first card of a list. As `after`. */
+            /** @description As `after`, the uid of the card the new one is placed right BEFORE — the "+" above the first card of a list. */
             before?: string;
         };
         CardDatesInput: {

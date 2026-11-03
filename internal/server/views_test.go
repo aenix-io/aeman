@@ -402,10 +402,10 @@ func TestTakeIsTheBacklogsGestureOverHTTP(t *testing.T) {
 	}
 }
 
-// The Backlog's insert "+" over HTTP is ONE create naming its place: the
-// card is born after the card above the gap (or before the one below it),
-// in that request. Two places, or a place on a board that is not a ranked
-// list, are 422 by name.
+// The insert "+" over HTTP is ONE create naming its place: the card is born
+// after the card above the gap (or before the one below it), in that
+// request — on the Backlog and in a Team or Me cell. Two places, or a place
+// on a board that is not a ranked list, are 422 by name.
 func TestABacklogCreateTakesItsPlaceOverHTTP(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
@@ -431,9 +431,24 @@ func TestABacklogCreateTakesItsPlaceOverHTTP(t *testing.T) {
 		!strings.Contains(rec.Body.String(), "twoPlaces") {
 		t.Fatalf("two places = %d %s, want 422 twoPlaces", rec.Code, rec.Body.String())
 	}
-	if rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards?team=alpha",
-		`{"title":"x","team":"alpha","after":"a"}`); rec.Code != http.StatusUnprocessableEntity ||
+	// A Team board cell takes a place too, keeping the cell's person and
+	// band; the Roadmap places by parent and refuses one by name.
+	rec = do(t, srv, http.MethodPost, "/api/v1/views/team/cards?team=alpha",
+		`{"title":"in a cell","team":"alpha","zone":"planned","assignees":["ann"],"before":"b"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("a placed Team create answered %d: %s", rec.Code, rec.Body.String())
+	}
+	var cell createdCard
+	if err := json.Unmarshal(rec.Body.Bytes(), &cell); err != nil {
+		t.Fatal(err)
+	}
+	if cell.Spec.Zone != "planned" || len(cell.Spec.Assignees) != 1 || cell.Spec.Assignees[0] != "ann" ||
+		!fake.Saw("MoveCard "+cell.Metadata.UID+" after=a") {
+		t.Fatalf("the cell's card = %+v, want ann's, planned, right before «second»", cell.Spec)
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/roadmap/cards",
+		`{"title":"x","type":"epic","after":"a"}`); rec.Code != http.StatusUnprocessableEntity ||
 		!strings.Contains(rec.Body.String(), "notOnThisBoard") {
-		t.Fatalf("a place on the Team board = %d %s, want 422 notOnThisBoard", rec.Code, rec.Body.String())
+		t.Fatalf("a place on the Roadmap = %d %s, want 422 notOnThisBoard", rec.Code, rec.Body.String())
 	}
 }

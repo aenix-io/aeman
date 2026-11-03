@@ -586,13 +586,13 @@ type CarryReport = boardservice.CarryReport
 
 // CreateCardRequest The card a board makes. Every field is optional here because what a board REQUIRES and what it refuses are the board's own rules, answered as a 422 that names the field.
 type CreateCardRequest struct {
-	// After On the backlog view, the uid of the card the new one is placed right AFTER, in the same request — the insert "+" between two backlog cards. One of `after` and `before`, or neither (the card lands last); both are 422 `twoPlaces`, an anchor the board does not have is 404 `cardNotFound` and nothing is made. Every other board refuses it (422 `notOnThisBoard`); `view=all` takes it.
+	// After On the backlog, team and me views, the uid of the card the new one is placed right AFTER, in the same request — the insert "+" between two cards of a backlog or of a Team/Me cell (the cell's person and band are the create's own fields). One of `after` and `before`, or neither (the card lands last); both are 422 `twoPlaces`, an anchor the board does not have is 404 `cardNotFound` and nothing is made. The roadmap and project views refuse it (422 `notOnThisBoard`); `view=all` takes it.
 	After *string `json:"after,omitempty"`
 
 	// Assignees Only the first is read — a card is one person's.
 	Assignees *[]string `json:"assignees,omitempty"`
 
-	// Before On the backlog view, the uid of the card the new one is placed right BEFORE — the "+" above the first card of a list. As `after`.
+	// Before As `after`, the uid of the card the new one is placed right BEFORE — the "+" above the first card of a list.
 	Before *string         `json:"before,omitempty"`
 	Dates  *CardDatesInput `json:"dates,omitempty"`
 

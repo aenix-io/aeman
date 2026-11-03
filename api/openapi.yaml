@@ -2350,17 +2350,19 @@ components:
         after:
           type: string
           description: >-
-            On the backlog view, the uid of the card the new one is placed
-            right AFTER, in the same request — the insert "+" between two
-            backlog cards. One of `after` and `before`, or neither (the card
-            lands last); both are 422 `twoPlaces`, an anchor the board does
-            not have is 404 `cardNotFound` and nothing is made. Every other
-            board refuses it (422 `notOnThisBoard`); `view=all` takes it.
+            On the backlog, team and me views, the uid of the card the new one
+            is placed right AFTER, in the same request — the insert "+"
+            between two cards of a backlog or of a Team/Me cell (the cell's
+            person and band are the create's own fields). One of `after` and
+            `before`, or neither (the card lands last); both are 422
+            `twoPlaces`, an anchor the board does not have is 404
+            `cardNotFound` and nothing is made. The roadmap and project views
+            refuse it (422 `notOnThisBoard`); `view=all` takes it.
         before:
           type: string
           description: >-
-            On the backlog view, the uid of the card the new one is placed
-            right BEFORE — the "+" above the first card of a list. As `after`.
+            As `after`, the uid of the card the new one is placed right
+            BEFORE — the "+" above the first card of a list.
     CardDatesInput:
       type: object
       properties:

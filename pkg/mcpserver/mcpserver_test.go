@@ -266,6 +266,31 @@ func TestMCPCreateCardTakesItsPlaceInABacklog(t *testing.T) {
 	}
 }
 
+// And into a Team cell the same way: the person and band are the cell's,
+// the place is the gap's.
+func TestMCPCreateCardTakesItsPlaceInATeamCell(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "a", Title: "first", Team: "alpha", Assignees: []string{"bob"}, StartDate: today, Day: today, SprintStart: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	cs := connect(t, Config{Board: "acme"}, fake)
+	res := call(t, cs, "create_card", map[string]any{"view": "team", "team": "alpha", "assignee": "bob", "zone": "planned", "title": "next", "after": "a"})
+	var made struct {
+		Metadata struct {
+			UID string `json:"uid"`
+		} `json:"metadata"`
+		Spec struct {
+			Zone string `json:"zone"`
+		} `json:"spec"`
+	}
+	if err := json.Unmarshal([]byte(textOf(res)), &made); err != nil {
+		t.Fatal(err)
+	}
+	if made.Spec.Zone != "planned" || !fake.Saw("MoveCard "+made.Metadata.UID+" after=a") {
+		t.Fatalf("born planned, right after «first»: %s", textOf(res))
+	}
+}
+
 func TestMCPUpdateCardPatchesOnlyProvidedFields(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Title: "x", Assignees: []string{"kvaps"}}}, nil)
 	cs := connect(t, Config{Board: "acme"}, fake)

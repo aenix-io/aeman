@@ -57,9 +57,10 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 	// A card typed into a backlog stands on no day, so that board refuses
 	// the fields that would give it one.
 	dated := args.Day != "" || args.Start != "" || args.SprintStart != ""
-	// A place among the cards is the Backlog's: its list IS the board's
-	// order. The day boards, the Roadmap and the Project board place a card
-	// by its day, its parent or its column.
+	// A place among the cards is the Backlog's and the day boards': a
+	// backlog and a Team or Me cell are slices of the board's order, and the
+	// insert "+" in a gap names its neighbour. The Roadmap and the Project
+	// board place a card by its parent or its column.
 	placed := args.After != "" || args.Before != ""
 	var refusals []viewRefusal
 	switch view {
@@ -93,7 +94,7 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 	case board.ViewMe, board.ViewTeam:
 		refusals = []viewRefusal{
 			{args.Parked, "parked"}, {args.Scope != "", "scope"},
-			{args.Type != "", "type"}, {placed, "a place among the cards"},
+			{args.Type != "", "type"},
 		}
 		// The Me board files for the person reading it — including a lead
 		// looking at somebody else's day, who says whose with an assignee.
