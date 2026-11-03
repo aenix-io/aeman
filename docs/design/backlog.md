@@ -113,9 +113,13 @@ sprint. A card can always go there, so the refusal is gone.
 One commit per domain at start-up, idempotent, composed into one pass
 like schema 2:
 
-1. A task with a `week` and no date and no sprint is parked; its `week`
-   is removed. (A task with a week was the weekly plan: work accepted and
-   not yet in hand — exactly the backlog.)
+1. A task with a `week` and no date and no sprint is placed by where its
+   week stands on the day of the bump. A week still **ahead** was the
+   weekly plan — work accepted and not yet in hand, exactly the backlog —
+   so the task is parked. A week that has **come** stood on the Team and Me
+   boards as a debt, so the task stays in work: that week's Monday to
+   Friday become its dates (`WeekAsDates`). A **finished** task only loses
+   the week. In every case the `week` is removed.
 2. A task with a `week` and a date or a sprint keeps them and loses the
    `week` — it is in work.
 3. A task that would have stood in the Triage strip — open, no date, no
@@ -141,5 +145,5 @@ parked tasks reachable, so nothing the migration parks is lost.
 | K5 | A drag within a backlog column moves the card by `after`/`before` anchors; a drag to another team's column re-teams it, still parked. |
 | K6 | The Backlog board is live: it watches every card of its teams, applies `Ordering` frames, and drops a card the moment it is taken into work. |
 | K7 | A task has no week: the API, the MCP and the codec refuse or drop `week` on a task; deadline stubs keep theirs. |
-| K8 | Schema 3 parks weekly-plan and strip tasks and strips task weeks, in one idempotent pass. |
+| K8 | Schema 3 parks the tasks planned for a week ahead and the strip, keeps a task whose week has come in work on that week's dates, and strips every task week, in one idempotent pass. |
 | K9 | The Triage view, the `place` and `untriage` gestures and the `triage`/`triageWeek`/`due` status fields are gone from the API, the MCP and the SPA. |

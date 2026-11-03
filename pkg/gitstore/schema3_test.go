@@ -33,12 +33,16 @@ func TestSchema3ParksTheWeeklyPlanAndTheStripAndStripsTaskWeeks(t *testing.T) {
 		underEpic = "01JB4K2E7QZMX3R8V0N5T9WYEA"
 		review    = "01JB4K2E7QZMX3R8V0N5T9WYEB"
 		slot      = "01JB4K2E7QZMX3R8V0N5T9WYEC"
+		weekCame  = "01JB4K2E7QZMX3R8V0N5T9WYED"
+		weekDone  = "01JB4K2E7QZMX3R8V0N5T9WYEE"
 	)
 	card := func(front string) string {
 		return "---\n" + front + "created: 2026-08-26T09:14:03Z\n---\n\nThe body stays.\n"
 	}
 	files := map[string]string{
-		weekOnly:  card("title: planned for a week\nassignees: [kvaps]\nteam: portal\nweek: 2026-10-05\nrank: a\n"),
+		weekOnly:  card("title: planned for a week ahead\nassignees: [kvaps]\nteam: portal\nweek: 2999-01-07\nrank: a\n"),
+		weekCame:  card("title: owed in a week that has come\nassignees: [kvaps]\nteam: portal\nprogress: 50\nweek: 2026-10-05\nrank: m\n"),
+		weekDone:  card("title: finished in its week\nteam: portal\nprogress: 100\nweek: 2026-10-05\nrank: n\n"),
 		weekDated: card("title: dated and weeked\nteam: portal\nstart: 2026-10-06\nday: 2026-10-06\nsprint: 2026-10-05\nweek: 2026-10-05\nrank: b\n"),
 		strip:     card("title: nobody said when\nteam: portal\nprogress: 30\nrank: c\n"),
 		stripDone: card("title: finished, never placed\nteam: portal\nprogress: 100\nrank: d\n"),
@@ -96,9 +100,18 @@ func TestSchema3ParksTheWeeklyPlanAndTheStripAndStripsTaskWeeks(t *testing.T) {
 			}
 		}
 	}
-	// Step 1: the weekly plan is parked, its week gone, everything else kept.
+	// Step 1: a week still AHEAD is the backlog — parked, its week gone,
+	// everything else kept.
 	has(weekOnly, "parked: true", "assignees: [kvaps]", "team: portal", "rank: a", "The body stays.")
 	lacks(weekOnly, "week:")
+	// A week that has COME stood on the day boards as a debt: it stays in
+	// work, the week's Monday to Friday becoming its dates, and is not
+	// parked — moving it to the backlog would take it out of somebody's hands.
+	has(weekCame, "start: 2026-10-05", "day: 2026-10-09", "assignees: [kvaps]", "progress: 50")
+	lacks(weekCame, "week:", "parked:")
+	// Finished work only loses the week: it is in no place to keep.
+	has(weekDone, "progress: 100")
+	lacks(weekDone, "week:", "parked:", "start:")
 	// Step 2: in work, the dates and sprint kept and the week gone.
 	has(weekDated, "start: 2026-10-06", "sprint: 2026-10-05", "rank: b")
 	lacks(weekDated, "week:", "parked:")
@@ -157,8 +170,9 @@ func TestSchema3ComposesWithTheStepsBeforeIt(t *testing.T) {
 			t.Errorf("%s survived the composed bump:\n%s", gone, got)
 		}
 	}
-	if !strings.Contains(got, "parked: true") {
-		t.Errorf("schema 3 did not park the weekly-plan card:\n%s", got)
+	// Its week (2026-08-24) has come, so it stays in work on that week's dates.
+	if !strings.Contains(got, "start: 2026-08-24") || strings.Contains(got, "parked:") {
+		t.Errorf("schema 3 did not keep the owed card in work:\n%s", got)
 	}
 }
 

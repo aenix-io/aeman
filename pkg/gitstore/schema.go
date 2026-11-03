@@ -298,9 +298,11 @@ func lastWriteWins(writes []FileWrite) []FileWrite {
 // ("Migration: schema 2 → 3", K8). One pass over the cards, each rewritten
 // at most once with every step applied:
 //
-//  1. a task with a week and no date and no sprint is PARKED and its week
-//     goes — the weekly plan was work accepted and not yet in hand, which is
-//     exactly the backlog;
+//  1. a task with a week and no date and no sprint: when the week is still
+//     AHEAD it is PARKED — accepted and not yet in hand, which is exactly the
+//     backlog; when the week has COME it stood on the day boards as a debt, so
+//     it stays in work with that week's Monday to Friday as its dates; when
+//     it is finished it only loses the week. Either way the week goes;
 //  2. a task with a week and a date or a sprint keeps them and loses the
 //     week — it is in work;
 //  3. an open task that would have stood in the Triage strip — no date, no
@@ -336,16 +338,25 @@ func schema3(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error) {
 		if kind != PathCard {
 			return nil
 		}
-		data, ok := over[f.Name]
-		if !ok {
-			var err error
-			if data, err = readAll(f); err != nil {
-				return fmt.Errorf("%s: %w", f.Name, err)
-			}
+		orig, err := readAll(f)
+		if err != nil {
+			return fmt.Errorf("%s: %w", f.Name, err)
+		}
+		data, rewritten := over[f.Name]
+		if !rewritten {
+			data = orig
 		}
 		cf, err := DecodeCard(ids[0], data)
 		if err != nil {
 			return nil //nolint:nilerr // a broken card is left as every reader leaves it
+		}
+		if rewritten && cf.Card.Week == "" {
+			// An earlier step's write went through the codec, which no longer
+			// writes a week (K7): the week this step decides on is the one the
+			// file had in the tree.
+			if was, err := DecodeCard(ids[0], orig); err == nil {
+				cf.Card.Week = was.Card.Week
+			}
 		}
 		cards = append(cards, held{path: f.Name, file: cf})
 		byID[cf.Card.ItemID] = cf.Card
@@ -354,12 +365,13 @@ func schema3(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error) {
 	if err != nil {
 		return nil, err
 	}
+	today := board.TodayIso()
 	var writes []FileWrite
 	for _, h := range cards {
 		c := h.file.Card
 		p, hasParent := byID[c.Parent]
 		subtask := c.Parent != "" && hasParent && !board.IsPlanning(p)
-		if !parkForSchema3(&c, subtask) {
+		if !parkForSchema3(&c, subtask, today) {
 			continue
 		}
 		h.file.Card = c
@@ -374,15 +386,21 @@ func schema3(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error) {
 
 // parkForSchema3 is schema 3's rule for one card, and reports whether it
 // changed anything.
-func parkForSchema3(c *board.Card, subtask bool) bool {
+func parkForSchema3(c *board.Card, subtask bool, today string) bool {
 	changed := false
 	if c.Week != "" {
-		// Step 1: the weekly plan is the backlog. Only a task that answers
-		// for its own place is parked; anything else just loses the week.
+		// Step 1: only a task that answers for its own place is placed;
+		// anything else just loses the week.
 		task := !board.IsStateTitle(c.Title) && !board.IsPlanning(*c) &&
 			c.Scope == "" && c.ReviewOf == "" && !subtask
-		if task && !board.InWork(*c) {
-			c.Parked = true
+		if task && !board.InWork(*c) && !board.Complete(c.Stage, c.Progress) {
+			if c.Week > board.MondayOf(today) {
+				// A week ahead: the backlog.
+				c.Parked = true
+			} else if start, day, ok := board.WeekAsDates(*c); ok {
+				// A week that has come: a debt on the day boards, kept there.
+				c.StartDate, c.Day = start, day
+			}
 		}
 		c.Week = ""
 		changed = true
