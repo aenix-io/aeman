@@ -4287,7 +4287,7 @@ button.card-age {
 .insert-gap::before {
   content: "";
   position: absolute;
-  left: var(--insert-gap-left, -20px);
+  left: var(--insert-gap-left, -18px);
   right: 0;
   top: calc(var(--insert-gap-gap, 4px) / 2 - 5px);
   height: 10px;
@@ -4305,7 +4305,7 @@ button.card-age {
 
 .insert-gap-btn {
   position: absolute;
-  left: var(--insert-gap-left, -20px);
+  left: var(--insert-gap-left, -18px);
   top: calc(var(--insert-gap-gap, 4px) / 2);
   translate: 0 -50%;
   z-index: 3;

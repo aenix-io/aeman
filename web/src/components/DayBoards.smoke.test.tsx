@@ -184,9 +184,16 @@ describe("the insert + and the spacing of a band", () => {
     expect(gap).toMatch(/position: relative;/);
   });
 
-  it("puts the + in the band's left field, over the spine", () => {
+  // Right next to the card's left edge: centred 10–12px left of it, in the
+  // band's left field, never over the card.
+  it("puts the + right beside the card's left edge, not over it", () => {
     const btn = rule(".insert-gap-btn");
     expect(btn).toMatch(/position: absolute;/);
-    expect(btn).toMatch(/left: var\(--insert-gap-left, -20px\);/);
+    const left = Number(/left: var\(--insert-gap-left, (-?\d+)px\);/.exec(btn)?.[1]);
+    const width = Number(/width: (\d+)px;/.exec(btn)?.[1]);
+    const centre = left + width / 2;
+    expect(centre).toBeGreaterThanOrEqual(-12);
+    expect(centre).toBeLessThanOrEqual(-10);
+    expect(left + width).toBeLessThanOrEqual(0);
   });
 });
