@@ -5,10 +5,13 @@ interface RemoveChoiceDialogProps {
   /** How far along the card is — what is at stake. */
   progress: number;
   /** What the × may do to this card where it stands (removal.removeChoices),
-   *  most destructive first. The dialog offers exactly these and nothing
+   *  in its own order. The dialog offers exactly these and nothing
    *  else: a card that cannot be destroyed is never shown a button that
    *  says it can. */
   choices: RemoveChoice[];
+  /** A REVIEW card: its backlog answer takes the reviewer off (K10), and
+   *  the dialog says so. */
+  review?: boolean;
   /** How many subtasks go with it, if any. */
   subtasks: number;
   /** What a destroying answer does to what sits under the card, said in
@@ -21,7 +24,7 @@ interface RemoveChoiceDialogProps {
 
 /** What each choice says: the button names the act, the line under it says
  *  where the card ends up. */
-function say(choice: RemoveChoice) {
+function say(choice: RemoveChoice, review = false) {
   switch (choice) {
     case "detach":
       return {
@@ -54,6 +57,13 @@ function say(choice: RemoveChoice) {
         danger: false,
       };
     case "backlog":
+      if (review) {
+        return {
+          label: "Back to backlog",
+          note: "The reviewer is taken off; it waits at the top of its task's team backlog for somebody to review it. The task stays on review.",
+          danger: false,
+        };
+      }
       return {
         label: "Send it back to the backlog",
         note: "Out of work and back in its team's backlog — nobody, no day, no sprint. Nothing is lost.",
@@ -80,6 +90,7 @@ export function RemoveChoiceDialog({
   title,
   progress,
   choices,
+  review = false,
   subtasks,
   note,
   onClose,
@@ -98,7 +109,7 @@ export function RemoveChoiceDialog({
       : "";
   // The safe option takes the focus where there is one: a dialog that opens
   // with the destructive button armed answers itself on a stray Enter.
-  const focusOn = choices.find((c) => !say(c).danger) ?? choices[0];
+  const focusOn = choices.find((c) => !say(c, review).danger) ?? choices[0];
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -133,7 +144,7 @@ export function RemoveChoiceDialog({
           </p>
           <div className="sprint-choice-options">
             {choices.map((choice) => {
-              const { label, note, danger } = say(choice);
+              const { label, note, danger } = say(choice, review);
               return (
                 <button
                   key={choice}

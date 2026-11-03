@@ -206,8 +206,10 @@ paths:
         `intent` says which of the ×'s two meanings is wanted: `unassign`
         takes the card out of work and puts it back in its team's BACKLOG —
         parked, no person, no day, no sprint (a subtask is pulled out of its
-        group first; a review card, which has no place of its own, is 422
-        `noPlaceOfItsOwn`; a Project-board slot is left in its column) —
+        group first; on a review card it is "back to backlog": the reviewer
+        is taken off and the review waits, parked with nobody on it, at the
+        top of the reviewed task's team backlog while the task stays on
+        review; a Project-board slot is left in its column) —
         and `off-board` takes it away with the subtasks that were pieces of
         it. Omitted, the gesture decides for itself. `off-board` on a
         Project-board slot is 422 — it belongs to another board's plan.

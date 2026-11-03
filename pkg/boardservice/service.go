@@ -1185,14 +1185,20 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, vie
 		}
 		return s.deleteGroup(ctx, b, c)
 	}
+	// UNASSIGN on a REVIEW card is "back to the backlog" (K10): the reviewer
+	// is taken off and the review waits for one again, in the reviewed
+	// task's team backlog (returnReview). It is not SetBacklog's parking —
+	// that refuses a review, which has no place of its own to be shelved in.
+	if intent == Unassign && c.ReviewOf != "" && !hasColumn(c) {
+		return s.returnReview(ctx, b, c)
+	}
 	// UNASSIGN puts the card back in its team's BACKLOG (K3): parked, no
 	// person, no day, no sprint — SetBacklog's own emptying. It used to put
 	// the card "back in its week" and was refused when it had none; a card
 	// can always go to its backlog, so it never needs a second home. A
 	// SUBTASK is pulled out of its group first, since standing under a parent
-	// is not a place of its own (ErrNoPlaceOfItsOwn); a REVIEW card is the
-	// one refusal, for the same reason. A project card is answered below:
-	// its column keeps it.
+	// is not a place of its own (ErrNoPlaceOfItsOwn). A project card is
+	// answered below: its column keeps it.
 	if intent == Unassign && !hasColumn(c) {
 		if subtask {
 			if err := s.ungroupWith(ctx, b, c, false); err != nil {

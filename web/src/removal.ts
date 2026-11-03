@@ -1,4 +1,4 @@
-import { keepPlaced, type PlaceFields } from "./backlog";
+import { keepPlaced, parkedLocally, type PlaceFields } from "./backlog";
 import type { LineageRef } from "./providers/types";
 import { isSubtask } from "./subtasks";
 
@@ -189,8 +189,9 @@ export type RemoveChoice =
   | "detach"
   | "delete";
 
-/** removeChoices is what the × may do to this card WHERE IT STANDS, most
- *  destructive first, and the × is drawn only where the list is not empty.
+/** removeChoices is what the × may do to this card WHERE IT STANDS, in the
+ *  order the dialog lists them, and the × is drawn only where the list is
+ *  not empty.
  *
  *  - A TASK can go OFF THE BOARD, or back to its team's BACKLOG (K3): the
  *    answer that destroys nothing, and one that is always there to go to —
@@ -205,13 +206,15 @@ export type RemoveChoice =
  *  - A SUBTASK goes off the board: standing under its parent is not a place
  *    of its own to be kept in.
  *
- *  The backlog is LAST because the list is read most-destructive-first and,
- *  more to the point, because the × acting unasked takes the first answer —
- *  a card made here at 0% is still deleted without ceremony rather than
- *  quietly parked. It is not offered for a card already in its backlog, nor
- *  for a REVIEW: that follows the card it reviews, and parking it alone
- *  would put it where nothing draws it (the server refuses it,
- *  noPlaceOfItsOwn).
+ *  - A REVIEW somebody has is offered the backlog too (K10): "back to
+ *    backlog" takes the reviewer off and the review waits for one again in
+ *    the reviewed task's team backlog; the task stays on review.
+ *
+ *  The backlog is FIRST: it destroys nothing, and it is read above taking
+ *  the card off the board. The × acting unasked does not take the first
+ *  answer for that reason — it takes unaskedRemoval's, so a card made here
+ *  at 0% is still deleted without ceremony rather than quietly parked. It
+ *  is not offered for a card already in its backlog.
  *
  *  FINISHED EARLIER is the last of them, and the narrowest: work that was done
  *  in the sprint before this one and only marked done now. An engineer
@@ -235,8 +238,10 @@ export function removeChoices(
   if (isSubtask(c)) {
     return ["off-board"];
   }
-  const shelve: RemoveChoice[] =
-    !c.parked && !hasColumn(c) && !c.reviewOf ? ["backlog"] : [];
+  // A REVIEW somebody has is offered it too (K10): back to the backlog takes
+  // the reviewer off, and it waits for one again in the reviewed task's team
+  // backlog (boardservice.returnReview).
+  const shelve: RemoveChoice[] = !c.parked && !hasColumn(c) ? ["backlog"] : [];
   // Only where it would MOVE the card: finished work, standing in the current
   // sprint, with an earlier sprint to send it to. Never for work another board
   // owns — a slot carries its own dates, and the sprint is not what places it.
@@ -254,7 +259,34 @@ export function removeChoices(
   if (hasColumn(c)) {
     return (c.assignees?.length ?? 0) > 0 ? ["unassign"] : [];
   }
-  return ["off-board", ...finishedEarlier, ...shelve];
+  return [...shelve, "off-board", ...finishedEarlier];
+}
+
+/** unaskedRemoval is the answer the × takes when it acts WITHOUT asking — a
+ *  card made here that nobody touched (asksFirst): off the board, deleted
+ *  without ceremony, as it always was. The backlog is listed first in the
+ *  dialog, which is a reading order and not a default. */
+export function unaskedRemoval(choices: readonly RemoveChoice[]): RemoveChoice | undefined {
+  return choices.includes("off-board") ? "off-board" : choices[0];
+}
+
+/** backlogPatch is what the board shows the moment the backlog answer is
+ *  given: the card parked — nobody, no day, no sprint, planned (K3,
+ *  parkedLocally). A REVIEW also moves to the reviewed task's team, whose
+ *  backlog it waits in for a reviewer (K10, boardservice.returnReview). */
+export function backlogPatch(
+  c: { reviewOf?: string; team?: string | null },
+  cards: readonly { itemId: string; team?: string | null }[],
+): ReturnType<typeof parkedLocally> & { team?: string } {
+  const patch = parkedLocally();
+  if (!c.reviewOf) {
+    return patch;
+  }
+  const original = cards.find((x) => x.itemId === c.reviewOf);
+  if (!original || (original.team ?? "") === (c.team ?? "")) {
+    return patch;
+  }
+  return { ...patch, team: original.team ?? "" };
 }
 
 /** offersRemoval reports whether the × is drawn at all: only where it has

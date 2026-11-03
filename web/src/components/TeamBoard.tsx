@@ -28,6 +28,8 @@ import {
   asksFirst,
   offersRemoval,
   removeChoices,
+  backlogPatch,
+  unaskedRemoval,
   type RemoveChoice,
   deleteWarning,
   hasColumn,
@@ -35,7 +37,6 @@ import {
   subtaskRemovalUndo,
 } from "../removal";
 import { makeCardPlacements, type CardPlacements } from "../placements";
-import { parkedLocally } from "../backlog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
 interface TeamBoardProps {
@@ -1021,7 +1022,7 @@ export function TeamBoard({
     }
     // Unasked (a card made today that nobody touched), the card's own first
     // answer stands — the same one the dialog would have put at the top.
-    const choice = chosen ?? removeChoices(card, gridCtx(card))[0];
+    const choice = chosen ?? unaskedRemoval(removeChoices(card, gridCtx(card)));
     if (!choice) {
       return;
     }
@@ -1041,7 +1042,7 @@ export function TeamBoard({
     // backlog — nobody, no day, no sprint (K3) — through the ×'s own action,
     // the unassign intent (removal.removeIntent).
     if (choice === "backlog") {
-      patchCard(card.itemId, parkedLocally());
+      patchCard(card.itemId, backlogPatch(card, board.cards));
       void provider.removeCard(card.itemId, "unassign").catch((err: unknown) => {
         if (isGone(err)) {
           return;
@@ -1856,6 +1857,7 @@ export function TeamBoard({
       {removeChoice && (
         <RemoveChoiceDialog
           title={removeChoice.title}
+          review={!!removeChoice.reviewOf}
           progress={removeChoice.progress ?? 0}
           choices={removeChoices(removeChoice, gridCtx(removeChoice))}
           subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}

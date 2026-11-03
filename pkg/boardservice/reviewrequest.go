@@ -89,3 +89,55 @@ func (s *Service) takeReview(ctx context.Context, b board.Board, review board.Ca
 	}
 	return nil
 }
+
+// returnReview is the × on a review card answered "back to the backlog"
+// (K10): the reviewer is taken off, and the review becomes the
+// needs-a-reviewer item again — nobody's, on no day and in no sprint, PLANNED,
+// parked in the backlog of the REVIEWED task's team (the reviewer's team
+// may be another), at the top of the board's order as a fresh one
+// (requestReview). The task stays on review; nobody reviews it any more,
+// which the original's log records. A review already waiting for a reviewer
+// is left as it is.
+func (s *Service) returnReview(ctx context.Context, b board.Board, review board.Card) error {
+	if review.Parked && len(review.Assignees) == 0 {
+		return nil
+	}
+	original, found := findCard(b, review.ReviewOf)
+	if found && original.Team != review.Team {
+		if err := s.backend.SetTeam(ctx, b, review, original.Team); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, review, board.EventTeam, review.Team, original.Team)
+		review.Team = original.Team
+	}
+	if !review.Parked {
+		if err := s.backend.SetBacklog(ctx, b, review, true); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, review, board.EventBacklog, "", teamLabel(review.Team))
+	}
+	if err := s.backend.MoveCard(ctx, b, review, ""); err != nil {
+		return err
+	}
+	if review.Zone != board.ZoneGray {
+		if err := s.backend.SetZone(ctx, b, review, board.ZoneGray); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, review, board.EventZone, string(review.Zone), string(board.ZoneGray))
+	}
+	reviewer := ""
+	if len(review.Assignees) > 0 {
+		reviewer = review.Assignees[0]
+		if err := s.backend.SetAssignee(ctx, b, review, ""); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, review, board.EventAssignee, reviewer, "")
+	}
+	if err := s.leaveWorkingArea(ctx, b, review); err != nil {
+		return err
+	}
+	if found && reviewer != "" {
+		s.logEvent(ctx, b, original, board.EventReviewerRemoved, reviewer, "")
+	}
+	return nil
+}

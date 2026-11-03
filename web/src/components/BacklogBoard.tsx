@@ -31,7 +31,7 @@ import {
 import type { LineageRef } from "../providers/types";
 import { justMade, noteMade } from "../justmade";
 import { ownerOf, type Owner } from "../owner";
-import { asksFirst, freeSubtasks, removeChoices, removeIntent, type RemoveChoice } from "../removal";
+import { asksFirst, freeSubtasks, removeChoices, removeIntent, unaskedRemoval, type RemoveChoice } from "../removal";
 import { SIZES, SIZE_ORDER } from "../size";
 import { currentSprint, previousSprint } from "../sprint";
 import { todayIso } from "../date";
@@ -369,7 +369,7 @@ export function BacklogBoard({
       setAsking(card);
       return;
     }
-    const choice = choicesFor(card)[0];
+    const choice = unaskedRemoval(choicesFor(card));
     if (choice) {
       doRemove(card, choice);
     }
@@ -476,6 +476,7 @@ export function BacklogBoard({
       {asking && (
         <RemoveChoiceDialog
           title={asking.title}
+          review={!!asking.reviewOf}
           progress={asking.progress ?? 0}
           choices={choicesFor(asking)}
           subtasks={board.cards.filter((c) => c.parent === asking.itemId).length}

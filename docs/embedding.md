@@ -134,8 +134,9 @@ left in its column),
 it, and `RemoveAuto` (the empty value) lets the gesture decide as it always
 did — so a call that passes `""` reads exactly as before. Each is taken at its
 word: `OffBoard` on a Project-board slot is refused
-(`ErrNotYoursToDestroy`), and `Unassign` on a review card, which has no
-place of its own to be parked in, is refused (`ErrNoPlaceOfItsOwn`). Beware the shape of
+(`ErrNotYoursToDestroy`), and `Unassign` on a review card is "back to
+backlog": the reviewer is taken off and the review waits, parked with nobody
+on it, at the top of the reviewed task's team backlog. Beware the shape of
 the break: `RemoveIntent` is a string type, so an old call passing an untyped
 string constant — `"grid"`, say — still COMPILES, matches no intent, and
 silently degrades to `RemoveAuto`. Pass one of the three named values.

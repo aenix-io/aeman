@@ -37,8 +37,10 @@ var ErrNotYoursToPark = errors.New("this work is not this board's to park")
 // backlog holds tasks with a place of their own; a review follows the card
 // it reviews and a subtask stands inside its parent, so parking one
 // takes it out of the only place it was ever drawn and puts it somewhere
-// nothing looks. Every × on both already withheld the answer (removal.ts);
-// the rule is here so the gesture is refused wherever it is made.
+// nothing looks. The × on a review has an answer of its own — back to its
+// task's team backlog with nobody on it (returnReview, K12) — which is not
+// this parking; the rule is here so the shelf is refused wherever it is
+// asked.
 var ErrNoPlaceOfItsOwn = errors.New("this card has no place of its own to park")
 
 // ErrNotYoursToRemove is a person taking off the board a card SOMEBODY ELSE

@@ -142,6 +142,10 @@ Decided 2026-11-03 with the owner (K10).
   unplanned band, leaves the backlog, and stands on the reviewer's Me and
   Team boards; the original shows `reviewedBy`. send-to-review on the
   original does the same.
+- **Back to backlog** — the × on a review somebody has, on the Team and Me
+  boards, offers it above taking the card off the board: the reviewer is
+  taken off and the review waits again, nobody on it, at the top of the
+  reviewed task's team backlog; the task stays on review (K12).
 - **Withdrawing the review** — the task leaving the review stage, finished
   or deleted — takes the card away, as it takes an untouched assigned one.
 - **K1**: a review nobody has taken is parked (it is in the backlog); one
@@ -202,3 +206,4 @@ parked tasks reachable, so nothing the migration parks is lost.
 | K9 | The Triage view, the `place` and `untriage` gestures and the `triage`/`triageWeek`/`due` status fields are gone from the API, the MCP and the SPA. |
 | K10 | Putting a task on review always makes its review card; without a reviewer it is made with nobody on it, parked in the team's backlog at the top of the order, and a person picked there takes it into work. |
 | K11 | Take is the backlog's gesture: the card becomes the actor's, on its own team, and leaves the backlog; refused where there is nothing to take. |
+| K12 | The × on a review somebody has offers "back to backlog": the reviewer is taken off and the review waits, nobody on it, at the top of the reviewed task's team backlog; the task stays on review. |

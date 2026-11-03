@@ -38,6 +38,8 @@ import {
   deleteWarning,
   freeSubtasks,
   removeChoices,
+  backlogPatch,
+  unaskedRemoval,
   subtaskRemovalPatch,
   subtaskRemovalUndo,
   type RemoveChoice,
@@ -53,7 +55,6 @@ import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
 import { ConnectDialog } from "./ConnectDialog";
-import { parkedLocally } from "../backlog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
@@ -1125,7 +1126,7 @@ export function MeBoard({
     // backlog — nobody, no day, no sprint (K3) — through the ×'s own action,
     // the unassign intent (removal.removeIntent).
     if (chosen === "backlog") {
-      patchCard(card.itemId, parkedLocally());
+      patchCard(card.itemId, backlogPatch(card, board.cards));
       void provider.removeCard(card.itemId, "unassign").catch((err: unknown) => {
         if (isGone(err)) {
           return;
@@ -1144,7 +1145,7 @@ export function MeBoard({
     }
     // Unasked (a card made today that nobody touched), the card's own first
     // answer stands — the same one the dialog would have put at the top.
-    const choice = chosen ?? choicesFor(card)[0];
+    const choice = chosen ?? unaskedRemoval(choicesFor(card));
     if (!choice) {
       return;
     }
@@ -1980,6 +1981,7 @@ export function MeBoard({
       {removeChoice && (
         <RemoveChoiceDialog
           title={removeChoice.title}
+          review={!!removeChoice.reviewOf}
           progress={removeChoice.progress ?? 0}
           choices={choicesFor(removeChoice)}
           subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}
