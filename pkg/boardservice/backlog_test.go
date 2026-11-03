@@ -248,9 +248,8 @@ func TestEveryDoorThatTakesATaskIntoWorkUnparksIt(t *testing.T) {
 	}
 }
 
-// Handing a parked task to ANOTHER team keeps it parked (K5): the drag to
-// another team's column is a change of team, and the card lands in that
-// team's backlog — it joins no sprint on the way, as a team change on a card
+// Handing a parked task to ANOTHER team keeps it parked (K5): the card's
+// team chip is a change of team, and the card lands in that team's backlog — it joins no sprint on the way, as a team change on a card
 // in work would.
 func TestReteamingAParkedTaskKeepsItInTheBacklog(t *testing.T) {
 	for _, door := range []string{"SetTeam", "Own with a team"} {

@@ -30,7 +30,7 @@ Sprints are open-ended and advanced by hand: **Carry over** starts a team's new 
 
 ### Backlog — what is next
 
-Each team has a **backlog**: one ranked list of the tasks it has accepted and not taken into work, ordered by hand — top is next. A task is either in work (it has a day or a sprint, and stands on the Team and Me boards) or parked in its team's backlog; never both, never neither. The **Backlog** board shows one column per selected team; dragging a card reorders it, dragging it to another team's column hands it over, and picking an owner takes it into work — it leaves the backlog and lands on today's boards. The hierarchy (goal ← initiative ← epic ← task, on the **Roadmap**) says *why* a task exists; the backlog says *when*, by position. See [docs/design/backlog.md](docs/design/backlog.md).
+Each team has a **backlog**: one ranked list of the tasks it has accepted and not taken into work, ordered by hand — top is next. A task is either in work (it has a day or a sprint, and stands on the Team and Me boards) or parked in its team's backlog; never both, never neither. The **Backlog** board shows the selected teams' backlogs as one list, each card with its team and the goal, initiative and epic it sits under; dragging a card reorders it, its team chip hands it to another team, and picking an owner takes it into work — it leaves the backlog and lands on today's boards. The hierarchy (goal ← initiative ← epic ← task, on the **Roadmap**) says *why* a task exists; the backlog says *when*, by position. See [docs/design/backlog.md](docs/design/backlog.md).
 
 ## Architecture
 

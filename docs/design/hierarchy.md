@@ -624,7 +624,7 @@ the week of a task, 2026-11-03, `backlog.md`.)
 
 - **TODO — the backlog is per team, and should be per value stream.** A
   shelf belongs to a team today (`board.InBacklog`, keyed by the card's
-  `team`; the Backlog board draws one column per team, `backlog.md`), and `own` with a team
+  `team`; the Backlog board draws the selected teams' backlogs as one list, `backlog.md`), and `own` with a team
   alone parks a card on that team's shelf. The user's direction
   (2026-11-02) is that the backlog be reworked around the chain that
   delivers value — a product, a customer, a flow — rather than the

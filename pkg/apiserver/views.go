@@ -493,8 +493,7 @@ func contains(s []string, v string) bool {
 // no subtask, no review card, nothing finished (board.OnBacklog) — in the
 // order a backlog is read: by hand first, then oldest first
 // (board.BacklogOrder). `team` names one backlog or a comma-separated set of
-// them; the Backlog board draws one column per team and sorts each column by
-// this same order.
+// them; the Backlog board draws them as one list, in this same order.
 func backlogCards(b board.Board, ix *board.Index, sel Selector) []board.Card {
 	var out []board.Card
 	for _, c := range b.Cards {

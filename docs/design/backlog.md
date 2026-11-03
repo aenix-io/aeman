@@ -56,24 +56,33 @@ already write.
 `view=backlog` is a board of its own — it was a pane of Triage — and the
 SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
 
-- **Teams.** The team chips are the Team board's. Each selected team is a
-  column of its own; a team that works from several backlogs (features
-  reads portal's and cozystack's) selects them all.
+- **Teams.** The team chips are the Team board's. The board is ONE list:
+  the backlogs of every selected team MIXED in one order, each card
+  wearing a chip of its team; a team that works from several backlogs
+  (features reads portal's and cozystack's) selects them all.
 - **What is listed.** The team's parked tasks: no planning card, no
   project card, no subtask, no review card, nothing finished. Order is
-  `BacklogOrder`: hand-placed rank first, then oldest first.
-- **The card.** One wide card per row: the title first; beside it a tag
-  with the nearest planning card above it (goal, initiative or epic, the
-  last entry of `status.lineage`); the size when it has one; the owner
-  when it has one. A task whose planning parent has an end date shows it
-  as its due date.
-- **Order.** Dragging a card within a column reorders it: the move
-  gesture with `after`/`before` anchors relative to the cards around the
-  drop (rank is one board-wide list; the anchors keep the move local).
-  Dragging it to another team's column hands it to that team, still
-  parked.
-- **Adding.** Each column has an add box at the bottom: a task created
-  there is parked on that team, last.
+  `BacklogOrder` over the union: hand-placed rank first, then oldest
+  first — rank is board-global, so the merged order is the board order
+  of those cards.
+- **The card.** One wide card per row, a plain card with no coloured
+  accent down its edge: the title first; on the RIGHT its parent chain —
+  every goal, initiative and epic it sits under, root first (all of
+  `status.lineage`), each with its kind icon as the Roadmap draws it, a
+  long name cut short with the whole name in its tooltip, and each
+  opening that planning card's drawer (the one the Roadmap opens); the
+  due date — the nearest planning ancestor's end, when it has one; the
+  size when it has one; its team chip and its owner.
+- **Order.** Dragging a card reorders it in the list: the move gesture
+  with `after`/`before` anchors of its neighbours in the merged list,
+  whichever team they are (rank is one board-wide list; the anchors keep
+  the move local). A drag does not change the team: the card's team chip
+  is its owner picker, and `own` with a team alone hands it to that team,
+  still parked.
+- **Adding.** One add box at the bottom of the list, with a team
+  selector beside it when several teams are selected (it starts on the
+  first selected team; with one team selected there is no selector): a
+  task created there is parked on the chosen team, last.
 - **Taking.** The card's owner picker (`own` with a person) takes it into
   work: it disappears from the backlog and appears on the Team and Me
   boards today.
@@ -146,7 +155,7 @@ parked tasks reachable, so nothing the migration parks is lost.
 | K2 | The backlog lists a team's parked open tasks only — no planning, project, subtask, review or finished card — in `BacklogOrder`. |
 | K3 | Every door that used to leave a task with no place (a create with no day, `own` with nobody, a Roadmap-born task, the × unassign) parks it in its team's backlog instead. |
 | K4 | Taking a task into work (a person, a date or a sprint) unparks it; it leaves the backlog at once. |
-| K5 | A drag within a backlog column moves the card by `after`/`before` anchors; a drag to another team's column re-teams it, still parked. |
+| K5 | A drag in the backlog moves the card by `after`/`before` anchors of its neighbours in the merged list; handing it to another team is its team chip (`own` with a team alone), and it stays parked. |
 | K6 | The Backlog board is live: it watches every card of its teams, applies `Ordering` frames, and drops a card the moment it is taken into work. |
 | K7 | A task has no week: the API, the MCP and the codec refuse or drop `week` on a task; deadline stubs keep theirs. |
 | K8 | Schema 3 parks the tasks planned for a week ahead and the strip, keeps a task whose week has come in work on that week's dates and its team's current sprint, and strips every task week, in one idempotent pass. |
