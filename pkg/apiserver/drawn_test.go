@@ -54,20 +54,13 @@ func TestDrawnAsksTheSameQuestionTheListingAnswers(t *testing.T) {
 			t.Fatalf("view=all does not draw %s", id)
 		}
 	}
-	// A card scheduled FURTHER OUT than a grid opens with is still on the
-	// Triage board: a gate that kept the listing's six-week default would
-	// refuse a gesture on a card the board plainly draws, and a caller that
-	// named no window is asking about the board rather than a screenful.
-	far := board.AddDays(board.MondayOf(today), 7*8)
-	b.Cards = append(b.Cards, board.Card{ItemID: "far", Title: "much later", Team: "alpha", Week: far})
-	b = board.NewBoard(b.Cards)
-	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today}}
-	if !Drawn(b, Selector{View: "triage", Team: "alpha"}, "far") {
-		t.Fatal("a card eight weeks out is on the Triage board and the gate says no")
+	// The Backlog draws a parked task of the team it lists, and no other
+	// team's (K9's replacement for the Triage drawer's gate).
+	if !Drawn(b, Selector{View: "backlog", Team: "alpha"}, "parked") {
+		t.Fatal("the Backlog does not draw the team's parked task")
 	}
-	// A caller that DID name a window is held to it.
-	if Drawn(b, Selector{View: "triage", Team: "alpha", Weeks: 2}, "far") {
-		t.Fatal("a two-week window drew a card eight weeks out")
+	if Drawn(b, Selector{View: "backlog", Team: "beta"}, "parked") {
+		t.Fatal("another team's Backlog drew alpha's parked task")
 	}
 
 	// And a card nobody has is on no board.
@@ -93,11 +86,15 @@ func TestAViewSelectorTakesItsBoardFromThePath(t *testing.T) {
 		t.Fatal("an unknown board was parsed as one")
 	}
 	// The ordinary case still parses, with the segment as the view.
-	sel, err := ParseViewSelector("triage", url.Values{"team": {"portal"}, "weeks": {"9"}})
+	sel, err := ParseViewSelector("backlog", url.Values{"team": {"portal,features"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sel.View != "triage" || sel.Team != "portal" || sel.Weeks != 9 {
+	if sel.View != "backlog" || sel.Team != "portal,features" {
 		t.Fatalf("selector = %+v", sel)
+	}
+	// The Triage board is retired (K9): its address is no board.
+	if _, err := ParseViewSelector("triage", nil); err == nil {
+		t.Fatal("the retired Triage board was parsed as one")
 	}
 }

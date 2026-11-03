@@ -466,7 +466,6 @@ func (a surface) CreateCard(ctx context.Context, req apiv1.CreateCardRequestObje
 		StartNewSprint: in.StartNewSprint,
 		NoSprint:       boolOf(in.NoSprint),
 		Parked:         boolOf(in.Parked),
-		Week:           strOf(in.Week),
 	}
 	if in.Dates != nil {
 		args.Day, args.Start, args.SprintStart = strOf(in.Dates.End), strOf(in.Dates.Start), strOf(in.Dates.Sprint)
@@ -758,19 +757,6 @@ func (a surface) RemoveReviewer(ctx context.Context, req apiv1.RemoveReviewerReq
 	return apiv1.RemoveReviewer200JSONResponse(card), nil
 }
 
-// PlaceCard puts a card in a week of the Triage board, which is what triaging
-// it means (docs/design/triage.md).
-func (a surface) PlaceCard(ctx context.Context, req apiv1.PlaceCardRequestObject) (apiv1.PlaceCardResponseObject, error) {
-	card, err := a.gesture(ctx, req.View, req.UID, boardservice.GesturePlace,
-		func(svc *boardservice.Service, boardID string) error {
-			return svc.Place(ctx, boardID, req.UID, strOf(req.Body.Week))
-		})
-	if err != nil {
-		return nil, err
-	}
-	return apiv1.PlaceCard200JSONResponse(card), nil
-}
-
 // OwnCard answers "whose is this" for a task — a team and a person, a team
 // alone, or nobody — and files loose work accordingly (boardservice.Own).
 func (a surface) OwnCard(ctx context.Context, req apiv1.OwnCardRequestObject) (apiv1.OwnCardResponseObject, error) {
@@ -797,18 +783,6 @@ func (a surface) FinishedEarlier(ctx context.Context, req apiv1.FinishedEarlierR
 		return nil, err
 	}
 	return apiv1.FinishedEarlier200JSONResponse(card), nil
-}
-
-// UntriageCard takes a card out of every week — back to the strip.
-func (a surface) UntriageCard(ctx context.Context, req apiv1.UntriageCardRequestObject) (apiv1.UntriageCardResponseObject, error) {
-	card, err := a.gesture(ctx, req.View, req.UID, boardservice.GestureUntriage,
-		func(svc *boardservice.Service, boardID string) error {
-			return svc.Untriage(ctx, boardID, req.UID)
-		})
-	if err != nil {
-		return nil, err
-	}
-	return apiv1.UntriageCard200JSONResponse(card), nil
 }
 
 // gesture runs one press made ON a board — the board has to draw it and has to
@@ -1327,16 +1301,9 @@ func tooBig(w http.ResponseWriter, err error) bool {
 	return false
 }
 
-// applyPlacementPatch sets where the card WAITS: the week it is scheduled for
-// and the backlog list it is parked on. The two are one subject and exclusive
-// of each other — the service takes either off when the other is given — so
-// they are applied together, in the order they were sent.
+// applyPlacementPatch sets whether the task waits in its team's backlog. A
+// task has no week (K7): `week` is not a field of the patch any more.
 func applyPlacementPatch(ctx context.Context, svc *boardservice.Service, boardID, uid string, p *apiv1.CardPatch) error {
-	if p.Week != nil {
-		if err := svc.SetWeek(ctx, boardID, uid, *p.Week); err != nil {
-			return err
-		}
-	}
 	if p.Parked != nil {
 		if err := svc.SetBacklog(ctx, boardID, uid, *p.Parked); err != nil {
 			return err

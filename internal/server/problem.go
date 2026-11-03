@@ -85,11 +85,11 @@ var sentinels = []struct {
 	{boardservice.ErrTitleTooLong, http.StatusUnprocessableEntity, "titleTooLong"},
 	{boardservice.ErrBadDay, http.StatusUnprocessableEntity, "badDay"},
 	{boardservice.ErrSubtaskDepth, http.StatusUnprocessableEntity, "subtaskDepth"},
-	{boardservice.ErrSubtaskWeek, http.StatusUnprocessableEntity, "subtaskWeek"},
-	// The × was told to do something the card does not allow: a slot or a
-	// turn taken off the board, or a card unassigned into nowhere.
+	// The × was told to do something the card does not allow: a slot
+	// taken off the board.
 	{boardservice.ErrNotYoursToDestroy, http.StatusUnprocessableEntity, "notYoursToDestroy"},
-	{boardservice.ErrNowhereToLeaveIt, http.StatusUnprocessableEntity, "nowhereToLeaveIt"},
+	// A task taken out of its backlog with nothing to put it into (K1).
+	{boardservice.ErrTakeIntoWork, http.StatusUnprocessableEntity, "takeIntoWork"},
 	// A list the team does not have, and work another board owns: both
 	// are rules refusing a change, not the forge failing.
 	{boardservice.ErrNotYoursToPark, http.StatusUnprocessableEntity, "notYoursToPark"},
@@ -127,7 +127,6 @@ var sentinels = []struct {
 	// link decides — a subtask, a review card — is not asked.
 	{boardservice.ErrOwnerNeedsTeam, http.StatusUnprocessableEntity, "ownerNeedsTeam"},
 	{boardservice.ErrOwnerFollowsLink, http.StatusUnprocessableEntity, "ownerFollowsLink"},
-	{boardservice.ErrNotAMonday, http.StatusUnprocessableEntity, "notAMonday"},
 	{boardservice.ErrUnknownSize, http.StatusUnprocessableEntity, "unknownSize"},
 	{boardservice.ErrBadCapacity, http.StatusUnprocessableEntity, "badCapacity"},
 	// Written in the handler until they were found missing from the

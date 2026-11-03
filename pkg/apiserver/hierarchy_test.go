@@ -60,8 +60,8 @@ func TestTheRoadmapListsTheHierarchy(t *testing.T) {
 	}
 	// And the day boards never list a planning card, while the task under
 	// the epic stands on them like any task.
-	for _, view := range []string{"team", "me", "triage"} {
-		sel := Selector{View: view, Team: "alpha", User: "dev", Day: board.TodayIso(), From: board.MondayOf(board.TodayIso()), Weeks: 1}
+	for _, view := range []string{"team", "me"} {
+		sel := Selector{View: view, Team: "alpha", User: "dev", Day: board.TodayIso()}
 		for _, c := range FilterCards(b, sel) {
 			if board.IsPlanning(c) {
 				t.Errorf("%s lists the planning card %s", view, c.ItemID)

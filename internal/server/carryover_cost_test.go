@@ -38,7 +38,7 @@ func TestACarryOverAnnouncesTheBoardOnceNotPerCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 3\ntitle: t\n")},
 		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: " + yesterday + "\n")},
 		{Path: gitstore.ProjectPath("01JB4PROJ"), Data: []byte("name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
 	}

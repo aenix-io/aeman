@@ -64,7 +64,7 @@ func TestADeletedCardStandsOnTheDayItWasWorked(t *testing.T) {
 		}
 	}
 	commit("2026-08-24T08:00:00Z", "the sprint opens", []string{gone, kept},
-		gitstore.FileWrite{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
+		gitstore.FileWrite{Path: gitstore.BoardPath, Data: []byte("schema: 3\ntitle: t\n")},
 		team(day, prev),
 		card(gone, 40), card(kept, 40))
 	commit("2026-08-24T15:00:00Z", "done", []string{gone}, card(gone, 100))

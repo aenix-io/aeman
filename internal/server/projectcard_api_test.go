@@ -23,7 +23,7 @@ func TestAProjectCardLivesAndDiesInItsColumnOverHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 3\ntitle: t\n")},
 		{Path: "cards/d/4/01JB4K2E7QZMX3R8V0N5T9WYD4.md", Data: []byte("---\ntitle: a plan\nscope: Inbox\nprogress: 40\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n")},
 	})
 	if err != nil {

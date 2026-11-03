@@ -103,8 +103,11 @@ func TestMapDomainBoard(t *testing.T) {
 	if orig.StartDate != "2026-06-20" || orig.SprintStart != "2026-06-22" {
 		t.Errorf("orig dates = %q / %q", orig.StartDate, orig.SprintStart)
 	}
-	if orig.Team != "alpha" || orig.Week != "2026-06-22" {
-		t.Errorf("orig team/week = %q / %q", orig.Team, orig.Week)
+	// The Week field is read off the item, and a TASK's week is read as
+	// nothing once the board is built (K7): the importer parks a task that
+	// had nothing but a week (schema 3's rule, K8).
+	if orig.Team != "alpha" || orig.Week != "" {
+		t.Errorf("orig team/week = %q / %q, want alpha and no week", orig.Team, orig.Week)
 	}
 	if len(orig.Assignees) != 1 || orig.Assignees[0] != "bob" {
 		t.Errorf("orig assignees = %v", orig.Assignees)
