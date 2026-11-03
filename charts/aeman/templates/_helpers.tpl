@@ -38,6 +38,14 @@ app.kubernetes.io/name: {{ include "aeman.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{/* The tunnel connector's selector labels: a name of its own, so the
+     Service, which selects the aeman pods by aeman.selectorLabels, never
+     sends traffic to a connector pod. */}}
+{{- define "aeman.cloudflaredSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "aeman.name" . }}-cloudflared
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
 {{/* The data claim's name. */}}
 {{- define "aeman.claimName" -}}
 {{- default (printf "%s-data" (include "aeman.fullname" .)) .Values.persistence.existingClaim }}

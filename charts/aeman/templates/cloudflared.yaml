@@ -36,15 +36,13 @@ spec:
   replicas: {{ .Values.cloudflared.replicas }}
   selector:
     matchLabels:
-      {{- include "aeman.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: cloudflared
+      {{- include "aeman.cloudflaredSelectorLabels" . | nindent 6 }}
   template:
     metadata:
       annotations:
         checksum/config: {{ .Values.cloudflared | toJson | sha256sum }}
       labels:
-        {{- include "aeman.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: cloudflared
+        {{- include "aeman.cloudflaredSelectorLabels" . | nindent 8 }}
     spec:
       securityContext:
         runAsNonRoot: true
