@@ -19,10 +19,7 @@ import {
   rosterOf,
   slotDragPlan,
 } from "../placements";
-import { slotMenuItems } from "../projectmenu";
-import { kindOf } from "../roadmap";
 import { Dropdown } from "./Dropdown";
-import { ParentOptionList } from "./ParentPicker";
 import { KindIcon } from "./KindIcon";
 import { nearestPlanning, openPlanning } from "../backlogboard";
 import { ProjectPicker } from "./ProjectPicker";
@@ -145,7 +142,6 @@ export function ProjectBoard({
   addCard,
   replaceCard,
   removeCard,
-  reload,
   onError,
   onOpen,
 }: ProjectBoardProps) {
@@ -694,72 +690,9 @@ export function ProjectBoard({
     from: string;
     row: number;
   } | null>(null);
-  // The slot's own "…" menu: open the card, attach it under a goal, an
-  // initiative or an epic, mark it done and back, take it off the plan,
-  // delete it. Only one is open at a time, so a single anchor ref serves
-  // whichever handle was last pressed. Below its items it lists the goals,
-  // initiatives and epics to file it under (ParentOptionList), fed by the
-  // roadmap listing fetched the first time a menu opens.
-  const [slotMenu, setSlotMenu] = useState<string | null>(null);
-  const [roadmapCards, setRoadmapCards] = useState<CardModel[] | null>(null);
-  const menuAnchor = useRef<HTMLButtonElement | null>(null);
   // A press on a slot is a click until it travels; a click that follows a
   // drag must not open the pane (beginMove, moveMove).
   const draggedRef = useRef(false);
-  useEffect(() => {
-    if (!slotMenu || roadmapCards !== null) {
-      return;
-    }
-    let dropped = false;
-    void provider
-      .listCards({ view: "roadmap" })
-      .then((l) => {
-        if (!dropped) {
-          setRoadmapCards(l.cards);
-        }
-      })
-      .catch(() => {
-        if (!dropped) {
-          setRoadmapCards([]);
-        }
-      });
-    return () => {
-      dropped = true;
-    };
-  }, [slotMenu, roadmapCards, provider]);
-
-  // Filing a project card under a planning card: the one link of the
-  // hierarchy, written as the drawer's Under picker writes it. The server
-  // holds the level rule and says so in its own words when it refuses.
-  const attachTo = (card: CardModel, parent: CardModel | null) => {
-    const nextId = parent?.itemId ?? "";
-    if ((card.parent ?? "") === nextId) {
-      return;
-    }
-    const before = { parent: card.parent, lineage: card.lineage };
-    patchCard(card.itemId, {
-      parent: nextId || undefined,
-      lineage: parent ? [...(parent.lineage ?? []), { uid: parent.itemId, type: parent.type, title: parent.title }] : undefined,
-    });
-    void provider
-      .patchCard(card.itemId, { parent: nextId })
-      .then((updated) => patchCard(card.itemId, { parent: updated.parent, lineage: updated.lineage }))
-      .catch((err: unknown) => {
-        patchCard(card.itemId, before);
-        onError(errText(err));
-      });
-  };
-
-  // Deleting a project card outright, asked first with the one choice dialog
-  // every × uses. Its linked review card goes with it (the server cascades).
-  const deleteSlot = (card: CardModel) => {
-    removeCard(card.itemId);
-    void provider.deleteCard(card.itemId).catch((err: unknown) => {
-      onError(errText(err));
-      reload();
-    });
-  };
-
   // A column belongs to exactly one project, so adding one is only offered
   // when a single project is in view — otherwise there is no answer to
   // "which project does this column go in".
@@ -861,40 +794,6 @@ export function ProjectBoard({
     void provider
       .moveDeadline(dlProject, from, to)
       .catch((err: unknown) => onError(errText(err)));
-  };
-
-  // Done, and back again. Marking done is the board's own rule — the server
-  // clears the stage and fills 100 — and the way back RESTORES what done
-  // overwrote: the server reads the pre-done progress from the card's own
-  // log, so an accidental done+undo round-trips instead of leaving the card
-  // at 90 and painted "taken into work".
-  const setDone = (card: CardModel, done: boolean) => {
-    setSlotMenu(null);
-    const prev = { stage: card.stage, progress: card.progress };
-    if (done) {
-      patchCard(card.itemId, {
-        stage: card.stage === "recurrent" ? "recurrent" : undefined,
-        progress: 100,
-      });
-      void provider
-        .patchCard(card.itemId, { stage: "done" })
-        .then(addCard)
-        .catch((err: unknown) => {
-          patchCard(card.itemId, prev);
-          onError(errText(err));
-        });
-      return;
-    }
-    // Optimistically only the stage clears; the restored progress arrives
-    // with the response — the client cannot know it.
-    patchCard(card.itemId, { stage: undefined });
-    void provider
-      .reopen(card.itemId)
-      .then(addCard)
-      .catch((err: unknown) => {
-        patchCard(card.itemId, prev);
-        onError(errText(err));
-      });
   };
 
   // subtaskTitle words the ↳ marker: the parent's title when the query
@@ -1447,12 +1346,12 @@ export function ProjectBoard({
                   return;
                 }
                 // The card's own controls live at that same right edge — the
-                // … menu, the delete button. Stepping aside under a
+                // icon of the planning card it is attached to. Stepping aside under a
                 // pointer that came to press one of them shrinks the card out
                 // from under the click.
                 if (
                   (ev.target as HTMLElement).closest(
-                    "button, .project-slot-menu, .project-slot-actions",
+                    "button, .project-slot-actions",
                   )
                 ) {
                   cancelNudgeTimer();
@@ -1544,28 +1443,6 @@ export function ProjectBoard({
                   </span>
                 )}
                 {card.title}
-                {/* The goal, initiative or epic it is attached to — the
-                    nearest — as a way into it (#288). */}
-                {(() => {
-                  const up = nearestPlanning(card);
-                  return (
-                    up && (
-                      <button
-                        type="button"
-                        className="project-slot-plan"
-                        title={`The ${up.type} «${up.title}»`}
-                        onPointerDown={(ev) => ev.stopPropagation()}
-                        onClick={(ev) => {
-                          ev.stopPropagation();
-                          void openPlanning(provider, up.uid, onOpen, (m) => onError(m));
-                        }}
-                      >
-                        {up.type && <KindIcon kind={up.type} size={12} />}
-                        <span className="project-slot-plan-text">{up.title}</span>
-                      </button>
-                    )
-                  );
-                })()}
                 {cardDomainBadge(board.domains, card.domain) && (
                   <span
                     className="project-slot-domain"
@@ -1575,26 +1452,32 @@ export function ProjectBoard({
                   </span>
                 )}
               </span>
-              {/* The slot's "…" MENU: open, attach under a planning card,
-                  done and back, delete (projectmenu.ts). There is no × on
-                  the slot — deleting is reached through the menu and the
-                  card's pane, nowhere a hover lands on by accident. A
-                  project card has no team and no owner (H4), so there is no
-                  badge to hand it to one. */}
-              <button
-                type="button"
-                className="project-slot-menu"
-                title="Open, attach, mark as done, remove"
-                aria-label={`Actions on ${card.title}`}
-                aria-haspopup="menu"
-                onClick={(ev) => {
-                  ev.stopPropagation();
-                  menuAnchor.current = ev.currentTarget;
-                  setSlotMenu(slotMenu === card.itemId ? null : card.itemId);
-                }}
-              >
-                …
-              </button>
+              {/* The goal, initiative or epic the card is attached to —
+                  the nearest — as its KIND ICON alone: its name is the
+                  tooltip, and the icon opens it. A project card has no menu
+                  and no × (H4): it is attached with the drawer's Under (or a
+                  Roadmap drag), marked done with the drawer's Done, and
+                  deleted from the drawer. */}
+              {(() => {
+                const up = nearestPlanning(card);
+                return (
+                  up?.type && (
+                    <button
+                      type="button"
+                      className="project-slot-plan"
+                      title={`The ${up.type} «${up.title}»`}
+                      aria-label={`The ${up.type} ${up.title}`}
+                      onPointerDown={(ev) => ev.stopPropagation()}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        void openPlanning(provider, up.uid, onOpen, (m) => onError(m));
+                      }}
+                    >
+                      <KindIcon kind={up.type} size={12} />
+                    </button>
+                  )
+                );
+              })()}
               {card.stage && card.stage !== "done" && (
                 <span
                   className="project-slot-stage"
@@ -1602,70 +1485,6 @@ export function ProjectBoard({
                   title={STAGES[card.stage].label}
                 />
               )}
-              <Dropdown
-                open={slotMenu === card.itemId}
-                anchorRef={menuAnchor}
-                onClose={() => setSlotMenu(null)}
-                className="card-stage-menu project-slot-actions-menu"
-              >
-                {/* A click in the menu is the menu's: it must not reach the
-                    slot, whose click opens the card (#288). */}
-                <div onClick={(ev) => ev.stopPropagation()} onPointerDown={(ev) => ev.stopPropagation()}>
-                  {slotMenuItems(card).map((item) => {
-                    switch (item.key) {
-                      case "open":
-                        return (
-                          <button
-                            key={item.key}
-                            type="button"
-                            className="card-stage-item project-menu-lead"
-                            onClick={() => {
-                              setSlotMenu(null);
-                              onOpen(card);
-                            }}
-                          >
-                            {item.label}
-                          </button>
-                        );
-                      case "done":
-                        return (
-                          <button key={item.key} type="button" className="card-stage-item" onClick={() => setDone(card, !item.reopen)}>
-                            <span className="card-stage-dot" style={{ background: STAGES.done.color }} />
-                            {item.label}
-                          </button>
-                        );
-                      default:
-                        // At once: the pick is the confirmation.
-                        return (
-                          <button
-                            key={item.key}
-                            type="button"
-                            className="card-stage-item project-menu-danger"
-                            onClick={() => {
-                              setSlotMenu(null);
-                              deleteSlot(card);
-                            }}
-                          >
-                            {item.label}
-                          </button>
-                        );
-                    }
-                  })}
-                  {/* The goals, initiatives and epics to file it under, right
-                      here with their search — no second picker. */}
-                  <div className="card-assign-head">Attach to</div>
-                  <ParentOptionList
-                    kind={kindOf(card)}
-                    current={card.parent}
-                    options={roadmapCards}
-                    self={card.itemId}
-                    onPick={(parent) => {
-                      setSlotMenu(null);
-                      attachTo(card, parent);
-                    }}
-                  />
-                </div>
-              </Dropdown>
               {/* One grip per edge: the top moves the slot's start, the
                   bottom its end. "from" is whichever edge stays put. */}
               <div

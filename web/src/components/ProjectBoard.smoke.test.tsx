@@ -95,17 +95,22 @@ describe("the Project board's grid", () => {
     expect(html.match(/class="project-cell/g)?.length).toBe(11);
   });
 
-  it("gives a card a … menu and no team badge: a project card has no team", () => {
+  // A project card has no menu: what it did lives where the card's other
+  // gestures live — the drawer's Under, Done and Delete, the Roadmap's drag.
+  // And no team badge: a project card has no team.
+  it("gives a card no … menu and no team badge", () => {
     const html = draw(board());
-    expect(html).toContain('aria-label="Actions on A card in a column"');
-    expect(html).toContain("project-slot-menu");
+    expect(html).not.toContain("project-slot-menu");
+    expect(html).not.toContain("Actions on");
+    expect(html).not.toContain('aria-haspopup="menu"');
     expect(html).not.toContain("project-slot-team");
     expect(html).not.toContain("border-left-color");
   });
 
-  // #288: a card shows the goal, initiative or epic it is attached to — the
-  // nearest one, its kind icon and name — as a way into it.
-  it("shows the planning card a project card is attached to, as a way into it", () => {
+  // A card attached under a goal, an initiative or an epic shows that card's
+  // KIND ICON alone, where the menu button was — its name is the tooltip,
+  // never text on the card — and the icon opens it.
+  it("shows the kind icon of the planning card it is attached to, and no name", () => {
     const html = draw(
       board({
         cards: [
@@ -118,21 +123,23 @@ describe("the Project board's grid", () => {
         ],
       }),
     );
-    expect(html).toMatch(/<button[^>]*class="project-slot-plan"[^>]*title="The epic «Billing v2»"[^>]*>.*kind-icon-epic.*Billing v2/s);
+    expect(html).toMatch(/<button[^>]*class="project-slot-plan"[^>]*title="The epic «Billing v2»"[^>]*><svg[^>]*kind-icon-epic[^>]*>.*?<\/svg><\/button>/s);
+    expect(html).not.toContain(">Billing v2<");
+    expect(html).not.toContain("project-slot-plan-text");
     expect(html).not.toContain(">Grow<");
+    // In the title's row, after the title — where the menu button stood.
+    expect(html.indexOf("project-slot-plan")).toBeGreaterThan(html.indexOf('class="project-slot-title"'));
   });
 
-  it("shows nothing of the kind on a card attached to nothing", () => {
+  it("shows nothing there on a card attached to nothing", () => {
     expect(draw(board())).not.toContain("project-slot-plan");
   });
 
-  it("puts no × on a card: deleting is the menu's and the pane's, never a hover's", () => {
+  it("puts no × on a card: deleting is the pane's, never a hover's", () => {
     const html = draw(board());
     expect(html).not.toContain("project-slot-actions");
     expect(html).not.toContain("card-action-delete");
     expect(html).not.toContain('title="Delete"');
-    // Nor a dialog waiting behind it: the menu's Delete acts at once
-    // (projectmenu.ts), and there is no way out of the project but that.
     expect(html).not.toContain("modal-backdrop");
     expect(html).not.toContain("Remove from project");
   });

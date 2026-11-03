@@ -99,9 +99,10 @@ It is **done or not done**: its progress takes 0 or 100 alone (any other
 value is refused, `projectCardProgress`), no stage door puts it between
 the two (review, locked and In progress are refused; reopening takes it to
 0), and its drawer shows a Done toggle in place of a bar. Values written
-before this rule are left as they are. On the Project board it shows the goal,
-initiative or epic it is attached to, and its "…" menu lists them to attach
-it to right there. It stands in its Scope column on the
+before this rule are left as they are. On the Project board it shows, when
+attached, the kind icon of the goal, initiative or epic it is attached to —
+the name is the icon's tooltip, and the icon opens it. It stands in its
+Scope column on the
 Project board, may be placed under an epic, initiative or goal (a
 planning `parent`, the hierarchy's link), and shows on the Roadmap under
 that parent. It is **never a subtask and has none** — a subtask rides its
@@ -415,9 +416,8 @@ Status, its dates (editable), Under, Project and Scope — no owner, no
 band, no size. **Under** is one prominent, searchable picker, grouped by
 level, offering planning cards of a higher level only
 (`allowedParentKinds`, the mirror of the level rule) and nothing on a
-goal or a subtask (a subtask's task is the group gesture's); the same
-list is what the Project board's "…" menu attaches a card with, as a
-popover where the menu was, without opening the pane. A task's pane
+goal or a subtask (a subtask's task is the group gesture's); it is how a
+project card is attached, since the Project board's card has no menu. A task's pane
 lists its **subtasks** and takes one more, grouped under it the way the
 Team and Me boards group a card (the parent's team, band and person come
 along; the day is the parent's or today), from whichever board the pane
@@ -434,8 +434,8 @@ lives and dies in its column: nothing takes it out of its project, Delete
 is the one way off the board. The options and the children come from the
 roadmap listing, fetched once per card when the pane needs it: the day
 boards never deliver a planning card to look up. The rules live in
-`web/src/roadmap.ts`, `web/src/owner.ts` and `web/src/projectmenu.ts`
-with their cases beside them; the components draw them.
+`web/src/roadmap.ts` and `web/src/owner.ts` with their cases beside
+them; the components draw them.
 
 The Roadmap and the Project board open the drawer with a click on a card
 (the Project board's cards included, where a double click used to be the
@@ -444,9 +444,9 @@ click and open it on a click on the selected card (#290): the selection is
 shared live as presence, so a lead selecting a card on the Team board is
 seen on the person's Me board and the other way round, and each of the
 three draws the others' marks on their cards.
-The Project board's card has no × of its own — its "…" menu opens,
-attaches, marks done, and deletes at once (the pick is the confirmation);
-the pane's Delete still asks. The deadline lines stay on the Project
+The Project board's card has no × and no menu of its own: a click opens
+it, and its drawer attaches it (Under), marks it done (Done) and deletes
+it (Delete, which asks). The deadline lines stay on the Project
 board.
 
 ## Owner
