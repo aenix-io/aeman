@@ -1260,12 +1260,6 @@ func (s *Service) deleteGroup(ctx context.Context, b board.Board, card board.Car
 // its dates, on the day grids), its team's backlog, or the Project board (a
 // column). Emptying its last one is what deletion means here.
 
-// inWorkingArea reports whether the card is in the working area — in a
-// sprint, or on the day grid by its dates.
-func inWorkingArea(c board.Card) bool {
-	return c.SprintStart != "" || c.StartDate != "" || c.Day != ""
-}
-
 // childrenLeaveWorkingArea takes a card's subtasks out of the working area
 // with it: the sprint through syncChildrenSprint, and the dates that would
 // otherwise keep them listed on a day the parent has left.
