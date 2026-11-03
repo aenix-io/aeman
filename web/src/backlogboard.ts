@@ -274,11 +274,11 @@ export function nearestPlanning(c: Pick<Card, "lineage">): LineageRef | null {
   return null;
 }
 
-/** dueOf is the task's due date: its nearest planning card's end. Not
- *  borrowed from a farther ancestor — the epic is what the task is for, and
- *  a goal's end says nothing about when the epic is due. */
-export function dueOf(c: Pick<Card, "lineage">): string | undefined {
-  return nearestPlanning(c)?.end || undefined;
+/** dueOf is the task's due date, as the SERVER says it (status.dueDate): its
+ *  nearest planning card's end, never one borrowed from a farther ancestor.
+ *  The rule is the server's; the board only reads it. */
+export function dueOf(c: Pick<Card, "dueDate">): string | undefined {
+  return c.dueDate || undefined;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

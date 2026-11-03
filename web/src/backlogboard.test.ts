@@ -340,7 +340,7 @@ describe("the optimistic shapes", () => {
 
 // The card's tag is the nearest planning card above it — the last entry of
 // the lineage that is a goal, an initiative or an epic — and its due date is
-// that card's end.
+// the server's status.dueDate.
 describe("the tag and the due date", () => {
   it("is the nearest planning ancestor, not the root", () => {
     expect(nearestPlanning(card({ lineage: [GOAL, EPIC] }))).toEqual(EPIC);
@@ -351,16 +351,13 @@ describe("the tag and the due date", () => {
     expect(nearestPlanning(card({ lineage: [] }))).toBeNull();
   });
 
-  it("is that planning card's end, and nothing when it has none", () => {
-    expect(dueOf(card({ lineage: [GOAL, EPIC] }))).toBe("2026-12-18");
-    expect(dueOf(card({ lineage: [GOAL, { ...EPIC, end: undefined }] }))).toBeUndefined();
+  // The due date is the SERVER's (status.dueDate: the nearest planning card's
+  // end, never a farther one's — apiserver TestATaskIsDueWhenItsNearestPlanningCardEnds);
+  // the board reads it and works nothing out of the lineage.
+  it("is the due date the server sends, and nothing when it sends none", () => {
+    expect(dueOf(card({ dueDate: "2026-12-18" }))).toBe("2026-12-18");
+    expect(dueOf(card({ lineage: [GOAL, EPIC] }))).toBeUndefined();
     expect(dueOf(card({}))).toBeUndefined();
-  });
-
-  it("is not borrowed from a farther ancestor when the nearest has no end", () => {
-    // The epic is what the task is for; the goal's end says nothing about
-    // when the epic is due.
-    expect(dueOf(card({ lineage: [GOAL, { uid: "e", type: "epic", title: "Billing v2" }] }))).toBeUndefined();
   });
 
   it("reads as a day and a month", () => {

@@ -912,6 +912,8 @@ export interface components {
             links?: components["schemas"]["CardLinkRef"][];
             /** @description Every ancestor of the card, ROOT FIRST — the breadcrumb a detail pane draws above it, a task parent included. Absent on a root. A review card, which hangs under nothing of its own, carries the planning chain of the task it reviews. */
             lineage?: components["schemas"]["LineageRef"][];
+            /** @description A task's due date: the end of its NEAREST planning card (goal, initiative or epic) — never one borrowed from a farther ancestor. Absent with no planning card above it, when the nearest has no end, and on a planning card. A review card is due when the task it reviews is. */
+            dueDate?: string;
             hierarchy?: components["schemas"]["Hierarchy"];
         };
         /** @description One ancestor of a card. */

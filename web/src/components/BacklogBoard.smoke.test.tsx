@@ -57,7 +57,7 @@ function draw(b: Board, teamFilter: string[] | null = ["portal", "cozystack"]) {
 }
 
 describe("the Backlog board", () => {
-  const first = card({ itemId: "p1", title: "Rotate the certificates", team: "portal", size: "L", parent: "e", lineage: [GOAL, EPIC] });
+  const first = card({ itemId: "p1", title: "Rotate the certificates", team: "portal", size: "L", parent: "e", lineage: [GOAL, EPIC], dueDate: "2026-12-18" });
   const second = card({ itemId: "p2", title: "Drop the old API", team: "portal" });
   const cozy = card({ itemId: "k1", title: "Bump the chart", team: "cozystack", assignees: ["kvaps"] });
 
@@ -99,7 +99,7 @@ describe("the Backlog board", () => {
     expect(html).toContain('title="The goal «Grow revenue across every market we serve»"');
   });
 
-  it("keeps the due date: the nearest planning card's end, and the size", () => {
+  it("keeps the due date the server sends (its nearest planning card's end), and the size", () => {
     const html = draw(board([first]));
     expect(html).toContain("due 18 Dec");
     expect(html).toContain(">L</button>");

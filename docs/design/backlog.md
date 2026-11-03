@@ -71,7 +71,7 @@ SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
   `status.lineage`), each with its kind icon as the Roadmap draws it, a
   long name cut short with the whole name in its tooltip, and each
   opening that planning card's drawer (the one the Roadmap opens); the
-  due date — the nearest planning ancestor's end, when it has one; the
+  due date — the server's `status.dueDate`: the nearest planning ancestor's end, when it has one; the
   size when it has one; and whose it is — the team's avatar, the
   person's stacked over it when somebody has it, one label (the shared
   owner badge, the Roadmap's too), with a separate Take button to its

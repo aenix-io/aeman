@@ -108,6 +108,7 @@ export function resourceToCard(res: CardResource): Card {
       // The ancestor's end: the Backlog board's due date for a task under it.
       ...(l.end ? { end: l.end } : {}),
     })),
+    dueDate: res.status?.dueDate || undefined,
     hierarchy: res.status?.hierarchy
       ? { status: res.status.hierarchy.status, done: res.status.hierarchy.done, total: res.status.hierarchy.total }
       : undefined,

@@ -71,3 +71,33 @@ func TestAReviewCardCarriesItsTasksPlanningChain(t *testing.T) {
 		t.Fatalf("the review card's lineage = %+v, want its task's epic", got)
 	}
 }
+
+// A task's DUE date is the server's to say (status.dueDate), not a rule the
+// Backlog works out of the lineage: the end of its NEAREST planning card —
+// the epic it is for — and never one borrowed from a farther ancestor, since
+// a goal's end says nothing about when the epic is due. A task under no
+// planning card, or under one with no end, has none. A review card is due
+// when the task it reviews is. A planning card has an end of its own, not a
+// due date.
+func TestATaskIsDueWhenItsNearestPlanningCardEnds(t *testing.T) {
+	t.Parallel()
+	b := board.NewBoard([]board.Card{
+		{ItemID: "goal", Title: "Grow", Type: board.TypeGoal, Day: "2027-06-30"},
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "goal", Day: "2026-12-18"},
+		{ItemID: "open", Title: "Undated epic", Type: board.TypeEpic, Parent: "goal"},
+		{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha", Parked: true},
+		{ItemID: "sub", Title: "Receipt PDF", Parent: "t", Team: "alpha"},
+		{ItemID: "u", Title: "Under an undated epic", Parent: "open", Team: "alpha", Parked: true},
+		{ItemID: "loose", Title: "Loose", Team: "alpha", Parked: true},
+		{ItemID: "rev", Title: "review: Receipts", ReviewOf: "t", Team: "alpha", Parked: true},
+	})
+	for id, want := range map[string]string{
+		"t": "2026-12-18", "sub": "2026-12-18", "rev": "2026-12-18",
+		"u": "", "loose": "", "epic": "",
+	} {
+		c, _ := board.Find(b, id)
+		if got := CardResource(b, c).Status.DueDate; got != want {
+			t.Errorf("%s due = %q, want %q", id, got, want)
+		}
+	}
+}

@@ -1686,6 +1686,14 @@ components:
             planning chain of the task it reviews.
           items:
             $ref: '#/components/schemas/LineageRef'
+        dueDate:
+          type: string
+          description: >-
+            A task's due date: the end of its NEAREST planning card (goal,
+            initiative or epic) — never one borrowed from a farther ancestor.
+            Absent with no planning card above it, when the nearest has no
+            end, and on a planning card. A review card is due when the task it
+            reviews is.
         hierarchy:
           $ref: '#/components/schemas/Hierarchy'
     LineageRef:

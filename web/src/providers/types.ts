@@ -96,6 +96,9 @@ export interface Card {
    *  entry is the parent itself, and its type is what tells a subtask from a
    *  task under an epic without a lookup. */
   lineage?: LineageRef[];
+  /** A task's due date, the server's (status.dueDate): its nearest
+   *  planning card's end. */
+  dueDate?: string;
   /** A planning card's derived standing, from the tasks under it. Absent on a
    *  task. */
   hierarchy?: HierarchyStatus;

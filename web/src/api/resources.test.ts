@@ -64,3 +64,12 @@ describe("nothing of the Triage board reaches the card", () => {
     }
   });
 });
+
+// A task's due date is the server's (status.dueDate), carried as it came.
+describe("the due date survives the wire", () => {
+  it("maps status.dueDate, and nothing when it is absent", () => {
+    const withDue = { ...res({}), status: { complete: false, inProgress: false, dueDate: "2026-12-18" } } as CardResource;
+    expect(resourceToCard(withDue).dueDate).toBe("2026-12-18");
+    expect(resourceToCard(res({})).dueDate).toBeUndefined();
+  });
+});

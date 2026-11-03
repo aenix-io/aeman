@@ -160,6 +160,12 @@ type CardStatus struct {
 	// Lineage is every ancestor of the card, root first — the breadcrumb a
 	// detail pane draws above it. Absent on a root.
 	Lineage []LineageRef `json:"lineage,omitempty"`
+	// DueDate is a task's due date (named apart from the retired Triage
+	// status.due, a list of weeks): the end of its NEAREST planning card — the
+	// epic it is for — never one borrowed from a farther ancestor. Absent
+	// with no planning card above it, when the nearest has no end, and on a
+	// planning card (its own end is its date).
+	DueDate string `json:"dueDate,omitempty"`
 	// Hierarchy is a PLANNING card's derived standing, from the tasks under
 	// it. Absent on a task, whose stage and progress are its own.
 	Hierarchy *Hierarchy `json:"hierarchy,omitempty"`
@@ -443,6 +449,14 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 	}
 	for _, a := range up {
 		status.Lineage = append(status.Lineage, LineageRef{UID: a.ItemID, Type: a.Type, Title: a.Title, End: a.Day})
+	}
+	if !board.IsPlanning(c) {
+		for i := len(up) - 1; i >= 0; i-- {
+			if board.IsPlanning(up[i]) {
+				status.DueDate = up[i].Day
+				break
+			}
+		}
 	}
 	if board.IsPlanning(c) {
 		st, done, total := ix.HierarchyStatus(c)
