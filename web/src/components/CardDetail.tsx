@@ -10,6 +10,7 @@ import type {
   SizeKey,
   ZoneKey,
 } from "../providers/types";
+import { keepPlaced } from "../backlog";
 import { ZONES, ZONE_ORDER } from "../zones";
 import { SIZES, SIZE_ORDER } from "../size";
 import { STAGES, barColor, clampProgress, clampsProgress } from "../stages";
@@ -420,10 +421,13 @@ export function CardDetail({
     // Detach a child of a planning card, or ungroup a subtask: the same
     // write — the link goes, the card stays where it is.
     if (choice === "detach" || choice === "ungroup") {
-      const before = { parent: target.parent, lineage: target.lineage };
-      patchCard(target.itemId, { parent: undefined, lineage: undefined });
+      const before = { parent: target.parent, lineage: target.lineage, parked: target.parked };
+      // Out of its group or its plan with no place of its own, the server
+      // parks it (K1, keepPlaced); the optimistic card says the same.
+      const freed = { parent: undefined, lineage: undefined, ...keepPlaced(target, false) };
+      patchCard(target.itemId, freed);
       setHierarchy((h) =>
-        h ? { ...h, cards: h.cards.map((c) => (c.itemId === target.itemId ? { ...c, parent: undefined, lineage: undefined } : c)) } : h,
+        h ? { ...h, cards: h.cards.map((c) => (c.itemId === target.itemId ? { ...c, ...freed } : c)) } : h,
       );
       void provider.patchCard(target.itemId, { parent: "" }).catch((err: unknown) => {
         patchCard(target.itemId, before);

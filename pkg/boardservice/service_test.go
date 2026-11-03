@@ -2122,7 +2122,7 @@ func TestLogEventRetriesTransientFailures(t *testing.T) {
 	eventRetryBackoff = time.Millisecond
 	defer func() { eventRetryBackoff = prev }()
 
-	inner := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Progress: 40}}, nil)
+	inner := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Progress: 40, SprintStart: "2026-07-01"}}, nil)
 	f := &flakyEventBackend{fakeBackend: inner, failures: 2}
 	svc := New(f)
 	if err := svc.SetProgress(WithActor(ctx, "kvaps"), "acme", "c1", 60); err != nil {

@@ -4,6 +4,7 @@
 // planning card is the server's derived one, and a bar is a card's own
 // dates — so a component re-deciding any of it would drift from what the
 // listing says (docs/design/hierarchy.md, "The Roadmap tab").
+import { keepPlaced, type PlaceFields } from "./backlog";
 import { addDays, mondayOf } from "./date";
 import { isComplete, isInProgress } from "./stages";
 import { isPlanning, isSubtask } from "./subtasks";
@@ -429,7 +430,7 @@ export const DELETE_INTENT = "off-board" as const;
  *  patches the board applies at once (the children moving up, or the link
  *  going), and the one request that makes it so. */
 export interface RemovalPlan {
-  patches: { itemId: string; parent: string | undefined }[];
+  patches: { itemId: string; parent: string | undefined; parked?: true }[];
   request: { kind: "remove"; uid: string; intent: typeof DELETE_INTENT } | { kind: "unlink"; uid: string };
   /** The card leaves the board (delete) — the row goes with it. */
   gone: boolean;
@@ -440,13 +441,16 @@ export interface RemovalPlan {
  *  intent the server needs; detach clears the card's own parent and sends
  *  that one patch. */
 export function planningRemovalPlan(
-  cards: readonly Pick<Card, "itemId" | "parent">[],
+  cards: readonly (Pick<Card, "itemId" | "parent"> & Partial<PlaceFields>)[],
   id: string,
   choice: HierarchyChoice,
 ): RemovalPlan {
   if (choice === "detach") {
+    // A task with no place of its own detached from its plan is parked, as
+    // the server parks it (K1, keepPlaced).
+    const card = cards.find((c) => c.itemId === id);
     return {
-      patches: [{ itemId: id, parent: undefined }],
+      patches: [{ itemId: id, parent: undefined, ...(card ? keepPlaced(card, false) : {}) }],
       request: { kind: "unlink", uid: id },
       gone: false,
     };

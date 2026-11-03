@@ -157,6 +157,14 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 			return err
 		}
 	}
+	// A subtask rides its parent and is never parked on its own: grouped,
+	// a parked task leaves its backlog and stands wherever its parent does.
+	if card.Parked {
+		if err := s.backend.SetBacklog(ctx, b, card, false); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventBacklog, backlogLabel(card), "")
+	}
 	// The log keeps titles, not item ids — readable for humans and agents.
 	// A card born parented (create with parent) has card.Parent == parent
 	// already: that is a fresh grouping, not a move.
@@ -232,7 +240,11 @@ func (s *Service) linkInHierarchy(ctx context.Context, b board.Board, card, p bo
 		}
 	}
 	s.logEvent(ctx, b, card, board.EventParent, oldTitle, p.Title)
-	return nil
+	// A subtask filed under the plan is a task of its own now (H1); with no
+	// place of its own it is parked (K1).
+	filed := card
+	filed.Parent = p.ItemID
+	return s.keepPlaced(ctx, b, filed, false)
 }
 
 // syncParentProgress recomputes a parent's derived progress after one of its
@@ -322,9 +334,11 @@ func (s *Service) ungroupWith(ctx context.Context, b board.Board, card board.Car
 	// Taking a card out from under a PLANNING card is the plain unlink: it
 	// was never riding that parent, so there is no person to hand over and
 	// no group to record leaving (H1).
+	freed := card
+	freed.Parent = ""
 	if hadParent && board.IsPlanning(op) {
 		s.logEvent(ctx, b, card, board.EventParent, op.Title, "")
-		return nil
+		return s.keepPlaced(ctx, b, freed, false)
 	}
 	// A subtask usually has no assignee of its own — it rides the
 	// parent's — so a pull-out left it ownerless: gone from every
@@ -346,5 +360,10 @@ func (s *Service) ungroupWith(ctx context.Context, b board.Board, card board.Car
 	} else {
 		s.logEvent(ctx, b, card, board.EventParent, card.Parent, "")
 	}
-	return s.syncParentProgress(ctx, b, card.Parent, nil, card.ItemID)
+	if err := s.syncParentProgress(ctx, b, card.Parent, nil, card.ItemID); err != nil {
+		return err
+	}
+	// Out of the group with no place of its own (its parent was parked, and
+	// it rode it out of every day): it lands in its team's backlog (K1).
+	return s.keepPlaced(ctx, b, freed, false)
 }

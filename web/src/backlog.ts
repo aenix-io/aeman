@@ -14,7 +14,37 @@
 // Mirrors pkg/board/backlog.go and the rules boardservice.SetBacklog enforces.
 
 import type { Card, ZoneKey } from "./providers/types";
+import { isComplete } from "./stages";
 import { isPlanning, isSubtask } from "./subtasks";
+
+/** PlaceFields is what decides a task's place. */
+export type PlaceFields = Pick<
+  Card,
+  "startDate" | "day" | "sprintStart" | "parked" | "type" | "scope" | "reviewOf" | "stage" | "progress"
+>;
+
+/** unplaced mirrors board.Unplaced: an OPEN task in neither place — no date,
+ *  no sprint, not parked. A planning card, a project card, a review card and
+ *  a subtask (subtask: it rides a TASK parent) are not asked; nor is finished
+ *  work. */
+export function unplaced(c: Partial<PlaceFields>, subtask: boolean): boolean {
+  if (subtask || c.type || c.scope || c.reviewOf) {
+    return false;
+  }
+  if (c.startDate || c.day || c.sprintStart || c.parked) {
+    return false;
+  }
+  return !isComplete({ stage: c.stage, progress: c.progress });
+}
+
+/** keepPlaced mirrors boardservice keepPlaced, the K1 invariant the server
+ *  holds after every write: an open task the write left unplaced is parked
+ *  in its team's backlog in the same request — a PLAIN park, nothing else
+ *  about the card moves (parkedLocally is the gesture that empties it).
+ *  c is the card as the write leaves it. */
+export function keepPlaced(c: Partial<PlaceFields>, subtask: boolean): { parked?: true } {
+  return unplaced(c, subtask) ? { parked: true } : {};
+}
 
 /** parked reports whether the card is on its team's shelf. */
 export function parked(c: Pick<Card, "parked">): boolean {

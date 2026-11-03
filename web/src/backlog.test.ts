@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parkPatch, parkable, parked, parkedLocally } from "./backlog";
+import { keepPlaced, parkPatch, parkable, parked, parkedLocally, unplaced } from "./backlog";
 import type { Card } from "./providers/types";
 
 const card = (over: Partial<Card> = {}): Card =>
@@ -92,5 +92,42 @@ describe("the optimistic shape of a parked card", () => {
   // planning until the answer came back.
   it("says the zone, not only that the card is parked", () => {
     expect(parkedLocally().zone).toBe("gray");
+  });
+});
+
+// K1 is an invariant the server holds after every write (boardservice
+// keepPlaced): an open task left with no date, no sprint and no parent to
+// ride is parked in its team's backlog in the same request — a PLAIN park,
+// nothing else about the card moves. The optimistic patches of the doors
+// that can do that (ungrouping, detaching, freeing a deleted parent's
+// subtasks) carry the same answer, or the card vanishes from every board
+// until the next reload.
+describe("an open task never stands nowhere (K1)", () => {
+  it("is unplaced with no date, no sprint and no flag", () => {
+    expect(unplaced(card(), false)).toBe(true);
+    expect(unplaced(card({ progress: 30 }), false)).toBe(true);
+  });
+
+  it("is placed by a date, an end date, a sprint or the flag", () => {
+    for (const over of [{ startDate: "2026-09-01" }, { day: "2026-09-01" }, { sprintStart: "2026-09-01" }, { parked: true }]) {
+      expect(unplaced(card(over), false)).toBe(false);
+    }
+  });
+
+  it("asks nothing of what has no place of its own: a subtask, a review, a project card, a planning card", () => {
+    expect(unplaced(card({ parent: "t" }), true)).toBe(false);
+    expect(unplaced(card({ reviewOf: "o" }), false)).toBe(false);
+    expect(unplaced(card({ scope: "Auth" }), false)).toBe(false);
+    expect(unplaced(card({ type: "epic" }), false)).toBe(false);
+  });
+
+  it("asks nothing of finished work", () => {
+    expect(unplaced(card({ progress: 100 }), false)).toBe(false);
+    expect(unplaced(card({ stage: "done" }), false)).toBe(false);
+  });
+
+  it("parks an unplaced task with a plain park and leaves a placed one alone", () => {
+    expect(keepPlaced(card(), false)).toEqual({ parked: true });
+    expect(keepPlaced(card({ sprintStart: "2026-09-01" }), false)).toEqual({});
   });
 });

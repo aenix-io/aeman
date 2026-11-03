@@ -1,3 +1,4 @@
+import { keepPlaced, type PlaceFields } from "./backlog";
 import type { LineageRef } from "./providers/types";
 import { isSubtask } from "./subtasks";
 
@@ -59,16 +60,18 @@ export function deleteWarning(
 /** Freed is one subtask patched loose from a deleted parent. */
 export interface Freed {
   itemId: string;
-  patch: { parent: undefined; assignees?: string[] };
+  patch: { parent: undefined; assignees?: string[]; parked?: true };
 }
 
 /** freeSubtasks is what deleting a parent does to its subtasks on the server
  *  (deleteWithCascade): they become standalone cards, and one nobody had
  *  takes the parent's person so it lands in the cell the parent stood in.
+ *  One left with no date and no sprint — it rode a parked parent out of
+ *  every day — is parked in its team's backlog (K1, keepPlaced).
  *  The optimistic client applies the same, or the subtasks — still pointing
  *  at a parent that is gone — vanish from the grid until a refresh. */
 export function freeSubtasks(
-  cards: readonly { itemId: string; parent?: string; assignees: string[] }[],
+  cards: readonly ({ itemId: string; parent?: string; assignees: string[] } & Partial<PlaceFields>)[],
   parentId: string,
 ): Freed[] {
   const parent = cards.find((c) => c.itemId === parentId);
@@ -77,10 +80,11 @@ export function freeSubtasks(
     .filter((c) => c.parent === parentId)
     .map((c) => ({
       itemId: c.itemId,
-      patch:
-        c.assignees.length === 0 && inherit
-          ? { parent: undefined, assignees: [inherit] }
-          : { parent: undefined },
+      patch: {
+        parent: undefined,
+        ...(c.assignees.length === 0 && inherit ? { assignees: [inherit] } : {}),
+        ...keepPlaced(c, false),
+      },
     }));
 }
 

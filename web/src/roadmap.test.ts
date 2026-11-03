@@ -233,6 +233,14 @@ describe("the hierarchy's × and its two answers", () => {
     expect(plan.request).toEqual({ kind: "unlink", uid: "i" });
   });
 
+  // A task detached from its epic with no date and no sprint would stand on
+  // no board: the server parks it (K1), and so does the optimistic patch.
+  it("detaching a task with no place of its own parks it (K1)", () => {
+    const loose = { itemId: "lt", title: "loose", assignees: [], parent: "e" } as unknown as typeof task;
+    const plan = planningRemovalPlan([goal, ini, epic, loose], "lt", "detach");
+    expect(plan.patches).toEqual([{ itemId: "lt", parent: undefined, parked: true }]);
+  });
+
   it("says what deleting does to what sits under the card", () => {
     expect(childrenNote([goal, ini, epic, task, slot], "i")).toBe("The 2 cards under it move under «Grow».");
     expect(childrenNote([goal, ini], "g")).toBe("The card under it moves to the top.");

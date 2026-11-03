@@ -104,10 +104,10 @@ describe("the question before a delete", () => {
 // "silently disappeared" shape the × rules exist to prevent.
 describe("freeing the subtasks of a deleted parent", () => {
   const cards = [
-    { itemId: "p", assignees: ["kvaps"] },
-    { itemId: "s1", parent: "p", assignees: [] },
-    { itemId: "s2", parent: "p", assignees: ["bob"] },
-    { itemId: "other", parent: "q", assignees: [] },
+    { itemId: "p", assignees: ["kvaps"], sprintStart: "2026-09-01" },
+    { itemId: "s1", parent: "p", assignees: [], sprintStart: "2026-09-01" },
+    { itemId: "s2", parent: "p", assignees: ["bob"], sprintStart: "2026-09-01" },
+    { itemId: "other", parent: "q", assignees: [], sprintStart: "2026-09-01" },
   ];
 
   it("clears the parent and hands an unassigned subtask the parent's person", () => {
@@ -123,8 +123,22 @@ describe("freeing the subtasks of a deleted parent", () => {
   });
 
   it("frees a subtask as its own card when the parent had nobody either", () => {
-    const orphan = [{ itemId: "p", assignees: [] }, { itemId: "s", parent: "p", assignees: [] }];
+    const orphan = [
+      { itemId: "p", assignees: [], startDate: "2026-09-01" },
+      { itemId: "s", parent: "p", assignees: [], startDate: "2026-09-01" },
+    ];
     expect(freeSubtasks(orphan, "p")).toEqual([{ itemId: "s", patch: { parent: undefined } }]);
+  });
+
+  // The subtask of a PARKED parent rode it out of every day: freed, it has no
+  // place of its own and lands in its team's backlog, as the server parks it
+  // (K1, boardservice freeChildren) — a plain park, nothing else moves.
+  it("parks a freed subtask that has no date and no sprint (K1)", () => {
+    const shelved = [
+      { itemId: "p", assignees: [], parked: true },
+      { itemId: "s", parent: "p", assignees: [] },
+    ];
+    expect(freeSubtasks(shelved, "p")).toEqual([{ itemId: "s", patch: { parent: undefined, parked: true } }]);
   });
 });
 

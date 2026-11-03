@@ -1097,7 +1097,15 @@ func (s *Service) SetDates(ctx context.Context, boardID string, itemID, start, e
 	if err := s.takenIntoWork(ctx, b, c, start+end); err != nil {
 		return err
 	}
-	return s.syncChildrenSprint(ctx, b, c.ItemID, sprint)
+	if err := s.syncChildrenSprint(ctx, b, c.ItemID, sprint); err != nil {
+		return err
+	}
+	after := c
+	after.StartDate, after.Day, after.SprintStart = start, end, sprint
+	if start+end != "" {
+		after.Parked = false
+	}
+	return s.keepPlaced(ctx, b, after, board.IsSubtask(b, c))
 }
 
 // syncChildrenSprint drags a card's subtasks onto its (re)assigned sprint: a
@@ -1622,7 +1630,9 @@ func (s *Service) applyStage(ctx context.Context, b board.Board, card board.Card
 		s.logEvent(ctx, b, card, board.EventProgress,
 			strconv.Itoa(card.Progress), strconv.Itoa(newProgress))
 	}
-	return nil
+	after := card
+	after.Stage, after.Progress = newStage, newProgress
+	return s.keepPlaced(ctx, b, after, board.IsSubtask(b, card))
 }
 
 // Reopen undoes a done mark: the stage clears and the progress RETURNS to
@@ -1663,6 +1673,11 @@ func (s *Service) Reopen(ctx context.Context, boardID string, itemID string) err
 		}
 		s.logEvent(ctx, b, card, board.EventProgress,
 			strconv.Itoa(card.Progress), strconv.Itoa(restored))
+	}
+	after := card
+	after.Stage, after.Progress = newStage, restored
+	if err := s.keepPlaced(ctx, b, after, board.IsSubtask(b, card)); err != nil {
+		return err
 	}
 	// Work picked up again is picked up NOW. A card sent back to an earlier
 	// sprint (FinishedEarlier) is invisible to every live view, which is safe
@@ -1706,7 +1721,12 @@ func (s *Service) SetProgress(ctx context.Context, boardID string, itemID string
 			return err
 		}
 	}
-	return s.syncReviewLink(ctx, b, card, newProgress)
+	if err := s.syncReviewLink(ctx, b, card, newProgress); err != nil {
+		return err
+	}
+	after := card
+	after.Stage, after.Progress = newStage, newProgress
+	return s.keepPlaced(ctx, b, after, board.IsSubtask(b, card))
 }
 
 // SetInProgress moves a card to the implicit "In Progress" status (no stage,
@@ -1744,6 +1764,11 @@ func (s *Service) SetInProgress(ctx context.Context, boardID string, itemID stri
 		if err := s.syncParentProgress(ctx, b, card.Parent, &child, ""); err != nil {
 			return err
 		}
+	}
+	after := card
+	after.Stage, after.Progress = newStage, newProgress
+	if err := s.keepPlaced(ctx, b, after, board.IsSubtask(b, card)); err != nil {
+		return err
 	}
 	if newProgress == card.Progress {
 		return nil
@@ -1923,7 +1948,12 @@ func (s *Service) SetDay(ctx context.Context, boardID string, itemID, day string
 	}
 	s.logEvent(ctx, b, card, board.EventDates,
 		board.DateRange(card.StartDate, card.Day), board.DateRange(card.StartDate, day))
-	return s.takenIntoWork(ctx, b, card, day)
+	if err := s.takenIntoWork(ctx, b, card, day); err != nil {
+		return err
+	}
+	after := card
+	after.Day = day
+	return s.keepPlaced(ctx, b, after, board.IsSubtask(b, card))
 }
 
 // SetStart sets a card's start date (date = "" clears it).
@@ -1940,7 +1970,12 @@ func (s *Service) SetStart(ctx context.Context, boardID string, itemID, date str
 	}
 	s.logEvent(ctx, b, card, board.EventDates,
 		board.DateRange(card.StartDate, card.Day), board.DateRange(date, card.Day))
-	return s.takenIntoWork(ctx, b, card, date)
+	if err := s.takenIntoWork(ctx, b, card, date); err != nil {
+		return err
+	}
+	after := card
+	after.StartDate = date
+	return s.keepPlaced(ctx, b, after, board.IsSubtask(b, card))
 }
 
 // SetSprintStart sets the start day of the sprint a card belongs to (date = ""
@@ -1963,7 +1998,12 @@ func (s *Service) SetSprintStart(ctx context.Context, boardID string, itemID, da
 	if err := s.takenIntoWork(ctx, b, card, date); err != nil {
 		return err
 	}
-	return s.syncChildrenSprint(ctx, b, card.ItemID, date)
+	if err := s.syncChildrenSprint(ctx, b, card.ItemID, date); err != nil {
+		return err
+	}
+	after := card
+	after.SprintStart = date
+	return s.keepPlaced(ctx, b, after, board.IsSubtask(b, card))
 }
 
 // SetBacklog parks a task in its team's backlog, or takes it out.
@@ -2798,6 +2838,13 @@ func (s *Service) freeChildren(ctx context.Context, b board.Board, card board.Ca
 			anchor = c.ItemID
 		}
 		s.logEvent(ctx, b, c, board.EventParent, card.Title, "")
+		// Freed with no place of its own — a subtask of a parked card rode
+		// it out of every day — it lands in its team's backlog (K1).
+		freed := c
+		freed.Parent = ""
+		if err := s.keepPlaced(ctx, b, freed, false); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -2848,6 +2895,12 @@ func linksArePossible(b board.Board, args CreateCardArgs) error {
 		// no subtask of nobody's.
 		if args.Undated && !board.IsPlanning(p) {
 			return fmt.Errorf("%w: a task of the Roadmap sits under a goal, an initiative or an epic; a subtask is made from its parent's own board", ErrNotOnThisBoard)
+		}
+		// Nor is a subtask born in a backlog: it rides its parent's sprint
+		// and stands where its parent does, so parked as well it would be in
+		// two places at once. A task under a planning card is parked like any.
+		if args.Parked && !board.IsPlanning(p) {
+			return fmt.Errorf("%w: a backlog holds tasks of their own; a subtask is made under its task on the task's own board", ErrNotOnThisBoard)
 		}
 		// A link with a planning card on either side is the hierarchy's: the
 		// level rule and the repository rule (H2, H6), and nothing else.
