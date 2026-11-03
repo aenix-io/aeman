@@ -436,6 +436,33 @@ the boundary. The key logic is pure and lives in `pkg/board`
 The same key orders teams, projects, scopes and deadlines. Because it is a plain string, roster fragments from different
 domains merge into one order.
 
+The **top** of the board is the top of the merged order: a card put first
+— a task parked at the top of its backlog, a review nobody has taken being
+made (K10) — gets a key below the smallest card key of EVERY domain, not
+only of its own repository. A card placed where a person typed it (the
+insert "+" of a backlog or a Team/Me cell, K13) gets a key strictly
+between its neighbours in the merged list, whichever repository each
+neighbour lives in.
+
+### What an external writer keeps true (K1, K10, K13)
+
+- **K1** — an open task is IN WORK (a `start`/`day` or a `sprint`) or
+  `parked: true`, never both and never neither; parking clears
+  `assignees`, `start`, `day`, `sprint` and sets `zone: gray`.
+- **K10** — a task with `stage: review` has a review card (`reviewOf`
+  naming it). With a reviewer it is theirs, in work. With nobody it is
+  `parked: true`, `assignees` empty, of the reviewed task's `team`,
+  `zone: gray`, at the top of the order. A writer that puts a task on
+  review must write that card in the same commit, or take the task off
+  review; a writer that deletes a review card must take its task off
+  review too (back to In progress: no stage, progress kept within
+  10–90). A writer clearing a reviewer while the task stays on review
+  parks the review card as above, rather than leaving it in work with
+  nobody. A project card (a `scope`) is never on review and has no review
+  card.
+- **K13** — a card's place in a list is its `rank`, between its
+  neighbours' keys in the merged board order (above).
+
 ## Commits
 
 **One action, one commit per touched domain.** An HTTP request or MCP

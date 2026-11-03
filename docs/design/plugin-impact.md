@@ -74,7 +74,9 @@ Only the **last** `## Notes` heading in the file is the notes section; a descrip
 
 ## Ordering
 
-Every ordered list — cards, teams, projects, a project's columns — orders by `rank`, a LexoRank-style base-36 key that never ends in `0`, ties broken by id. To insert between two neighbours, pick any key strictly between them (the server uses the midpoint); to append, increment the last key. A key longer than 32 characters is exhausted: the server renumbers the whole list in one commit (G12). A plugin should do the same rather than write a longer key.
+Every ordered list — cards, teams, projects, a project's columns — orders by `rank`, a LexoRank-style base-36 key that never ends in `0`, ties broken by id. To insert between two neighbours, pick any key strictly between them (the server uses the midpoint); to append, increment the last key. A key longer than 32 characters is exhausted: the server renumbers the whole list in one commit (G12). A plugin should do the same rather than write a longer key. On a board of several repositories the card order is ONE list across them: the top is a key below every repository's smallest card key, and a card inserted between two neighbours (K13, the insert "+") takes a key between theirs whichever repository each lives in.
+
+**Review cards (K10).** A task with `stage: review` always has a review card — a file with `reviewOf: <the task's id>` and the title `review: <the task's title>`. With a reviewer named it carries them in `assignees` and is in work (a `start`/`day`, a `sprint`); with NOBODY it is `parked: true`, `assignees` empty, the reviewed task's `team`, `zone: gray`, ranked at the top of the order — the Backlog's "needs a reviewer" item. A writer that puts a task on review writes that card in the same commit (or names a reviewer); a writer that deletes a review card takes its task off review (no stage, progress kept within 10–90), since no task stays on review without its card; a writer that clears the reviewer of a task still on review parks the review card as above. A project card (a `scope`) is done or not done — `progress` 0 or 100 — is never on review and never has a review card.
 
 ## Ids
 
