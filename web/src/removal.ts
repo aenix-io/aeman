@@ -246,6 +246,12 @@ export function removeChoices(
   if (c.reviewOf && c.parked && (c.assignees?.length ?? 0) === 0) {
     return ["withdraw"];
   }
+  // A review somebody HAS is withdrawn the same way, never taken off the
+  // board by itself — that would leave its task on review with no review
+  // card (K10) — or goes back to the backlog with nobody on it (K12).
+  if (c.reviewOf && !hasColumn(c)) {
+    return c.parked ? ["withdraw"] : ["backlog", "withdraw"];
+  }
   // A REVIEW somebody has is offered it too (K10): back to the backlog takes
   // the reviewer off, and it waits for one again in the reviewed task's team
   // backlog (boardservice.returnReview).

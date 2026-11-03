@@ -1311,7 +1311,7 @@ type ServerInterface interface {
 	// MoveCard Reorder the card after (or before) another one.
 	// (POST /cards/{uid}/actions/move)
 	MoveCard(w http.ResponseWriter, r *http.Request, uid UID)
-	// RemoveReviewer Delete the linked review card.
+	// RemoveReviewer Take the reviewer off the card.
 	// (POST /cards/{uid}/actions/remove-reviewer)
 	RemoveReviewer(w http.ResponseWriter, r *http.Request, uid UID)
 	// ReopenCard Undo a done mark, restoring the progress the card had when done was set.
@@ -5206,7 +5206,7 @@ type StrictServerInterface interface {
 	// MoveCard Reorder the card after (or before) another one.
 	// (POST /cards/{uid}/actions/move)
 	MoveCard(ctx context.Context, request MoveCardRequestObject) (MoveCardResponseObject, error)
-	// RemoveReviewer Delete the linked review card.
+	// RemoveReviewer Take the reviewer off the card.
 	// (POST /cards/{uid}/actions/remove-reviewer)
 	RemoveReviewer(ctx context.Context, request RemoveReviewerRequestObject) (RemoveReviewerResponseObject, error)
 	// ReopenCard Undo a done mark, restoring the progress the card had when done was set.

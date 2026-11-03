@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { RemoveChoice } from "../removal";
 
 interface RemoveChoiceDialogProps {
@@ -27,7 +28,7 @@ interface RemoveChoiceDialogProps {
 
 /** What each choice says: the button names the act, the line under it says
  *  where the card ends up. */
-function say(choice: RemoveChoice, review = false) {
+function say(choice: RemoveChoice, review = false, reviewing = "the task") {
   switch (choice) {
     case "detach":
       return {
@@ -58,6 +59,12 @@ function say(choice: RemoveChoice, review = false) {
         label: "It was finished in the previous sprint",
         note: "The work goes back to the sprint it was done in, and counts there instead of here.",
         danger: false,
+      };
+    case "withdraw":
+      return {
+        label: "Withdraw the review",
+        note: `«${reviewing}» goes back to In progress.`,
+        danger: true,
       };
     case "backlog":
       if (review) {
@@ -100,14 +107,23 @@ export function RemoveChoiceDialog({
   onClose,
   onSubmit,
 }: RemoveChoiceDialogProps) {
+  // Withdrawing a review changes the TASK, not the card the × was pressed
+  // on, so it asks again, in its own words, before it acts — at once when it
+  // is the only answer, after it is picked when there are others.
+  const task = reviewing ?? title.replace(/^review: /, "");
+  const [confirming, setConfirming] = useState(choices.length === 1 && choices[0] === "withdraw");
   const pick = (choice: RemoveChoice) => {
+    if (choice === "withdraw" && !confirming) {
+      setConfirming(true);
+      return;
+    }
     onSubmit(choice);
     onClose();
   };
   // A review nobody has taken has one answer, and it is about the TASK:
   // withdrawing the review takes it off review, back to In progress (K10).
   // The question says that, and Cancel is the armed button.
-  if (choices.length === 1 && choices[0] === "withdraw") {
+  if (confirming) {
     return (
       <div className="modal-backdrop" onClick={onClose}>
         <div
@@ -129,7 +145,7 @@ export function RemoveChoiceDialog({
             </button>
           </div>
           <div className="modal-body">
-            <p className="sprint-choice-text">«{reviewing ?? title.replace(/^review: /, "")}» goes back to In progress.</p>
+            <p className="sprint-choice-text">«{task}» goes back to In progress.</p>
             <div className="take-dialog-actions">
               <button type="button" className="btn" autoFocus onClick={onClose}>
                 Cancel
@@ -152,7 +168,7 @@ export function RemoveChoiceDialog({
       : "";
   // The safe option takes the focus where there is one: a dialog that opens
   // with the destructive button armed answers itself on a stray Enter.
-  const focusOn = choices.find((c) => !say(c, review).danger) ?? choices[0];
+  const focusOn = choices.find((c) => !say(c, review, task).danger) ?? choices[0];
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -187,7 +203,7 @@ export function RemoveChoiceDialog({
           </p>
           <div className="sprint-choice-options">
             {choices.map((choice) => {
-              const { label, note, danger } = say(choice, review);
+              const { label, note, danger } = say(choice, review, task);
               return (
                 <button
                   key={choice}

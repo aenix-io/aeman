@@ -97,3 +97,28 @@ describe("the choice dialog, asked by a review nobody has taken", () => {
     expect(html).not.toContain("Remove from the board?");
   });
 });
+
+// On the Team and Me boards a review somebody has offers both answers: Back
+// to backlog above Withdraw the review — and the withdrawal asks again, in
+// its own words, before it acts.
+describe("the choice dialog, asked by a review somebody has", () => {
+  it("offers Back to backlog above Withdraw the review, and no bare take-off-the-board", () => {
+    const html = renderToStaticMarkup(
+      <RemoveChoiceDialog
+        title="review: Invoices"
+        review
+        reviewing="Invoices"
+        progress={40}
+        choices={["backlog", "withdraw"]}
+        subtasks={0}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(html).toContain("Back to backlog");
+    expect(html).toContain("Withdraw the review");
+    expect(html).toContain("«Invoices» goes back to In progress.");
+    expect(html.indexOf("Back to backlog")).toBeLessThan(html.indexOf("Withdraw the review"));
+    expect(html).not.toContain("Take it off the board");
+  });
+});

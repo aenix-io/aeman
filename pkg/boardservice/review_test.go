@@ -43,11 +43,13 @@ func TestAReviewCardIsNotShieldedFromTheCross(t *testing.T) {
 	if f.get("rev") != nil {
 		t.Fatal("the review card is gone")
 	}
-	// The original stays ON REVIEW and simply has no reviewer any more: the
-	// work still waits for one, and who it waits for is the review card.
+	// Taking the review card away WITHDRAWS the review (K10): no door leaves
+	// a task on review with no review card, so the original goes back to In
+	// progress. (It used to stay on review with nobody on it; "nobody on it"
+	// is the review card going back to the backlog now, K12.)
 	orig := f.get("orig")
-	if orig.Stage != board.StageReview {
-		t.Fatalf("the original's stage = %q, want it still on review", orig.Stage)
+	if orig.Stage != board.StageNone {
+		t.Fatalf("the original's stage = %q, want it back in progress", orig.Stage)
 	}
 	if err := svc.DeleteCard(ctx, "acme", "theirs"); !errors.Is(err, ErrNotYoursToRemove) {
 		t.Fatalf("an ordinary card of somebody else's = %v, want ErrNotYoursToRemove", err)

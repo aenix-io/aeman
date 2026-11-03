@@ -194,3 +194,62 @@ func TestTheRemoveOnAReviewNobodyHasTakenWithdrawsTheReview(t *testing.T) {
 		})
 	}
 }
+
+// NO DOOR LEAVES A TASK ON REVIEW WITH NO REVIEW CARD (K10). The × "off the
+// board" on a review somebody HAS — the Team and Me boards' — withdraws the
+// review exactly as the Backlog's × on an unclaimed one does: the task goes
+// back to In progress and the review card goes. So does a plain DELETE of a
+// review card (delete_card, DELETE /cards/{uid}) — routed through the same
+// withdrawal rather than refused, so every door that takes a review card
+// away says the same thing about its task. Removing the REVIEWER
+// (remove_reviewer) is not a withdrawal: the review goes back to its task's
+// team backlog with nobody on it, the task still on review (K12).
+func TestNoDoorLeavesATaskOnReviewWithoutItsReviewCard(t *testing.T) {
+	sent := func() (*fakeBackend, *Service, string) {
+		f := reviewSeed()
+		svc := New(f)
+		if _, err := svc.SendToReview(ctx, "acme", "t", "bob", "", ""); err != nil {
+			t.Fatal(err)
+		}
+		return f, svc, reviewOf(f, "t").ItemID
+	}
+	withdrawn := func(t *testing.T, f *fakeBackend, rev string) {
+		t.Helper()
+		if f.get(rev) != nil {
+			t.Fatal("the review card is still on the board")
+		}
+		if task := f.get("t"); task == nil || task.Stage != board.StageNone {
+			t.Fatalf("the task is not back in progress: %+v", task)
+		}
+	}
+	for name, do := range map[string]func(*Service, string) error{
+		"the × off the board, on the reviewer's Team board": func(s *Service, id string) error {
+			return s.Remove(ctx, "acme", id, board.ViewTeam, OffBoard)
+		},
+		"the × deciding for itself": func(s *Service, id string) error {
+			return s.Remove(ctx, "acme", id, board.ViewAll, RemoveAuto)
+		},
+		"a plain delete": func(s *Service, id string) error { return s.DeleteCard(ctx, "acme", id) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, svc, rev := sent()
+			if err := do(svc, rev); err != nil {
+				t.Fatal(err)
+			}
+			withdrawn(t, f, rev)
+		})
+	}
+	t.Run("removing the reviewer hands the review back to the backlog", func(t *testing.T) {
+		f, svc, rev := sent()
+		if err := svc.RemoveReviewer(ctx, "acme", "t"); err != nil {
+			t.Fatal(err)
+		}
+		r := f.get(rev)
+		if r == nil || !board.NeedsReviewer(*r) {
+			t.Fatalf("the review waits for a reviewer: %+v", r)
+		}
+		if f.get("t").Stage != board.StageReview {
+			t.Fatal("the task stays on review")
+		}
+	})
+}

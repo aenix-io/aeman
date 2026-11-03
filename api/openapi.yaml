@@ -216,9 +216,9 @@ paths:
         and `off-board` takes it away with the subtasks that were pieces of
         it. Omitted, the gesture decides for itself. `off-board` on a
         Project-board slot is 422 — it belongs to another board's plan. On a
-        review nobody has taken (parked, nobody on it) `off-board` and no
-        intent WITHDRAW the review: the reviewed task goes back to In
-        progress and the review card goes.
+        review card — whether a reviewer has it or nobody has taken it —
+        `off-board` and no intent WITHDRAW the review: the reviewed task
+        goes back to In progress and the review card goes.
 
 
         From the Me board the × is the narrow one: a person takes off their own
@@ -466,7 +466,9 @@ paths:
         the caller is CARRYING but did not create is refused here as it is at
         the × (403): `spec.stage: refuse` is the answer to work somebody else
         planned. A subtask, a review card and a card with no recorded author
-        are outside that rule.
+        are outside that rule. Deleting a REVIEW card withdraws the review:
+        the reviewed task goes back to In progress, since no door leaves a
+        task on review with no review card.
       parameters:
         - $ref: '#/components/parameters/Uid'
       responses:
@@ -591,7 +593,12 @@ paths:
     post:
       operationId: removeReviewer
       tags: [Cards]
-      summary: Delete the linked review card.
+      summary: Take the reviewer off the card.
+      description: >-
+        While the card is on review the review is still asked for: its review
+        card goes back to the task's team backlog with nobody on it, at the
+        top. A finished review, or one of a card no longer on review, is
+        deleted.
       parameters:
         - $ref: '#/components/parameters/Uid'
       responses:

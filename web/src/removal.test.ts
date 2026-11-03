@@ -336,8 +336,8 @@ describe("what the × offers", () => {
   // A REVIEW somebody has is offered "back to the backlog" (K10): the
   // reviewer is taken off and it waits for one again in the reviewed task's
   // team backlog. One already waiting there is not offered it again.
-  it("offers a review somebody has the backlog, above the board", () => {
-    expect(removeChoices({ ...held, reviewOf: "c9" }, ctx)).toEqual(["backlog", "off-board"]);
+  it("offers a review somebody has the backlog, above withdrawing it", () => {
+    expect(removeChoices({ ...held, reviewOf: "c9" }, ctx)).toEqual(["backlog", "withdraw"]);
     expect(removeChoices({ reviewOf: "c9", parked: true }, ctx)).not.toContain("backlog");
   });
 
@@ -423,8 +423,13 @@ describe("the × on a review nobody has taken", () => {
     expect(removeChoices({ reviewOf: "t", parked: true, assignees: [] }, ctx)).toEqual(["withdraw"]);
   });
 
-  it("offers a review somebody has its own answers, not the withdrawal", () => {
-    expect(removeChoices({ reviewOf: "t", assignees: ["bob"], sprintStart: "2026-08-24" }, ctx)).not.toContain("withdraw");
+  // A review somebody HAS is withdrawn the same way — never taken off the
+  // board by itself, which would leave its task on review with no review
+  // card (K10) — and can go back to the backlog instead (K12).
+  it("offers a review somebody has the backlog and the withdrawal, and never a bare off-the-board", () => {
+    const got = removeChoices({ reviewOf: "t", assignees: ["bob"], sprintStart: "2026-08-24" }, ctx);
+    expect(got).toEqual(["backlog", "withdraw"]);
+    expect(got).not.toContain("off-board");
   });
 
   it("sends the withdrawal as off-board", () => {

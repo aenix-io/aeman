@@ -29,6 +29,7 @@ import {
   offersRemoval,
   removeChoices,
   backlogPatch,
+  withdrawPatch,
   unaskedRemoval,
   type RemoveChoice,
   deleteWarning,
@@ -1016,7 +1017,8 @@ export function TeamBoard({
     // does not ask about is one made today that nobody has touched
     // (asksFirst), which the branch above has already answered for a card
     // that never reached the server at all.
-    if (!chosen && asksFirst(card, justMade(card.itemId))) {
+    // Withdrawing a review always asks: it changes the TASK, not this card.
+    if (!chosen && (asksFirst(card, justMade(card.itemId)) || removeChoices(card, gridCtx(card)).includes("withdraw"))) {
       setRemoveChoice(card);
       return;
     }
@@ -1024,6 +1026,23 @@ export function TeamBoard({
     // answer stands — the same one the dialog would have put at the top.
     const choice = chosen ?? unaskedRemoval(removeChoices(card, gridCtx(card)));
     if (!choice) {
+      return;
+    }
+    // Withdrawing a review: the review card goes and its task leaves review,
+    // back to In progress (K10) — both shown at once. The server does the
+    // same through the ×'s off-board (boardservice.withdrawReview).
+    if (choice === "withdraw") {
+      const task = board.cards.find((c) => c.itemId === card.reviewOf);
+      removeCard(card.itemId);
+      if (task) {
+        patchCard(task.itemId, withdrawPatch(task));
+      }
+      void provider.removeCard(card.itemId, "off-board").catch((err: unknown) => {
+        if (!isGone(err)) {
+          onError(errMessage(err));
+        }
+        reload();
+      });
       return;
     }
     // Work finished in the sprint before this one, and only marked done
@@ -1858,6 +1877,7 @@ export function TeamBoard({
         <RemoveChoiceDialog
           title={removeChoice.title}
           review={!!removeChoice.reviewOf}
+          reviewing={board.cards.find((c) => c.itemId === removeChoice.reviewOf)?.title}
           progress={removeChoice.progress ?? 0}
           choices={removeChoices(removeChoice, gridCtx(removeChoice))}
           subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}

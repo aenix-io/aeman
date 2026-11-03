@@ -1221,11 +1221,13 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, vie
 		}
 		return s.deleteWithCascade(ctx, b, c)
 	}
-	// A review NOBODY HAS TAKEN — the Backlog's needs-a-reviewer item — is
-	// not deleted by itself: taken off the board, by name or by the × deciding
-	// for itself, it WITHDRAWS the review (withdrawReview). Deleting the card
-	// alone left the task on review with no review card at all.
-	if board.NeedsReviewer(c) && intent != Unassign {
+	// A REVIEW card is never deleted by itself: taken off the board, by name
+	// or by the × deciding for itself — the Backlog's on a review nobody has
+	// taken, the Team and Me boards' on one a reviewer has — it WITHDRAWS the
+	// review (withdrawReview). Deleting the card alone left the task on
+	// review with no review card at all (K10). Back to the backlog is the
+	// other answer (Unassign, returnReview).
+	if c.ReviewOf != "" && intent != Unassign {
 		return s.withdrawReview(ctx, boardID, b, c)
 	}
 	subtask := board.IsSubtask(b, c)
@@ -2444,8 +2446,11 @@ func reviewStillRequired(b board.Board, review board.Card) bool {
 	return false
 }
 
-// RemoveReviewer deletes a card's linked review card (a no-op when there is
-// none). It mirrors handleSetReviewAssignee(null) in TeamBoard.tsx.
+// RemoveReviewer takes the reviewer off a card (a no-op when it has no review
+// card). While the card is on review the review is still asked for, so it
+// goes back to its task's team backlog with nobody on it (K12); otherwise —
+// a review already finished, a card no longer on review — the review card is
+// deleted, as it always was.
 func (s *Service) RemoveReviewer(ctx context.Context, boardID string, itemID string) error {
 	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
@@ -2454,6 +2459,13 @@ func (s *Service) RemoveReviewer(ctx context.Context, boardID string, itemID str
 	reviewCard, ok := findReviewCard(b, itemID)
 	if !ok {
 		return nil
+	}
+	// The review is still asked for: taking the reviewer off hands it back to
+	// the task's team backlog with nobody on it (K12), rather than deleting
+	// it and leaving the task on review with no review card (K10).
+	if original, found := findCard(b, itemID); found && original.Stage == board.StageReview &&
+		!board.Complete(reviewCard.Stage, reviewCard.Progress) {
+		return s.returnReview(ctx, b, reviewCard)
 	}
 	if err := s.backend.DeleteCard(ctx, b, reviewCard); err != nil {
 		return err
@@ -2797,6 +2809,11 @@ func (s *Service) DeleteCard(ctx context.Context, boardID string, itemID string)
 	}
 	if err := removingSomebodyElsesCard(ctx, b, card); err != nil {
 		return err
+	}
+	// A REVIEW card deleted by itself would leave its task on review with no
+	// review card (K10): the delete is the withdrawal, as the × is.
+	if card.ReviewOf != "" {
+		return s.withdrawReview(ctx, boardID, b, card)
 	}
 	return s.deleteWithCascade(ctx, b, card)
 }

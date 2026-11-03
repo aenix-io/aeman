@@ -39,6 +39,7 @@ import {
   freeSubtasks,
   removeChoices,
   backlogPatch,
+  withdrawPatch,
   unaskedRemoval,
   subtaskRemovalPatch,
   subtaskRemovalUndo,
@@ -1110,6 +1111,23 @@ export function MeBoard({
       removeCard(card.itemId);
       return;
     }
+    // Withdrawing a review: the review card goes and its task leaves review,
+    // back to In progress (K10) — both shown at once. The server does the
+    // same through the ×'s off-board (boardservice.withdrawReview).
+    if (chosen === "withdraw") {
+      const task = board.cards.find((c) => c.itemId === card.reviewOf);
+      removeCard(card.itemId);
+      if (task) {
+        patchCard(task.itemId, withdrawPatch(task));
+      }
+      void provider.removeCard(card.itemId, "off-board").catch((err: unknown) => {
+        if (!isGone(err)) {
+          onError(errMessage(err));
+        }
+        reload();
+      });
+      return;
+    }
     // Work finished in the sprint before this one, and only marked done
     // now: the card goes back to where the work happened.
     if (chosen === "finished-earlier") {
@@ -1139,7 +1157,8 @@ export function MeBoard({
     // The × asks BEFORE it acts, whatever it is about to do, and the dialog
     // names the act. It acts alone only when there is nothing to decide: one
     // answer, on a card made today that nobody has touched (asksFirst).
-    if (!chosen && asksFirst(card, justMade(card.itemId))) {
+    // Withdrawing a review always asks: it changes the TASK, not this card.
+    if (!chosen && (asksFirst(card, justMade(card.itemId)) || choicesFor(card).includes("withdraw"))) {
       setRemoveChoice(card);
       return;
     }
@@ -1982,6 +2001,7 @@ export function MeBoard({
         <RemoveChoiceDialog
           title={removeChoice.title}
           review={!!removeChoice.reviewOf}
+          reviewing={board.cards.find((c) => c.itemId === removeChoice.reviewOf)?.title}
           progress={removeChoice.progress ?? 0}
           choices={choicesFor(removeChoice)}
           subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}

@@ -96,7 +96,7 @@ export interface paths {
         put?: never;
         /**
          * The board's × — hand the card back to a home it still has, or delete it by that board's rules.
-         * @description `intent` says which of the ×'s two meanings is wanted: `unassign` takes the card out of work and puts it back in its team's BACKLOG — parked, no person, no day, no sprint (a subtask is pulled out of its group first; on a review card it is "back to backlog": the reviewer is taken off and the review waits, parked with nobody on it, at the top of the reviewed task's team backlog while the task stays on review; a Project-board slot is left in its column) — and `off-board` takes it away with the subtasks that were pieces of it. Omitted, the gesture decides for itself. `off-board` on a Project-board slot is 422 — it belongs to another board's plan. On a review nobody has taken (parked, nobody on it) `off-board` and no intent WITHDRAW the review: the reviewed task goes back to In progress and the review card goes.
+         * @description `intent` says which of the ×'s two meanings is wanted: `unassign` takes the card out of work and puts it back in its team's BACKLOG — parked, no person, no day, no sprint (a subtask is pulled out of its group first; on a review card it is "back to backlog": the reviewer is taken off and the review waits, parked with nobody on it, at the top of the reviewed task's team backlog while the task stays on review; a Project-board slot is left in its column) — and `off-board` takes it away with the subtasks that were pieces of it. Omitted, the gesture decides for itself. `off-board` on a Project-board slot is 422 — it belongs to another board's plan. On a review card — whether a reviewer has it or nobody has taken it — `off-board` and no intent WITHDRAW the review: the reviewed task goes back to In progress and the review card goes.
          *
          *     From the Me board the × is the narrow one: a person takes off their own board what they PUT there and what the plan has not taken up. Work another person scheduled for them, or work they scheduled on the Team board, is somebody's plan and is refused there (403) — the wide × lives on the board where the planning was done, and the answer to "I am not doing this" is `spec.stage: refuse`. A card with no recorded author is not exempt, and a subtask is outside the rule.
          *
@@ -186,7 +186,7 @@ export interface paths {
         post?: never;
         /**
          * Hard delete, cascading to the linked review card.
-         * @description The deliberate delete — "this card is a mistake" — as against the board's ×, which is "this work is off the board". It FREES the card's subtasks into standalone cards rather than taking them along. A card the caller is CARRYING but did not create is refused here as it is at the × (403): `spec.stage: refuse` is the answer to work somebody else planned. A subtask, a review card and a card with no recorded author are outside that rule.
+         * @description The deliberate delete — "this card is a mistake" — as against the board's ×, which is "this work is off the board". It FREES the card's subtasks into standalone cards rather than taking them along. A card the caller is CARRYING but did not create is refused here as it is at the × (403): `spec.stage: refuse` is the answer to work somebody else planned. A subtask, a review card and a card with no recorded author are outside that rule. Deleting a REVIEW card withdraws the review: the reviewed task goes back to In progress, since no door leaves a task on review with no review card.
          */
         delete: operations["deleteCard"];
         options?: never;
@@ -304,7 +304,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Delete the linked review card. */
+        /**
+         * Take the reviewer off the card.
+         * @description While the card is on review the review is still asked for: its review card goes back to the task's team backlog with nobody on it, at the top. A finished review, or one of a card no longer on review, is deleted.
+         */
         post: operations["removeReviewer"];
         delete?: never;
         options?: never;
