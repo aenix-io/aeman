@@ -118,7 +118,10 @@ func TestAMigrationWithNothingStrandedWritesNoCleanup(t *testing.T) {
 //   - a week still AHEAD of the import day was the weekly plan: the task is
 //     PARKED in its team's backlog;
 //   - a week that has COME stood on the day boards as a debt: the task stays
-//     in work, with that week's Monday to Friday as its dates;
+//     in work, with that week's Monday to Friday as its dates, and joins its
+//     team's CURRENT sprint — an open card of a past day with no sprint is on
+//     nobody's Me board — while a card of no team, with no sprint to join,
+//     gets the dates alone;
 //   - a FINISHED task only loses the week.
 //
 // An open task nobody had placed at all is parked too, and since a parked
@@ -137,6 +140,8 @@ func TestTheImporterPlacesAWeekOnlyTaskByWhereItsWeekStands(t *testing.T) {
 			Assignees: []string{"kvaps"}, CreatedAt: "2026-08-28T09:10:00Z"},
 		{ItemID: "PVTI_gone", Title: "owed two weeks ago", Team: "portal", Week: gone,
 			CreatedAt: "2026-08-28T09:20:00Z"},
+		{ItemID: "PVTI_loose", Title: "owed, of no team", Week: thisWeek,
+			CreatedAt: "2026-08-28T09:25:00Z"},
 		{ItemID: "PVTI_wdone", Title: "finished in its week", Team: "portal", Week: gone, Progress: 100,
 			CreatedAt: "2026-08-28T09:30:00Z"},
 		{ItemID: "PVTI_strip", Title: "nobody said when", Team: "portal", Progress: 20,
@@ -150,7 +155,11 @@ func TestTheImporterPlacesAWeekOnlyTaskByWhereItsWeekStands(t *testing.T) {
 	for _, c := range cards {
 		items[c.ItemID] = ghsource.Item{IsDraft: true, Week: c.Week}
 	}
-	src := boardservicetest.New(cards, map[string]board.SprintState{"portal": {Current: cur, ItemID: "PVTI_team"}})
+	// The no-team group is on the roster, with no sprint, as on a real board.
+	src := boardservicetest.New(cards, map[string]board.SprintState{
+		"portal": {Current: cur, ItemID: "PVTI_team"},
+		"":       {ItemID: "PVTI_noteam"},
+	})
 	remote := newRemote(t, "")
 	rep, err := Run(context.Background(), itemsSource{src, items}, memory.NewStorage(), remote, base)
 	if err != nil {
@@ -171,21 +180,23 @@ func TestTheImporterPlacesAWeekOnlyTaskByWhereItsWeekStands(t *testing.T) {
 		}
 	}
 	type want struct {
-		parked     bool
-		start, day string
+		parked             bool
+		start, day, sprint string
 	}
 	for title, w := range map[string]want{
 		"planned for next week":  {parked: true},
-		"owed this week":         {start: thisWeek, day: board.AddDays(thisWeek, 4)},
-		"owed two weeks ago":     {start: gone, day: board.AddDays(gone, 4)},
+		"owed this week":         {start: thisWeek, day: board.AddDays(thisWeek, 4), sprint: cur},
+		"owed two weeks ago":     {start: gone, day: board.AddDays(gone, 4), sprint: cur},
+		"owed, of no team":       {start: thisWeek, day: board.AddDays(thisWeek, 4)},
 		"finished in its week":   {},
 		"nobody said when":       {parked: true},
 		"finished, never placed": {},
-		"in work":                {start: cur, day: cur},
+		"in work":                {start: cur, day: cur, sprint: cur},
 	} {
 		c := got[title]
-		if c.Parked != w.parked || c.StartDate != w.start || c.Day != w.day {
-			t.Errorf("%q = parked %v %s..%s, want parked %v %s..%s", title, c.Parked, c.StartDate, c.Day, w.parked, w.start, w.day)
+		if c.Parked != w.parked || c.StartDate != w.start || c.Day != w.day || c.SprintStart != w.sprint {
+			t.Errorf("%q = parked %v %s..%s sprint %q, want parked %v %s..%s sprint %q",
+				title, c.Parked, c.StartDate, c.Day, c.SprintStart, w.parked, w.start, w.day, w.sprint)
 		}
 	}
 }

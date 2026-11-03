@@ -399,9 +399,11 @@ func schema3(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error) {
 // bump — its week included — and reports whether it changed anything: what
 // the bump writes, and what an importer writing the current schema applies
 // to a card it reads from a board with weeks (K8). subtask says whether the
-// card rides a TASK parent; today is the day the week is judged against.
-func PlaceForSchema3(c *board.Card, subtask bool, today string) bool {
-	return parkForSchema3(c, subtask, today)
+// card rides a TASK parent; today is the day the week is judged against;
+// teamSprint is the current sprint of the card's team ("" for none), which a
+// task whose week has come joins.
+func PlaceForSchema3(c *board.Card, subtask bool, today, teamSprint string) bool {
+	return parkForSchema3(c, subtask, today, teamSprint)
 }
 
 // parkForSchema3 is schema 3's rule for one card, and reports whether it

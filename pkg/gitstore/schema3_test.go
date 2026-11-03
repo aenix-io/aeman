@@ -35,6 +35,8 @@ func TestSchema3ParksTheWeeklyPlanAndTheStripAndStripsTaskWeeks(t *testing.T) {
 		slot      = "01JB4K2E7QZMX3R8V0N5T9WYEC"
 		weekCame  = "01JB4K2E7QZMX3R8V0N5T9WYED"
 		weekDone  = "01JB4K2E7QZMX3R8V0N5T9WYEE"
+		owedDated = "01JB4K2E7QZMX3R8V0N5T9WYEF"
+		owedLoose = "01JB4K2E7QZMX3R8V0N5T9WYEG"
 	)
 	card := func(front string) string {
 		return "---\n" + front + "created: 2026-08-26T09:14:03Z\n---\n\nThe body stays.\n"
@@ -43,6 +45,8 @@ func TestSchema3ParksTheWeeklyPlanAndTheStripAndStripsTaskWeeks(t *testing.T) {
 		weekOnly:  card("title: planned for a week ahead\nassignees: [kvaps]\nteam: portal\nweek: 2999-01-07\nrank: a\n"),
 		weekCame:  card("title: owed in a week that has come\nassignees: [kvaps]\nteam: portal\nprogress: 50\nweek: 2026-10-05\nrank: m\n"),
 		weekDone:  card("title: finished in its week\nteam: portal\nprogress: 100\nweek: 2026-10-05\nrank: n\n"),
+		owedDated: card("title: dated and owed in a week that has come\nteam: portal\nstart: 2026-10-06\nday: 2026-10-06\nweek: 2026-10-05\nrank: o\n"),
+		owedLoose: card("title: owed, of no team\nweek: 2026-10-05\nrank: p\n"),
 		weekDated: card("title: dated and weeked\nteam: portal\nstart: 2026-10-06\nday: 2026-10-06\nsprint: 2026-10-05\nweek: 2026-10-05\nrank: b\n"),
 		strip:     card("title: nobody said when\nteam: portal\nprogress: 30\nrank: c\n"),
 		stripDone: card("title: finished, never placed\nteam: portal\nprogress: 100\nrank: d\n"),
@@ -57,7 +61,7 @@ func TestSchema3ParksTheWeeklyPlanAndTheStripAndStripsTaskWeeks(t *testing.T) {
 	}
 	tree := map[string]string{
 		BoardPath:                     "schema: 2\ntitle: b\n",
-		TeamPath("01JB4TEAM"):         "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
+		TeamPath("01JB4TEAM"):         "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-11-02\n  previous: 2026-10-30\n",
 		ProjectPath("01JB4PROJ"):      "name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		ScopePath("01JB4PROJ", "01C"): "name: Cozystack\nrank: a\ncreated: 2026-06-04T08:00:00Z\n",
 	}
@@ -107,8 +111,19 @@ func TestSchema3ParksTheWeeklyPlanAndTheStripAndStripsTaskWeeks(t *testing.T) {
 	// A week that has COME stood on the day boards as a debt: it stays in
 	// work, the week's Monday to Friday becoming its dates, and is not
 	// parked — moving it to the backlog would take it out of somebody's hands.
-	has(weekCame, "start: 2026-10-05", "day: 2026-10-09", "assignees: [kvaps]", "progress: 50")
+	// It also joins its team's CURRENT sprint: the week used to keep it on
+	// its owner's Me board (D17), and an open card of a past day with no
+	// sprint is on no Me board; in the sprint it is on Me and Team, and the
+	// next carry-over carries it like any open work.
+	has(weekCame, "start: 2026-10-05", "day: 2026-10-09", "sprint: 2026-11-02", "assignees: [kvaps]", "progress: 50")
 	lacks(weekCame, "week:", "parked:")
+	// The same for an owed card that already had dates: they stay, the
+	// sprint is added.
+	has(owedDated, "start: 2026-10-06", "sprint: 2026-11-02")
+	lacks(owedDated, "week:", "parked:")
+	// A card of no team has no sprint to join: the dates are all it gets.
+	has(owedLoose, "start: 2026-10-05")
+	lacks(owedLoose, "week:", "parked:", "sprint:")
 	// Finished work only loses the week: it is in no place to keep.
 	has(weekDone, "progress: 100")
 	lacks(weekDone, "week:", "parked:", "start:")
