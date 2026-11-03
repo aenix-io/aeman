@@ -287,12 +287,11 @@ describe("the parent chain", () => {
     expect(errors).toEqual(["gone"]);
   });
 
-  // A REVIEW card's chain ends in the task it reviews (status.reviewed), a
-  // crumb of its own that opens that task.
-  it("ends a review card's chain in the task it reviews", () => {
+  // A REVIEW card's chain is the plan alone, as a task's: the task it
+  // reviews is not a crumb (the drawer's "Reviews: «task»" leads there).
+  it("does not end a review card's chain in the task it reviews", () => {
     const chain = parentChain(card({ reviewOf: "t", lineage: [GOAL, EPIC], reviewed: { uid: "t", title: "Invoices" } }));
-    expect(chain.map((r) => r.uid)).toEqual(["g", "e", "t"]);
-    expect(chain[2].type).toBeUndefined();
+    expect(chain.map((r) => r.uid)).toEqual(["g", "e"]);
   });
 });
 

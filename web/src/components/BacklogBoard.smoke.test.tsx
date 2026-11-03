@@ -181,7 +181,10 @@ describe("the Backlog board", () => {
     });
     const html = draw(board([review, first]));
     const row = html.slice(html.indexOf('data-card="r1"'), html.indexOf('data-card="p1"'));
-    expect(row).toMatch(/<button[^>]*class="card-counterpart-avatar-btn"[^>]*title="In implementation: ann"/);
+    // The Team card's own structure: the main avatar and the counterpart in
+    // one .card-assign, the counterpart overlapping the main one's corner.
+    expect(row).toMatch(/<div class="card-assign">.*class="team-avatar[^"]*".*<button[^>]*class="card-counterpart-avatar-btn"[^>]*title="In implementation: ann"/s);
+    expect(row).not.toContain("Invoices</span></button></span></nav>");
     expect(row).toContain("card-counterpart-avatar");
     const task = html.slice(html.indexOf('data-card="p1"'));
     expect(task).not.toContain("card-counterpart-avatar");

@@ -504,10 +504,17 @@ export function BacklogBoard({
                       onPickSize={openSizer}
                       onOpenParent={openParent}
                       owner={
-                        <>
-                          {ownerControls(c)}
-                          {counterpart(c)}
-                        </>
+                        counterpart(c) ? (
+                          // As a review card on the Team and Me boards draws
+                          // it: the main avatar and the counterpart in one
+                          // .card-assign, the small one over its corner.
+                          <div className="card-assign">
+                            {ownerControls(c)}
+                            {counterpart(c)}
+                          </div>
+                        ) : (
+                          ownerControls(c)
+                        )
                       }
                       onTake={c.assignees.length === 0 ? () => setTaking(c) : undefined}
                     />

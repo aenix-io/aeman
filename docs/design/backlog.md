@@ -141,7 +141,7 @@ Decided 2026-11-03 with the owner (K10).
   the board's order when it is made, so it shows first in its backlog until
   somebody drags it. It stands in the same list as the tasks, drawn as a
   review card is drawn on the Me and Team boards, with the reviewed task's
-  parent chain — ending in the task it reviews (`status.reviewed`), which opens it, as the drawer's "Reviews: «task»" does — and is dragged like any card.
+  parent chain — goal, initiative and epic only, as a task's; the drawer's breadcrumb, which ends in the task (`status.reviewed`), is the way to it — with the task's owner as the small counterpart avatar over the corner of its own, as on the Team and Me boards, and is dragged like any card.
 - **Taking one** is the card's owner picker with a person — `own` on the
   review card, the one owner answer a review card takes while nobody has
   it: it gets the reviewer, today, the reviewed task's sprint and the

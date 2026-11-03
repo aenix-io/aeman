@@ -5,6 +5,7 @@ import type {
   CardEvent,
   CardLog,
   CardType,
+  LineageRef,
   Note,
   Provider,
   SizeKey,
@@ -191,6 +192,14 @@ export function CardDetail({
       .then(onOpenCard)
       .catch((err: unknown) => onError?.(errMessage(err)));
   };
+
+  // The breadcrumb: the card's ancestors, root first — and on a REVIEW card
+  // the task it reviews as the last crumb (status.reviewed), opened like the
+  // others. A review hangs under nothing of its own; its chain is its task's.
+  const crumbs: LineageRef[] = [
+    ...(card.lineage ?? []),
+    ...(card.reviewed ? [{ uid: card.reviewed.uid, title: card.reviewed.title }] : []),
+  ];
 
   // ---- whose this is: the owner, and the reviewer when it is on review ----
   const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
@@ -738,7 +747,7 @@ export function CardDetail({
               planning crumb leads to the Roadmap, which is the one board that
               draws it; a task crumb is a name, since the day boards are where
               a task is met. */}
-          {(onBack || (card.lineage && card.lineage.length > 0)) && (
+          {(onBack || crumbs.length > 0) && (
             <nav className="modal-crumbs drawer-crumbs" aria-label="Hierarchy">
               {onBack && (
                 <button type="button" className="drawer-back" onClick={onBack} title="Back to the card this was opened from">
@@ -747,7 +756,7 @@ export function CardDetail({
               )}
               {/* Every crumb opens that card here; a planning crumb also
                   offers the Roadmap, which is the one board that draws it. */}
-              {card.lineage?.map((up, i) => (
+              {crumbs.map((up, i) => (
                 <span key={up.uid} className="modal-crumb">
                   {i > 0 && (
                     <span className="modal-crumb-sep" aria-hidden="true">
@@ -781,25 +790,6 @@ export function CardDetail({
                 </span>
               ))}
             </nav>
-          )}
-          {/* A review card's way to the card it reviews (status.reviewed). */}
-          {card.reviewed && (
-            <div className="drawer-reviews">
-              Reviews:
-              <KindIcon kind="task" />
-              {onOpenCard ? (
-                <button
-                  type="button"
-                  className="modal-crumb-link"
-                  title={`Open «${card.reviewed.title}»`}
-                  onClick={() => openById(card.reviewed!.uid)}
-                >
-                  {card.reviewed.title}
-                </button>
-              ) : (
-                <span className="modal-crumb-name">{card.reviewed.title}</span>
-              )}
-            </div>
           )}
           <div className="drawer-title-row">
             <KindIcon kind={kind} size={18} className="drawer-kind" label />

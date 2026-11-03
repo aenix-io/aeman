@@ -45,15 +45,27 @@ const rows = (html: string) => [...html.matchAll(/class="drawer-label">([^<]+)</
 describe("the card drawer", () => {
   // From a review card one can get to the card it reviews: "Reviews: «task»"
   // at the top, with the task's icon, opening it in the drawer.
-  it("names the card a review card reviews, as a way to it", () => {
-    const html = draw(card({ itemId: "r", title: "review: Invoices", reviewOf: "t", reviewed: { uid: "t", title: "Invoices" } }));
-    expect(html).toMatch(/class="drawer-reviews"[^>]*>Reviews:/);
-    expect(html).toMatch(/<button[^>]*class="modal-crumb-link"[^>]*title="Open «Invoices»"[^>]*>Invoices<\/button>/);
-    expect(html.indexOf("drawer-reviews")).toBeLessThan(html.indexOf("drawer-title-row"));
+  // A review card's breadcrumb ends in the task it reviews: the last crumb
+  // of the same line, styled and opened like the others — no line of its own.
+  it("ends a review card's breadcrumb in the task it reviews", () => {
+    const html = draw(
+      card({
+        itemId: "r",
+        title: "review: Invoices",
+        reviewOf: "t",
+        lineage: [{ uid: "e", type: "epic", title: "Billing" }],
+        reviewed: { uid: "t", title: "Invoices" },
+      }),
+    );
+    const nav = html.slice(html.indexOf('aria-label="Hierarchy"'), html.indexOf("</nav>"));
+    expect(nav.indexOf(">Billing<")).toBeLessThan(nav.indexOf(">Invoices<"));
+    expect(nav).toMatch(/<button[^>]*class="modal-crumb-link"[^>]*title="Open «Invoices»"[^>]*>Invoices<\/button>/);
+    expect(html).not.toContain("drawer-reviews");
+    expect(html).not.toContain("Reviews:");
   });
 
-  it("names nothing on a card that reviews nothing", () => {
-    expect(draw(card({}))).not.toContain("drawer-reviews");
+  it("has no such crumb on a card that reviews nothing", () => {
+    expect(draw(card({}))).not.toContain('aria-label="Hierarchy"');
   });
 
   it("is a drawer, not a centred box", () => {
