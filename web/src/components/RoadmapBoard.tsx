@@ -57,12 +57,11 @@ import {
 } from "../roadmap";
 import { barColor } from "../stages";
 import { isPlanning } from "../subtasks";
-import { teamColor } from "../avatar";
 import { ownerLabel, ownerOf, type Owner } from "../owner";
 import { displayName, type Avatars, type Names } from "../users";
 import { AddCard } from "./AddCard";
-import { Avatar } from "./Avatar";
 import { KindIcon } from "./KindIcon";
+import { OwnerBadge } from "./OwnerBadge";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
@@ -345,16 +344,14 @@ function RoadmapRow({ row, section, today, open, focus, ghost, forbid, dragging,
   );
 }
 
-/** OwnerCell is what a task row shows in its Owner column: the team's dot
- *  and the person's picture with the pair spelled out, or a dash — and the
- *  picker behind it. */
+/** OwnerCell is what a task row shows in its Owner column: the owner badge
+ *  (the team's avatar, the person's over it, one label) — and the picker
+ *  behind it. */
 function OwnerCell({ owner, avatars, names }: { owner: Owner; avatars?: Avatars; names?: Names }) {
   const label = ownerLabel(owner, (l) => displayName(l, names));
   return (
     <span className={`roadmap-owner${owner.team || owner.person ? "" : " roadmap-owner-none"}`} title={label}>
-      {owner.team && <span className="team-dot" style={{ background: teamColor(owner.team) }} />}
-      {owner.person && <Avatar login={owner.person} avatars={avatars} names={names} className="avatar-img roadmap-owner-avatar" />}
-      <span className="roadmap-owner-text">{label}</span>
+      <OwnerBadge owner={owner} avatars={avatars} names={names} />
     </span>
   );
 }

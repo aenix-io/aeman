@@ -4607,7 +4607,34 @@ button.card-age {
   flex: none;
 }
 
-.roadmap-owner-text {
+/* Whose a task is (OwnerBadge): the team's avatar, the person's stacked over
+   it by half its width, then one label. */
+.owner-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.owner-badge-stack {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.owner-badge-person {
+  width: 16px;
+  height: 16px;
+  position: relative;
+}
+
+.owner-badge-overlap .owner-badge-person {
+  margin-left: -8px;
+  box-shadow: 0 0 0 1.5px var(--bg-raised);
+}
+
+.owner-badge-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
