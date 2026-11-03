@@ -150,3 +150,43 @@ describe("a band's label", () => {
     }
   });
 });
+
+// The insert "+" ADDS NO HEIGHT: the cards of a band stand exactly as far
+// apart as they did before it (origin/main: .zone-cards gap 4px, padding-top
+// 4px). A gap is a zero-height line whose negative margin cancels the flex
+// gap it adds, and its hover zone and its "+" are laid over the existing
+// gap — the "+" out in the band's left field, where the spine is.
+describe("the insert + and the spacing of a band", () => {
+  const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
+  const rule = (sel: string) => css.match(new RegExp(`(^|\\n)${sel.replace(/[.]/g, "\\.")} \\{[^}]*\\}`))?.[0] ?? "";
+
+  it("keeps the cards of a band 4px apart, as before", () => {
+    const cards = rule(".zone-cards");
+    expect(cards).toMatch(/gap: 4px;/);
+    expect(cards).toMatch(/padding-top: 4px;/);
+  });
+
+  // The end of a band mirrors its start: as much space below the last card
+  // as above the first, and no trailing room left by the old add box.
+  it("leaves as much below the last card as above the first", () => {
+    const cards = rule(".zone-cards");
+    const top = /padding-top: (\d+)px;/.exec(cards)?.[1];
+    const bottom = /padding-bottom: (\d+)px;/.exec(cards)?.[1];
+    expect(top).toBe("4");
+    expect(bottom).toBe(top);
+    expect(cards).not.toMatch(/padding: /);
+  });
+
+  it("is a zero-height line that cancels the flex gap it adds", () => {
+    const gap = rule(".insert-gap");
+    expect(gap).toMatch(/height: 0;/);
+    expect(gap).toMatch(/margin-top: calc\(-1 \* var\(--insert-gap-gap, 4px\)\);/);
+    expect(gap).toMatch(/position: relative;/);
+  });
+
+  it("puts the + in the band's left field, over the spine", () => {
+    const btn = rule(".insert-gap-btn");
+    expect(btn).toMatch(/position: absolute;/);
+    expect(btn).toMatch(/left: var\(--insert-gap-left, -20px\);/);
+  });
+});

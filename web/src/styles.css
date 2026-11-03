@@ -836,6 +836,9 @@ select {
   cursor: grabbing;
 }
 
+/* The cards of a band, 4px apart, with the same 4px above the first and below
+   the last: the space the add box used to take at the foot is gone, and the
+   insert "+" adds none. */
 .zone-cards {
   flex: 1;
   min-width: 0;
@@ -843,6 +846,7 @@ select {
   flex-direction: column;
   gap: 4px;
   padding-top: 4px;
+  padding-bottom: 4px;
 }
 
 /* Keep "+ add" at the bottom of the zone when there is free space (e.g. an
@@ -4234,11 +4238,13 @@ button.card-age {
 }
 
 .backlog-list-body {
+  --insert-gap-gap: 6px;
+  --insert-gap-left: -6px;
   flex: 1;
   min-height: 60px;
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 6px;
   padding: 8px;
   border: 1px dashed var(--line);
   border-radius: 6px;
@@ -4262,32 +4268,47 @@ button.card-age {
 
 /* The insert "+" (InsertGap), shared by the Backlog, the Team grid and the
    Me board: every gap of a list — above the first card, between two, below
-   the last — is a thin strip that shows a round + at its left edge on
-   hover; pressed, the strip opens the add form right there. The gap of an
-   empty list shows its + on hover of the list's area (a cell, a band), and
-   an empty backlog's always. The strips are the spacing between the cards. */
+   the last — shows a round + on hover; pressed, the gap opens the add form
+   right there. It ADDS NO HEIGHT: a gap is a zero-height line whose negative
+   margin cancels the flex gap it adds (--insert-gap-gap, the list's own
+   gap), so the cards stand exactly as far apart as without it; its hover
+   zone is laid over the existing gap, and the + sits out in the list's left
+   field (--insert-gap-left: a band's spine column on the day boards). The
+   gap of an empty cell shows its + on hover of the band; an empty backlog's
+   always. */
 .insert-gap {
   position: relative;
   flex: none;
-  height: 8px;
+  height: 0;
+  margin-top: calc(-1 * var(--insert-gap-gap, 4px));
 }
 
-.insert-gap-empty,
+/* The hover zone: the gap between the two cards, centred on the line. */
+.insert-gap::before {
+  content: "";
+  position: absolute;
+  left: var(--insert-gap-left, -20px);
+  right: 0;
+  top: calc(var(--insert-gap-gap, 4px) / 2 - 5px);
+  height: 10px;
+}
+
 .insert-gap-always {
   height: 24px;
+  margin-top: 0;
 }
 
 .insert-gap-open {
   height: auto;
-  margin: 4px 0;
+  margin-top: 0;
 }
 
 .insert-gap-btn {
   position: absolute;
-  left: -6px;
-  top: 50%;
+  left: var(--insert-gap-left, -20px);
+  top: calc(var(--insert-gap-gap, 4px) / 2);
   translate: 0 -50%;
-  z-index: 2;
+  z-index: 3;
   width: 16px;
   height: 16px;
   padding: 0;
@@ -4300,6 +4321,10 @@ button.card-age {
   text-align: center;
   cursor: pointer;
   opacity: 0;
+}
+
+.insert-gap-always .insert-gap-btn {
+  top: 50%;
 }
 
 .insert-gap:hover .insert-gap-btn,
@@ -5957,4 +5982,15 @@ button.card-age {
   margin-bottom: 6px;
   font-size: 12px;
   color: var(--muted);
+}
+
+/* A backlog row and the gap below it: the gap is the row's last child, a
+   zero-height line at the top of the list's own gap, not pulled into it. */
+.backlog-slot {
+  display: flex;
+  flex-direction: column;
+}
+
+.backlog-slot > .insert-gap {
+  margin-top: 0;
 }
