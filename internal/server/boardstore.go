@@ -666,8 +666,8 @@ func (e *boardEntry) sprintChanged(origin, team string) {
 	// Shaped exactly as the listing shapes it: a client merges this frame
 	// into the state it holds, so a field the frame leaves out is a field the
 	// client LOSES. It used to leave out the capacity, and every carry-over
-	// therefore wiped the number every open Triage board measures its weeks
-	// against, until the next full reload.
+	// therefore wiped the team's number on every open board, until the next
+	// full reload.
 	res := apiserver.SprintResourceOf(e.board, team)
 	teamDomain := e.board.Domains[st.ItemID]
 	for sub := range e.watchers {

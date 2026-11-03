@@ -1,6 +1,6 @@
 // Package board holds aeman's pure board logic, ported from the web frontend:
 // date helpers, the stage model, per-team sprint pointers, the board views
-// (Team grid, Me, Triage) and the status/progress transition rules. Every
+// (Team grid, Me, Backlog) and the status/progress transition rules. Every
 // function works on an in-memory Board snapshot with no network access, so the
 // HTTP API and the MCP server can later expose the same views and actions.
 package board
@@ -205,7 +205,7 @@ type CreateInput struct {
 	Parent      string  `json:"parent,omitempty"`
 	Week        string  `json:"week,omitempty"`
 	// Parked puts the card straight on its team's SHELF: born there rather
-	// than born in the strip and moved, which is one commit instead of two
+	// than born somewhere else and moved, which is one commit instead of two
 	// and spares every reader the instant in between.
 	Parked     bool   `json:"parked,omitempty"`
 	Scope      string `json:"scope,omitempty"`
@@ -462,7 +462,7 @@ func SettleCard(c Card) Card {
 // and names what it dropped in DroppedParents. Every rule reads a card with
 // a parent that is not a planning card as a subtask — hidden from every
 // board — so an epic deleted by a direct writer, or a torn move, would
-// otherwise take its whole subtree off Me, Team, Triage and the Roadmap with
+// otherwise take its whole subtree off Me, Team, the backlogs and the Roadmap with
 // nothing to bring it back. Read as a root, the card stands where its own
 // dates and team put it; its next rewrite drops the key. It needs the whole
 // board, which is why it is not part of SettleCard.

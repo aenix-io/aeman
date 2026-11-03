@@ -450,7 +450,7 @@ func MarkRecords(list *CardList, records map[string]bool, asOf string) {
 func ListCards(b board.Board, sel Selector) CardList {
 	cards := FilterCards(b, sel)
 	// One index for the whole listing: every resource asks the board the
-	// same questions (lineage, standing, triage, reviewer), and asking them
+	// same questions (lineage, standing, backlog, reviewer), and asking them
 	// afresh per card was a walk of the board per card.
 	ix := board.NewIndex(b)
 	resource := CardSummaryResourceIn

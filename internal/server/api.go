@@ -1246,7 +1246,7 @@ func patchZoneAndSize(ctx context.Context, svc *boardservice.Service, boardID, u
 }
 
 // PatchPerson sets what the roster says about a person — for now their
-// capacity, the points a week the Triage board measures their load against
+// capacity, the points a week their load is measured against
 // (`{"capacity": 40}`; 0 takes a set number back). It answers with the whole
 // Board resource, whose members carry load and capacity: that is what the
 // client redraws.
