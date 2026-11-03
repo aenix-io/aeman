@@ -435,8 +435,13 @@ boards never deliver a planning card to look up. The rules live in
 `web/src/roadmap.ts`, `web/src/owner.ts` and `web/src/projectmenu.ts`
 with their cases beside them; the components draw them.
 
-Every board opens the drawer the same way: a click on a card (the Project
-board's cards included, where a double click used to be the only way in).
+The Roadmap and the Project board open the drawer with a click on a card
+(the Project board's cards included, where a double click used to be the
+only way in). The Me, Team and Backlog boards SELECT a card on the first
+click and open it on a click on the selected card (#290): the selection is
+shared live as presence, so a lead selecting a card on the Team board is
+seen on the person's Me board and the other way round, and each of the
+three draws the others' marks on their cards.
 The Project board's card has no × of its own — its "…" menu opens,
 attaches, marks done, and deletes at once (the pick is the confirmation);
 the pane's Delete still asks. The deadline lines stay on the Project

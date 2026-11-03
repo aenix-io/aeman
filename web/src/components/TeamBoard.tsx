@@ -18,6 +18,7 @@ import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
+import { selectedByOf } from "../presence";
 import { InsertGap } from "./InsertGap";
 import { cellGaps, gapAnchor, gapsInZone } from "../insertgap";
 import { insertedOrder, type Anchor } from "../backlogboard";
@@ -86,6 +87,8 @@ interface TeamBoardProps {
   track: <T>(p: Promise<T>) => Promise<T>;
   /** Other users' live selections (login -> card uid) shown as avatars. */
   presence?: Record<string, string>;
+  /** Broadcast this board's selection as shared presence (#290). */
+  onPresence?: (card: string | null) => void;
   onError: (message: string) => void;
   onOpen: (card: CardModel) => void;
 }
@@ -129,10 +132,17 @@ export function TeamBoard({
   reload,
   track,
   presence,
+  onPresence,
   onError,
   onOpen,
 }: TeamBoardProps) {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  // The selection is shared live (#290): the people the cards are on see the
+  // lead's selection on their Me boards, as the lead sees theirs here.
+  useEffect(() => {
+    onPresence?.(selectedCardId);
+  }, [selectedCardId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onPresence?.(null), []); // eslint-disable-line react-hooks/exhaustive-deps
   // The card whose × is waiting on a two-way answer (delete, or keep it in
   // the previous sprint).
   const [removeChoice, setRemoveChoice] = useState<CardModel | null>(null);
@@ -777,25 +787,11 @@ export function TeamBoard({
     );
   };
 
-  const selectedByFor = (card: CardModel): string[] | undefined => {
-    if (!presence) {
-      return undefined;
-    }
-    const logins = Object.entries(presence)
-      .filter(([, uid]) => {
-        if (uid === card.itemId) {
-          return true;
-        }
-        // A collapsed parent wears its subtasks' presence; expanded, the marks
-        // sit on the subtask rows themselves.
-        if (!isSubtask(card) && !subsOpen(card.itemId)) {
-          return (childrenOf.get(card.itemId) ?? []).some((c) => c.itemId === uid);
-        }
-        return false;
-      })
-      .map(([login]) => login);
-    return logins.length > 0 ? logins : undefined;
-  };
+  // Who else has this card selected (presence, #290): one rule for every
+  // board (presence.selectedByOf); a folded parent wears its subtasks' marks.
+  const selectedByFor = (card: CardModel): string[] | undefined =>
+    selectedByOf(presence, card, isSubtask(card) ? undefined : { children: (id) => childrenOf.get(id) ?? [], open: subsOpen });
+
 
   // Resolve a card's description links (GitHub refs get titles) for the menu.
   const loadCardLinks = (card: CardModel) =>

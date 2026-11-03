@@ -8,7 +8,7 @@
 // the cards: the list is recomputed from the board's cards, which the
 // listing fills and the watch keeps current (K6). A card taken into work, finished or re-teamed out of
 // the selection by anybody simply stops being one of them.
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Board, Card as CardModel, Provider, SizeKey } from "../providers/types";
 import {
   insertSpot,
@@ -46,6 +46,8 @@ import { currentSprint, previousSprint } from "../sprint";
 import { todayIso } from "../date";
 import type { Avatars, Names } from "../users";
 import { AddCard } from "./AddCard";
+import { PresenceMarks } from "./Card";
+import { clickOn, selectedByOf } from "../presence";
 import { Avatar } from "./Avatar";
 import { displayName } from "../users";
 import { InsertGap } from "./InsertGap";
@@ -84,6 +86,10 @@ interface BacklogBoardProps {
   onError: (message: string) => void;
   /** The viewer's login: TAKE makes the card theirs. */
   me: string;
+  /** Others' live selections (login → card uid), drawn on the cards. */
+  presence?: Record<string, string>;
+  /** Broadcast this board's selection as shared presence (#290). */
+  onPresence?: (card: string | null) => void;
 }
 
 /** dropSpot reads the list for a point: the place among the cards drawn in
@@ -124,6 +130,8 @@ export function BacklogBoard({
   onOpen,
   onError,
   me,
+  presence,
+  onPresence,
 }: BacklogBoardProps) {
   const today = todayIso();
   const teams = useMemo(() => shownTeams(teamFilter, roster), [teamFilter, roster]);
@@ -232,6 +240,15 @@ export function BacklogBoard({
     [me, board, today, patchCard, provider, addCard, onError],
   );
 
+  // ---- selecting: shared live through presence (#290) ----
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedRef = useRef<string | null>(null);
+  selectedRef.current = selectedId;
+  useEffect(() => {
+    onPresence?.(selectedId);
+  }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onPresence?.(null), []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---- dragging: a reorder in the one list, by its neighbours there ----
   const [carried, setCarried] = useState<CardModel | null>(null);
   const [over, setOver] = useState<number | null>(null);
@@ -290,7 +307,13 @@ export function BacklogBoard({
           return;
         }
         if (!p.moved) {
-          onOpen(p.card);
+          // The first click selects the card — the others see it — and a
+          // click on the selected card opens it (#290).
+          if (clickOn(selectedRef.current === p.card.itemId) === "open") {
+            onOpen(p.card);
+          } else {
+            setSelectedId(p.card.itemId);
+          }
         } else if (dropped) {
           drop(p.card, dropSpot(ev.clientX, ev.clientY, p.card.itemId));
         }
@@ -499,6 +522,10 @@ export function BacklogBoard({
                     {landing && over === i && <Landing card={landing} />}
                     <BacklogRow
                       card={c}
+                      selected={c.itemId === selectedId}
+                      selectedBy={selectedByOf(presence, c)}
+                      avatars={avatars}
+                      names={names}
                       onPointerDown={beginDrag(c)}
                       onRemove={() => remove(c)}
                       onPickSize={openSizer}
@@ -567,6 +594,12 @@ export function BacklogBoard({
 
 interface BacklogRowProps {
   card: CardModel;
+  /** This board's selection (#290). */
+  selected?: boolean;
+  /** Who else has it selected (presence), drawn at its left edge. */
+  selectedBy?: string[];
+  avatars?: Avatars;
+  names?: Names;
   owner: React.ReactNode;
   onPointerDown: (e: React.PointerEvent) => void;
   onRemove: () => void;
@@ -582,17 +615,30 @@ interface BacklogRowProps {
  *  has an end, the size, its team's avatar (the owner picker) and,
  *  right-most while nobody has it, Take. The × stands left of all of that,
  *  in a slot that takes no room: it shows over the title's end on hover. */
-function BacklogRow({ card, owner, onPointerDown, onRemove, onPickSize, onOpenParent, onTake }: BacklogRowProps) {
+function BacklogRow({
+  card,
+  selected,
+  selectedBy,
+  avatars,
+  names,
+  owner,
+  onPointerDown,
+  onRemove,
+  onPickSize,
+  onOpenParent,
+  onTake,
+}: BacklogRowProps) {
   const up = nearestPlanning(card);
   const due = dueOf(card);
   const mark = markOf(card);
   return (
     <div
-      className={`card backlog-card${mark ? ` card-${mark}` : ""}`}
+      className={`card backlog-card${mark ? ` card-${mark}` : ""}${selected ? " card-selected" : ""}${(selectedBy?.length ?? 0) > 0 ? " card-peer-selected" : ""}`}
       data-card={card.itemId}
       onPointerDown={onPointerDown}
       title={card.title}
     >
+      <PresenceMarks selectedBy={selectedBy} avatars={avatars} names={names} />
       <span className="card-title backlog-card-title">{card.title}</span>
       <span className="backlog-row-remove-slot">
         <button

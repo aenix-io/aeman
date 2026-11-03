@@ -788,7 +788,7 @@ export interface paths {
         put?: never;
         /**
          * Share the caller's live card selection; an empty card clears it.
-         * @description Ephemeral shared-cursor state, broadcast over the watch and never persisted. The login is the caller's authenticated identity, not a client-supplied value, and the client id (`X-Aeman-Client`) keys it, so a closed tab clears its own mark.
+         * @description Ephemeral shared-cursor state, broadcast over the watch and never persisted. The login is the caller's authenticated identity, not a client-supplied value, and the client id (`X-Aeman-Client`) keys it, so a closed tab clears its own mark and a lead and a person each have their own. A selection is board-wide, not a view's: one made on the Team board reaches a Me board's watch and the other way round. A watcher who may not read the card's repository is sent the mark as cleared, never the card.
          */
         post: operations["setPresence"];
         delete?: never;

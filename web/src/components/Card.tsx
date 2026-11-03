@@ -1,3 +1,4 @@
+import { clickOn } from "../presence";
 import { type JSX, useMemo, useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
 import {
@@ -523,8 +524,9 @@ export function Card({
       }${dimAvatar ? " card-dim-avatar" : ""}${
         groupTarget ? " card-group-target" : ""
       }${record ? " card-record" : ""}`}
-      onClick={() => onSelect(card)}
-      onDoubleClick={() => onOpen(card)}
+      // The first click selects the card — the others see it (presence) —
+      // and a click on the selected card opens it (#290).
+      onClick={() => (clickOn(!!selected) === "open" ? onOpen(card) : onSelect(card))}
       title={card.title}
     >
       {(subCount ?? 0) > 0 && onToggleExpand && (
@@ -674,21 +676,7 @@ export function Card({
         {stageVisible && stageControl}
       </span>
 
-      {selectedBy && selectedBy.length > 0 && (
-        <span className="card-presence" aria-hidden="true">
-          {selectedBy.map((login, i) => (
-            <Avatar
-              key={login}
-              login={login}
-              avatars={avatars}
-              names={names}
-              className="card-presence-avatar"
-              style={{ left: `${-17 - i * 12}px` }}
-              title={`Selected by ${displayName(login, names)}`}
-            />
-          ))}
-        </span>
-      )}
+      <PresenceMarks selectedBy={selectedBy} avatars={avatars} names={names} />
       {card.reviewOf && (card.reviewRound ?? 0) >= 2 && (
         <span
           className="card-review-round"
@@ -1143,5 +1131,37 @@ function ShelfIcon() {
       <path d="M5.25 6.5 8 9.25 10.75 6.5" />
       <path d="M3 12.75h10" />
     </svg>
+  );
+}
+
+/** PresenceMarks is who else has a card selected right now (presence): their
+ *  avatars at the card's left edge. One mark for every board that draws
+ *  cards — Team, Me and Backlog (#290). */
+export function PresenceMarks({
+  selectedBy,
+  avatars,
+  names,
+}: {
+  selectedBy?: string[];
+  avatars?: Avatars;
+  names?: Names;
+}) {
+  if (!selectedBy || selectedBy.length === 0) {
+    return null;
+  }
+  return (
+    <span className="card-presence" aria-hidden="true">
+      {selectedBy.map((login, i) => (
+        <Avatar
+          key={login}
+          login={login}
+          avatars={avatars}
+          names={names}
+          className="card-presence-avatar"
+          style={{ left: `${-17 - i * 12}px` }}
+          title={`Selected by ${displayName(login, names)}`}
+        />
+      ))}
+    </span>
   );
 }

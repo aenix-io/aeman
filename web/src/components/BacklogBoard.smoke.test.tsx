@@ -34,9 +34,10 @@ const board = (cards: Card[]): Board =>
     sprintStates: {},
   }) as unknown as Board;
 
-function draw(b: Board, teamFilter: string[] | null = ["portal", "cozystack"]) {
+function draw(b: Board, teamFilter: string[] | null = ["portal", "cozystack"], presence?: Record<string, string>) {
   return renderToStaticMarkup(
     <BacklogBoard
+      presence={presence}
       board={b}
       provider={{} as Provider}
       roster={["portal", "cozystack"]}
@@ -188,6 +189,18 @@ describe("the Backlog board", () => {
     expect(row).toContain("card-counterpart-avatar");
     const task = html.slice(html.indexOf('data-card="p1"'));
     expect(task).not.toContain("card-counterpart-avatar");
+  });
+
+  // #290: the Backlog draws who else has a card selected, as the Team board
+  // does — the same marks, on the card they selected.
+  it("draws the others' selections on the cards they selected", () => {
+    const html = draw(board([first, second]), ["portal", "cozystack"], { ann: "p2" });
+    const row = html.slice(html.lastIndexOf("<div", html.indexOf('data-card="p2"')));
+    expect(row).toMatch(/^<div class="card backlog-card card-peer-selected"/);
+    expect(row).toContain('class="card-presence"');
+    expect(row).toContain('title="Selected by ann"');
+    const other = html.slice(html.indexOf('data-card="p1"'), html.indexOf('data-card="p2"'));
+    expect(other).not.toContain("card-presence");
   });
 
   it("draws nothing that is not a parked open task of a shown team (K1, K2)", () => {

@@ -1153,7 +1153,8 @@ func (a surface) ReorderScopes(ctx context.Context, req apiv1.ReorderScopesReque
 
 // --- Shared helpers ----------------------------------------------------------------
 
-// SetPresence records the caller's live Me-view selection — ephemeral shared
+// SetPresence records the caller's live selection on a Me, Team or Backlog
+// board (#290) — ephemeral shared
 // state broadcast over the watch, never persisted. The client id
 // (X-Aeman-Client) keys it, so a closed tab clears its own mark.
 func (a surface) SetPresence(ctx context.Context, req apiv1.SetPresenceRequestObject) (apiv1.SetPresenceResponseObject, error) {

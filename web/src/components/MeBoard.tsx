@@ -51,6 +51,7 @@ import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
+import { selectedByOf } from "../presence";
 import { InsertGap } from "./InsertGap";
 import { cellGaps, gapAnchor, gapsInZone } from "../insertgap";
 import { insertedOrder, type Anchor } from "../backlogboard";
@@ -111,6 +112,8 @@ interface MeBoardProps {
   onOpen: (card: CardModel) => void;
   /** Share the live selection with other boards ("" clears on deselect). */
   onPresence?: (card: string | null) => void;
+  /** Others' live selections (login → card uid), drawn on the cards (#290). */
+  presence?: Record<string, string>;
 }
 
 /** Per-group metadata for the Me board: just the destination zone. */
@@ -172,6 +175,7 @@ export function MeBoard({
   onError,
   onOpen,
   onPresence,
+  presence,
 }: MeBoardProps) {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   // The card whose × is waiting on an answer the person gives in a dialog.
@@ -1704,6 +1708,11 @@ export function MeBoard({
       record={!!card.asOf}
       onLoadLinks={loadCardLinks}
       selected={card.itemId === selectedCardId}
+      selectedBy={selectedByOf(
+        presence,
+        card,
+        isSubtask(card) ? undefined : { children: (id) => childrenOf.get(id) ?? [], open: subsOpen },
+      )}
       onSelect={(c) => setSelectedCardId(c.itemId)}
       onProgress={handleProgress}
       onDelete={handleDelete}

@@ -293,6 +293,13 @@ export function App() {
   // Live selections of other users (login -> card uid), fed by Presence
   // watch frames; purely ephemeral shared-cursor state.
   const [presence, setPresenceMap] = useState<Record<string, string>>({});
+  // A board's selection, shared live (#290): Me, Team and Backlog all say
+  // which card their reader has selected, and draw everyone else's.
+  const sharePresence = (card: string | null) => {
+    if (config?.login) {
+      void provider.setPresence(config.login, card).catch(() => {});
+    }
+  };
   const [detailCard, setDetailCard] = useState<CardModel | null>(null);
   // The cards the pane was opened THROUGH: a crumb followed, a child row, the
   // task a subtask rides — each opens its card in the same drawer, and the
@@ -1574,13 +1581,8 @@ export function App() {
             reload={reload}
             onError={onError}
             onOpen={openCard}
-            onPresence={(card) => {
-              if (board && config?.login) {
-                void provider
-                  .setPresence(config.login, card)
-                  .catch(() => {});
-              }
-            }}
+            onPresence={sharePresence}
+            presence={presence}
           />
         )}
         {board && view === "project" && (
@@ -1636,6 +1638,8 @@ export function App() {
             reload={reload}
             onOpen={openCard}
             onError={onError}
+            presence={presence}
+            onPresence={sharePresence}
             me={config?.login ?? ""}
           />
         )}
@@ -1663,6 +1667,7 @@ export function App() {
             removeCard={removeCard}
             reorderCards={reorderCards}
             presence={presence}
+            onPresence={sharePresence}
             reload={reload}
             track={trackLoad}
             onError={onError}

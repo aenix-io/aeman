@@ -716,14 +716,29 @@ type presenceEntry struct {
 
 // presenceChanged announces one user's selection to every subscription that
 // wants presence, skipping the originator (their own tab already shows it).
-// The caller holds e.mu.
+// A selection is board-wide, not a view's: one made on the Team board reaches
+// a Me board and the other way round (#290). The caller holds e.mu.
 func (e *boardEntry) presenceChanged(origin string, entry presenceEntry) {
 	for sub := range e.watchers {
 		if !sub.resources["presence"] || (origin != "" && sub.clientID == origin) {
 			continue
 		}
-		sub.send(watchFrame{Type: "MODIFIED", Kind: "Presence", Object: entry})
+		sub.send(watchFrame{Type: "MODIFIED", Kind: "Presence", Object: e.presenceFor(sub, entry)})
 	}
+}
+
+// presenceFor is a selection as one subscription may see it: a card in a
+// repository the visitor may not read is not named — the person's mark
+// reads as cleared, so a mark left on a card they could see does not linger
+// either. The caller holds e.mu.
+func (e *boardEntry) presenceFor(sub *subscription, entry presenceEntry) presenceEntry {
+	if entry.Card == "" || sub.rights == nil {
+		return entry
+	}
+	if c, ok := board.Find(e.board, entry.Card); ok && !sub.rights.canRead(c.Domain) {
+		return presenceEntry{Login: entry.Login}
+	}
+	return entry
 }
 
 // SetPresence records (card != "") or clears (card == "") the selection of the
@@ -893,7 +908,7 @@ func (s *boardStore) subscribeAs(key, clientID string, sel *apiserver.Selector, 
 	e.watchers[sub] = struct{}{}
 	if resources["presence"] {
 		for _, entry := range e.presence {
-			sub.send(watchFrame{Type: "MODIFIED", Kind: "Presence", Object: entry})
+			sub.send(watchFrame{Type: "MODIFIED", Kind: "Presence", Object: e.presenceFor(sub, entry)})
 		}
 	}
 	// Seed the unsynced-changes counter: a tab opened while the write-behind

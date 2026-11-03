@@ -197,3 +197,23 @@ describe("the insert + and the spacing of a band", () => {
     expect(left + width).toBeLessThanOrEqual(0);
   });
 });
+
+// #290: the Me board draws who else has a card selected — a lead selecting
+// it on the Team board — the way the Team board does.
+describe("the Me board's presence marks", () => {
+  it("draws the lead's selection on the person's card", () => {
+    const html = renderToStaticMarkup(
+      <MeBoard
+        {...common}
+        board={board([card({ itemId: "u", zone: "yellow" })])}
+        viewAs={null}
+        onViewAs={vi.fn()}
+        connectHint=""
+        teams={["alpha"]}
+        presence={{ lead: "u" }}
+      />,
+    );
+    expect(html).toContain("card-peer-selected");
+    expect(html).toContain('title="Selected by lead"');
+  });
+});
