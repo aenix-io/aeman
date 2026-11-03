@@ -75,6 +75,15 @@ describe("the card drawer", () => {
     expect(html).not.toContain('class="modal-backdrop"');
   });
 
+  // #289: the drawer's bar is the large one — the full width of its row, a
+  // bigger handle reachable by the keyboard, and the value beside it.
+  it("draws the large progress bar, keyboard-reachable, with its value", () => {
+    const html = draw(card({ progress: 60, team: "core" }));
+    expect(html).toContain('class="card-bar card-bar-large"');
+    expect(html).toMatch(/role="slider"[^>]*tabindex="0"|tabindex="0"[^>]*role="slider"/);
+    expect(html).toContain('class="drawer-progress-pct">60%<');
+  });
+
   it("gives a task every row: its owner, zone, size, and what it sits under", () => {
     const html = draw(card({ zone: "red", team: "core", assignees: ["ann"], project: "cozy" }));
     expect(rows(html)).toEqual(["Status", "Progress", "Owner", "Zone", "Size", "Under", "Project"]);

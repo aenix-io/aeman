@@ -1214,6 +1214,7 @@ export function CardDetail({
                 "Progress",
                 <div className="drawer-progress">
                   <ProgressSlider
+                    large
                     value={progressValue}
                     locked={clampsProgress(card.stage)}
                     fill={barColor(doneish ? "done" : card.stage)}

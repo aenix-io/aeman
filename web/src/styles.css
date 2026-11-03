@@ -5506,6 +5506,7 @@ button.card-age {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 6px 0 2px;
 }
 
@@ -6025,4 +6026,26 @@ button.card-age {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The drawer's progress bar (#289): the full width of its row, taller, with
+   a bigger handle always shown and a focus ring for the keyboard. */
+.card-bar.card-bar-large {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  height: 8px;
+  gap: 2px;
+}
+
+.card-bar-large .card-bar-handle {
+  width: 16px;
+  height: 16px;
+  opacity: 1;
+}
+
+.card-bar-large .card-bar-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
