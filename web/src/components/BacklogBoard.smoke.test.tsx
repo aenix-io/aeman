@@ -115,7 +115,7 @@ describe("the Backlog board", () => {
     const take = row.indexOf('class="backlog-take-btn"');
     expect(take).toBeGreaterThan(row.indexOf("owner-badge"));
     // Right-most ON THE CARD: what follows it is the gap below, not the card.
-    const card = row.slice(take, row.indexOf("data-backlog-gap", take));
+    const card = row.slice(take, row.indexOf("data-insert-gap", take));
     expect(card).not.toMatch(/<button[^>]*class="(?!backlog-take-btn)/);
     expect(row).toMatch(/<button[^>]*class="backlog-take-btn"[^>]*aria-haspopup="dialog"/);
     expect(card).not.toContain("owner-picker");
@@ -191,18 +191,18 @@ describe("the Backlog board", () => {
   it("has no add box at the foot, and an insert + in every gap", () => {
     const html = draw(board([first, cozy]));
     expect(html).not.toMatch(/class="add-card[ "]/);
-    expect(html.match(/data-backlog-gap="/g)?.length).toBe(3);
-    expect(html.match(/<button[^>]*class="backlog-insert"[^>]*aria-label="Add a card here"/g)?.length).toBe(3);
+    expect(html.match(/data-insert-gap="/g)?.length).toBe(3);
+    expect(html.match(/<button[^>]*class="insert-gap-btn"[^>]*aria-label="Add a card here"/g)?.length).toBe(3);
     // The gaps stand between the rows: one before the first card, one after
     // the last.
-    expect(html.indexOf('data-backlog-gap="0"')).toBeLessThan(html.indexOf('data-card="p1"'));
-    expect(html.indexOf('data-backlog-gap="2"')).toBeGreaterThan(html.indexOf('data-card="k1"'));
+    expect(html.indexOf('data-insert-gap="0"')).toBeLessThan(html.indexOf('data-card="p1"'));
+    expect(html.indexOf('data-insert-gap="2"')).toBeGreaterThan(html.indexOf('data-card="k1"'));
   });
 
   it("offers an empty backlog one +, always shown, to add the first card", () => {
     const html = draw(board([]));
-    expect(html.match(/data-backlog-gap="/g)?.length).toBe(1);
-    expect(html).toContain("backlog-gap backlog-gap-empty");
+    expect(html.match(/data-insert-gap="/g)?.length).toBe(1);
+    expect(html).toContain("insert-gap insert-gap-always");
     expect(html).not.toMatch(/class="add-card[ "]/);
   });
 

@@ -51,7 +51,10 @@ import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
-import { acceptsNewCard, mayRefuse, mayRemove, sortableWithin } from "../meboard";
+import { InsertGap } from "./InsertGap";
+import { cellGaps, gapAnchor, gapsInZone } from "../insertgap";
+import { insertedOrder, type Anchor } from "../backlogboard";
+import { mayRefuse, mayRemove, sortableWithin } from "../meboard";
 import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
@@ -1496,7 +1499,9 @@ export function MeBoard({
   // The card is scheduled for the viewed day as a one-day range; the server
   // joins the team's current sprint (recording a first sprint when the team
   // has none yet — reload picks the new pointer up in that case).
-  const handleCreate = (zone: ZoneKey, title: string, team?: string | null) => {
+  // The gap whose insert "+" is open, as "<band key>:<gap>" (InsertGap).
+  const [inserting, setInserting] = useState<string | null>(null);
+  const handleCreate = (zone: ZoneKey, title: string, team?: string | null, anchor: Anchor = null) => {
     const tempId = `tmp-${new Date().toISOString()}`;
     const sprint = currentSprint(board, team ?? null);
     const firstSprint = sprint === null;
@@ -1520,6 +1525,11 @@ export function MeBoard({
       notes: [],
     };
     addCard(optimistic);
+    // Typed into a gap: shown there at once, and the create names the place
+    // (after / before) so the server puts it there in the same request.
+    if (anchor) {
+      reorderCards(insertedOrder([...board.cards.map((c) => c.itemId), tempId], tempId, anchor));
+    }
     const creating = provider.createCard({
       title,
       zone,
@@ -1527,6 +1537,8 @@ export function MeBoard({
       start: selectedDate,
       assigneeLogin: viewMe || null,
       team: team ?? null,
+      after: anchor && "after" in anchor ? anchor.after : null,
+      before: anchor && "before" in anchor ? anchor.before : null,
     });
     registerPendingCard(
       tempId,
@@ -1908,6 +1920,34 @@ export function MeBoard({
                   onOpen={() => {}}
                 />
               )}
+              renderGap={(group, at) => {
+                // The insert "+" in the gaps of the ONE band the Me board adds
+                // in, the unplanned one (insertgap.gapsInZone): the card
+                // typed there is the reader's, in that band, right there.
+                if (holdsRecords || !gapsInZone("me", group.meta.zone) || !cellGaps(group.cards).includes(at)) {
+                  return null;
+                }
+                const key = `${group.key}:${at}`;
+                return (
+                  <InsertGap
+                    key={`gap-${at}`}
+                    at={at}
+                    open={inserting === key}
+                    empty={group.cards.length === 0}
+                    onOpen={() => setInserting(key)}
+                  >
+                    <AddCard
+                      autoOpen
+                      forcedTeam={teamFilter?.length === 1 ? teamFilter[0] || null : undefined}
+                      teams={teams}
+                      onCreate={(title, team) =>
+                        handleCreate(group.meta.zone, title, team, gapAnchor(group.cards.map((c) => c.itemId), at))
+                      }
+                      onClosed={() => setInserting(null)}
+                    />
+                  </InsertGap>
+                );
+              }}
               renderGroup={(group, body, { isOver, dropRef }) => {
                 const def = ZONES[group.meta.zone];
                 return (
@@ -1924,23 +1964,7 @@ export function MeBoard({
                     }
                   >
                     <span className="zone-spine">{def.spine}</span>
-                    <div className="zone-cards">
-                      {body}
-                      {acceptsNewCard(group.meta.zone) && (
-                        <AddCard
-                          hidden={holdsRecords}
-                          forcedTeam={
-                            teamFilter?.length === 1
-                              ? teamFilter[0] || null
-                              : undefined
-                          }
-                          teams={teams}
-                          onCreate={(title, team) =>
-                            handleCreate(group.meta.zone, title, team)
-                          }
-                        />
-                      )}
-                    </div>
+                    <div className="zone-cards">{body}</div>
                   </section>
                 );
               }}

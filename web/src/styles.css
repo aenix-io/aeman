@@ -4257,27 +4257,29 @@ button.card-age {
   text-align: center;
 }
 
-/* The insert "+": every gap of the list — above the first card, between
-   two, below the last — is a thin strip that shows a round + at its left
-   edge on hover; pressed, the strip opens the add form right there. An
-   empty backlog's one + is always shown. The strips are the spacing
-   between the cards. */
-.backlog-gap {
+/* The insert "+" (InsertGap), shared by the Backlog, the Team grid and the
+   Me board: every gap of a list — above the first card, between two, below
+   the last — is a thin strip that shows a round + at its left edge on
+   hover; pressed, the strip opens the add form right there. The gap of an
+   empty list shows its + on hover of the list's area (a cell, a band), and
+   an empty backlog's always. The strips are the spacing between the cards. */
+.insert-gap {
   position: relative;
   flex: none;
   height: 8px;
 }
 
-.backlog-gap-empty {
-  height: 28px;
+.insert-gap-empty,
+.insert-gap-always {
+  height: 24px;
 }
 
-.backlog-gap-open {
+.insert-gap-open {
   height: auto;
   margin: 4px 0;
 }
 
-.backlog-insert {
+.insert-gap-btn {
   position: absolute;
   left: -6px;
   top: 50%;
@@ -4297,13 +4299,14 @@ button.card-age {
   opacity: 0;
 }
 
-.backlog-gap:hover .backlog-insert,
-.backlog-gap-empty .backlog-insert,
-.backlog-insert:focus-visible {
+.insert-gap:hover .insert-gap-btn,
+.insert-gap-always .insert-gap-btn,
+.zone-area:hover .insert-gap-empty .insert-gap-btn,
+.insert-gap-btn:focus-visible {
   opacity: 1;
 }
 
-.backlog-insert:hover {
+.insert-gap-btn:hover {
   color: var(--accent);
   border-color: var(--accent);
 }

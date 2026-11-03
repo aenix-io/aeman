@@ -46,6 +46,7 @@ import { currentSprint, previousSprint } from "../sprint";
 import { todayIso } from "../date";
 import type { Avatars, Names } from "../users";
 import { AddCard } from "./AddCard";
+import { InsertGap } from "./InsertGap";
 import { Dropdown } from "./Dropdown";
 import { KindIcon } from "./KindIcon";
 import { markOf } from "../placements";
@@ -327,34 +328,20 @@ export function BacklogBoard({
     [list, teams, provider, addCard, reorderCards, board.cards, onError],
   );
   const gap = (at: number, empty = false) => {
-    if (inserting === at) {
-      const { box } = insertSpot(list, at, teams);
-      return (
-        <div key={`gap-${at}`} className="backlog-gap backlog-gap-open" data-backlog-gap={at}>
-          <AddCard
-            placeholder="Add to the backlog…"
-            autoOpen
-            {...box}
-            onCreate={(title, team) => insertAt(at, "forcedTeam" in box ? (box.forcedTeam ?? "") : (team ?? ""), title)}
-            onClosed={() => setInserting(null)}
-          />
-        </div>
-      );
-    }
+    const { box } = insertSpot(list, at, teams);
     return (
-      <div key={`gap-${at}`} className={`backlog-gap${empty ? " backlog-gap-empty" : ""}`} data-backlog-gap={at}>
-        <button
-          type="button"
-          className="backlog-insert"
-          aria-label="Add a card here"
-          title="Add a card here"
-          onClick={() => setInserting(at)}
-        >
-          +
-        </button>
-      </div>
+      <InsertGap key={`gap-${at}`} at={at} open={inserting === at} always={empty} onOpen={() => setInserting(at)}>
+        <AddCard
+          placeholder="Add to the backlog…"
+          autoOpen
+          {...box}
+          onCreate={(title, team) => insertAt(at, "forcedTeam" in box ? (box.forcedTeam ?? "") : (team ?? ""), title)}
+          onClosed={() => setInserting(null)}
+        />
+      </InsertGap>
     );
   };
+
 
   // ---- a parent in a card's chain: that planning card's drawer ----
   const openParent = useCallback(

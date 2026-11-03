@@ -21,6 +21,7 @@
 //
 // Mirrors pkg/board/backlog.go (OnBacklog) and the doors boardservice opens
 // on a parked card (Own, Move).
+import { gapAnchor } from "./insertgap";
 import { isPlanning, isSubtask } from "./subtasks";
 import { isComplete } from "./stages";
 import type { Owner } from "./owner";
@@ -170,8 +171,10 @@ export interface InsertSpot {
  *  first card, list.length below the last. */
 export function insertSpot(list: readonly Pick<Card, "itemId" | "team">[], at: number, teams: readonly string[]): InsertSpot {
   const above = at > 0 ? list[at - 1] : undefined;
-  const below = at < list.length ? list[at] : undefined;
-  const anchor: Anchor = above ? { after: above.itemId } : below ? { before: below.itemId } : null;
+  const anchor = gapAnchor(
+    list.map((c) => c.itemId),
+    at,
+  );
   if (teams.length === 1) {
     return { anchor, box: { forcedTeam: teams[0] || null } };
   }

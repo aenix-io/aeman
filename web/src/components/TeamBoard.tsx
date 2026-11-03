@@ -18,6 +18,9 @@ import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
+import { InsertGap } from "./InsertGap";
+import { cellGaps, gapAnchor, gapsInZone } from "../insertgap";
+import { insertedOrder, type Anchor } from "../backlogboard";
 import { TeamChips } from "./TeamChips";
 import { TeamsModal } from "./TeamsModal";
 import { SprintChoiceDialog } from "./SprintChoiceDialog";
@@ -149,7 +152,10 @@ export function TeamBoard({
     title: string;
     team: string | null;
     sprint: string;
+    anchor: Anchor;
   } | null>(null);
+  // The gap whose insert "+" is open, as "<cell key>:<gap>" (InsertGap).
+  const [inserting, setInserting] = useState<string | null>(null);
   const [columnOrder, setColumnOrder] = useState<string[]>(() => {
     try {
       const v = localStorage.getItem("aeman.columnOrder");
@@ -1438,6 +1444,7 @@ export function TeamBoard({
     startDate: string,
     day: string,
     noSprint = false,
+    anchor: Anchor = null,
   ) => {
     const sprint = currentSprint(board, team);
     const firstSprint = !noSprint && sprint === null;
@@ -1464,6 +1471,11 @@ export function TeamBoard({
       notes: [],
     };
     addCard(optimistic);
+    // Typed into a gap: shown there at once, and the create names the place
+    // (after / before) so the server puts it there in the same request.
+    if (anchor) {
+      reorderCards(insertedOrder([...board.cards.map((c) => c.itemId), tempId], tempId, anchor));
+    }
     const creating = provider.createCard({
       title,
       zone,
@@ -1472,6 +1484,8 @@ export function TeamBoard({
       assigneeLogin: engineer || null,
       team,
       noSprint: noSprint || undefined,
+      after: anchor && "after" in anchor ? anchor.after : null,
+      before: anchor && "before" in anchor ? anchor.before : null,
     });
     registerPendingCard(
       tempId,
@@ -1511,10 +1525,11 @@ export function TeamBoard({
     zone: ZoneKey,
     title: string,
     team?: string | null,
+    anchor: Anchor = null,
   ) => {
     const sprint = currentSprint(board, team ?? null);
     if (sprint !== null && selectedDate > sprint) {
-      setSprintChoice({ engineer, zone, title, team: team ?? null, sprint });
+      setSprintChoice({ engineer, zone, title, team: team ?? null, sprint, anchor });
       return;
     }
     createTeamCard(
@@ -1524,6 +1539,8 @@ export function TeamBoard({
       team ?? null,
       selectedDate,
       selectedDate,
+      false,
+      anchor,
     );
   };
 
@@ -1749,8 +1766,38 @@ export function TeamBoard({
               onOpen={() => {}}
             />
           )}
-          renderGroup={(group, body, { isOver, dropRef }) => {
+          renderGap={(group, at) => {
+            // The insert "+" in every gap of a cell (insertgap.ts): the card
+            // typed there is the cell's — its person, its band — and lands
+            // there. None inside a parent's subtasks, none on a record.
+            if (holdsRecords || !gapsInZone("team", group.meta.zone) || !cellGaps(group.cards).includes(at)) {
+              return null;
+            }
             const { engineer, zone } = group.meta;
+            const key = `${group.key}:${at}`;
+            return (
+              <InsertGap
+                key={`gap-${at}`}
+                at={at}
+                open={inserting === key}
+                empty={group.cards.length === 0}
+                onOpen={() => setInserting(key)}
+              >
+                <AddCard
+                  autoOpen
+                  teams={forcedTeam === undefined ? addTeams : undefined}
+                  forcedTeam={forcedTeam}
+                  allowNoTeam={pickerNoTeam}
+                  onCreate={(title, team) =>
+                    handleCreate(engineer, zone, title, team, gapAnchor(group.cards.map((c) => c.itemId), at))
+                  }
+                  onClosed={() => setInserting(null)}
+                />
+              </InsertGap>
+            );
+          }}
+          renderGroup={(group, body, { isOver, dropRef }) => {
+            const { zone } = group.meta;
             const def = ZONES[zone];
             return (
               <div
@@ -1765,18 +1812,7 @@ export function TeamBoard({
                 }
               >
                 <span className="zone-spine">{def.spine}</span>
-                <div className="zone-cards">
-                  {body}
-                  <AddCard
-                    hidden={holdsRecords}
-                    teams={forcedTeam === undefined ? addTeams : undefined}
-                    forcedTeam={forcedTeam}
-                    allowNoTeam={pickerNoTeam}
-                    onCreate={(title, team) =>
-                      handleCreate(engineer, zone, title, team)
-                    }
-                  />
-                </div>
+                <div className="zone-cards">{body}</div>
               </div>
             );
           }}
@@ -1869,6 +1905,7 @@ export function TeamBoard({
               selectedDate,
               selectedDate,
               noSprint,
+              sprintChoice.anchor,
             )
           }
         />
