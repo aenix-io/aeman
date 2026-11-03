@@ -543,14 +543,14 @@ type CardPatch struct {
 	// Size S, M, L or XL in any case; empty takes the size back.
 	Size *string `json:"size,omitempty"`
 
-	// Stage A name the board does not have is refused rather than stored. "done" clears the stage and fills 100; review and locked clamp the progress into [10, 90].
+	// Stage A name the board does not have is refused rather than stored. "done" clears the stage and fills 100; review and locked clamp the progress into [10, 90]. Setting `review` on a task with no review card makes one — «review: <title>», of the task's team, with nobody on it, parked in that team's backlog (the "needs a reviewer" item); name a reviewer with send-to-review, or with `own` on that card.
 	Stage *CardPatchStage `json:"stage,omitempty"`
 	Team  *string         `json:"team,omitempty"`
 	Title *string         `json:"title,omitempty"`
 	Zone  *CardPatchZone  `json:"zone,omitempty"`
 }
 
-// CardPatchStage A name the board does not have is refused rather than stored. "done" clears the stage and fills 100; review and locked clamp the progress into [10, 90].
+// CardPatchStage A name the board does not have is refused rather than stored. "done" clears the stage and fills 100; review and locked clamp the progress into [10, 90]. Setting `review` on a task with no review card makes one — «review: <title>», of the task's team, with nobody on it, parked in that team's backlog (the "needs a reviewer" item); name a reviewer with send-to-review, or with `own` on that card.
 type CardPatchStage string
 
 // CardPatchZone defines model for CardPatch.Zone.

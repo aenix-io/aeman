@@ -50,15 +50,29 @@ func OnBacklog(c Card, isSubtask func(Card) bool) bool {
 	if !InBacklog(c) || Complete(c.Stage, c.Progress) {
 		return false
 	}
-	return isTaskOwnPlace(c, isSubtask(c))
+	return isTaskOwnPlace(c, isSubtask(c)) || NeedsReviewer(c)
+}
+
+// NeedsReviewer reports a REVIEW NOBODY HAS TAKEN (K10): an open review card
+// with no assignee. Putting a task on review without naming a reviewer makes
+// one, parked in the task's team's backlog — the "needs a reviewer" item the
+// backlog pins above its ranked tasks — and naming a reviewer takes it into
+// work like a task. A review card with a reviewer follows the card it
+// reviews, as ever.
+func NeedsReviewer(c Card) bool {
+	return c.ReviewOf != "" && len(c.Assignees) == 0 && !Complete(c.Stage, c.Progress)
 }
 
 // Unplaced reports an OPEN task in neither place: no date, no sprint, not
-// parked — the shape the Triage strip used to hold. No door leaves a task
+// parked — the shape the Triage strip used to hold. A review nobody has taken
+// (NeedsReviewer) is asked the same: its place is its team's backlog. No door leaves a task
 // like this any more (K3); schema 3 parks the ones an older server left
 // (K8). Finished work is not asked to be placed: it is over.
 func Unplaced(c Card, subtask bool) bool {
-	if !isTaskOwnPlace(c, subtask) || InWork(c) || InBacklog(c) {
+	if InWork(c) || InBacklog(c) {
+		return false
+	}
+	if !isTaskOwnPlace(c, subtask) && !NeedsReviewer(c) {
 		return false
 	}
 	return !Complete(c.Stage, c.Progress)

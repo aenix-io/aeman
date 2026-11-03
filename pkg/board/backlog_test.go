@@ -40,7 +40,7 @@ func TestATaskIsInWorkOrInItsBacklogNeverBothNeverNeither(t *testing.T) {
 		{"finished work is not asked to be placed", Card{Progress: 100}, false, false, false},
 		{"a planning card is not a task", Card{Type: TypeEpic}, false, false, false},
 		{"a project card is the Project board's", Card{Scope: "Auth", Project: "P"}, false, false, false},
-		{"a review card follows its original", Card{ReviewOf: "o"}, false, false, false},
+		{"a review card with a reviewer follows its original", Card{ReviewOf: "o", Assignees: []string{"bob"}}, false, false, false},
 		{"a state card is the roster", Card{Title: SprintStateTitle}, false, false, false},
 	}
 	for _, tc := range cases {
@@ -100,8 +100,10 @@ func TestEveryTeamHasABacklogWithoutDeclaringOne(t *testing.T) {
 
 // The backlog lists a team's PARKED OPEN TASKS and nothing else (K2): no
 // planning card (the Roadmap's), no project card (the Project board's), no
-// subtask (it rides its parent), no review card (it follows the card it
-// reviews) and nothing finished — the backlog never shows work that is over.
+// subtask (it rides its parent), no review card with a reviewer (it follows
+// the card it reviews) and nothing finished — the backlog never shows work
+// that is over. The one review card it does list is a review nobody has
+// taken (K10, TestAReviewNobodyHasTakenIsInTheBacklog).
 func TestTheBacklogListsATeamsParkedOpenTasksOnly(t *testing.T) {
 	b := NewBoard([]Card{
 		{ItemID: "epic", Type: TypeEpic},
@@ -109,7 +111,7 @@ func TestTheBacklogListsATeamsParkedOpenTasksOnly(t *testing.T) {
 		{ItemID: "under-epic", Team: "alpha", Parked: true, Parent: "epic"},
 		{ItemID: "kid", Team: "alpha", Parked: true, Parent: "task"},
 		{ItemID: "slot", Scope: "Auth", Project: "P", Parked: true},
-		{ItemID: "review", Team: "alpha", Parked: true, ReviewOf: "task"},
+		{ItemID: "review", Team: "alpha", Parked: true, ReviewOf: "task", Assignees: []string{"bob"}},
 		{ItemID: "done", Team: "alpha", Parked: true, Progress: 100},
 		{ItemID: "in-work", Team: "alpha", StartDate: "2026-09-01"},
 		{ItemID: "unplaced", Team: "alpha"},
@@ -183,5 +185,43 @@ func TestAParkedCardLeavesTheDayBoards(t *testing.T) {
 	b.Cards[0].Parked = false
 	if got := ids(TeamGrid(b, "alpha", today)); len(got) != 1 || got[0] != "parent" {
 		t.Fatalf("TeamGrid = %v; the card returns as it was", got)
+	}
+}
+
+// A REVIEW NOBODY HAS TAKEN is the "needs a reviewer" item (K10): a review
+// card with no assignee, open, and parked in the reviewed task's team's
+// backlog. The backlog lists it (pinned above the ranked tasks — the
+// listing's business); it is placed by being parked like a task, and one
+// that is neither parked nor in work is unplaced, which keepPlaced parks. A
+// review card with a reviewer follows the card it reviews, as ever.
+func TestAReviewNobodyHasTakenIsInTheBacklog(t *testing.T) {
+	waiting := Card{ItemID: "r", Team: "alpha", ReviewOf: "t", Parked: true}
+	taken := Card{ItemID: "r2", Team: "alpha", ReviewOf: "t", Assignees: []string{"bob"}, StartDate: "2026-11-03"}
+	if !NeedsReviewer(waiting) || NeedsReviewer(taken) {
+		t.Fatal("a review with nobody on it needs a reviewer; one with a reviewer does not")
+	}
+	if NeedsReviewer(Card{ReviewOf: "t", Progress: 100}) {
+		t.Fatal("a finished review needs nobody")
+	}
+	never := func(Card) bool { return false }
+	if !OnBacklog(waiting, never) {
+		t.Fatal("a parked review nobody has taken is in its team's backlog")
+	}
+	if OnBacklog(Card{ItemID: "r3", ReviewOf: "t", Assignees: []string{"bob"}, Parked: true}, never) {
+		t.Fatal("a review with a reviewer is in no backlog: it follows its original")
+	}
+	if !Unplaced(Card{ReviewOf: "t", Team: "alpha"}, false) {
+		t.Fatal("a review nobody has taken, not parked and not in work, is unplaced")
+	}
+	if Unplaced(waiting, false) || Unplaced(taken, false) {
+		t.Fatal("a parked review and a reviewer's review are placed")
+	}
+	b := NewBoard([]Card{
+		{ItemID: "st", Title: SprintStateTitle, Team: "alpha", SprintStart: "2026-11-03", StartDate: "2026-11-03"},
+		{ItemID: "t", Team: "alpha", Stage: StageReview, Progress: 50, SprintStart: "2026-11-03"},
+		waiting,
+	})
+	if !Reachable(b, "2026-11-03")["r"] {
+		t.Fatal("the review waiting for a reviewer is on a board: its backlog")
 	}
 }

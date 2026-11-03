@@ -212,3 +212,72 @@ func TestTheCardCodecDropsAWeek(t *testing.T) {
 		t.Fatalf("the writer kept a task's week:\n%s", out)
 	}
 }
+
+// Schema 3 also gives every OPEN task already on review with no review card
+// the card K10 makes now (docs/design/backlog.md "Reviews"): «review: <title>»
+// of the task's team, nobody on it, parked in that team's backlog, a fresh
+// ULID created at the bump, ranked after every card. A task that has a
+// review card gets none, nor does a finished one; and a second run creates
+// nothing.
+func TestSchema3GivesATaskOnReviewItsReviewCard(t *testing.T) {
+	const (
+		onReview = "01JB4K2E7QZMX3R8V0N5T9WYG1"
+		reviewed = "01JB4K2E7QZMX3R8V0N5T9WYG2"
+		itsCard  = "01JB4K2E7QZMX3R8V0N5T9WYG3"
+		plain    = "01JB4K2E7QZMX3R8V0N5T9WYG4"
+	)
+	path := func(id string) string { p, _ := CardPath(id); return p }
+	r := repoWith(t, map[string]string{
+		BoardPath:             "schema: 2\ntitle: b\n",
+		TeamPath("01JB4TEAM"): "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
+		path(onReview):        "---\ntitle: Invoices\nteam: portal\nstage: review\nprogress: 50\nsprint: 2026-11-02\nrank: m\ncreated: 2026-10-01T09:00:00Z\n---\n\nwhat to look at\n",
+		path(reviewed):        "---\ntitle: Receipts\nteam: portal\nstage: review\nprogress: 50\nsprint: 2026-11-02\nrank: n\ncreated: 2026-10-01T09:00:00Z\n---\n",
+		path(itsCard):         "---\ntitle: 'review: Receipts'\nassignees: [bob]\nteam: portal\nsprint: 2026-11-02\nstart: 2026-11-02\nreviewOf: " + reviewed + "\nrank: o\ncreated: 2026-10-02T09:00:00Z\n---\n",
+		path(plain):           "---\ntitle: In work\nteam: portal\nsprint: 2026-11-02\nrank: z\ncreated: 2026-10-01T09:00:00Z\n---\n",
+	})
+	if migrated, err := MigrateSchema(r); err != nil || !migrated {
+		t.Fatalf("migrated=%v err=%v", migrated, err)
+	}
+	head := r.Head()
+	snap, err := Load(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var made []string
+	var card struct {
+		title, team, rank string
+		parked            bool
+		assignees         []string
+		desc              string
+	}
+	for _, c := range snap.Cards {
+		if c.ReviewOf == onReview {
+			made = append(made, c.ItemID)
+			card.title, card.team, card.rank, card.parked, card.assignees, card.desc = c.Title, c.Team, c.Rank, c.Parked, c.Assignees, c.Description
+		}
+		if c.ReviewOf == reviewed && c.ItemID != itsCard {
+			t.Errorf("a task that has its review card got a second one: %s", c.ItemID)
+		}
+	}
+	if len(made) != 1 {
+		t.Fatalf("review cards made for the task on review = %v, want one", made)
+	}
+	if card.title != "review: Invoices" || card.team != "portal" || !card.parked || len(card.assignees) != 0 {
+		t.Fatalf("the made card = %+v, want «review: Invoices» of portal, parked, nobody on it", card)
+	}
+	if card.rank <= "z" {
+		t.Fatalf("the made card ranks %q, want after every card", card.rank)
+	}
+	if card.desc != "what to look at" {
+		t.Fatalf("the made card carries the task's context, got %q", card.desc)
+	}
+	if again, err := MigrateSchema(r); err != nil || again || r.Head() != head {
+		t.Fatalf("second run: migrated=%v err=%v head moved %v", again, err, r.Head() != head)
+	}
+	// And the step on its own, over the migrated tree, finds nothing to do.
+	c, _ := r.CommitObject(r.Head())
+	tree, _ := c.Tree()
+	if writes, err := schema3(tree, nil); err != nil || len(writes) != 0 {
+		t.Fatalf("the step re-run writes %d files (%v), want none", len(writes), err)
+	}
+}

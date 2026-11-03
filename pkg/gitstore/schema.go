@@ -308,7 +308,9 @@ func lastWriteWins(writes []FileWrite) []FileWrite {
 //  3. an open task that would have stood in the Triage strip — no date, no
 //     sprint, no week, not parked — is PARKED;
 //  4. deadline stubs keep their week (they are not card files); project
-//     cards and planning cards have none already (schema 2).
+//     cards and planning cards have none already (schema 2);
+//  5. an open task on review with no review card gets the parked review
+//     card nobody has taken (K10, schema3Reviews).
 //
 // A subtask or a review card with a stray week loses it and is not parked:
 // it rides the card it belongs to. The rank is untouched. Telling a subtask
@@ -391,6 +393,64 @@ func schema3(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error) {
 			return nil, fmt.Errorf("%s: %w", h.path, err)
 		}
 		writes = append(writes, FileWrite{Path: h.path, Data: out})
+	}
+	all := make([]board.Card, 0, len(cards))
+	for _, h := range cards {
+		all = append(all, h.file.Card)
+	}
+	more, err := schema3Reviews(all, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	return append(writes, more...), nil
+}
+
+// schema3Reviews is schema 3's last step (K10, docs/design/backlog.md
+// "Reviews"): every OPEN task already on review with no review card gets the
+// card putting a task on review makes now — «review: <title>», of the task's
+// team, with nobody on it, parked in that team's backlog, carrying the
+// task's description — under a fresh ULID created at the bump and ranked
+// after every card, in the order the tasks were found. A task with a review
+// card of any kind gets none (a finished one is the re-review's to
+// reactivate), so the step re-run finds nothing to do.
+func schema3Reviews(cards []board.Card, now time.Time) ([]FileWrite, error) {
+	reviewed := map[string]bool{}
+	last := ""
+	for _, c := range cards {
+		if c.ReviewOf != "" {
+			reviewed[c.ReviewOf] = true
+		}
+		if c.Rank > last {
+			last = c.Rank
+		}
+	}
+	created := now.UTC().Format(time.RFC3339)
+	var writes []FileWrite
+	for _, c := range cards {
+		if c.Stage != board.StageReview || reviewed[c.ItemID] || board.IsPlanning(c) || c.Scope != "" ||
+			c.ReviewOf != "" || board.Complete(c.Stage, c.Progress) {
+			continue
+		}
+		rank, err := board.RankBetween(last, "")
+		if err != nil {
+			return nil, err
+		}
+		last = rank
+		id := NewID(now)
+		review := CardFile{Card: board.Card{
+			ItemID: id, Title: "review: " + c.Title, Team: c.Team, Zone: board.ZoneGray,
+			ReviewOf: c.ItemID, Parked: true, Rank: rank, CreatedAt: created,
+			Description: board.StripEventLines(c.Description),
+		}}
+		out, err := EncodeCard(review)
+		if err != nil {
+			return nil, err
+		}
+		p, err := CardPath(id)
+		if err != nil {
+			return nil, err
+		}
+		writes = append(writes, FileWrite{Path: p, Data: out})
 	}
 	return writes, nil
 }

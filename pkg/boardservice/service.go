@@ -1554,7 +1554,15 @@ func (s *Service) SetStage(ctx context.Context, boardID string, itemID string, s
 	// its completed review card for a fresh round (the reverse of the review
 	// done → off-review forward sync).
 	if stage == board.StageReview && card.Stage != board.StageReview {
-		return s.reactivateReviewCard(ctx, b, card)
+		if err := s.reactivateReviewCard(ctx, b, card); err != nil {
+			return err
+		}
+	}
+	// On review with no review card at all — no reviewer was named, this is
+	// the stage alone, from any door: the card is made with nobody on it and
+	// parked in the team's backlog, the "needs a reviewer" item (K10).
+	if stage == board.StageReview {
+		return s.requestReview(ctx, b, card)
 	}
 	return nil
 }
@@ -2337,6 +2345,10 @@ func (s *Service) ReassignReviewer(ctx context.Context, boardID string, itemID, 
 	// released from the link (a standalone card now — the next carry-over
 	// leaves it behind) and a fresh review card is created for the new
 	// reviewer.
+	// A review nobody had taken is taken into work like a task (K10).
+	if board.NeedsReviewer(reviewCard) && !board.InWork(reviewCard) {
+		return s.takeReview(ctx, b, reviewCard, reviewer)
+	}
 	if reviewCard.Progress == 0 {
 		prev := ""
 		if len(reviewCard.Assignees) > 0 {

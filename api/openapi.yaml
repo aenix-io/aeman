@@ -294,7 +294,9 @@ paths:
         parked in the no-team group's backlog. A person without a team
         is refused (422 `ownerNeedsTeam`); a subtask and a review card have
         no owner of their own (422 `ownerFollowsLink` — the parent's, the
-        reviewer); a planning card and a project card carry none (422
+        reviewer) — except a review NOBODY HAS TAKEN, where a person is its
+        reviewer and takes it into work like a task (today, the task's sprint,
+        out of the backlog); a planning card and a project card carry none (422
         `planningCard`, `projectCard`). Subtasks follow the card's team and
         person, as they do everywhere.
       parameters:
@@ -2290,7 +2292,10 @@ components:
           description: >-
             A name the board does not have is refused rather than stored.
             "done" clears the stage and fills 100; review and locked clamp the
-            progress into [10, 90].
+            progress into [10, 90]. Setting `review` on a task with no review
+            card makes one — «review: <title>», of the task's team, with nobody
+            on it, parked in that team's backlog (the "needs a reviewer" item);
+            name a reviewer with send-to-review, or with `own` on that card.
         recurrence:
           type: string
         scope:

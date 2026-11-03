@@ -494,15 +494,24 @@ func contains(s []string, v string) bool {
 // order a backlog is read: by hand first, then oldest first
 // (board.BacklogOrder). `team` names one backlog or a comma-separated set of
 // them; the Backlog board draws them as one list, in this same order.
+//
+// The reviews NOBODY HAS TAKEN (board.NeedsReviewer) are PINNED on top, above
+// the ranked tasks, oldest first among themselves: a review is asked for now,
+// and its place is not the lead's to rank (K10).
 func backlogCards(b board.Board, ix *board.Index, sel Selector) []board.Card {
-	var out []board.Card
+	var reviews, tasks []board.Card
 	for _, c := range b.Cards {
 		if !ix.OnBacklog(c) || !teamInSet(c.Team, sel.Team) {
 			continue
 		}
-		out = append(out, c)
+		if board.NeedsReviewer(c) {
+			reviews = append(reviews, c)
+			continue
+		}
+		tasks = append(tasks, c)
 	}
-	return board.BacklogOrder(out)
+	sort.SliceStable(reviews, func(i, j int) bool { return reviews[i].CreatedAt < reviews[j].CreatedAt })
+	return append(reviews, board.BacklogOrder(tasks)...)
 }
 
 // Drawn reports whether a card is on the board the selector describes — the

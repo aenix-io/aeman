@@ -64,6 +64,13 @@ func (s *Service) Own(ctx context.Context, boardID string, itemID, team, person 
 	if err := notAPlanningCard(card, "owner"); err != nil {
 		return err
 	}
+	// A review NOBODY HAS TAKEN takes one answer: a person, which takes it
+	// into work as that review's reviewer (K10) — the backlog's picker on the
+	// "needs a reviewer" item. Every other answer on a review card is its
+	// link's to give.
+	if card.ReviewOf != "" && board.NeedsReviewer(card) && person != "" {
+		return s.takeReview(ctx, b, card, person)
+	}
 	if board.IsSubtask(b, card) || card.ReviewOf != "" {
 		return fmt.Errorf("%w: %q", ErrOwnerFollowsLink, card.Title)
 	}

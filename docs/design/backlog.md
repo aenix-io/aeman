@@ -111,6 +111,36 @@ Kept: team **capacity** (points a week) in the team file, the API and the
 MCP — nothing reads it on a board until a backlog shows load again; the
 Project board's deadlines, which are weeks on deadline stubs.
 
+## Reviews
+
+Decided 2026-11-03 with the owner (K10).
+
+- **Putting a task on review always makes its review card**:
+  `review: <title>`, `reviewOf` the task, the task's team. With a
+  reviewer named (send-to-review) it is theirs and stands on their Me and
+  Team boards, as before. Without one — the stage set to review from any
+  door: the drawer, `PATCH stage`, MCP `update_card stage=review` — it is
+  made with **nobody** on it and **parked in the task's team's backlog**:
+  the "needs a reviewer" item. A task that already has a review card gets
+  no second one.
+- **The Backlog pins these at the top**, above the hand-ranked tasks,
+  oldest first among themselves, marked "needs a reviewer" and showing the
+  reviewed task's title and parent chain. They are not dragged into the
+  ranked part.
+- **Taking one** is the card's owner picker with a person — `own` on the
+  review card, the one owner answer a review card takes while nobody has
+  it: it gets the reviewer, today, the reviewed task's sprint and the
+  unplanned band, leaves the backlog, and stands on the reviewer's Me and
+  Team boards; the original shows `reviewedBy`. send-to-review on the
+  original does the same.
+- **Withdrawing the review** — the task leaving the review stage, finished
+  or deleted — takes the card away, as it takes an untouched assigned one.
+- **K1**: a review nobody has taken is parked (it is in the backlog); one
+  with a reviewer follows the card it reviews, as before.
+- **Schema 3** gives every open task already on review with no review card
+  this card, in the same bump (a fresh ULID, created at the bump, ranked
+  last).
+
 ## The ×
 
 On a day board the unassign answer of the × used to put a card "back in
@@ -160,3 +190,4 @@ parked tasks reachable, so nothing the migration parks is lost.
 | K7 | A task has no week: the API, the MCP and the codec refuse or drop `week` on a task; deadline stubs keep theirs. |
 | K8 | Schema 3 parks the tasks planned for a week ahead and the strip, keeps a task whose week has come in work on that week's dates and its team's current sprint, and strips every task week, in one idempotent pass. |
 | K9 | The Triage view, the `place` and `untriage` gestures and the `triage`/`triageWeek`/`due` status fields are gone from the API, the MCP and the SPA. |
+| K10 | Putting a task on review always makes its review card; without a reviewer it is made with nobody on it and parked in the team's backlog, pinned on top, and a person picked there takes it into work. |
