@@ -174,3 +174,52 @@ func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) 
 		t.Fatalf("the goal after the finished task joined: %s %+v, want MODIFIED done 1/1", got["goal"].Type, h)
 	}
 }
+
+// A TASK CARRIES ITS PLANNING CARD'S TITLE AND END (status.lineage), and the
+// Backlog draws both — the tag and the due date (K2, K6). The Backlog watches
+// `view=all&team=<set>`, which never holds the epic itself, so a retitled or
+// re-dated epic reached the Roadmap and not the backlog cards under it, which
+// went on showing the old name and the old due date. A planning card whose
+// title or dates change therefore re-sends its descendant TASKS, to every
+// board whose filter holds them; a change that moves neither (a description)
+// sends them nothing.
+func TestARetitledOrRedatedPlanningCardReachesTheTasksUnderIt(t *testing.T) {
+	today := board.TodayIso()
+	store := newBoardStore()
+	b := hierarchyWatchBoard(today)
+	b.Cards = append(b.Cards, board.Card{ItemID: "p1", Title: "Receipts", Team: "alpha", Parent: "epic", Parked: true})
+	e := seedEntry(store, "k", b)
+	sel := apiserver.Selector{View: "all", Team: "alpha"}
+	backlog, cancel := store.subscribe("k", "", &sel, map[string]bool{"cards": true})
+	defer cancel()
+	find := func(id string) board.Card {
+		c, _ := board.Find(e.board, id)
+		return c
+	}
+	change := func(edit func(*board.Card)) {
+		e.mu.Lock()
+		epic := find("epic")
+		edit(&epic)
+		e.upsertCard(epic)
+		e.cardChanged("", epic, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+
+	change(func(c *board.Card) { c.Title = "Payments" })
+	got := took(t, backlog, 1)
+	lin := got["p1"].Card.Status.Lineage
+	if got["p1"].Type != "MODIFIED" || len(lin) == 0 || lin[len(lin)-1].Title != "Payments" {
+		t.Fatalf("after the retitle the task under the epic = %+v", got["p1"])
+	}
+
+	change(func(c *board.Card) { c.StartDate, c.Day = today, "2026-12-31" })
+	got = took(t, backlog, 1)
+	lin = got["p1"].Card.Status.Lineage
+	if len(lin) == 0 || lin[len(lin)-1].End != "2026-12-31" {
+		t.Fatalf("after the re-date the task under the epic = %+v", got["p1"])
+	}
+
+	change(func(c *board.Card) { c.Description = "why we bill" })
+	noFrame(t, backlog)
+}

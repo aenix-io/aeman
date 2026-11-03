@@ -196,6 +196,10 @@ type boardEntry struct {
 	// watcher that an epic's counts moved. Seeded from each installed board
 	// and kept by cardChanged.
 	parentOf map[string]string
+	// shownOf is each planning card's title and dates as last announced:
+	// the part of it its descendants carry in their lineage (the Backlog's
+	// tag and due date), so a change to it can be sent down to them.
+	shownOf map[string]string
 	// planning is which cards are goals, initiatives or epics, kept beside
 	// parentOf: with the two the walk to a card's planning ancestors costs
 	// the depth of its chain, never an index of the whole board.
@@ -474,6 +478,9 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	// them, the originator included: it holds its own change, not the
 	// counts the tree derived from it.
 	ancestors := e.ancestorsChanged(c, verb)
+	// And the tasks under a planning card whose title or dates moved: they
+	// carry both in their lineage (descendantsShowingIt).
+	ancestors = append(ancestors, e.descendantsShowingIt(c, verb)...)
 	// Built on demand: on a board whose tabs are all scoped — the ordinary
 	// case — a burst of changes must not pay for a resource nobody is sent.
 	// And built ONCE each: the card's resource and every ancestor's are the
@@ -1091,12 +1098,57 @@ func (b *storeBackend) installLocked(e *boardEntry, fresh board.Board) {
 func (e *boardEntry) rememberParents() {
 	e.parentOf = make(map[string]string, len(e.board.Cards))
 	e.planning = map[string]bool{}
+	e.shownOf = map[string]string{}
 	for _, c := range e.board.Cards {
 		e.parentOf[c.ItemID] = c.Parent
 		if board.IsPlanning(c) {
 			e.planning[c.ItemID] = true
+			e.shownOf[c.ItemID] = shownInLineage(c)
 		}
 	}
+}
+
+// shownInLineage is what a descendant's lineage carries of a planning card:
+// its title and its dates (status.lineage[].title/end).
+func shownInLineage(c board.Card) string {
+	return c.Title + "\x00" + c.StartDate + "\x00" + c.Day
+}
+
+// descendantsShowingIt is the TASKS under a planning card whose title or
+// dates this change moved, by id: their lineage carries both (the Backlog's
+// tag and due date, K2), and a board that holds the tasks and not the
+// planning card — the Backlog's `view=all&team=<set>` — would otherwise keep
+// showing the old ones (K6). It records what was shown for next time. A
+// change that moved neither, or one to a card that is not planning, names
+// nothing. The walk is over the parent map, and only on such a change. The
+// caller holds e.mu with the cache already updated.
+func (e *boardEntry) descendantsShowingIt(c board.Card, verb string) []string {
+	if !board.IsPlanning(c) || verb == "DELETED" || e.shownOf == nil {
+		return nil
+	}
+	now := shownInLineage(c)
+	was, known := e.shownOf[c.ItemID]
+	e.shownOf[c.ItemID] = now
+	if !known || was == now {
+		return nil
+	}
+	var out []string
+	for id := range e.parentOf {
+		if id == c.ItemID || e.planning[id] {
+			continue
+		}
+		const maxHops = 6
+		walked := map[string]bool{id: true}
+		for p, hops := e.parentOf[id], 0; p != "" && hops < maxHops && !walked[p]; p, hops = e.parentOf[p], hops+1 {
+			if p == c.ItemID {
+				out = append(out, id)
+				break
+			}
+			walked[p] = true
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ancestorsChanged is the planning cards whose standing a card change moved,
