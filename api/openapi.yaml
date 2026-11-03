@@ -1611,7 +1611,9 @@ components:
           type: array
           description: >-
             Every ancestor of the card, ROOT FIRST — the breadcrumb a detail
-            pane draws above it, a task parent included. Absent on a root.
+            pane draws above it, a task parent included. Absent on a root. A
+            review card, which hangs under nothing of its own, carries the
+            planning chain of the task it reviews.
           items:
             $ref: '#/components/schemas/LineageRef'
         hierarchy:

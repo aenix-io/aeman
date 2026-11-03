@@ -427,7 +427,21 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 		DoneAt:      c.DoneAt,
 		LeftAt:      c.LeftAt,
 	}
-	for _, a := range ix.Lineage(c) {
+	up := ix.Lineage(c)
+	// A REVIEW card hangs under nothing of its own; its chain is the
+	// planning chain of the task it reviews (K10: the Backlog draws a review
+	// nobody has taken with it), never the task itself, which would read as
+	// a task parent.
+	if c.ReviewOf != "" && c.Parent == "" {
+		if original, ok := ix.Find(c.ReviewOf); ok {
+			for _, a := range ix.Lineage(original) {
+				if board.IsPlanning(a) {
+					up = append(up, a)
+				}
+			}
+		}
+	}
+	for _, a := range up {
 		status.Lineage = append(status.Lineage, LineageRef{UID: a.ItemID, Type: a.Type, Title: a.Title, End: a.Day})
 	}
 	if board.IsPlanning(c) {

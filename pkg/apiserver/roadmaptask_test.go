@@ -52,3 +52,22 @@ func TestTheLineageCarriesEachAncestorsEndDate(t *testing.T) {
 		t.Fatalf("lineage = %+v, want goal (no end) then epic ending 2026-11-27", got)
 	}
 }
+
+// A REVIEW card hangs under nothing of its own, and the Backlog draws the
+// review nobody has taken with the reviewed task's chain (K10): so its
+// lineage is its original's PLANNING chain — the goal, initiative and epic
+// the task sits under — and never the task itself, which would read as a
+// task parent and make the review card a subtask.
+func TestAReviewCardCarriesItsTasksPlanningChain(t *testing.T) {
+	t.Parallel()
+	b := board.NewBoard([]board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Day: "2026-12-18"},
+		{ItemID: "task", Title: "Receipts", Parent: "epic", Team: "alpha", Stage: board.StageReview, SprintStart: "2026-11-03"},
+		{ItemID: "rev", Title: "review: Receipts", ReviewOf: "task", Team: "alpha", Parked: true},
+	})
+	c, _ := board.Find(b, "rev")
+	got := CardResource(b, c).Status.Lineage
+	if len(got) != 1 || got[0].UID != "epic" || got[0].End != "2026-12-18" {
+		t.Fatalf("the review card's lineage = %+v, want its task's epic", got)
+	}
+}
