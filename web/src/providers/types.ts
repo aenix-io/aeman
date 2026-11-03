@@ -377,6 +377,11 @@ export interface Provider {
    *  team (422 ownerNeedsTeam); a subtask and a review card are refused
    *  (ownerFollowsLink); so are planning and project cards. */
   ownCard(uid: string, team: string, person: string): Promise<Card>;
+  /** The Backlog's "I take this into work" (K11): the card becomes the
+   *  CALLER's — the server's identity of the request — on its own team,
+   *  today, out of the backlog; a review nobody has taken makes the caller
+   *  its reviewer. A task already in work is 422 alreadyInWork. */
+  takeCard(uid: string): Promise<Card>;
   /** Advance a team's sprint to today and carry its unfinished cards forward.
    * dryRun reports the would-be counts without writing. team = null is the
    * no-team group. */

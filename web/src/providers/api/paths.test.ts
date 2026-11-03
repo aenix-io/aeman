@@ -100,6 +100,16 @@ describe("the board in the address", () => {
     expect(calls[0].body).toEqual({ team: "portal", person: "kvaps" });
   });
 
+  // TAKE is the Backlog's own gesture (K11): it names no person — the server
+  // gives the card to whoever makes the request — and goes through the
+  // board that is open.
+  it("takes a card through the Backlog board, naming nobody", async () => {
+    standingOn("team=%2Cportal&view=backlog");
+    await apiProvider.takeCard("c1");
+    expect(calls[0].url).toBe("/api/v1/views/backlog/cards/c1/actions/take?team=%2Cportal");
+    expect(calls[0].body).toBeUndefined();
+  });
+
   // A create belongs to the board it was typed into: the open one, unless
   // what the add box filled in names another.
   it("creates into the board that is open", async () => {

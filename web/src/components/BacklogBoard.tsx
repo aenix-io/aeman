@@ -193,6 +193,34 @@ export function BacklogBoard({
     [board, today, patchCard, provider, addCard, onError, handOver],
   );
 
+  // ---- Take: the backlog's own gesture, "I take this into work" (K11) ----
+  // The server gives the card to whoever asks, on its own team; the
+  // optimistic card is the same answer (takeOwner), so it leaves the
+  // backlog at once, and a refusal (work already in hand, say) puts it back
+  // and shows the server's words.
+  const take = useCallback(
+    (card: CardModel) => {
+      const owner = takeOwner(card, me);
+      const before: Partial<CardModel> = {
+        assignees: card.assignees,
+        parked: card.parked,
+        startDate: card.startDate,
+        day: card.day,
+        zone: card.zone,
+        sprintStart: card.sprintStart,
+      };
+      patchCard(card.itemId, takenIntoWorkLocally(owner, today, currentSprint(board, owner.team || null)));
+      void provider
+        .takeCard(card.itemId)
+        .then(addCard)
+        .catch((err: unknown) => {
+          patchCard(card.itemId, before);
+          onError(errText(err));
+        });
+    },
+    [me, board, today, patchCard, provider, addCard, onError],
+  );
+
   // ---- dragging: a reorder in the one list, by its neighbours there ----
   const [carried, setCarried] = useState<CardModel | null>(null);
   const [over, setOver] = useState<number | null>(null);
@@ -442,7 +470,7 @@ export function BacklogBoard({
         <TakeDialog
           title={taking.title}
           onClose={() => setTaking(null)}
-          onTake={() => own(taking, takeOwner(taking, me))}
+          onTake={() => take(taking)}
         />
       )}
       {asking && (

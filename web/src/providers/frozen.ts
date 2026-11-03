@@ -54,6 +54,7 @@ const CARD_WRITES = new Set([
   "sendToReview",
   "removeReviewer",
   "ownCard",
+  "takeCard",
   "addNote",
   "editNote",
   "deleteNote",

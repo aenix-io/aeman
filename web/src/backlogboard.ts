@@ -76,11 +76,11 @@ export function backlogList(cards: readonly Card[], teams: readonly string[]): C
   return cards.filter((c) => onBacklog(c) && shown.has(c.team ?? ""));
 }
 
-/** takeOwner is what TAKE answers, confirmed: the card is the VIEWER's —
- *  the viewer as the person, on the card's own team — which takes it into
- *  work (ownPlan's "take", K4); on a review nobody has taken the viewer
- *  becomes its reviewer (K10). The server may still refuse (a person not
- *  on the team), and its answer is shown. */
+/** takeOwner is what TAKE leaves on the card, the server's `take` (K11)
+ *  mirrored for the optimistic card: the VIEWER as the person, on the card's
+ *  own team — taken into work (ownPlan's "take", K4); on a review nobody has
+ *  taken the viewer becomes its reviewer (K10). A refusal from the server
+ *  (work already in hand) puts the card back and is shown. */
 export function takeOwner(c: Pick<Card, "team">, viewer: string): Owner {
   return { team: c.team ?? "", person: viewer };
 }
