@@ -223,3 +223,48 @@ func TestARetitledOrRedatedPlanningCardReachesTheTasksUnderIt(t *testing.T) {
 	change(func(c *board.Card) { c.Description = "why we bill" })
 	noFrame(t, backlog)
 }
+
+// Only the NEAREST planning card is shown on a task (K2: the tag and the due
+// date are its parent's), so a change re-sends the DIRECT task children of
+// the planning card that changed and nothing deeper: a goal retitled sends
+// nothing to the tasks under its epics, and an epic retitled sends exactly
+// its own tasks — not a frame per task of the whole subtree, which on a big
+// tree overflowed a watcher's buffer and dropped the frames after it.
+func TestOnlyTheDirectTasksOfARetitledPlanningCardAreResent(t *testing.T) {
+	today := board.TodayIso()
+	store := newBoardStore()
+	b := hierarchyWatchBoard(today)
+	b.Cards = append(b.Cards,
+		board.Card{ItemID: "p1", Title: "Receipts", Team: "alpha", Parent: "epic", Parked: true},
+		board.Card{ItemID: "p2", Title: "Refunds", Team: "alpha", Parent: "epic", Parked: true},
+		board.Card{ItemID: "p3", Title: "Under the goal", Team: "alpha", Parent: "goal", Parked: true},
+		board.Card{ItemID: "k1", Title: "a piece", Team: "alpha", Parent: "p1"},
+	)
+	e := seedEntry(store, "k", b)
+	sel := apiserver.Selector{View: "all", Team: "alpha"}
+	backlog, cancel := store.subscribe("k", "", &sel, map[string]bool{"cards": true})
+	defer cancel()
+	retitle := func(id, title string) {
+		e.mu.Lock()
+		c, _ := board.Find(e.board, id)
+		c.Title = title
+		e.upsertCard(c)
+		e.cardChanged("", c, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+
+	retitle("goal", "Reach the world")
+	got := took(t, backlog, 1)
+	if _, ok := got["p3"]; !ok {
+		t.Fatalf("the goal's own task was not re-sent: %v", got)
+	}
+
+	retitle("epic", "Payments")
+	got = took(t, backlog, 2)
+	for _, id := range []string{"p1", "p2"} {
+		if got[id].Type != "MODIFIED" {
+			t.Fatalf("the epic's task %s was not re-sent: %v", id, got)
+		}
+	}
+}

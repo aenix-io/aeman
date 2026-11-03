@@ -1114,14 +1114,17 @@ func shownInLineage(c board.Card) string {
 	return c.Title + "\x00" + c.StartDate + "\x00" + c.Day
 }
 
-// descendantsShowingIt is the TASKS under a planning card whose title or
-// dates this change moved, by id: their lineage carries both (the Backlog's
-// tag and due date, K2), and a board that holds the tasks and not the
-// planning card — the Backlog's `view=all&team=<set>` — would otherwise keep
-// showing the old ones (K6). It records what was shown for next time. A
-// change that moved neither, or one to a card that is not planning, names
-// nothing. The walk is over the parent map, and only on such a change. The
-// caller holds e.mu with the cache already updated.
+// descendantsShowingIt is the TASKS directly under a planning card whose
+// title or dates this change moved, by id. A task's lineage carries both, and
+// the Backlog shows the NEAREST planning card's — its tag and due date (K2) —
+// so a board that holds the tasks and not the planning card (the Backlog's
+// `view=all&team=<set>`) would otherwise keep showing the old ones (K6). Only
+// the DIRECT task children are named: a deeper task shows its own nearest
+// planning card, and re-sending a whole subtree for a goal's rename would be
+// a frame per task, more than a watcher's buffer holds. It records what was
+// shown for next time; a change that moved neither, or one to a card that is
+// not planning, names nothing. The caller holds e.mu with the cache already
+// updated.
 func (e *boardEntry) descendantsShowingIt(c board.Card, verb string) []string {
 	if !board.IsPlanning(c) || verb == "DELETED" || e.shownOf == nil {
 		return nil
@@ -1133,18 +1136,9 @@ func (e *boardEntry) descendantsShowingIt(c board.Card, verb string) []string {
 		return nil
 	}
 	var out []string
-	for id := range e.parentOf {
-		if id == c.ItemID || e.planning[id] {
-			continue
-		}
-		const maxHops = 6
-		walked := map[string]bool{id: true}
-		for p, hops := e.parentOf[id], 0; p != "" && hops < maxHops && !walked[p]; p, hops = e.parentOf[p], hops+1 {
-			if p == c.ItemID {
-				out = append(out, id)
-				break
-			}
-			walked[p] = true
+	for id, parent := range e.parentOf {
+		if parent == c.ItemID && !e.planning[id] {
+			out = append(out, id)
 		}
 	}
 	sort.Strings(out)
