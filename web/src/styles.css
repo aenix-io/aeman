@@ -4422,6 +4422,9 @@ button.card-age {
    app's small buttons (.btn) — a plain border, no offset, no shadow. */
 .backlog-take-btn {
   flex: none;
+  /* A little air after the avatar, so a review's counterpart (which hangs
+     over the avatar's right edge) does not touch the button. */
+  margin-left: 4px;
   padding: 1px 8px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -4458,10 +4461,10 @@ button.card-age {
   font-size: 12px;
 }
 
-/* Inside a .card-assign (a review card's avatar and its counterpart) the
-   picker hugs the avatar, so the counterpart overlaps the avatar's corner
-   exactly as on the Team and Me boards rather than the picker's padding. */
-.backlog-row-owner .card-assign .owner-picker-btn {
+/* The picker hugs the avatar on every backlog card — a task's as a review's
+   (whose counterpart overlaps the avatar's corner exactly as on the Team and
+   Me boards) — so the cluster is equally tight on both. */
+.backlog-row-owner .owner-picker-btn {
   padding: 0;
   border: 0;
 }
