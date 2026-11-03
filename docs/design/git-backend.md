@@ -249,7 +249,6 @@ doneFrom: 0
 start: 2026-08-26
 day: 2026-08-28
 sprint: 2026-08-24
-week: 2026-08-24
 parked: false
 project: portal
 scope: Bugs
@@ -290,11 +289,16 @@ Rules:
   card, a card filed in the hierarchy and otherwise unchanged. A parent is
   always of a higher level than its child (H2), and of the same
   repository (H6).
-- `parked: true` puts the card on its TEAM's backlog — the third place a
-  card can be, beside a week and the Triage strip. Every team has one and
-  nothing declares it anywhere, which is what makes it safe: there is no
-  list to create, rename or remove, so nothing can be taken from under a
-  card. It is exclusive with `week`, at every door that sets either.
+- `parked: true` puts a task in its TEAM's backlog. A task is in work (a
+  `start`/`day` or a `sprint`) or parked, never both and never neither
+  (`docs/design/backlog.md`, K1): a writer that parks a task clears its
+  person, dates and sprint, and one that gives a parked task a date or a
+  sprint clears `parked`. Every team has a backlog and nothing declares it
+  anywhere, which is what makes it safe: there is no list to create,
+  rename or remove, so nothing can be taken from under a card.
+- A task has NO `week` (schema 3, K7): the key is read on a pre-schema-3
+  file and never written. Only a deadline stub
+  (`projects/<pid>/deadlines/<id>.yaml`) carries a week.
 - `zone` and `stage` are the domain keys (`red|yellow|green|gray`,
   `locked|review|recurrent|refuse`), not display names. Derived states
   (In Progress, Done-by-100%) are **not stored**, exactly as today — which
@@ -375,13 +379,19 @@ the primary domain.
 `board.yaml`, primary domain only:
 
 ```yaml
-schema: 1
+schema: 3
 title: aeman board
 ```
 
 `schema` is the layout version; the server refuses a repository whose
 schema is newer than it knows and migrates one that is older, in a
-commit.
+commit. Version 2 was the hierarchy (`hierarchy.md`); version 3 is the team
+backlog (`backlog.md`, K8): one idempotent pass parks every task that had
+a `week` and no `start`/`day`/`sprint`, takes the `week` off every task,
+and parks every open task that had no date, no sprint, no week and no
+`parked` — the shape the retired Triage strip held. A subtask or a review
+card loses a stray week and is not parked; ranks are untouched. A writer
+targeting schema 3 must leave every open task in one of the two places.
 
 ### First start
 

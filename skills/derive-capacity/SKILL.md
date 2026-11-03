@@ -5,7 +5,7 @@ description: Work out how many points a week each person on the aeman board actu
 
 # Derive a capacity
 
-A person's CAPACITY on the aeman board is the points a week they get through. The board measures their load against it — "21/40" over the column, red past it — and it is the only number a lead has for saying "this week does not fit".
+A person's CAPACITY on the aeman board is the points a week they get through. It is served beside their load (`get_board` `metadata.members[].capacity` and `.load`), and it is the only number a lead has for saying "this week does not fit". No board draws it at the moment — the Triage board that did was retired; the number is kept for the backlog to show load again.
 
 The board never derives it. It could, and this skill is that arithmetic — but a number a board prints beside a name reads as a fact, and this one is only as good as the record it comes from. So it is derived HERE, by somebody who can see how thin the record is, shown to the lead, and written back as their judgement.
 
@@ -43,7 +43,7 @@ Then STOP. The lead reads it and says which numbers stand. Expect them to overru
 
 For each number the lead confirmed: `set_capacity login=<login> capacity=<points a week>`.
 
-`capacity=0` takes a number back — the board then draws that person's load alone, with nothing to measure it against. Use it when the lead says they no longer stand behind a number; never as a way of saying "recompute", because nothing recomputes.
+`capacity=0` takes a number back — the person's load then stands alone, with nothing to measure it against. Use it when the lead says they no longer stand behind a number; never as a way of saying "recompute", because nothing recomputes.
 
 ## A team's number
 

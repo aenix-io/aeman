@@ -1,8 +1,8 @@
 # Board dates, sprints, and card visibility
 
 Source of truth for how aeman places cards on days, what a "sprint" is, and the
-visibility rules for the Team / Me / Triage views, plus create, Carry Over, and
-send-to-next-day. The date logic is subtle — **keep this file in sync with the
+visibility rules for the Team / Me views and what a team's backlog holds, plus
+create, Carry Over, and send-to-next-day. The date logic is subtle — **keep this file in sync with the
 code** whenever the rules change.
 
 Code that implements these rules:
@@ -30,10 +30,12 @@ Also:
   visible **range**: the card shows on every day of `[startDate, day]` in both
   views. Set on create to the same day as `startDate` (a one-day range); the
   calendar's end field edits it.
-- **Week** (`week`, date) — the week the card is scheduled for (its Monday):
-  the column it stands in on the Triage board (a REVIEW card is the one exception: it has no week of its own — that belongs to the card it reviews — and stands in the week its own dates fall in). A card in a Project-board
-  column has none: it is a PROJECT card, on no weekly plan, and its dates are
-  its row there (H4, `docs/design/hierarchy.md`).
+- **Parked** (`parked`, bool) — the task is in its team's **backlog** rather
+  than in work (below). A task has **no week** (`docs/design/backlog.md`,
+  K7): the Triage board that scheduled tasks into weeks is retired, a week a
+  file still carries is read as nothing, and only a Project-board deadline
+  stub has a week. A card in a Project-board column has its dates as its row
+  there (H4, `docs/design/hierarchy.md`).
 - Hidden per-team **`aeman:sprint-state`** card: `Sprint Start` = the team's
   **current** sprint date, `Start` = its **previous** sprint date. Read via
   `currentSprint(team)` / `previousSprint(team)`.
@@ -75,30 +77,29 @@ today while the card stays in its sprint). A "**next sprint**" create has **no
 
 ### Team view — a card's days (`selectedDate`)
 
-The Team board answers ONE question: what are these people working on that day? A card is in hand on a day when it is that team's, is a **task** (a goal, an initiative or an epic is the Roadmap's and on no day board — `docs/design/hierarchy.md`), is **not a subtask** (a subtask — a task whose parent is a TASK — rides with its parent; a task under an epic is not one and stands here like any task), is **not parked** on a team's backlog, **somebody has said when it is for** — a week, a date or a sprint, since a card with none of the three is in the Triage strip, which is an inbox rather than a day's work — was **not planned into a week after that day's**, is **open or was finished on that very day** (`doneAt`; a card finished yesterday belongs to yesterday), and was **not deferred past that day**.
+The Team board answers ONE question: what are these people working on that day? A card is in hand on a day when it is that team's, is a **task** (a goal, an initiative or an epic is the Roadmap's and on no day board — `docs/design/hierarchy.md`), is **not a subtask** (a subtask — a task whose parent is a TASK — rides with its parent; a task under an epic is not one and stands here like any task), is **not parked** in a team's backlog, is **in work** — it has a date or a sprint, since a task with neither is parked in its team's backlog, which is not a day's work — is **open or was finished on that very day** (`doneAt`; a card finished yesterday belongs to yesterday), and was **not deferred past that day**.
 
 That is the whole rule, and every card meets it the same way. It replaced seven layered ones — the week's own work, the sprint's start day, the card's own scheduled day, the range between its dates, the days of sprints it had passed through, and two special cases for deferral — which between them managed both halves of being wrong: work nobody was doing appeared on the day, and a card scheduled for last Tuesday and never finished fell off the board entirely, because no rule reached it any more.
 
 Four consequences are worth saying out loud:
 
 - **Open work does not stop when its plan does.** A card's end date says when the work was due to finish, not when it leaves the board: past that day it goes on standing there until somebody finishes it or puts it off. Work that ran over is the work most in need of being looked at.
-- **Today is a state, a day ahead is a plan.** The rule above holds up to today. A day still to COME shows only what somebody actually put on it: a card whose own dates reach that day, or one placed in the week that day belongs to. Today's unfinished work is today's problem, not tomorrow's plan — without that bound every open card stood on every future day, and a month out was simply the team's whole backlog. The **Me view is deliberately the other way**: a person's own board keeps showing everything of theirs that is not closed, whichever day they look at — an open card stays on its owner's today board even when its sprint has fallen behind the team's current one (left out of a carry-over), the same way the Team grid keeps overran work.
-- **The CURRENT sprint accumulates all its work on every one of its days.** A lead opens the sprint with the team from whichever day they are on — the sprint's own day (the "current sprint" jump), a day in the middle, or today — and each of those days holds everything the sprint has been: the work it opened with, the work typed into it since (most of a sprint is created inside it), and the work already **closed**. A day that showed only what is still open answers "what is left", which is not the question that review asks; and a lead who opened a middle day of the running sprint before carrying it over used to see the closed work missing, which is the bug this rule fixes. **Carry Over is what clears the closed work**: it leaves a finished card on the closing sprint (its `sprintStart` is not moved), so the moment a new sprint opens, that done work belongs to the now-PREVIOUS sprint and drops off today — even a card finished **today** is left behind on the sprint it was carried past, and a previous sprint keeps its closed work only on the days it ran (a record). (A finished card is still on its own `doneAt` day regardless, as every finished card is.) Two other things leave the current sprint too, both the act of taking a card OUT of it: work planned into a week still to come, and work **deferred past today** — sent to tomorrow, a card leaves today's sprint at once and arrives tomorrow; sent three days out, the sprint that opens tomorrow starts without it. Deferring is a hold, not a removal: the card is out of the sprint only while its day has not come, and the morning it arrives it is in the sprint again.
+- **Today is a state, a day ahead is a plan.** The rule above holds up to today. A day still to COME shows only what somebody actually put on it: a card whose own dates reach that day. Today's unfinished work is today's problem, not tomorrow's plan — without that bound every open card stood on every future day, and a month out was simply the team's whole backlog. The **Me view is deliberately the other way**: a person's own board keeps showing everything of theirs that is not closed, whichever day they look at — an open card stays on its owner's today board even when its sprint has fallen behind the team's current one (left out of a carry-over), the same way the Team grid keeps overran work.
+- **The CURRENT sprint accumulates all its work on every one of its days.** A lead opens the sprint with the team from whichever day they are on — the sprint's own day (the "current sprint" jump), a day in the middle, or today — and each of those days holds everything the sprint has been: the work it opened with, the work typed into it since (most of a sprint is created inside it), and the work already **closed**. A day that showed only what is still open answers "what is left", which is not the question that review asks; and a lead who opened a middle day of the running sprint before carrying it over used to see the closed work missing, which is the bug this rule fixes. **Carry Over is what clears the closed work**: it leaves a finished card on the closing sprint (its `sprintStart` is not moved), so the moment a new sprint opens, that done work belongs to the now-PREVIOUS sprint and drops off today — even a card finished **today** is left behind on the sprint it was carried past, and a previous sprint keeps its closed work only on the days it ran (a record). (A finished card is still on its own `doneAt` day regardless, as every finished card is.) One other thing leaves the current sprint too, the act of taking a card OUT of it: work **deferred past today** — sent to tomorrow, a card leaves today's sprint at once and arrives tomorrow; sent three days out, the sprint that opens tomorrow starts without it. Deferring is a hold, not a removal: the card is out of the sprint only while its day has not come, and the morning it arrives it is in the sprint again.
 - **Finished work belongs to the day it recorded** (`doneAt`) and to no other. A card whose writer recorded nothing stands on no day here — nothing is guessed out of its dates, which are a plan rather than a record. Nothing is lost by that, because a day already gone is not answered by this rule at all: it is served as a snapshot, and there the day's own commits say what they finished (below).
 
-A card filed under a Project-board **column** (a scope) is a **project card**: the Project board's plan, not work in hand, and the Project board is the one board that draws it — never the Team grid, the Me board or the Triage board, whatever its week, dates or sprint say (H4, `docs/design/hierarchy.md`). It has no team and no owner, is nobody's subtask and has none, and is never sent to review; the work it stands for is done by tasks linked under the hierarchy, not by the column's card. It used to stand in its owner's column on the Team grid once its week came, which put planning placeholders among the day's work and made one card answer two questions. A card that merely carries a project NAME has no column — the Project board renders columns by scope — so it is an ordinary dated card and shows like one. The Me view draws the same line.
+A card filed under a Project-board **column** (a scope) is a **project card**: the Project board's plan, not work in hand, and the Project board is the one board that draws it — never the Team grid, the Me board or a backlog, whatever its dates or sprint say (H4, `docs/design/hierarchy.md`). It has no team and no owner, is nobody's subtask and has none, and is never sent to review; the work it stands for is done by tasks linked under the hierarchy, not by the column's card. It used to stand in its owner's column on the Team grid once its week came, which put planning placeholders among the day's work and made one card answer two questions. A card that merely carries a project NAME has no column — the Project board renders columns by scope — so it is an ordinary dated card and shows like one. The Me view draws the same line.
 
-### The week a card is scheduled for
+### In work or in the backlog
 
-Beside the days, a card may carry a **week** — the Monday it is scheduled for, which is its column on the Triage board. It is a plainer answer than a date: "this is due that week", made before anybody says which day.
+A **task** — a card with no `type`, not in a column, not a subtask, not a review card — is in exactly one of two places (`docs/design/backlog.md`, K1):
 
-- A card placed in a week **AHEAD** of this one is on **no day board at all** until its Monday comes — not the Team grid, not the Me board, not the carry-over's reckoning of what is being carried now. Scheduling work for a later week is precisely the act of taking it off today.
-- A card whose week has **arrived** stands on the **Team grid**: in its person's column, or in **Unassigned** when nobody has taken it. It puts on the day grid what the weekly plan panel used to hold beside it, so a card scheduled for a week is not invisible until somebody gives it a day. It keeps standing there after its week passes, for as long as it is open — the week gate holds back the weeks AHEAD, never the ones behind — so a debt does not fall off the board when the week it was owed in ends.
-- On the **Triage board** a card stands in the row of its own week — with one deliberate exception: a **debt** (owed in a week gone by, still open) is drawn in the CURRENT week's row, because that is where it is owed now. It keeps the week it was given: only the row moves, so the week stays the record of what was missed and a failed write rolls back to the truth.
-- A card whose week has **arrived** stands on its **owner's Me board** too, from that Monday on, for as long as it is open — the same week gate the Team grid uses, judged against the day being looked at. It used not to: the Me view drew a card only by its dates or its sprint, and a card dropped into a week ahead on the Triage board loses both (the rule above), so when its Monday came it had a week and nothing else. No carry-over adopts a card with no sprint, so the work a lead planned for somebody's week stood in their column on the Team grid and nowhere on their own board until somebody happened to date it. The Me board is the one that keeps everything of the person's that is not closed; this was the one kind of open work it lost. Finished, such a card belongs to the day it was finished on and no other, as on the Team grid — nothing sweeps a card with no sprint, and a done one would otherwise stand on every day for ever.
-- A **deferred** card is not part of the week's set either. Deferring is the act of taking a card off the board until a later day, and its week says when the work is due, not that it should still be drawn today.
+- **In work**: it has a date or a sprint. It stands on the Team and Me boards by the rules above.
+- **In its team's backlog**: it has neither, and it is `parked`. It stands on **no day board**. The no-team group has a backlog like any team, and nothing declares one.
 
-A week is a **Monday** everywhere it is written — the board's own drag, the patch that sets one, the create that files a card straight into one. Any other day is refused (422): a Triage column is a Monday, so a card whose week is a Thursday would stand in no column, appear in no strip, and be findable only by its uid.
+There is no third place. The Triage strip — open tasks nobody had dated, weeked or parked — is gone: every door that used to leave a task there parks it instead (K3) — a Roadmap-born task given no dates, `own` with nobody, the × that unassigns a card (parked, no person, no day, no sprint). Taking a task into work — `own` with a person (it lands today, in the unplanned band, in the team's sprint), a date set from the drawer, a sprint, a defer, a drag onto the Team board — clears `parked` in the same write (K4), and the task leaves the backlog at once. Clearing a date takes nothing into work. A parked card that carries a date anyway (only a direct write can make one) is drawn in its backlog and on no day board.
+
+The **Backlog** board lists each selected team's parked open tasks — no planning card, no project card, no subtask on its own, no review card, nothing finished — hand-placed rank first, then oldest first (K2). A task's **week** is gone (K7): nothing schedules a task for a week, and the week gates the day boards used to apply (a week ahead held a card back; the Me board drew a week-only card once its Monday came) are gone with it. Schema 3 parked the tasks an older server had left with only a week, or with nothing at all (K8).
 
 ### A past day is shown as it was (the snapshot)
 
@@ -138,11 +139,9 @@ The rules above place TODAY's cards on a day. That is what a day-lens is: dates 
 - A **deferred / future-scheduled** card (`startDate > today`) is hidden until
   that day, then shows from it on (the next Carry Over re-syncs its sprint like
   any unfinished card).
-- A card **planned for a week** and never dated (a week, no dates, no sprint —
-  what a card dropped into a week ahead on the Triage board becomes when that
-  week arrives) shows from its week's Monday on while it is open, and on the
-  day it was finished once it is done. A week ahead of the viewed day holds it
-  back, as on the Team grid.
+- A **parked** card is not the person's day, whoever owns it: it waits in its
+  team's backlog. A task has no week for this board to read (D17 retired with
+  the Triage board, `docs/design/backlog.md`).
 - A **sprint-less** day card (a "next sprint" create) shows from its
   `startDate` on — the sprint gate above would otherwise hide it right when its
   day arrives — until a Carry Over adopts it into a sprint. Only cards
@@ -204,40 +203,34 @@ The rules above place TODAY's cards on a day. That is what a day-lens is: dates 
   created in the new sprint with the same title and description, no notes,
   at 0%, recurrent again.
 
-### Attaching a week-scheduled card to a Project-board column
+### Filing a task into a Project-board column
 
-A card scheduled for a **week** and carrying no dates of its own, **attached**
-to a Project-board column, takes the slot of that week: Monday to Friday, the
-whole of the week it was owed in, so the new slot's row is the very week the
-card was scheduled for — it does not jump elsewhere on the way to the Project
-board (G55). A card that already carries dates keeps them: the attach never
-rewrites a schedule someone chose. Either way the card **leaves the weekly
-plan and its sprint** — a project card is on neither (H4) — and only a card
-nothing holds can be attached at all: one that carries a team, an owner, a
-parent or a review link is somebody's work in hand, and filing it into a
-column is refused (`projectCard`, 422); the person takes those off first, or
-makes a card in the column and links the work under the hierarchy.
+A task **filed** into a Project-board column keeps the dates it has — they
+are its row there — and **leaves its sprint and its backlog**: a project card
+is on neither (H4). (A task has no week to convert any more; it used to take
+its week's span as its dates, G55.) Only a card nothing holds can be filed at
+all: one that carries a team, an owner, a parent or a review link is
+somebody's work in hand, and filing it into a column is refused
+(`projectCard`, 422); the person takes those off first, or makes a card in the
+column and links the work under the hierarchy.
 
 ### When work is owed
 
 A card's due date is its own kind's clock (`board.DueDate`), and a card still
-open past it is a **debt**. A debt is never moved: the week it was owed in is
-the record of what was missed, and the day boards go on drawing the work until
-it is finished.
+open past it is a **debt**. A debt is never moved, and the day boards go on
+drawing the work until it is finished.
 
 The overdue **mark** is narrower than the debt. Only a Project-board slot
 wears it (`board.Overdue`), because only it carries a promise somebody ELSE is
-holding — a row drawn to an end date on another board. A week the Triage board
-gave a card is that board's own planning, and planning is what the next sync
-redoes: marking it late for still being open on Monday paints most of a normal
-board red, and a mark that is everywhere says nothing where it matters.
+holding — a row drawn to an end date on another board. A task's own dates are
+the day board's planning, and planning is what the next sync redoes: marking a
+task late for still being open paints most of a normal board red, and a mark
+that is everywhere says nothing where it matters.
 
 - a Project-board **slot** is owed by its end date;
-- a card scheduled for a **week** by that week's Friday — or, stretched over
-  several weeks, by the end of its reach, since stretching it is saying it
-  takes longer;
-- a card with no week at all has no due date here: the day board's carry-over
-  is how those move.
+- a task has no due date here: the day board's carry-over is how it moves. (The
+  Backlog shows the end date of a task's nearest planning card as a due date —
+  a reading of the hierarchy, not a mark.)
 
 ### Subtasks (grouped cards)
 - A task whose **parent is a task** (the `parent` field, one level deep) is a
@@ -262,11 +255,7 @@ board red, and a mark that is everywhere says nothing where it matters.
   0–90%. The final done / 100% is always a human decision on the parent, and a
   card **cannot be done while it has open subtasks**.
 - **Grouping** a card under a parent syncs it into the parent's sprint
-  (`sprintStart` copied), moves it onto the **parent's team**, and hands over
-  its **week**: the parent stands for it on the Triage board from then on, and
-  a subtask never has a week of its own. A card in a COLUMN keeps its week —
-  there it is the row the Project board draws it in, not a placement anyone
-  made for the card itself.
+  (`sprintStart` copied) and moves it onto the **parent's team**.
 - **A subtask's person always follows its parent**, the way its team does:
   grouping hands the child over to the parent's assignee, a direct change on a
   subtask snaps back to the parent's, and re-assigning a parent hands the whole

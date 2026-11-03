@@ -16,8 +16,7 @@ This is judgement work, card by card. Never derive a size from the length of the
 1. Find the cards. Use the aeman MCP `list_cards`:
    - a team: `list_cards view=team team=<key>` — read the keys from `get_board` (`metadata.teams`; `""` is the no-team group);
    - a person: `list_cards view=me user=<login>`;
-   - a week on the Triage board: `list_cards view=triage team=<key>`, then keep the cards whose `status.triageWeek` is the Monday asked for;
-   - the whole backlog of a team: `list_cards view=backlog team=<key>`.
+   - the backlog of a team — its parked tasks, top is next: `list_cards view=backlog team=<key>` (a comma-separated set lists several).
    Keep the cards with no `spec.size`, unless the lead asked to re-size everything. Skip review cards (`spec.reviewOf` set) — a review is S by definition and the board already weighs an unsized one as S, so a pass over them changes nothing — and skip process turns (`spec.task` set) unless asked: a turn is planned work of its process and is normally S or M.
 2. Read what you need. The listing is the board's row shape: title, team, zone, assignees, kind. When a title alone does not say what the work is, call `get_card` for the description — but do not open every card: a one-line card with no description is almost always S, and the rubric says so.
 3. Size every card by the rubric. Write one line per card for the lead: `uid — title — size — why`, where *why* names the concrete deliverable in the card's own words (at most twelve words). Cards you are unsure about, mark with `?` and say what would decide it.
@@ -46,4 +45,4 @@ Rules of thumb:
 
 ## What the size is for
 
-On the Triage board the person's column shows "points carried / points a week" and goes red past it; on the weekly meeting each week of the Triage board shows "points scheduled / points the teams can plan". Both numbers are only as good as the sizes under them: an unsized card is counted as M, so a board nobody has sized still reads, but every S and every L it holds is counted wrong by a point or two — which is exactly what a pass fixes.
+A person's load — `get_board` `metadata.members[].load`, the points of the work they are carrying now — is summed from the sizes, and a backlog sized top to bottom says how far down the list a team gets in a week. Both are only as good as the sizes under them: an unsized card is counted as M, so a board nobody has sized still reads, but every S and every L it holds is counted wrong by a point or two — which is exactly what a pass fixes.
