@@ -261,6 +261,9 @@ describe("the Project cards toggle", () => {
     // segment of its own: an icon button, unpressed, named by its tooltip.
     expect(html).toMatch(/<button[^>]*class="team-eye"[^>]*aria-pressed="false"[^>]*title="Show project cards"/);
     expect(html).not.toContain("roadmap-projects");
+    // Its icon is the one a project card's row wears in the tree: the same
+    // KindIcon, not a lookalike.
+    expect(html).toMatch(/<button[^>]*class="team-eye"[^>]*title="Show project cards"[^>]*><svg[^>]*class="kind-icon kind-icon-project"/);
     expect(html).toContain("Render PDF");
     expect(html).not.toContain("Q1 payments slot");
   });
