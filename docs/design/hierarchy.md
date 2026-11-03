@@ -72,7 +72,9 @@ A planning card records nothing about progress. Its **status** and
 **progress** are derived on every read from the tasks under it, through
 every level — four words: *no items* when nothing is under it; *done*
 when every leaf task is complete; *in progress* when any leaf task is
-somebody's (has an assignee), has started or is finished — a person
+somebody's (has an assignee), has started — any progress above 0, or
+held in review or locked, since a project card has nobody on it by
+design and a held task is not in the band — or is finished — a person
 named on a task is work being done before the first percent is typed;
 *to do* otherwise. Progress is the share of leaf tasks complete, served
 beside the counts (`3/7`). This is the subtask rule (`DerivedProgress`)

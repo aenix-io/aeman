@@ -148,9 +148,9 @@ func (ix *Index) ReviewedBy(c Card) string { return ix.reviewedBy[c.ItemID] }
 
 // hierarchyStatus is the standing a set of leaf tasks gives their planning
 // card (H5): NO ITEMS when there are none; DONE when every one is complete;
-// IN PROGRESS when any of them is somebody's, has started, or is finished —
-// a person named on a task is work being done before the first percent is
-// typed; TO DO otherwise.
+// IN PROGRESS when any of them is somebody's, has started — any progress,
+// or held in review or locked — or is finished — a person named on a task
+// is work being done before the first percent is typed; TO DO otherwise.
 func hierarchyStatus(leaves []Card) (status string, done, total int) {
 	working := false
 	for _, t := range leaves {
@@ -158,7 +158,11 @@ func hierarchyStatus(leaves []Card) (status string, done, total int) {
 		switch {
 		case Complete(t.Stage, t.Progress):
 			done++
-		case len(t.Assignees) > 0 || IsInProgress(t):
+		case len(t.Assignees) > 0 || IsInProgress(t) || t.Progress > 0 ||
+			t.Stage == StageReview || t.Stage == StageLocked:
+			// Somebody's, in progress — or plainly under way without either:
+			// any progress at all, or held in review or locked (#287). A
+			// project card has nobody on it by design (H4).
 			working = true
 		}
 	}
