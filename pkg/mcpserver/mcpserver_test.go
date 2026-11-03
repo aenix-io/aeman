@@ -138,8 +138,8 @@ func TestMCPListsTools(t *testing.T) {
 		"finished_earlier", "list_sprints",
 		"list_day_logs", "reorder_teams", "reorder_scopes", "delete_team",
 		"set_sprint_state",
-		// The Roadmap's "whose is this" (H10).
-		"own_card",
+		// The Roadmap's "whose is this" (H10), and the Backlog's take (K11).
+		"own_card", "take_card",
 	}
 	for _, w := range want {
 		if !names[w] {
@@ -534,6 +534,8 @@ func TestTheToolSetHoldsWhatTheBoardsDo(t *testing.T) {
 		"finished_earlier",
 		// The Roadmap's: whose is this, and where loose work goes when told.
 		"own_card",
+		// The Backlog's: I take this into work (K11).
+		"take_card",
 		// The roster gestures the manage dialogs make.
 		"reorder_teams", "reorder_scopes", "delete_team", "set_sprint_state",
 		// What a day board reads in one request instead of a log per card.
@@ -969,5 +971,26 @@ func TestABodyThatFailsToLandNamesTheCardItLeftBehind(t *testing.T) {
 	}
 	if !strings.Contains(msg, made) {
 		t.Fatalf("the failure = %q, want the uid %q of the card standing on the board", msg, made)
+	}
+}
+
+// TAKE over MCP (K11): the agent takes a backlog card as the person it acts
+// for — the card becomes theirs on its own team and leaves the backlog — and
+// a task already in work is refused.
+func TestAnAgentTakesABacklogCardAsItsPerson(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "p", Title: "parked", Team: "alpha", Parked: true},
+		{ItemID: "w", Title: "in work", Team: "alpha", Assignees: []string{"ann"}, StartDate: today, Day: today, SprintStart: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	cs := connect(t, Config{Board: "acme", ResolveLogin: func(context.Context) (string, error) {
+		return "kvaps", nil
+	}}, fake)
+	call(t, cs, "take_card", map[string]any{"uid": "p", "view": "backlog", "team": "alpha"})
+	if got := fake.Card("p"); got == nil || got.Parked || len(got.Assignees) != 1 || got.Assignees[0] != "kvaps" || got.Team != "alpha" {
+		t.Fatalf("taken as the agent's person on its own team: %+v", got)
+	}
+	if msg := callErr(t, cs, "take_card", map[string]any{"uid": "w"}); !strings.Contains(msg, "already in work") {
+		t.Fatalf("take on work in hand = %q", msg)
 	}
 }

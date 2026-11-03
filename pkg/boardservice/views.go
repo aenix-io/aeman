@@ -165,6 +165,9 @@ const (
 	// (own.go, H10). Every board that draws a task offers it, so the drawer
 	// asks the same question from wherever the card was opened.
 	GestureOwn Gesture = "own"
+	// GestureTake is the Backlog's "I take this into work": the card becomes
+	// the actor's, on its own team, and leaves the backlog (take.go, K11).
+	GestureTake Gesture = "take"
 )
 
 // gestureBoards is which boards draw each one. The escape hatch is in every
@@ -177,6 +180,7 @@ var gestureBoards = map[Gesture][]board.View{
 	// picker is how a task is taken into work from there (K4).
 	GestureOwn: {board.ViewRoadmap, board.ViewMe, board.ViewTeam,
 		board.ViewBacklog, board.ViewAll},
+	GestureTake: {board.ViewBacklog, board.ViewAll},
 }
 
 // Offers reports whether a board draws a gesture. A gesture asked of a board
@@ -196,7 +200,7 @@ func Offers(view board.View, g Gesture) bool {
 // client reads instead of being told in a description.
 func Gestures(view board.View) []Gesture {
 	var out []Gesture
-	for _, g := range []Gesture{GestureRemove, GestureFinishedEarlier, GestureOwn} {
+	for _, g := range []Gesture{GestureRemove, GestureFinishedEarlier, GestureOwn, GestureTake} {
 		if Offers(view, g) {
 			out = append(out, g)
 		}

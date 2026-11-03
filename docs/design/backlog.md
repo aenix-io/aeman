@@ -86,9 +86,14 @@ SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
   selector beside it when several teams are selected (it starts on the
   first selected team; with one team selected there is no selector): a
   task created there is parked on the chosen team, last.
-- **Taking.** The card's owner picker (`own` with a person) takes it into
-  work: it disappears from the backlog and appears on the Team and Me
-  boards today.
+- **Taking.** **Take** is the backlog's own gesture (`take`, MCP
+  `take_card`): the card's right-most button asks "Take this card into
+  work?" and makes it the viewer's, on the card's own team — today, the
+  unplanned band, the team's sprint — so it disappears from the backlog
+  and appears on the Team and Me boards; a review nobody has taken makes
+  the viewer its reviewer. A task already in work, finished work, a
+  subtask and a review somebody has are refused. The card's avatar is the
+  owner picker (`own`), which hands the card to anybody else.
 - **Live.** The board watches every card of the teams it shows
   (`view=all&team=<set>`, the Team board's watch): a card parked,
   unparked, re-teamed, retitled, finished or reordered by anybody shows
@@ -196,3 +201,4 @@ parked tasks reachable, so nothing the migration parks is lost.
 | K8 | Schema 3 parks the tasks planned for a week ahead and the strip, keeps a task whose week has come in work on that week's dates and its team's current sprint, and strips every task week, in one idempotent pass. |
 | K9 | The Triage view, the `place` and `untriage` gestures and the `triage`/`triageWeek`/`due` status fields are gone from the API, the MCP and the SPA. |
 | K10 | Putting a task on review always makes its review card; without a reviewer it is made with nobody on it, parked in the team's backlog at the top of the order, and a person picked there takes it into work. |
+| K11 | Take is the backlog's gesture: the card becomes the actor's, on its own team, and leaves the backlog; refused where there is nothing to take. |

@@ -328,6 +328,46 @@ paths:
                 $ref: '#/components/schemas/Card'
         default:
           $ref: '#/components/responses/Problem'
+  /views/{view}/cards/{uid}/actions/take:
+    post:
+      operationId: takeCard
+      tags: [Cards]
+      summary: The Backlog's "I take this into work" — the card becomes the caller's.
+      description: >-
+        Offered by the backlog view (and `all`). The caller — the signed-in
+        person, the identity every write records as its author — gets the card
+        on its OWN team (a card of the no-team group stays in it): a parked
+        task is taken into work as `own` with a person takes it — today, the
+        unplanned band, the team's sprint, out of the backlog — and a review
+        nobody has taken makes the caller its reviewer. Refused where there is
+        nothing to take: a planning card or a project card (422
+        `planningCard`, `projectCard`), a subtask or a review somebody already
+        has (422 `ownerFollowsLink`), finished work (422 `alreadyFinished`), a
+        task already in work (422 `alreadyInWork` — hand it over with `own`),
+        and a request that names nobody (422 `nobodyToTake`).
+      parameters:
+        - $ref: '#/components/parameters/View'
+        - $ref: '#/components/parameters/Uid'
+        - $ref: '#/components/parameters/Team'
+        - $ref: '#/components/parameters/Day'
+        - $ref: '#/components/parameters/User'
+        - $ref: '#/components/parameters/Project'
+        - $ref: '#/components/parameters/Assignee'
+        - $ref: '#/components/parameters/Stage'
+        - $ref: '#/components/parameters/Zone'
+        - $ref: '#/components/parameters/Focus'
+        - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/Fields'
+        - $ref: '#/components/parameters/Snapshot'
+      responses:
+        '200':
+          description: The card after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        default:
+          $ref: '#/components/responses/Problem'
   /views/{view}/cards/{uid}/actions/finished-earlier:
     post:
       operationId: finishedEarlier
@@ -1309,6 +1349,8 @@ components:
             board it is that rule's own name.
           enum:
             - accessUndecided
+            - alreadyFinished
+            - alreadyInWork
             - authorizationExpired
             - backwardsDefer
             - badCapacity
@@ -1338,6 +1380,7 @@ components:
             - invalidSelector
             - invalidStage
             - nameTaken
+            - nobodyToTake
             - noEarlierSprint
             - noHistory
             - noPlaceOfItsOwn

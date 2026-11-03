@@ -770,6 +770,19 @@ func (a surface) OwnCard(ctx context.Context, req apiv1.OwnCardRequestObject) (a
 	return apiv1.OwnCard200JSONResponse(card), nil
 }
 
+// TakeCard is the Backlog's "I take this into work": the card becomes the
+// caller's on its own team (boardservice.Take).
+func (a surface) TakeCard(ctx context.Context, req apiv1.TakeCardRequestObject) (apiv1.TakeCardResponseObject, error) {
+	card, err := a.gesture(ctx, req.View, req.UID, boardservice.GestureTake,
+		func(svc *boardservice.Service, boardID string) error {
+			return svc.Take(ctx, boardID, req.UID)
+		})
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.TakeCard200JSONResponse(card), nil
+}
+
 // FinishedEarlier sends finished work back to the sprint it was done in — its
 // dates and the day it counts as done along with it. It is a MOVE and not a
 // removal, so it has a door of its own: Remove's law is about emptying the

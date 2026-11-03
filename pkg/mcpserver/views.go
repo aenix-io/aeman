@@ -128,6 +128,28 @@ func (h *server) finishedEarlier(ctx context.Context, _ *mcp.CallToolRequest, in
 	return h.cardResource(ctx, svc, boardID, in.UID)
 }
 
+// takeCard is the Backlog's "I take this into work" (K11): the card becomes
+// the acting person's, on its own team. The actor is the request's identity,
+// resolved the way a create resolves it when the transport named nobody.
+func (h *server) takeCard(ctx context.Context, _ *mcp.CallToolRequest, in standOnCard) (*mcp.CallToolResult, apiserver.Card, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	if board.ActorFrom(ctx) == "" && h.cfg.ResolveLogin != nil {
+		if login, err := h.cfg.ResolveLogin(ctx); err == nil && login != "" {
+			ctx = boardservice.WithActor(ctx, login)
+		}
+	}
+	if err := h.gestureOn(ctx, svc, boardID, in.boardStand, boardservice.GestureTake, in.UID); err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	if err := svc.Take(ctx, boardID, in.UID); err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	return h.cardResource(ctx, svc, boardID, in.UID)
+}
+
 // --- The roster gestures the manage dialogs make -------------------------------
 
 type reorderTeamsInput struct {

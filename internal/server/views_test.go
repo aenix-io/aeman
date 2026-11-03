@@ -246,10 +246,10 @@ func TestTheCatalogNamesTheBoardsAndTheirGestures(t *testing.T) {
 	want := map[string][]string{
 		"me":      {"remove", "finished-earlier", "own"},
 		"team":    {"remove", "finished-earlier", "own"},
-		"backlog": {"remove", "own"},
+		"backlog": {"remove", "own", "take"},
 		"roadmap": {"remove", "own"},
 		"project": {"remove"},
-		"all":     {"remove", "finished-earlier", "own"},
+		"all":     {"remove", "finished-earlier", "own", "take"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("the catalog lists %v", got)
@@ -367,5 +367,34 @@ func TestTheAPITakesNoWeekForATask(t *testing.T) {
 	}
 	if got := fake.Card("c1"); got == nil || got.Week != "" {
 		t.Fatalf("the card carries a week after the patch: %+v", got)
+	}
+}
+
+// TAKE over HTTP (K11): the Backlog's own gesture, answered through the
+// gesture door — the caller is the one the card is given to, on the card's
+// own team, and it leaves the backlog; a task already in work is 422
+// `alreadyInWork`, and another board has no take at all.
+func TestTakeIsTheBacklogsGestureOverHTTP(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "p", Title: "parked", Team: "alpha", Parked: true},
+		{ItemID: "w", Title: "in work", Team: "alpha", Assignees: []string{"ann"}, StartDate: today, Day: today, SprintStart: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/backlog/cards/p/actions/take?team=alpha", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("take answered %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := fake.Card("p"); got == nil || got.Parked || len(got.Assignees) != 1 || got.Assignees[0] != "bob" || got.Team != "alpha" {
+		t.Fatalf("taken by the caller on its own team, out of the backlog: %+v", got)
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/all/cards/w/actions/take", ""); rec.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rec.Body.String(), "alreadyInWork") {
+		t.Fatalf("take on work in hand = %d %s, want 422 alreadyInWork", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards/w/actions/take?team=alpha", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("take on the Team board answered %d, want 404 — it is the backlog's", rec.Code)
 	}
 }

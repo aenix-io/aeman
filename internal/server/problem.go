@@ -90,6 +90,11 @@ var sentinels = []struct {
 	{boardservice.ErrNotYoursToDestroy, http.StatusUnprocessableEntity, "notYoursToDestroy"},
 	// A task taken out of its backlog with nothing to put it into (K1).
 	{boardservice.ErrTakeIntoWork, http.StatusUnprocessableEntity, "takeIntoWork"},
+	// Take (K11): nobody to give the card to, work already in hand, work
+	// already finished.
+	{boardservice.ErrNobodyToTake, http.StatusUnprocessableEntity, "nobodyToTake"},
+	{boardservice.ErrAlreadyInWork, http.StatusUnprocessableEntity, "alreadyInWork"},
+	{boardservice.ErrAlreadyFinished, http.StatusUnprocessableEntity, "alreadyFinished"},
 	// A list the team does not have, and work another board owns: both
 	// are rules refusing a change, not the forge failing.
 	{boardservice.ErrNotYoursToPark, http.StatusUnprocessableEntity, "notYoursToPark"},

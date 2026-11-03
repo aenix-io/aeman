@@ -133,6 +133,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/views/{view}/cards/{uid}/actions/take": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The Backlog's "I take this into work" — the card becomes the caller's.
+         * @description Offered by the backlog view (and `all`). The caller — the signed-in person, the identity every write records as its author — gets the card on its OWN team (a card of the no-team group stays in it): a parked task is taken into work as `own` with a person takes it — today, the unplanned band, the team's sprint, out of the backlog — and a review nobody has taken makes the caller its reviewer. Refused where there is nothing to take: a planning card or a project card (422 `planningCard`, `projectCard`), a subtask or a review somebody already has (422 `ownerFollowsLink`), finished work (422 `alreadyFinished`), a task already in work (422 `alreadyInWork` — hand it over with `own`), and a request that names nobody (422 `nobodyToTake`).
+         */
+        post: operations["takeCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/views/{view}/cards/{uid}/actions/finished-earlier": {
         parameters: {
             query?: never;
@@ -809,7 +829,7 @@ export interface components {
              * @description The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
              * @enum {string}
              */
-            code: "accessUndecided" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "dayIsARecord" | "descriptionTooLong" | "domainConflict" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "scopeExists" | "scopeInUse" | "scopeNotFound" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAuthenticated" | "notFinished" | "notOnThisBoard" | "notYoursToDestroy" | "notYoursToPark" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "projectExists" | "projectInUse" | "projectNotFound" | "reviewCardLink" | "setupRequired" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField" | "projectCard";
+            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "dayIsARecord" | "descriptionTooLong" | "domainConflict" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "scopeExists" | "scopeInUse" | "scopeNotFound" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAuthenticated" | "notFinished" | "notOnThisBoard" | "notYoursToDestroy" | "notYoursToPark" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "projectExists" | "projectInUse" | "projectNotFound" | "reviewCardLink" | "setupRequired" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField" | "projectCard";
             /** @description Where the person can go to fix the refusal — installing the board's app — for a client to offer as a button. */
             actionUrl?: string;
         };
@@ -1701,6 +1721,55 @@ export interface operations {
                 "application/json": components["schemas"]["OwnBody"];
             };
         };
+        responses: {
+            /** @description The card after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Card"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    takeCard: {
+        parameters: {
+            query?: {
+                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. */
+                team?: components["parameters"]["Team"];
+                /** @description The day a day board is read for, yyyy-mm-dd. Empty or absent is today. */
+                day?: components["parameters"]["Day"];
+                /** @description Whose Me board to read. Who-am-I is resolved server-side, so a caller needs none; an explicit one wins, for a lead looking at somebody else's day. */
+                user?: components["parameters"]["User"];
+                /** @description One project's columns, for the Project board; empty is every project, including the columns that belong to none. */
+                project?: components["parameters"]["Project"];
+                /** @description Keep only the cards on one person. */
+                assignee?: components["parameters"]["Assignee"];
+                /** @description Keep only the cards carrying one stage; present and empty means the cards carrying none. */
+                stage?: components["parameters"]["Stage"];
+                /** @description Keep only the cards in one band; present and empty means the cards in none. The filter reads the same answer the listing states, so the two never disagree about a card. */
+                zone?: components["parameters"]["Zone"];
+                /** @description "true" or "1" keeps only the cards workable right now — done, on-review and locked are dropped. */
+                focus?: components["parameters"]["Focus"];
+                /** @description "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default. */
+                reviews?: components["parameters"]["Reviews"];
+                /** @description The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400). */
+                fields?: components["parameters"]["Fields"];
+                /** @description "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give. */
+                snapshot?: components["parameters"]["Snapshot"];
+            };
+            header?: never;
+            path: {
+                /** @description The board the caller is standing on: me, team, backlog, roadmap, project, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read (by hand, then oldest first). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+                view: components["parameters"]["View"];
+                /** @description The card's own address, a ULID assigned at creation. */
+                uid: components["parameters"]["Uid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description The card after the change. */
             200: {

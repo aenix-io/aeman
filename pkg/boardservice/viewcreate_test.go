@@ -215,8 +215,8 @@ func TestAGestureIsOfferedByTheBoardThatDrawsIt(t *testing.T) {
 	}
 	// In a stable order, because a client reads this instead of being told
 	// the surface: the × first, then the board's own presses.
-	if got := Gestures(board.ViewBacklog); len(got) != 2 || got[0] != GestureRemove || got[1] != GestureOwn {
-		t.Fatalf("the Backlog draws %v, want remove, own in that order", got)
+	if got := Gestures(board.ViewBacklog); len(got) != 3 || got[0] != GestureRemove || got[1] != GestureOwn || got[2] != GestureTake {
+		t.Fatalf("the Backlog draws %v, want remove, own, take in that order", got)
 	}
 	if got := Gestures(board.ViewProject); len(got) != 1 || got[0] != GestureRemove {
 		t.Fatalf("the Project board draws %v, want the × alone", got)
