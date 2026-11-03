@@ -54,6 +54,8 @@ import {
   type Row,
   type Zoom,
   writeDrop,
+  PROJECT_CARDS_DEFAULT,
+  projectCardsShown,
 } from "../roadmap";
 import { barColor } from "../stages";
 import { isPlanning } from "../subtasks";
@@ -98,6 +100,7 @@ interface RoadmapBoardProps {
 const LS_DEPTH = "aeman.roadmap.depth";
 const LS_ZOOM = "aeman.roadmap.zoom";
 const LS_FOLDED = "aeman.roadmap.folded";
+const LS_PROJECTS = "aeman.roadmap.projectCards";
 
 /** ROW_PX is the height of one row, on both sides, so the table and the
  *  timeline stay aligned without ever measuring each other. */
@@ -158,6 +161,15 @@ function readZoom(): Zoom {
     // the default
   }
   return "3m";
+}
+
+function readProjects(): boolean {
+  try {
+    const raw = localStorage.getItem(LS_PROJECTS);
+    return raw === null ? PROJECT_CARDS_DEFAULT : raw === "1";
+  } catch {
+    return PROJECT_CARDS_DEFAULT;
+  }
 }
 
 function readFolded(): Set<string> {
@@ -377,6 +389,7 @@ export function RoadmapBoard({
   const [depth, setDepthState] = useState<DepthRange>(readDepth);
   const [zoom, setZoomState] = useState<Zoom>(readZoom);
   const [folded, setFoldedState] = useState<Set<string>>(readFolded);
+  const [showProjects, setShowProjectsState] = useState<boolean>(readProjects);
   const [whoFilter, setWhoFilter] = useState<string | null>(null);
   // The planning row the + was pressed on, whose create form is open.
   const [addingUnder, setAddingUnder] = useState<string | null>(null);
@@ -395,6 +408,14 @@ export function RoadmapBoard({
     setZoomState(next);
     try {
       localStorage.setItem(LS_ZOOM, next);
+    } catch {
+      // a preference, not state
+    }
+  };
+  const setShowProjects = (next: boolean) => {
+    setShowProjectsState(next);
+    try {
+      localStorage.setItem(LS_PROJECTS, next ? "1" : "0");
     } catch {
       // a preference, not state
     }
@@ -461,7 +482,7 @@ export function RoadmapBoard({
   // subtasks (when the depth range reaches them); the depth range's upper
   // levels are the tree's business.
   const lines = (cards: readonly CardModel[]): Line[] => {
-    const sections = sectionsOf(buildTree(cards));
+    const sections = sectionsOf(buildTree(projectCardsShown(cards, showProjects)));
     const sub = visibleLevels(depth).has("subtask");
     const flat: DepthRange = { from: "task", to: sub ? "subtask" : "task" };
     const out: Line[] = rowsOf(sections.tree, depth, expanded).map((row) => ({ kind: "row", row, section: "tree" as const }));
@@ -830,6 +851,15 @@ export function RoadmapBoard({
             {levelOptions()}
           </select>
         </label>
+        <button
+          type="button"
+          className={`segment roadmap-projects${showProjects ? " segment-active" : ""}`}
+          aria-pressed={showProjects}
+          title={showProjects ? "Hide the Project board's cards" : "Show the Project board's cards in the tree"}
+          onClick={() => setShowProjects(!showProjects)}
+        >
+          Project cards
+        </button>
         <div className="segmented roadmap-zoom" role="group" aria-label="Zoom">
           {(["3m", "1y", "fit"] as Zoom[]).map((z) => (
             <button

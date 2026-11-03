@@ -209,3 +209,35 @@ describe("the Roadmap's two panes", () => {
     expect(html).toMatch(/<button[^>]*class="roadmap-row-add"/);
   });
 });
+
+// The toolbar's "Project cards" toggle: OFF by default, so a project card
+// under an epic is not drawn and the button says so; pressed (remembered in
+// the viewer's localStorage), the card is drawn under its epic.
+describe("the Project cards toggle", () => {
+  const ep = card({ itemId: "pe", title: "Billing v2", type: "epic", parent: undefined, lineage: [] });
+  const task = card({ itemId: "pt", title: "Render PDF", parent: "pe", lineage: [{ uid: "pe", type: "epic", title: "Billing v2" }] });
+  const slot = card({
+    itemId: "ps",
+    title: "Q1 payments slot",
+    parent: "pe",
+    scope: "Payments",
+    project: "P",
+    lineage: [{ uid: "pe", type: "epic", title: "Billing v2" }],
+  });
+
+  it("is off by default: the button is not pressed and the project card is not drawn", () => {
+    store.delete("aeman.roadmap.projectCards");
+    const html = draw(board([ep, task, slot]));
+    expect(html).toMatch(/<button[^>]*class="segment roadmap-projects"[^>]*aria-pressed="false"[^>]*>Project cards<\/button>/);
+    expect(html).toContain("Render PDF");
+    expect(html).not.toContain("Q1 payments slot");
+  });
+
+  it("draws them when the viewer has turned it on", () => {
+    store.set("aeman.roadmap.projectCards", "1");
+    const html = draw(board([ep, task, slot]));
+    expect(html).toMatch(/aria-pressed="true"/);
+    expect(html).toContain("Q1 payments slot");
+    store.delete("aeman.roadmap.projectCards");
+  });
+});

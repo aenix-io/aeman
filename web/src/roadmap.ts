@@ -73,6 +73,21 @@ export function buildTree(cards: readonly Card[]): RoadmapNode[] {
   return roots.sort((a, b) => levelOf(a.kind) - levelOf(b.kind) || 0);
 }
 
+/** PROJECT_CARDS_DEFAULT is the toolbar's "Project cards" toggle as a viewer
+ *  first meets it: OFF — the Roadmap is the plan of goals, initiatives,
+ *  epics and the work under them, and the Project board's cards stay there
+ *  unless asked for. */
+export const PROJECT_CARDS_DEFAULT = false;
+
+/** projectCardsShown is the listing the tree is built from: every card when
+ *  the toggle is on, and without the PROJECT cards (a card in a Scope
+ *  column) when it is off. Only rows go: a project card has nothing under
+ *  it (H4), its siblings stay where they are, and the planning rows' counts
+ *  and status are the server's (H5) and do not move. */
+export function projectCardsShown<T extends Pick<Card, "scope">>(cards: readonly T[], show: boolean): T[] {
+  return show ? [...cards] : cards.filter((c) => !c.scope);
+}
+
 /** RoadmapSection is where a root of the forest is drawn. The TREE is the
  *  hierarchy: every planning card and everything under one. Below it, after
  *  everything else, stands the open work that is not in the tree yet — the

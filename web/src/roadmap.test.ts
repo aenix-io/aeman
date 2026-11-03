@@ -27,6 +27,8 @@ import {
   sectionOf,
   sectionsOf,
   writeDrop,
+  PROJECT_CARDS_DEFAULT,
+  projectCardsShown,
 } from "./roadmap";
 import type { Card } from "./providers/types";
 
@@ -446,3 +448,31 @@ describe("writeDrop", () => {
   });
 });
 
+
+// The Roadmap hides PROJECT cards (cards in a Scope column) unless the
+// toolbar's "Project cards" toggle is on: OFF by default. Hiding only takes
+// rows out of the drawing — the planning rows' counts and status come from
+// the server and do not change — and every other card under the same epic
+// stays where it is.
+describe("the project cards toggle", () => {
+  const epic = { itemId: "e", title: "Billing", type: "epic", assignees: [] } as unknown as Card;
+  const t = { itemId: "t", title: "Receipts", parent: "e", assignees: [] } as unknown as Card;
+  const slot = { itemId: "s", title: "Q1 billing", parent: "e", scope: "Payments", project: "P", assignees: [] } as unknown as Card;
+  const loose = { itemId: "l", title: "Plan", scope: "Payments", project: "P", assignees: [] } as unknown as Card;
+
+  it("is off by default and hides the project cards, keeping their siblings", () => {
+    expect(PROJECT_CARDS_DEFAULT).toBe(false);
+    expect(projectCardsShown([epic, t, slot, loose], false).map((c) => c.itemId)).toEqual(["e", "t"]);
+    const tree = buildTree(projectCardsShown([epic, t, slot], false));
+    expect(tree[0].children.map((n) => n.card.itemId)).toEqual(["t"]);
+  });
+
+  it("shows them when it is on", () => {
+    expect(projectCardsShown([epic, t, slot, loose], true).map((c) => c.itemId)).toEqual(["e", "t", "s", "l"]);
+  });
+
+  it("leaves the planning card's derived standing alone", () => {
+    const counted = { ...epic, hierarchy: { status: "todo", done: 0, total: 2 } } as unknown as Card;
+    expect(projectCardsShown([counted, t, slot], false)[0]).toBe(counted);
+  });
+});
