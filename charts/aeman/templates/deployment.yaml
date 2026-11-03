@@ -7,7 +7,10 @@ metadata:
 spec:
   # One writer: never run two pods over the same clones, not even for a
   # moment during a rollout.
-  replicas: 1
+  {{- if gt (int .Values.replicaCount) 1 }}
+  {{- fail "replicaCount must be 0 or 1: aeman has exactly one writer" }}
+  {{- end }}
+  replicas: {{ .Values.replicaCount }}
   strategy:
     type: Recreate
   selector:

@@ -1,5 +1,7 @@
 # aeman runs as ONE replica: the board cache, the write queue and the git
-# clones under /data have exactly one writer. Do not scale it.
+# clones under /data have exactly one writer. 0 parks it (maintenance, a
+# move between hosts); anything above 1 is refused.
+replicaCount: 1
 
 image:
   repository: ghcr.io/aenix-io/aeman
