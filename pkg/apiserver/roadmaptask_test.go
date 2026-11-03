@@ -101,3 +101,28 @@ func TestATaskIsDueWhenItsNearestPlanningCardEnds(t *testing.T) {
 		}
 	}
 }
+
+// A review card names the card it REVIEWS (status.reviewed: its uid and
+// title), so a client can show "Reviews: «task»" and open it without
+// looking the task up — the Backlog and the Team board may not hold it. Any
+// other card names nothing, and a review whose task is gone names nothing
+// either.
+func TestAReviewCardNamesTheCardItReviews(t *testing.T) {
+	t.Parallel()
+	b := board.NewBoard([]board.Card{
+		{ItemID: "task", Title: "Receipts", Team: "alpha", Stage: board.StageReview},
+		{ItemID: "rev", Title: "review: Receipts", ReviewOf: "task", Team: "alpha", Parked: true},
+		{ItemID: "orphan", Title: "review: gone", ReviewOf: "gone", Team: "alpha", Parked: true},
+	})
+	rev, _ := board.Find(b, "rev")
+	got := CardResource(b, rev).Status.Reviewed
+	if got == nil || got.UID != "task" || got.Title != "Receipts" {
+		t.Fatalf("the review card's reviewed = %+v, want «Receipts»", got)
+	}
+	for _, id := range []string{"task", "orphan"} {
+		c, _ := board.Find(b, id)
+		if r := CardResource(b, c).Status.Reviewed; r != nil {
+			t.Errorf("%s names %+v, want nothing", id, r)
+		}
+	}
+}

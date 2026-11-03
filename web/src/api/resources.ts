@@ -109,6 +109,9 @@ export function resourceToCard(res: CardResource): Card {
       ...(l.end ? { end: l.end } : {}),
     })),
     dueDate: res.status?.dueDate || undefined,
+    reviewed: res.status?.reviewed
+      ? { uid: res.status.reviewed.uid, title: res.status.reviewed.title }
+      : undefined,
     hierarchy: res.status?.hierarchy
       ? { status: res.status.hierarchy.status, done: res.status.hierarchy.done, total: res.status.hierarchy.total }
       : undefined,

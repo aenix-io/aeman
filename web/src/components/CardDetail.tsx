@@ -782,6 +782,25 @@ export function CardDetail({
               ))}
             </nav>
           )}
+          {/* A review card's way to the card it reviews (status.reviewed). */}
+          {card.reviewed && (
+            <div className="drawer-reviews">
+              Reviews:
+              <KindIcon kind="task" />
+              {onOpenCard ? (
+                <button
+                  type="button"
+                  className="modal-crumb-link"
+                  title={`Open «${card.reviewed.title}»`}
+                  onClick={() => openById(card.reviewed!.uid)}
+                >
+                  {card.reviewed.title}
+                </button>
+              ) : (
+                <span className="modal-crumb-name">{card.reviewed.title}</span>
+              )}
+            </div>
+          )}
           <div className="drawer-title-row">
             <KindIcon kind={kind} size={18} className="drawer-kind" label />
             {editingTitle && !isRecord ? (

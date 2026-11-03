@@ -1693,6 +1693,12 @@ components:
             planning chain of the task it reviews.
           items:
             $ref: '#/components/schemas/LineageRef'
+        reviewed:
+          $ref: '#/components/schemas/LineageRef'
+          description: >-
+            On a REVIEW card, the card it reviews — its uid and title — so a
+            client can name it and open it without looking it up. Absent on
+            every other card, and when the reviewed card is gone.
         dueDate:
           type: string
           description: >-

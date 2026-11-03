@@ -96,6 +96,9 @@ export interface Card {
    *  entry is the parent itself, and its type is what tells a subtask from a
    *  task under an epic without a lookup. */
   lineage?: LineageRef[];
+  /** On a REVIEW card, the card it reviews (status.reviewed): its uid and
+   *  title, so the drawer and the backlog row can name it and open it. */
+  reviewed?: LineageRef;
   /** A task's due date, the server's (status.dueDate): its nearest
    *  planning card's end. */
   dueDate?: string;

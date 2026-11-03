@@ -5941,3 +5941,13 @@ button.card-age {
 .roadmap-drag-overlay-forbid {
   border-color: var(--danger);
 }
+
+/* A review card's way to the card it reviews, above its title. */
+.drawer-reviews {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}

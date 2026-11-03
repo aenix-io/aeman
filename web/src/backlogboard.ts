@@ -240,14 +240,17 @@ export function handedOverLocally(team: string): Partial<Card> {
 
 /** parentChain is the card's PARENT CHAIN, drawn on its right: every
  *  planning card above it — goal, initiative, epic — root first, as the
- *  lineage carries them. A task ancestor (a subtask's) is not part of it. */
-export function parentChain(c: Pick<Card, "lineage">): LineageRef[] {
-  return (c.lineage ?? []).filter((r) => !!r.type);
+ *  lineage carries them. A task ancestor (a subtask's) is not part of it.
+ *  A REVIEW card's chain ends in the task it reviews (status.reviewed), a
+ *  crumb of its own that opens it. */
+export function parentChain(c: Pick<Card, "lineage" | "reviewed">): LineageRef[] {
+  const up = (c.lineage ?? []).filter((r) => !!r.type);
+  return c.reviewed ? [...up, { uid: c.reviewed.uid, title: c.reviewed.title }] : up;
 }
 
-/** openPlanning opens a planning card's drawer from its name in a chain: the
- *  backlog holds no planning card, so it is fetched by uid and handed to the
- *  drawer the Roadmap opens. */
+/** openPlanning opens a card's drawer from its name in a chain — a planning
+ *  card, or the task a review card reviews: the backlog may not hold it, so
+ *  it is fetched by uid and handed to the drawer. */
 export async function openPlanning(
   provider: Pick<Provider, "getCard">,
   uid: string,

@@ -73,3 +73,13 @@ describe("the due date survives the wire", () => {
     expect(resourceToCard(res({})).dueDate).toBeUndefined();
   });
 });
+
+// A review card names the card it reviews (status.reviewed), carried as it
+// came, so the drawer and the backlog row can open it.
+describe("the reviewed card survives the wire", () => {
+  it("maps status.reviewed, and nothing when it is absent", () => {
+    const rev = { ...res({ reviewOf: "t" }), status: { complete: false, inProgress: false, reviewed: { uid: "t", title: "Invoices" } } } as CardResource;
+    expect(resourceToCard(rev).reviewed).toEqual({ uid: "t", title: "Invoices" });
+    expect(resourceToCard(res({})).reviewed).toBeUndefined();
+  });
+});

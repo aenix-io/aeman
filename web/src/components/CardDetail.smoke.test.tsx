@@ -43,6 +43,19 @@ function draw(c: Card, onReveal = vi.fn()) {
 const rows = (html: string) => [...html.matchAll(/class="drawer-label">([^<]+)</g)].map((m) => m[1]);
 
 describe("the card drawer", () => {
+  // From a review card one can get to the card it reviews: "Reviews: «task»"
+  // at the top, with the task's icon, opening it in the drawer.
+  it("names the card a review card reviews, as a way to it", () => {
+    const html = draw(card({ itemId: "r", title: "review: Invoices", reviewOf: "t", reviewed: { uid: "t", title: "Invoices" } }));
+    expect(html).toMatch(/class="drawer-reviews"[^>]*>Reviews:/);
+    expect(html).toMatch(/<button[^>]*class="modal-crumb-link"[^>]*title="Open «Invoices»"[^>]*>Invoices<\/button>/);
+    expect(html.indexOf("drawer-reviews")).toBeLessThan(html.indexOf("drawer-title-row"));
+  });
+
+  it("names nothing on a card that reviews nothing", () => {
+    expect(draw(card({}))).not.toContain("drawer-reviews");
+  });
+
   it("is a drawer, not a centred box", () => {
     const html = draw(card());
     expect(html).toContain("drawer-backdrop");

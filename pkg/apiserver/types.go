@@ -160,6 +160,10 @@ type CardStatus struct {
 	// Lineage is every ancestor of the card, root first — the breadcrumb a
 	// detail pane draws above it. Absent on a root.
 	Lineage []LineageRef `json:"lineage,omitempty"`
+	// Reviewed is, on a REVIEW card, the card it reviews — its uid and title
+	// — so a client shows "Reviews: «task»" and opens it without a lookup.
+	// Absent on every other card, and when the reviewed card is gone.
+	Reviewed *LineageRef `json:"reviewed,omitempty"`
 	// DueDate is a task's due date (named apart from the retired Triage
 	// status.due, a list of weeks): the end of its NEAREST planning card — the
 	// epic it is for — never one borrowed from a farther ancestor. Absent
@@ -438,6 +442,11 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 	// planning chain of the task it reviews (K10: the Backlog draws a review
 	// nobody has taken with it), never the task itself, which would read as
 	// a task parent.
+	if c.ReviewOf != "" {
+		if original, ok := ix.Find(c.ReviewOf); ok {
+			status.Reviewed = &LineageRef{UID: original.ItemID, Type: original.Type, Title: original.Title}
+		}
+	}
 	if c.ReviewOf != "" && c.Parent == "" {
 		if original, ok := ix.Find(c.ReviewOf); ok {
 			for _, a := range ix.Lineage(original) {
