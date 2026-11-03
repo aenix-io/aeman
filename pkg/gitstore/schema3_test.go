@@ -305,7 +305,7 @@ func TestSchema3RanksTheMadeReviewsOldestTaskFirst(t *testing.T) {
 			ranks[c.ReviewOf] = c.Rank
 		}
 	}
-	if !(ranks[older] < ranks[newer] && ranks[newer] < "c") {
+	if ranks[older] >= ranks[newer] || ranks[newer] >= "c" {
 		t.Fatalf("review ranks = %v, want the older task's first and both before every card", ranks)
 	}
 }
