@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MeBoard } from "./MeBoard";
@@ -110,5 +112,41 @@ describe("the Me board's insert +", () => {
     expect(html).not.toContain(">+ add<");
     const total = html.match(/data-insert-gap="/g)?.length ?? 0;
     expect(total).toBe(2); // above and below the one unplanned card
+  });
+});
+
+// A band's vertical label is CENTRED in its band, whatever the band's height
+// — the Team grid's cells and the Me board's bands alike (both draw
+// .zone-spine inside .zone-area). Stretched to the band's height, the label
+// leaned on text-align to centre itself, and in a tall band it drifted to
+// the top; centred as an item, it cannot.
+describe("a band's label", () => {
+  const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
+  const spine = css.match(/\.zone-spine \{[^}]*\}/)?.[0] ?? "";
+
+  it("is centred in its band, never stretched, sticky or pinned to the top", () => {
+    expect(spine).toMatch(/align-self: center;/);
+    expect(spine).not.toMatch(/position:\s*sticky/);
+    expect(spine).not.toMatch(/align-self:\s*(flex-start|start|stretch)/);
+  });
+
+  it("is drawn by both day boards inside their bands", () => {
+    const team = renderToStaticMarkup(
+      <TeamBoard
+        {...common}
+        board={board([])}
+        onSelectDate={vi.fn()}
+        liveSprints={{ alpha: { current: today } } as never}
+        roster={["alpha"]}
+        onReorderTeams={vi.fn()}
+        track={(p) => p}
+      />,
+    );
+    const me = renderToStaticMarkup(
+      <MeBoard {...common} board={board([])} viewAs={null} onViewAs={vi.fn()} connectHint="" teams={["alpha"]} />,
+    );
+    for (const html of [team, me]) {
+      expect(html).toMatch(/class="zone-area"[^>]*><span class="zone-spine">/);
+    }
   });
 });

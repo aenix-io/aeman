@@ -765,9 +765,12 @@ select {
 
 /* The zone's name set vertically on the left (rotated 270°, reading bottom-to-
    top) like a book spine. As a flex item its vertical text length is the zone's
-   natural height, so the area never becomes shorter than the label. */
+   natural height, so the area never becomes shorter than the label. It is
+   CENTRED in its band, whatever the band's height: stretched to the band and
+   left to text-align, it drifted to the top of a tall band. */
 .zone-spine {
   flex: none;
+  align-self: center;
   writing-mode: vertical-rl;
   transform: rotate(180deg);
   text-align: center;
