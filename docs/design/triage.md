@@ -1,4 +1,6 @@
-# Triage
+# Triage (retired)
+
+> **Retired 2026-11-03.** The Triage board and the week of a task are gone; each team has a ranked backlog instead — see [backlog.md](backlog.md). This document is kept for the history of the rules it names.
 
 Who does what, and in which week. It is the fourth board — Me | Team | **Triage** | Project — and it is not a new kind of thing: a card in the backlog is a card whose week has not come yet. Decided 2026-09-02 after the leads' meeting; the rules are to be pinned in [behavior-matrix.md](behavior-matrix.md) rows B1–B10 as they land.
 
