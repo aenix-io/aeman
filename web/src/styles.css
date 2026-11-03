@@ -4501,7 +4501,7 @@ button.card-age {
 .roadmap-head,
 .roadmap-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px 64px 64px 92px;
+  grid-template-columns: minmax(0, 1fr) 150px 64px 64px 112px;
   align-items: center;
   border-bottom: 1px solid var(--line-soft);
   font-size: 12.5px;
@@ -4790,11 +4790,16 @@ button.card-age {
   padding-right: 6px;
 }
 
-/* The badge keeps its distance from what follows it: the column after it
-   (and, as the last column, the timeline) does not touch it. */
+/* The Status column is the table's last, and the timeline's divider is the
+   table's own right border: the column is wide enough for IN PROGRESS, and
+   its cell — header and rows — keeps real space before the divider. The
+   cell clips, so a margin on the pill inside it never made that space. */
+.roadmap-cell-status {
+  padding-right: 12px;
+}
+
 .roadmap-status {
   display: inline-block;
-  margin-right: 8px;
   padding: 1px 7px;
   border-radius: 3px;
   font-size: 10.5px;

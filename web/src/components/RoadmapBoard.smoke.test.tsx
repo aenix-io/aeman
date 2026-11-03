@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RoadmapBoard } from "./RoadmapBoard";
@@ -118,6 +120,26 @@ describe("the Roadmap's two panes", () => {
     expect(html).toContain("roadmap-status roadmap-status-done");
     expect(html).toContain("roadmap-status roadmap-status-todo");
     expect(html).toContain(">1/2<");
+  });
+
+  // The Status column is the table's last, and the timeline's divider is the
+  // table's own right border: the widest pill, IN PROGRESS, fits inside the
+  // column with room to spare, and the cell — header and rows alike — keeps
+  // real space before the divider. A margin on the pill inside a fixed,
+  // clipping cell does not: it only cut the pill off at the line.
+  it("keeps the Status column clear of the timeline, header and rows alike", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    expect(html).toContain('<span class="roadmap-cell roadmap-cell-status">Status</span>');
+    expect(html.match(/class="roadmap-cell roadmap-cell-status"/g)?.length).toBeGreaterThan(1);
+    const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
+    const grid = css.match(/\.roadmap-row \{\s*display: grid;\s*grid-template-columns: ([^;]+);/)?.[1] ?? "";
+    const status = Number(/(\d+)px\s*$/.exec(grid)?.[1] ?? 0);
+    expect(status).toBeGreaterThanOrEqual(110);
+    const cell = css.match(/\.roadmap-cell-status \{[^}]*\}/)?.[0] ?? "";
+    const right = Number(/padding-right: (\d+)px/.exec(cell)?.[1] ?? 0);
+    expect(right).toBeGreaterThanOrEqual(10);
+    const pill = css.match(/\.roadmap-status \{[^}]*\}/)?.[0] ?? "";
+    expect(pill).not.toMatch(/margin/);
   });
 
   it("draws a bar for every dated card, a done one distinct, and the today line", () => {

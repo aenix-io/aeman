@@ -349,7 +349,7 @@ function RoadmapRow({ row, section, today, open, focus, ghost, forbid, dragging,
       <span className="roadmap-cell roadmap-cell-owner">{owner}</span>
       <span className="roadmap-cell roadmap-cell-date">{shortDate(card.startDate, today)}</span>
       <span className="roadmap-cell roadmap-cell-date">{shortDate(card.day, today)}</span>
-      <span className="roadmap-cell">
+      <span className="roadmap-cell roadmap-cell-status">
         <span className={`roadmap-status roadmap-status-${status}`}>{STATUS_LABEL[status]}</span>
       </span>
     </div>
@@ -914,7 +914,7 @@ export function RoadmapBoard({
                 <span className="roadmap-cell roadmap-cell-owner">Owner</span>
                 <span className="roadmap-cell roadmap-cell-date">Start</span>
                 <span className="roadmap-cell roadmap-cell-date">End</span>
-                <span className="roadmap-cell">Status</span>
+                <span className="roadmap-cell roadmap-cell-status">Status</span>
               </div>
               {shownLines.map((line) => {
                 if (line.kind === "header") {
