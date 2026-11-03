@@ -3400,13 +3400,6 @@ button.card-age {
   font-size: 12px;
 }
 
-/* The row that leads a menu, separated from the list beneath it. */
-.project-menu-lead {
-  border-bottom: 1px solid var(--line-soft);
-  margin-bottom: 1px;
-  border-radius: 4px 4px 0 0;
-}
-
 /* A menu row that only explains why there is nothing to pick. */
 .project-menu-hint {
   color: var(--muted);
@@ -3676,46 +3669,6 @@ button.card-age {
 }
 
 /* The owner badge is always visible once a team is assigned. */
-/* The slot's "…" menu handle: a small pill at the slot's edge, faint until
-   the slot is pointed at, with a hand's worth of hit area grown mostly
-   VERTICALLY — the row is short and nothing sits above or below it inside
-   the slot — so it never steals a press meant for the title (which starts a
-   drag) or for delete. */
-.project-slot-menu {
-  flex: none;
-  position: relative;
-  width: 18px;
-  height: 15px;
-  padding: 0;
-  border: none;
-  border-radius: 8px;
-  background: var(--hover-overlay);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.45;
-}
-
-.project-slot-menu::after {
-  content: "";
-  position: absolute;
-  inset: -6px -2px;
-}
-
-.project-slot:hover .project-slot-menu,
-.project-slot-menu:focus-visible {
-  opacity: 1;
-}
-
-.project-menu-danger {
-  color: var(--danger);
-}
-
 .project-slot-stage {
   position: absolute;
   left: 0;
@@ -6001,31 +5954,27 @@ button.card-age {
   cursor: pointer;
 }
 
-/* The goal, initiative or epic a project card is attached to, under its
-   title on the Project board: a way into it (#288). */
+/* The goal, initiative or epic a project card is attached to, as its kind
+   icon alone in the slot's row, where the "…" menu used to be: its name is
+   the tooltip, and a press opens it. Faint until the slot is pointed at. */
 .project-slot-plan {
-  display: flex;
+  flex: none;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  max-width: 100%;
-  margin-top: 2px;
-  padding: 0;
+  padding: 0 2px;
   border: 0;
   background: none;
   color: var(--muted);
-  font: inherit;
-  font-size: 11px;
+  line-height: 0;
   cursor: pointer;
+  opacity: 0.7;
 }
 
-.project-slot-plan:hover {
+.project-slot:hover .project-slot-plan,
+.project-slot-plan:hover,
+.project-slot-plan:focus-visible {
   color: var(--fg);
-}
-
-.project-slot-plan-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  opacity: 1;
 }
 
 /* The drawer's progress bar (#289): the full width of its row, taller, with
