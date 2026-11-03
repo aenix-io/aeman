@@ -37,6 +37,8 @@ func TestSchema3ParksTheWeeklyPlanAndTheStripAndStripsTaskWeeks(t *testing.T) {
 		weekDone  = "01JB4K2E7QZMX3R8V0N5T9WYEE"
 		owedDated = "01JB4K2E7QZMX3R8V0N5T9WYEF"
 		owedLoose = "01JB4K2E7QZMX3R8V0N5T9WYEG"
+		orphan    = "01JB4K2E7QZMX3R8V0N5T9WYEH"
+		gone      = "01JB4K2E7QZMX3R8V0N5T9WYEZ"
 	)
 	card := func(front string) string {
 		return "---\n" + front + "created: 2026-08-26T09:14:03Z\n---\n\nThe body stays.\n"
@@ -54,6 +56,10 @@ func TestSchema3ParksTheWeeklyPlanAndTheStripAndStripsTaskWeeks(t *testing.T) {
 		parked:    card("title: already parked\nteam: portal\nparked: true\nrank: f\n"),
 		kidWeek:   card("title: a subtask with a stray week\nteam: portal\nweek: 2026-10-05\nparent: " + strip + "\nrank: g\n"),
 		kid:       card("title: a subtask\nteam: portal\nparent: " + strip + "\nrank: h\n"),
+		// A subtask whose parent is not in this tree (deleted, or in another
+		// repository): board.IsSubtask reads it as a subtask, and so does the
+		// bump — it loses the week and rides nothing into work.
+		orphan:    card("title: an orphaned subtask\nteam: portal\nweek: 2026-10-05\nparent: " + gone + "\nrank: q\n"),
 		epic:      card("title: an epic\ntype: epic\nrank: i\n"),
 		underEpic: card("title: a task under the epic\nparent: " + epic + "\nrank: j\n"),
 		review:    card("title: review: in work\nteam: portal\nreviewOf: " + inWork + "\nrank: k\n"),
@@ -135,6 +141,8 @@ func TestSchema3ParksTheWeeklyPlanAndTheStripAndStripsTaskWeeks(t *testing.T) {
 	has(underEpic, "parked: true", "parent: "+epic)
 	// A subtask loses a stray week and rides its parent, unparked.
 	lacks(kidWeek, "week:", "parked:")
+	// So does one whose parent is not in the tree, as board.IsSubtask reads it.
+	lacks(orphan, "week:", "parked:", "start:", "sprint:")
 	has(kidWeek, "parent: "+strip)
 	// Untouched, byte for byte: finished work, work in hand, the already
 	// parked, a subtask with nothing to strip, the planning card, the review

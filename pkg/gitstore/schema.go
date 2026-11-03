@@ -384,7 +384,10 @@ func schema3(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error) {
 	for _, h := range cards {
 		c := h.file.Card
 		p, hasParent := byID[c.Parent]
-		subtask := c.Parent != "" && hasParent && !board.IsPlanning(p)
+		// board.IsSubtask's reading: a parent that is not a planning card —
+		// or not in this tree at all (deleted, another repository) — makes
+		// it a subtask.
+		subtask := c.Parent != "" && (!hasParent || !board.IsPlanning(p))
 		if !parkForSchema3(&c, subtask, today, sprints[c.Team]) {
 			continue
 		}
