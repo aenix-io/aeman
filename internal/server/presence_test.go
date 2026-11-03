@@ -77,3 +77,64 @@ func TestASelectionReachesEveryBoardThatMayReadIt(t *testing.T) {
 		t.Fatalf("the replay = %v, want bob on «open» and lead's mark cleared", seen)
 	}
 }
+
+// A CARD FRAME CARRIES ONLY WHAT ITS WATCHER MAY READ. status.lineage,
+// status.reviewed and status.dueDate name OTHER cards — their titles and
+// dates — and a watcher who cannot read the repository one of those lives
+// in is sent the frame without it: the crumb dropped, the reviewed card
+// unnamed, the due date that came from it gone. A watcher who may read
+// everything is sent all of it.
+func TestACardFrameNamesOnlyCardsItsWatcherMayRead(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("shared", []board.Card{
+		{ItemID: "epic", Title: "Secret epic", Type: board.TypeEpic, Day: "2026-12-18", Domain: "closed"},
+		{ItemID: "t", Title: "Open task", Team: "alpha", Parent: "epic", Parked: true},
+		{ItemID: "hidden", Title: "Secret task", Team: "alpha", Stage: board.StageReview, Domain: "closed"},
+		{ItemID: "r", Title: "review: something", Team: "alpha", ReviewOf: "hidden", Parked: true},
+	})
+	e := seedEntry(store, "k", b)
+	cards := map[string]bool{"cards": true}
+	narrow, cancel := store.subscribeAs("k", "bob", nil, cards, rightsOn([]string{"shared"}, nil))
+	defer cancel()
+	wide, cancel2 := store.subscribeAs("k", "lead", nil, cards, rightsOn([]string{"shared", "closed"}, nil))
+	defer cancel2()
+
+	for _, id := range []string{"t", "r"} {
+		e.mu.Lock()
+		c, _ := board.Find(e.board, id)
+		c.Title += "!"
+		e.upsertCard(c)
+		e.cardChanged("", c, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+	frames := func(sub *subscription) map[string]apiserver.Card {
+		out := map[string]apiserver.Card{}
+		for {
+			select {
+			case raw := <-sub.ch:
+				var f struct {
+					Kind   string          `json:"kind"`
+					Object json.RawMessage `json:"object"`
+				}
+				_ = json.Unmarshal(raw, &f)
+				var c apiserver.Card
+				if f.Kind == "Card" && json.Unmarshal(f.Object, &c) == nil {
+					out[c.Metadata.UID] = c
+				}
+			default:
+				return out
+			}
+		}
+	}
+	n, w := frames(narrow), frames(wide)
+	if len(n["t"].Status.Lineage) != 0 || n["t"].Status.DueDate != "" {
+		t.Fatalf("the narrow watcher was told of the secret epic: %+v", n["t"].Status)
+	}
+	if n["r"].Status.Reviewed != nil {
+		t.Fatalf("the narrow watcher was told of the secret task: %+v", n["r"].Status.Reviewed)
+	}
+	if len(w["t"].Status.Lineage) != 1 || w["t"].Status.DueDate != "2026-12-18" || w["r"].Status.Reviewed == nil {
+		t.Fatalf("the wide watcher was not told everything: %+v / %+v", w["t"].Status, w["r"].Status)
+	}
+}

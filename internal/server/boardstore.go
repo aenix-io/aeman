@@ -43,6 +43,55 @@ type subscription struct {
 	rights *domainRights
 }
 
+// seen is a card resource as this subscriber may read it: status.lineage,
+// status.reviewed and status.dueDate name OTHER cards, and one in a
+// repository the subscriber cannot read is left out — the crumb dropped,
+// the reviewed card unnamed, the due date taken from the nearest planning
+// card the subscriber can read. A subscriber who reads everything is sent
+// the resource as built.
+func (sub *subscription) seen(res apiserver.Card, find func(string) (board.Card, bool)) apiserver.Card {
+	if sub.rights == nil {
+		return res
+	}
+	can := func(uid string) bool {
+		c, ok := find(uid)
+		return !ok || sub.rights.canRead(c.Domain)
+	}
+	hidden := false
+	for _, l := range res.Status.Lineage {
+		if !can(l.UID) {
+			hidden = true
+			break
+		}
+	}
+	if res.Status.Reviewed != nil && !can(res.Status.Reviewed.UID) {
+		hidden = true
+	}
+	if !hidden {
+		return res
+	}
+	out := res
+	out.Status.Lineage = nil
+	for _, l := range res.Status.Lineage {
+		if can(l.UID) {
+			out.Status.Lineage = append(out.Status.Lineage, l)
+		}
+	}
+	if res.Status.Reviewed != nil && !can(res.Status.Reviewed.UID) {
+		out.Status.Reviewed = nil
+	}
+	if res.Status.DueDate != "" {
+		out.Status.DueDate = ""
+		for i := len(out.Status.Lineage) - 1; i >= 0; i-- {
+			if out.Status.Lineage[i].Type != "" {
+				out.Status.DueDate = out.Status.Lineage[i].End
+				break
+			}
+		}
+	}
+	return out
+}
+
 // view is the board as this subscriber sees it.
 func (sub *subscription) view(b board.Board) board.Board {
 	if sub.rights == nil {
@@ -541,7 +590,7 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 			if !built {
 				res, built = buildCard(e.board, index(), c), true
 			}
-			sub.send(watchFrame{Type: verb, Kind: "Card", Object: res})
+			sub.send(watchFrame{Type: verb, Kind: "Card", Object: sub.seen(res, index().Find)})
 		}
 		for i := range ancestors {
 			a := ancestorAt(i)
@@ -551,7 +600,7 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 			if !a.built {
 				a.res, a.built = buildCard(e.board, index(), a.card), true
 			}
-			sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: a.res})
+			sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: sub.seen(a.res, index().Find)})
 		}
 	}
 	if !scoped {
@@ -604,9 +653,9 @@ func (e *boardEntry) flushMembers() {
 			}
 			switch {
 			case !sub.members[c.ItemID]:
-				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: buildCard(e.board, ix, c)})
+				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix.Find)})
 			case touched:
-				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: buildCard(e.board, ix, c)})
+				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix.Find)})
 			}
 		}
 		for id := range sub.members {
@@ -615,7 +664,7 @@ func (e *boardEntry) flushMembers() {
 			}
 			obj := tombstone(id)
 			if c, ok := ix.Find(id); ok {
-				obj = buildCard(e.board, ix, c)
+				obj = sub.seen(buildCard(e.board, ix, c), ix.Find)
 			}
 			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})
 		}
@@ -646,7 +695,7 @@ func (e *boardEntry) reevaluate(origin string) {
 		for _, c := range apiserver.FilterCards(sub.view(e.board), *sub.sel) {
 			now[c.ItemID] = true
 			if !sub.members[c.ItemID] && !suppressed {
-				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: buildCard(e.board, ix, c)})
+				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix.Find)})
 			}
 		}
 		for id := range sub.members {
@@ -655,7 +704,7 @@ func (e *boardEntry) reevaluate(origin string) {
 			}
 			obj := tombstone(id)
 			if c, ok := ix.Find(id); ok {
-				obj = buildCard(e.board, ix, c)
+				obj = sub.seen(buildCard(e.board, ix, c), ix.Find)
 			}
 			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})
 		}
