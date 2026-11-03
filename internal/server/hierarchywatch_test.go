@@ -268,3 +268,66 @@ func TestOnlyTheDirectTasksOfARetitledPlanningCardAreResent(t *testing.T) {
 		}
 	}
 }
+
+// THE WATCH HONOURS projectCards. A Roadmap that did not ask for project
+// cards is never sent one, and a task filed under the epic that is put INTO
+// a column leaves it — DELETED, as leaving any listing is — while a Roadmap
+// that asked keeps it, MODIFIED. The epic above hears the change either way:
+// its standing is the board's, not the listing's.
+func TestTheRoadmapWatchSendsProjectCardsOnlyWhenAskedFor(t *testing.T) {
+	today := board.TodayIso()
+	store := newBoardStore()
+	b := hierarchyWatchBoard(today)
+	b.Cards = append(b.Cards, board.Card{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha",
+		StartDate: today, Day: today, SprintStart: today})
+	e := seedEntry(store, "k", b)
+	plain := apiserver.Selector{View: "roadmap"}
+	asked := apiserver.Selector{View: "roadmap", ProjectCards: true}
+	without, cancel := store.subscribe("k", "", &plain, map[string]bool{"cards": true})
+	defer cancel()
+	with, cancel2 := store.subscribe("k", "", &asked, map[string]bool{"cards": true})
+	defer cancel2()
+	if !without.members["t"] || !with.members["t"] {
+		t.Fatalf("the task under the epic is on both: %v / %v", without.members, with.members)
+	}
+
+	e.mu.Lock()
+	c, _ := board.Find(e.board, "t")
+	c.Scope, c.Project = "Payments", "core"
+	e.upsertCard(c)
+	e.cardChanged("", c, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+
+	got := took(t, without, 4)
+	if got["t"].Type != "DELETED" {
+		t.Fatalf("a roadmap without project cards: the card put in a column = %q, want DELETED", got["t"].Type)
+	}
+	if got["epic"].Type != "MODIFIED" {
+		t.Fatalf("the epic above hears it either way: %+v", got["epic"].Type)
+	}
+	if without.members["t"] {
+		t.Fatal("the project card is still a member of the roadmap that did not ask for it")
+	}
+	got = took(t, with, 4)
+	if got["t"].Type != "MODIFIED" || got["t"].Card.Spec.Scope != "Payments" {
+		t.Fatalf("a roadmap with project cards: %+v, want MODIFIED in its column", got["t"])
+	}
+
+	// A change to the project card now reaches only the roadmap that asked.
+	e.mu.Lock()
+	c, _ = board.Find(e.board, "t")
+	c.Title = "Receipts, v2"
+	e.upsertCard(c)
+	e.cardChanged("", c, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+	if f := took(t, with, 4); f["t"].Card.Spec.Title != "Receipts, v2" {
+		t.Fatalf("the roadmap that asked: %+v", f["t"])
+	}
+	for _, f := range took(t, without, 3) {
+		if f.Card.Metadata.UID == "t" {
+			t.Fatal("the roadmap that did not ask was sent the project card")
+		}
+	}
+}

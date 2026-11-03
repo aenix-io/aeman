@@ -30,7 +30,7 @@ import {
   sectionsOf,
   writeDrop,
   PROJECT_CARDS_DEFAULT,
-  projectCardsShown,
+  storedProjectCards,
 } from "./roadmap";
 import type { Card } from "./providers/types";
 import { resourceToCard, type CardResource } from "./api/resources";
@@ -457,35 +457,22 @@ describe("writeDrop", () => {
 // rows out of the drawing — the planning rows' counts and status come from
 // the server and do not change — and every other card under the same epic
 // stays where it is.
+// The toggle's memory: OFF until the viewer turns it on, and a stored value
+// read back as it was written.
 describe("the project cards toggle", () => {
-  const epic = { itemId: "e", title: "Billing", type: "epic", assignees: [] } as unknown as Card;
-  const t = { itemId: "t", title: "Receipts", parent: "e", assignees: [] } as unknown as Card;
-  const slot = { itemId: "s", title: "Q1 billing", parent: "e", scope: "Payments", project: "P", assignees: [] } as unknown as Card;
-  const loose = { itemId: "l", title: "Plan", scope: "Payments", project: "P", assignees: [] } as unknown as Card;
-
-  it("is off by default and hides the project cards, keeping their siblings", () => {
+  it("is off by default and reads back what was stored", () => {
     expect(PROJECT_CARDS_DEFAULT).toBe(false);
-    expect(projectCardsShown([epic, t, slot, loose], false).map((c) => c.itemId)).toEqual(["e", "t"]);
-    const tree = buildTree(projectCardsShown([epic, t, slot], false));
-    expect(tree[0].children.map((n) => n.card.itemId)).toEqual(["t"]);
-  });
-
-  it("shows them when it is on", () => {
-    expect(projectCardsShown([epic, t, slot, loose], true).map((c) => c.itemId)).toEqual(["e", "t", "s", "l"]);
-  });
-
-  it("leaves the planning card's derived standing alone", () => {
-    const counted = { ...epic, hierarchy: { status: "todo", done: 0, total: 2 } } as unknown as Card;
-    expect(projectCardsShown([counted, t, slot], false)[0]).toBe(counted);
+    expect(storedProjectCards(null)).toBe(false);
+    expect(storedProjectCards("1")).toBe(true);
+    expect(storedProjectCards("0")).toBe(false);
   });
 });
 
 // The toggle on a REAL listing: the roadmap's wire cards, mapped the way the
 // board maps them — an epic, a task under it and a project card under it
 // (spec.scope, spec.parent the epic). The lines the table draws are one pure
-// function of the listing, the toggle, the depth and the folds
-// (roadmapLines), so the board cannot hold on to a drawing made for the
-// other state of the toggle — which is how ON drew no project card.
+// function of the listing, the depth and the folds (roadmapLines); the
+// toggle is the listing's selector (viewquery, projectCards).
 describe("the lines the Roadmap draws, with the project cards toggle", () => {
   const wire = (uid: string, spec: Partial<CardResource["spec"]>, lineage?: { uid: string; type: string; title: string }[]): CardResource =>
     ({
@@ -500,16 +487,19 @@ describe("the lines the Roadmap draws, with the project cards toggle", () => {
     wire("t", { title: "Render PDF", parent: "e", team: "portal" }, up),
     wire("s", { title: "Q1 payments slot", parent: "e", scope: "Payments", project: "Core", team: "portal" }, up),
   ].map(resourceToCard);
-  const titles = (show: boolean) =>
-    roadmapLines(listing, { showProjects: show, depth: DEFAULT_DEPTH, expanded: () => true })
+  const titles = (cards: readonly Card[]) =>
+    roadmapLines(cards, { depth: DEFAULT_DEPTH, expanded: () => true })
       .filter((l) => l.kind === "row")
       .map((l) => (l.kind === "row" ? `${l.row.depth}:${l.row.node.card.title}` : ""));
 
-  it("draws no project card while it is off", () => {
-    expect(titles(false)).toEqual(["0:Billing v2", "1:Render PDF"]);
+  // The toggle is the server's selector: off, the listing carries no
+  // project card; on, it does, and it is drawn under its epic. The lines
+  // draw what the listing holds and filter nothing.
+  it("draws no project card when the listing has none", () => {
+    expect(titles(listing.filter((c) => !c.scope))).toEqual(["0:Billing v2", "1:Render PDF"]);
   });
 
-  it("draws the project card under its epic while it is on", () => {
-    expect(titles(true)).toEqual(["0:Billing v2", "1:Render PDF", "1:Q1 payments slot"]);
+  it("draws a listed project card under its epic", () => {
+    expect(titles(listing)).toEqual(["0:Billing v2", "1:Render PDF", "1:Q1 payments slot"]);
   });
 });

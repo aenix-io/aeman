@@ -110,6 +110,7 @@ paths:
         - $ref: '#/components/parameters/Zone'
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/ProjectCards'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       responses:
@@ -178,6 +179,7 @@ paths:
         - $ref: '#/components/parameters/Zone'
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/ProjectCards'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
         - name: resources
@@ -265,6 +267,7 @@ paths:
         - $ref: '#/components/parameters/Zone'
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/ProjectCards'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       requestBody:
@@ -316,6 +319,7 @@ paths:
         - $ref: '#/components/parameters/Zone'
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/ProjectCards'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       requestBody:
@@ -362,6 +366,7 @@ paths:
         - $ref: '#/components/parameters/Zone'
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/ProjectCards'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       responses:
@@ -394,6 +399,7 @@ paths:
         - $ref: '#/components/parameters/Zone'
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/ProjectCards'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       responses:
@@ -1285,6 +1291,20 @@ components:
       description: >-
         "true" or "1" brings review cards into the view: on me and team each
         card's linked review is APPENDED. Off by default.
+      schema:
+        type: string
+    ProjectCards:
+      name: projectCards
+      in: query
+      required: false
+      description: >-
+        On the roadmap view, "true" or "1" lists the PROJECT cards — cards in
+        a Scope column — under the planning cards they are filed under, and a
+        watch sends them. Off by default: the Roadmap is the plan of goals,
+        initiatives, epics and the work under them, and the Project board's
+        cards stay there unless asked for (the Roadmap's "Project cards"
+        toggle). A planning card's derived standing counts the same either
+        way. Means nothing on any other view.
       schema:
         type: string
     Fields:

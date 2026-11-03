@@ -63,6 +63,13 @@ type Selector struct {
 	// badge has it on hand without a second request. Off by default: agents
 	// listing a Me board do not want them mixed in.
 	IncludeReviews bool
+	// ProjectCards brings the PROJECT cards — cards in a Scope column — into
+	// the roadmap view, under the planning cards they are filed under. Off by
+	// default: the Roadmap is the plan of goals, initiatives, epics and the
+	// work under them, and the Project board's cards stay there unless asked
+	// for (the Roadmap toolbar's "Project cards" toggle). It means nothing on
+	// any other view.
+	ProjectCards bool
 }
 
 // ParseSelector reads a selector from query parameters. Unknown views error.
@@ -77,6 +84,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		Focus:          q.Get("focus") == "true" || q.Get("focus") == "1",
 		Snapshot:       q.Get("snapshot") == "true" || q.Get("snapshot") == "1",
 		IncludeReviews: q.Get("reviews") == "true" || q.Get("reviews") == "1",
+		ProjectCards:   q.Get("projectCards") == "true" || q.Get("projectCards") == "1",
 		Fields:         q.Get("fields"),
 	}
 	switch sel.Fields {
@@ -140,14 +148,19 @@ func (s Selector) normalized() Selector {
 //
 // What stays out: a task already FINISHED outside the hierarchy — there is
 // nothing left to plan on it, and a roadmap of every card ever closed is a
-// log; a project card in no hierarchy — the Project board's alone (H4); and
-// a subtask whose parent task is out, since a subtask rides its parent. The
+// log; a project card in no hierarchy — the Project board's alone (H4); a
+// project card IN the hierarchy too, unless the reader asked for them
+// (projectCards); and a subtask whose parent task is out, since a subtask
+// rides its parent. The
 // tree is the client's to assemble from `parent`; the listing is the cards
 // that make it up.
-func roadmapCards(b board.Board, ix *board.Index) []board.Card {
+func roadmapCards(b board.Board, ix *board.Index, projectCards bool) []board.Card {
 	in := map[string]bool{}
 	for _, c := range b.Cards {
 		if board.IsStateTitle(c.Title) {
+			continue
+		}
+		if c.Scope != "" && !projectCards {
 			continue
 		}
 		switch {
@@ -215,7 +228,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	case "backlog":
 		base = backlogCards(b, board.NewIndex(b), sel)
 	case "roadmap":
-		base = roadmapCards(b, board.NewIndex(b))
+		base = roadmapCards(b, board.NewIndex(b), sel.ProjectCards)
 	default:
 		base = b.Cards
 	}
@@ -310,6 +323,12 @@ func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
 	extra := map[string][]board.Card{}
 	for _, c := range b.Cards {
 		if c.Parent == "" || !present[c.Parent] || present[c.ItemID] {
+			continue
+		}
+		// The rider does not bring back a project card the roadmap left out
+		// on purpose: one filed under a planning card is its CHILD, not a
+		// piece of it.
+		if sel.View == "roadmap" && c.Scope != "" && !sel.ProjectCards {
 			continue
 		}
 		if (sel.View == "me" || sel.View == "" || sel.View == "all") && !teamInSet(c.Team, sel.Team) {

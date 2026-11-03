@@ -50,7 +50,6 @@ import {
   type Row,
   type Zoom,
   writeDrop,
-  PROJECT_CARDS_DEFAULT,
   roadmapLines,
   type RoadmapLine,
 } from "../roadmap";
@@ -93,12 +92,15 @@ interface RoadmapBoardProps {
    *  and its row is marked; onFocused says it has been. */
   focusId?: string | null;
   onFocused?: () => void;
+  /** The "Project cards" toggle: the listing's selector (projectCards), held
+   *  and remembered by the app, which refetches and re-subscribes on it. */
+  showProjects: boolean;
+  onShowProjects: (next: boolean) => void;
 }
 
 const LS_DEPTH = "aeman.roadmap.depth";
 const LS_ZOOM = "aeman.roadmap.zoom";
 const LS_FOLDED = "aeman.roadmap.folded";
-const LS_PROJECTS = "aeman.roadmap.projectCards";
 
 /** ROW_PX is the height of one row, on both sides, so the table and the
  *  timeline stay aligned without ever measuring each other. */
@@ -159,15 +161,6 @@ function readZoom(): Zoom {
     // the default
   }
   return "3m";
-}
-
-function readProjects(): boolean {
-  try {
-    const raw = localStorage.getItem(LS_PROJECTS);
-    return raw === null ? PROJECT_CARDS_DEFAULT : raw === "1";
-  } catch {
-    return PROJECT_CARDS_DEFAULT;
-  }
 }
 
 function readFolded(): Set<string> {
@@ -381,12 +374,13 @@ export function RoadmapBoard({
   onOpen,
   focusId,
   onFocused,
+  showProjects,
+  onShowProjects,
 }: RoadmapBoardProps) {
   const today = todayIso();
   const [depth, setDepthState] = useState<DepthRange>(readDepth);
   const [zoom, setZoomState] = useState<Zoom>(readZoom);
   const [folded, setFoldedState] = useState<Set<string>>(readFolded);
-  const [showProjects, setShowProjectsState] = useState<boolean>(readProjects);
   const [whoFilter, setWhoFilter] = useState<string | null>(null);
   // The planning row the + was pressed on, whose create form is open.
   const [addingUnder, setAddingUnder] = useState<string | null>(null);
@@ -405,14 +399,6 @@ export function RoadmapBoard({
     setZoomState(next);
     try {
       localStorage.setItem(LS_ZOOM, next);
-    } catch {
-      // a preference, not state
-    }
-  };
-  const setShowProjects = (next: boolean) => {
-    setShowProjectsState(next);
-    try {
-      localStorage.setItem(LS_PROJECTS, next ? "1" : "0");
     } catch {
       // a preference, not state
     }
@@ -475,9 +461,10 @@ export function RoadmapBoard({
 
   const expanded = (id: string) => !folded.has(id);
   // The lines of the table (roadmap.roadmapLines), keyed on everything that
-  // decides them — the Project cards toggle included.
-  const lines = (cards: readonly CardModel[]): Line[] => roadmapLines(cards, { showProjects, depth, expanded });
-  const baseLines = useMemo(() => lines(shown), [shown, showProjects, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
+  // decides them. The Project cards toggle is the listing's own selector:
+  // the app refetches on it, and what arrives is what is drawn.
+  const lines = (cards: readonly CardModel[]): Line[] => roadmapLines(cards, { depth, expanded });
+  const baseLines = useMemo(() => lines(shown), [shown, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
   // The tree's rows alone, which is what a drop is read against: a section
   // row is dropped on by nothing.
   const baseRows = useMemo(() => baseLines.filter((l) => l.kind === "row" && l.section === "tree").map((l) => (l as RowLine).row), [baseLines]);
@@ -488,7 +475,7 @@ export function RoadmapBoard({
   const previewed = dragging && hover?.valid && hover.placement ? previewCards(shown, dragging, hover.placement) : null;
   const shownLines = useMemo(
     () => (previewed ? lines(previewed) : baseLines),
-    [previewed, baseLines, showProjects, depth, folded], // eslint-disable-line react-hooks/exhaustive-deps
+    [previewed, baseLines, depth, folded], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const rows = useMemo(() => shownLines.filter((l): l is RowLine => l.kind === "row").map((l) => l.row), [shownLines]);
   const ghosts = useMemo(() => {
@@ -827,7 +814,7 @@ export function RoadmapBoard({
             {levelOptions()}
           </select>
         </label>
-        <ViewToggle on={showProjects} onToggle={() => setShowProjects(!showProjects)} title="Show project cards">
+        <ViewToggle on={showProjects} onToggle={() => onShowProjects(!showProjects)} title="Show project cards">
           {/* A project board's columns. */}
           <svg
             width="15"

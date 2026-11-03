@@ -51,7 +51,7 @@ func TestTheRoadmapListsTheHierarchy(t *testing.T) {
 		board.Card{ItemID: "p-alone", Title: "Plan", Scope: "Compliance", Project: "eu"},
 	)
 	got := []string{}
-	for _, c := range FilterCards(b, Selector{View: "roadmap"}) {
+	for _, c := range FilterCards(b, Selector{View: "roadmap", ProjectCards: true}) {
 		got = append(got, c.ItemID)
 	}
 	want := []string{"goal", "init", "epic", "t1", "t1a", "p1", "loose", "loose-sub", "parked", "strip"}
@@ -116,5 +116,47 @@ func TestACardResourceCarriesItsLineageAndHierarchy(t *testing.T) {
 	}
 	if CardResource(b, find("loose")).Status.Lineage != nil {
 		t.Fatal("a root has no lineage")
+	}
+}
+
+// THE PROJECT CARDS ARE ASKED FOR. The Roadmap's toolbar toggle is a
+// selector the server answers (projectCards), not a filter the SPA runs: by
+// default the listing leaves out every PROJECT card — a card in a Scope
+// column — even one filed under a planning card; asked for, they are listed
+// under their planning cards as before. The planning cards' derived standing
+// is the board's, not the listing's: it counts the same either way. And the
+// gate agrees with the listing, so a watch and a gesture on the roadmap
+// answer the same question.
+func TestTheRoadmapListsProjectCardsOnlyWhenAskedFor(t *testing.T) {
+	t.Parallel()
+	b := hierarchyBoard()
+	ids := func(sel Selector) []string {
+		out := []string{}
+		for _, c := range FilterCards(b, sel) {
+			out = append(out, c.ItemID)
+		}
+		return out
+	}
+	without := ids(Selector{View: "roadmap"})
+	if want := []string{"goal", "init", "epic", "t1", "t1a", "loose", "loose-sub"}; !reflect.DeepEqual(without, want) {
+		t.Fatalf("roadmap by default = %v, want %v (no project card)", without, want)
+	}
+	with := ids(Selector{View: "roadmap", ProjectCards: true})
+	if want := []string{"goal", "init", "epic", "t1", "t1a", "p1", "loose", "loose-sub"}; !reflect.DeepEqual(with, want) {
+		t.Fatalf("roadmap with project cards = %v, want %v", with, want)
+	}
+	if Drawn(b, Selector{View: "roadmap"}, "p1") {
+		t.Fatal("the gate draws a project card the listing leaves out")
+	}
+	if !Drawn(b, Selector{View: "roadmap", ProjectCards: true}, "p1") {
+		t.Fatal("the gate does not draw a project card the listing lists")
+	}
+	// The selector reads from the query, and means nothing off the roadmap.
+	sel, err := ParseViewSelector("roadmap", map[string][]string{"projectCards": {"true"}})
+	if err != nil || !sel.ProjectCards {
+		t.Fatalf("projectCards=true parsed as %+v, %v", sel, err)
+	}
+	if sel, _ := ParseViewSelector("roadmap", nil); sel.ProjectCards {
+		t.Fatal("project cards are listed by default")
 	}
 }

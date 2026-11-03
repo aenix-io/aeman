@@ -103,19 +103,20 @@ func (h *server) getBoard(ctx context.Context, _ *mcp.CallToolRequest, in boardR
 // filters, mirroring GET /api/v1/views/{view}/cards.
 type listCardsInput struct {
 	boardRef
-	View     string `json:"view,omitempty" jsonschema:"the board to list: team, me, backlog, roadmap or project — or all for every card. Empty is your own Me board, which is where everyone works. backlog lists each team's PARKED open tasks — accepted and not taken into work — in the order the backlog is read (by hand, then oldest first); they are on no day board until somebody gives them a day, a sprint or a person"`
-	Team     string `json:"team,omitempty" jsonschema:"team key for the team/backlog views (a comma-separated set lists several); on the me view a comma-separated set filters to those teams; empty is the no-team group / no filter"`
-	Day      string `json:"day,omitempty" jsonschema:"viewed day as yyyy-mm-dd for the team/me views; defaults to today"`
-	User     string `json:"user,omitempty" jsonschema:"GitHub login for the me view; empty is everyone"`
-	Project  string `json:"project,omitempty" jsonschema:"aeman project to scope the project view to — one project's scope columns; empty is every project. Read the roster from get_board metadata.projects"`
-	Stage    string `json:"stage,omitempty" jsonschema:"filter by stage: locked, review, recurrent, refuse or done"`
-	Zone     string `json:"zone,omitempty" jsonschema:"filter by semantic zone: urgent, unplanned, planned or niceToHave"`
-	Assignee string `json:"assignee,omitempty" jsonschema:"filter by assignee GitHub login"`
-	Focus    bool   `json:"focus,omitempty" jsonschema:"keep only cards workable right now — drops done, on-review and locked; use this to show what can be picked up and worked on here and now"`
-	Title    string `json:"title,omitempty" jsonschema:"case-insensitive substring filter on the card title — the cheap way to resolve a title someone mentioned to its uid: one call, a handful of rows"`
-	Full     bool   `json:"full,omitempty" jsonschema:"include each card's full description in the listing. Default false: a listing is the board's row view — title, team, zone, assignees, progress, stage, dates, link refs — and card bodies come from get_card. Set only when genuinely reading many descriptions at once (bulk analysis), not to inspect one card"`
-	Reviews  bool   `json:"reviews,omitempty" jsonschema:"include each card's linked REVIEW card beside it (the me and team views). A review is somebody's work too — it counts in the reviewer's load — and without this it is on no listing you asked for"`
-	Snapshot bool   `json:"snapshot,omitempty" jsonschema:"read a PAST day as it stood rather than today's cards filtered by that day: every field is the day's own, so a card finished since reads unfinished and one created since is absent. Needs day set to a past day; the board's history answers it, and a day it no longer reaches is an error rather than a wrong answer"`
+	View         string `json:"view,omitempty" jsonschema:"the board to list: team, me, backlog, roadmap or project — or all for every card. Empty is your own Me board, which is where everyone works. backlog lists each team's PARKED open tasks — accepted and not taken into work — in the order the backlog is read (by hand, then oldest first); they are on no day board until somebody gives them a day, a sprint or a person"`
+	Team         string `json:"team,omitempty" jsonschema:"team key for the team/backlog views (a comma-separated set lists several); on the me view a comma-separated set filters to those teams; empty is the no-team group / no filter"`
+	Day          string `json:"day,omitempty" jsonschema:"viewed day as yyyy-mm-dd for the team/me views; defaults to today"`
+	User         string `json:"user,omitempty" jsonschema:"GitHub login for the me view; empty is everyone"`
+	Project      string `json:"project,omitempty" jsonschema:"aeman project to scope the project view to — one project's scope columns; empty is every project. Read the roster from get_board metadata.projects"`
+	Stage        string `json:"stage,omitempty" jsonschema:"filter by stage: locked, review, recurrent, refuse or done"`
+	Zone         string `json:"zone,omitempty" jsonschema:"filter by semantic zone: urgent, unplanned, planned or niceToHave"`
+	Assignee     string `json:"assignee,omitempty" jsonschema:"filter by assignee GitHub login"`
+	Focus        bool   `json:"focus,omitempty" jsonschema:"keep only cards workable right now — drops done, on-review and locked; use this to show what can be picked up and worked on here and now"`
+	Title        string `json:"title,omitempty" jsonschema:"case-insensitive substring filter on the card title — the cheap way to resolve a title someone mentioned to its uid: one call, a handful of rows"`
+	Full         bool   `json:"full,omitempty" jsonschema:"include each card's full description in the listing. Default false: a listing is the board's row view — title, team, zone, assignees, progress, stage, dates, link refs — and card bodies come from get_card. Set only when genuinely reading many descriptions at once (bulk analysis), not to inspect one card"`
+	Reviews      bool   `json:"reviews,omitempty" jsonschema:"include each card's linked REVIEW card beside it (the me and team views). A review is somebody's work too — it counts in the reviewer's load — and without this it is on no listing you asked for"`
+	ProjectCards bool   `json:"projectCards,omitempty" jsonschema:"on the roadmap view, also list the PROJECT cards — cards in a Scope column — under the planning cards they are filed under. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and project cards are hidden unless asked for (the Roadmap's Project cards toggle). A planning card's counts are the same either way"`
+	Snapshot     bool   `json:"snapshot,omitempty" jsonschema:"read a PAST day as it stood rather than today's cards filtered by that day: every field is the day's own, so a card finished since reads unfinished and one created since is absent. Needs day set to a past day; the board's history answers it, and a day it no longer reaches is an error rather than a wrong answer"`
 }
 
 func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listCardsInput) (*mcp.CallToolResult, apiserver.CardList, error) {
@@ -125,7 +126,7 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	}
 	sel := apiserver.Selector{View: in.View, Team: in.Team, Day: in.Day, User: in.User,
 		Project: in.Project, Assignee: in.Assignee, Focus: in.Focus,
-		IncludeReviews: in.Reviews}
+		IncludeReviews: in.Reviews, ProjectCards: in.ProjectCards}
 	if sel.View != "" && !board.KnownView(sel.View) {
 		return nil, apiserver.CardList{}, fmt.Errorf("%w: %q (use all, team, me, backlog, roadmap or project)",
 			boardservice.ErrNoSuchView, sel.View)

@@ -79,13 +79,15 @@ export function buildTree(cards: readonly Card[]): RoadmapNode[] {
  *  unless asked for. */
 export const PROJECT_CARDS_DEFAULT = false;
 
-/** projectCardsShown is the listing the tree is built from: every card when
- *  the toggle is on, and without the PROJECT cards (a card in a Scope
- *  column) when it is off. Only rows go: a project card has nothing under
- *  it (H4), its siblings stay where they are, and the planning rows' counts
- *  and status are the server's (H5) and do not move. */
-export function projectCardsShown<T extends Pick<Card, "scope">>(cards: readonly T[], show: boolean): T[] {
-  return show ? [...cards] : cards.filter((c) => !c.scope);
+/** PROJECT_CARDS_KEY is where the viewer's toggle is remembered. */
+export const PROJECT_CARDS_KEY = "aeman.roadmap.projectCards";
+
+/** storedProjectCards reads the remembered toggle: the default until the
+ *  viewer has said otherwise. The toggle itself is the listing's selector
+ *  (viewquery.ts, projectCards): the server leaves the project cards out
+ *  unless asked, and the board filters nothing. */
+export function storedProjectCards(raw: string | null): boolean {
+  return raw === null ? PROJECT_CARDS_DEFAULT : raw === "1";
 }
 
 /** RoadmapSection is where a root of the forest is drawn. The TREE is the
@@ -787,18 +789,18 @@ export type RoadmapLine =
   | { kind: "header"; key: string; label: string };
 
 /** roadmapLines is the table's lines, ONE function of what decides them —
- *  the listing, the Project cards toggle, the depth range and the folds —
- *  so the board's memo of it is keyed on exactly these and cannot keep a
- *  drawing made for the other state of the toggle (which is how turning it
- *  on drew no project card). The tree's rows come first, then each section
+ *  the listing, the depth range and the folds — so the board's memo of it is
+ *  keyed on exactly these. The listing is what the server sent: the Project
+ *  cards toggle is its selector (projectCards), not a filter here. The tree's
+ *  rows come first, then each section
  *  below it: a header line and its rows. The sections draw tasks and their
  *  subtasks (when the depth range reaches them); the range's upper levels
  *  are the tree's business. */
 export function roadmapLines(
   cards: readonly Card[],
-  opts: { showProjects: boolean; depth: DepthRange; expanded: (id: string) => boolean },
+  opts: { depth: DepthRange; expanded: (id: string) => boolean },
 ): RoadmapLine[] {
-  const sections = sectionsOf(buildTree(projectCardsShown(cards, opts.showProjects)));
+  const sections = sectionsOf(buildTree(cards));
   const sub = visibleLevels(opts.depth).has("subtask");
   const flat: DepthRange = { from: "task", to: sub ? "subtask" : "task" };
   const out: RoadmapLine[] = rows(sections.tree, opts.depth, opts.expanded).map((row) => ({

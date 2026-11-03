@@ -269,7 +269,11 @@ tasks parked in a team's backlog (H9). The loose work is
 listed because the Roadmap is where a lead drags it into the tree, and a
 board cannot offer a drag of a card it does not draw. A task already
 finished outside the hierarchy is not listed (nothing left to plan on
-it), nor is a project card in no hierarchy (the Project board's), nor a
+it), nor is a project card in no hierarchy (the Project board's), nor —
+unless the reader asks, `projectCards=true`, the toolbar's "Project cards"
+toggle — a project card in the hierarchy: the listing and the watch both
+leave them out by default, and the planning cards' derived standing counts
+the same either way. Nor is a
 review card (it follows the card it reviews, which is the work — the
 owner picker refuses it and so does the link), and a subtask follows its
 parent task in or out. The listing is the card

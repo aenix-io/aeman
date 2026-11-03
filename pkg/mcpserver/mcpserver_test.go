@@ -175,6 +175,26 @@ func TestMCPListCardsTeamView(t *testing.T) {
 	}
 }
 
+// The Roadmap's "Project cards" toggle is the listing's projectCards flag,
+// the same selector the HTTP listing takes: by default the roadmap lists no
+// card in a Scope column, even one filed under a planning card.
+func TestMCPListCardsRoadmapHidesProjectCardsUnlessAsked(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
+		{ItemID: "task1", Title: "Receipts", Parent: "epic", Team: "alpha", Parked: true},
+		{ItemID: "slot1", Title: "Q1 slot", Parent: "epic", Scope: "Payments", Project: "core"},
+	}, nil)
+	cs := connect(t, Config{Board: "acme"}, fake)
+	plain := textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap"}))
+	if !strings.Contains(plain, "task1") || strings.Contains(plain, "slot1") {
+		t.Fatalf("the roadmap lists no project card by default: %s", plain)
+	}
+	asked := textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap", "projectCards": true}))
+	if !strings.Contains(asked, "slot1") {
+		t.Fatalf("asked for, the project card is listed: %s", asked)
+	}
+}
+
 func TestMCPListCardsZoneFilterIsSemantic(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "c1", Zone: board.ZoneRed},

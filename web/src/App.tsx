@@ -10,6 +10,7 @@ import { TeamBoard } from "./components/TeamBoard";
 import { BacklogBoard } from "./components/BacklogBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
 import { RoadmapBoard } from "./components/RoadmapBoard";
+import { PROJECT_CARDS_KEY, storedProjectCards } from "./roadmap";
 import { TeamsModal } from "./components/TeamsModal";
 import { readProjectFilter, writeProjectFilter } from "./projectFilter";
 import {
@@ -333,6 +334,25 @@ export function App() {
   // — Shift-click a chip to add/remove it. Persisted, and pruned to the teams
   // the board has once it is loaded.
   const [teamFilter, setTeamFilter] = useState<string[] | null>(readFilter);
+  // The Roadmap's "Project cards" toggle is the listing's selector, not a
+  // filter of what was sent: it rides the roadmap's queries and watch
+  // (viewquery, projectCards), so turning it refetches and re-subscribes.
+  // Remembered per viewer.
+  const [projectCards, setProjectCardsState] = useState<boolean>(() => {
+    try {
+      return storedProjectCards(localStorage.getItem(PROJECT_CARDS_KEY));
+    } catch {
+      return storedProjectCards(null);
+    }
+  });
+  const setProjectCards = useCallback((next: boolean) => {
+    setProjectCardsState(next);
+    try {
+      localStorage.setItem(PROJECT_CARDS_KEY, next ? "1" : "0");
+    } catch {
+      // a preference, not state
+    }
+  }, []);
 
   // The sprint pointers as they stand TODAY. A past day is served as a record
   // — its cards, its roster and its pointers are that day's — so the board in
@@ -640,8 +660,10 @@ export function App() {
         selectedDate,
         teamFilter ?? [...new Set([...roster, ""])],
         viewAs ?? undefined,
+        undefined,
+        { projectCards },
       ),
-    [view, selectedDate, teamFilter, roster, viewAs],
+    [view, selectedDate, teamFilter, roster, viewAs, projectCards],
   );
   const activeKey = activeQueries.map(queryString).join("|");
   // Which BOARD the reader is standing on, for the gestures made on it: the ×,
@@ -683,8 +705,9 @@ export function App() {
         selectedDate,
         teamFilter ?? [...new Set([...roster, ""])],
         viewAs ?? undefined,
+        { projectCards },
       ).map(queryString),
-    [view, selectedDate, teamFilter, roster, viewAs],
+    [view, selectedDate, teamFilter, roster, viewAs, projectCards],
   );
   // One string for the watch effect's dep: the sockets are rebuilt only when
   // the selections actually change.
@@ -1586,6 +1609,8 @@ export function App() {
             onOpen={openCard}
             focusId={roadmapFocus}
             onFocused={() => setRoadmapFocus(null)}
+            showProjects={projectCards}
+            onShowProjects={setProjectCards}
           />
         )}
         {board && view === "backlog" && (

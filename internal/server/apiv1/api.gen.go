@@ -937,6 +937,9 @@ type NoteID = string
 // Project defines model for Project.
 type Project = string
 
+// ProjectCards defines model for ProjectCards.
+type ProjectCards = string
+
 // Reviews defines model for Reviews.
 type Reviews = string
 
@@ -1023,6 +1026,9 @@ type ListCardsParams struct {
 	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
 
+	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
+	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
+
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
 
@@ -1058,6 +1064,9 @@ type FinishedEarlierParams struct {
 
 	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
+
+	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
+	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
@@ -1095,6 +1104,9 @@ type OwnCardParams struct {
 	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
 
+	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
+	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
+
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
 
@@ -1131,6 +1143,9 @@ type RemoveCardParams struct {
 	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
 
+	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
+	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
+
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
 
@@ -1166,6 +1181,9 @@ type TakeCardParams struct {
 
 	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
+
+	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
+	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
@@ -2439,6 +2457,19 @@ func (siw *ServerInterfaceWrapper) ListCards(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// ------------- Optional query parameter "projectCards" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectCards", r.URL.Query(), &params.ProjectCards, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "fields" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "fields", r.URL.Query(), &params.Fields, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -2646,6 +2677,19 @@ func (siw *ServerInterfaceWrapper) FinishedEarlier(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// ------------- Optional query parameter "projectCards" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectCards", r.URL.Query(), &params.ProjectCards, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "fields" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "fields", r.URL.Query(), &params.Fields, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -2823,6 +2867,19 @@ func (siw *ServerInterfaceWrapper) OwnCard(w http.ResponseWriter, r *http.Reques
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reviews"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reviews", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "projectCards" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectCards", r.URL.Query(), &params.ProjectCards, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
 		}
 		return
 	}
@@ -3008,6 +3065,19 @@ func (siw *ServerInterfaceWrapper) RemoveCard(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// ------------- Optional query parameter "projectCards" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectCards", r.URL.Query(), &params.ProjectCards, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "fields" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "fields", r.URL.Query(), &params.Fields, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -3185,6 +3255,19 @@ func (siw *ServerInterfaceWrapper) TakeCard(w http.ResponseWriter, r *http.Reque
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reviews"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reviews", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "projectCards" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectCards", r.URL.Query(), &params.ProjectCards, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
 		}
 		return
 	}

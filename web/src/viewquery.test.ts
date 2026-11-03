@@ -209,3 +209,37 @@ describe("the remembered tab", () => {
     expect(storedView("whatever")).toBe("me");
   });
 });
+
+// The Roadmap's "Project cards" toggle is a SELECTOR the server answers
+// (projectCards), for the listing and the watch alike — not a filter the SPA
+// runs over what it was sent. Off, nothing is asked and the server leaves
+// them out; on, both ask for them, so turning it on refetches and
+// re-subscribes rather than redrawing what the board already holds.
+describe("the Roadmap's project cards", () => {
+  it("asks for nothing while the toggle is off", () => {
+    expect(viewQueries("roadmap", TODAY, [], undefined, TODAY)).toEqual([{ view: "roadmap" }]);
+    expect(watchQuery("roadmap", TODAY, [])).toEqual({ view: "roadmap" });
+  });
+
+  it("asks the listing and the watch for them while it is on", () => {
+    expect(viewQueries("roadmap", TODAY, [], undefined, TODAY, { projectCards: true })).toEqual([
+      { view: "roadmap", projectCards: "true" },
+    ]);
+    expect(watchQueries("roadmap", TODAY, [], undefined, { projectCards: true })).toEqual([
+      { view: "roadmap", projectCards: "true" },
+    ]);
+  });
+
+  it("changes the keys the board refetches and re-subscribes on", () => {
+    const off = queryString(viewQueries("roadmap", TODAY, [], undefined, TODAY)[0]);
+    const on = queryString(viewQueries("roadmap", TODAY, [], undefined, TODAY, { projectCards: true })[0]);
+    expect(on).not.toBe(off);
+  });
+
+  it("means nothing on any other board", () => {
+    expect(viewQueries("backlog", TODAY, ["alpha"], undefined, TODAY, { projectCards: true })).toEqual([
+      { view: "backlog", team: "alpha" },
+    ]);
+    expect(watchQuery("project", TODAY, [], undefined, { projectCards: true })).toEqual({ view: "project" });
+  });
+});

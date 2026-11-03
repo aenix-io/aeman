@@ -1445,6 +1445,8 @@ export interface components {
         Focus: string;
         /** @description "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default. */
         Reviews: string;
+        /** @description On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view. */
+        ProjectCards: string;
         /** @description The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400). */
         Fields: string;
         /** @description "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give. */
@@ -1528,6 +1530,8 @@ export interface operations {
                 focus?: components["parameters"]["Focus"];
                 /** @description "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default. */
                 reviews?: components["parameters"]["Reviews"];
+                /** @description On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view. */
+                projectCards?: components["parameters"]["ProjectCards"];
                 /** @description The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400). */
                 fields?: components["parameters"]["Fields"];
                 /** @description "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give. */
@@ -1603,6 +1607,8 @@ export interface operations {
                 focus?: components["parameters"]["Focus"];
                 /** @description "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default. */
                 reviews?: components["parameters"]["Reviews"];
+                /** @description On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view. */
+                projectCards?: components["parameters"]["ProjectCards"];
                 /** @description The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400). */
                 fields?: components["parameters"]["Fields"];
                 /** @description "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give. */
@@ -1651,6 +1657,8 @@ export interface operations {
                 focus?: components["parameters"]["Focus"];
                 /** @description "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default. */
                 reviews?: components["parameters"]["Reviews"];
+                /** @description On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view. */
+                projectCards?: components["parameters"]["ProjectCards"];
                 /** @description The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400). */
                 fields?: components["parameters"]["Fields"];
                 /** @description "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give. */
@@ -1702,6 +1710,8 @@ export interface operations {
                 focus?: components["parameters"]["Focus"];
                 /** @description "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default. */
                 reviews?: components["parameters"]["Reviews"];
+                /** @description On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view. */
+                projectCards?: components["parameters"]["ProjectCards"];
                 /** @description The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400). */
                 fields?: components["parameters"]["Fields"];
                 /** @description "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give. */
@@ -1755,6 +1765,8 @@ export interface operations {
                 focus?: components["parameters"]["Focus"];
                 /** @description "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default. */
                 reviews?: components["parameters"]["Reviews"];
+                /** @description On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view. */
+                projectCards?: components["parameters"]["ProjectCards"];
                 /** @description The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400). */
                 fields?: components["parameters"]["Fields"];
                 /** @description "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give. */
@@ -1804,6 +1816,8 @@ export interface operations {
                 focus?: components["parameters"]["Focus"];
                 /** @description "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default. */
                 reviews?: components["parameters"]["Reviews"];
+                /** @description On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view. */
+                projectCards?: components["parameters"]["ProjectCards"];
                 /** @description The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400). */
                 fields?: components["parameters"]["Fields"];
                 /** @description "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give. */

@@ -79,10 +79,12 @@ const board = (cards: Card[]): Board =>
 
 const provider = {} as Provider;
 
-function draw(b: Board, focusId: string | null = null) {
+function draw(b: Board, focusId: string | null = null, showProjects = false, onShowProjects = vi.fn()) {
   return renderToStaticMarkup(
     <RoadmapBoard
       board={b}
+      showProjects={showProjects}
+      onShowProjects={onShowProjects}
       provider={provider}
       roster={["core"]}
       patchCard={vi.fn()}
@@ -233,8 +235,9 @@ describe("the Roadmap's two panes", () => {
 });
 
 // The toolbar's "Project cards" toggle: OFF by default, so a project card
-// under an epic is not drawn and the button says so; pressed (remembered in
-// the viewer's localStorage), the card is drawn under its epic.
+// under an epic is not listed and the button says so; pressed (remembered in
+// the viewer's localStorage by the app), the listing carries it under its
+// epic.
 describe("the Project cards toggle", () => {
   const ep = card({ itemId: "pe", title: "Billing v2", type: "epic", parent: undefined, lineage: [] });
   const task = card({ itemId: "pt", title: "Render PDF", parent: "pe", lineage: [{ uid: "pe", type: "epic", title: "Billing v2" }] });
@@ -247,9 +250,13 @@ describe("the Project cards toggle", () => {
     lineage: [{ uid: "pe", type: "epic", title: "Billing v2" }],
   });
 
-  it("is off by default: the button is not pressed and the project card is not drawn", () => {
-    store.delete("aeman.roadmap.projectCards");
-    const html = draw(board([ep, task, slot]));
+  // The toggle is the SERVER's selector (projectCards, viewquery.ts): the
+  // board draws the listing it was sent and filters nothing itself. Off, the
+  // server sends no project card; on, it sends them and they stand under
+  // their epic — the same listing drawn with the toggle in either state draws
+  // the same rows.
+  it("is the app's view toggle, unpressed while off, and the board draws what the server sent", () => {
+    const html = draw(board([ep, task]), null, false);
     // The app's view toggle — the Me board's eye and focus buttons — not a
     // segment of its own: an icon button, unpressed, named by its tooltip.
     expect(html).toMatch(/<button[^>]*class="team-eye"[^>]*aria-pressed="false"[^>]*title="Show project cards"/);
@@ -258,11 +265,13 @@ describe("the Project cards toggle", () => {
     expect(html).not.toContain("Q1 payments slot");
   });
 
-  it("draws them when the viewer has turned it on", () => {
-    store.set("aeman.roadmap.projectCards", "1");
-    const html = draw(board([ep, task, slot]));
+  it("is pressed while on, and draws the project cards the server sent under their epic", () => {
+    const html = draw(board([ep, task, slot]), null, true);
     expect(html).toMatch(/<button[^>]*class="team-eye team-eye-on"[^>]*aria-pressed="true"[^>]*title="Show project cards"/);
     expect(html).toContain("Q1 payments slot");
-    store.delete("aeman.roadmap.projectCards");
+  });
+
+  it("filters nothing itself: what it was sent, it draws", () => {
+    expect(draw(board([ep, task, slot]), null, false)).toContain("Q1 payments slot");
   });
 });

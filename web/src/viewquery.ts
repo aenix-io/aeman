@@ -5,6 +5,18 @@ import { todayIso } from "./date";
 
 export type ViewMode = "me" | "team" | "backlog" | "roadmap" | "project";
 
+/** ViewOptions are the board's own toggles that the SERVER answers: the
+ *  Roadmap's "Project cards" (projectCards). They ride the listing and the
+ *  watch alike, so turning one changes the keys the board refetches and
+ *  re-subscribes on — nothing is filtered out of what was already sent. */
+export interface ViewOptions {
+  projectCards?: boolean;
+}
+
+function roadmapQuery(opts: ViewOptions): Record<string, string> {
+  return opts.projectCards ? { view: "roadmap", projectCards: "true" } : { view: "roadmap" };
+}
+
 // viewQueries builds the LIST selectors for a board view — possibly several,
 // fetched together and merged. Me is the reader's own day: the server resolves
 // "who am I" unless the user is impersonating someone (viewAs), which is sent
@@ -17,6 +29,7 @@ export function viewQueries(
   teams: string[],
   viewAs?: string,
   today = todayIso(),
+  opts: ViewOptions = {},
 ): Record<string, string>[] {
   // A day already past is asked for AS IT WAS: the server answers from the
   // board's history rather than filtering today's cards by that day's dates
@@ -41,8 +54,9 @@ export function viewQueries(
   if (view === "roadmap") {
     // The hierarchy: every planning card and every card under one, board-
     // wide. The tree is assembled client-side from `parent`; never a
-    // snapshot — it is not a day board (docs/design/hierarchy.md).
-    return [{ view: "roadmap" }];
+    // snapshot — it is not a day board (docs/design/hierarchy.md). The
+    // project cards are the server's to leave out unless asked for.
+    return [roadmapQuery(opts)];
   }
   const team = teams.join(",");
   if (view === "backlog") {
@@ -72,12 +86,13 @@ export function watchQuery(
   day: string,
   teams: string[],
   viewAs?: string,
+  opts: ViewOptions = {},
 ): Record<string, string> {
   if (view === "project") {
     return { view: "project" };
   }
   if (view === "roadmap") {
-    return { view: "roadmap" };
+    return roadmapQuery(opts);
   }
   if (view === "me") {
     const q: Record<string, string> = { view: "me", day, reviews: "true" };
@@ -96,8 +111,9 @@ export function watchQueries(
   day: string,
   teams: string[],
   viewAs?: string,
+  opts: ViewOptions = {},
 ): Record<string, string>[] {
-  return [watchQuery(view, day, teams, viewAs)];
+  return [watchQuery(view, day, teams, viewAs, opts)];
 }
 
 // queryString serialises a selector to a URL fragment with a stable key order,
