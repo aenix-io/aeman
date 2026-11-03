@@ -4211,10 +4211,9 @@ button.card-age {
 }
 
 /* ---- Backlog ----
-   One column per selected team, each its ranked list of the tasks it has
-   accepted and not taken into work (docs/design/backlog.md). Top is next. A
-   column is a list of titles and reads DOWN; the columns stand side by side
-   and the board scrolls sideways when there are more than fit. */
+   One ranked list of the tasks the selected teams have accepted and not
+   taken into work, mixed in one order (docs/design/backlog.md). Top is next;
+   it reads DOWN. */
 .backlog-board {
   flex: 1;
   min-height: 0;
@@ -4222,53 +4221,16 @@ button.card-age {
   flex-direction: column;
 }
 
-.backlog-columns {
+.backlog-list {
   flex: 1;
   min-height: 0;
   display: flex;
-  gap: 14px;
-  padding: 12px 14px;
-  overflow: auto;
-}
-
-.backlog-column {
-  flex: 1 0 360px;
-  max-width: 640px;
-  min-height: 0;
-  display: flex;
   flex-direction: column;
+  max-width: 1100px;
+  padding: 12px 14px;
 }
 
-.backlog-column-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 2px 6px;
-}
-
-.backlog-column-dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.backlog-column-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.backlog-column-count {
-  font-size: 11px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.backlog-column-body {
+.backlog-list-body {
   flex: 1;
   min-height: 60px;
   display: flex;
@@ -4281,27 +4243,28 @@ button.card-age {
   overflow-y: auto;
 }
 
-/* The pointer is over this column: said by the column itself, because the
-   card being carried is drawn inside it rather than where it came from. */
-.backlog-column-over {
+/* A card is being carried: said by the list itself, because the card is
+   drawn inside it where it would land rather than where it came from. */
+.backlog-list-over {
   border-style: solid;
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
 }
 
-.backlog-column-empty {
+.backlog-list-empty {
   margin: 6px 0;
   font-size: 11px;
   color: var(--muted);
   text-align: center;
 }
 
-.backlog-column-body .add-card {
+.backlog-list-body .add-card {
   margin-top: 2px;
 }
 
-/* One wide card per row: the title first, and beside it what it is for,
-   when it is due, what it weighs and who has it. */
+/* One wide card per row: the title first, and on the right what it sits
+   under, when it is due, what it weighs, its team and who has it. A plain
+   card: no coloured accent down its left edge — a backlog card is in no
+   band yet, and the team is its chip. */
 .backlog-row {
   display: flex;
   align-items: center;
@@ -4309,7 +4272,6 @@ button.card-age {
   min-height: 30px;
   padding: 4px 6px 4px 10px;
   border: 1px solid var(--line-soft);
-  border-left: 3px solid var(--zone-gray-accent);
   border-radius: 5px;
   background: var(--bg-raised);
   cursor: grab;
@@ -4318,7 +4280,6 @@ button.card-age {
 
 .backlog-row:hover {
   border-color: var(--line);
-  border-left-color: var(--zone-gray-accent);
 }
 
 .backlog-row-title {
@@ -4333,20 +4294,72 @@ button.card-age {
   -webkit-box-orient: vertical;
 }
 
-.backlog-row-tag {
-  flex: none;
+/* The parent chain, root first, on the right: each name opens its card's
+   drawer, and a long one is cut short (its tooltip names it whole). */
+.backlog-row-chain {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  max-width: 180px;
-  padding: 1px 6px;
-  border-radius: 9px;
-  background: var(--line-soft);
+  gap: 2px;
+  overflow: hidden;
+}
+
+.backlog-row-chain-step {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 2px;
+}
+
+.backlog-row-chain-sep {
   color: var(--muted);
   font-size: 11px;
 }
 
-.backlog-row-tag-text {
+.backlog-row-chain-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 180px;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--line-soft);
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.backlog-row-chain-link:hover {
+  color: var(--fg);
+}
+
+.backlog-row-chain-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backlog-row-team {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.backlog-row-team-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.backlog-row-team-name {
+  max-width: 90px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

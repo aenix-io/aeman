@@ -2,16 +2,19 @@
 // decisions, apart from the component that draws them (docs/design/backlog.md,
 // rules K1–K9).
 //
-// The board is one column per selected team, the no-team group included; a
-// column is that team's PARKED OPEN TASKS (K2), one wide card per row, in the
-// order the server keeps them (board.BacklogOrder: by hand first, then oldest
-// first). Dragging within a column reorders; dragging to another team's column
-// hands the task to that team, still parked (K5); the owner picker with a
-// person takes it into work (K4), and it leaves the backlog at once.
+// The board is ONE list: the PARKED OPEN TASKS (K2) of every selected team,
+// the no-team group included, MIXED in one order — the order the server keeps
+// them (board.BacklogOrder: by hand first, then oldest first; rank is one
+// board-wide list, so the merged order is the board order of those cards).
+// One wide card per row, each with a chip of its team and, on the right, the
+// planning cards it sits under. Dragging reorders by the neighbours in the
+// list (K5); the owner picker with a team alone hands the task to that team,
+// still parked, and with a person takes it into work (K4), and it leaves the
+// backlog at once.
 //
 // The listing is the backlog view; the WATCH is every card of the shown teams
 // (viewquery.watchQuery), so a card parked, taken into work, re-teamed or
-// finished by anybody lands in the board's cards and the columns are simply
+// finished by anybody lands in the board's cards and the list is simply
 // recomputed from them (K6). Nothing here keeps state of its own.
 //
 // Mirrors pkg/board/backlog.go (OnBacklog) and the doors boardservice opens
@@ -19,7 +22,7 @@
 import { isPlanning, isSubtask } from "./subtasks";
 import { isComplete } from "./stages";
 import type { Owner } from "./owner";
-import type { Card, LineageRef } from "./providers/types";
+import type { Card, LineageRef, Provider } from "./providers/types";
 
 /** onBacklog reports whether a card is listed in its team's backlog (K2): a
  *  PARKED task that answers for its own place — not a planning card (the
@@ -41,59 +44,45 @@ export function onBacklog(
   return !isPlanning(c) && !c.scope && !c.reviewOf && !isSubtask(c);
 }
 
-/** columnTeams is the teams the board draws a column for: the chips'
+/** shownTeams is the teams whose backlogs the board shows: the chips'
  *  selection, or — with none — every team and the no-team group, the same
  *  set the board's listing asks for (App: viewQueries). */
-export function columnTeams(filter: readonly string[] | null, roster: readonly string[]): string[] {
+export function shownTeams(filter: readonly string[] | null, roster: readonly string[]): string[] {
   return filter ? [...filter] : [...new Set([...roster, ""])];
 }
 
-/** BacklogColumn is one selected team's backlog: "" is the no-team group. */
-export interface BacklogColumn {
-  team: string;
-  cards: Card[];
-}
-
-/** backlogColumns lays the board out: one column per selected team, in the
- *  order the team chips put them — a team with nothing parked still gets its
- *  column, since that is where its add box is — and in each the team's
- *  backlog cards in the order they stand in on the board.
+/** backlogList is the board: the backlog cards of the shown teams, MIXED, in
+ *  the order they stand in on the board.
  *
  *  There is no sort here on purpose. The client is sent no rank: the listing
  *  arrives in BacklogOrder, local moves splice the board's order
  *  (spliceOrder), and the server's Ordering frames re-sort it — so the order
  *  the cards stand in IS the server's order, and a TS copy of the rule would
  *  be a rule with nothing to run on. */
-export function backlogColumns(cards: readonly Card[], teams: readonly string[]): BacklogColumn[] {
-  const byTeam = new Map<string, Card[]>(teams.map((t) => [t, []]));
-  for (const c of cards) {
-    if (!onBacklog(c)) {
-      continue;
-    }
-    byTeam.get(c.team ?? "")?.push(c);
-  }
-  return teams.map((team) => ({ team, cards: byTeam.get(team) ?? [] }));
+export function backlogList(cards: readonly Card[], teams: readonly string[]): Card[] {
+  const shown = new Set(teams);
+  return cards.filter((c) => onBacklog(c) && shown.has(c.team ?? ""));
 }
 
-/** orderWith is a column's order once `id` has been dropped at place `at`.
+/** orderWith is the list's order once `id` has been dropped at place `at`.
  *
  *  The card is taken OUT before it is put back in, so a card dragged down
  *  past its own neighbours lands where the pointer is rather than one short
  *  of it — the preview and the write have to agree about that, and both
- *  count places in the list the reader is looking at. A card that came from
- *  another column is simply inserted. */
+ *  count places in the list the reader is looking at. */
 export function orderWith(ids: readonly string[], id: string, at: number): string[] {
   const rest = ids.filter((other) => other !== id);
   const place = Math.max(0, Math.min(at, rest.length));
   return [...rest.slice(0, place), id, ...rest.slice(place)];
 }
 
-/** How a card's place in a column is written down. The board's order is one
- *  list and a column is a slice of it, so the write names a NEIGHBOUR — the
- *  server resolves the rank from it — and never a position (K5).
+/** How a card's place in the list is written down. The board's order is one
+ *  list and the backlog is a slice of it, so the write names a NEIGHBOUR in
+ *  the merged list — of whichever team — and the server resolves the rank
+ *  from it; never a position (K5).
  *
  *  A card at the top has nothing before it to sit after, so it is written as
- *  standing before the card now second; a card alone in its column has no
+ *  standing before the card now second; a card alone in the list has no
  *  neighbour at all and nothing to say. */
 export type Anchor = { after: string } | { before: string } | null;
 
@@ -105,10 +94,9 @@ export function anchorFor(ids: readonly string[], id: string): Anchor {
   return place > 0 ? { after: ids[place - 1] } : { before: ids[1] };
 }
 
-/** spliceOrder is the board-wide order once a column has been re-ordered:
- *  the column's cards take the slots they (and a card dropped in from
- *  elsewhere) already held, in the column's new order, and every other card
- *  stays where it was. It is what the board keeps locally until the server's
+/** spliceOrder is the board-wide order once the list has been re-ordered:
+ *  the list's cards take the slots they already held, in the list's new
+ *  order, and every other card stays where it was. It is what the board keeps locally until the server's
  *  Ordering frame says the same. */
 export function spliceOrder(all: readonly string[], column: readonly string[]): string[] {
   const inColumn = new Set(column);
@@ -117,33 +105,33 @@ export function spliceOrder(all: readonly string[], column: readonly string[]): 
 }
 
 /** BacklogDrop is what a drop means. */
-export type BacklogDrop =
-  | { kind: "none" }
-  | { kind: "reorder"; order: string[]; anchor: Anchor }
-  | { kind: "hand-over"; team: string; order: string[]; anchor: Anchor };
+export type BacklogDrop = { kind: "none" } | { kind: "reorder"; order: string[]; anchor: Anchor };
 
-/** dropPlan reads a drop: within the card's own column it is a REORDER by
- *  the neighbours at the drop; on another team's column it HANDS the card to
- *  that team — still parked — at the place it was dropped (K5). A card put
- *  back where it was writes nothing.
- *
- *  `target` is the target column's ids as drawn, the card itself included
- *  when it is that column's own. */
-export function dropPlan(
-  id: string,
-  fromTeam: string,
-  toTeam: string,
-  target: readonly string[],
-  at: number,
-): BacklogDrop {
-  const order = orderWith(target, id, at);
-  if (fromTeam === toTeam) {
-    if (order.every((x, i) => x === target[i])) {
-      return { kind: "none" };
-    }
-    return { kind: "reorder", order, anchor: anchorFor(order, id) };
+/** dropPlan reads a drop: a REORDER by the neighbours at the drop in the
+ *  merged list (K5). The team does not change by a drop — handing a task to
+ *  another team is the owner picker's (ownPlan). A card put back where it was
+ *  writes nothing. `list` is the ids as drawn, the card itself included. */
+export function dropPlan(id: string, list: readonly string[], at: number): BacklogDrop {
+  const order = orderWith(list, id, at);
+  if (order.every((x, i) => x === list[i])) {
+    return { kind: "none" };
   }
-  return { kind: "hand-over", team: toTeam, order, anchor: anchorFor(order, id) };
+  return { kind: "reorder", order, anchor: anchorFor(order, id) };
+}
+
+/** AddBox is what the one add box at the foot of the list offers: with one
+ *  team shown, that team and no selector (forcedTeam); with several, a
+ *  selector of them starting on the FIRST shown team — the no-team group
+ *  among them when it is shown. AddCard's own props. */
+export type AddBox =
+  | { forcedTeam: string | null }
+  | { teams: string[]; allowNoTeam: boolean; initialTeam: string | null };
+
+export function addBox(teams: readonly string[]): AddBox {
+  if (teams.length === 1) {
+    return { forcedTeam: teams[0] || null };
+  }
+  return { teams: teams.filter((t) => t !== ""), allowNoTeam: teams.includes(""), initialTeam: teams[0] || null };
 }
 
 /** ownPlan is what the owner picker does on a backlog card. A PERSON takes
@@ -185,7 +173,30 @@ export function handedOverLocally(team: string): Partial<Card> {
   return { team: team || undefined, assignees: [], parked: true };
 }
 
-/** nearestPlanning is the card's tag: the nearest planning card above it —
+/** parentChain is the card's PARENT CHAIN, drawn on its right: every
+ *  planning card above it — goal, initiative, epic — root first, as the
+ *  lineage carries them. A task ancestor (a subtask's) is not part of it. */
+export function parentChain(c: Pick<Card, "lineage">): LineageRef[] {
+  return (c.lineage ?? []).filter((r) => !!r.type);
+}
+
+/** openPlanning opens a planning card's drawer from its name in a chain: the
+ *  backlog holds no planning card, so it is fetched by uid and handed to the
+ *  drawer the Roadmap opens. */
+export async function openPlanning(
+  provider: Pick<Provider, "getCard">,
+  uid: string,
+  onOpen: (card: Card) => void,
+  onError: (message: string) => void,
+): Promise<void> {
+  try {
+    onOpen(await provider.getCard(uid));
+  } catch (err) {
+    onError(err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** nearestPlanning is the card's due-date source: the nearest planning card above it —
  *  the last lineage entry that is a goal, an initiative or an epic — or
  *  none. */
 export function nearestPlanning(c: Pick<Card, "lineage">): LineageRef | null {

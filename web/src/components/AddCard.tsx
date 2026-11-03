@@ -24,6 +24,9 @@ interface AddCardProps {
   /** Offer the "no team" option; when false, the picker defaults to the first
    *  team instead of "no team". */
   allowNoTeam?: boolean;
+  /** The team the picker starts on, when the board says which (the Backlog
+   *  starts on the first selected team, the no-team group included). */
+  initialTeam?: string | null;
   /** Start with the form already open (input focused). */
   autoOpen?: boolean;
   /** The form closed; created reports whether a card was submitted. */
@@ -46,6 +49,7 @@ export function AddCard({
   teams,
   forcedTeam,
   allowNoTeam = true,
+  initialTeam,
   autoOpen,
   onClosed,
   picker,
@@ -54,7 +58,7 @@ export function AddCard({
   // With "no team" disabled the picker starts on the first team, so a filtered
   // create lands on a real team by default instead of "no team".
   const defaultTeam =
-    allowNoTeam || !teams || teams.length === 0 ? null : teams[0];
+    initialTeam !== undefined ? initialTeam : allowNoTeam || !teams || teams.length === 0 ? null : teams[0];
   const [open, setOpen] = useState(autoOpen ?? false);
   const [value, setValue] = useState("");
   const [team, setTeam] = useState<string | null>(defaultTeam);

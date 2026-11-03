@@ -1,17 +1,20 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  addBox,
   anchorFor,
-  backlogColumns,
-  columnTeams,
+  backlogList,
   dropPlan,
   dueLabel,
   dueOf,
   handedOverLocally,
   nearestPlanning,
   onBacklog,
+  openPlanning,
   orderWith,
   ownPlan,
+  parentChain,
+  shownTeams,
   spliceOrder,
   takenIntoWorkLocally,
 } from "./backlogboard";
@@ -68,14 +71,17 @@ describe("what a backlog lists (K2)", () => {
 // the cards stand in on the board — the listing's (BacklogOrder: by hand
 // first, then oldest first), then every local move and Ordering frame since.
 // Cards carry no rank on the wire, so the order on the board IS the mirror.
-describe("the columns (K2)", () => {
+// ONE list: the backlogs of every selected team MIXED in one order — rank is
+// board-global, so the merged BacklogOrder is just the board order of those
+// cards — each card wearing a chip of its team.
+describe("the one list (K2)", () => {
   // The chips are the Team board's, and what they select is what the board
   // lists (viewquery.viewQueries): no selection is every team AND the no-team
   // group, which has a backlog like any team.
-  it("are the selected teams, or every team and the no-team group when none is selected", () => {
-    expect(columnTeams(["portal", "cozystack"], ["a", "b"])).toEqual(["portal", "cozystack"]);
-    expect(columnTeams(null, ["a", "b"])).toEqual(["a", "b", ""]);
-    expect(columnTeams(null, ["a", ""])).toEqual(["a", ""]);
+  it("shows the selected teams, or every team and the no-team group when none is selected", () => {
+    expect(shownTeams(["portal", "cozystack"], ["a", "b"])).toEqual(["portal", "cozystack"]);
+    expect(shownTeams(null, ["a", "b"])).toEqual(["a", "b", ""]);
+    expect(shownTeams(null, ["a", ""])).toEqual(["a", ""]);
   });
 
   const a1 = card({ itemId: "a1", team: "alpha" });
@@ -84,70 +90,58 @@ describe("the columns (K2)", () => {
   const none = card({ itemId: "n1" });
   const working = card({ itemId: "w", team: "alpha", parked: false, startDate: "2026-11-03" });
 
-  it("draws one column per selected team, in the chips' order, empty ones too", () => {
-    const cols = backlogColumns([a1, b1, a2, none], ["beta", "alpha", "gamma"]);
-    expect(cols.map((c) => c.team)).toEqual(["beta", "alpha", "gamma"]);
-    expect(cols.map((c) => c.cards.map((x) => x.itemId))).toEqual([["b1"], ["a1", "a2"], []]);
+  it("mixes the selected teams' backlogs in the board's one order, not grouped by team", () => {
+    expect(backlogList([a1, b1, a2, none], ["beta", "alpha"]).map((c) => c.itemId)).toEqual(["a1", "b1", "a2"]);
   });
 
-  it("gives the no-team group a column like any team's", () => {
-    const cols = backlogColumns([a1, none], ["", "alpha"]);
-    expect(cols[0]).toEqual({ team: "", cards: [none] });
+  it("holds the no-team group's backlog like any team's", () => {
+    expect(backlogList([a1, none], ["", "alpha"]).map((c) => c.itemId)).toEqual(["a1", "n1"]);
   });
 
-  it("keeps the board's order within a column, and only the backlog's cards", () => {
-    const cols = backlogColumns([a2, working, a1], ["alpha"]);
-    expect(cols[0].cards.map((c) => c.itemId)).toEqual(["a2", "a1"]);
-  });
-
-  it("draws no column for a team that is not selected, and no card of one", () => {
-    expect(backlogColumns([a1, b1], ["alpha"]).flatMap((c) => c.cards.map((x) => x.itemId))).toEqual(["a1"]);
+  it("holds only the backlog's cards, and none of a team that is not selected", () => {
+    expect(backlogList([a2, working, a1, b1], ["alpha"]).map((c) => c.itemId)).toEqual(["a2", "a1"]);
   });
 });
 
 // K6: the board is live. Every watch frame lands in the board's cards, and
-// the columns are recomputed from them — so a card leaves the moment a frame
+// the list is recomputed from them — so a card leaves the moment a frame
 // says it is no longer a parked open task of a shown team.
 describe("what drops out on a watch frame (K4, K6)", () => {
   const before = [card({ itemId: "a1", team: "alpha" }), card({ itemId: "a2", team: "alpha" })];
   const after = (patch: Partial<Card>) =>
-    backlogColumns([{ ...before[0], ...patch }, before[1]], ["alpha", "beta"]);
+    backlogList([{ ...before[0], ...patch }, before[1]], ["alpha", "beta"]).map((c) => c.itemId);
 
   it("drops a task taken into work at once: unparked, dated, owned (K4)", () => {
-    const taken = after({ parked: false, startDate: "2026-11-03", day: "2026-11-03", assignees: ["kvaps"] });
-    expect(taken[0].cards.map((c) => c.itemId)).toEqual(["a2"]);
+    expect(after({ parked: false, startDate: "2026-11-03", day: "2026-11-03", assignees: ["kvaps"] })).toEqual(["a2"]);
   });
 
   it("drops a task finished by anybody", () => {
-    expect(after({ progress: 100 })[0].cards.map((c) => c.itemId)).toEqual(["a2"]);
+    expect(after({ progress: 100 })).toEqual(["a2"]);
   });
 
-  it("moves a task re-teamed to another shown team into that column, still parked (K5)", () => {
-    const cols = after({ team: "beta" });
-    expect(cols[0].cards.map((c) => c.itemId)).toEqual(["a2"]);
-    expect(cols[1].cards.map((c) => c.itemId)).toEqual(["a1"]);
+  it("keeps a task re-teamed to another shown team where it stands, still parked (K5)", () => {
+    expect(after({ team: "beta" })).toEqual(["a1", "a2"]);
   });
 
   it("drops a task re-teamed out of the shown teams", () => {
-    expect(after({ team: "gamma" }).flatMap((c) => c.cards.map((x) => x.itemId))).toEqual(["a2"]);
+    expect(after({ team: "gamma" })).toEqual(["a2"]);
   });
 
   it("drops a task filed under a task: it became a subtask", () => {
-    expect(after({ parent: "a2" })[0].cards.map((c) => c.itemId)).toEqual(["a2"]);
+    expect(after({ parent: "a2" })).toEqual(["a2"]);
   });
 
   it("takes in a task parked by anybody, where the board's order puts it", () => {
     const parkedElsewhere = card({ itemId: "a0", team: "alpha" });
-    const cols = backlogColumns([parkedElsewhere, ...before], ["alpha"]);
-    expect(cols[0].cards.map((c) => c.itemId)).toEqual(["a0", "a1", "a2"]);
+    expect(backlogList([parkedElsewhere, ...before], ["alpha"]).map((c) => c.itemId)).toEqual(["a0", "a1", "a2"]);
   });
 });
 
-// A column is a slice of the one board-wide order (rank is one list). A drop
-// is kept locally at once — the column's new order spliced into the board's
-// order in the slots its cards already held — and written as a NEIGHBOUR,
-// never a position: the server resolves the rank from the anchor.
-describe("ordering within a column (K5)", () => {
+// The list is a slice of the one board-wide order (rank is one list). A drop
+// is kept locally at once — the list's new order spliced into the board's
+// order in the slots its cards already held — and written as a NEIGHBOUR in
+// the merged list, never a position: the server resolves the rank from it.
+describe("ordering within the list (K5)", () => {
   it("takes the card out before putting it back, so a drag down lands where the pointer is", () => {
     expect(orderWith(["a", "b", "c", "d"], "a", 2)).toEqual(["b", "c", "a", "d"]);
     expect(orderWith(["a", "b", "c"], "c", 0)).toEqual(["c", "a", "b"]);
@@ -158,59 +152,88 @@ describe("ordering within a column (K5)", () => {
     expect(orderWith(["a", "b"], "b", -3)).toEqual(["b", "a"]);
   });
 
-  it("inserts a card that came from another column", () => {
-    expect(orderWith(["a", "b"], "x", 1)).toEqual(["a", "x", "b"]);
-  });
-
   it("anchors after the card above it, or before the card below when it is first", () => {
     expect(anchorFor(["a", "x", "b"], "x")).toEqual({ after: "a" });
     expect(anchorFor(["x", "a", "b"], "x")).toEqual({ before: "a" });
   });
 
-  it("has nothing to say for a card alone in its column, or one not in it", () => {
+  it("has nothing to say for a card alone in the list, or one not in it", () => {
     expect(anchorFor(["x"], "x")).toBeNull();
     expect(anchorFor(["a", "b"], "x")).toBeNull();
   });
 
-  it("splices a column's new order into the board's in the slots its cards held", () => {
-    // Board order: a, p (someone else's), b, q, c. The column is a, b, c and c
-    // is dragged to the top: the column's slots now hold c, a, b.
+  it("splices the list's new order into the board's in the slots its cards held", () => {
+    // Board order: a, p (not in the backlog), b, q, c. The list is a, b, c
+    // and c is dragged to the top: the list's slots now hold c, a, b.
     expect(spliceOrder(["a", "p", "b", "q", "c"], ["c", "a", "b"])).toEqual(["c", "p", "a", "q", "b"]);
   });
 });
 
-// What a drop means: within its own column, a reorder; on another team's
-// column, a hand-over to that team — still parked (K5) — at the place it was
-// dropped. A drop that changes nothing writes nothing.
+// What a drop means: a reorder in the merged list, anchored on the
+// neighbours there — whichever team they belong to, since the rank is one
+// list. The team does not change by a drop: handing a card to another team
+// is the owner picker's (ownPlan). A drop that changes nothing writes
+// nothing.
 describe("what a drop does (K5)", () => {
-  it("reorders within the column by the neighbours at the drop", () => {
-    expect(dropPlan("x", "alpha", "alpha", ["a", "x", "b"], 3)).toEqual({
-      kind: "reorder",
-      order: ["a", "b", "x"],
-      anchor: { after: "b" },
-    });
+  it("reorders by the neighbours at the drop in the merged list, of any team", () => {
+    expect(dropPlan("x", ["a", "x", "b"], 3)).toEqual({ kind: "reorder", order: ["a", "b", "x"], anchor: { after: "b" } });
+    expect(dropPlan("x", ["a", "b", "x"], 0)).toEqual({ kind: "reorder", order: ["x", "a", "b"], anchor: { before: "a" } });
   });
 
   it("writes nothing for a card put back where it was", () => {
-    expect(dropPlan("x", "alpha", "alpha", ["a", "x", "b"], 1)).toEqual({ kind: "none" });
+    expect(dropPlan("x", ["a", "x", "b"], 1)).toEqual({ kind: "none" });
+  });
+});
+
+// ONE add box at the foot of the list. With one team selected it adds to
+// that team and asks nothing; with several, a team selector stands beside it
+// and starts on the FIRST selected team. The task is parked on the chosen
+// team, last.
+describe("the add box", () => {
+  it("adds to the only selected team and offers no selector", () => {
+    expect(addBox(["portal"])).toEqual({ forcedTeam: "portal" });
+    expect(addBox([""])).toEqual({ forcedTeam: null });
   });
 
-  it("hands the card to the column's team, placed among that column's cards", () => {
-    expect(dropPlan("x", "alpha", "beta", ["b1", "b2"], 1)).toEqual({
-      kind: "hand-over",
-      team: "beta",
-      order: ["b1", "x", "b2"],
-      anchor: { after: "b1" },
-    });
+  it("offers the selected teams, starting on the first", () => {
+    expect(addBox(["cozystack", "portal"])).toEqual({ teams: ["cozystack", "portal"], allowNoTeam: false, initialTeam: "cozystack" });
   });
 
-  it("hands it to the no-team group like any team", () => {
-    expect(dropPlan("x", "alpha", "", [], 0)).toEqual({
-      kind: "hand-over",
-      team: "",
-      order: ["x"],
-      anchor: null,
-    });
+  it("offers the no-team group when it is selected, and starts on it when it is first", () => {
+    expect(addBox(["portal", ""])).toEqual({ teams: ["portal"], allowNoTeam: true, initialTeam: "portal" });
+    expect(addBox(["", "portal"])).toEqual({ teams: ["portal"], allowNoTeam: true, initialTeam: null });
+  });
+});
+
+// Each card shows its PARENT CHAIN on the right: every planning card above
+// it, root first — goal, initiative, epic — each a way into that card's
+// drawer. A task parent (a subtask's) is not part of it; a backlog card is
+// never a subtask anyway.
+describe("the parent chain", () => {
+  const INIT: LineageRef = { uid: "i", type: "initiative", title: "Portugal" };
+
+  it("is every planning ancestor, root first", () => {
+    expect(parentChain(card({ lineage: [GOAL, INIT, EPIC] })).map((r) => r.uid)).toEqual(["g", "i", "e"]);
+  });
+
+  it("is empty for a task under no planning card", () => {
+    expect(parentChain(card({}))).toEqual([]);
+  });
+
+  it("leaves out a task ancestor", () => {
+    expect(parentChain(card({ lineage: [EPIC, { uid: "t", title: "a task" }] })).map((r) => r.uid)).toEqual(["e"]);
+  });
+
+  // Clicking a name opens that planning card's drawer: the backlog holds no
+  // planning card, so it is fetched by uid and handed to the drawer.
+  it("opens a planning card's drawer by fetching it", async () => {
+    const opened: Card[] = [];
+    const errors: string[] = [];
+    const epic = card({ itemId: "e", title: "Billing v2", type: "epic" });
+    await openPlanning({ getCard: (uid) => (uid === "e" ? Promise.resolve(epic) : Promise.reject(new Error("gone"))) }, "e", (c) => opened.push(c), (m) => errors.push(m));
+    await openPlanning({ getCard: () => Promise.reject(new Error("gone")) }, "x", (c) => opened.push(c), (m) => errors.push(m));
+    expect(opened).toEqual([epic]);
+    expect(errors).toEqual(["gone"]);
   });
 });
 

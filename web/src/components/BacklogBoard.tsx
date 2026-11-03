@@ -1,29 +1,33 @@
-// The Backlog board: one column per selected team, each that team's ranked
-// list of the tasks it has accepted and not taken into work
-// (docs/design/backlog.md). Top is next.
+// The Backlog board: ONE ranked list of the tasks the selected teams have
+// accepted and not taken into work, mixed in one order, each card wearing a
+// chip of its team (docs/design/backlog.md). Top is next.
 //
-// The board decides nothing itself — what a column holds, the order, what a
-// drop means, what the owner picker does and the optimistic shape of each
-// are backlogboard.ts's — and it keeps no copy of the cards: the columns are
-// recomputed from the board's cards, which the listing fills and the watch
-// keeps current (K6). A card taken into work, finished or re-teamed out of
+// The board decides nothing itself — what the list holds, the order, what a
+// drop means, what the owner picker does, what the add box offers and the
+// optimistic shape of each are backlogboard.ts's — and it keeps no copy of
+// the cards: the list is recomputed from the board's cards, which the
+// listing fills and the watch keeps current (K6). A card taken into work, finished or re-teamed out of
 // the selection by anybody simply stops being one of them.
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { Board, Card as CardModel, Provider, SizeKey } from "../providers/types";
 import { teamColor } from "../avatar";
 import {
-  backlogColumns,
-  columnTeams,
+  addBox,
+  backlogList,
   dropPlan,
   dueLabel,
   dueOf,
   handedOverLocally,
   nearestPlanning,
+  openPlanning,
   ownPlan,
+  parentChain,
+  shownTeams,
   spliceOrder,
   takenIntoWorkLocally,
   type Anchor,
 } from "../backlogboard";
+import type { LineageRef } from "../providers/types";
 import { justMade, noteMade } from "../justmade";
 import { ownerOf, type Owner } from "../owner";
 import { asksFirst, freeSubtasks, removeChoices, removeIntent, type RemoveChoice } from "../removal";
@@ -66,36 +70,24 @@ interface BacklogBoardProps {
   onError: (message: string) => void;
 }
 
-/** Spot is where a dragged card would land: whose column, and the place
- *  among the cards drawn in it. */
-interface Spot {
-  team: string;
-  at: number;
-}
-
-/** dropSpot reads the board for a point: the column under it and the place
- *  in it, by which card's middle the point has passed — what the reader is
- *  actually aiming at. Off the DOM rather than tracked: a column carries its
- *  team the way a card carries its id. */
-function dropSpot(x: number, y: number, carried: string): Spot | null {
-  const column = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-backlog-team]");
-  if (!column) {
+/** dropSpot reads the list for a point: the place among the cards drawn in
+ *  it, by which card's middle the point has passed — what the reader is
+ *  actually aiming at — or null off the list. */
+function dropSpot(x: number, y: number, carried: string): number | null {
+  const list = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-backlog-list]");
+  if (!list) {
     return null;
   }
   // The card in hand is drawn where it would land, not where it was, so it
   // is not a place of its own to count.
-  const rows = [...column.querySelectorAll<HTMLElement>("[data-card]")].filter(
-    (r) => r.dataset.card !== carried,
-  );
-  let at = rows.length;
+  const rows = [...list.querySelectorAll<HTMLElement>("[data-card]")].filter((r) => r.dataset.card !== carried);
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i].getBoundingClientRect();
     if (y < r.top + r.height / 2) {
-      at = i;
-      break;
+      return i;
     }
   }
-  return { team: column.dataset.backlogTeam ?? "", at };
+  return rows.length;
 }
 
 const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -117,8 +109,9 @@ export function BacklogBoard({
   onError,
 }: BacklogBoardProps) {
   const today = todayIso();
-  const teams = useMemo(() => columnTeams(teamFilter, roster), [teamFilter, roster]);
-  const columns = useMemo(() => backlogColumns(board.cards, teams), [board.cards, teams]);
+  const teams = useMemo(() => shownTeams(teamFilter, roster), [teamFilter, roster]);
+  const list = useMemo(() => backlogList(board.cards, teams), [board.cards, teams]);
+  const adding = useMemo(() => addBox(teams), [teams]);
   const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
 
   // ---- writing a place: a move by its neighbour ----
@@ -133,28 +126,23 @@ export function BacklogBoard({
   );
 
   // ---- handing a card to another team's backlog, still parked (K5) ----
-  // `own` with the team and nobody: the server's door for "this team's,
-  // nobody's yet", which keeps a parked card parked and drops the person.
+  // The card's team chip is its owner picker; `own` with a team and nobody
+  // is the server's door for "this team's, nobody's yet", which keeps a
+  // parked card parked and drops the person. The card keeps its place.
   const handOver = useCallback(
-    (card: CardModel, team: string, order: string[] | null, anchor: Anchor) => {
+    (card: CardModel, team: string) => {
       const before: Partial<CardModel> = { team: card.team, assignees: card.assignees, parked: card.parked };
       patchCard(card.itemId, handedOverLocally(team));
-      if (order) {
-        reorderCards(spliceOrder(board.cards.map((c) => c.itemId), order));
-      }
       void provider
         .ownCard(card.itemId, team, "")
-        .then((updated) => {
-          addCard(updated);
-          return persistAnchor(card.itemId, anchor);
-        })
+        .then(addCard)
         .catch((err: unknown) => {
           patchCard(card.itemId, before);
           onError(errText(err));
           reload();
         });
     },
-    [board.cards, patchCard, reorderCards, provider, addCard, persistAnchor, onError, reload],
+    [patchCard, provider, addCard, onError, reload],
   );
 
   // ---- the owner picker: a person takes it into work (K4) ----
@@ -165,7 +153,7 @@ export function BacklogBoard({
         return;
       }
       if (plan === "hand-over") {
-        handOver(card, owner.team, null, null);
+        handOver(card, owner.team);
         return;
       }
       // It leaves the backlog at once — the optimistic card is in work, so
@@ -192,32 +180,22 @@ export function BacklogBoard({
     [board, today, patchCard, provider, addCard, onError, handOver],
   );
 
-  // ---- dragging: within a column a reorder, onto another a hand-over ----
+  // ---- dragging: a reorder in the one list, by its neighbours there ----
   const [carried, setCarried] = useState<CardModel | null>(null);
-  const [over, setOver] = useState<Spot | null>(null);
+  const [over, setOver] = useState<number | null>(null);
   const press = useRef<{ card: CardModel; x: number; y: number; moved: boolean } | null>(null);
 
   const drop = useCallback(
-    (card: CardModel, spot: Spot | null) => {
-      if (!spot) {
-        return;
-      }
-      const target = columns.find((c) => c.team === spot.team);
-      if (!target) {
+    (card: CardModel, at: number | null) => {
+      if (at === null) {
         return;
       }
       const plan = dropPlan(
         card.itemId,
-        card.team ?? "",
-        spot.team,
-        target.cards.map((c) => c.itemId),
-        spot.at,
+        list.map((c) => c.itemId),
+        at,
       );
       if (plan.kind === "none") {
-        return;
-      }
-      if (plan.kind === "hand-over") {
-        handOver(card, plan.team, plan.order, plan.anchor);
         return;
       }
       reorderCards(spliceOrder(board.cards.map((c) => c.itemId), plan.order));
@@ -226,7 +204,7 @@ export function BacklogBoard({
         reload();
       });
     },
-    [columns, board.cards, handOver, reorderCards, persistAnchor, onError, reload],
+    [list, board.cards, reorderCards, persistAnchor, onError, reload],
   );
 
   const beginDrag = useCallback(
@@ -274,7 +252,7 @@ export function BacklogBoard({
     [drop, onOpen],
   );
 
-  // ---- adding: born in this column's backlog, parked on its team, last ----
+  // ---- adding: born in the chosen team's backlog, parked, last ----
   const addTo = useCallback(
     (team: string, title: string) => {
       void provider
@@ -286,6 +264,12 @@ export function BacklogBoard({
         .catch((err: unknown) => onError(errText(err)));
     },
     [provider, addCard, onError],
+  );
+
+  // ---- a parent in a card's chain: that planning card's drawer ----
+  const openParent = useCallback(
+    (uid: string) => void openPlanning(provider, uid, onOpen, onError),
+    [provider, onOpen, onError],
   );
 
   // ---- the size: weighed where the work is being weighed up ----
@@ -367,31 +351,22 @@ export function BacklogBoard({
           onRemove={() => {}}
         />
       </div>
-      <div className="backlog-columns">
-        {columns.map(({ team, cards }) => {
-          const held = cards.filter((c) => c.itemId !== carried?.itemId);
-          const landing = carried && over?.team === team ? carried : null;
-          return (
-            <section className="backlog-column" key={team || "\nnone"} aria-label={`${team || "No team"} backlog`}>
-              <header className="backlog-column-head">
-                <span className="backlog-column-dot" style={{ background: teamColor(team) }} aria-hidden="true" />
-                <span className="backlog-column-name" title={team || "no team"}>
-                  {team || "No team"}
-                </span>
-                <span className="backlog-column-count">{cards.length}</span>
-              </header>
-              <div
-                className={`backlog-column-body${landing ? " backlog-column-over" : ""}`}
-                data-backlog-team={team}
-              >
+      <section className="backlog-list" aria-label="Backlog">
+        <div className={`backlog-list-body${carried ? " backlog-list-over" : ""}`} data-backlog-list="">
+          {(() => {
+            const held = list.filter((c) => c.itemId !== carried?.itemId);
+            const landing = carried && over !== null ? carried : null;
+            return (
+              <>
                 {held.map((c, i) => (
                   <div key={c.itemId}>
-                    {landing && over?.at === i && <Landing card={landing} />}
+                    {landing && over === i && <Landing card={landing} />}
                     <BacklogRow
                       card={c}
                       onPointerDown={beginDrag(c)}
                       onRemove={() => remove(c)}
                       onPickSize={openSizer}
+                      onOpenParent={openParent}
                       owner={
                         <OwnerPicker
                           current={ownerOf(c)}
@@ -401,29 +376,29 @@ export function BacklogBoard({
                           avatars={avatars}
                           names={names}
                           onPick={(o) => own(c, o)}
-                          title={`Who takes «${c.title}» into work`}
+                          title={`Whose «${c.title}» is: a team keeps it in the backlog, a person takes it into work`}
                         >
+                          <TeamChip team={c.team ?? ""} />
                           <OwnerFace card={c} avatars={avatars} names={names} />
                         </OwnerPicker>
                       }
                     />
                   </div>
                 ))}
-                {landing && (over?.at ?? 0) >= held.length && <Landing card={landing} />}
-                {held.length === 0 && !landing && (
-                  <p className="backlog-column-empty">Nothing waiting</p>
-                )}
-                <AddCard
-                  placeholder="Add to the backlog…"
-                  forcedTeam={team || null}
-                  allowNoTeam={false}
-                  onCreate={(title) => addTo(team, title)}
-                />
-              </div>
-            </section>
-          );
-        })}
-      </div>
+                {landing && (over ?? 0) >= held.length && <Landing card={landing} />}
+                {held.length === 0 && !landing && <p className="backlog-list-empty">Nothing waiting</p>}
+              </>
+            );
+          })()}
+          <AddCard
+            placeholder="Add to the backlog…"
+            {...adding}
+            onCreate={(title, team) =>
+              addTo("forcedTeam" in adding ? (adding.forcedTeam ?? "") : (team ?? ""), title)
+            }
+          />
+        </div>
+      </section>
       <Dropdown open={!!sizing} anchorRef={sizeAnchor} onClose={() => setSizing(null)} className="backlog-size-menu">
         {SIZE_ORDER.map((sz) => (
           <button
@@ -458,23 +433,19 @@ interface BacklogRowProps {
   onPointerDown: (e: React.PointerEvent) => void;
   onRemove: () => void;
   onPickSize: (card: CardModel, anchor: HTMLElement) => void;
+  onOpenParent: (uid: string) => void;
 }
 
-/** BacklogRow is one wide card: the title first; beside it the nearest
- *  planning card as a tag, the due date when that card has an end, the size
- *  and the owner. */
-function BacklogRow({ card, owner, onPointerDown, onRemove, onPickSize }: BacklogRowProps) {
+/** BacklogRow is one wide card: the title first; on the right the planning
+ *  cards it sits under, the due date when the nearest has an end, the size,
+ *  and its team and owner (the owner picker). */
+function BacklogRow({ card, owner, onPointerDown, onRemove, onPickSize, onOpenParent }: BacklogRowProps) {
   const up = nearestPlanning(card);
   const due = dueOf(card);
   return (
     <div className="backlog-row" data-card={card.itemId} onPointerDown={onPointerDown} title={card.title}>
       <span className="backlog-row-title">{card.title}</span>
-      {up?.type && (
-        <span className="backlog-row-tag" title={`Under the ${up.type} «${up.title}»`}>
-          <KindIcon kind={up.type} size={12} />
-          <span className="backlog-row-tag-text">{up.title}</span>
-        </span>
-      )}
+      <ParentChain chain={parentChain(card)} onOpen={onOpenParent} />
       {due && (
         <span className="backlog-row-due" title={`Due ${due}: the end of «${up?.title ?? ""}»`}>
           due {dueLabel(due)}
@@ -517,5 +488,48 @@ function Landing({ card }: { card: CardModel }) {
     <div className="backlog-row backlog-row-landing">
       <span className="backlog-row-title">{card.title}</span>
     </div>
+  );
+}
+
+/** ParentChain is a card's parent chain, root first — goal, initiative,
+ *  epic — on the right side of the card, each with its kind icon as the
+ *  Roadmap draws it. Every name opens that planning card's drawer; a long one
+ *  is cut short and named whole in its tooltip. */
+export function ParentChain({ chain, onOpen }: { chain: readonly LineageRef[]; onOpen: (uid: string) => void }) {
+  if (chain.length === 0) {
+    return null;
+  }
+  return (
+    <nav className="backlog-row-chain" aria-label="Sits under">
+      {chain.map((r, i) => (
+        <span className="backlog-row-chain-step" key={r.uid}>
+          {i > 0 && (
+            <span className="backlog-row-chain-sep" aria-hidden="true">
+              ›
+            </span>
+          )}
+          <button
+            type="button"
+            className="backlog-row-chain-link"
+            title={`The ${r.type} «${r.title}»`}
+            onClick={() => onOpen(r.uid)}
+          >
+            {r.type && <KindIcon kind={r.type} size={12} />}
+            <span className="backlog-row-chain-text">{r.title}</span>
+          </button>
+        </span>
+      ))}
+    </nav>
+  );
+}
+
+/** TeamChip is the card's team, as a chip in its team's colour — inside the
+ *  owner picker, which is how the card is handed to another team. */
+function TeamChip({ team }: { team: string }) {
+  return (
+    <span className="backlog-row-team" title={team ? `Team ${team}` : "No team"}>
+      <span className="backlog-row-team-dot" style={{ background: teamColor(team) }} aria-hidden="true" />
+      <span className="backlog-row-team-name">{team || "No team"}</span>
+    </span>
   );
 }
