@@ -3,8 +3,7 @@
 // scope and project actions); everything here exists so the UI offers only
 // what the server would accept, and mirrors its outcomes optimistically.
 
-import { addDays } from "./date";
-import { parkable } from "./backlog";
+import { parkable, parkedLocally } from "./backlog";
 import { inPrimary, primaryDomain, rosterDomain, type DomainInfo, type RosterDomains } from "./domains";
 import { isPlanning, isSubtask } from "./subtasks";
 import type { Card, CardPatch, ScopeRef } from "./providers/types";
@@ -105,14 +104,6 @@ export function attachTargets(
     }
   }
   return out;
-}
-
-/** attachSlotDates is the span a week-scheduled card takes when it is
- *  attached to a column: the slot of the week it was taken from — Monday to
- *  Friday, the whole of the week it was owed in. The same dates the server
- *  writes, so the optimistic card does not jump on the re-list. */
-export function attachSlotDates(week: string): { startDate: string; day: string } {
-  return { startDate: week, day: addDays(week, 4) };
 }
 
 /** canBeFiledIntoAColumn reports whether the picker may offer a card a
@@ -232,22 +223,20 @@ export function makeCardPlacements(
   };
   return {
     ...targets,
-    // Parking is not a reassignment: the shelf is the card's own team's, and
-    // every team has one — so there is nothing to pick and nothing to check.
+    // Parking is not a reassignment: the backlog is the card's own team's,
+    // and every team has one — so there is nothing to pick and nothing to
+    // check. It is the same door as every other into the backlog: out of
+    // work, nobody, planned (K1, K3).
     onPark: parkable(card)
       ? () => {
-          deps.patchCard(card.itemId, { parked: true, week: undefined, assignees: [] });
+          deps.patchCard(card.itemId, parkedLocally());
           call(deps.provider.patchCard(card.itemId, { parked: true }));
         }
       : undefined,
     onAttachProject: (project, scope) => {
-      const patch: Partial<Card> = { project, scope };
-      if (!card.startDate && card.week) {
-        // The card takes the slot of the week it was taken from — the same
-        // dates the server writes (attachSlotDates).
-        Object.assign(patch, attachSlotDates(card.week));
-      }
-      deps.patchCard(card.itemId, patch);
+      // The column and nothing else: a task has no week whose slot it could
+      // take (K7), and dates it has are its own.
+      deps.patchCard(card.itemId, { project, scope });
       call(deps.provider.patchCard(card.itemId, { scope, project }));
     },
   };
@@ -432,15 +421,14 @@ export function projectsWithColumns(
  *  a REVIEW waiting on this person — or nothing, for the day board's own
  *  work. The stripe is worth a glance precisely because it marks what
  *  arrived from elsewhere. (A PROJECT board's commitment used to be the
- *  other kind; the day boards and Triage draw no project card any more,
- *  H4.) */
+ *  other kind; the day boards draw no project card any more, H4.) */
 export type CardMark = "review" | "";
 
 /** markOf answers it once, for every board that draws the mark: the day
- *  boards down a card's left edge (Card.tsx: .card-review) and the Triage
- *  board on its own slot. Two boards deciding this separately is how one of
- *  them came to draw no mark at all after the weekly plan — whose band the
- *  stripe used to be — was taken out. */
+ *  boards down a card's left edge (Card.tsx: .card-review). Two boards
+ *  deciding this separately is how one of them came to draw no mark at all
+ *  after the weekly plan — whose band the stripe used to be — was taken
+ *  out. */
 export function markOf(c: Pick<Card, "reviewOf">): CardMark {
   return c.reviewOf ? "review" : "";
 }

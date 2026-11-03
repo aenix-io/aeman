@@ -178,21 +178,20 @@ describe("the Roadmap's two panes", () => {
     expect(html).not.toContain("roadmap-row-drop-");
   });
 
-  it("lists the open work that is not in the tree below it: in work, the shelves by team, unsorted", () => {
+  it("lists the open work that is not in the tree below it: in work, then each team's backlog (K1)", () => {
     const inWork = card({ itemId: "w", title: "Fix the build", team: "core", startDate: today, day: today });
     const shelved = card({ itemId: "b", title: "Someday", team: "core", parked: true });
-    const strip = card({ itemId: "u", title: "Just typed" });
-    const html = draw(board([goal, ini, epic, done, open, inWork, shelved, strip]));
+    const html = draw(board([goal, ini, epic, done, open, inWork, shelved]));
     const at = (s: string) => html.indexOf(s);
     expect(at("Invoices")).toBeLessThan(at(">In work<"));
     expect(at(">In work<")).toBeLessThan(at("Fix the build"));
     expect(at("Fix the build")).toBeLessThan(at(">Backlog · core<"));
     expect(at(">Backlog · core<")).toBeLessThan(at("Someday"));
-    expect(at("Someday")).toBeLessThan(at(">Unsorted<"));
-    expect(at(">Unsorted<")).toBeLessThan(at("Just typed"));
+    // No third section: the strip is gone.
+    expect(html).not.toContain(">Unsorted<");
     // A header is a line on both panes, so the lanes stay in step.
-    expect(html.match(/roadmap-section-label/g)?.length).toBe(3);
-    expect(html.match(/class="roadmap-lane roadmap-lane-section"/g)?.length).toBe(3);
+    expect(html.match(/roadmap-section-label/g)?.length).toBe(2);
+    expect(html.match(/class="roadmap-lane roadmap-lane-section"/g)?.length).toBe(2);
   });
 
   it("filters by nobody's team: a planning card has none", () => {

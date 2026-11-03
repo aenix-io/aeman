@@ -24,7 +24,6 @@ import {
   statusOf,
   ticks,
   visibleLevels,
-  isPlanned,
   sectionOf,
   sectionsOf,
   writeDrop,
@@ -345,25 +344,34 @@ describe("dragging a row on the Roadmap", () => {
 
 describe("the sections below the tree", () => {
   const loosePlanned = card({ itemId: "w1", title: "Fix the build", team: "core", startDate: "2026-03-02", day: "2026-03-02" });
-  const looseWeek = card({ itemId: "w2", title: "Write the post", team: "core", week: "2026-03-02" });
+  const looseSprint = card({ itemId: "w2", title: "Write the post", team: "core", sprintStart: "2026-03-02" });
   const looseSub = card({ itemId: "w1s", title: "A step", parent: "w1", lineage: [{ uid: "w1", title: "Fix the build" }] });
   const parkedCore = card({ itemId: "b1", title: "Someday", team: "core", parked: true });
   const parkedNone = card({ itemId: "b2", title: "Nobody's shelf", parked: true });
-  const strip = card({ itemId: "u1", title: "Just typed" });
   const orphanUnder = card({ itemId: "o1", title: "Under an epic I cannot see", parent: "hidden", lineage: [{ uid: "hidden", type: "epic", title: "Hidden" }] });
 
-  it("files a root by what has been said about it: the tree, in work, a shelf, or unsorted", () => {
+  // K1: a task is in work or in its team's backlog, and the sections are
+  // exactly those two. There is no "unsorted" any more — the Triage strip it
+  // drew is gone, and every door that left a task there parks it (K3).
+  it("files a loose root in work or in its team's backlog, and in nothing else (K1)", () => {
     expect(sectionOf(goal)).toBe("tree");
     expect(sectionOf(task)).toBe("tree"); // under an epic
     expect(sectionOf(orphanUnder)).toBe("tree"); // its lineage names a planning card
     expect(sectionOf(loosePlanned)).toBe("in-work");
-    expect(sectionOf(looseWeek)).toBe("in-work");
+    expect(sectionOf(looseSprint)).toBe("in-work");
     expect(sectionOf(parkedCore)).toBe("backlog");
-    expect(sectionOf(strip)).toBe("unsorted");
+    // Parked wins over dates a direct writer left beside the flag: the
+    // backlog is where it is drawn, once (board.InBacklog).
+    expect(sectionOf(card({ itemId: "x", parked: true, startDate: "2026-03-02" }))).toBe("backlog");
   });
 
-  it("splits the forest's roots into the sections, the shelves grouped by team, and a subtask rides its task", () => {
-    const s = sectionsOf(buildTree([goal, ini, epic, task, loosePlanned, looseSub, parkedNone, parkedCore, strip, looseWeek]));
+  it("reads a week left on a task as nothing (K7)", () => {
+    const weekParked = { ...card({ itemId: "w3", parked: true }), week: "2026-03-02" } as Card;
+    expect(sectionOf(weekParked)).toBe("backlog");
+  });
+
+  it("splits the forest's roots into the sections, the backlogs grouped by team, and a subtask rides its task", () => {
+    const s = sectionsOf(buildTree([goal, ini, epic, task, loosePlanned, looseSub, parkedNone, parkedCore, looseSprint]));
     expect(s.tree.map((n) => n.card.itemId)).toEqual(["g"]);
     expect(s.inWork.map((n) => n.card.itemId)).toEqual(["w1", "w2"]);
     expect(s.inWork[0].children.map((n) => n.card.itemId)).toEqual(["w1s"]);
@@ -371,13 +379,7 @@ describe("the sections below the tree", () => {
       ["", ["b2"]],
       ["core", ["b1"]],
     ]);
-    expect(s.unsorted.map((n) => n.card.itemId)).toEqual(["u1"]);
-  });
-
-  it("says when a card is planned: a day, a week or a sprint", () => {
-    expect(isPlanned(strip)).toBe(false);
-    expect(isPlanned(looseWeek)).toBe(true);
-    expect(isPlanned(card({ sprintStart: "2026-03-02" }))).toBe(true);
+    expect(s).not.toHaveProperty("unsorted");
   });
 });
 

@@ -31,29 +31,29 @@ describe("weekWindow", () => {
   });
 
   it("widens back to hold a card standing before the window", () => {
-    const weeks = weekWindow([{ week: "2026-06-01" }], MON, 0, 0);
+    const weeks = weekWindow([{ startDate: "2026-06-01" }], MON, 0, 0);
     expect(weeks[0]).toBe("2026-06-01");
     expect(weeks[weeks.length - 1]).toBe("2026-10-26");
   });
 
   it("widens forward past a card that ends beyond it, with a runway to drag into", () => {
     // The card ends in the week of 2026-11-02; the window runs two weeks on.
-    const weeks = weekWindow([{ week: "2026-10-19", day: "2026-11-06" }], MON, 0, 0);
+    const weeks = weekWindow([{ startDate: "2026-10-19", day: "2026-11-06" }], MON, 0, 0);
     expect(weeks[weeks.length - 1]).toBe("2026-11-16");
   });
 
-  it("measures the runway from a card's end, not from its week", () => {
-    const short = weekWindow([{ week: "2026-11-30" }], MON, 0, 0);
+  it("measures the runway from a card's end, not from its start", () => {
+    const short = weekWindow([{ startDate: "2026-11-30" }], MON, 0, 0);
     expect(short[short.length - 1]).toBe("2026-12-14");
   });
 
-  it("takes a week that is not a Monday for the Monday of its week", () => {
-    // A card filed by a tool that wrote a Wednesday still lands on its Monday.
-    expect(weekWindow([{ week: "2026-06-03" }], MON, 0, 0)[0]).toBe("2026-06-01");
+  it("takes a start that is not a Monday for the Monday of its week", () => {
+    // A card that starts on a Wednesday still widens the window to its Monday.
+    expect(weekWindow([{ startDate: "2026-06-03" }], MON, 0, 0)[0]).toBe("2026-06-01");
   });
 
   it("leaves a card that already fits alone", () => {
-    expect(weekWindow([{ week: "2026-09-07", day: "2026-09-11" }], MON, 0, 0)).toEqual(
+    expect(weekWindow([{ startDate: "2026-09-07", day: "2026-09-11" }], MON, 0, 0)).toEqual(
       weekWindow([], MON, 0, 0),
     );
   });
@@ -71,7 +71,7 @@ describe("weekWindow", () => {
   it("keeps whichever reaches further — the reader's weeks or the cards'", () => {
     // Asking for eight more weeks back reaches 2026-06-22; the card reaches
     // further, and the card wins. Neither ever shortens the window.
-    const weeks = weekWindow([{ week: "2026-06-01" }], MON, 8, 0);
+    const weeks = weekWindow([{ startDate: "2026-06-01" }], MON, 8, 0);
     expect(weeks[0]).toBe("2026-06-01");
   });
 });
@@ -155,53 +155,52 @@ describe("rowPx", () => {
 describe("extentOf", () => {
   const weeks = weekWindow([], MON, 0, 0); // 2026-08-17 … 2026-10-26
 
-  it("puts a card in the row of its week", () => {
-    expect(extentOf({ week: "2026-08-31" }, weeks)).toEqual({ row: 2, span: 1 });
+  it("puts a card in the row of its start's week", () => {
+    expect(extentOf({ startDate: "2026-08-31" }, weeks)).toEqual({ row: 2, span: 1 });
   });
 
-  it("starts a card where its start date says, not where its week does", () => {
-    // The start date is the truth; the week is only a fallback for a card
-    // that never got one.
-    expect(extentOf({ week: "2026-08-31", startDate: "2026-09-14" }, weeks)).toEqual({
-      row: 4,
-      span: 1,
-    });
+  it("reads a week left on a card as nothing: its start date is its row (K7)", () => {
+    // A project card's row was always its start; the week that used to stand
+    // in for a card with none is gone with the weekly plan.
+    const stale = { week: "2026-08-31", startDate: "2026-09-14" } as Parameters<typeof extentOf>[0];
+    expect(extentOf(stale, weeks)).toEqual({ row: 4, span: 1 });
+    expect(extentOf({ week: "2026-08-31" } as Parameters<typeof extentOf>[0], weeks)).toBeNull();
   });
 
   it("covers every week a stretched card reaches", () => {
-    expect(extentOf({ week: "2026-08-31", day: "2026-09-18" }, weeks)).toEqual({
+    expect(extentOf({ startDate: "2026-08-31", day: "2026-09-18" }, weeks)).toEqual({
       row: 2,
       span: 3,
     });
   });
 
   it("gives one row to a card whose end falls in its own week", () => {
-    expect(extentOf({ week: "2026-08-31", day: "2026-09-04" }, weeks)).toEqual({
+    expect(extentOf({ startDate: "2026-08-31", day: "2026-09-04" }, weeks)).toEqual({
       row: 2,
       span: 1,
     });
   });
 
   it("gives one row to a card whose end was left behind its start", () => {
-    expect(extentOf({ week: "2026-08-31", day: "2026-08-20" }, weeks)).toEqual({
+    expect(extentOf({ startDate: "2026-08-31", day: "2026-08-20" }, weeks)).toEqual({
       row: 2,
       span: 1,
     });
   });
 
   it("stops a card that would run past the last week at the edge", () => {
-    expect(extentOf({ week: "2026-10-19", day: "2026-12-25" }, weeks)).toEqual({
+    expect(extentOf({ startDate: "2026-10-19", day: "2026-12-25" }, weeks)).toEqual({
       row: 9,
       span: 2,
     });
   });
 
   it("does not place a card standing before the window", () => {
-    expect(extentOf({ week: "2026-08-10" }, weeks)).toBeNull();
+    expect(extentOf({ startDate: "2026-08-10" }, weeks)).toBeNull();
   });
 
   it("does not place a card standing after it", () => {
-    expect(extentOf({ week: "2026-11-02" }, weeks)).toBeNull();
+    expect(extentOf({ startDate: "2026-11-02" }, weeks)).toBeNull();
   });
 
   it("does not place a card with no dates", () => {
@@ -209,7 +208,7 @@ describe("extentOf", () => {
   });
 
   it("places nothing on a grid with no weeks", () => {
-    expect(extentOf({ week: MON }, [])).toBeNull();
+    expect(extentOf({ startDate: MON }, [])).toBeNull();
   });
 
   it("takes the first day of the week a mid-week date falls in", () => {

@@ -175,7 +175,8 @@ const errText = (err: unknown) => (err instanceof Error ? err.message : String(e
 
 /** childLevels is what the + on a planning row may make under it: the
  *  levels below its own, and under an epic a TASK — born with no team and
- *  no day, it stands in the Triage strip until somebody plans it (H7). */
+ *  no day, it is parked in the no-team backlog until somebody takes it into
+ *  work (H7, K3). */
 function childLevels(kind: RoadmapKind): (CardType | "task")[] {
   if (kind === "goal") {
     return ["initiative", "epic"];
@@ -480,7 +481,6 @@ export function RoadmapBoard({
     for (const shelf of sections.backlog) {
       add("backlog", `${SECTION_LABEL.backlog} · ${shelf.team || "no team"}`, shelf.nodes, `backlog-${shelf.team}`);
     }
-    add("unsorted", SECTION_LABEL.unsorted, sections.unsorted, "unsorted");
     return out;
   };
   const baseLines = useMemo(() => lines(shown), [shown, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -660,8 +660,8 @@ export function RoadmapBoard({
 
   // ---- the owner: whose is this task, and where does that put it ----
   // The pair goes to the `own` gesture, which files loose work where the
-  // pair says (a person's on their board today, a team's on its shelf,
-  // nobody's back to the strip); the board applies the team and the person
+  // pair says (a person's on their board today, a team's in its backlog,
+  // nobody's in the no-team backlog, K3); the board applies the team and the person
   // at once and takes the rest — the day, the band, the sprint, the shelf —
   // from the answer.
   const members = useMemo(() => board.members.map((m) => m.login), [board.members]);

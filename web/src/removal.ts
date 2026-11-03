@@ -93,8 +93,6 @@ export interface RemovalHomes {
   /** Read by nothing here on purpose: a bare project name is a label, not a
    *  home. It is in the shape so a card can be passed whole. */
   project?: string;
-  /** A week is a home: the Triage board draws every card that has one. */
-  week?: string;
   sprintStart?: string;
   startDate?: string;
   day?: string;
@@ -117,11 +115,15 @@ export function hasColumn(c: RemovalHomes): boolean {
  *  card in a column is nobody's subtask now, H4.) */
 export type Outcome = "leave" | "delete";
 
-/** gridRemoval mirrors boardservice.Remove(from="grid"), in its order: a
- *  card scheduled for a WEEK goes back to that week on the Triage board;
- *  otherwise its column keeps it, or nothing does and it is deleted. One
- *  function so every board asks the same question — the Me board used to
- *  answer it differently and hard-deleted what the Team board kept. */
+/** gridRemoval mirrors boardservice.Remove with no intent, in its order: a
+ *  subtask is deleted; a project card's column keeps it; anything else had
+ *  nowhere else to be and is deleted. One function so every board asks the
+ *  same question — the Me board used to answer it differently and
+ *  hard-deleted what the Team board kept.
+ *
+ *  A task has no week to be sent back to (K7). Keeping the work is the
+ *  BACKLOG answer, which the dialog offers (removeChoices) and the board
+ *  sends as the unassign intent — never something this × does unasked. */
 export function gridRemoval(
   c: RemovalHomes & Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent" | "lineage">,
   _ctx: RemovalContext,
@@ -136,20 +138,6 @@ export function gridRemoval(
   // taken off (H1).
   if (isSubtask(c)) {
     return "delete";
-  }
-  // A card with a WEEK still has the Triage board to be on: taking it off
-  // the day grid puts it back in that week rather than destroying it. Only
-  // while it IS in the working area, though — a card that is nothing but its
-  // week has no second home to be handed to, and an × that always answered
-  // "back to your week" could never remove one at all.
-  //
-  // This mirrors boardservice.removeFromGrid exactly. It once said only
-  // `if (c.week)` while the server had moved on — so the dialog promised a
-  // card already in Unassigned that it would be moved to Unassigned, and the
-  // server deleted it. The card vanished under a sentence saying it would
-  // not.
-  if (c.week && !hasColumn(c) && inWorkingArea(c)) {
-    return "leave";
   }
   return hasColumn(c) ? "leave" : "delete";
 }
@@ -179,8 +167,10 @@ export function asksFirst(
 }
 
 /** RemoveChoice is one of the things an × can mean, and the dialog offers the
- *  card's own list of them (removeChoices). "backlog" is the answer that
- *  destroys nothing: the work is kept, off the plan, on its team's shelf.
+ *  card's own list of them (removeChoices). "backlog" is a TASK's answer that
+ *  destroys nothing: the work goes back to its team's backlog — parked,
+ *  nobody, no day, no sprint (K3); the board sends it as the unassign
+ *  intent. "unassign" is a PROJECT card's: its column keeps it.
  *
  *  The hierarchy's × has two answers of its own (roadmap.hierarchyChoices):
  *  "detach" takes the card out from under its parent and changes nothing
@@ -198,30 +188,26 @@ export type RemoveChoice =
 /** removeChoices is what the × may do to this card WHERE IT STANDS, most
  *  destructive first, and the × is drawn only where the list is not empty.
  *
- *  The gesture used to work this out for itself and do the one thing it
- *  decided: a card with a week was always handed back to that week, so taking
- *  one off the board took two presses — the second landing on a card that no
- *  longer looked like the one the person meant to remove. The choice is
- *  theirs now, and it is narrow on purpose:
- *
- *  - An ordinary card can go OFF THE BOARD. If it also has somewhere to be
- *    left — a week, a column — and it is standing in the working area, it can
- *    be UNASSIGNED into that instead.
+ *  - A TASK can go OFF THE BOARD, or back to its team's BACKLOG (K3): the
+ *    answer that destroys nothing, and one that is always there to go to —
+ *    so it is offered whoever holds the card and whatever dates it has. It
+ *    used to be "move it to Unassigned, back in its week", offered only to
+ *    a card with a week; a task has no week now (K7), and the two answers
+ *    that kept the work are one.
  *  - A PROJECT card can only be unassigned: it is the Project board's
- *    commitment and not this board's to destroy. Once already unassigned it
- *    has no × at all — an × that does nothing reads as a delete that failed.
- *  - A SUBTASK is its own case: the × takes it OUT OF THE GROUP when it has a
- *    column to be left in, and off the board when it has not.
- *  - And the BACKLOG stands under all of them, wherever the card could be
- *    parked: the answer that destroys nothing. It is LAST because the list is
- *    read most-destructive-first and, more to the point, because the × acting
- *    unasked takes the first answer — a card made today at 0% is still
- *    deleted without ceremony, as it always was, rather than quietly shelved.
+ *    commitment and not this board's to destroy, and its column keeps it.
+ *    Once already unassigned it has no × at all — an × that does nothing
+ *    reads as a delete that failed.
+ *  - A SUBTASK goes off the board: standing under its parent is not a place
+ *    of its own to be kept in.
  *
- *  Parking is not offered for work another board owns (a slot), for a card
- *  already on the shelf, or for a SUBTASK or a REVIEW: those two follow
- *  the card they belong to, and parking one alone would put it where nothing
- *  draws it — out of sight of the very card it is part of.
+ *  The backlog is LAST because the list is read most-destructive-first and,
+ *  more to the point, because the × acting unasked takes the first answer —
+ *  a card made here at 0% is still deleted without ceremony rather than
+ *  quietly parked. It is not offered for a card already in its backlog, nor
+ *  for a REVIEW: that follows the card it reviews, and parking it alone
+ *  would put it where nothing draws it (the server refuses it,
+ *  noPlaceOfItsOwn).
  *
  *  FINISHED EARLIER is the last of them, and the narrowest: work that was done
  *  in the sprint before this one and only marked done now. An engineer
@@ -258,18 +244,13 @@ export function removeChoices(
     !hasColumn(c)
       ? ["finished-earlier"]
       : [];
-  // Unassigned is where a card with NOBODY on it stands, and that — not its
-  // dates — is what the option would change. A card already there was being
-  // offered a move to the column it was in: the day grid draws a dated card
-  // nobody has taken in Unassigned too, so reading "in the working area" as
-  // "not in Unassigned" answered a different question than the one asked.
-  const somewhereElse = hasColumn(c) || !!c.week;
-  const unassign: RemoveChoice[] =
-    somewhereElse && (c.assignees?.length ?? 0) > 0 ? ["unassign"] : [];
+  // A PROJECT card's answer is its column. Unassigned is where one with
+  // NOBODY on it stands, and that — not its dates — is what the option would
+  // change, so one already there is offered nothing.
   if (hasColumn(c)) {
-    return unassign;
+    return (c.assignees?.length ?? 0) > 0 ? ["unassign"] : [];
   }
-  return ["off-board", ...unassign, ...finishedEarlier, ...shelve];
+  return ["off-board", ...finishedEarlier, ...shelve];
 }
 
 /** offersRemoval reports whether the × is drawn at all: only where it has
@@ -335,4 +316,21 @@ export function subtaskRemovalUndo(c: SubtaskUndo): SubtaskUndo {
     startDate: c.startDate,
     day: c.day,
   };
+}
+
+/** removeIntent is the intent an × answer is sent to the remove action as,
+ *  or null for an answer that is a gesture of its own (finished-earlier, the
+ *  hierarchy's two). Both KEEPING answers are the server's unassign: it parks
+ *  a task in its team's backlog — nobody, no day, no sprint (K3) — and leaves
+ *  a project card in its column. */
+export function removeIntent(choice: RemoveChoice): "unassign" | "off-board" | null {
+  switch (choice) {
+    case "backlog":
+    case "unassign":
+      return "unassign";
+    case "off-board":
+      return "off-board";
+    default:
+      return null;
+  }
 }

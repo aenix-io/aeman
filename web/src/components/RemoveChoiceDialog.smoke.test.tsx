@@ -39,4 +39,20 @@ describe("the choice dialog, asked by the hierarchy's ×", () => {
     const html = draw(["off-board", "backlog"]);
     expect(html).toContain("Remove from the board?");
   });
+
+  // K3: the keeping answer of a task's × is its team's backlog, and the
+  // dialog says so — not "back in its week", which a task no longer has.
+  it("says the backlog answer puts the task back in its team's backlog, with no week", () => {
+    const html = draw(["off-board", "backlog"]);
+    expect(html).toContain("Send it back to the backlog");
+    expect(html).toContain("its team&#x27;s backlog");
+    expect(html).not.toMatch(/week/i);
+  });
+
+  it("says a project card's Unassigned answer leaves it in its column", () => {
+    const html = draw(["unassign"]);
+    expect(html).toContain("Move it to Unassigned");
+    expect(html).toContain("its column");
+    expect(html).not.toMatch(/week/i);
+  });
 });

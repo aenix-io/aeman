@@ -39,7 +39,8 @@ const card = (over: Partial<Card> = {}): Card =>
     stage: "",
     project: "cozy",
     scope: "Storage",
-    week,
+    // A slot's row is its start's week (a task has no week, K7).
+    startDate: week,
     ...over,
   }) as Card;
 

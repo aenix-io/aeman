@@ -6,15 +6,15 @@ import type { Card } from "./providers/types";
 const card = (over: Partial<Card> = {}): Card =>
   ({ itemId: "c1", title: "A card", assignees: [], ...over }) as Card;
 
-// The shelf is the third place a card can be, and the board must not offer to
-// put work somewhere the server would refuse.
+// A task is in work or in its team's backlog (K1), and the board must not
+// offer to put work in a backlog where the server would refuse it.
 
 describe("what may be parked", () => {
   it("takes ordinary work", () => {
     expect(parkable(card())).toBe(true);
   });
 
-  // Its week is another board's to say: a slot's follows its start date.
+  // Its place is another board's to say: a slot's row follows its start date.
   it("refuses a project card", () => {
     expect(parkable(card({ scope: "Auth" }))).toBe(false);
   });
@@ -69,13 +69,22 @@ describe("the patch a drop on a shelf writes", () => {
 // answers. It has to be everything SetBacklog does, or the card sits wrong
 // until the round trip lands — and stays wrong if the write fails.
 describe("the optimistic shape of a parked card", () => {
-  it("empties the working area and makes the work planned", () => {
+  // K1: parked means out of work — no person, no day, no sprint. A shape that
+  // kept the dates would be in both places at once, and the Backlog board
+  // would draw a card the Team board's next frame also drew.
+  it("takes it out of work: nobody, no day, no sprint, planned (K1, K3)", () => {
     expect(parkedLocally()).toEqual({
       parked: true,
       zone: "gray",
-      week: undefined,
       assignees: [],
+      startDate: undefined,
+      day: undefined,
+      sprintStart: undefined,
     });
+  });
+
+  it("says nothing about a week: a task has none (K7)", () => {
+    expect(parkedLocally()).not.toHaveProperty("week");
   });
 
   // The zone is the half that was missing: the drawer draws a card by its

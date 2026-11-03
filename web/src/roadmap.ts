@@ -75,55 +75,44 @@ export function buildTree(cards: readonly Card[]): RoadmapNode[] {
 /** RoadmapSection is where a root of the forest is drawn. The TREE is the
  *  hierarchy: every planning card and everything under one. Below it, after
  *  everything else, stands the open work that is not in the tree yet — the
- *  roadmap listing carries it so a lead can file it (H9): IN WORK is what
- *  the day boards draw (a card with a day, a week or a sprint), BACKLOG is
- *  what is parked on a team's shelf, UNSORTED is the strip — a card with no
- *  plan and no team, nobody's yet. */
-export type RoadmapSection = "tree" | "in-work" | "backlog" | "unsorted";
+ *  roadmap listing carries it so a lead can file it (H9) — in the two places
+ *  a task can be (K1): IN WORK is what the day boards draw (a card with a
+ *  date or a sprint), BACKLOG is what is parked in a team's backlog. There
+ *  is no third: the Triage strip ("unsorted") is gone, and every door that
+ *  left a task there parks it instead (K3). */
+export type RoadmapSection = "tree" | "in-work" | "backlog";
 
 export const SECTION_LABEL: Record<Exclude<RoadmapSection, "tree">, string> = {
   "in-work": "In work",
   backlog: "Backlog",
-  unsorted: "Unsorted",
 };
-
-/** isPlanned reports a card somebody has said WHEN for — a day, a week or a
- *  sprint — which is what puts it on a day board. Mirrors the server's
- *  "unplanned" in the own gesture (hierarchy.md, "Owner"). */
-export function isPlanned(c: Pick<Card, "startDate" | "day" | "week" | "sprintStart">): boolean {
-  return !!(c.startDate || c.day || c.week || c.sprintStart);
-}
 
 /** sectionOf is the section a ROOT card is drawn in: the tree for a planning
  *  card or a card with a planning ancestor (its lineage names one — a root
  *  with such a lineage is a card whose parent the reader may not see, and
- *  it stays in the tree rather than reading as loose work); else the shelf
- *  it is parked on, the day boards it is planned for, or the strip. A
- *  subtask is never asked: it rides its task into whichever section. */
-export function sectionOf(
-  c: Pick<Card, "type" | "lineage" | "parked" | "startDate" | "day" | "week" | "sprintStart">,
-): RoadmapSection {
+ *  it stays in the tree rather than reading as loose work); else the
+ *  backlog it is parked in, or in work. Parked is read as board.InBacklog
+ *  reads it — the flag — so a card a direct writer left with the flag AND
+ *  dates is drawn once, in the backlog. A subtask is never asked: it rides
+ *  its task into whichever section. */
+export function sectionOf(c: Pick<Card, "type" | "lineage" | "parked">): RoadmapSection {
   if (isPlanning(c) || (c.lineage ?? []).some((up) => !!up.type)) {
     return "tree";
   }
-  if (c.parked) {
-    return "backlog";
-  }
-  return isPlanned(c) ? "in-work" : "unsorted";
+  return c.parked ? "backlog" : "in-work";
 }
 
 /** RoadmapSections is the forest split by section: the tree's roots, then
- *  the loose roots — in work, on a shelf (grouped by team, the way the
- *  Triage board draws the shelves; "" is the no-team shelf), unsorted. */
+ *  the loose roots — in work, then each team's backlog (grouped by team, the
+ *  way the Backlog board draws its columns; "" is the no-team group). */
 export interface RoadmapSections {
   tree: RoadmapNode[];
   inWork: RoadmapNode[];
   backlog: { team: string; nodes: RoadmapNode[] }[];
-  unsorted: RoadmapNode[];
 }
 
 export function sectionsOf(roots: readonly RoadmapNode[]): RoadmapSections {
-  const out: RoadmapSections = { tree: [], inWork: [], backlog: [], unsorted: [] };
+  const out: RoadmapSections = { tree: [], inWork: [], backlog: [] };
   for (const node of roots) {
     switch (sectionOf(node.card)) {
       case "tree":
@@ -132,7 +121,7 @@ export function sectionsOf(roots: readonly RoadmapNode[]): RoadmapSections {
       case "in-work":
         out.inWork.push(node);
         break;
-      case "backlog": {
+      default: {
         const team = node.card.team ?? "";
         let shelf = out.backlog.find((s) => s.team === team);
         if (!shelf) {
@@ -140,10 +129,7 @@ export function sectionsOf(roots: readonly RoadmapNode[]): RoadmapSections {
           out.backlog.push(shelf);
         }
         shelf.nodes.push(node);
-        break;
       }
-      default:
-        out.unsorted.push(node);
     }
   }
   return out;
@@ -514,7 +500,7 @@ export function allowedParentKinds(kind: RoadmapKind): RoadmapKind[] {
 // (it joins that gap's parent at that place). The level rule decides what
 // may land where (H2), a card never changes its type by being dragged, and
 // the tree shows the subtree where it WOULD land before the pointer is
-// released — the preview is the moved rows themselves, as the Triage board
+// released — the preview is the moved rows themselves, as the Backlog board
 // draws a card where it would land.
 
 /** DropZone is where on the hovered row the dragged row stands: its top

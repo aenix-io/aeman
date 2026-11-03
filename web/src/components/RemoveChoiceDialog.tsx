@@ -38,7 +38,7 @@ function say(choice: RemoveChoice) {
     case "unassign":
       return {
         label: "Move it to Unassigned",
-        note: "It comes off the day — nobody’s, no dates — and stands in the week it is scheduled for.",
+        note: "Nobody holds it any more; it stays in its column on the Project board.",
         danger: false,
       };
     case "ungroup":
@@ -55,8 +55,8 @@ function say(choice: RemoveChoice) {
       };
     case "backlog":
       return {
-        label: "Send it to the backlog",
-        note: "Off the plan, kept on its team's shelf — nothing is lost, and nobody is holding it.",
+        label: "Send it back to the backlog",
+        note: "Out of work and back in its team's backlog — nobody, no day, no sprint. Nothing is lost.",
         danger: false,
       };
     default:
@@ -72,10 +72,10 @@ function say(choice: RemoveChoice) {
  *
  *  Every × puts this question, whatever it would do — the exception is a card
  *  made today that nobody has touched, which goes without ceremony
- *  (`asksFirst`). What it offers is the card's own list: an ordinary card can
- *  be taken off the board, and moved to Unassigned when it has a week or a
- *  column to be left in; a project card can only be moved there, since it is
- *  not this board's to destroy. */
+ *  (`asksFirst`). What it offers is the card's own list: a task can be taken
+ *  off the board or sent back to its team's backlog (K3); a project card can
+ *  only be moved to Unassigned, in its column, since it is not this board's
+ *  to destroy. */
 export function RemoveChoiceDialog({
   title,
   progress,

@@ -3,7 +3,6 @@
 // component went on dropping the cards the server now sent — a copy sitting
 // inside a component is a copy nothing tests. Whose card it is (the viewer's,
 // or a parent of theirs) and the board's own toggles stay the caller's.
-import { mondayOf } from "./date";
 import { parked } from "./backlog";
 import { activeSprint } from "./sprint";
 import { isComplete } from "./stages";
@@ -12,13 +11,10 @@ import type { Board, Card } from "./providers/types";
 
 /** onMyDay reports whether a card of the viewer's is on their board on a day.
  *
- *  A card planned into a week AHEAD of the day being looked at is on no day
- *  board until its Monday (B1) — judged against that day, as the Team board
- *  judges it. A card PLANNED FOR A WEEK and never dated is there once its week
- *  has come: dropping a card into a week ahead takes its dates and its sprint
- *  away, so when the Monday arrives it has a week and nothing else, and no
- *  carry-over adopts a card with no sprint. Finished, such a card belongs to
- *  the day it was finished on and no other.
+ *  A task PARKED in its team's backlog is on nobody's day: it is waiting to
+ *  be taken into work (K1). A task has no week (K7) — the week gates that
+ *  used to draw a week-only card once its Monday came (D17) are retired, and
+ *  a week an older repository left on a task is read as nothing.
  *
  *  Everything else is the day rule: a deferred card from its day on, a range
  *  across its days, a sprint-less day card from its day, and a sprint's work
@@ -44,14 +40,9 @@ export function onMyDay(
   if (c.scope) {
     return false;
   }
-  if (c.week && c.week > mondayOf(day)) {
-    return false;
-  }
+  // Waiting to be taken into work, not being worked on (K1).
   if (parked(c)) {
     return false;
-  }
-  if (c.week && !c.startDate && !c.day && !c.sprintStart) {
-    return !isComplete(c) || c.doneAt === day;
   }
   // A deferred / future-scheduled card (startDate past today) is hidden
   // until that day, then shows from it on (Carry Over re-syncs its sprint).
