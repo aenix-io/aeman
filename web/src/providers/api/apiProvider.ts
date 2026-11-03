@@ -392,6 +392,13 @@ export const apiProvider: Provider = {
     if (input.noSprint) {
       body.noSprint = true;
     }
+    // Born where it was typed (the backlog's insert "+"): the place rides
+    // the create, one request.
+    if (input.after) {
+      body.after = await resolveCardId(input.after);
+    } else if (input.before) {
+      body.before = await resolveCardId(input.before);
+    }
     return cardFrom(
       client.POST("/views/{view}/cards", { params: { path: { view } }, body }),
     );

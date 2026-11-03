@@ -4235,7 +4235,7 @@ button.card-age {
   min-height: 60px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
   padding: 8px;
   border: 1px dashed var(--line);
   border-radius: 6px;
@@ -4257,8 +4257,55 @@ button.card-age {
   text-align: center;
 }
 
-.backlog-list-body .add-card {
-  margin-top: 2px;
+/* The insert "+": every gap of the list — above the first card, between
+   two, below the last — is a thin strip that shows a round + at its left
+   edge on hover; pressed, the strip opens the add form right there. An
+   empty backlog's one + is always shown. The strips are the spacing
+   between the cards. */
+.backlog-gap {
+  position: relative;
+  flex: none;
+  height: 8px;
+}
+
+.backlog-gap-empty {
+  height: 28px;
+}
+
+.backlog-gap-open {
+  height: auto;
+  margin: 4px 0;
+}
+
+.backlog-insert {
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  translate: 0 -50%;
+  z-index: 2;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 14px;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.backlog-gap:hover .backlog-insert,
+.backlog-gap-empty .backlog-insert,
+.backlog-insert:focus-visible {
+  opacity: 1;
+}
+
+.backlog-insert:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 /* The parent chain, root first, on the right: each name opens its card's

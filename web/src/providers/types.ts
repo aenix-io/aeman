@@ -171,6 +171,11 @@ export interface NewCardInput {
    *  the no-team backlog until taken into work (K3). Client-side only; never
    *  sent. */
   underPlanning?: boolean | null;
+  /** Where a backlog card is born (the insert "+"): right after the card
+   *  `after` names, or right before the card `before` names — one or
+   *  neither. The create places it in the same request. */
+  after?: string | null;
+  before?: string | null;
   /** Force the team's sprint pointer to (re)start on the card's day. */
   startNewSprint?: boolean;
   /** Schedule the card for its day without joining any sprint (a "next

@@ -114,9 +114,11 @@ describe("the Backlog board", () => {
     const row = html.slice(html.indexOf('data-card="p1"'), html.indexOf('data-card="k1"'));
     const take = row.indexOf('class="backlog-take-btn"');
     expect(take).toBeGreaterThan(row.indexOf("owner-badge"));
-    expect(row.slice(take)).not.toMatch(/<button[^>]*class="(?!backlog-take-btn)/);
+    // Right-most ON THE CARD: what follows it is the gap below, not the card.
+    const card = row.slice(take, row.indexOf("data-backlog-gap", take));
+    expect(card).not.toMatch(/<button[^>]*class="(?!backlog-take-btn)/);
     expect(row).toMatch(/<button[^>]*class="backlog-take-btn"[^>]*aria-haspopup="dialog"/);
-    expect(row.slice(take)).not.toContain("owner-picker");
+    expect(card).not.toContain("owner-picker");
     const taken = html.slice(html.indexOf('data-card="k1"'));
     expect(taken).not.toContain("backlog-take-btn");
   });
@@ -183,9 +185,25 @@ describe("the Backlog board", () => {
     }
   });
 
-  it("has ONE add box at the foot of the list", () => {
+  // No add box at the foot of the list: every gap — above the first card,
+  // between two, below the last — has an insert "+" that types a card in
+  // right there (backlogboard.insertSpot), and an empty backlog has one.
+  it("has no add box at the foot, and an insert + in every gap", () => {
     const html = draw(board([first, cozy]));
-    expect(html.match(/class="add-card[ "]/g)?.length).toBe(1);
+    expect(html).not.toMatch(/class="add-card[ "]/);
+    expect(html.match(/data-backlog-gap="/g)?.length).toBe(3);
+    expect(html.match(/<button[^>]*class="backlog-insert"[^>]*aria-label="Add a card here"/g)?.length).toBe(3);
+    // The gaps stand between the rows: one before the first card, one after
+    // the last.
+    expect(html.indexOf('data-backlog-gap="0"')).toBeLessThan(html.indexOf('data-card="p1"'));
+    expect(html.indexOf('data-backlog-gap="2"')).toBeGreaterThan(html.indexOf('data-card="k1"'));
+  });
+
+  it("offers an empty backlog one +, always shown, to add the first card", () => {
+    const html = draw(board([]));
+    expect(html.match(/data-backlog-gap="/g)?.length).toBe(1);
+    expect(html).toContain("backlog-gap backlog-gap-empty");
+    expect(html).not.toMatch(/class="add-card[ "]/);
   });
 
   // K9: nothing of the Triage board — no weeks, no strip, no load.

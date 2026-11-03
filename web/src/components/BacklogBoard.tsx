@@ -11,7 +11,8 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { Board, Card as CardModel, Provider, SizeKey } from "../providers/types";
 import {
-  addBox,
+  insertSpot,
+  insertedOrder,
   backlogList,
   dropPlan,
   dueLabel,
@@ -124,7 +125,6 @@ export function BacklogBoard({
   const today = todayIso();
   const teams = useMemo(() => shownTeams(teamFilter, roster), [teamFilter, roster]);
   const list = useMemo(() => backlogList(board.cards, teams), [board.cards, teams]);
-  const adding = useMemo(() => addBox(teams), [teams]);
   const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
 
   // ---- writing a place: a move by its neighbour ----
@@ -301,19 +301,60 @@ export function BacklogBoard({
     [drop, onOpen],
   );
 
-  // ---- adding: born in the chosen team's backlog, parked, last ----
-  const addTo = useCallback(
-    (team: string, title: string) => {
+  // ---- adding: the insert "+" in a gap, born there in ONE create ----
+  // The create names its place (after the card above the gap, or before the
+  // card below it at the top) and the server places it in the same request;
+  // the board shows it in place the moment the answer arrives.
+  const [inserting, setInserting] = useState<number | null>(null);
+  const insertAt = useCallback(
+    (at: number, team: string, title: string) => {
+      const { anchor } = insertSpot(list, at, teams);
       void provider
-        .createCard({ title, team: team || null, parked: true })
+        .createCard({
+          title,
+          team: team || null,
+          parked: true,
+          after: anchor && "after" in anchor ? anchor.after : null,
+          before: anchor && "before" in anchor ? anchor.before : null,
+        })
         .then((card) => {
           noteMade(card.itemId);
           addCard(card);
+          reorderCards(insertedOrder([...board.cards.map((c) => c.itemId), card.itemId], card.itemId, anchor));
         })
         .catch((err: unknown) => onError(errText(err)));
     },
-    [provider, addCard, onError],
+    [list, teams, provider, addCard, reorderCards, board.cards, onError],
   );
+  const gap = (at: number, empty = false) => {
+    if (inserting === at) {
+      const { box } = insertSpot(list, at, teams);
+      return (
+        <div key={`gap-${at}`} className="backlog-gap backlog-gap-open" data-backlog-gap={at}>
+          <AddCard
+            placeholder="Add to the backlog…"
+            autoOpen
+            {...box}
+            onCreate={(title, team) => insertAt(at, "forcedTeam" in box ? (box.forcedTeam ?? "") : (team ?? ""), title)}
+            onClosed={() => setInserting(null)}
+          />
+        </div>
+      );
+    }
+    return (
+      <div key={`gap-${at}`} className={`backlog-gap${empty ? " backlog-gap-empty" : ""}`} data-backlog-gap={at}>
+        <button
+          type="button"
+          className="backlog-insert"
+          aria-label="Add a card here"
+          title="Add a card here"
+          onClick={() => setInserting(at)}
+        >
+          +
+        </button>
+      </div>
+    );
+  };
 
   // ---- a parent in a card's chain: that planning card's drawer ----
   const openParent = useCallback(
@@ -443,8 +484,9 @@ export function BacklogBoard({
             const landing = carried && over !== null ? carried : null;
             return (
               <>
+                {!carried && gap(0, held.length === 0)}
                 {held.map((c, i) => (
-                  <div key={c.itemId}>
+                  <div key={c.itemId} className="backlog-slot">
                     {landing && over === i && <Landing card={landing} />}
                     <BacklogRow
                       card={c}
@@ -455,6 +497,7 @@ export function BacklogBoard({
                       owner={ownerControls(c)}
                       onTake={c.assignees.length === 0 ? () => setTaking(c) : undefined}
                     />
+                    {!carried && gap(i + 1)}
                   </div>
                 ))}
                 {landing && (over ?? 0) >= held.length && <Landing card={landing} />}
@@ -462,13 +505,6 @@ export function BacklogBoard({
               </>
             );
           })()}
-          <AddCard
-            placeholder="Add to the backlog…"
-            {...adding}
-            onCreate={(title, team) =>
-              addTo("forcedTeam" in adding ? (adding.forcedTeam ?? "") : (team ?? ""), title)
-            }
-          />
         </div>
       </section>
       <Dropdown open={!!sizing} anchorRef={sizeAnchor} onClose={() => setSizing(null)} className="backlog-size-menu">

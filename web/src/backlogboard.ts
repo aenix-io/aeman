@@ -148,19 +148,55 @@ export function dropPlan(id: string, list: readonly string[], at: number): Backl
   return { kind: "reorder", order, anchor: anchorFor(order, id) };
 }
 
-/** AddBox is what the one add box at the foot of the list offers: with one
- *  team shown, that team and no selector (forcedTeam); with several, a
- *  selector of them starting on the FIRST shown team — the no-team group
- *  among them when it is shown. AddCard's own props. */
+/** AddBox is what an insert "+" offers once opened: with one team shown,
+ *  that team and no selector (forcedTeam); with several, a selector of them
+ *  — the no-team group among them when it is shown — starting on
+ *  initialTeam. AddCard's own props. */
 export type AddBox =
   | { forcedTeam: string | null }
   | { teams: string[]; allowNoTeam: boolean; initialTeam: string | null };
 
-export function addBox(teams: readonly string[]): AddBox {
+/** InsertSpot is what the "+" in one gap of the list does: the place it
+ *  names in the create (after the card above, or before the card below at
+ *  the top; nothing in an empty backlog, where the card is simply the
+ *  first), and the team box it opens with — starting on the team of the
+ *  card above when that team is shown, else the first shown team. */
+export interface InsertSpot {
+  anchor: Anchor;
+  box: AddBox;
+}
+
+/** insertSpot reads the gap `at` of the list as drawn: 0 is above the
+ *  first card, list.length below the last. */
+export function insertSpot(list: readonly Pick<Card, "itemId" | "team">[], at: number, teams: readonly string[]): InsertSpot {
+  const above = at > 0 ? list[at - 1] : undefined;
+  const below = at < list.length ? list[at] : undefined;
+  const anchor: Anchor = above ? { after: above.itemId } : below ? { before: below.itemId } : null;
   if (teams.length === 1) {
-    return { forcedTeam: teams[0] || null };
+    return { anchor, box: { forcedTeam: teams[0] || null } };
   }
-  return { teams: teams.filter((t) => t !== ""), allowNoTeam: teams.includes(""), initialTeam: teams[0] || null };
+  const aboveTeam = above?.team ?? "";
+  const start = above && teams.includes(aboveTeam) ? aboveTeam : (teams[0] ?? "");
+  return {
+    anchor,
+    box: { teams: teams.filter((t) => t !== ""), allowNoTeam: teams.includes(""), initialTeam: start || null },
+  };
+}
+
+/** insertedOrder is the board-wide order with a card just made at an insert
+ *  "+": right after the card above it, right before the card below it at
+ *  the top, last with no place — what the board shows until the server's
+ *  Ordering frame says the same. */
+export function insertedOrder(all: readonly string[], id: string, anchor: Anchor): string[] {
+  const rest = all.filter((x) => x !== id);
+  if (!anchor) {
+    return [...rest, id];
+  }
+  const at = "after" in anchor ? rest.indexOf(anchor.after) + 1 : rest.indexOf(anchor.before);
+  if (at < 0 || ("after" in anchor && at === 0)) {
+    return [...rest, id];
+  }
+  return [...rest.slice(0, at), id, ...rest.slice(at)];
 }
 
 /** ownPlan is what the owner picker does on a backlog card. A PERSON takes

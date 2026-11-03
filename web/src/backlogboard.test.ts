@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  addBox,
   anchorFor,
   backlogList,
   dropPlan,
@@ -20,6 +19,8 @@ import {
   takeOwner,
   spliceOrder,
   takenIntoWorkLocally,
+  insertSpot,
+  insertedOrder,
 } from "./backlogboard";
 import type { Card, LineageRef } from "./providers/types";
 
@@ -192,19 +193,66 @@ describe("what a drop does (K5)", () => {
 // that team and asks nothing; with several, a team selector stands beside it
 // and starts on the FIRST selected team. The task is parked on the chosen
 // team, last.
-describe("the add box", () => {
-  it("adds to the only selected team and offers no selector", () => {
-    expect(addBox(["portal"])).toEqual({ forcedTeam: "portal" });
-    expect(addBox([""])).toEqual({ forcedTeam: null });
+// THE INSERT "+": there is no add box at the foot of the list; every gap —
+// above the first card, between two, below the last — has a "+" that types
+// a card in RIGHT THERE. The create names its place in the same request
+// (after the card above the gap, or before the card below it at the top),
+// and the team it is parked on defaults to the card above's, else the first
+// shown team; with one team shown there is nothing to choose.
+describe("the insert +", () => {
+  const list = [
+    card({ itemId: "a", team: "portal" }),
+    card({ itemId: "b", team: "cozystack" }),
+  ];
+
+  it("places a card typed between two right after the one above it", () => {
+    expect(insertSpot(list, 1, ["portal", "cozystack"]).anchor).toEqual({ after: "a" });
+    expect(insertSpot(list, 2, ["portal", "cozystack"]).anchor).toEqual({ after: "b" });
   });
 
-  it("offers the selected teams, starting on the first", () => {
-    expect(addBox(["cozystack", "portal"])).toEqual({ teams: ["cozystack", "portal"], allowNoTeam: false, initialTeam: "cozystack" });
+  it("places a card typed above the first right before it", () => {
+    expect(insertSpot(list, 0, ["portal", "cozystack"]).anchor).toEqual({ before: "a" });
   });
 
-  it("offers the no-team group when it is selected, and starts on it when it is first", () => {
-    expect(addBox(["portal", ""])).toEqual({ teams: ["portal"], allowNoTeam: true, initialTeam: "portal" });
-    expect(addBox(["", "portal"])).toEqual({ teams: ["portal"], allowNoTeam: true, initialTeam: null });
+  it("names no place in an empty backlog: its one + adds the first card", () => {
+    expect(insertSpot([], 0, ["portal"]).anchor).toBeNull();
+  });
+
+  it("starts the team on the card above's, when that team is shown", () => {
+    expect(insertSpot(list, 2, ["portal", "cozystack"]).box).toEqual({
+      teams: ["portal", "cozystack"],
+      allowNoTeam: false,
+      initialTeam: "cozystack",
+    });
+  });
+
+  it("starts on the first shown team above the first card, or when the card above's team is not shown", () => {
+    expect(insertSpot(list, 0, ["cozystack", "portal"]).box).toMatchObject({ initialTeam: "cozystack" });
+    expect(insertSpot([card({ itemId: "x", team: "gone" })], 1, ["portal", "cozystack"]).box).toMatchObject({
+      initialTeam: "portal",
+    });
+  });
+
+  it("offers no choice with one team shown, the no-team group included", () => {
+    expect(insertSpot(list, 1, ["portal"]).box).toEqual({ forcedTeam: "portal" });
+    expect(insertSpot([], 0, [""]).box).toEqual({ forcedTeam: null });
+  });
+
+  it("offers the no-team group when it is shown, and starts on it below a no-team card", () => {
+    expect(insertSpot([card({ itemId: "n", team: undefined })], 1, ["portal", ""]).box).toEqual({
+      teams: ["portal"],
+      allowNoTeam: true,
+      initialTeam: null,
+    });
+  });
+
+  // The board shows the new card in place at once: in the board-wide order,
+  // right after the card above, or right before the card below at the top.
+  it("draws the made card in its place in the board's order before the server says so", () => {
+    expect(insertedOrder(["x", "a", "y", "b"], "n", { after: "a" })).toEqual(["x", "a", "n", "y", "b"]);
+    expect(insertedOrder(["x", "a", "y", "b"], "n", { before: "a" })).toEqual(["x", "n", "a", "y", "b"]);
+    expect(insertedOrder(["x", "a"], "n", null)).toEqual(["x", "a", "n"]);
+    expect(insertedOrder(["x", "a", "n"], "n", { after: "x" })).toEqual(["x", "n", "a"]);
   });
 });
 

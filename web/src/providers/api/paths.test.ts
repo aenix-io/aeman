@@ -118,6 +118,17 @@ describe("the board in the address", () => {
     expect(calls[0].url).toBe("/api/v1/views/me/cards");
   });
 
+  // The Backlog's insert "+" is ONE create naming its place (K12's
+  // neighbour, after/before), not a create and then a move.
+  it("creates into a backlog gap in one request, naming its place", async () => {
+    standingOn("team=portal&view=backlog");
+    await apiProvider.createCard({ title: "between", team: "portal", parked: true, after: "a" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("/api/v1/views/backlog/cards");
+    expect(calls[0].body).toMatchObject({ title: "between", team: "portal", after: "a" });
+    expect(calls[0].body).not.toHaveProperty("before");
+  });
+
   it("and into the board the shape names, whatever is open", async () => {
     standingOn("day=2026-09-11&team=portal&view=team");
     await apiProvider.createCard({ title: "someday", zone: "gray", team: "portal", parked: true });
