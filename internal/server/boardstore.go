@@ -200,6 +200,12 @@ type boardEntry struct {
 	// the part of it its descendants carry in their lineage (the Backlog's
 	// tag and due date), so a change to it can be sent down to them.
 	shownOf map[string]string
+	// reviewShown is each reviewed card's part its REVIEW card carries
+	// (status.reviewed: title, type, people; and the parent its chain hangs
+	// from), and reviewsOf the review cards linked to it: a change to that
+	// part re-sends those review cards, which no write touches.
+	reviewShown map[string]string
+	reviewsOf   map[string][]string
 	// planning is which cards are goals, initiatives or epics, kept beside
 	// parentOf: with the two the walk to a card's planning ancestors costs
 	// the depth of its chain, never an index of the whole board.
@@ -480,7 +486,11 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	ancestors := e.ancestorsChanged(c, verb)
 	// And the tasks under a planning card whose title or dates moved: they
 	// carry both in their lineage (descendantsShowingIt).
-	ancestors = append(ancestors, e.descendantsShowingIt(c, verb)...)
+	descendants := e.descendantsShowingIt(c, verb)
+	ancestors = append(ancestors, descendants...)
+	// And the review cards of a card whose title, type, people or chain moved
+	// (status.reviewed, status.lineage): no write touches them either.
+	ancestors = append(ancestors, e.reviewsShowingIt(c, verb, descendants)...)
 	// Built on demand: on a board whose tabs are all scoped — the ordinary
 	// case — a burst of changes must not pay for a resource nobody is sent.
 	// And built ONCE each: the card's resource and every ancestor's are the
@@ -1099,7 +1109,17 @@ func (e *boardEntry) rememberParents() {
 	e.parentOf = make(map[string]string, len(e.board.Cards))
 	e.planning = map[string]bool{}
 	e.shownOf = map[string]string{}
+	e.reviewShown = map[string]string{}
+	e.reviewsOf = map[string][]string{}
 	for _, c := range e.board.Cards {
+		if c.ReviewOf != "" {
+			e.reviewsOf[c.ReviewOf] = append(e.reviewsOf[c.ReviewOf], c.ItemID)
+		}
+	}
+	for _, c := range e.board.Cards {
+		if len(e.reviewsOf[c.ItemID]) > 0 {
+			e.reviewShown[c.ItemID] = shownInReview(c)
+		}
 		e.parentOf[c.ItemID] = c.Parent
 		if board.IsPlanning(c) {
 			e.planning[c.ItemID] = true
@@ -1112,6 +1132,47 @@ func (e *boardEntry) rememberParents() {
 // its title and its dates (status.lineage[].title/end).
 func shownInLineage(c board.Card) string {
 	return c.Title + "\x00" + c.StartDate + "\x00" + c.Day
+}
+
+// shownInReview is what a review card carries of the card it reviews: its
+// title, type and people (status.reviewed) and the parent its planning
+// chain hangs from (status.lineage).
+func shownInReview(c board.Card) string {
+	return c.Title + "\x00" + c.Type + "\x00" + strings.Join(c.Assignees, ",") + "\x00" + c.Parent
+}
+
+// reviewsShowingIt is the REVIEW cards of a card whose shown part this
+// change moved — renamed, re-typed, handed to someone, re-parented — by id,
+// and of the tasks named in alsoFor (the direct tasks of a renamed planning
+// card, whose review cards carry its title in their chain). Only the review
+// cards linked by reviewOf: one or two per card, no flood. It keeps the
+// review links and what was shown for next time. The caller holds e.mu with
+// the cache already updated.
+func (e *boardEntry) reviewsShowingIt(c board.Card, verb string, alsoFor []string) []string {
+	if e.reviewsOf == nil {
+		return nil
+	}
+	var out []string
+	if c.ReviewOf != "" && verb != "DELETED" && !slices.Contains(e.reviewsOf[c.ReviewOf], c.ItemID) {
+		e.reviewsOf[c.ReviewOf] = append(e.reviewsOf[c.ReviewOf], c.ItemID)
+		if orig, ok := board.Find(e.board, c.ReviewOf); ok {
+			e.reviewShown[c.ReviewOf] = shownInReview(orig)
+		}
+	}
+	if c.ReviewOf != "" && verb == "DELETED" {
+		e.reviewsOf[c.ReviewOf] = slices.DeleteFunc(e.reviewsOf[c.ReviewOf], func(id string) bool { return id == c.ItemID })
+	}
+	if reviews := e.reviewsOf[c.ItemID]; len(reviews) > 0 && verb != "DELETED" {
+		now := shownInReview(c)
+		if was := e.reviewShown[c.ItemID]; was != now {
+			e.reviewShown[c.ItemID] = now
+			out = append(out, reviews...)
+		}
+	}
+	for _, id := range alsoFor {
+		out = append(out, e.reviewsOf[id]...)
+	}
+	return out
 }
 
 // descendantsShowingIt is the TASKS directly under a planning card whose

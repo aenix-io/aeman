@@ -331,3 +331,58 @@ func TestTheRoadmapWatchSendsProjectCardsOnlyWhenAskedFor(t *testing.T) {
 		}
 	}
 }
+
+// A REVIEW CARD UPDATES LIVE WITH ITS TASK. It carries what it shows of the
+// card it reviews — status.reviewed's title and people, and the task's chain
+// — and no write ever touches it when the task changes, so the task's change
+// re-sends its review card(s) in the same fan-out: renamed, the review
+// arrives MODIFIED with the new title; handed to somebody else, with the new
+// people. A change that moves none of that sends nothing extra.
+func TestATasksReviewCardHearsWhatItShowsOfTheTask(t *testing.T) {
+	today := board.TodayIso()
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "t", Title: "Receipts", Team: "alpha", Assignees: []string{"ann"}, Stage: board.StageReview,
+			StartDate: today, Day: today, SprintStart: today},
+		{ItemID: "r", Title: "review: Receipts", Team: "alpha", ReviewOf: "t", Parked: true},
+	})
+	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}}
+	e := seedEntry(store, "k", b)
+	backlog := apiserver.Selector{View: "all", Team: "alpha"}
+	raw, cancel := store.subscribe("k", "", nil, map[string]bool{"cards": true})
+	defer cancel()
+	scoped, cancel2 := store.subscribe("k", "", &backlog, map[string]bool{"cards": true})
+	defer cancel2()
+	change := func(edit func(*board.Card)) {
+		e.mu.Lock()
+		c, _ := board.Find(e.board, "t")
+		edit(&c)
+		e.upsertCard(c)
+		e.cardChanged("", c, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+
+	change(func(c *board.Card) { c.Title = "Receipts, v2" })
+	for _, sub := range []*subscription{raw, scoped} {
+		got := took(t, sub, 2)
+		r := got["r"]
+		if r.Type != "MODIFIED" || r.Card.Status.Reviewed == nil || r.Card.Status.Reviewed.Title != "Receipts, v2" {
+			t.Fatalf("after the rename the review card = %+v, want MODIFIED reviewing «Receipts, v2»", r)
+		}
+	}
+
+	change(func(c *board.Card) { c.Assignees = []string{"bob"} })
+	for _, sub := range []*subscription{raw, scoped} {
+		got := took(t, sub, 2)
+		if rv := got["r"].Card.Status.Reviewed; rv == nil || len(rv.Assignees) != 1 || rv.Assignees[0] != "bob" {
+			t.Fatalf("after the hand-over the review card shows %+v, want bob", rv)
+		}
+	}
+
+	// Progress is not what a review card shows: the task alone.
+	change(func(c *board.Card) { c.Progress = 70 })
+	if got := took(t, raw, 1); got["t"].Type != "MODIFIED" {
+		t.Fatalf("the task's own frame: %+v", got)
+	}
+}
