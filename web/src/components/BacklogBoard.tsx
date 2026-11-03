@@ -12,7 +12,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { Board, Card as CardModel, Provider, SizeKey } from "../providers/types";
 import {
   addBox,
-  backlogSections,
+  backlogList,
   dropPlan,
   dueLabel,
   dueOf,
@@ -23,6 +23,7 @@ import {
   parentChain,
   reviewOwnPlan,
   shownTeams,
+  takeOwner,
   spliceOrder,
   takenIntoWorkLocally,
   type Anchor,
@@ -38,6 +39,7 @@ import type { Avatars, Names } from "../users";
 import { AddCard } from "./AddCard";
 import { Dropdown } from "./Dropdown";
 import { KindIcon } from "./KindIcon";
+import { markOf } from "../placements";
 import { OwnerBadge } from "./OwnerBadge";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
@@ -68,6 +70,8 @@ interface BacklogBoardProps {
   reload: () => void;
   onOpen: (card: CardModel) => void;
   onError: (message: string) => void;
+  /** The viewer's login: TAKE makes the card theirs. */
+  me: string;
 }
 
 /** dropSpot reads the list for a point: the place among the cards drawn in
@@ -107,10 +111,11 @@ export function BacklogBoard({
   reload,
   onOpen,
   onError,
+  me,
 }: BacklogBoardProps) {
   const today = todayIso();
   const teams = useMemo(() => shownTeams(teamFilter, roster), [teamFilter, roster]);
-  const { reviews, tasks: list } = useMemo(() => backlogSections(board.cards, teams), [board.cards, teams]);
+  const list = useMemo(() => backlogList(board.cards, teams), [board.cards, teams]);
   const adding = useMemo(() => addBox(teams), [teams]);
   const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
 
@@ -342,45 +347,30 @@ export function BacklogBoard({
     }
   };
 
-  // Whose the card is: the owner badge (the team's avatar, the person's over
-  // it) behind the owner picker; and, while nobody has the card, a separate
-  // Take button LEFT of it that opens the same picker. On a review nobody has
-  // taken the picker asks for its reviewer.
-  const ownerControls = (c: CardModel) => {
-    const picker = (child: React.ReactNode, className: string, title: string) => (
-      <OwnerPicker
-        current={ownerOf(c)}
-        teams={roster}
-        people={members}
-        cards={board.cards}
-        avatars={avatars}
-        names={names}
-        onPick={(o) => own(c, o)}
-        className={className}
-        title={title}
-      >
-        {child}
-      </OwnerPicker>
-    );
-    const person = c.assignees[0];
-    return (
-      <>
-        {!person &&
-          picker(
-            <span className="backlog-take-label">Take</span>,
-            "backlog-take",
-            c.reviewOf ? `Who reviews «${c.title}»` : `Who takes «${c.title}» into work`,
-          )}
-        {picker(
-          <OwnerBadge owner={ownerOf(c)} avatars={avatars} names={names} />,
-          "backlog-row-badge",
-          c.reviewOf
-            ? `Who reviews «${c.title}»`
-            : `Whose «${c.title}» is: a team keeps it in the backlog, a person takes it into work`,
-        )}
-      </>
-    );
-  };
+  // Whose the card is: the team's avatar (and the person's over it), which
+  // is the owner picker — assign to whom. TAKE is a button of its own, the
+  // right-most on the card while nobody has it: it asks first, and makes the
+  // card the viewer's (takeOwner).
+  const ownerControls = (c: CardModel) => (
+    <OwnerPicker
+      current={ownerOf(c)}
+      teams={roster}
+      people={members}
+      cards={board.cards}
+      avatars={avatars}
+      names={names}
+      onPick={(o) => own(c, o)}
+      className="backlog-row-badge"
+      title={
+        c.reviewOf
+          ? `Who reviews «${c.title}»`
+          : `Whose «${c.title}» is: a team keeps it in the backlog, a person takes it into work`
+      }
+    >
+      <OwnerBadge owner={ownerOf(c)} avatars={avatars} names={names} label={false} />
+    </OwnerPicker>
+  );
+  const [taking, setTaking] = useState<CardModel | null>(null);
 
   return (
     <div className="backlog-board">
@@ -400,28 +390,6 @@ export function BacklogBoard({
         />
       </div>
       <section className="backlog-list" aria-label="Backlog">
-        {reviews.length > 0 && (
-          // The reviews nobody has taken, pinned on top and out of the drag:
-          // asked for now, and not the lead's to rank (K10).
-          <div className="backlog-pinned" aria-label="Needs a reviewer">
-            {reviews.map((c) => (
-              <BacklogRow
-                key={c.itemId}
-                card={c}
-                pinned
-                onPointerDown={(e) => {
-                  if (!(e.target as HTMLElement).closest("button, input, a")) {
-                    onOpen(c);
-                  }
-                }}
-                onRemove={() => remove(c)}
-                onPickSize={openSizer}
-                onOpenParent={openParent}
-                owner={ownerControls(c)}
-              />
-            ))}
-          </div>
-        )}
         <div className={`backlog-list-body${carried ? " backlog-list-over" : ""}`} data-backlog-list="">
           {(() => {
             const held = list.filter((c) => c.itemId !== carried?.itemId);
@@ -438,6 +406,7 @@ export function BacklogBoard({
                       onPickSize={openSizer}
                       onOpenParent={openParent}
                       owner={ownerControls(c)}
+                      onTake={c.assignees.length === 0 ? () => setTaking(c) : undefined}
                     />
                   </div>
                 ))}
@@ -469,6 +438,13 @@ export function BacklogBoard({
           </button>
         ))}
       </Dropdown>
+      {taking && (
+        <TakeDialog
+          title={taking.title}
+          onClose={() => setTaking(null)}
+          onTake={() => own(taking, takeOwner(taking, me))}
+        />
+      )}
       {asking && (
         <RemoveChoiceDialog
           title={asking.title}
@@ -485,30 +461,32 @@ export function BacklogBoard({
 
 interface BacklogRowProps {
   card: CardModel;
-  /** A review nobody has taken, pinned on top: marked, and out of the drag. */
-  pinned?: boolean;
   owner: React.ReactNode;
   onPointerDown: (e: React.PointerEvent) => void;
   onRemove: () => void;
   onPickSize: (card: CardModel, anchor: HTMLElement) => void;
   onOpenParent: (uid: string) => void;
+  /** Take, while nobody has the card: asks first (TakeDialog). */
+  onTake?: () => void;
 }
 
-/** BacklogRow is one wide card: the title first; on the right the planning
- *  cards it sits under, the due date when the nearest has an end, the size,
- *  and its team and owner (the owner picker). */
-function BacklogRow({ card, pinned, owner, onPointerDown, onRemove, onPickSize, onOpenParent }: BacklogRowProps) {
+/** BacklogRow is one wide card, drawn as the Me and Team boards draw a card
+ *  (`card`, a review card with its review mark): the title first; on the
+ *  right the planning cards it sits under, the due date when the nearest
+ *  has an end, the size, the ×, its team's avatar (the owner picker) and,
+ *  right-most while nobody has it, Take. */
+function BacklogRow({ card, owner, onPointerDown, onRemove, onPickSize, onOpenParent, onTake }: BacklogRowProps) {
   const up = nearestPlanning(card);
   const due = dueOf(card);
+  const mark = markOf(card);
   return (
     <div
-      className={`backlog-row${pinned ? " backlog-row-pinned" : ""}`}
-      data-card={pinned ? undefined : card.itemId}
+      className={`card backlog-card${mark ? ` card-${mark}` : ""}`}
+      data-card={card.itemId}
       onPointerDown={onPointerDown}
       title={card.title}
     >
-      {pinned && <span className="backlog-row-needs">needs a reviewer</span>}
-      <span className="backlog-row-title">{card.title}</span>
+      <span className="card-title backlog-card-title">{card.title}</span>
       <ParentChain chain={parentChain(card)} onOpen={onOpenParent} />
       {due && (
         <span className="backlog-row-due" title={`Due ${due}: the end of «${up?.title ?? ""}»`}>
@@ -516,7 +494,6 @@ function BacklogRow({ card, pinned, owner, onPointerDown, onRemove, onPickSize, 
         </span>
       )}
       <SizeChip card={card} onPick={onPickSize} />
-      <span className="backlog-row-owner">{owner}</span>
       <button
         type="button"
         className="backlog-row-remove"
@@ -526,6 +503,64 @@ function BacklogRow({ card, pinned, owner, onPointerDown, onRemove, onPickSize, 
       >
         ×
       </button>
+      <span className="backlog-row-owner">{owner}</span>
+      {onTake && (
+        <button
+          type="button"
+          className="backlog-take-btn"
+          aria-haspopup="dialog"
+          title={card.reviewOf ? "Review this yourself" : "Take this card into work yourself"}
+          onClick={onTake}
+        >
+          Take
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** TakeDialog asks before TAKE makes a card the viewer's and takes it into
+ *  work. */
+export function TakeDialog({ title, onClose, onTake }: { title: string; onClose: () => void; onTake: () => void }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal modal-narrow"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Take this card into work?"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            onClose();
+          }
+        }}
+      >
+        <div className="modal-header">
+          <h2 className="modal-title">Take this card into work?</h2>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <div className="modal-body">
+          <p className="take-dialog-text">«{title}» becomes yours, today, and leaves the backlog.</p>
+          <div className="take-dialog-actions">
+            <button type="button" className="btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                onTake();
+                onClose();
+              }}
+            >
+              Take
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -534,8 +569,8 @@ function BacklogRow({ card, pinned, owner, onPointerDown, onRemove, onPickSize, 
  *  outline, since it is not there yet. */
 function Landing({ card }: { card: CardModel }) {
   return (
-    <div className="backlog-row backlog-row-landing">
-      <span className="backlog-row-title">{card.title}</span>
+    <div className="card backlog-card backlog-card-landing">
+      <span className="card-title backlog-card-title">{card.title}</span>
     </div>
   );
 }
@@ -563,7 +598,7 @@ export function ParentChain({ chain, onOpen }: { chain: readonly LineageRef[]; o
             title={`The ${r.type} «${r.title}»`}
             onClick={() => onOpen(r.uid)}
           >
-            {r.type && <KindIcon kind={r.type} size={14} />}
+            {r.type && <KindIcon kind={r.type} size={12} />}
             <span className="backlog-row-chain-text">{r.title}</span>
           </button>
         </span>

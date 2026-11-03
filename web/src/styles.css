@@ -4235,7 +4235,7 @@ button.card-age {
   min-height: 60px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   padding: 8px;
   border: 1px dashed var(--line);
   border-radius: 6px;
@@ -4261,39 +4261,8 @@ button.card-age {
   margin-top: 2px;
 }
 
-/* One wide card per row: the title first, and on the right what it sits
-   under, when it is due, what it weighs, its team and who has it. A plain
-   card: no coloured accent down its left edge — a backlog card is in no
-   band yet, and the team is its chip. */
-.backlog-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 56px;
-  padding: 10px 10px 10px 14px;
-  border: 1px solid var(--line-soft);
-  border-radius: 5px;
-  background: var(--bg-raised);
-  cursor: grab;
-  touch-action: none;
-}
 
-.backlog-row:hover {
-  border-color: var(--line);
-}
 
-.backlog-row-title {
-  flex: 1;
-  min-width: 0;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.4;
-  color: var(--fg);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
 
 /* The parent chain, root first, on the right: each name opens its card's
    drawer, and a long one is cut short (its tooltip names it whole). */
@@ -4325,12 +4294,12 @@ button.card-age {
   gap: 4px;
   min-width: 0;
   max-width: 200px;
-  padding: 3px 8px;
+  padding: 1px 6px;
   border: 0;
-  border-radius: 11px;
+  border-radius: 9px;
   background: var(--line-soft);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
 }
 
@@ -4350,9 +4319,63 @@ button.card-age {
 .backlog-row-due {
   flex: none;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* A backlog card IS a day board's card (.card, and .card-review for a review
+   nobody has taken): the same look, padding and title. It only spans the
+   list's width instead of the day boards' column. */
+.card.backlog-card {
+  width: 100%;
+  max-width: none;
+  touch-action: none;
+}
+
+.backlog-card-title {
+  flex: 1;
+}
+
+/* The card in hand, drawn where it would land: an outline, since it is not
+   there yet. */
+.backlog-card-landing {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* Take: a small button of its own, the card's right-most, drawn like the
+   app's small buttons (.btn) — a plain border, no offset, no shadow. */
+.backlog-take-btn {
+  flex: none;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.backlog-take-btn:hover {
+  border-color: var(--accent);
+}
+
+.backlog-take-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.take-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .backlog-row-owner {
@@ -4363,70 +4386,17 @@ button.card-age {
   font-size: 12px;
 }
 
-/* The avatars sized to the bigger card: the team's and the person's at the
-   day boards' 20px, the person's still over the team's by half. */
-.backlog-row-owner .owner-badge-team,
-.backlog-row-owner .owner-badge-person {
-  width: 20px;
-  height: 20px;
-  font-size: 11px;
-}
-
-.backlog-row-owner .owner-badge-overlap .owner-badge-person {
-  margin-left: -10px;
-}
-
 /* The owner picker's trigger sits flush in the row here: its own -6px pull
    (for a table cell's text) set its hover box off-centre against the card. */
 .backlog-row-owner .owner-picker-btn {
   margin-left: 0;
 }
 
-/* Take: a small button of its own, left of the avatar, drawn like the
-   app's other small buttons (.btn) — a plain border, no offset, no shadow. */
-.backlog-take .owner-picker-btn {
-  padding: 1px 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--bg);
-  box-shadow: none;
-  font-size: 12px;
-  line-height: 18px;
-}
 
-.backlog-take .owner-picker-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: var(--bg);
-}
 
-.backlog-take .owner-picker-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
 
-/* The reviews nobody has taken, pinned above the ranked list (K10). */
-.backlog-pinned {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 8px;
-}
 
-.backlog-row-pinned {
-  cursor: pointer;
-  background: color-mix(in srgb, var(--accent) 6%, var(--bg-raised));
-}
 
-.backlog-row-needs {
-  flex: none;
-  padding: 1px 6px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  color: var(--accent-emphasis);
-  font-size: 10px;
-  font-weight: 600;
-  white-space: nowrap;
-}
 
 
 
@@ -4446,7 +4416,7 @@ button.card-age {
   opacity: 0;
 }
 
-.backlog-row:hover .backlog-row-remove {
+.backlog-card:hover .backlog-row-remove {
   opacity: 0.7;
 }
 
@@ -4455,14 +4425,6 @@ button.card-age {
   opacity: 1;
 }
 
-/* The card in hand, drawn where it would land: an outline, since it is not
-   there yet. */
-.backlog-row-landing {
-  border-style: dashed;
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg-raised));
-  opacity: 0.85;
-  pointer-events: none;
-}
 
 /* ---- Roadmap ----
    The hierarchy as a table on the left and a timeline on the right. The two
@@ -4638,7 +4600,7 @@ button.card-age {
 }
 
 /* Whose a task is (OwnerBadge): the team's avatar, the person's stacked over
-   it by half its width, then one label. */
+   it by a quarter of its width, then one label. */
 .owner-badge {
   display: inline-flex;
   align-items: center;
@@ -4660,7 +4622,7 @@ button.card-age {
 }
 
 .owner-badge-overlap .owner-badge-person {
-  margin-left: -8px;
+  margin-left: -4px;
   box-shadow: 0 0 0 1.5px var(--bg-raised);
 }
 
@@ -4828,8 +4790,11 @@ button.card-age {
   padding-right: 6px;
 }
 
+/* The badge keeps its distance from what follows it: the column after it
+   (and, as the last column, the timeline) does not touch it. */
 .roadmap-status {
   display: inline-block;
+  margin-right: 8px;
   padding: 1px 7px;
   border-radius: 3px;
   font-size: 10.5px;

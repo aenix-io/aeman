@@ -4,7 +4,6 @@ import {
   addBox,
   anchorFor,
   backlogList,
-  backlogSections,
   dropPlan,
   dueLabel,
   dueOf,
@@ -18,6 +17,7 @@ import {
   reviewOwnPlan,
   parentChain,
   shownTeams,
+  takeOwner,
   spliceOrder,
   takenIntoWorkLocally,
 } from "./backlogboard";
@@ -340,25 +340,45 @@ describe("the reviews nobody has taken (K10)", () => {
     expect(onBacklog(waiting({ assignees: ["bob"] }))).toBe(false);
   });
 
-  it("is pinned above the ranked tasks, oldest first, whatever the board's order", () => {
+  // Not a section of its own: it stands in the same list as the tasks, in
+  // the board's order — it is ranked at the top when it is made, so it shows
+  // first until somebody drags it — and is dragged like any card.
+  it("stands in the one list with the tasks, in the board's order", () => {
     const t1 = card({ itemId: "t1", team: "alpha" });
     const t2 = card({ itemId: "t2", team: "beta" });
-    const rNew = waiting({ itemId: "r-new", team: "alpha", createdAt: "2026-11-03T10:00:00Z" });
-    const rOld = waiting({ itemId: "r-old", team: "beta", createdAt: "2026-11-02T10:00:00Z" });
-    const { reviews, tasks } = backlogSections([t1, rNew, t2, rOld], ["alpha", "beta"]);
-    expect(reviews.map((c) => c.itemId)).toEqual(["r-old", "r-new"]);
-    expect(tasks.map((c) => c.itemId)).toEqual(["t1", "t2"]);
+    const top = waiting({ itemId: "r-top", team: "alpha" });
+    const dragged = waiting({ itemId: "r-low", team: "beta" });
+    expect(backlogList([top, t1, dragged, t2], ["alpha", "beta"]).map((c) => c.itemId)).toEqual(["r-top", "t1", "r-low", "t2"]);
+    expect(dropPlan("r-top", ["r-top", "t1", "r-low", "t2"], 2)).toEqual({
+      kind: "reorder",
+      order: ["t1", "r-low", "r-top", "t2"],
+      anchor: { after: "r-low" },
+    });
   });
 
   it("drops out the moment a reviewer has it", () => {
     const r = waiting({ itemId: "r", team: "alpha" });
     const taken = { ...r, assignees: ["bob"], parked: false, startDate: "2026-11-03" };
-    expect(backlogSections([taken], ["alpha"]).reviews).toEqual([]);
+    expect(backlogList([taken], ["alpha"])).toEqual([]);
   });
 
   it("takes a person as its reviewer, and nothing else", () => {
     expect(reviewOwnPlan({ team: "alpha", person: "bob" })).toBe("take");
     expect(reviewOwnPlan({ team: "beta", person: "" })).toBe("none");
     expect(reviewOwnPlan({ team: "", person: "" })).toBe("none");
+  });
+});
+
+// TAKE is "I take this into work": confirmed, the card is the VIEWER's — own
+// with the viewer as the person and the card's own team (a review nobody
+// has taken makes the viewer its reviewer) — and it leaves the backlog.
+describe("take", () => {
+  it("is own with the viewer as the person, on the card's own team", () => {
+    expect(takeOwner(card({ team: "alpha" }), "kvaps")).toEqual({ team: "alpha", person: "kvaps" });
+    expect(takeOwner(card({ team: "beta", reviewOf: "t" }), "bob")).toEqual({ team: "beta", person: "bob" });
+  });
+
+  it("is a take into work, by the picker's own rule", () => {
+    expect(ownPlan(card({ team: "alpha" }), takeOwner(card({ team: "alpha" }), "kvaps"))).toBe("take");
   });
 });

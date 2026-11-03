@@ -1604,6 +1604,7 @@ export function App() {
             reload={reload}
             onOpen={openCard}
             onError={onError}
+            me={config?.login ?? ""}
           />
         )}
         {board && view === "team" && (

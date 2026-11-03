@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { BacklogBoard, ParentChain } from "./BacklogBoard";
+import { BacklogBoard, ParentChain, TakeDialog } from "./BacklogBoard";
 import type { Board, Card, Provider } from "../providers/types";
 
 // The Backlog board draws its one list and its wide cards, and nothing else in
@@ -51,6 +51,7 @@ function draw(b: Board, teamFilter: string[] | null = ["portal", "cozystack"]) {
       reload={vi.fn()}
       onOpen={vi.fn()}
       onError={vi.fn()}
+      me="kvaps"
     />,
   );
 }
@@ -68,22 +69,27 @@ describe("the Backlog board", () => {
     expect(html.indexOf("Bump the chart")).toBeLessThan(html.indexOf("Drop the old API"));
   });
 
-  // Whose a card is, as the day boards draw it: the team's avatar (the
-  // shared OwnerBadge), the person's over it when somebody has the card, and
-  // one label — no dot and no team chip of the Backlog's own.
-  it("draws the team's avatar on every card, and the person's over it when somebody has it", () => {
+  // A backlog card IS a day board's card: the same `card` look, padding and
+  // title, only as wide as the list.
+  it("draws each card as the Me and Team boards do", () => {
+    const html = draw(board([first, cozy]));
+    expect(html.match(/class="card backlog-card"/g)?.length).toBe(2);
+    expect(html).toContain('<span class="card-title backlog-card-title">Rotate the certificates</span>');
+  });
+
+  // Whose a card is: the team's AVATAR only — its name is the tooltip, no
+  // label — and the person's over it when somebody has the card.
+  it("draws the team's avatar without a label, and the person's over it when somebody has it", () => {
     const html = draw(board([first, cozy]));
     expect(html.match(/class="team-avatar owner-badge-team"/g)?.length).toBe(2);
     expect(html).toContain('title="Team portal"');
     expect(html).toContain("owner-badge-overlap");
-    expect(html).toContain('<span class="owner-badge-label">portal</span>');
-    expect(html).toContain('<span class="owner-badge-label">kvaps</span>');
-    expect(html).not.toContain("backlog-row-team");
+    expect(html).not.toContain("owner-badge-label");
   });
 
   it("draws the parent chain on the right of the title, root first, each with its kind icon and a tooltip", () => {
     const html = draw(board([first]));
-    const title = html.indexOf('<span class="backlog-row-title">Rotate the certificates</span>');
+    const title = html.indexOf('<span class="card-title backlog-card-title">Rotate the certificates</span>');
     const chain = html.indexOf('class="backlog-row-chain"');
     expect(title).toBeGreaterThan(-1);
     expect(chain).toBeGreaterThan(title);
@@ -99,38 +105,40 @@ describe("the Backlog board", () => {
     expect(html).toContain(">L</button>");
   });
 
-  // Take is a button of its own, LEFT of the avatar, on a card nobody has;
-  // the avatar is the owner picker on every card.
-  it("draws Take as a separate button left of the avatar, only on a card nobody has", () => {
+  // TAKE is a button of its own, the RIGHT-MOST of a card nobody has, after
+  // the avatar (which is the owner picker): it asks in a dialog, it does not
+  // open the picker.
+  it("draws Take right-most, after the avatar, as a button that opens a dialog", () => {
     const html = draw(board([first, cozy]));
     expect(html.match(/class="owner-picker backlog-row-badge"/g)?.length).toBe(2);
-    expect(html.match(/class="owner-picker backlog-take"/g)?.length).toBe(1);
     const row = html.slice(html.indexOf('data-card="p1"'), html.indexOf('data-card="k1"'));
-    expect(row.indexOf("backlog-take")).toBeGreaterThan(-1);
-    expect(row.indexOf("backlog-take")).toBeLessThan(row.indexOf("owner-badge"));
+    const take = row.indexOf('class="backlog-take-btn"');
+    expect(take).toBeGreaterThan(row.indexOf("owner-badge"));
+    expect(row.slice(take)).not.toMatch(/<button[^>]*class="(?!backlog-take-btn)/);
+    expect(row).toMatch(/<button[^>]*class="backlog-take-btn"[^>]*aria-haspopup="dialog"/);
+    expect(row.slice(take)).not.toContain("owner-picker");
     const taken = html.slice(html.indexOf('data-card="k1"'));
-    expect(taken).not.toContain("backlog-take");
+    expect(taken).not.toContain("backlog-take-btn");
   });
 
-  // K10: the reviews nobody has taken are pinned on top, out of the ranked
-  // list, marked, with the reviewed task's chain.
-  it("pins the reviews nobody has taken above the ranked tasks, marked", () => {
+  // K10: a review nobody has taken is NOT a section of its own and wears no
+  // badge: it is in the same list as the tasks, in the board's order, drawn
+  // as a review card is on the Me and Team boards, and dragged like any.
+  it("draws a review nobody has taken as a review card, in the same list", () => {
     const review = card({
       itemId: "r1",
       title: "review: Invoices",
       team: "portal",
       reviewOf: "t9",
       lineage: [EPIC],
-      createdAt: "2026-11-03T10:00:00Z",
     });
-    const html = draw(board([first, review]));
-    const pinned = html.indexOf('class="backlog-pinned"');
-    expect(pinned).toBeGreaterThan(-1);
-    expect(pinned).toBeLessThan(html.indexOf("data-backlog-list"));
-    expect(html).toContain("needs a reviewer");
+    const html = draw(board([review, first]));
+    expect(html).not.toContain("backlog-pinned");
+    expect(html).not.toContain("needs a reviewer");
+    expect(html).toContain('class="card backlog-card card-review"');
+    expect(html).toContain('data-card="r1"');
+    expect(html.indexOf("data-backlog-list")).toBeLessThan(html.indexOf('data-card="r1"'));
     expect(html.indexOf("review: Invoices")).toBeLessThan(html.indexOf("Rotate the certificates"));
-    expect(html).not.toContain('data-card="r1"');
-    expect(html.slice(pinned, html.indexOf("data-backlog-list"))).toContain("Billing v2");
   });
 
   it("draws nothing that is not a parked open task of a shown team (K1, K2)", () => {
@@ -162,41 +170,17 @@ describe("the Backlog board", () => {
     expect(html).not.toMatch(/\bweek\b/i);
   });
 
-  // A plain card: no coloured accent down the left edge — the card is in no
-  // band yet, and its team is its chip.
-  it("draws a plain card, with no accent down its left edge", () => {
+  // The list spans the full width of the screen, with the Team board's
+  // gutters; the avatar trigger sits square in the row, and Take is drawn
+  // like the app's small buttons — a plain border and no shadow.
+  it("spans the full width, and draws Take like the app's small buttons", () => {
     const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
-    for (const rule of css.match(/\.backlog-row(:hover)?\s*\{[^}]*\}/g) ?? []) {
-      expect(rule).not.toMatch(/border-left/);
-    }
-    expect(draw(board([first]))).not.toMatch(/border-left/);
-  });
-
-  // A backlog card is BIG: about twice a day board's row height, the title
-  // one step above the day boards' size, room between the rows, and the
-  // chain and the avatars sized to match.
-  it("draws big cards: tall rows, a 14px title, room between them", () => {
-    const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
-    const row = css.match(/\.backlog-row \{[^}]*\}/)?.[0] ?? "";
-    expect(row).toMatch(/min-height: 56px/);
-    const title = css.match(/\.backlog-row-title \{[^}]*\}/)?.[0] ?? "";
-    expect(title).toMatch(/font-size: 14px/);
-    const list = css.match(/\.backlog-list-body \{[^}]*\}/)?.[0] ?? "";
-    expect(list).toMatch(/gap: 8px/);
-    // The full width of the screen, with the Team board's gutters.
     const whole = css.match(/\.backlog-list \{[^}]*\}/)?.[0] ?? "";
     expect(whole).not.toMatch(/max-width/);
     expect(whole).toMatch(/padding: 8px/);
-    expect(css).toMatch(/\.backlog-row-owner \.owner-badge-team,\s*\.backlog-row-owner \.owner-badge-person \{\s*width: 20px;/);
-  });
-
-  // Take's box sits square on its button: the owner picker's -6px pull is
-  // undone on the backlog row, and Take is drawn like the app's small
-  // buttons — a plain border and no shadow.
-  it("draws Take square, like the app's small buttons", () => {
-    const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
+    expect(css).toMatch(/\.card\.backlog-card \{\s*width: 100%;/);
     expect(css).toMatch(/\.backlog-row-owner \.owner-picker-btn \{\s*margin-left: 0;/);
-    const take = css.match(/\.backlog-take \.owner-picker-btn \{[^}]*\}/)?.[0] ?? "";
+    const take = css.match(/\.backlog-take-btn \{[^}]*\}/)?.[0] ?? "";
     expect(take).toMatch(/border: 1px solid var\(--line\)/);
     expect(take).toMatch(/box-shadow: none/);
   });
@@ -230,5 +214,44 @@ describe("the parent chain", () => {
 
   it("draws nothing for a task under no planning card", () => {
     expect(ParentChain({ chain: [], onOpen: vi.fn() })).toBeNull();
+  });
+});
+
+// TAKE asks before it acts: "Take this card into work?" with Take and Cancel.
+// Take answers and closes; Cancel only closes.
+describe("the take dialog", () => {
+  it("asks, and Take takes while Cancel does not", () => {
+    const html = renderToStaticMarkup(<TakeDialog title="Rotate the certificates" onClose={vi.fn()} onTake={vi.fn()} />);
+    expect(html).toContain("Take this card into work?");
+    expect(html).toContain("Rotate the certificates");
+    expect(html).toMatch(/>Cancel</);
+    expect(html).toMatch(/>Take</);
+    const onTake = vi.fn();
+    const onClose = vi.fn();
+    const el = TakeDialog({ title: "x", onClose, onTake });
+    const find = (node: ReactNode, text: string): ReactElement<{ onClick: () => void }> | null => {
+      if (Array.isArray(node)) {
+        for (const n of node) {
+          const hit = find(n, text);
+          if (hit) {
+            return hit;
+          }
+        }
+        return null;
+      }
+      if (!isValidElement(node)) {
+        return null;
+      }
+      const e = node as ReactElement<{ children?: ReactNode; onClick: () => void }>;
+      if (e.type === "button" && e.props.children === text) {
+        return e;
+      }
+      return find(e.props.children, text);
+    };
+    find(el, "Cancel")?.props.onClick();
+    expect(onTake).not.toHaveBeenCalled();
+    find(el, "Take")?.props.onClick();
+    expect(onTake).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 });

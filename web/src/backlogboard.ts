@@ -6,7 +6,9 @@
 // the no-team group included, MIXED in one order — the order the server keeps
 // them (board.BacklogOrder: by hand first, then oldest first; rank is one
 // board-wide list, so the merged order is the board order of those cards).
-// One wide card per row, each with a chip of its team and, on the right, the
+// One wide card per row, drawn as the Me and Team boards draw a card — a
+// review nobody has taken as a review card, in the same list, ranked at the
+// top when it is made — with its team's avatar and, on the right, the
 // planning cards it sits under. Dragging reorders by the neighbours in the
 // list (K5); the owner picker with a team alone hands the task to that team,
 // still parked, and with a person takes it into work (K4), and it leaves the
@@ -74,22 +76,13 @@ export function backlogList(cards: readonly Card[], teams: readonly string[]): C
   return cards.filter((c) => onBacklog(c) && shown.has(c.team ?? ""));
 }
 
-/** BacklogSections is the board as it is drawn: the reviews nobody has taken
- *  PINNED on top, oldest first among themselves — asked for now, and not the
- *  lead's to rank — then the ranked tasks in the board's order (K10, K2).
- *  Only the tasks are dragged; a pinned review leaves when a reviewer has
- *  it. Mirrors apiserver.backlogCards. */
-export interface BacklogSections {
-  reviews: Card[];
-  tasks: Card[];
-}
-
-export function backlogSections(cards: readonly Card[], teams: readonly string[]): BacklogSections {
-  const all = backlogList(cards, teams);
-  const reviews = all
-    .filter((c) => needsReviewer(c))
-    .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
-  return { reviews, tasks: all.filter((c) => !needsReviewer(c)) };
+/** takeOwner is what TAKE answers, confirmed: the card is the VIEWER's —
+ *  the viewer as the person, on the card's own team — which takes it into
+ *  work (ownPlan's "take", K4); on a review nobody has taken the viewer
+ *  becomes its reviewer (K10). The server may still refuse (a person not
+ *  on the team), and its answer is shown. */
+export function takeOwner(c: Pick<Card, "team">, viewer: string): Owner {
+  return { team: c.team ?? "", person: viewer };
 }
 
 /** reviewOwnPlan is what the picker does on a review nobody has taken: a
