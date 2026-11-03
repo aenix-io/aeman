@@ -250,7 +250,10 @@ describe("the Project cards toggle", () => {
   it("is off by default: the button is not pressed and the project card is not drawn", () => {
     store.delete("aeman.roadmap.projectCards");
     const html = draw(board([ep, task, slot]));
-    expect(html).toMatch(/<button[^>]*class="segment roadmap-projects"[^>]*aria-pressed="false"[^>]*>Project cards<\/button>/);
+    // The app's view toggle — the Me board's eye and focus buttons — not a
+    // segment of its own: an icon button, unpressed, named by its tooltip.
+    expect(html).toMatch(/<button[^>]*class="team-eye"[^>]*aria-pressed="false"[^>]*title="Show project cards"/);
+    expect(html).not.toContain("roadmap-projects");
     expect(html).toContain("Render PDF");
     expect(html).not.toContain("Q1 payments slot");
   });
@@ -258,7 +261,7 @@ describe("the Project cards toggle", () => {
   it("draws them when the viewer has turned it on", () => {
     store.set("aeman.roadmap.projectCards", "1");
     const html = draw(board([ep, task, slot]));
-    expect(html).toMatch(/aria-pressed="true"/);
+    expect(html).toMatch(/<button[^>]*class="team-eye team-eye-on"[^>]*aria-pressed="true"[^>]*title="Show project cards"/);
     expect(html).toContain("Q1 payments slot");
     store.delete("aeman.roadmap.projectCards");
   });

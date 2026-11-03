@@ -779,3 +779,45 @@ export const KIND_LABEL: Record<RoadmapKind, string> = {
   subtask: "Subtask",
   project: "Project card",
 };
+
+/** RoadmapLine is one line of the Roadmap's table: a row, in the section it
+ *  is drawn in, or a section's header. */
+export type RoadmapLine =
+  | { kind: "row"; row: Row; section: RoadmapSection }
+  | { kind: "header"; key: string; label: string };
+
+/** roadmapLines is the table's lines, ONE function of what decides them —
+ *  the listing, the Project cards toggle, the depth range and the folds —
+ *  so the board's memo of it is keyed on exactly these and cannot keep a
+ *  drawing made for the other state of the toggle (which is how turning it
+ *  on drew no project card). The tree's rows come first, then each section
+ *  below it: a header line and its rows. The sections draw tasks and their
+ *  subtasks (when the depth range reaches them); the range's upper levels
+ *  are the tree's business. */
+export function roadmapLines(
+  cards: readonly Card[],
+  opts: { showProjects: boolean; depth: DepthRange; expanded: (id: string) => boolean },
+): RoadmapLine[] {
+  const sections = sectionsOf(buildTree(projectCardsShown(cards, opts.showProjects)));
+  const sub = visibleLevels(opts.depth).has("subtask");
+  const flat: DepthRange = { from: "task", to: sub ? "subtask" : "task" };
+  const out: RoadmapLine[] = rows(sections.tree, opts.depth, opts.expanded).map((row) => ({
+    kind: "row",
+    row,
+    section: "tree" as const,
+  }));
+  const add = (section: Exclude<RoadmapSection, "tree">, label: string, nodes: readonly RoadmapNode[], key: string) => {
+    if (nodes.length === 0) {
+      return;
+    }
+    out.push({ kind: "header", key, label });
+    for (const row of rows(nodes, flat, opts.expanded)) {
+      out.push({ kind: "row", row, section });
+    }
+  };
+  add("in-work", SECTION_LABEL["in-work"], sections.inWork, "in-work");
+  for (const shelf of sections.backlog) {
+    add("backlog", `${SECTION_LABEL.backlog} · ${shelf.team || "no team"}`, shelf.nodes, `backlog-${shelf.team}`);
+  }
+  return out;
+}

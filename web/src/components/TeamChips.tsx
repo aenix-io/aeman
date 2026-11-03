@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ViewToggle } from "./ViewToggle";
 import { declareDomain, type DomainInfo } from "../domains";
 import { nameConflict, type RosterKind } from "../names";
 import { DomainSelect, blurredIntoDomainSelect } from "./DomainSelect";
@@ -191,11 +192,9 @@ export function TeamChips({
           </span>
         )}
         {filterToggle && (
-          <button
-            type="button"
-            className={`team-eye${filterToggle.on ? " team-eye-on" : ""}`}
-            onClick={filterToggle.onToggle}
-            aria-pressed={filterToggle.on}
+          <ViewToggle
+            on={filterToggle.on}
+            onToggle={filterToggle.onToggle}
             title={
               filterToggle.on
                 ? "Showing only the selected teams — click to show all"
@@ -216,14 +215,12 @@ export function TeamChips({
               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
               <circle cx="12" cy="12" r="3" />
             </svg>
-          </button>
+          </ViewToggle>
         )}
         {focusToggle && (
-          <button
-            type="button"
-            className={`team-eye${focusToggle.on ? " team-eye-on" : ""}`}
-            onClick={focusToggle.onToggle}
-            aria-pressed={focusToggle.on}
+          <ViewToggle
+            on={focusToggle.on}
+            onToggle={focusToggle.onToggle}
             title={
               focusToggle.on
                 ? "Showing only cards you can work on now — click to show all"
@@ -234,7 +231,7 @@ export function TeamChips({
               <circle cx="-222.3" cy="188.5" r="31.1" />
               <path d="M-106.6,332.4c-0.4-0.6-0.9-1.1-1.4-1.6l-35.3-32.8l-22.8-49c-6.2-12.5-15.2-20.3-28.6-20.3h-57.5c-13.5,0-22.4,7.8-28.6,20.3l-22.8,49l-35.3,32.8c-0.5,0.5-1,1.1-1.4,1.6c-3.6,3.1-5.9,7.7-5.9,12.8c0,9.3,7.6,16.9,16.9,16.9c5.5,0,10.3-2.6,13.4-6.7c0.3-0.2,0.6-0.5,0.8-0.7l37.4-34.8c1.4-1.4,2.5-3,3.3-4.8l11.9-25.5l-0.6,45l-52.2,28.4c-9.5,5.2-14,16.4-10.6,26.7c3.4,10.3,13.6,16.7,24.3,15.2l78.1-20.2l78.1,20.2c10.7,1.5,21-4.9,24.3-15.2c3.4-10.3-1.1-21.5-10.6-26.7l-52.2-28.5l-0.6-45l11.9,25.5c0.8,1.8,2,3.4,3.3,4.8l37.4,34.8c0.3,0.3,0.5,0.5,0.8,0.7c3.1,4,7.9,6.7,13.4,6.7c9.3,0,16.9-7.6,16.9-16.9C-100.7,340-103,335.5-106.6,332.4z" />
             </svg>
-          </button>
+          </ViewToggle>
         )}
         {canManage &&
           (adding ? (

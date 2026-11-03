@@ -22,7 +22,6 @@ import {
   DELETE_INTENT,
   KIND_LABEL,
   LEVELS,
-  SECTION_LABEL,
   STATUS_LABEL,
   barOf,
   buildTree,
@@ -39,11 +38,8 @@ import {
   planningRemovalPlan,
   previewCards,
   rangeFor,
-  rows as rowsOf,
-  sectionsOf,
   statusOf,
   ticks as ticksOf,
-  visibleLevels,
   zoneOf,
   type DepthRange,
   type DropZone,
@@ -55,9 +51,11 @@ import {
   type Zoom,
   writeDrop,
   PROJECT_CARDS_DEFAULT,
-  projectCardsShown,
+  roadmapLines,
+  type RoadmapLine,
 } from "../roadmap";
 import { barColor } from "../stages";
+import { ViewToggle } from "./ViewToggle";
 import { isPlanning } from "../subtasks";
 import { ownerLabel, ownerOf, type Owner } from "../owner";
 import { displayName, type Avatars, type Names } from "../users";
@@ -211,9 +209,8 @@ const detect: CollisionDetection = (args) => {
 /** A line of the table: a row of the tree or of a section, or a section's
  *  header. The timeline draws a lane per line, so the two panes stay in
  *  step whatever stands between the rows. */
-type RowLine = { kind: "row"; row: Row; section: RoadmapSection };
-type Line = RowLine | { kind: "header"; key: string; label: string };
-type RoadmapNodeLike = Parameters<typeof rowsOf>[0][number];
+type Line = RoadmapLine;
+type RowLine = Extract<RoadmapLine, { kind: "row" }>;
 
 /** Hover is where the drag stands: the row under it, the zone of that row,
  *  the placement that reads as, and whether the level rule allows it. */
@@ -477,31 +474,10 @@ export function RoadmapBoard({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const expanded = (id: string) => !folded.has(id);
-  // The lines of the table: the tree's rows first, then each section below
-  // it — a header line and its rows. The sections draw tasks and their
-  // subtasks (when the depth range reaches them); the depth range's upper
-  // levels are the tree's business.
-  const lines = (cards: readonly CardModel[]): Line[] => {
-    const sections = sectionsOf(buildTree(projectCardsShown(cards, showProjects)));
-    const sub = visibleLevels(depth).has("subtask");
-    const flat: DepthRange = { from: "task", to: sub ? "subtask" : "task" };
-    const out: Line[] = rowsOf(sections.tree, depth, expanded).map((row) => ({ kind: "row", row, section: "tree" as const }));
-    const add = (section: Exclude<RoadmapSection, "tree">, label: string, nodes: readonly RoadmapNodeLike[], key: string) => {
-      if (nodes.length === 0) {
-        return;
-      }
-      out.push({ kind: "header", key, label });
-      for (const row of rowsOf(nodes, flat, expanded)) {
-        out.push({ kind: "row", row, section });
-      }
-    };
-    add("in-work", SECTION_LABEL["in-work"], sections.inWork, "in-work");
-    for (const shelf of sections.backlog) {
-      add("backlog", `${SECTION_LABEL.backlog} · ${shelf.team || "no team"}`, shelf.nodes, `backlog-${shelf.team}`);
-    }
-    return out;
-  };
-  const baseLines = useMemo(() => lines(shown), [shown, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The lines of the table (roadmap.roadmapLines), keyed on everything that
+  // decides them — the Project cards toggle included.
+  const lines = (cards: readonly CardModel[]): Line[] => roadmapLines(cards, { showProjects, depth, expanded });
+  const baseLines = useMemo(() => lines(shown), [shown, showProjects, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
   // The tree's rows alone, which is what a drop is read against: a section
   // row is dropped on by nothing.
   const baseRows = useMemo(() => baseLines.filter((l) => l.kind === "row" && l.section === "tree").map((l) => (l as RowLine).row), [baseLines]);
@@ -512,7 +488,7 @@ export function RoadmapBoard({
   const previewed = dragging && hover?.valid && hover.placement ? previewCards(shown, dragging, hover.placement) : null;
   const shownLines = useMemo(
     () => (previewed ? lines(previewed) : baseLines),
-    [previewed, baseLines, depth, folded], // eslint-disable-line react-hooks/exhaustive-deps
+    [previewed, baseLines, showProjects, depth, folded], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const rows = useMemo(() => shownLines.filter((l): l is RowLine => l.kind === "row").map((l) => l.row), [shownLines]);
   const ghosts = useMemo(() => {
@@ -851,15 +827,24 @@ export function RoadmapBoard({
             {levelOptions()}
           </select>
         </label>
-        <button
-          type="button"
-          className={`segment roadmap-projects${showProjects ? " segment-active" : ""}`}
-          aria-pressed={showProjects}
-          title={showProjects ? "Hide the Project board's cards" : "Show the Project board's cards in the tree"}
-          onClick={() => setShowProjects(!showProjects)}
-        >
-          Project cards
-        </button>
+        <ViewToggle on={showProjects} onToggle={() => setShowProjects(!showProjects)} title="Show project cards">
+          {/* A project board's columns. */}
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="3" y="4" width="5" height="16" rx="1" />
+            <rect x="10" y="4" width="5" height="11" rx="1" />
+            <rect x="17" y="4" width="4" height="7" rx="1" />
+          </svg>
+        </ViewToggle>
         <div className="segmented roadmap-zoom" role="group" aria-label="Zoom">
           {(["3m", "1y", "fit"] as Zoom[]).map((z) => (
             <button

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_DEPTH,
+  roadmapLines,
   DELETE_INTENT,
   allowedParentKinds,
   barOf,
@@ -31,6 +33,7 @@ import {
   projectCardsShown,
 } from "./roadmap";
 import type { Card } from "./providers/types";
+import { resourceToCard, type CardResource } from "./api/resources";
 
 // The Roadmap's rule file, case by case: the tree the listing makes, the
 // rows a depth range draws, a row's status, a card's bar and where it lands.
@@ -474,5 +477,39 @@ describe("the project cards toggle", () => {
   it("leaves the planning card's derived standing alone", () => {
     const counted = { ...epic, hierarchy: { status: "todo", done: 0, total: 2 } } as unknown as Card;
     expect(projectCardsShown([counted, t, slot], false)[0]).toBe(counted);
+  });
+});
+
+// The toggle on a REAL listing: the roadmap's wire cards, mapped the way the
+// board maps them — an epic, a task under it and a project card under it
+// (spec.scope, spec.parent the epic). The lines the table draws are one pure
+// function of the listing, the toggle, the depth and the folds
+// (roadmapLines), so the board cannot hold on to a drawing made for the
+// other state of the toggle — which is how ON drew no project card.
+describe("the lines the Roadmap draws, with the project cards toggle", () => {
+  const wire = (uid: string, spec: Partial<CardResource["spec"]>, lineage?: { uid: string; type: string; title: string }[]): CardResource =>
+    ({
+      kind: "Card",
+      metadata: { uid },
+      spec: { title: uid, assignees: [], progress: 0, ...spec },
+      status: { complete: false, inProgress: false, ...(lineage ? { lineage } : {}) },
+    }) as CardResource;
+  const up = [{ uid: "e", type: "epic", title: "Billing v2" }];
+  const listing = [
+    wire("e", { title: "Billing v2", type: "epic" }),
+    wire("t", { title: "Render PDF", parent: "e", team: "portal" }, up),
+    wire("s", { title: "Q1 payments slot", parent: "e", scope: "Payments", project: "Core", team: "portal" }, up),
+  ].map(resourceToCard);
+  const titles = (show: boolean) =>
+    roadmapLines(listing, { showProjects: show, depth: DEFAULT_DEPTH, expanded: () => true })
+      .filter((l) => l.kind === "row")
+      .map((l) => (l.kind === "row" ? `${l.row.depth}:${l.row.node.card.title}` : ""));
+
+  it("draws no project card while it is off", () => {
+    expect(titles(false)).toEqual(["0:Billing v2", "1:Render PDF"]);
+  });
+
+  it("draws the project card under its epic while it is on", () => {
+    expect(titles(true)).toEqual(["0:Billing v2", "1:Render PDF", "1:Q1 payments slot"]);
   });
 });
