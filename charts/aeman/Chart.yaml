@@ -1,0 +1,9 @@
+apiVersion: v2
+name: aeman
+description: aeman, a short-term planning board for engineering teams that keeps the board in git repositories
+type: application
+version: 0.2.0
+appVersion: "0.43.0"
+home: https://github.com/aenix-io/aeman
+sources:
+  - https://github.com/aenix-io/aeman
