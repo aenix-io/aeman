@@ -9,7 +9,8 @@ import (
 // requestReview makes the review card of a task put on review WITHOUT a
 // reviewer (K10, docs/design/backlog.md "Reviews"): «review: <title>», of
 // the task's team, with nobody on it, parked in that team's backlog — the
-// "needs a reviewer" item the Backlog pins above its ranked tasks. It joins
+// "needs a reviewer" item, ranked at the TOP of the board's order so it shows
+// first in its backlog until somebody drags it elsewhere. It joins
 // no sprint and stands on no day until somebody takes it (takeReview). A task
 // that already has a review card gets no second one: sendToReview, the
 // reassignment and the re-review reactivation are its doors.
@@ -25,6 +26,11 @@ func (s *Service) requestReview(ctx context.Context, b board.Board, card board.C
 		Parked:   true,
 	})
 	if err != nil {
+		return err
+	}
+	// Its default place is the TOP of the board's order: it shows first in
+	// its backlog, asked for now, until somebody drags it elsewhere.
+	if err := s.backend.MoveCard(ctx, b, created, ""); err != nil {
 		return err
 	}
 	// The same context a reviewer's card carries (sendToReview).

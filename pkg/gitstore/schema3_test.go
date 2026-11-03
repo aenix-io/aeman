@@ -265,8 +265,8 @@ func TestSchema3GivesATaskOnReviewItsReviewCard(t *testing.T) {
 	if card.title != "review: Invoices" || card.team != "portal" || !card.parked || len(card.assignees) != 0 {
 		t.Fatalf("the made card = %+v, want «review: Invoices» of portal, parked, nobody on it", card)
 	}
-	if card.rank <= "z" {
-		t.Fatalf("the made card ranks %q, want after every card", card.rank)
+	if card.rank >= "m" {
+		t.Fatalf("the made card ranks %q, want before every card", card.rank)
 	}
 	if card.desc != "what to look at" {
 		t.Fatalf("the made card carries the task's context, got %q", card.desc)
@@ -279,5 +279,33 @@ func TestSchema3GivesATaskOnReviewItsReviewCard(t *testing.T) {
 	tree, _ := c.Tree()
 	if writes, err := schema3(tree, nil); err != nil || len(writes) != 0 {
 		t.Fatalf("the step re-run writes %d files (%v), want none", len(writes), err)
+	}
+}
+
+// Several made at once stand at the top in a fixed order: the OLDEST task's
+// review first.
+func TestSchema3RanksTheMadeReviewsOldestTaskFirst(t *testing.T) {
+	const older, newer = "01JB4K2E7QZMX3R8V0N5T9WYH1", "01JB4K2E7QZMX3R8V0N5T9WYH2"
+	path := func(id string) string { p, _ := CardPath(id); return p }
+	r := repoWith(t, map[string]string{
+		BoardPath:   "schema: 2\ntitle: b\n",
+		path(newer): "---\ntitle: Newer\nteam: portal\nstage: review\nprogress: 50\nsprint: 2026-11-02\nrank: c\ncreated: 2026-10-05T09:00:00Z\n---\n",
+		path(older): "---\ntitle: Older\nteam: portal\nstage: review\nprogress: 50\nsprint: 2026-11-02\nrank: d\ncreated: 2026-10-01T09:00:00Z\n---\n",
+	})
+	if _, err := MigrateSchema(r); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := Load(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ranks := map[string]string{}
+	for _, c := range snap.Cards {
+		if c.ReviewOf != "" {
+			ranks[c.ReviewOf] = c.Rank
+		}
+	}
+	if !(ranks[older] < ranks[newer] && ranks[newer] < "c") {
+		t.Fatalf("review ranks = %v, want the older task's first and both before every card", ranks)
 	}
 }

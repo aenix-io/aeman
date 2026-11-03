@@ -229,23 +229,23 @@ func TestTheBacklogViewListsWhatATeamHasParked(t *testing.T) {
 	}
 }
 
-// The reviews NOBODY HAS TAKEN are PINNED at the top of a backlog listing,
-// above the hand-ranked tasks, oldest first among themselves — whatever rank
-// they hold; the tasks follow in BacklogOrder (K10).
-func TestTheBacklogPinsTheReviewsNobodyHasTakenOnTop(t *testing.T) {
+// A review NOBODY HAS TAKEN stands in a backlog listing like any task, in
+// plain BacklogOrder (K10): it is made at the TOP of the board's order, so it
+// shows first until somebody drags it — there is no separate pinning.
+func TestAReviewNobodyHasTakenStandsInBacklogOrder(t *testing.T) {
 	b := board.NewBoard([]board.Card{
-		{ItemID: "t1", Team: "alpha", Parked: true, Rank: "a", CreatedAt: "2026-01-01T00:00:00Z"},
-		{ItemID: "t2", Team: "alpha", Parked: true, Rank: "b", CreatedAt: "2026-01-02T00:00:00Z"},
+		{ItemID: "t1", Team: "alpha", Parked: true, Rank: "b", CreatedAt: "2026-01-01T00:00:00Z"},
 		{ItemID: "o", Team: "alpha", Stage: board.StageReview, SprintStart: "2026-11-03"},
+		{ItemID: "r-top", Team: "alpha", ReviewOf: "o", Parked: true, Rank: "a", CreatedAt: "2026-11-03T10:00:00Z"},
+		{ItemID: "t2", Team: "alpha", Parked: true, Rank: "c", CreatedAt: "2026-01-02T00:00:00Z"},
 		{ItemID: "o2", Team: "alpha", Stage: board.StageReview, SprintStart: "2026-11-03"},
-		{ItemID: "r-new", Team: "alpha", ReviewOf: "o", Parked: true, Rank: "c", CreatedAt: "2026-11-03T10:00:00Z"},
-		{ItemID: "r-old", Team: "alpha", ReviewOf: "o2", Parked: true, Rank: "d", CreatedAt: "2026-11-02T10:00:00Z"},
+		{ItemID: "r-dragged", Team: "alpha", ReviewOf: "o2", Parked: true, Rank: "d", CreatedAt: "2026-11-02T10:00:00Z"},
 	})
 	var got []string
 	for _, c := range FilterCards(b, Selector{View: "backlog", Team: "alpha"}) {
 		got = append(got, c.ItemID)
 	}
-	if want := []string{"r-old", "r-new", "t1", "t2"}; !slices.Equal(got, want) {
+	if want := []string{"r-top", "t1", "t2", "r-dragged"}; !slices.Equal(got, want) {
 		t.Fatalf("backlog = %v, want %v", got, want)
 	}
 }

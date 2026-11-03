@@ -2,6 +2,7 @@ package boardservice
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -49,6 +50,11 @@ func TestReviewWithoutAReviewerParksAnUnassignedReviewCard(t *testing.T) {
 	}
 	if !board.NeedsReviewer(*r) {
 		t.Fatalf("it is the needs-a-reviewer item: %+v", r)
+	}
+	// Its default place is the TOP of the board's order, so it shows first
+	// in its backlog until somebody drags it elsewhere.
+	if !slices.Contains(f.log, "MoveCard "+r.ItemID+" after=") {
+		t.Fatalf("the review card was not put at the top of the order; calls were: %v", f.log)
 	}
 	if f.get("t").Stage != board.StageReview {
 		t.Fatal("the task is on review")

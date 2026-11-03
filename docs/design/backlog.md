@@ -126,10 +126,11 @@ Decided 2026-11-03 with the owner (K10).
   made with **nobody** on it and **parked in the task's team's backlog**:
   the "needs a reviewer" item. A task that already has a review card gets
   no second one.
-- **The Backlog pins these at the top**, above the hand-ranked tasks,
-  oldest first among themselves, marked "needs a reviewer" and showing the
-  reviewed task's title and parent chain. They are not dragged into the
-  ranked part.
+- **Its default place is the top**: it is ranked before the first card of
+  the board's order when it is made, so it shows first in its backlog until
+  somebody drags it. It stands in the same list as the tasks, drawn as a
+  review card is drawn on the Me and Team boards, with the reviewed task's
+  parent chain, and is dragged like any card.
 - **Taking one** is the card's owner picker with a person — `own` on the
   review card, the one owner answer a review card takes while nobody has
   it: it gets the reviewer, today, the reviewed task's sprint and the
@@ -142,7 +143,8 @@ Decided 2026-11-03 with the owner (K10).
   with a reviewer follows the card it reviews, as before.
 - **Schema 3** gives every open task already on review with no review card
   this card, in the same bump (a fresh ULID, created at the bump, ranked
-  last).
+  at the top of the board's order — the oldest task's first when there are
+  several).
 
 ## The ×
 
@@ -193,4 +195,4 @@ parked tasks reachable, so nothing the migration parks is lost.
 | K7 | A task has no week: the API, the MCP and the codec refuse or drop `week` on a task; deadline stubs keep theirs. |
 | K8 | Schema 3 parks the tasks planned for a week ahead and the strip, keeps a task whose week has come in work on that week's dates and its team's current sprint, and strips every task week, in one idempotent pass. |
 | K9 | The Triage view, the `place` and `untriage` gestures and the `triage`/`triageWeek`/`due` status fields are gone from the API, the MCP and the SPA. |
-| K10 | Putting a task on review always makes its review card; without a reviewer it is made with nobody on it and parked in the team's backlog, pinned on top, and a person picked there takes it into work. |
+| K10 | Putting a task on review always makes its review card; without a reviewer it is made with nobody on it, parked in the team's backlog at the top of the order, and a person picked there takes it into work. |

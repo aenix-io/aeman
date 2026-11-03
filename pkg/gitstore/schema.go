@@ -3,6 +3,7 @@ package gitstore
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -409,33 +410,51 @@ func schema3(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error) {
 // "Reviews"): every OPEN task already on review with no review card gets the
 // card putting a task on review makes now — «review: <title>», of the task's
 // team, with nobody on it, parked in that team's backlog, carrying the
-// task's description — under a fresh ULID created at the bump and ranked
-// after every card, in the order the tasks were found. A task with a review
-// card of any kind gets none (a finished one is the re-review's to
-// reactivate), so the step re-run finds nothing to do.
+// task's description — under a fresh ULID created at the bump and ranked at
+// the TOP of the board's order, before the first card, so it shows first in
+// its backlog (K10); several stand in a fixed order, the oldest task's
+// first. A task with a review card of any kind gets none (a finished one is
+// the re-review's to reactivate), so the step re-run finds nothing to do.
 func schema3Reviews(cards []board.Card, now time.Time) ([]FileWrite, error) {
 	reviewed := map[string]bool{}
-	last := ""
+	first := ""
 	for _, c := range cards {
 		if c.ReviewOf != "" {
 			reviewed[c.ReviewOf] = true
 		}
-		if c.Rank > last {
-			last = c.Rank
+		if c.Rank != "" && (first == "" || c.Rank < first) {
+			first = c.Rank
 		}
 	}
-	created := now.UTC().Format(time.RFC3339)
-	var writes []FileWrite
+	var asking []board.Card
 	for _, c := range cards {
 		if c.Stage != board.StageReview || reviewed[c.ItemID] || board.IsPlanning(c) || c.Scope != "" ||
 			c.ReviewOf != "" || board.Complete(c.Stage, c.Progress) {
 			continue
 		}
-		rank, err := board.RankBetween(last, "")
+		asking = append(asking, c)
+	}
+	sort.SliceStable(asking, func(i, j int) bool {
+		if asking[i].CreatedAt != asking[j].CreatedAt {
+			return asking[i].CreatedAt < asking[j].CreatedAt
+		}
+		return asking[i].ItemID < asking[j].ItemID
+	})
+	// Ranked from the last up, each before the one after it, so the oldest
+	// task's review ends first of all.
+	ranks := make([]string, len(asking))
+	next := first
+	for i := len(asking) - 1; i >= 0; i-- {
+		rank, err := board.RankBetween("", next)
 		if err != nil {
 			return nil, err
 		}
-		last = rank
+		ranks[i], next = rank, rank
+	}
+	created := now.UTC().Format(time.RFC3339)
+	var writes []FileWrite
+	for i, c := range asking {
+		rank := ranks[i]
 		id := NewID(now)
 		review := CardFile{Card: board.Card{
 			ItemID: id, Title: "review: " + c.Title, Team: c.Team, Zone: board.ZoneGray,
