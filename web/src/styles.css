@@ -4261,9 +4261,6 @@ button.card-age {
   margin-top: 2px;
 }
 
-
-
-
 /* The parent chain, root first, on the right: each name opens its card's
    drawer, and a long one is cut short (its tooltip names it whole). */
 .backlog-row-chain {
@@ -4312,9 +4309,6 @@ button.card-age {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-
-
 
 .backlog-row-due {
   flex: none;
@@ -4392,39 +4386,45 @@ button.card-age {
   margin-left: 0;
 }
 
-
-
-
-
-
-
-
-
-
-
-/* Hidden until the row is reached for — a backlog is read far more often
-   than it is emptied. */
-.backlog-row-remove {
+/* The × takes no room: a zero-width slot just left of the card's right-side
+   cluster (chain, size, avatar, Take) anchors it, and it shows over the
+   title's end only while the card is reached for — a backlog is read far
+   more often than it is emptied, and at rest the cluster has no gap. */
+.backlog-row-remove-slot {
+  position: relative;
   flex: none;
-  padding: 0 2px;
+  width: 0;
+  align-self: stretch;
+}
+
+.backlog-row-remove {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  translate: 0 -50%;
+  z-index: 1;
+  padding: 0 4px;
   border: 0;
-  background: none;
+  border-radius: 4px;
+  background: var(--bg);
   color: var(--muted);
   font-size: 14px;
   line-height: 1.2;
   cursor: pointer;
   opacity: 0;
+  pointer-events: none;
 }
 
+/* Opaque over the title it covers: its muted colour keeps it quiet. */
 .backlog-card:hover .backlog-row-remove {
-  opacity: 0.7;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .backlog-row-remove:hover {
   color: var(--danger);
   opacity: 1;
 }
-
 
 /* ---- Roadmap ----
    The hierarchy as a table on the left and a timeline on the right. The two

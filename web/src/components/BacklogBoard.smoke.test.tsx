@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { BacklogBoard, ParentChain, TakeDialog } from "./BacklogBoard";
+import { BacklogBoard, Landing, ParentChain, TakeDialog } from "./BacklogBoard";
 import type { Board, Card, Provider } from "../providers/types";
 
 // The Backlog board draws its one list and its wide cards, and nothing else in
@@ -121,6 +121,31 @@ describe("the Backlog board", () => {
     expect(taken).not.toContain("backlog-take-btn");
   });
 
+  // The × takes NO room while it is hidden: at rest the right side reads
+  // chain, size, avatar, Take with no gap. It stands LEFT of that whole
+  // cluster — before the chain — anchored in a zero-width slot and laid over
+  // the title's end, shown on hover.
+  it("draws the × left of the chain, in a slot that takes no room at rest", () => {
+    const html = draw(board([first, second]));
+    const row = html.slice(html.indexOf('data-card="p1"'), html.indexOf('data-card="p2"'));
+    const remove = row.indexOf('class="backlog-row-remove"');
+    expect(remove).toBeGreaterThan(row.indexOf('class="backlog-row-remove-slot"'));
+    expect(remove).toBeGreaterThan(row.indexOf("Rotate the certificates"));
+    expect(remove).toBeLessThan(row.indexOf('class="backlog-row-chain"'));
+    expect(row.indexOf('class="backlog-row-chain"')).toBeLessThan(row.indexOf(">L</button>"));
+    expect(row.indexOf(">L</button>")).toBeLessThan(row.indexOf('class="backlog-row-owner"'));
+    expect(row.indexOf('class="backlog-row-owner"')).toBeLessThan(row.indexOf('class="backlog-take-btn"'));
+    const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
+    const slot = css.match(/\.backlog-row-remove-slot \{[^}]*\}/)?.[0] ?? "";
+    expect(slot).toMatch(/width: 0;/);
+    expect(slot).toMatch(/position: relative;/);
+    const hidden = css.match(/\.backlog-row-remove \{[^}]*\}/)?.[0] ?? "";
+    expect(hidden).toMatch(/position: absolute;/);
+    expect(hidden).toMatch(/right: 0;/);
+    expect(hidden).toMatch(/opacity: 0;/);
+    expect(hidden).toMatch(/pointer-events: none;/);
+  });
+
   // K10: a review nobody has taken is NOT a section of its own and wears no
   // badge: it is in the same list as the tasks, in the board's order, drawn
   // as a review card is on the Me and Team boards, and dragged like any.
@@ -214,6 +239,20 @@ describe("the parent chain", () => {
 
   it("draws nothing for a task under no planning card", () => {
     expect(ParentChain({ chain: [], onOpen: vi.fn() })).toBeNull();
+  });
+});
+
+// The card in hand is drawn where it would land exactly as the card being
+// dragged: a review keeps its review stripe there, a task has none.
+describe("the card in hand", () => {
+  it("wears the review stripe while a review card is dragged", () => {
+    const html = renderToStaticMarkup(<Landing card={card({ itemId: "r1", title: "review: Invoices", reviewOf: "t9" })} />);
+    expect(html).toContain('class="card backlog-card card-review backlog-card-landing"');
+  });
+
+  it("wears no stripe while a task is dragged", () => {
+    const html = renderToStaticMarkup(<Landing card={card({ itemId: "p1", title: "Drop the old API" })} />);
+    expect(html).toContain('class="card backlog-card backlog-card-landing"');
   });
 });
 

@@ -501,8 +501,9 @@ interface BacklogRowProps {
 /** BacklogRow is one wide card, drawn as the Me and Team boards draw a card
  *  (`card`, a review card with its review mark): the title first; on the
  *  right the planning cards it sits under, the due date when the nearest
- *  has an end, the size, the ×, its team's avatar (the owner picker) and,
- *  right-most while nobody has it, Take. */
+ *  has an end, the size, its team's avatar (the owner picker) and,
+ *  right-most while nobody has it, Take. The × stands left of all of that,
+ *  in a slot that takes no room: it shows over the title's end on hover. */
 function BacklogRow({ card, owner, onPointerDown, onRemove, onPickSize, onOpenParent, onTake }: BacklogRowProps) {
   const up = nearestPlanning(card);
   const due = dueOf(card);
@@ -515,6 +516,17 @@ function BacklogRow({ card, owner, onPointerDown, onRemove, onPickSize, onOpenPa
       title={card.title}
     >
       <span className="card-title backlog-card-title">{card.title}</span>
+      <span className="backlog-row-remove-slot">
+        <button
+          type="button"
+          className="backlog-row-remove"
+          title="Take this off the board"
+          aria-label="Take this off the board"
+          onClick={onRemove}
+        >
+          ×
+        </button>
+      </span>
       <ParentChain chain={parentChain(card)} onOpen={onOpenParent} />
       {due && (
         <span className="backlog-row-due" title={`Due ${due}: the end of «${up?.title ?? ""}»`}>
@@ -522,15 +534,6 @@ function BacklogRow({ card, owner, onPointerDown, onRemove, onPickSize, onOpenPa
         </span>
       )}
       <SizeChip card={card} onPick={onPickSize} />
-      <button
-        type="button"
-        className="backlog-row-remove"
-        title="Take this off the board"
-        aria-label="Take this off the board"
-        onClick={onRemove}
-      >
-        ×
-      </button>
       <span className="backlog-row-owner">{owner}</span>
       {onTake && (
         <button
@@ -594,10 +597,12 @@ export function TakeDialog({ title, onClose, onTake }: { title: string; onClose:
 }
 
 /** Landing is the card in hand, drawn where it would come to rest — an
- *  outline, since it is not there yet. */
-function Landing({ card }: { card: CardModel }) {
+ *  outline, since it is not there yet, but otherwise the card being dragged:
+ *  a review keeps its review stripe. */
+export function Landing({ card }: { card: CardModel }) {
+  const mark = markOf(card);
   return (
-    <div className="card backlog-card backlog-card-landing">
+    <div className={`card backlog-card${mark ? ` card-${mark}` : ""} backlog-card-landing`}>
       <span className="card-title backlog-card-title">{card.title}</span>
     </div>
   );
