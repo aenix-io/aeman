@@ -239,6 +239,7 @@ const (
 	PlanningCard         ProblemCode = "planningCard"
 	PointsRequired       ProblemCode = "pointsRequired"
 	ProjectCard          ProblemCode = "projectCard"
+	ProjectCardProgress  ProblemCode = "projectCardProgress"
 	ProjectExists        ProblemCode = "projectExists"
 	ProjectInUse         ProblemCode = "projectInUse"
 	ProjectNotFound      ProblemCode = "projectNotFound"
@@ -372,6 +373,8 @@ func (e ProblemCode) Valid() bool {
 	case PointsRequired:
 		return true
 	case ProjectCard:
+		return true
+	case ProjectCardProgress:
 		return true
 	case ProjectExists:
 		return true
@@ -543,7 +546,9 @@ type CardPatch struct {
 	Parent *string `json:"parent,omitempty"`
 
 	// Parked `true` parks the task in its team's backlog; `false` takes a parked task that is already in work out of it, and is refused (422 `takeIntoWork`) on one with no date and no sprint — set a date, a sprint or `own` a person instead.
-	Parked     *bool   `json:"parked,omitempty"`
+	Parked *bool `json:"parked,omitempty"`
+
+	// Progress 0..100. A project card (one in a Scope column) is done or not done and takes 0 or 100 alone; any other value is 422 `projectCardProgress`.
 	Progress   *int    `json:"progress,omitempty"`
 	Project    *string `json:"project,omitempty"`
 	Recurrence *string `json:"recurrence,omitempty"`

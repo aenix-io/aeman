@@ -1188,10 +1188,28 @@ export function CardDetail({
                 {!planning && stageLabel && <span className="drawer-chip">{stageLabel}</span>}
               </>,
             )}
-            {/* The bar a task (or a project card) carries on its board, with
-                its handle: drag it here as there. A planning card's progress
-                is derived and has no bar of its own. */}
+            {/* The bar a task carries on its board, with its handle: drag it
+                here as there. A planning card's progress is derived and has
+                no bar of its own. */}
+            {/* A PROJECT card is done or not done (#288): a toggle, no bar —
+                the server takes 0 or 100 alone for it. */}
             {!planning &&
+              !!card.scope &&
+              row(
+                "Done",
+                <label className="drawer-done">
+                  <input
+                    type="checkbox"
+                    aria-label="Done"
+                    checked={complete}
+                    disabled={isRecord}
+                    onChange={(e) => setDone(e.target.checked)}
+                  />
+                  {complete ? "Done" : "Not done"}
+                </label>,
+              )}
+            {!planning &&
+              !card.scope &&
               row(
                 "Progress",
                 <div className="drawer-progress">

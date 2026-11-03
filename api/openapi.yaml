@@ -1458,6 +1458,7 @@ components:
             - upstreamFailed
             - viewNeedsField
             - projectCard
+            - projectCardProgress
         actionUrl:
           type: string
           description: >-
@@ -2415,6 +2416,10 @@ components:
             type: string
         progress:
           type: integer
+          description: >-
+            0..100. A project card (one in a Scope column) is done or not
+            done and takes 0 or 100 alone; any other value is 422
+            `projectCardProgress`.
         stage:
           type: string
           enum: ["", locked, review, recurrent, refuse, done]

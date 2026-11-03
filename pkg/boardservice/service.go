@@ -375,6 +375,11 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	return card, nil
 }
 
+// ErrProjectCardProgress is a progress between 0 and 100 on a project card:
+// the plan a project card stands for is done or not done (#288), and its
+// progress takes 0 or 100 alone.
+var ErrProjectCardProgress = errors.New("a project card is done or not done")
+
 // ErrTwoPlaces is a create told to land both after one card and before
 // another: a place is said once.
 var ErrTwoPlaces = errors.New("a new card is placed after one card or before one, not both")
@@ -1768,6 +1773,11 @@ func (s *Service) SetProgress(ctx context.Context, boardID string, itemID string
 	}
 	if err := notAPlanningCard(card, "progress"); err != nil {
 		return err
+	}
+	// A PROJECT card is done or not done (#288): 100 marks it done, 0 takes
+	// it back, and nothing between is its to carry.
+	if card.Scope != "" && raw != 0 && raw != 100 {
+		return fmt.Errorf("%w: %q takes 0 or 100, not %d", ErrProjectCardProgress, card.Title, raw)
 	}
 	// 100% completes a stageless card; the parent's final 100 waits for
 	// every subtask to be done first.

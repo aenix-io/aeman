@@ -94,7 +94,12 @@ refused; a task filed into a column leaves its band and size behind, the
 way it leaves its sprint and its backlog), and it is **not drawn on Me,
 Team or a Backlog**. Its week is no longer derived from its dates, and nothing
 syncs it. A file that still carries a band or a size on such a card is
-read without them and rewritten without them the next time it changes. It stands in its Scope column on the
+read without them and rewritten without them the next time it changes.
+It is **done or not done**: its progress takes 0 or 100 alone (any other
+value is refused, `projectCardProgress`), and its drawer shows a Done
+toggle in place of a bar. On the Project board it shows the goal,
+initiative or epic it is attached to, and its "…" menu lists them to attach
+it to right there. It stands in its Scope column on the
 Project board, may be placed under an epic, initiative or goal (a
 planning `parent`, the hierarchy's link), and shows on the Roadmap under
 that parent. It is **never a subtask and has none** — a subtask rides its

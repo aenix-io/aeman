@@ -5991,3 +5991,38 @@ button.card-age {
 .backlog-slot > .insert-gap {
   margin-top: 0;
 }
+
+/* A project card's Done toggle in the drawer, in place of a bar (#288). */
+.drawer-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+/* The goal, initiative or epic a project card is attached to, under its
+   title on the Project board: a way into it (#288). */
+.project-slot-plan {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.project-slot-plan:hover {
+  color: var(--fg);
+}
+
+.project-slot-plan-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

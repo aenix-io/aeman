@@ -130,7 +130,10 @@ describe("the card drawer", () => {
 
   it("gives a project card its column and its dates, and a way under a planning card — no band, no size, no people", () => {
     const html = draw(card({ project: "cozy", scope: "Storage", startDate: "2026-03-02", day: "2026-03-13" }));
-    expect(rows(html)).toEqual(["Status", "Progress", "Dates", "Under", "Project", "Scope"]);
+    // #288: done or not done — a Done toggle, no progress bar.
+    expect(rows(html)).toEqual(["Status", "Done", "Dates", "Under", "Project", "Scope"]);
+    expect(html).toMatch(/<input[^>]*type="checkbox"[^>]*aria-label="Done"/);
+    expect(html).not.toContain("drawer-progress");
     expect(html).not.toContain("modal-size-chip");
     expect(html).not.toContain("modal-zone-btn");
     expect(html).not.toContain("owner-picker");
