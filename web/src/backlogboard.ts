@@ -36,12 +36,22 @@ import type { Card, LineageRef, Provider } from "./providers/types";
  *  and a parked card a direct writer left dates on is in one — drawn once,
  *  where it can be dealt with. */
 export function onBacklog(
-  c: Pick<Card, "parked" | "type" | "scope" | "reviewOf" | "parent" | "lineage" | "stage" | "progress">,
+  c: Pick<Card, "parked" | "type" | "scope" | "reviewOf" | "parent" | "lineage" | "stage" | "progress" | "assignees">,
 ): boolean {
   if (!c.parked || isComplete(c)) {
     return false;
   }
+  if (needsReviewer(c)) {
+    return true;
+  }
   return !isPlanning(c) && !c.scope && !c.reviewOf && !isSubtask(c);
+}
+
+/** needsReviewer mirrors board.NeedsReviewer (K10): an open review card
+ *  nobody has taken — what putting a task on review without naming a
+ *  reviewer makes, parked in the task's team's backlog. */
+export function needsReviewer(c: Pick<Card, "reviewOf" | "assignees" | "stage" | "progress">): boolean {
+  return !!c.reviewOf && (c.assignees ?? []).length === 0 && !isComplete(c);
 }
 
 /** shownTeams is the teams whose backlogs the board shows: the chips'
@@ -62,6 +72,32 @@ export function shownTeams(filter: readonly string[] | null, roster: readonly st
 export function backlogList(cards: readonly Card[], teams: readonly string[]): Card[] {
   const shown = new Set(teams);
   return cards.filter((c) => onBacklog(c) && shown.has(c.team ?? ""));
+}
+
+/** BacklogSections is the board as it is drawn: the reviews nobody has taken
+ *  PINNED on top, oldest first among themselves — asked for now, and not the
+ *  lead's to rank — then the ranked tasks in the board's order (K10, K2).
+ *  Only the tasks are dragged; a pinned review leaves when a reviewer has
+ *  it. Mirrors apiserver.backlogCards. */
+export interface BacklogSections {
+  reviews: Card[];
+  tasks: Card[];
+}
+
+export function backlogSections(cards: readonly Card[], teams: readonly string[]): BacklogSections {
+  const all = backlogList(cards, teams);
+  const reviews = all
+    .filter((c) => needsReviewer(c))
+    .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+  return { reviews, tasks: all.filter((c) => !needsReviewer(c)) };
+}
+
+/** reviewOwnPlan is what the picker does on a review nobody has taken: a
+ *  PERSON becomes its reviewer and takes it into work (the server's `own` on
+ *  the review card, K10); any other answer is the review link's to give, and
+ *  the board offers nothing for it. */
+export function reviewOwnPlan(owner: Owner): "take" | "none" {
+  return owner.person ? "take" : "none";
 }
 
 /** orderWith is the list's order once `id` has been dropped at place `at`.

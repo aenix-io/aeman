@@ -72,13 +72,16 @@ SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
   long name cut short with the whole name in its tooltip, and each
   opening that planning card's drawer (the one the Roadmap opens); the
   due date — the nearest planning ancestor's end, when it has one; the
-  size when it has one; its team chip and its owner.
+  size when it has one; and whose it is — the team's avatar, the
+  person's stacked over it when somebody has it, one label (the shared
+  owner badge, the Roadmap's too), with a separate Take button to its
+  left while nobody has it.
 - **Order.** Dragging a card reorders it in the list: the move gesture
   with `after`/`before` anchors of its neighbours in the merged list,
   whichever team they are (rank is one board-wide list; the anchors keep
   the move local). A drag does not change the team: the card's team chip
   is its owner picker, and `own` with a team alone hands it to that team,
-  still parked.
+  still parked; the owner badge is that picker.
 - **Adding.** One add box at the bottom of the list, with a team
   selector beside it when several teams are selected (it starts on the
   first selected team; with one team selected there is no selector): a

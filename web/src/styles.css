@@ -4343,27 +4343,8 @@ button.card-age {
   white-space: nowrap;
 }
 
-.backlog-row-team {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-right: 6px;
-  font-size: 11px;
-  color: var(--muted);
-}
 
-.backlog-row-team-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
 
-.backlog-row-team-name {
-  max-width: 90px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .backlog-row-due {
   flex: none;
@@ -4375,32 +4356,67 @@ button.card-age {
 
 .backlog-row-owner {
   flex: none;
-}
-
-.backlog-row-take {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.backlog-row-person {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   font-size: 11px;
 }
 
-.backlog-row-avatar {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
+/* The owner picker's trigger sits flush in the row here: its own -6px pull
+   (for a table cell's text) set its hover box off-centre against the card. */
+.backlog-row-owner .owner-picker-btn {
+  margin-left: 0;
 }
 
-.backlog-row-person-name {
-  max-width: 110px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* Take: a small button of its own, left of the avatar, drawn like the
+   app's other small buttons (.btn) — a plain border, no offset, no shadow. */
+.backlog-take .owner-picker-btn {
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: none;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.backlog-take .owner-picker-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--bg);
+}
+
+.backlog-take .owner-picker-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The reviews nobody has taken, pinned above the ranked list (K10). */
+.backlog-pinned {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.backlog-row-pinned {
+  cursor: pointer;
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-raised));
+}
+
+.backlog-row-needs {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent-emphasis);
+  font-size: 10px;
+  font-weight: 600;
   white-space: nowrap;
 }
+
+
+
+
 
 /* Hidden until the row is reached for — a backlog is read far more often
    than it is emptied. */

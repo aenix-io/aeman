@@ -890,7 +890,7 @@ export interface components {
             leftAt?: string;
             /** @description The references extracted from the description, unresolved and capped — they ride the status so a row that omits the description still knows it has links to show. GET /cards/{uid}/links resolves them. */
             links?: components["schemas"]["CardLinkRef"][];
-            /** @description Every ancestor of the card, ROOT FIRST — the breadcrumb a detail pane draws above it, a task parent included. Absent on a root. */
+            /** @description Every ancestor of the card, ROOT FIRST — the breadcrumb a detail pane draws above it, a task parent included. Absent on a root. A review card, which hangs under nothing of its own, carries the planning chain of the task it reviews. */
             lineage?: components["schemas"]["LineageRef"][];
             hierarchy?: components["schemas"]["Hierarchy"];
         };

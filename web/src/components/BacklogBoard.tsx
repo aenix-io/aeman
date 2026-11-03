@@ -10,10 +10,9 @@
 // the selection by anybody simply stops being one of them.
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { Board, Card as CardModel, Provider, SizeKey } from "../providers/types";
-import { teamColor } from "../avatar";
 import {
   addBox,
-  backlogList,
+  backlogSections,
   dropPlan,
   dueLabel,
   dueOf,
@@ -22,6 +21,7 @@ import {
   openPlanning,
   ownPlan,
   parentChain,
+  reviewOwnPlan,
   shownTeams,
   spliceOrder,
   takenIntoWorkLocally,
@@ -34,11 +34,11 @@ import { asksFirst, freeSubtasks, removeChoices, removeIntent, type RemoveChoice
 import { SIZES, SIZE_ORDER } from "../size";
 import { currentSprint, previousSprint } from "../sprint";
 import { todayIso } from "../date";
-import { displayName, type Avatars, type Names } from "../users";
+import type { Avatars, Names } from "../users";
 import { AddCard } from "./AddCard";
-import { Avatar } from "./Avatar";
 import { Dropdown } from "./Dropdown";
 import { KindIcon } from "./KindIcon";
+import { OwnerBadge } from "./OwnerBadge";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { SizeChip } from "./SizeChip";
@@ -110,7 +110,7 @@ export function BacklogBoard({
 }: BacklogBoardProps) {
   const today = todayIso();
   const teams = useMemo(() => shownTeams(teamFilter, roster), [teamFilter, roster]);
-  const list = useMemo(() => backlogList(board.cards, teams), [board.cards, teams]);
+  const { reviews, tasks: list } = useMemo(() => backlogSections(board.cards, teams), [board.cards, teams]);
   const adding = useMemo(() => addBox(teams), [teams]);
   const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
 
@@ -148,7 +148,15 @@ export function BacklogBoard({
   // ---- the owner picker: a person takes it into work (K4) ----
   const own = useCallback(
     (card: CardModel, owner: Owner) => {
-      const plan = ownPlan(card, owner);
+      // A review nobody has taken takes a person and nothing else (K10):
+      // the person is its reviewer, and it keeps the reviewed task's team.
+      if (card.reviewOf) {
+        if (reviewOwnPlan(owner) === "none") {
+          return;
+        }
+        owner = { team: card.team ?? "", person: owner.person };
+      }
+      const plan = card.reviewOf ? "take" : ownPlan(card, owner);
       if (plan === "none") {
         return;
       }
@@ -334,6 +342,46 @@ export function BacklogBoard({
     }
   };
 
+  // Whose the card is: the owner badge (the team's avatar, the person's over
+  // it) behind the owner picker; and, while nobody has the card, a separate
+  // Take button LEFT of it that opens the same picker. On a review nobody has
+  // taken the picker asks for its reviewer.
+  const ownerControls = (c: CardModel) => {
+    const picker = (child: React.ReactNode, className: string, title: string) => (
+      <OwnerPicker
+        current={ownerOf(c)}
+        teams={roster}
+        people={members}
+        cards={board.cards}
+        avatars={avatars}
+        names={names}
+        onPick={(o) => own(c, o)}
+        className={className}
+        title={title}
+      >
+        {child}
+      </OwnerPicker>
+    );
+    const person = c.assignees[0];
+    return (
+      <>
+        {!person &&
+          picker(
+            <span className="backlog-take-label">Take</span>,
+            "backlog-take",
+            c.reviewOf ? `Who reviews «${c.title}»` : `Who takes «${c.title}» into work`,
+          )}
+        {picker(
+          <OwnerBadge owner={ownerOf(c)} avatars={avatars} names={names} />,
+          "backlog-row-badge",
+          c.reviewOf
+            ? `Who reviews «${c.title}»`
+            : `Whose «${c.title}» is: a team keeps it in the backlog, a person takes it into work`,
+        )}
+      </>
+    );
+  };
+
   return (
     <div className="backlog-board">
       <div className="board-toolbar">
@@ -352,6 +400,28 @@ export function BacklogBoard({
         />
       </div>
       <section className="backlog-list" aria-label="Backlog">
+        {reviews.length > 0 && (
+          // The reviews nobody has taken, pinned on top and out of the drag:
+          // asked for now, and not the lead's to rank (K10).
+          <div className="backlog-pinned" aria-label="Needs a reviewer">
+            {reviews.map((c) => (
+              <BacklogRow
+                key={c.itemId}
+                card={c}
+                pinned
+                onPointerDown={(e) => {
+                  if (!(e.target as HTMLElement).closest("button, input, a")) {
+                    onOpen(c);
+                  }
+                }}
+                onRemove={() => remove(c)}
+                onPickSize={openSizer}
+                onOpenParent={openParent}
+                owner={ownerControls(c)}
+              />
+            ))}
+          </div>
+        )}
         <div className={`backlog-list-body${carried ? " backlog-list-over" : ""}`} data-backlog-list="">
           {(() => {
             const held = list.filter((c) => c.itemId !== carried?.itemId);
@@ -367,21 +437,7 @@ export function BacklogBoard({
                       onRemove={() => remove(c)}
                       onPickSize={openSizer}
                       onOpenParent={openParent}
-                      owner={
-                        <OwnerPicker
-                          current={ownerOf(c)}
-                          teams={roster}
-                          people={members}
-                          cards={board.cards}
-                          avatars={avatars}
-                          names={names}
-                          onPick={(o) => own(c, o)}
-                          title={`Whose «${c.title}» is: a team keeps it in the backlog, a person takes it into work`}
-                        >
-                          <TeamChip team={c.team ?? ""} />
-                          <OwnerFace card={c} avatars={avatars} names={names} />
-                        </OwnerPicker>
-                      }
+                      owner={ownerControls(c)}
                     />
                   </div>
                 ))}
@@ -429,6 +485,8 @@ export function BacklogBoard({
 
 interface BacklogRowProps {
   card: CardModel;
+  /** A review nobody has taken, pinned on top: marked, and out of the drag. */
+  pinned?: boolean;
   owner: React.ReactNode;
   onPointerDown: (e: React.PointerEvent) => void;
   onRemove: () => void;
@@ -439,11 +497,17 @@ interface BacklogRowProps {
 /** BacklogRow is one wide card: the title first; on the right the planning
  *  cards it sits under, the due date when the nearest has an end, the size,
  *  and its team and owner (the owner picker). */
-function BacklogRow({ card, owner, onPointerDown, onRemove, onPickSize, onOpenParent }: BacklogRowProps) {
+function BacklogRow({ card, pinned, owner, onPointerDown, onRemove, onPickSize, onOpenParent }: BacklogRowProps) {
   const up = nearestPlanning(card);
   const due = dueOf(card);
   return (
-    <div className="backlog-row" data-card={card.itemId} onPointerDown={onPointerDown} title={card.title}>
+    <div
+      className={`backlog-row${pinned ? " backlog-row-pinned" : ""}`}
+      data-card={pinned ? undefined : card.itemId}
+      onPointerDown={onPointerDown}
+      title={card.title}
+    >
+      {pinned && <span className="backlog-row-needs">needs a reviewer</span>}
       <span className="backlog-row-title">{card.title}</span>
       <ParentChain chain={parentChain(card)} onOpen={onOpenParent} />
       {due && (
@@ -463,21 +527,6 @@ function BacklogRow({ card, owner, onPointerDown, onRemove, onPickSize, onOpenPa
         ×
       </button>
     </div>
-  );
-}
-
-/** OwnerFace is what the owner picker's trigger shows: the person when the
- *  card has one, and otherwise an invitation to take it. */
-function OwnerFace({ card, avatars, names }: { card: CardModel; avatars: Avatars; names: Names }) {
-  const person = card.assignees[0];
-  if (!person) {
-    return <span className="backlog-row-take">Take</span>;
-  }
-  return (
-    <span className="backlog-row-person" title={displayName(person, names)}>
-      <Avatar login={person} avatars={avatars} names={names} className="avatar-img backlog-row-avatar" />
-      <span className="backlog-row-person-name">{displayName(person, names)}</span>
-    </span>
   );
 }
 
@@ -520,16 +569,5 @@ export function ParentChain({ chain, onOpen }: { chain: readonly LineageRef[]; o
         </span>
       ))}
     </nav>
-  );
-}
-
-/** TeamChip is the card's team, as a chip in its team's colour — inside the
- *  owner picker, which is how the card is handed to another team. */
-function TeamChip({ team }: { team: string }) {
-  return (
-    <span className="backlog-row-team" title={team ? `Team ${team}` : "No team"}>
-      <span className="backlog-row-team-dot" style={{ background: teamColor(team) }} aria-hidden="true" />
-      <span className="backlog-row-team-name">{team || "No team"}</span>
-    </span>
   );
 }

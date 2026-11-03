@@ -68,10 +68,17 @@ describe("the Backlog board", () => {
     expect(html.indexOf("Bump the chart")).toBeLessThan(html.indexOf("Drop the old API"));
   });
 
-  it("puts a chip of its team on every card", () => {
+  // Whose a card is, as the day boards draw it: the team's avatar (the
+  // shared OwnerBadge), the person's over it when somebody has the card, and
+  // one label — no dot and no team chip of the Backlog's own.
+  it("draws the team's avatar on every card, and the person's over it when somebody has it", () => {
     const html = draw(board([first, cozy]));
-    expect(html).toContain('<span class="backlog-row-team-name">portal</span>');
-    expect(html).toContain('<span class="backlog-row-team-name">cozystack</span>');
+    expect(html.match(/class="team-avatar owner-badge-team"/g)?.length).toBe(2);
+    expect(html).toContain('title="Team portal"');
+    expect(html).toContain("owner-badge-overlap");
+    expect(html).toContain('<span class="owner-badge-label">portal</span>');
+    expect(html).toContain('<span class="owner-badge-label">kvaps</span>');
+    expect(html).not.toContain("backlog-row-team");
   });
 
   it("draws the parent chain on the right of the title, root first, each with its kind icon and a tooltip", () => {
@@ -92,11 +99,38 @@ describe("the Backlog board", () => {
     expect(html).toContain(">L</button>");
   });
 
-  it("offers the owner picker on every card: Take when nobody has it, the person when somebody does", () => {
+  // Take is a button of its own, LEFT of the avatar, on a card nobody has;
+  // the avatar is the owner picker on every card.
+  it("draws Take as a separate button left of the avatar, only on a card nobody has", () => {
     const html = draw(board([first, cozy]));
-    expect(html.match(/class="owner-picker"/g)?.length).toBe(2);
-    expect(html).toContain(">Take<");
-    expect(html).toContain("backlog-row-person");
+    expect(html.match(/class="owner-picker backlog-row-badge"/g)?.length).toBe(2);
+    expect(html.match(/class="owner-picker backlog-take"/g)?.length).toBe(1);
+    const row = html.slice(html.indexOf('data-card="p1"'), html.indexOf('data-card="k1"'));
+    expect(row.indexOf("backlog-take")).toBeGreaterThan(-1);
+    expect(row.indexOf("backlog-take")).toBeLessThan(row.indexOf("owner-badge"));
+    const taken = html.slice(html.indexOf('data-card="k1"'));
+    expect(taken).not.toContain("backlog-take");
+  });
+
+  // K10: the reviews nobody has taken are pinned on top, out of the ranked
+  // list, marked, with the reviewed task's chain.
+  it("pins the reviews nobody has taken above the ranked tasks, marked", () => {
+    const review = card({
+      itemId: "r1",
+      title: "review: Invoices",
+      team: "portal",
+      reviewOf: "t9",
+      lineage: [EPIC],
+      createdAt: "2026-11-03T10:00:00Z",
+    });
+    const html = draw(board([first, review]));
+    const pinned = html.indexOf('class="backlog-pinned"');
+    expect(pinned).toBeGreaterThan(-1);
+    expect(pinned).toBeLessThan(html.indexOf("data-backlog-list"));
+    expect(html).toContain("needs a reviewer");
+    expect(html.indexOf("review: Invoices")).toBeLessThan(html.indexOf("Rotate the certificates"));
+    expect(html).not.toContain('data-card="r1"');
+    expect(html.slice(pinned, html.indexOf("data-backlog-list"))).toContain("Billing v2");
   });
 
   it("draws nothing that is not a parked open task of a shown team (K1, K2)", () => {
@@ -106,7 +140,7 @@ describe("the Backlog board", () => {
         card({ itemId: "w", title: "In hand today", team: "portal", parked: false, startDate: "2026-11-03" }),
         card({ itemId: "d", title: "Already done", team: "portal", progress: 100 }),
         card({ itemId: "s", title: "A step", team: "portal", parent: "p1" }),
-        card({ itemId: "r", title: "Review: x", team: "portal", reviewOf: "p1" }),
+        card({ itemId: "r", title: "Review: x", team: "portal", reviewOf: "p1", assignees: ["kvaps"] }),
         card({ itemId: "g", title: "Some epic", team: "portal", type: "epic" }),
         card({ itemId: "o", title: "Other team's", team: "freedom" }),
       ]),
@@ -136,6 +170,17 @@ describe("the Backlog board", () => {
       expect(rule).not.toMatch(/border-left/);
     }
     expect(draw(board([first]))).not.toMatch(/border-left/);
+  });
+
+  // Take's box sits square on its button: the owner picker's -6px pull is
+  // undone on the backlog row, and Take is drawn like the app's small
+  // buttons — a plain border and no shadow.
+  it("draws Take square, like the app's small buttons", () => {
+    const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
+    expect(css).toMatch(/\.backlog-row-owner \.owner-picker-btn \{\s*margin-left: 0;/);
+    const take = css.match(/\.backlog-take \.owner-picker-btn \{[^}]*\}/)?.[0] ?? "";
+    expect(take).toMatch(/border: 1px solid var\(--line\)/);
+    expect(take).toMatch(/box-shadow: none/);
   });
 });
 

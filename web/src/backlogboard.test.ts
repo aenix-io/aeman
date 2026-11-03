@@ -4,15 +4,18 @@ import {
   addBox,
   anchorFor,
   backlogList,
+  backlogSections,
   dropPlan,
   dueLabel,
   dueOf,
   handedOverLocally,
   nearestPlanning,
   onBacklog,
+  needsReviewer,
   openPlanning,
   orderWith,
   ownPlan,
+  reviewOwnPlan,
   parentChain,
   shownTeams,
   spliceOrder,
@@ -47,10 +50,10 @@ describe("what a backlog lists (K2)", () => {
     expect(onBacklog(card({ startDate: "2026-11-03", day: "2026-11-03" }))).toBe(true);
   });
 
-  it("lists no planning card, no project card, no review card", () => {
+  it("lists no planning card, no project card, no review card a reviewer has", () => {
     expect(onBacklog(card({ type: "epic" }))).toBe(false);
     expect(onBacklog(card({ scope: "Storage", project: "P" }))).toBe(false);
-    expect(onBacklog(card({ reviewOf: "c9" }))).toBe(false);
+    expect(onBacklog(card({ reviewOf: "c9", assignees: ["bob"] }))).toBe(false);
   });
 
   it("lists no subtask on its own: it rides its parent", () => {
@@ -315,5 +318,47 @@ describe("the tag and the due date", () => {
   it("reads as a day and a month", () => {
     expect(dueLabel("2026-12-18")).toBe("18 Dec");
     expect(dueLabel("2027-01-05")).toBe("5 Jan");
+  });
+});
+
+// K10: a task put on review with no reviewer makes a review card NOBODY has
+// taken, parked in the team's backlog. The board PINS these on top, above
+// the ranked tasks, oldest first, out of the drag; a person picked on one
+// takes it into work, and it leaves the backlog at once.
+describe("the reviews nobody has taken (K10)", () => {
+  const waiting = (over: Partial<Card>) => card({ reviewOf: "t", title: "review: Invoices", ...over });
+
+  it("needs a reviewer while open and nobody has it", () => {
+    expect(needsReviewer(waiting({}))).toBe(true);
+    expect(needsReviewer(waiting({ assignees: ["bob"] }))).toBe(false);
+    expect(needsReviewer(waiting({ progress: 100 }))).toBe(false);
+    expect(needsReviewer(card({}))).toBe(false);
+  });
+
+  it("is in the backlog parked, and a reviewer's review card is not", () => {
+    expect(onBacklog(waiting({}))).toBe(true);
+    expect(onBacklog(waiting({ assignees: ["bob"] }))).toBe(false);
+  });
+
+  it("is pinned above the ranked tasks, oldest first, whatever the board's order", () => {
+    const t1 = card({ itemId: "t1", team: "alpha" });
+    const t2 = card({ itemId: "t2", team: "beta" });
+    const rNew = waiting({ itemId: "r-new", team: "alpha", createdAt: "2026-11-03T10:00:00Z" });
+    const rOld = waiting({ itemId: "r-old", team: "beta", createdAt: "2026-11-02T10:00:00Z" });
+    const { reviews, tasks } = backlogSections([t1, rNew, t2, rOld], ["alpha", "beta"]);
+    expect(reviews.map((c) => c.itemId)).toEqual(["r-old", "r-new"]);
+    expect(tasks.map((c) => c.itemId)).toEqual(["t1", "t2"]);
+  });
+
+  it("drops out the moment a reviewer has it", () => {
+    const r = waiting({ itemId: "r", team: "alpha" });
+    const taken = { ...r, assignees: ["bob"], parked: false, startDate: "2026-11-03" };
+    expect(backlogSections([taken], ["alpha"]).reviews).toEqual([]);
+  });
+
+  it("takes a person as its reviewer, and nothing else", () => {
+    expect(reviewOwnPlan({ team: "alpha", person: "bob" })).toBe("take");
+    expect(reviewOwnPlan({ team: "beta", person: "" })).toBe("none");
+    expect(reviewOwnPlan({ team: "", person: "" })).toBe("none");
   });
 });
