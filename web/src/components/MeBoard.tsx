@@ -51,7 +51,7 @@ import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
-import { selectedByOf } from "../presence";
+import { selectedByOf, type PresenceMap } from "../presence";
 import { InsertGap } from "./InsertGap";
 import { cellGaps, gapAnchor, gapsInZone } from "../insertgap";
 import { insertedOrder, type Anchor } from "../backlogboard";
@@ -113,7 +113,7 @@ interface MeBoardProps {
   /** Share the live selection with other boards ("" clears on deselect). */
   onPresence?: (card: string | null) => void;
   /** Others' live selections (login → card uid), drawn on the cards (#290). */
-  presence?: Record<string, string>;
+  presence?: PresenceMap;
 }
 
 /** Per-group metadata for the Me board: just the destination zone. */
@@ -1712,6 +1712,7 @@ export function MeBoard({
         presence,
         card,
         isSubtask(card) ? undefined : { children: (id) => childrenOf.get(id) ?? [], open: subsOpen },
+        me,
       )}
       onSelect={(c) => setSelectedCardId(c.itemId)}
       onProgress={handleProgress}

@@ -1367,10 +1367,11 @@ export interface components {
             kind: "Presence";
             object: components["schemas"]["Presence"];
         };
-        /** @description One person's live selection. */
+        /** @description One person's live selection, from one of their tabs: `client` is the tab (its `X-Aeman-Client`), the key a selection is held by, so two tabs of one person are two selections; an empty `card` clears it. */
         Presence: {
             login: string;
             card: string;
+            client?: string;
         };
         /** @description The board's STRUCTURE changed — a project, a column, a deadline. It carries the whole board resource, so a client applies it without a round trip, and it is coalesced for a burst of writes. */
         BoardFrame: {

@@ -47,7 +47,7 @@ import { todayIso } from "../date";
 import type { Avatars, Names } from "../users";
 import { AddCard } from "./AddCard";
 import { PresenceMarks } from "./Card";
-import { clickOn, selectedByOf } from "../presence";
+import { clickOn, selectedByOf, type PresenceMap } from "../presence";
 import { Avatar } from "./Avatar";
 import { displayName } from "../users";
 import { InsertGap } from "./InsertGap";
@@ -87,7 +87,7 @@ interface BacklogBoardProps {
   /** The viewer's login: TAKE makes the card theirs. */
   me: string;
   /** Others' live selections (login → card uid), drawn on the cards. */
-  presence?: Record<string, string>;
+  presence?: PresenceMap;
   /** Broadcast this board's selection as shared presence (#290). */
   onPresence?: (card: string | null) => void;
 }
@@ -523,7 +523,7 @@ export function BacklogBoard({
                     <BacklogRow
                       card={c}
                       selected={c.itemId === selectedId}
-                      selectedBy={selectedByOf(presence, c)}
+                      selectedBy={selectedByOf(presence, c, undefined, me)}
                       avatars={avatars}
                       names={names}
                       onPointerDown={beginDrag(c)}

@@ -712,6 +712,9 @@ func (e *boardEntry) orderingChanged(origin string) {
 type presenceEntry struct {
 	Login string `json:"login"`
 	Card  string `json:"card"`
+	// Client is the tab the selection is from (X-Aeman-Client), the key the
+	// server holds it by: two tabs of one person are two selections.
+	Client string `json:"client,omitempty"`
 }
 
 // presenceChanged announces one user's selection to every subscription that
@@ -736,7 +739,7 @@ func (e *boardEntry) presenceFor(sub *subscription, entry presenceEntry) presenc
 		return entry
 	}
 	if c, ok := board.Find(e.board, entry.Card); ok && !sub.rights.canRead(c.Domain) {
-		return presenceEntry{Login: entry.Login}
+		return presenceEntry{Login: entry.Login, Client: entry.Client}
 	}
 	return entry
 }
@@ -752,9 +755,9 @@ func (s *boardStore) SetPresence(key, clientID, login, card string) {
 	if card == "" {
 		delete(e.presence, clientID)
 	} else {
-		e.presence[clientID] = presenceEntry{Login: login, Card: card}
+		e.presence[clientID] = presenceEntry{Login: login, Card: card, Client: clientID}
 	}
-	e.presenceChanged(clientID, presenceEntry{Login: login, Card: card})
+	e.presenceChanged(clientID, presenceEntry{Login: login, Card: card, Client: clientID})
 	e.mu.Unlock()
 }
 
@@ -769,7 +772,7 @@ func (s *boardStore) ClearPresence(key, clientID string) {
 	entry, ok := e.presence[clientID]
 	if ok {
 		delete(e.presence, clientID)
-		e.presenceChanged(clientID, presenceEntry{Login: entry.Login, Card: ""})
+		e.presenceChanged(clientID, presenceEntry{Login: entry.Login, Card: "", Client: clientID})
 	}
 	e.mu.Unlock()
 }

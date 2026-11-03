@@ -12,7 +12,9 @@ import (
 // the client, so a lead selecting on the Team board and a person selecting
 // on their Me board both show; a selection made on the Team board reaches a
 // Me board's watch as much as the other way round — presence is not scoped
-// to a view. A viewer who may not read the card's repository is told the
+// to a view. Each frame names the CLIENT (the tab) it is from, the key the
+// server holds it by, so two tabs of one person do not erase each other on
+// the boards that draw them. A viewer who may not read the card's repository is told the
 // person has selected nothing they can see (the mark clears), never the uid.
 func TestASelectionReachesEveryBoardThatMayReadIt(t *testing.T) {
 	store := newBoardStore()
@@ -45,8 +47,8 @@ func TestASelectionReachesEveryBoardThatMayReadIt(t *testing.T) {
 	// The lead selects on the Team board: bob's Me board hears it; the
 	// lead's own tab does not echo it.
 	store.SetPresence("k", "lead-team", "lead", "open")
-	if p := read(bobMe); p.Login != "lead" || p.Card != "open" {
-		t.Fatalf("bob's Me board heard %+v, want lead on «open»", p)
+	if p := read(bobMe); p.Login != "lead" || p.Card != "open" || p.Client != "lead-team" {
+		t.Fatalf("bob's Me board heard %+v, want lead on «open» from the lead's tab", p)
 	}
 	noFrame(t, leadTeam)
 

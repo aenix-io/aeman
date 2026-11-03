@@ -11,6 +11,7 @@ import { BacklogBoard } from "./components/BacklogBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
 import { RoadmapBoard } from "./components/RoadmapBoard";
 import { followFrame, followPatch } from "./detail";
+import { presenceAfter, type PresenceMap } from "./presence";
 import { PROJECT_CARDS_KEY, storedProjectCards } from "./roadmap";
 import { TeamsModal } from "./components/TeamsModal";
 import { readProjectFilter, writeProjectFilter } from "./projectFilter";
@@ -292,7 +293,7 @@ export function App() {
   }, []);
   // Live selections of other users (login -> card uid), fed by Presence
   // watch frames; purely ephemeral shared-cursor state.
-  const [presence, setPresenceMap] = useState<Record<string, string>>({});
+  const [presence, setPresenceMap] = useState<PresenceMap>({});
   // A board's selection, shared live (#290): Me, Team and Backlog all say
   // which card their reader has selected, and draw everyone else's.
   const sharePresence = (card: string | null) => {
@@ -1221,19 +1222,12 @@ export function App() {
         return;
       }
       if (frame.kind === "Presence") {
-        const { login, card } = frame.object;
+        const { login, card, client } = frame.object;
         if (!login) {
           return;
         }
-        setPresenceMap((cur) => {
-          const next = { ...cur };
-          if (card) {
-            next[login] = card;
-          } else {
-            delete next[login];
-          }
-          return next;
-        });
+        // Keyed by the tab it is from, as the server keys it (presence.ts).
+        setPresenceMap((cur) => presenceAfter(cur, { login, card, client }));
       }
     };
     const connect = () => {

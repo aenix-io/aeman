@@ -210,7 +210,7 @@ describe("the Me board's presence marks", () => {
         onViewAs={vi.fn()}
         connectHint=""
         teams={["alpha"]}
-        presence={{ lead: "u" }}
+        presence={{ t1: { login: "lead", card: "u" } }}
       />,
     );
     expect(html).toContain("card-peer-selected");

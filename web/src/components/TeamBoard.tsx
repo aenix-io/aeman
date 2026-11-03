@@ -18,7 +18,7 @@ import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
-import { selectedByOf } from "../presence";
+import { selectedByOf, type PresenceMap } from "../presence";
 import { InsertGap } from "./InsertGap";
 import { cellGaps, gapAnchor, gapsInZone } from "../insertgap";
 import { insertedOrder, type Anchor } from "../backlogboard";
@@ -87,7 +87,7 @@ interface TeamBoardProps {
   /** Wraps a slow server call so the App's progress bar shows while it runs. */
   track: <T>(p: Promise<T>) => Promise<T>;
   /** Other users' live selections (login -> card uid) shown as avatars. */
-  presence?: Record<string, string>;
+  presence?: PresenceMap;
   /** Broadcast this board's selection as shared presence (#290). */
   onPresence?: (card: string | null) => void;
   onError: (message: string) => void;
@@ -793,7 +793,7 @@ export function TeamBoard({
   // Who else has this card selected (presence, #290): one rule for every
   // board (presence.selectedByOf); a folded parent wears its subtasks' marks.
   const selectedByFor = (card: CardModel): string[] | undefined =>
-    selectedByOf(presence, card, isSubtask(card) ? undefined : { children: (id) => childrenOf.get(id) ?? [], open: subsOpen });
+    selectedByOf(presence, card, isSubtask(card) ? undefined : { children: (id) => childrenOf.get(id) ?? [], open: subsOpen }, me);
 
 
   // Resolve a card's description links (GitHub refs get titles) for the menu.

@@ -2753,12 +2753,17 @@ components:
     Presence:
       type: object
       additionalProperties: false
-      description: One person's live selection.
+      description: >-
+        One person's live selection, from one of their tabs: `client` is the
+        tab (its `X-Aeman-Client`), the key a selection is held by, so two
+        tabs of one person are two selections; an empty `card` clears it.
       required: [login, card]
       properties:
         login:
           type: string
         card:
+          type: string
+        client:
           type: string
     BoardFrame:
       type: object

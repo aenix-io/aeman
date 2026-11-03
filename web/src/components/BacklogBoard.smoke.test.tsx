@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BacklogBoard, Landing, ParentChain, TakeDialog } from "./BacklogBoard";
 import type { Board, Card, Provider } from "../providers/types";
+import type { PresenceMap } from "../presence";
 
 // The Backlog board draws its one list and its wide cards, and nothing else in
 // the suite renders them. Markup only: no effect runs and no pointer moves,
@@ -34,7 +35,7 @@ const board = (cards: Card[]): Board =>
     sprintStates: {},
   }) as unknown as Board;
 
-function draw(b: Board, teamFilter: string[] | null = ["portal", "cozystack"], presence?: Record<string, string>) {
+function draw(b: Board, teamFilter: string[] | null = ["portal", "cozystack"], presence?: PresenceMap) {
   return renderToStaticMarkup(
     <BacklogBoard
       presence={presence}
@@ -194,7 +195,7 @@ describe("the Backlog board", () => {
   // #290: the Backlog draws who else has a card selected, as the Team board
   // does — the same marks, on the card they selected.
   it("draws the others' selections on the cards they selected", () => {
-    const html = draw(board([first, second]), ["portal", "cozystack"], { ann: "p2" });
+    const html = draw(board([first, second]), ["portal", "cozystack"], { t1: { login: "ann", card: "p2" } });
     const row = html.slice(html.lastIndexOf("<div", html.indexOf('data-card="p2"')));
     expect(row).toMatch(/^<div class="card backlog-card card-peer-selected"/);
     expect(row).toContain('class="card-presence"');
