@@ -46,6 +46,7 @@ import { currentSprint, previousSprint } from "../sprint";
 import { todayIso } from "../date";
 import type { Avatars, Names } from "../users";
 import { AddCard } from "./AddCard";
+import type { OrderArg } from "../cardorder";
 import { PresenceMarks } from "./Card";
 import { clickOn, selectedByOf, type PresenceMap } from "../presence";
 import { Avatar } from "./Avatar";
@@ -80,7 +81,7 @@ interface BacklogBoardProps {
   removeCard: (uid: string) => void;
   /** The board's one order, re-sorted locally for a drop until the server's
    *  Ordering frame says the same. */
-  reorderCards: (orderedItemIds: string[]) => void;
+  reorderCards: (order: OrderArg) => void;
   reload: () => void;
   onOpen: (card: CardModel) => void;
   onError: (message: string) => void;
@@ -346,11 +347,11 @@ export function BacklogBoard({
         .then((card) => {
           noteMade(card.itemId);
           addCard(card);
-          reorderCards(insertedOrder([...board.cards.map((c) => c.itemId), card.itemId], card.itemId, anchor));
+          reorderCards((cur) => insertedOrder(cur, card.itemId, anchor));
         })
         .catch((err: unknown) => onError(errText(err)));
     },
-    [list, teams, provider, addCard, reorderCards, board.cards, onError],
+    [list, teams, provider, addCard, reorderCards, onError],
   );
   const gap = (at: number, empty = false) => {
     const { box } = insertSpot(list, at, teams);

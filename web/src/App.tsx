@@ -11,6 +11,7 @@ import { BacklogBoard } from "./components/BacklogBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
 import { RoadmapBoard } from "./components/RoadmapBoard";
 import { followFrame, followPatch } from "./detail";
+import { applyOrder, type OrderArg } from "./cardorder";
 import { presenceAfter, type PresenceMap } from "./presence";
 import { PROJECT_CARDS_KEY, storedProjectCards } from "./roadmap";
 import { TeamsModal } from "./components/TeamsModal";
@@ -1051,18 +1052,8 @@ export function App() {
 
   // Reorder board.cards to match orderedIds. Cards whose ids are not listed keep
   // their relative order and are appended after the explicitly ordered ones.
-  const reorderCards = useCallback((orderedIds: string[]) => {
-    setBoard((cur) => {
-      if (!cur) {
-        return cur;
-      }
-      const rank = new Map(orderedIds.map((id, i) => [id, i]));
-      const ranked = cur.cards
-        .filter((c) => rank.has(c.itemId))
-        .sort((a, b) => rank.get(a.itemId)! - rank.get(b.itemId)!);
-      const rest = cur.cards.filter((c) => !rank.has(c.itemId));
-      return { ...cur, cards: [...ranked, ...rest] };
-    });
+  const reorderCards = useCallback((order: OrderArg) => {
+    setBoard((cur) => (cur ? { ...cur, cards: applyOrder(cur.cards, order) } : cur));
   }, []);
 
   // Live updates: the server pushes resource events over an unscoped WebSocket

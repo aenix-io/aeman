@@ -18,6 +18,7 @@ import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
+import type { OrderArg } from "../cardorder";
 import { selectedByOf, type PresenceMap } from "../presence";
 import { InsertGap } from "./InsertGap";
 import { cellGaps, gapAnchor, gapsInZone } from "../insertgap";
@@ -82,7 +83,7 @@ interface TeamBoardProps {
   /** Swap an optimistic card for its server twin in place (keeps the slot). */
   replaceCard: (itemId: string, card: CardModel) => void;
   removeCard: (itemId: string) => void;
-  reorderCards: (orderedItemIds: string[]) => void;
+  reorderCards: (order: OrderArg) => void;
   reload: () => void;
   /** Wraps a slow server call so the App's progress bar shows while it runs. */
   track: <T>(p: Promise<T>) => Promise<T>;
@@ -1473,7 +1474,7 @@ export function TeamBoard({
     // Typed into a gap: shown there at once, and the create names the place
     // (after / before) so the server puts it there in the same request.
     if (anchor) {
-      reorderCards(insertedOrder([...board.cards.map((c) => c.itemId), tempId], tempId, anchor));
+      reorderCards((cur) => insertedOrder(cur, tempId, anchor));
     }
     const creating = provider.createCard({
       title,
