@@ -172,6 +172,24 @@ describe("the Backlog board", () => {
     expect(draw(board([first]))).not.toMatch(/border-left/);
   });
 
+  // A backlog card is BIG: about twice a day board's row height, the title
+  // one step above the day boards' size, room between the rows, and the
+  // chain and the avatars sized to match.
+  it("draws big cards: tall rows, a 14px title, room between them", () => {
+    const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
+    const row = css.match(/\.backlog-row \{[^}]*\}/)?.[0] ?? "";
+    expect(row).toMatch(/min-height: 56px/);
+    const title = css.match(/\.backlog-row-title \{[^}]*\}/)?.[0] ?? "";
+    expect(title).toMatch(/font-size: 14px/);
+    const list = css.match(/\.backlog-list-body \{[^}]*\}/)?.[0] ?? "";
+    expect(list).toMatch(/gap: 8px/);
+    // The full width of the screen, with the Team board's gutters.
+    const whole = css.match(/\.backlog-list \{[^}]*\}/)?.[0] ?? "";
+    expect(whole).not.toMatch(/max-width/);
+    expect(whole).toMatch(/padding: 8px/);
+    expect(css).toMatch(/\.backlog-row-owner \.owner-badge-team,\s*\.backlog-row-owner \.owner-badge-person \{\s*width: 20px;/);
+  });
+
   // Take's box sits square on its button: the owner picker's -6px pull is
   // undone on the backlog row, and Take is drawn like the app's small
   // buttons — a plain border and no shadow.

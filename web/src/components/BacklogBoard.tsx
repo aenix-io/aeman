@@ -563,7 +563,7 @@ export function ParentChain({ chain, onOpen }: { chain: readonly LineageRef[]; o
             title={`The ${r.type} «${r.title}»`}
             onClick={() => onOpen(r.uid)}
           >
-            {r.type && <KindIcon kind={r.type} size={12} />}
+            {r.type && <KindIcon kind={r.type} size={14} />}
             <span className="backlog-row-chain-text">{r.title}</span>
           </button>
         </span>

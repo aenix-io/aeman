@@ -4221,13 +4221,13 @@ button.card-age {
   flex-direction: column;
 }
 
+/* The full width of the screen, with the Team board's gutters. */
 .backlog-list {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  max-width: 1100px;
-  padding: 12px 14px;
+  padding: 8px;
 }
 
 .backlog-list-body {
@@ -4235,8 +4235,8 @@ button.card-age {
   min-height: 60px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 6px;
+  gap: 8px;
+  padding: 8px;
   border: 1px dashed var(--line);
   border-radius: 6px;
   background: var(--bg-soft);
@@ -4268,9 +4268,9 @@ button.card-age {
 .backlog-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 30px;
-  padding: 4px 6px 4px 10px;
+  gap: 10px;
+  min-height: 56px;
+  padding: 10px 10px 10px 14px;
   border: 1px solid var(--line-soft);
   border-radius: 5px;
   background: var(--bg-raised);
@@ -4285,8 +4285,9 @@ button.card-age {
 .backlog-row-title {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
-  line-height: 1.35;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
   color: var(--fg);
   overflow: hidden;
   display: -webkit-box;
@@ -4323,13 +4324,13 @@ button.card-age {
   align-items: center;
   gap: 4px;
   min-width: 0;
-  max-width: 180px;
-  padding: 1px 6px;
+  max-width: 200px;
+  padding: 3px 8px;
   border: 0;
-  border-radius: 9px;
+  border-radius: 11px;
   background: var(--line-soft);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -4349,7 +4350,7 @@ button.card-age {
 .backlog-row-due {
   flex: none;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -4359,7 +4360,20 @@ button.card-age {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  font-size: 12px;
+}
+
+/* The avatars sized to the bigger card: the team's and the person's at the
+   day boards' 20px, the person's still over the team's by half. */
+.backlog-row-owner .owner-badge-team,
+.backlog-row-owner .owner-badge-person {
+  width: 20px;
+  height: 20px;
   font-size: 11px;
+}
+
+.backlog-row-owner .owner-badge-overlap .owner-badge-person {
+  margin-left: -10px;
 }
 
 /* The owner picker's trigger sits flush in the row here: its own -6px pull
@@ -4376,8 +4390,8 @@ button.card-age {
   border-radius: 6px;
   background: var(--bg);
   box-shadow: none;
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .backlog-take .owner-picker-btn:hover:not(:disabled) {
