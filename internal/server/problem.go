@@ -106,6 +106,8 @@ var sentinels = []struct {
 	// or missing the one that board is: the view refused the change.
 	{boardservice.ErrNotOnThisBoard, http.StatusUnprocessableEntity, "notOnThisBoard"},
 	{boardservice.ErrViewNeedsField, http.StatusUnprocessableEntity, "viewNeedsField"},
+	// A new card told to land in two places at once.
+	{boardservice.ErrTwoPlaces, http.StatusUnprocessableEntity, "twoPlaces"},
 	// Work sent back to the sprint it was done in, where there is nothing
 	// to send or nowhere to send it: rules refusing a change, not a forge
 	// failure.

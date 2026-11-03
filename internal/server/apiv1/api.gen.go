@@ -254,6 +254,7 @@ const (
 	TeamNotFound         ProblemCode = "teamNotFound"
 	TitleTooLong         ProblemCode = "titleTooLong"
 	TooManyCards         ProblemCode = "tooManyCards"
+	TwoPlaces            ProblemCode = "twoPlaces"
 	UnknownDomain        ProblemCode = "unknownDomain"
 	UnknownIntent        ProblemCode = "unknownIntent"
 	UnknownRoute         ProblemCode = "unknownRoute"
@@ -401,6 +402,8 @@ func (e ProblemCode) Valid() bool {
 	case TitleTooLong:
 		return true
 	case TooManyCards:
+		return true
+	case TwoPlaces:
 		return true
 	case UnknownDomain:
 		return true
@@ -583,9 +586,15 @@ type CarryReport = boardservice.CarryReport
 
 // CreateCardRequest The card a board makes. Every field is optional here because what a board REQUIRES and what it refuses are the board's own rules, answered as a 422 that names the field.
 type CreateCardRequest struct {
+	// After On the backlog view, the uid of the card the new one is placed right AFTER, in the same request — the insert "+" between two backlog cards. One of `after` and `before`, or neither (the card lands last); both are 422 `twoPlaces`, an anchor the board does not have is 404 `cardNotFound` and nothing is made. Every other board refuses it (422 `notOnThisBoard`); `view=all` takes it.
+	After *string `json:"after,omitempty"`
+
 	// Assignees Only the first is read — a card is one person's.
-	Assignees *[]string       `json:"assignees,omitempty"`
-	Dates     *CardDatesInput `json:"dates,omitempty"`
+	Assignees *[]string `json:"assignees,omitempty"`
+
+	// Before On the backlog view, the uid of the card the new one is placed right BEFORE — the "+" above the first card of a list. As `after`.
+	Before *string         `json:"before,omitempty"`
+	Dates  *CardDatesInput `json:"dates,omitempty"`
 
 	// NoSprint Schedules the card for its day without joining any sprint — a "next sprint" create; the next carry-over to reach its day adopts it.
 	NoSprint *bool `json:"noSprint,omitempty"`

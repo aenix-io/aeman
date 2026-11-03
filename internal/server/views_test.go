@@ -125,6 +125,9 @@ func TestAGestureIsRefusedForACardTheBoardDoesNotDraw(t *testing.T) {
 
 // createdCard is the part of the answer the add-boxes differ by.
 type createdCard struct {
+	Metadata struct {
+		UID string `json:"uid"`
+	} `json:"metadata"`
 	Spec struct {
 		Assignees []string `json:"assignees"`
 		Zone      string   `json:"zone"`
@@ -396,5 +399,41 @@ func TestTakeIsTheBacklogsGestureOverHTTP(t *testing.T) {
 	}
 	if rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards/w/actions/take?team=alpha", ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("take on the Team board answered %d, want 404 — it is the backlog's", rec.Code)
+	}
+}
+
+// The Backlog's insert "+" over HTTP is ONE create naming its place: the
+// card is born after the card above the gap (or before the one below it),
+// in that request. Two places, or a place on a board that is not a ranked
+// list, are 422 by name.
+func TestABacklogCreateTakesItsPlaceOverHTTP(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "a", Title: "first", Team: "alpha", Parked: true},
+		{ItemID: "b", Title: "second", Team: "alpha", Parked: true},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/backlog/cards?team=alpha", `{"title":"between","team":"alpha","after":"a"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("a placed create answered %d: %s", rec.Code, rec.Body.String())
+	}
+	var made createdCard
+	if err := json.Unmarshal(rec.Body.Bytes(), &made); err != nil {
+		t.Fatal(err)
+	}
+	if !fake.Saw("MoveCard " + made.Metadata.UID + " after=a") {
+		t.Fatal("the card was not placed after «first» in the create")
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/backlog/cards?team=alpha",
+		`{"title":"x","team":"alpha","after":"a","before":"b"}`); rec.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rec.Body.String(), "twoPlaces") {
+		t.Fatalf("two places = %d %s, want 422 twoPlaces", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards?team=alpha",
+		`{"title":"x","team":"alpha","after":"a"}`); rec.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rec.Body.String(), "notOnThisBoard") {
+		t.Fatalf("a place on the Team board = %d %s, want 422 notOnThisBoard", rec.Code, rec.Body.String())
 	}
 }

@@ -57,6 +57,10 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 	// A card typed into a backlog stands on no day, so that board refuses
 	// the fields that would give it one.
 	dated := args.Day != "" || args.Start != "" || args.SprintStart != ""
+	// A place among the cards is the Backlog's: its list IS the board's
+	// order. The day boards, the Roadmap and the Project board place a card
+	// by its day, its parent or its column.
+	placed := args.After != "" || args.Before != ""
 	var refusals []viewRefusal
 	switch view {
 	case board.ViewAll:
@@ -84,11 +88,12 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 			{args.SprintStart != "", "sprintStart"},
 			{args.Team != "", "team"}, {args.Assignee != "", "assignee"},
 			{args.Zone != board.ZoneNone, "zone"}, {args.Size != "", "size"},
+			{placed, "a place among the cards"},
 		}
 	case board.ViewMe, board.ViewTeam:
 		refusals = []viewRefusal{
 			{args.Parked, "parked"}, {args.Scope != "", "scope"},
-			{args.Type != "", "type"},
+			{args.Type != "", "type"}, {placed, "a place among the cards"},
 		}
 		// The Me board files for the person reading it — including a lead
 		// looking at somebody else's day, who says whose with an assignee.
@@ -109,7 +114,8 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 		}
 		// Born in the backlog rather than born somewhere else and moved: one
 		// commit, and no instant in between where the card stands somewhere
-		// nobody put it. It lands last (K5's add box).
+		// nobody put it. It lands last, or where After/Before place it (the
+		// insert "+" between two cards).
 		args.Parked = true
 	case board.ViewProject:
 		// A card made here is a PROJECT CARD (H4): the plan, not work in
@@ -120,7 +126,7 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 		refusals = []viewRefusal{
 			{args.Parked, "parked"}, {args.Team != "", "team"},
 			{args.Assignee != "", "assignee"}, {args.Type != "", "type"},
-			{args.ReviewOf != "", "reviewOf"},
+			{args.ReviewOf != "", "reviewOf"}, {placed, "a place among the cards"},
 		}
 		if args.Scope == "" {
 			return args, fmt.Errorf("%w: a card of the Project board stands in a column", ErrViewNeedsField)

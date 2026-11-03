@@ -316,6 +316,14 @@ type CreateCardArgs struct {
 	// was not given must not be invented for it, or it would land on today's
 	// board for a team it does not have. It joins no sprint either.
 	Undated bool
+	// After and Before place the new card in the board's order as it is
+	// made: right after the card After names, or right before the card
+	// Before names (the top of the list has nothing above it). The Backlog's
+	// insert "+" between two cards is one create, not a create and a move.
+	// One or neither; an anchor the board does not have is refused before
+	// anything is written.
+	After  string
+	Before string
 	// NoSprint schedules the card for its day without joining any sprint — a
 	// "next sprint" create: the card lives on its own day only until the first
 	// carry-over whose day has reached the card's start adopts it into the
@@ -331,6 +339,47 @@ type CreateCardArgs struct {
 // the day and the card joins that fresh sprint. It mirrors handleCreate in
 // TeamBoard.tsx / MeBoard.tsx.
 func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCardArgs) (board.Card, error) {
+	if args.After == "" && args.Before == "" {
+		return s.createCard(ctx, boardID, args)
+	}
+	if args.After != "" && args.Before != "" {
+		return board.Card{}, ErrTwoPlaces
+	}
+	b, err := s.backend.LoadBoard(ctx, boardID)
+	if err != nil {
+		return board.Card{}, err
+	}
+	anchor := args.After + args.Before
+	if _, ok := findCard(b, anchor); !ok {
+		return board.Card{}, fmt.Errorf("%w: the place %q", ErrCardNotFound, anchor)
+	}
+	card, err := s.createCard(ctx, boardID, args)
+	if err != nil {
+		return card, err
+	}
+	// Born where it was typed: after the card above it, or right after the
+	// card before the one below it (nothing before it is the top).
+	after := args.After
+	if args.Before != "" {
+		after = ""
+		for _, c := range b.Cards {
+			if c.ItemID == args.Before {
+				break
+			}
+			after = c.ItemID
+		}
+	}
+	if err := s.backend.MoveCard(ctx, b, card, after); err != nil {
+		return card, err
+	}
+	return card, nil
+}
+
+// ErrTwoPlaces is a create told to land both after one card and before
+// another: a place is said once.
+var ErrTwoPlaces = errors.New("a new card is placed after one card or before one, not both")
+
+func (s *Service) createCard(ctx context.Context, boardID string, args CreateCardArgs) (board.Card, error) {
 	if err := guardTitle(args.Title); err != nil {
 		return board.Card{}, err
 	}

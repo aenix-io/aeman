@@ -82,10 +82,16 @@ SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
   the move local). A drag does not change the team: the card's team chip
   is its owner picker, and `own` with a team alone hands it to that team,
   still parked; the owner badge is that picker.
-- **Adding.** One add box at the bottom of the list, with a team
-  selector beside it when several teams are selected (it starts on the
-  first selected team; with one team selected there is no selector): a
-  task created there is parked on the chosen team, last.
+- **Adding.** No add box at the foot of the list: every gap — above the
+  first card, between two, below the last — shows a round "+" at its left
+  edge on hover, and an empty backlog shows one always. Pressed, it opens
+  the add form right there, with a team selector when several teams are
+  selected — starting on the team of the card above, else the first
+  selected team; with one team there is no selector. Enter creates, Esc
+  cancels. The task is parked on the chosen team and born EXACTLY there:
+  the create names its place — `after` the card above, or `before` the
+  card below at the top — and the server places it in the same request
+  (MCP `create_card` takes the same two).
 - **Taking.** **Take** is the backlog's own gesture (`take`, MCP
   `take_card`): the card's right-most button asks "Take this card into
   work?" and makes it the viewer's, on the card's own team — today, the
@@ -211,3 +217,4 @@ parked tasks reachable, so nothing the migration parks is lost.
 | K10 | Putting a task on review always makes its review card; without a reviewer it is made with nobody on it, parked in the team's backlog at the top of the order, and a person picked there takes it into work. |
 | K11 | Take is the backlog's gesture: the card becomes the actor's, on its own team, and leaves the backlog; refused where there is nothing to take. |
 | K12 | The × on a review somebody has offers "back to backlog": the reviewer is taken off and the review waits, nobody on it, at the top of the reviewed task's team backlog; the task stays on review. |
+| K13 | The insert "+" in a gap of the list creates a task parked on the chosen team and placed there by the create itself (`after`/`before`), in one request. |

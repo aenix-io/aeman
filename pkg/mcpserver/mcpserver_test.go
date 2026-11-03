@@ -244,6 +244,28 @@ func TestMCPCreateCard(t *testing.T) {
 	}
 }
 
+// An agent inserts a card INTO a backlog the way a person does with the "+"
+// between two cards: one create naming its place.
+func TestMCPCreateCardTakesItsPlaceInABacklog(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "a", Title: "first", Team: "alpha", Parked: true},
+		{ItemID: "b", Title: "second", Team: "alpha", Parked: true},
+	}, nil)
+	cs := connect(t, Config{Board: "acme"}, fake)
+	res := call(t, cs, "create_card", map[string]any{"view": "backlog", "team": "alpha", "title": "between", "before": "b"})
+	var made struct {
+		Metadata struct {
+			UID string `json:"uid"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal([]byte(textOf(res)), &made); err != nil {
+		t.Fatal(err)
+	}
+	if !fake.Saw("MoveCard " + made.Metadata.UID + " after=a") {
+		t.Fatalf("before «second» is right after «first»: %s", textOf(res))
+	}
+}
+
 func TestMCPUpdateCardPatchesOnlyProvidedFields(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Title: "x", Assignees: []string{"kvaps"}}}, nil)
 	cs := connect(t, Config{Board: "acme"}, fake)

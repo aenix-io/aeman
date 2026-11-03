@@ -466,6 +466,8 @@ func (a surface) CreateCard(ctx context.Context, req apiv1.CreateCardRequestObje
 		StartNewSprint: in.StartNewSprint,
 		NoSprint:       boolOf(in.NoSprint),
 		Parked:         boolOf(in.Parked),
+		After:          strOf(in.After),
+		Before:         strOf(in.Before),
 	}
 	if in.Dates != nil {
 		args.Day, args.Start, args.SprintStart = strOf(in.Dates.End), strOf(in.Dates.Start), strOf(in.Dates.Sprint)

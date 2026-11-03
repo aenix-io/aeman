@@ -130,7 +130,8 @@ paths:
         A create means what the board means by it: typed into `me` the card is
         yours, today, in the sprint and in the unplanned band; into `team` it
         lands in the Unassigned column unless somebody is named; into `backlog`
-        it is parked in the team's backlog, last; into `project` it is a slot
+        it is parked in the team's backlog, last — or right where `after` /
+        `before` place it, in the same request; into `project` it is a slot
         under a column; into `roadmap` it is a goal, an initiative or an epic,
         or a task under one — parked in the no-team group's backlog when it
         was given no dates. Each board refuses
@@ -1439,6 +1440,7 @@ components:
             - teamNotFound
             - titleTooLong
             - tooManyCards
+            - twoPlaces
             - unknownDomain
             - unknownIntent
             - unknownRoute
@@ -2323,6 +2325,20 @@ components:
           description: >-
             Schedules the card for its day without joining any sprint — a "next
             sprint" create; the next carry-over to reach its day adopts it.
+        after:
+          type: string
+          description: >-
+            On the backlog view, the uid of the card the new one is placed
+            right AFTER, in the same request — the insert "+" between two
+            backlog cards. One of `after` and `before`, or neither (the card
+            lands last); both are 422 `twoPlaces`, an anchor the board does
+            not have is 404 `cardNotFound` and nothing is made. Every other
+            board refuses it (422 `notOnThisBoard`); `view=all` takes it.
+        before:
+          type: string
+          description: >-
+            On the backlog view, the uid of the card the new one is placed
+            right BEFORE — the "+" above the first card of a list. As `after`.
     CardDatesInput:
       type: object
       properties:
