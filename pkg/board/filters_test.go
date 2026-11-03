@@ -19,22 +19,21 @@ func gridBoard() Board {
 	return NewBoard([]Card{
 		// In hand: open, scheduled before the day, nothing put off.
 		{ItemID: "A1", Team: "A", StartDate: "2026-06-01", SprintStart: "2026-06-22"},
-		// Planned into a later week: on no day board until its Monday (B1).
-		{ItemID: "Aahead", Team: "A", Week: "2026-07-06"},
 		// Put off to a later day — far enough ahead that it is deferred
 		// whenever this test runs: gone from the board, and out of the
 		// sprint in progress, until that day comes.
 		{ItemID: "Adeferred", Team: "A", StartDate: "2999-07-02", SprintStart: "2026-06-22"},
-		// A week gone by and still open — a debt, and still in hand.
-		{ItemID: "Adebt", Team: "A", Week: "2026-06-08", StartDate: "2026-06-08"},
+		// A day gone by and still open — a debt, and still in hand.
+		{ItemID: "Adebt", Team: "A", StartDate: "2026-06-08"},
 		// Finished on the 22nd: that day keeps it, and no other.
 		{ItemID: "Adone", Team: "A", StartDate: "2026-06-01", Progress: 100, DoneAt: "2026-06-22"},
 		// Finished in a sprint gone by: it belongs to the day it was finished
 		// on — and to its own sprint's day, which is the whole sprint.
 		{ItemID: "Alate", Team: "A", StartDate: "2026-06-01", SprintStart: "2026-06-15",
 			Progress: 100, DoneAt: "2026-07-20"},
-		// Nobody has said when: no week, no dates, no sprint. This is the
-		// Triage strip, and a day board never draws it.
+		// Nobody has said when: no dates, no sprint. A task like that is
+		// parked in its team's backlog by every door (K1, K3), and a day
+		// board never draws it.
 		{ItemID: "Astrip", Team: "A"},
 		// Parked on a list: not planned at all, so on no day board.
 		{ItemID: "Aparked", Team: "A", StartDate: "2026-06-01", Parked: true},
@@ -68,17 +67,13 @@ func TestTeamGrid(t *testing.T) {
 		{"a sprint's day shows its sprint, closed work included",
 			"A", "2026-06-15", []string{"A1", "Adebt", "Alate"}},
 		{"and the day it was finished on holds it", "A", "2026-07-20",
-			[]string{"A1", "Aahead", "Adebt", "Alate"}},
+			[]string{"A1", "Adebt", "Alate"}},
 		{"the day it was finished keeps it", "A", "2026-06-22",
 			[]string{"A1", "Adebt", "Adone"}},
 		// A day far ahead is a PLAN: it holds what somebody put on it, and
 		// nothing else — today's open work is today's business.
 		{"a card put off arrives on its day, and nothing else does", "A", "2999-07-02",
 			[]string{"Adeferred"}},
-		{"a week ahead is on no day board until its Monday", "A", "2026-07-05",
-			[]string{"A1", "Adebt"}},
-		{"and stands on the board from that Monday on", "A", "2026-07-06",
-			[]string{"A1", "Aahead", "Adebt"}},
 		{"before any of it exists, nothing is in hand", "A", "2026-05-01", []string{}},
 		// The day a sprint began shows that sprint's work, whatever has
 		// become of it since: A1 and Adone both carry the 06-22 sprint, and
@@ -241,15 +236,13 @@ func TestAProjectCardIsOnNoDayBoard(t *testing.T) {
 }
 
 // A DEFERRED card leaves the day grid at once — that is what deferring is —
-// and its week must not hold it there. Defer moves the dates and leaves the
-// week where it was, so the card the person pushed a month out was still
-// standing in this week's grid, on a board they had taken it off.
+// and its sprint must not hold it there.
 func TestTeamGridLetsADeferredCardGo(t *testing.T) {
 	today := TodayIso()
 	b := Board{
 		Cards: []Card{{
 			ItemID: "def", Team: "t", Assignees: []string{"bob"},
-			Week: MondayOf(today), StartDate: AddDays(today, 30), Day: AddDays(today, 30),
+			StartDate: AddDays(today, 30), Day: AddDays(today, 30),
 			SprintStart: today,
 		}},
 		SprintStates: map[string]SprintState{"t": {Current: today}},
@@ -259,51 +252,31 @@ func TestTeamGridLetsADeferredCardGo(t *testing.T) {
 	}
 }
 
-// The week's own work stands on the day grid all week — its person's column,
-// or Unassigned when nobody has taken it. This is the set the Triage board
-// shows for that week: what the weekly panel used to hold beside the grid,
-// and the reason a card placed in a week is not invisible until someone
-// gives it a day.
-func TestTeamGridCarriesTheWeeksOwnWork(t *testing.T) {
+// A TASK HAS NO WEEK (K7). The week of a task is gone — nothing schedules a
+// task for a week any more — so a week a file still carries is read as
+// nothing: a task with a week and no date and no sprint stands on no day
+// board (schema 3 parks it, K8), and one with dates stands by its dates
+// alone. A DEADLINE STUB is not a task: its week is the line it draws on the
+// Project board, and it keeps it.
+func TestATasksWeekIsReadAsNothing(t *testing.T) {
 	today := TodayIso()
 	week := MondayOf(today)
 	b := NewBoard([]Card{
-		// Placed in this week and nothing else: no dates, no sprint.
-		{ItemID: "placed", Team: "t", Week: week},
-		// A recurrent card standing in this week.
-		{ItemID: "turn", Team: "t", Week: week, Stage: StageRecurrent},
-		// A debt: owed last week, still open — it stands beside this week's
-		// work without leaving the week it was owed in.
-		{ItemID: "debt", Team: "t", Week: AddDays(week, -7)},
-		// Placed in a week to come: on no day board until its Monday (B1).
-		{ItemID: "ahead", Team: "t", Week: AddDays(week, 7)},
-		// Another team's week is not this grid's business.
-		{ItemID: "elsewhere", Team: "other", Week: week},
+		{ItemID: "st", Title: SprintStateTitle, Team: "t", SprintStart: today, StartDate: today},
+		{ItemID: "week-only", Team: "t", Week: week},
+		{ItemID: "ahead", Team: "t", Week: AddDays(week, 7), StartDate: today, Day: today},
+		{ItemID: "dl", Title: DeadlineStateTitle, Project: "P", Week: week},
 	})
-	b.SprintStates = map[string]SprintState{"t": {Current: today}}
-
-	got := ids(TeamGrid(b, "t", today))
-	want := []string{"placed", "turn", "debt"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("grid = %v, want %v", got, want)
-	}
-
-	// Looking a week ahead: what is PLANNED for then, which is the card
-	// placed in that week and nothing else. This week's work — the debt
-	// included — is this week's business; a day still to come holds what
-	// somebody put there, or "tomorrow" means the whole backlog.
-	next := AddDays(today, 7)
-	if got := ids(TeamGrid(b, "t", next)); !reflect.DeepEqual(got, []string{"ahead"}) {
-		t.Fatalf("a week ahead = %v, want the card placed in that week alone", got)
-	}
-	// Finished, the debt belongs to the day it was finished on and no other.
-	for i := range b.Cards {
-		if b.Cards[i].ItemID == "debt" {
-			b.Cards[i].Progress, b.Cards[i].DoneAt = 100, today
+	for _, c := range b.Cards {
+		if c.Title != DeadlineStateTitle && c.Week != "" {
+			t.Errorf("%s reads with week %q; a task has none", c.ItemID, c.Week)
 		}
 	}
-	if got := ids(TeamGrid(b, "t", AddDays(today, -1))); slicesContains(got, "debt") {
-		t.Fatalf("work finished today is not in hand yesterday: %v", got)
+	if got := ids(TeamGrid(b, "t", today)); !reflect.DeepEqual(got, []string{"ahead"}) {
+		t.Errorf("TeamGrid = %v, want the dated card alone: a week ahead holds nothing back", got)
+	}
+	if _, ok := FindDeadline(b, "P", week); !ok {
+		t.Error("a deadline stub keeps its week: it is the Project board's line")
 	}
 }
 
@@ -398,22 +371,16 @@ func TestAFinishedCardBelongsToTheDayItRecords(t *testing.T) {
 func TestATomorrowIsAPlanAndTodayIsAState(t *testing.T) {
 	today := TodayIso()
 	tomorrow := AddDays(today, 1)
-	nextWeek := AddDays(MondayOf(today), 7)
-	lastWeek := AddDays(MondayOf(today), -7)
 
 	b := NewBoard([]Card{
 		// Open, planned for a day gone by: in hand TODAY, and on no day ahead.
 		{ItemID: "ranover", Team: "T", StartDate: AddDays(today, -3), Day: AddDays(today, -3)},
-		// A debt of a week gone by, with no dates: the same answer.
-		{ItemID: "debt", Team: "T", Week: lastWeek},
+		// In the sprint, with no dates of its own: in hand today.
+		{ItemID: "debt", Team: "T", SprintStart: AddDays(today, -7)},
 		// Its span reaches tomorrow: planned for it.
 		{ItemID: "spans", Team: "T", StartDate: AddDays(today, -1), Day: tomorrow},
 		// Planned for the day itself.
 		{ItemID: "onthatday", Team: "T", StartDate: tomorrow, Day: tomorrow},
-		// Placed in next week: on next week's days, and not before.
-		{ItemID: "nextweek", Team: "T", Week: nextWeek},
-		// This week's work with no dates of its own: this week's days hold it.
-		{ItemID: "thisweek", Team: "T", Week: MondayOf(today)},
 	})
 	on := func(day string) map[string]bool {
 		out := map[string]bool{}
@@ -424,12 +391,12 @@ func TestATomorrowIsAPlanAndTodayIsAState(t *testing.T) {
 	}
 
 	now := on(today)
-	for _, id := range []string{"ranover", "debt", "spans", "thisweek"} {
+	for _, id := range []string{"ranover", "debt", "spans"} {
 		if !now[id] {
 			t.Errorf("today is what is in hand, and %s is: %v", id, now)
 		}
 	}
-	if now["onthatday"] || now["nextweek"] {
+	if now["onthatday"] {
 		t.Errorf("work planned for a later day is not in hand today: %v", now)
 	}
 
@@ -443,21 +410,6 @@ func TestATomorrowIsAPlanAndTodayIsAState(t *testing.T) {
 		if next[id] {
 			t.Errorf("%s is today's problem, not tomorrow's plan: %v", id, next)
 		}
-	}
-
-	// A week ahead arrives on its own Monday and stands through its days.
-	if on(nextWeek)["nextweek"] == false {
-		t.Error("a card placed in next week stands on the days of that week")
-	}
-	if on(AddDays(nextWeek, 2))["nextweek"] == false {
-		t.Error("including its Wednesday")
-	}
-	if on(AddDays(nextWeek, 7))["nextweek"] {
-		t.Error("and not on the week after it")
-	}
-	// This week's card does not reach into next week either.
-	if on(nextWeek)["thisweek"] {
-		t.Error("a card placed in THIS week is not planned for the next one")
 	}
 }
 
@@ -489,8 +441,6 @@ func TestTheSprintsOwnDayIsTheWholeSprint(t *testing.T) {
 		{ItemID: "tomorrow", Team: "T", SprintStart: opened, StartDate: AddDays(today, 1), Day: AddDays(today, 1)},
 		// Put off three days: the sprint that opens tomorrow starts without it.
 		{ItemID: "later", Team: "T", SprintStart: opened, StartDate: AddDays(today, 3), Day: AddDays(today, 3)},
-		// Planned into a week to come: the same answer, by the other door.
-		{ItemID: "nextweek", Team: "T", SprintStart: opened, Week: AddDays(MondayOf(today), 7)},
 		// Put off to today — yesterday's "send it to tomorrow", the morning
 		// after. Not deferred any more, so the sprint has it back.
 		{ItemID: "arrived", Team: "T", SprintStart: opened, StartDate: today, Day: today},
@@ -510,7 +460,7 @@ func TestTheSprintsOwnDayIsTheWholeSprint(t *testing.T) {
 			t.Errorf("the sprint's day is the whole sprint, and %s is part of it: %v", id, sprint)
 		}
 	}
-	for _, id := range []string{"tomorrow", "later", "nextweek"} {
+	for _, id := range []string{"tomorrow", "later"} {
 		if sprint[id] {
 			t.Errorf("%s was put off and is not this sprint's work any more: %v", id, sprint)
 		}
@@ -604,86 +554,24 @@ func TestASprintsOwnDayKeepsTheWorkItFinished(t *testing.T) {
 	}
 }
 
-// A CARD PLANNED FOR A WEEK IS ON ITS OWNER'S BOARD ONCE THE WEEK HAS COME.
-// A card dropped into a week AHEAD on the Triage board loses its dates and its
-// sprint — that is what taking it off today means (B1) — and when its Monday
-// arrives it is a card with a week and nothing else. The Team board drew it
-// from that Monday on, in its owner's column. The Me board did not draw a card
-// by its week at all, and no carry-over adopts a card with no sprint, so the
-// work a lead planned for somebody's week stood in their column on the lead's
-// screen and nowhere on their own — nine such cards for one engineer on the
-// production board, until somebody happened to date them.
-//
-// The owner's board is the one that keeps everything of theirs that is not
-// closed (docs/dates.md), and B1 already promised the card is on the board the
-// moment its week begins; only this view broke the promise.
-func TestTheMeBoardDrawsAWeekThatHasCome(t *testing.T) {
+// The Me board reads no week (K7, D17 retired): a task carrying one — a file
+// written before schema 3 — is drawn by its dates and sprint like any task,
+// and one with nothing else is on no day board at all. A parked card is not
+// the person's day either, whoever owns it.
+func TestTheMeBoardReadsNoWeek(t *testing.T) {
 	t.Parallel()
 	today := TodayIso()
 	thisWeek := MondayOf(today)
-	nextWeek := AddDays(thisWeek, 7)
-	lastWeek := AddDays(thisWeek, -7)
-	b := Board{
-		Cards: []Card{
-			// Planned for this week on the Triage board, nothing else.
-			{ItemID: "this-week", Team: "alpha", Assignees: []string{"u"}, Week: thisWeek},
-			// Planned for last week and not done: a debt, which does not fall
-			// off when the week it was owed in ends (W3).
-			{ItemID: "owed", Team: "alpha", Assignees: []string{"u"}, Week: lastWeek},
-			// Planned for next week: on no day board until that Monday (B1).
-			{ItemID: "ahead", Team: "alpha", Assignees: []string{"u"}, Week: nextWeek},
-			// Finished today: today's work, and gone tomorrow.
-			{ItemID: "done-today", Team: "alpha", Assignees: []string{"u"}, Week: thisWeek,
-				Progress: 100, DoneAt: today},
-			// Finished before today: nothing on today's board, since no
-			// carry-over sweeps a card with no sprint and it would stand on
-			// every day for ever.
-			{ItemID: "done-before", Team: "alpha", Assignees: []string{"u"}, Week: lastWeek,
-				Progress: 100, DoneAt: AddDays(today, -3)},
-			// The strip — nobody has said WHEN — is on no day board at all.
-			{ItemID: "strip", Team: "alpha", Assignees: []string{"u"}},
-			// Parked on a shelf, week or no week: the shelf wins (B11).
-			{ItemID: "shelved", Team: "alpha", Assignees: []string{"u"}, Week: thisWeek, Parked: true},
-			// Somebody else's week is not this person's board.
-			{ItemID: "theirs", Team: "alpha", Assignees: []string{"v"}, Week: thisWeek},
-		},
-		SprintStates: map[string]SprintState{"alpha": {Current: thisWeek}},
-	}
-	on := func(day string) map[string]bool {
-		got := map[string]bool{}
-		for _, c := range MeView(b, "u", day) {
-			got[c.ItemID] = true
-		}
-		return got
-	}
-
-	got := on(today)
-	for _, id := range []string{"this-week", "owed", "done-today"} {
-		if !got[id] {
-			t.Errorf("%s is not on its owner's board today", id)
-		}
-	}
-	for _, id := range []string{"ahead", "done-before", "strip", "shelved", "theirs"} {
-		if got[id] {
-			t.Errorf("%s is on the owner's board today and should not be", id)
-		}
-	}
-
-	// Looking AHEAD to next week, the card planned for it is there — the Me
-	// board is the owner's whole open work, whichever day they look at — and
-	// this week's is still there too, since it is still not closed.
-	next := on(nextWeek)
-	if !next["ahead"] || !next["this-week"] {
-		t.Errorf("next Monday draws %v, want next week's card and this week's", next)
-	}
-	// And the finished one is not: a day draws finished work on the day it was
-	// finished and no other.
-	if next["done-today"] {
-		t.Error("a card finished today is still on a day a week later")
-	}
-	// The day BEFORE its Monday is not its week yet.
-	if on(AddDays(nextWeek, -1))["ahead"] {
-		t.Error("next week's card is on the day before its Monday")
+	b := NewBoard([]Card{
+		{ItemID: "st", Title: SprintStateTitle, Team: "alpha", SprintStart: thisWeek, StartDate: thisWeek},
+		{ItemID: "week-only", Team: "alpha", Assignees: []string{"u"}, Week: thisWeek},
+		{ItemID: "dated", Team: "alpha", Assignees: []string{"u"}, Week: AddDays(thisWeek, 7),
+			StartDate: today, Day: today, SprintStart: thisWeek},
+		{ItemID: "shelved", Team: "alpha", Assignees: []string{"u"}, Parked: true},
+	})
+	got := ids(MeView(b, "u", today))
+	if !reflect.DeepEqual(got, []string{"dated"}) {
+		t.Fatalf("MeView = %v, want the dated card alone", got)
 	}
 }
 

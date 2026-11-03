@@ -14,14 +14,15 @@ func TestTheViewsAreTheBoardsAPersonOpens(t *testing.T) {
 		}
 	}
 	// Every board of the SPA is here, under the name the SPA uses.
-	for _, name := range []string{"me", "team", "triage", "backlog", "project", "all"} {
+	for _, name := range []string{"me", "team", "backlog", "roadmap", "project", "all"} {
 		if !KnownView(name) {
 			t.Fatalf("%q is a board a person opens and the domain does not know it", name)
 		}
 	}
 	// The Process board is gone (it never was a view: it read the Project
 	// view's cards); so is the personal board; and a typo is not a view.
-	for _, name := range []string{"process", "personal", "", "Me", "week"} {
+	// The Triage board is retired (K9): its address is no board.
+	for _, name := range []string{"process", "personal", "triage", "", "Me", "week"} {
 		if KnownView(name) {
 			t.Fatalf("%q is not a view and was accepted", name)
 		}
@@ -49,7 +50,7 @@ func TestTheEscapeHatchIsNamed(t *testing.T) {
 // asked for none would refuse work the board is drawing.
 func TestOnlySomeBoardsAreScopedByTeam(t *testing.T) {
 	t.Parallel()
-	for _, v := range []View{ViewTeam, ViewTriage, ViewBacklog} {
+	for _, v := range []View{ViewTeam, ViewBacklog} {
 		if !ScopedByTeam(v) {
 			t.Errorf("%s lists one team's work and says it does not", v)
 		}
@@ -57,23 +58,6 @@ func TestOnlySomeBoardsAreScopedByTeam(t *testing.T) {
 	for _, v := range []View{ViewMe, ViewProject, ViewAll} {
 		if ScopedByTeam(v) {
 			t.Errorf("%s lists every team and says it is narrowed by one", v)
-		}
-	}
-}
-
-// A BOARD can be drawn from more than one listing, and the gate has to count
-// them all: the × in the Triage board's DRAWER is the Triage board's.
-// Collapsing this to "each board is its own one listing" leaves every package
-// green while every parked card loses its ×.
-func TestABoardCanBeDrawnFromMoreThanOneListing(t *testing.T) {
-	t.Parallel()
-	if got := Panes(ViewTriage); len(got) != 2 || got[0] != ViewTriage || got[1] != ViewBacklog {
-		t.Fatalf("the Triage board's panes = %v, want the grid and its drawer", got)
-	}
-	// Every other board is one listing, and it is its own.
-	for _, v := range []View{ViewMe, ViewTeam, ViewBacklog, ViewProject, ViewAll} {
-		if got := Panes(v); len(got) != 1 || got[0] != v {
-			t.Fatalf("%s is drawn from %v, want itself alone", v, got)
 		}
 	}
 }

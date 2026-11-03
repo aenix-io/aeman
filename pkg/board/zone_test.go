@@ -30,8 +30,6 @@ func TestZoneOf(t *testing.T) {
 			Card{SprintStart: "2026-09-07", Zone: ZoneRed}, ZoneRed},
 		{"a card in the strip has no zone, and that is a state of its own",
 			Card{}, ZoneNone},
-		{"nor has one waiting in a week to come",
-			Card{Week: "2026-09-14"}, ZoneNone},
 		{"nor one on its team's shelf",
 			Card{Parked: true}, ZoneNone},
 		{"a strip card somebody zoned keeps what they said",

@@ -1,6 +1,9 @@
 package board
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 // What a person can open and see. The × used to demote a worked card into the
 // previous sprint, which took it off today's board and left it alive in a
@@ -25,8 +28,8 @@ func TestReachableIsEveryCardABoardStillShows(t *testing.T) {
 		{ItemID: "deferred", Team: "portal", SprintStart: cur, StartDate: "2026-09-10", Day: "2026-09-10"},
 		// In a Project-board column, which is a board of its own.
 		{ItemID: "slot", Team: "portal", Scope: "Auth", Project: "freedom", Week: "2026-09-07", Day: "2026-09-11"},
-		// Scheduled for a week, which is a column of the Triage board.
-		{ItemID: "week", Team: "portal", Week: "2026-09-07"},
+		// Parked in its team's backlog, which is a board.
+		{ItemID: "parked", Team: "portal", Parked: true},
 		// Done, and so off the board on purpose.
 		{ItemID: "done", Team: "portal", Progress: 100, SprintStart: "2026-07-06", StartDate: "2026-07-06"},
 
@@ -37,8 +40,6 @@ func TestReachableIsEveryCardABoardStillShows(t *testing.T) {
 		// days ran out can no longer be lost.
 		{ItemID: "old", Team: "portal", Progress: 90, SprintStart: "2026-07-31",
 			StartDate: "2026-07-31", Day: "2026-07-31", Assignees: []string{"kvaps"}},
-		// The same, with no dates at all.
-		{ItemID: "dateless", Team: "portal", Progress: 30},
 		{ItemID: "kid-of-old", Team: "portal", Parent: "old"},
 		{ItemID: "kid-of-today", Team: "portal", Parent: "today"},
 		{ItemID: "review-of-old", Team: "portal", ReviewOf: "old"},
@@ -46,8 +47,8 @@ func TestReachableIsEveryCardABoardStillShows(t *testing.T) {
 	})
 	got := Reachable(b, today)
 
-	for _, id := range []string{"today", "yesterday", "deferred", "slot", "week", "done",
-		"kid-of-today", "review-of-today", "old", "dateless", "kid-of-old", "review-of-old"} {
+	for _, id := range []string{"today", "yesterday", "deferred", "slot", "parked", "done",
+		"kid-of-today", "review-of-today", "old", "kid-of-old", "review-of-old"} {
 		if !got[id] {
 			t.Errorf("%s is on a board someone can open, and Reachable says it is not", id)
 		}
@@ -114,5 +115,32 @@ func TestAParkedCardIsOnTheShelfWhichIsABoard(t *testing.T) {
 	}
 	if lost := Unreachable(b, today); len(lost) != 0 {
 		t.Errorf("nothing here is lost, got %v", ids(lost))
+	}
+}
+
+// The Triage STRIP is gone (K1): an open task with no date, no sprint and no
+// shelf stands on no board any more, so it is not reachable — it is the shape
+// schema 3 parks (K8) and every door now parks instead of leaving (K3). Its
+// parked twin is reachable, and that is the half that matters: the
+// importer's cleanup DELETES what Unreachable hands it.
+func TestAnUnplacedTaskIsOnNoBoardAndItsParkedTwinIs(t *testing.T) {
+	const today = "2026-09-09"
+	b := NewBoard([]Card{
+		{ItemID: "st", Title: SprintStateTitle, Team: "portal", SprintStart: today, StartDate: today},
+		{ItemID: "unplaced", Team: "portal", Progress: 30},
+		{ItemID: "parked", Team: "portal", Progress: 30, Parked: true},
+		{ItemID: "parked-no-team", Parked: true},
+	})
+	got := Reachable(b, today)
+	if got["unplaced"] {
+		t.Error("an unplaced task is on no board: the strip that drew it is gone")
+	}
+	for _, id := range []string{"parked", "parked-no-team"} {
+		if !got[id] {
+			t.Errorf("%s is in a backlog and Reachable calls it lost", id)
+		}
+	}
+	if lost := ids(Unreachable(b, today)); !reflect.DeepEqual(lost, []string{"unplaced"}) {
+		t.Errorf("Unreachable = %v, want the unplaced task alone", lost)
 	}
 }

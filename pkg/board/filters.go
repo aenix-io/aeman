@@ -3,25 +3,22 @@ package board
 import "slices"
 
 // TeamGrid returns the cards on the Team board for one team on a given day:
-// what the people are WORKING ON then, and nothing else. It is the Triage
-// board's own "now" column for that day, less anything put off to later, and
-// it mirrors filteredCards in TeamBoard.tsx.
+// what the people are WORKING ON then, and nothing else. It mirrors
+// inHandOn in web/src/teamgrid.ts.
 //
 // A card is in hand on a day when it is this team's, is not a subtask (those
-// ride with their parent), is not parked on a list, somebody has said WHEN it
-// is for (a week, a date or a sprint — a card with none of the three is the
-// Triage strip, which is an inbox rather than a day's work), has not been
-// planned into a week AFTER that day's (B1: a card placed in a week ahead is
-// on no day board until its Monday), has not been deferred past that day, and
-// is either open or was finished on that very day — a card finished yesterday
-// belongs to yesterday, and a board that keeps it is a board nobody can read.
+// ride with their parent), is not parked in the team's backlog, is IN WORK —
+// it has a date or a sprint (K1; a task with neither is in its backlog), has
+// not been deferred past that day, and is either open or was finished on
+// that very day — a card finished yesterday belongs to yesterday, and a board
+// that keeps it is a board nobody can read. A task has no week (K7).
 //
 // One day answers differently, and deliberately: the day a SPRINT BEGAN is
 // the whole sprint. A lead opens it every few mornings and goes through it
 // with the team, so it holds the work the sprint opened with, the work typed
 // into it since, and the work already closed — not only what is still in
 // hand. What still leaves that day is what was taken OUT of the sprint: work
-// deferred past today, and work planned into a week still to come.
+// deferred past today.
 //
 // That is the whole rule. It used to be seven, layered: the week's own work,
 // the sprint's start day, the card's own scheduled day, the range between its
@@ -55,16 +52,11 @@ func TeamGrid(b Board, team, day string) []Card {
 		if c.Scope != "" {
 			continue
 		}
-		// Somebody has to have said WHEN, one way or another: a week, a date,
-		// or a sprint. A card with none of the three is the Triage strip —
-		// "nobody has said" — and the strip is the one thing a day board must
-		// not draw, or the inbox lands in everybody's column and stays there
-		// for good. It is also the only bound this rule has on how far back
-		// or forward a card reaches.
-		if c.Week == "" && c.StartDate == "" && c.Day == "" && c.SprintStart == "" {
-			continue
-		}
-		if c.Week != "" && c.Week > MondayOf(day) {
+		// IN WORK: a date or a sprint (K1). A task with neither is in its
+		// team's backlog, which is not a day's work, or the backlog would
+		// land in everybody's column and stay there for good. It is also the
+		// only bound this rule has on how far back or forward a card reaches.
+		if !InWork(c) {
 			continue
 		}
 
@@ -79,12 +71,11 @@ func TeamGrid(b Board, team, day string) []Card {
 		// answered "what is left", which is not the question the meeting
 		// asks.
 		//
-		// Two things still leave that day. Work planned into a week still to
-		// come never reached it (the gate above). And work somebody DEFERRED
-		// past today goes at once: deferring is the act of taking a card out
-		// of the sprint in progress — sent to tomorrow it leaves today's
-		// sprint and arrives tomorrow; sent three days out, the sprint that
-		// opens tomorrow starts without it.
+		// One thing still leaves that day: work somebody DEFERRED past today
+		// goes at once. Deferring is the act of taking a card out of the
+		// sprint in progress — sent to tomorrow it leaves today's sprint and
+		// arrives tomorrow; sent three days out, the sprint that opens
+		// tomorrow starts without it.
 		if inSprintOn(b, c, day, today) && !deferredPast(c, today) {
 			out = append(out, c)
 			continue
@@ -95,7 +86,7 @@ func TeamGrid(b Board, team, day string) []Card {
 		// does not come back to today merely because it was finished today. It
 		// still stands on the day it recorded (its sprint's own day, served as
 		// a snapshot once past). A done card of the CURRENT sprint is already
-		// kept above; one of no sprint at all (a dated or week card) is never
+		// kept above; one of no sprint at all (a dated card) is never
 		// closed and shows on its day as before.
 		if Complete(c.Stage, c.Progress) &&
 			(!finishedOn(c, day) || (day == today && inClosedSprint(b, c))) {
@@ -151,7 +142,7 @@ func inSprintOn(b Board, c Card, day, today string) bool {
 func deferredPast(c Card, day string) bool { return c.StartDate != "" && c.StartDate > day }
 
 // plannedFor reports whether somebody put the card on a day: its own dates
-// reach that day, or it was placed in the week the day belongs to.
+// reach that day.
 //
 // It is asked of the days AHEAD only, and that asymmetry is the point. TODAY
 // is "what is in hand": a card planned for last Tuesday and still open stands
@@ -164,9 +155,6 @@ func deferredPast(c Card, day string) bool { return c.StartDate != "" && c.Start
 // backlog (122 of 122 open cards on one production board), and "what is
 // planned for tomorrow" could not be read anywhere.
 func plannedFor(c Card, day string) bool {
-	if c.Week != "" && c.Week == MondayOf(day) {
-		return true
-	}
 	return ActiveOnDay(c.StartDate, c.Day, day)
 }
 
@@ -235,35 +223,10 @@ func MeView(b Board, user, day string) []Card {
 		if user != "" && !slices.Contains(c.Assignees, user) && !childAssigned(b, c.ItemID, user) {
 			continue
 		}
-		// A card placed in a week AHEAD of the day being looked at is on no
-		// day board until its Monday (B1). Judged against that DAY, as the
-		// Team board judges it: flipping forward to next week is looking at
-		// next week's plan, and a card planned for it belongs there.
-		if c.Week != "" && c.Week > MondayOf(day) {
-			continue
-		}
-		// And one parked on a list is not this person's day either: it is
-		// waiting to be planned, not being worked on.
+		// One parked in the team's backlog is not this person's day: it is
+		// waiting to be taken into work, not being worked on (K1). A task has
+		// no week to read (K7).
 		if InBacklog(c) {
-			continue
-		}
-		// A card PLANNED FOR A WEEK and never dated is on its owner's board
-		// once the week has come. Dropping a card into a week ahead takes its
-		// dates and its sprint away (B1), so when that Monday arrives it has a
-		// week and nothing else — and no carry-over adopts a card with no
-		// sprint. The Team board drew it in its owner's column from that
-		// Monday on; this board, which is the one that keeps everything of
-		// theirs that is not closed, drew nothing, and the work a lead planned
-		// for somebody's week was on the lead's screen and not on theirs.
-		//
-		// Finished, it belongs to the day it was finished on and no other,
-		// as on the Team board: nothing sweeps a card with no sprint, and a
-		// done one would otherwise stand on every day for ever.
-		if c.Week != "" && c.StartDate == "" && c.Day == "" && c.SprintStart == "" {
-			if Complete(c.Stage, c.Progress) && c.DoneAt != day {
-				continue
-			}
-			out = append(out, c)
 			continue
 		}
 		// A deferred / future-scheduled card (startDate past today) is hidden

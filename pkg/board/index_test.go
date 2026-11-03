@@ -12,7 +12,6 @@ import (
 func TestIndexAgreesWithTheLinearHelpers(t *testing.T) {
 	t.Parallel()
 	b := hierarchyBoard()
-	today := TodayIso()
 	b.Cards = append(b.Cards,
 		// A review of the task under the epic, with a reviewer on it.
 		Card{ItemID: "t1r", Title: "review: Invoices", ReviewOf: "t1", Parent: "epic", Team: "alpha", Assignees: []string{"rev"}},
@@ -42,8 +41,8 @@ func TestIndexAgreesWithTheLinearHelpers(t *testing.T) {
 		if s1 != s2 || d1 != d2 || n1 != n2 {
 			t.Errorf("%s: HierarchyStatus index=%s %d/%d linear=%s %d/%d", c.ItemID, s1, d1, n1, s2, d2, n2)
 		}
-		if got, want := ix.NeedsTriage(c, today), NeedsTriage(b, c, today); got != want {
-			t.Errorf("%s: NeedsTriage index=%v linear=%v", c.ItemID, got, want)
+		if got, want := ix.OnBacklog(c), OnBacklog(c, func(c Card) bool { return IsSubtask(b, c) }); got != want {
+			t.Errorf("%s: OnBacklog index=%v linear=%v", c.ItemID, got, want)
 		}
 		p1, ok1 := ix.ParentOf(c)
 		p2, ok2 := ParentOf(b, c)

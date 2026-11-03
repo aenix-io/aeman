@@ -9,10 +9,10 @@ package board
 // decision made in the dark unless the whole number is in front of the
 // reader. So this one ignores the filter on purpose.
 //
-// What counts is work that is theirs, open, and not put off to a week that
-// has not arrived: a card placed ahead is on no day board until its Monday
-// (B1) and is not what they are carrying today. A subtask rides its parent
-// and is not a card of its own; a state card is the board's own bookkeeping.
+// What counts is work that is theirs, open, and not parked in a backlog: a
+// parked card is on no day board and is not what they are carrying today. A
+// subtask rides its parent and is not a card of its own; a state card is the
+// board's own bookkeeping.
 func CarryingNow(b Board, today string) map[string]int {
 	out := map[string]int{}
 	planning := PlanningIDs(b)
@@ -29,12 +29,12 @@ func CarryingNow(b Board, today string) map[string]int {
 // of cards, or the number beside a person and the points beside them would
 // describe two different days. A planning card is not work in hand, whoever
 // owns it; a subtask rides its parent; a task under an epic is a task.
-func carriedNow(c Card, today string, planning map[string]bool) bool {
+func carriedNow(c Card, _ string, planning map[string]bool) bool {
 	if len(c.Assignees) == 0 || c.Assignees[0] == "" {
 		return false
 	}
 	if IsPlanning(c) || IsSubtaskIn(c, planning) || IsStateTitle(c.Title) {
 		return false
 	}
-	return !Complete(c.Stage, c.Progress) && !PlacedAhead(c, today)
+	return !Complete(c.Stage, c.Progress) && !InBacklog(c)
 }

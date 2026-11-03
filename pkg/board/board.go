@@ -102,14 +102,13 @@ type Card struct {
 	// sprint it belongs to (what the day boards orient by).
 	StartDate   string `json:"startDate,omitempty"`
 	SprintStart string `json:"sprintStart,omitempty"`
-	// Week is the week the card is scheduled for, a Monday: the row it stands
-	// in on the Triage board. A Week AHEAD of the current one is a backlog
-	// placement — the card is on no day board until that Monday (B1).
+	// Week is the week a DEADLINE STUB's line sits on, a Monday. A task has
+	// no week (docs/design/backlog.md, K7): one a file still carries is read
+	// as nothing (SettleCard) and the card codec no longer writes it.
 	Week string `json:"week,omitempty"`
-	// Parked says the card is on its team's SHELF rather than in the plan.
-	// EXCLUSIVE with Week — a card is on the shelf or in a week, never both,
-	// or the board draws the same work twice and counts it twice against the
-	// week. Read it through board.InBacklog.
+	// Parked says the task is in its team's BACKLOG rather than in work. A
+	// task is in work (a date or a sprint) or parked, never both and never
+	// neither (K1). Read it through board.InBacklog.
 	Parked bool `json:"parked,omitempty"`
 	// Scope names the Project-board column this card belongs to ("" = none). An
 	// scope card's row is its Week; StartDate..Day span the weeks its slot
@@ -436,6 +435,10 @@ func NewBoardIn(primary string, cards []Card) Board {
 // before the week goes, or it would have no row on the Project board and
 // stand on no board at all. A planning card is nobody's and no team's
 // besides (H3): the people and the teams are on the tasks under it.
+//
+// And no card but a deadline stub has a week (K7): the week of a task is
+// gone, so one a file written before schema 3 still carries is read as
+// nothing — the card stands by its dates and sprint, or in its backlog.
 func SettleCard(c Card) Card {
 	if c.Scope != "" {
 		if start, day, ok := WeekAsDates(c); ok {
@@ -448,6 +451,9 @@ func SettleCard(c Card) Card {
 	}
 	if IsPlanning(c) {
 		c.Team, c.Assignees = "", nil
+	}
+	if c.Title != DeadlineStateTitle {
+		c.Week = ""
 	}
 	return c
 }

@@ -3,7 +3,7 @@ package board
 // Index is a board's cards by id and by parent, built ONCE for a reading
 // that asks the hierarchy's questions of every card — a listing, a watch
 // projection — so each answer costs a lookup and not a walk over the board.
-// The free functions (Find, Lineage, LeafTasks, NeedsTriage, …) give the
+// The free functions (Find, Lineage, LeafTasks, OnBacklog, …) give the
 // same answers for one card at a time; a loop over a board of three
 // thousand cards asking them of each card was three thousand walks of the
 // board per question, and the listing paid it for every watcher. The index
@@ -138,10 +138,9 @@ func (ix *Index) HierarchyStatus(c Card) (status string, done, total int) {
 	return hierarchyStatus(ix.LeafTasks(c.ItemID))
 }
 
-// NeedsTriage is board.NeedsTriage.
-func (ix *Index) NeedsTriage(c Card, today string) bool {
-	return needsTriage(c, today, ix.IsSubtask)
-}
+// OnBacklog is board.OnBacklog with the subtask question answered by the
+// index.
+func (ix *Index) OnBacklog(c Card) bool { return OnBacklog(c, ix.IsSubtask) }
 
 // ReviewedBy is the person on the card's open review card, or "" — what
 // `status.reviewedBy` carries.
