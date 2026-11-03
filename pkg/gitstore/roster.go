@@ -19,7 +19,9 @@ import (
 // SchemaVersion is the layout version this server writes and understands.
 // Version 2 retired the Process feature: the processes/ directory and the
 // process, task and accumulate card keys (docs/design/hierarchy.md).
-const SchemaVersion = 2
+// Version 3 is the team backlog: the weekly plan and the Triage strip are
+// parked and a task's week is gone (docs/design/backlog.md).
+const SchemaVersion = 3
 
 // BoardPath is the board's own file, primary domain only.
 const BoardPath = "board.yaml"

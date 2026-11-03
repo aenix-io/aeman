@@ -109,3 +109,49 @@ func TestAMigrationWithNothingStrandedWritesNoCleanup(t *testing.T) {
 		t.Fatalf("the tip is the reconcile, nothing after it:\n%s", head.Message)
 	}
 }
+
+// The importer writes the CURRENT schema, so it brings a board in already in
+// the shape schema 3 leaves (K8): a task Projects v2 had planned for a week
+// and nothing else, and an open task nobody had placed at all, arrive PARKED
+// in their team's backlog — and since a parked task is reachable, the
+// stranded-card cleanup, which DELETES what Unreachable names, keeps them.
+func TestTheImporterParksWhatTheStripAndTheWeeklyPlanHeld(t *testing.T) {
+	const cur = "2026-09-01"
+	src := boardservicetest.New([]board.Card{
+		{ItemID: "PVTI_week", Title: "planned for a week", Team: "portal", Week: "2026-09-07",
+			Assignees: []string{"kvaps"}, CreatedAt: "2026-08-28T09:00:00Z"},
+		{ItemID: "PVTI_strip", Title: "nobody said when", Team: "portal", Progress: 20,
+			CreatedAt: "2026-08-29T09:00:00Z"},
+		{ItemID: "PVTI_done", Title: "finished, never placed", Team: "portal", Progress: 100,
+			CreatedAt: "2026-08-29T09:30:00Z"},
+		{ItemID: "PVTI_live", Title: "in work", Team: "portal", SprintStart: cur, StartDate: cur, Day: cur,
+			CreatedAt: "2026-09-01T09:00:00Z"},
+	}, map[string]board.SprintState{"portal": {Current: cur, ItemID: "PVTI_team"}})
+	remote := newRemote(t, "")
+	rep, err := Run(context.Background(), plainSource{src}, memory.NewStorage(), remote, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Stranded) != 0 || len(rep.Placeless) != 0 {
+		t.Fatalf("stranded = %v, placeless = %v; a parked task is in its backlog", rep.Stranded, rep.Placeless)
+	}
+	s, err := gitstore.Load(clone(t, remote))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parked := map[string]bool{}
+	for _, c := range s.Cards {
+		parked[c.Title] = c.Parked
+		if c.Week != "" {
+			t.Errorf("%q came in with a week", c.Title)
+		}
+	}
+	for title, want := range map[string]bool{
+		"planned for a week": true, "nobody said when": true,
+		"finished, never placed": false, "in work": false,
+	} {
+		if parked[title] != want {
+			t.Errorf("%q parked = %v, want %v", title, parked[title], want)
+		}
+	}
+}

@@ -20,7 +20,7 @@ func TestMigrateSchemaOlderInOneCommit(t *testing.T) {
 		t.Fatalf("migrated=%v err=%v, want a migration", migrated, err)
 	}
 	data, _ := r.ReadFile(BoardPath)
-	if !strings.Contains(string(data), "schema: 2") || !strings.Contains(string(data), "title: b") {
+	if !strings.Contains(string(data), "schema: 3") || !strings.Contains(string(data), "title: b") {
 		t.Fatalf("board.yaml after migration:\n%s", data)
 	}
 	c, _ := r.CommitObject(r.Head())
@@ -58,7 +58,7 @@ func TestMigrateSchemaWritesMissingBoardFile(t *testing.T) {
 		t.Fatalf("migrated=%v err=%v", migrated, err)
 	}
 	data, err := r.ReadFile(BoardPath)
-	if err != nil || !strings.Contains(string(data), "schema: 2") {
+	if err != nil || !strings.Contains(string(data), "schema: 3") {
 		t.Fatalf("board.yaml = %q (%v)", data, err)
 	}
 }
@@ -67,13 +67,14 @@ func TestMigrateSchemaWritesMissingBoardFile(t *testing.T) {
 // bump rewrites the tree in the same commit that moves the marker: the
 // processes/ directory goes, and the keys a card carried for the feature —
 // task, process, accumulate — are stripped, every other key and the body
-// untouched. A filed turn is thereby ORPHANED: it stays a card of its week
-// and its zone, and loses only the link to the task it came from. The run is
+// untouched. A filed turn is thereby ORPHANED: it keeps its zone and loses
+// the link to the task it came from (and, schema 3 composing with it, its
+// week — it is parked, K8). The run is
 // idempotent — a current repository is left alone — and the cards the
 // feature never touched are not rewritten at all.
 func TestMigrateSchema2RetiresTheProcessTree(t *testing.T) {
 	turn := "---\ntitle: invoice ACME\nteam: portal\nzone: gray\nstage: recurrent\nweek: 2026-08-24\nprocess: Invoicing\ntask: 01JB4TASK\naccumulate: true\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n\nStill the record of that week.\n"
-	plain := "---\ntitle: untouched\nteam: portal\nrank: b\ncreated: 2026-08-26T09:15:03Z\n---\n"
+	plain := "---\ntitle: untouched\nteam: portal\nsprint: 2026-08-24\nrank: b\ncreated: 2026-08-26T09:15:03Z\n---\n"
 	r := repoWith(t, map[string]string{
 		BoardPath:                                 "schema: 1\ntitle: b\n",
 		TeamPath("01JB4TEAM"):                     "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
@@ -108,7 +109,7 @@ func TestMigrateSchema2RetiresTheProcessTree(t *testing.T) {
 			t.Fatalf("%s survived the bump:\n%s", key, got)
 		}
 	}
-	for _, kept := range []string{"title: invoice ACME", "stage: recurrent", "week: 2026-08-24", "zone: gray", "Still the record of that week."} {
+	for _, kept := range []string{"title: invoice ACME", "stage: recurrent", "zone: gray", "Still the record of that week."} {
 		if !strings.Contains(got, kept) {
 			t.Fatalf("%q was lost by the bump:\n%s", kept, got)
 		}
@@ -117,7 +118,7 @@ func TestMigrateSchema2RetiresTheProcessTree(t *testing.T) {
 	if data, _ := r.ReadFile("cards/c/2/01JB4K2E7QZMX3R8V0N5T9WYC2.md"); string(data) != plain {
 		t.Fatalf("an untouched card was rewritten:\n%s", data)
 	}
-	if data, _ := r.ReadFile(BoardPath); !strings.Contains(string(data), "schema: 2") {
+	if data, _ := r.ReadFile(BoardPath); !strings.Contains(string(data), "schema: 3") {
 		t.Fatalf("board.yaml after migration:\n%s", data)
 	}
 	// Idempotent: the second run finds nothing to do.
@@ -136,7 +137,7 @@ func TestMigrateSchema2RetiresTheProcessTree(t *testing.T) {
 func TestMigrateSchema2ComposesEveryCardRewrite(t *testing.T) {
 	shared := "---\ntitle: shared work\nteam: portal\nproject: engineering\nepic: Cozystack\nmirrors:\n  - {project: strategy, epic: Fundraising}\nprocess: Invoicing\ntask: 01JB4TASK\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n\nThe body stays.\n"
 	columnOnly := "---\ntitle: in a column\nproject: engineering\nepic: Cozystack\nrank: b\ncreated: 2026-08-26T09:15:03Z\n---\n"
-	plain := "---\ntitle: untouched\nteam: portal\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n"
+	plain := "---\ntitle: untouched\nteam: portal\nsprint: 2026-08-24\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n"
 	stub := "name: Cozystack\nrank: a\ncreated: 2026-06-04T08:00:00Z\n"
 	r := repoWith(t, map[string]string{
 		BoardPath:                                 "schema: 1\ntitle: b\n",
@@ -206,7 +207,7 @@ func TestMigrateSchema2TakesAProjectCardOutOfEverybodysHands(t *testing.T) {
 	const planID, pieceID, taskID, cleanID = "01JB4K2E7QZMX3R8V0N5T9WYC1", "01JB4K2E7QZMX3R8V0N5T9WYC2", "01JB4K2E7QZMX3R8V0N5T9WYC3", "01JB4K2E7QZMX3R8V0N5T9WYC4"
 	plan := "---\ntitle: a plan\nassignees:\n  - kvaps\nteam: portal\nzone: yellow\nsize: M\nstart: 2026-08-24\nday: 2026-08-28\nsprint: 2026-08-24\nweek: 2026-08-24\nproject: engineering\nepic: Cozystack\nparent: " + taskID + "\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n\nThe body stays.\n"
 	piece := "---\ntitle: a piece of the plan\nteam: portal\nparent: " + planID + "\nrank: b\ncreated: 2026-08-26T09:15:03Z\n---\n"
-	task := "---\ntitle: a task\nassignees:\n  - kvaps\nteam: portal\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n"
+	task := "---\ntitle: a task\nassignees:\n  - kvaps\nteam: portal\nsprint: 2026-08-24\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n"
 	clean := "---\ntitle: already a plan\nproject: engineering\nscope: Cozystack\nrank: d\ncreated: 2026-08-26T09:17:03Z\n---\n"
 	r := repoWith(t, map[string]string{
 		BoardPath:                                "schema: 1\ntitle: b\n",

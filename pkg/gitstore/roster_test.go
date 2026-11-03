@@ -125,7 +125,7 @@ func TestBoardFileSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "schema: 2\ntitle: aeman board\n" {
+	if string(data) != "schema: 3\ntitle: aeman board\n" {
 		t.Fatalf("board file:\n%s", data)
 	}
 	b, err := DecodeBoard(data)

@@ -21,17 +21,21 @@ import (
 // upgrade is one version's rewrite of the tree: the files to write (or
 // delete, with nil Data) beside the moved marker to bring a repository that
 // stands at version-1 to it. Each is idempotent on its own — a tree that
-// already has the shape writes nothing — so a run that moves several
-// versions at once is the sum of its steps, and a step re-run finds
-// nothing to do.
-type upgrade func(tree *object.Tree) ([]FileWrite, error)
+// already has the shape writes nothing — and a step re-run finds nothing to
+// do. A run that moves several versions at once hands each step the writes
+// of the steps before it (earlier), so a later step reads a file as the
+// earlier ones left it and its own write of the same path carries both
+// rewrites rather than undoing the first.
+type upgrade func(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error)
 
 // upgrades holds the rewrite each version asks for. Version 1 introduced
 // the marker and rewrote nothing; version 2 is the hierarchy work's bump
 // (docs/design/hierarchy.md, H8): the Process feature retired, the column
-// renamed from epic to scope, card mirrors retired.
+// renamed from epic to scope, card mirrors retired; version 3 is the team
+// backlog (docs/design/backlog.md, K8).
 var upgrades = map[int]upgrade{
-	2: schema2,
+	2: func(tree *object.Tree, _ []FileWrite) ([]FileWrite, error) { return schema2(tree) },
+	3: schema3,
 }
 
 // MigrateSchema brings board.yaml to SchemaVersion when it is older (or
@@ -78,11 +82,11 @@ func MigrateSchema(r *Repo) (bool, error) {
 			if !ok {
 				continue
 			}
-			more, err := step(tree)
+			more, err := step(tree, writes[1:])
 			if err != nil {
 				return false, fmt.Errorf("gitstore: schema %d: %w", v, err)
 			}
-			writes = append(writes, more...)
+			writes = lastWriteWins(append(writes, more...))
 		}
 	}
 	_, err = r.Commit(Action{Name: "schema", Summary: fmt.Sprintf("schema: %d → %d", from, SchemaVersion), At: time.Now()},
@@ -270,4 +274,123 @@ func schema2(tree *object.Tree) ([]FileWrite, error) {
 		return nil
 	})
 	return writes, err
+}
+
+// lastWriteWins keeps one write per path, the last, in first-seen order: a
+// later step's write of a file already carries the earlier step's rewrite
+// (it read the file through the earlier writes), so two writes of one path
+// in one commit would only make the earlier one dead weight.
+func lastWriteWins(writes []FileWrite) []FileWrite {
+	at := map[string]int{}
+	out := make([]FileWrite, 0, len(writes))
+	for _, w := range writes {
+		if i, ok := at[w.Path]; ok {
+			out[i] = w
+			continue
+		}
+		at[w.Path] = len(out)
+		out = append(out, w)
+	}
+	return out
+}
+
+// Schema 3 is the team backlog, specified in docs/design/backlog.md
+// ("Migration: schema 2 → 3", K8). One pass over the cards, each rewritten
+// at most once with every step applied:
+//
+//  1. a task with a week and no date and no sprint is PARKED and its week
+//     goes — the weekly plan was work accepted and not yet in hand, which is
+//     exactly the backlog;
+//  2. a task with a week and a date or a sprint keeps them and loses the
+//     week — it is in work;
+//  3. an open task that would have stood in the Triage strip — no date, no
+//     sprint, no week, not parked — is PARKED;
+//  4. deadline stubs keep their week (they are not card files); project
+//     cards and planning cards have none already (schema 2).
+//
+// A subtask or a review card with a stray week loses it and is not parked:
+// it rides the card it belongs to. The rank is untouched. Telling a subtask
+// from a task needs the parent's type, so the cards are read first and
+// judged second.
+func schema3(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error) {
+	over := make(map[string][]byte, len(earlier))
+	gone := map[string]bool{}
+	for _, w := range earlier {
+		if w.Data == nil {
+			gone[w.Path] = true
+			continue
+		}
+		over[w.Path] = w.Data
+	}
+	type held struct {
+		path string
+		file CardFile
+	}
+	var cards []held
+	byID := map[string]board.Card{}
+	err := tree.Files().ForEach(func(f *object.File) error {
+		if gone[f.Name] {
+			return nil
+		}
+		kind, ids := ParsePath(f.Name)
+		if kind != PathCard {
+			return nil
+		}
+		data, ok := over[f.Name]
+		if !ok {
+			var err error
+			if data, err = readAll(f); err != nil {
+				return fmt.Errorf("%s: %w", f.Name, err)
+			}
+		}
+		cf, err := DecodeCard(ids[0], data)
+		if err != nil {
+			return nil //nolint:nilerr // a broken card is left as every reader leaves it
+		}
+		cards = append(cards, held{path: f.Name, file: cf})
+		byID[cf.Card.ItemID] = cf.Card
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	var writes []FileWrite
+	for _, h := range cards {
+		c := h.file.Card
+		p, hasParent := byID[c.Parent]
+		subtask := c.Parent != "" && hasParent && !board.IsPlanning(p)
+		if !parkForSchema3(&c, subtask) {
+			continue
+		}
+		h.file.Card = c
+		out, err := EncodeCard(h.file)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", h.path, err)
+		}
+		writes = append(writes, FileWrite{Path: h.path, Data: out})
+	}
+	return writes, nil
+}
+
+// parkForSchema3 is schema 3's rule for one card, and reports whether it
+// changed anything.
+func parkForSchema3(c *board.Card, subtask bool) bool {
+	changed := false
+	if c.Week != "" {
+		// Step 1: the weekly plan is the backlog. Only a task that answers
+		// for its own place is parked; anything else just loses the week.
+		task := !board.IsStateTitle(c.Title) && !board.IsPlanning(*c) &&
+			c.Scope == "" && c.ReviewOf == "" && !subtask
+		if task && !board.InWork(*c) {
+			c.Parked = true
+		}
+		c.Week = ""
+		changed = true
+	}
+	// Step 3: the strip.
+	if board.Unplaced(*c, subtask) {
+		c.Parked = true
+		changed = true
+	}
+	return changed
 }
