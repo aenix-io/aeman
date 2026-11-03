@@ -648,8 +648,8 @@ func (s *Service) withLinkDescription(ctx context.Context, b board.Board, card b
 // CarryReport summarizes what a carry pass did — or would do, on a dry run
 // (which backs the UI's confirm dialog counts).
 type CarryReport struct {
-	// Carried counts the open plan cards from earlier weeks — the debts now
-	// showing on the target week's panel. They are not moved.
+	// Carried counts the unfinished cards of the closing sprint carried into
+	// the new one; the subtasks that ride along are not counted.
 	Carried  int `json:"carried"`
 	Reseeded int `json:"reseeded"`
 }

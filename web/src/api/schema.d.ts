@@ -1112,7 +1112,7 @@ export interface components {
             gestures: string[];
         };
         CarryReport: {
-            /** @description The open plan cards from earlier weeks — the debts now showing on the target week's panel. They are not moved. */
+            /** @description The unfinished cards of the closing sprint carried into the new one (their subtasks ride along and are not counted). */
             carried: number;
             reseeded: number;
         };

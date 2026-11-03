@@ -35,8 +35,9 @@ a review card — is in exactly one of two places:
 A task taken into work leaves the backlog — the backlog never shows work
 in hand. Taking a task into work is giving it a day or a sprint: the
 `own` gesture with a person (it lands today, in the unplanned band, in
-the team's sprint), a date set from the drawer, or a drag onto the Team
-board. Each of these clears `parked`, as they already do (`leaveShelf`).
+the team's sprint) — the card's owner picker in the SPA — or, over the
+API and the MCP, a date, a sprint or a defer. Each of these clears
+`parked` in the same write (`takenIntoWork`).
 
 There is **no third place**. The Triage strip — open tasks nobody had
 dated, weeked or parked — is gone: every door that used to leave a task
