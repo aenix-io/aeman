@@ -98,7 +98,8 @@ SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
   unplanned band, the team's sprint — so it disappears from the backlog
   and appears on the Team and Me boards; a review nobody has taken makes
   the viewer its reviewer. A task already in work, finished work, a
-  subtask and a review somebody has are refused. The card's avatar is the
+  subtask, a review somebody has and a parked card somebody else is
+  named on are refused. The card's avatar is the
   owner picker (`own`), which hands the card to anybody else.
 - **Live.** The board watches every card of the teams it shows
   (`view=all&team=<set>`, the Team board's watch): a card parked,

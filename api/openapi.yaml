@@ -354,7 +354,8 @@ paths:
         `planningCard`, `projectCard`), a subtask or a review somebody already
         has (422 `ownerFollowsLink`), finished work (422 `alreadyFinished`), a
         task already in work (422 `alreadyInWork` — hand it over with `own`),
-        and a request that names nobody (422 `nobodyToTake`).
+        a parked card somebody else is named on (422 `somebodysCard`), and a
+        request that names nobody (422 `nobodyToTake`).
       parameters:
         - $ref: '#/components/parameters/View'
         - $ref: '#/components/parameters/Uid'
@@ -1444,6 +1445,7 @@ components:
             - projectNotFound
             - reviewCardLink
             - setupRequired
+            - somebodysCard
             - subtaskDepth
             - teamExists
             - teamInUse

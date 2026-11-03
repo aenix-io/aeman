@@ -248,6 +248,7 @@ const (
 	ScopeInUse           ProblemCode = "scopeInUse"
 	ScopeNotFound        ProblemCode = "scopeNotFound"
 	SetupRequired        ProblemCode = "setupRequired"
+	SomebodysCard        ProblemCode = "somebodysCard"
 	SubtaskDepth         ProblemCode = "subtaskDepth"
 	TakeIntoWork         ProblemCode = "takeIntoWork"
 	TeamExists           ProblemCode = "teamExists"
@@ -391,6 +392,8 @@ func (e ProblemCode) Valid() bool {
 	case ScopeNotFound:
 		return true
 	case SetupRequired:
+		return true
+	case SomebodysCard:
 		return true
 	case SubtaskDepth:
 		return true

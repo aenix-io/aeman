@@ -17,6 +17,11 @@ var ErrNobodyToTake = errors.New("take needs a person to take the card: the requ
 // picker's (own with a person).
 var ErrAlreadyInWork = errors.New("this task is already in work; hand it over with the owner picker")
 
+// ErrSomebodysCard is a Take on a card somebody else is already named on:
+// Take is "I take this", not "I take it from them" — handing it over is the
+// owner picker's.
+var ErrSomebodysCard = errors.New("somebody else is on this card; hand it over with the owner picker")
+
 // ErrAlreadyFinished is a Take on finished work: there is nothing left to
 // take into work.
 var ErrAlreadyFinished = errors.New("this card is finished; there is nothing to take into work")
@@ -28,8 +33,9 @@ var ErrAlreadyFinished = errors.New("this card is finished; there is nothing to 
 // into work the way `own` with a person takes it (today, the unplanned band,
 // the team's sprint, out of the backlog), and a review nobody has taken makes
 // the actor its reviewer (K10). Every refusal fires before anything is
-// written: a planning card, a project card, a subtask and a review somebody
-// already has are not the actor's to take; finished work has nothing left to
+// written: a planning card, a project card, a subtask, a review somebody
+// already has and a parked card somebody else is named on are not the
+// actor's to take; finished work has nothing left to
 // take; a task already in work is handed over with the owner picker.
 func (s *Service) Take(ctx context.Context, boardID string, itemID string) error {
 	actor := board.ActorFrom(ctx)
@@ -60,6 +66,12 @@ func (s *Service) Take(ctx context.Context, boardID string, itemID string) error
 	}
 	if board.InWork(card) {
 		return fmt.Errorf("%w: %q", ErrAlreadyInWork, card.Title)
+	}
+	// Parked with somebody else on it: not the taker's to take from them.
+	for _, a := range card.Assignees {
+		if a != actor {
+			return fmt.Errorf("%w: %q is %s's", ErrSomebodysCard, card.Title, a)
+		}
 	}
 	return s.ownByPerson(ctx, boardID, b, card, card.Team, actor)
 }

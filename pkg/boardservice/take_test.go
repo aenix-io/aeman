@@ -31,6 +31,10 @@ func takeSeed() *fakeBackend {
 		{ItemID: "slot", Title: "slot", Scope: "S", Project: "P"},
 		{ItemID: "k", Title: "a piece", Team: "alpha", Parent: "w"},
 		{ItemID: "d", Title: "done", Team: "alpha", Parked: true, Progress: 100},
+		// Parked with somebody named on it (a direct writer, an old file): it
+		// is somebody's, not the taker's.
+		{ItemID: "h", Title: "somebody's", Team: "alpha", Parked: true, Assignees: []string{"ann"}},
+		{ItemID: "m", Title: "mine already", Team: "alpha", Parked: true, Assignees: []string{"kvaps"}},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}, "": {Current: today, ItemID: "s0"}})
 }
 
@@ -73,6 +77,7 @@ func TestTakeIsRefusedWhereThereIsNothingToTake(t *testing.T) {
 		"slot": ErrProjectCard,
 		"k":    ErrOwnerFollowsLink,
 		"d":    ErrAlreadyFinished,
+		"h":    ErrSomebodysCard,
 	} {
 		f := takeSeed()
 		before := *f.get(id)
@@ -82,6 +87,10 @@ func TestTakeIsRefusedWhereThereIsNothingToTake(t *testing.T) {
 		if c := f.get(id); len(c.Assignees) != len(before.Assignees) || c.Parked != before.Parked {
 			t.Errorf("take %s wrote before it refused: %+v", id, c)
 		}
+	}
+	// A parked card already named on the taker is still theirs to take.
+	if err := New(takeSeed()).Take(me, "acme", "m"); err != nil {
+		t.Fatalf("take a parked card named on me = %v", err)
 	}
 	// Nobody to take it: a request with no actor.
 	if err := New(takeSeed()).Take(ctx, "acme", "p"); !errors.Is(err, ErrNobodyToTake) {

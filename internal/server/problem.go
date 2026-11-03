@@ -95,6 +95,7 @@ var sentinels = []struct {
 	{boardservice.ErrNobodyToTake, http.StatusUnprocessableEntity, "nobodyToTake"},
 	{boardservice.ErrAlreadyInWork, http.StatusUnprocessableEntity, "alreadyInWork"},
 	{boardservice.ErrAlreadyFinished, http.StatusUnprocessableEntity, "alreadyFinished"},
+	{boardservice.ErrSomebodysCard, http.StatusUnprocessableEntity, "somebodysCard"},
 	// A list the team does not have, and work another board owns: both
 	// are rules refusing a change, not the forge failing.
 	{boardservice.ErrNotYoursToPark, http.StatusUnprocessableEntity, "notYoursToPark"},
