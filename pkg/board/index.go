@@ -3,7 +3,7 @@ package board
 // Index is a board's cards by id and by parent, built ONCE for a reading
 // that asks the hierarchy's questions of every card — a listing, a watch
 // projection — so each answer costs a lookup and not a walk over the board.
-// The free functions (Find, Lineage, LeafTasks, NeedsTriage, …) give the
+// The free functions (Find, Lineage, LeafTasks, OnBacklog, …) give the
 // same answers for one card at a time; a loop over a board of three
 // thousand cards asking them of each card was three thousand walks of the
 // board per question, and the listing paid it for every watcher. The index
@@ -138,10 +138,9 @@ func (ix *Index) HierarchyStatus(c Card) (status string, done, total int) {
 	return hierarchyStatus(ix.LeafTasks(c.ItemID))
 }
 
-// NeedsTriage is board.NeedsTriage.
-func (ix *Index) NeedsTriage(c Card, today string) bool {
-	return needsTriage(c, today, ix.IsSubtask)
-}
+// OnBacklog is board.OnBacklog with the subtask question answered by the
+// index.
+func (ix *Index) OnBacklog(c Card) bool { return OnBacklog(c, ix.IsSubtask) }
 
 // ReviewedBy is the person on the card's open review card, or "" — what
 // `status.reviewedBy` carries.
@@ -149,9 +148,9 @@ func (ix *Index) ReviewedBy(c Card) string { return ix.reviewedBy[c.ItemID] }
 
 // hierarchyStatus is the standing a set of leaf tasks gives their planning
 // card (H5): NO ITEMS when there are none; DONE when every one is complete;
-// IN PROGRESS when any of them is somebody's, has started, or is finished —
-// a person named on a task is work being done before the first percent is
-// typed; TO DO otherwise.
+// IN PROGRESS when any of them is somebody's, has started — any progress,
+// or held in review or locked — or is finished — a person named on a task
+// is work being done before the first percent is typed; TO DO otherwise.
 func hierarchyStatus(leaves []Card) (status string, done, total int) {
 	working := false
 	for _, t := range leaves {
@@ -159,7 +158,11 @@ func hierarchyStatus(leaves []Card) (status string, done, total int) {
 		switch {
 		case Complete(t.Stage, t.Progress):
 			done++
-		case len(t.Assignees) > 0 || IsInProgress(t):
+		case len(t.Assignees) > 0 || IsInProgress(t) || t.Progress > 0 ||
+			t.Stage == StageReview || t.Stage == StageLocked:
+			// Somebody's, in progress — or plainly under way without either:
+			// any progress at all, or held in review or locked (#287). A
+			// project card has nobody on it by design (H4).
 			working = true
 		}
 	}

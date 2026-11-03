@@ -90,12 +90,24 @@ describe("the board in the address", () => {
     expect(calls[0].body).toEqual({ intent: "unassign" });
   });
 
-  it("drops a card into a week through the Triage board", async () => {
-    standingOn("from=2026-09-07&team=portal&view=triage&weeks=9");
-    await apiProvider.placeCard("c1", "2026-09-14");
-    expect(calls[0].url).toBe(
-      "/api/v1/views/triage/cards/c1/actions/place?from=2026-09-07&team=portal&weeks=9",
-    );
+  // The Backlog board's two gestures go through it, with the team set its
+  // listing used: a card handed to a team or taken into work by a person is
+  // a card the server finds on that board (K4, K5).
+  it("owns a card through the Backlog board", async () => {
+    standingOn("team=%2Cportal&view=backlog");
+    await apiProvider.ownCard("c1", "portal", "kvaps");
+    expect(calls[0].url).toBe("/api/v1/views/backlog/cards/c1/actions/own?team=%2Cportal");
+    expect(calls[0].body).toEqual({ team: "portal", person: "kvaps" });
+  });
+
+  // TAKE is the Backlog's own gesture (K11): it names no person — the server
+  // gives the card to whoever makes the request — and goes through the
+  // board that is open.
+  it("takes a card through the Backlog board, naming nobody", async () => {
+    standingOn("team=%2Cportal&view=backlog");
+    await apiProvider.takeCard("c1");
+    expect(calls[0].url).toBe("/api/v1/views/backlog/cards/c1/actions/take?team=%2Cportal");
+    expect(calls[0].body).toBeUndefined();
   });
 
   // A create belongs to the board it was typed into: the open one, unless
@@ -106,12 +118,33 @@ describe("the board in the address", () => {
     expect(calls[0].url).toBe("/api/v1/views/me/cards");
   });
 
+  // The Backlog's insert "+" is ONE create naming its place (K12's
+  // neighbour, after/before), not a create and then a move.
+  it("creates into a backlog gap in one request, naming its place", async () => {
+    standingOn("team=portal&view=backlog");
+    await apiProvider.createCard({ title: "between", team: "portal", parked: true, after: "a" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("/api/v1/views/backlog/cards");
+    expect(calls[0].body).toMatchObject({ title: "between", team: "portal", after: "a" });
+    expect(calls[0].body).not.toHaveProperty("before");
+  });
+
   it("and into the board the shape names, whatever is open", async () => {
-    standingOn("team=portal&view=triage");
+    standingOn("day=2026-09-11&team=portal&view=team");
     await apiProvider.createCard({ title: "someday", zone: "gray", team: "portal", parked: true });
     expect(calls[0].url).toBe("/api/v1/views/backlog/cards");
-    await apiProvider.createCard({ title: "later", zone: "gray", team: "portal", week: "2026-09-14" });
-    expect(calls[1].url).toBe("/api/v1/views/triage/cards");
+  });
+
+  // K3: a task typed into a Backlog column is parked on that team, last. The
+  // body carries no dates and no week: the board it is made on says it all.
+  it("creates into the Backlog board with no dates and no week", async () => {
+    standingOn("team=portal&view=backlog");
+    await apiProvider.createCard({ title: "someday", team: "portal" });
+    expect(calls[0].url).toBe("/api/v1/views/backlog/cards");
+    const body = calls[0].body as Record<string, unknown>;
+    expect(body.team).toBe("portal");
+    expect(body).not.toHaveProperty("dates");
+    expect(body).not.toHaveProperty("week");
   });
 
   // The card itself is addressed as itself, whatever board it was found on:

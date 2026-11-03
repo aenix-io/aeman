@@ -14,42 +14,35 @@ const THIS_WEEK = "2026-09-14";
 const NEXT_WEEK = "2026-09-21";
 const LAST_WEEK = "2026-09-07";
 
-// The Me board's rule for a day, card by card — the mirror of board.MeView,
-// against the cases TestTheMeBoardDrawsAWeekThatHasCome pins. The two answers
-// must agree before the server has spoken, or the board draws a card the next
-// frame takes away (or never draws one the server sent).
-describe("a card planned for a week, on its owner's board", () => {
-  // Dropped into a week ahead on the Triage board it lost its dates and its
-  // sprint; when that Monday came it had a week and nothing else, and the Me
-  // board drew nothing — while the Team board drew it in the owner's column.
-  it("is there once its week has come", () => {
-    expect(onMyDay(card({ week: THIS_WEEK }), board, TODAY, TODAY)).toBe(true);
+// The Me board's rule for a day, card by card — the mirror of board.MeView.
+// The two answers must agree before the server has spoken, or the board draws
+// a card the next frame takes away (or never draws one the server sent).
+//
+// D17 is retired: a card PLANNED FOR A WEEK used to stand on its owner's board
+// once its Monday came. A task has no week any more (K7) — it is in work (a
+// date or a sprint) or parked in its team's backlog (K1) — and the Me board
+// draws the first kind only.
+describe("the Me board draws work in hand, never the backlog (K1, K7)", () => {
+  it("leaves a parked task off every day, dates or no dates", () => {
+    expect(onMyDay(card({ parked: true }), board, TODAY, TODAY)).toBe(false);
+    expect(onMyDay(card({ parked: true, startDate: THIS_WEEK }), board, TODAY, TODAY)).toBe(false);
+    expect(onMyDay(card({ parked: true, sprintStart: THIS_WEEK }), board, TODAY, TODAY)).toBe(false);
   });
 
-  it("stays while it is owed, when its week has gone by", () => {
-    expect(onMyDay(card({ week: LAST_WEEK }), board, TODAY, TODAY)).toBe(true);
-  });
-
-  // Not before its Monday, on the day being looked at: flipping forward to
-  // next week is looking at next week's plan, and the card belongs to it.
-  it("is off every day before its Monday, and on the days of its week", () => {
-    const ahead = card({ week: NEXT_WEEK });
-    expect(onMyDay(ahead, board, TODAY, TODAY)).toBe(false);
-    expect(onMyDay(ahead, board, "2026-09-20", TODAY)).toBe(false);
-    expect(onMyDay(ahead, board, NEXT_WEEK, TODAY)).toBe(true);
-  });
-
-  // Nothing sweeps a card with no sprint, so a finished one would stand on
-  // every day for ever: it belongs to the day it was finished on.
-  it("belongs, finished, to the day it was finished on and no other", () => {
-    const done = card({ week: THIS_WEEK, progress: 100, doneAt: TODAY });
-    expect(onMyDay(done, board, TODAY, TODAY)).toBe(true);
-    expect(onMyDay(done, board, NEXT_WEEK, TODAY)).toBe(false);
-  });
-
-  it("leaves the strip and the shelf alone", () => {
+  it("leaves a task with neither a date nor a sprint off: there is no strip", () => {
     expect(onMyDay(card({}), board, TODAY, TODAY)).toBe(false);
-    expect(onMyDay(card({ week: THIS_WEEK, parked: true }), board, TODAY, TODAY)).toBe(false);
+  });
+
+  it("reads a week an older repository left on a task as nothing", () => {
+    // Its week has come, it is gone by, it is ahead: none of it puts a task
+    // with no date and no sprint on the board, and none of it holds back a
+    // task that HAS them.
+    for (const week of [THIS_WEEK, LAST_WEEK, NEXT_WEEK]) {
+      const weekOnly = { ...card({}), week } as Card;
+      expect(onMyDay(weekOnly, board, TODAY, TODAY)).toBe(false);
+    }
+    const inSprint = { ...card({ sprintStart: THIS_WEEK, startDate: THIS_WEEK }), week: NEXT_WEEK } as Card;
+    expect(onMyDay(inSprint, board, TODAY, TODAY)).toBe(true);
   });
 });
 
@@ -77,7 +70,7 @@ describe("the rest of a day on the Me board", () => {
   });
 
   it("leaves a subtask to its parent", () => {
-    expect(onMyDay(card({ parent: "p", week: THIS_WEEK }), board, TODAY, TODAY)).toBe(false);
+    expect(onMyDay(card({ parent: "p", sprintStart: THIS_WEEK }), board, TODAY, TODAY)).toBe(false);
   });
 
   // An open card whose sprint fell behind the team's current one — left out of

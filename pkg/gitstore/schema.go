@@ -3,6 +3,7 @@ package gitstore
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,17 +22,21 @@ import (
 // upgrade is one version's rewrite of the tree: the files to write (or
 // delete, with nil Data) beside the moved marker to bring a repository that
 // stands at version-1 to it. Each is idempotent on its own — a tree that
-// already has the shape writes nothing — so a run that moves several
-// versions at once is the sum of its steps, and a step re-run finds
-// nothing to do.
-type upgrade func(tree *object.Tree) ([]FileWrite, error)
+// already has the shape writes nothing — and a step re-run finds nothing to
+// do. A run that moves several versions at once hands each step the writes
+// of the steps before it (earlier), so a later step reads a file as the
+// earlier ones left it and its own write of the same path carries both
+// rewrites rather than undoing the first.
+type upgrade func(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error)
 
 // upgrades holds the rewrite each version asks for. Version 1 introduced
 // the marker and rewrote nothing; version 2 is the hierarchy work's bump
 // (docs/design/hierarchy.md, H8): the Process feature retired, the column
-// renamed from epic to scope, card mirrors retired.
+// renamed from epic to scope, card mirrors retired; version 3 is the team
+// backlog (docs/design/backlog.md, K8).
 var upgrades = map[int]upgrade{
-	2: schema2,
+	2: func(tree *object.Tree, _ []FileWrite) ([]FileWrite, error) { return schema2(tree) },
+	3: schema3,
 }
 
 // MigrateSchema brings board.yaml to SchemaVersion when it is older (or
@@ -78,11 +83,11 @@ func MigrateSchema(r *Repo) (bool, error) {
 			if !ok {
 				continue
 			}
-			more, err := step(tree)
+			more, err := step(tree, writes[1:])
 			if err != nil {
 				return false, fmt.Errorf("gitstore: schema %d: %w", v, err)
 			}
-			writes = append(writes, more...)
+			writes = lastWriteWins(append(writes, more...))
 		}
 	}
 	_, err = r.Commit(Action{Name: "schema", Summary: fmt.Sprintf("schema: %d → %d", from, SchemaVersion), At: time.Now()},
@@ -270,4 +275,265 @@ func schema2(tree *object.Tree) ([]FileWrite, error) {
 		return nil
 	})
 	return writes, err
+}
+
+// lastWriteWins keeps one write per path, the last, in first-seen order: a
+// later step's write of a file already carries the earlier step's rewrite
+// (it read the file through the earlier writes), so two writes of one path
+// in one commit would only make the earlier one dead weight.
+func lastWriteWins(writes []FileWrite) []FileWrite {
+	at := map[string]int{}
+	out := make([]FileWrite, 0, len(writes))
+	for _, w := range writes {
+		if i, ok := at[w.Path]; ok {
+			out[i] = w
+			continue
+		}
+		at[w.Path] = len(out)
+		out = append(out, w)
+	}
+	return out
+}
+
+// Schema 3 is the team backlog, specified in docs/design/backlog.md
+// ("Migration: schema 2 → 3", K8). One pass over the cards, each rewritten
+// at most once with every step applied:
+//
+//  1. a task with a week and no date and no sprint: when the week is still
+//     AHEAD it is PARKED — accepted and not yet in hand, which is exactly the
+//     backlog; when the week has COME it stood on the day boards as a debt, so
+//     it stays in work with that week's Monday to Friday as its dates; when
+//     it is finished it only loses the week. Either way the week goes;
+//  2. a task with a week and a date or a sprint keeps them and loses the
+//     week — it is in work;
+//  3. an open task that would have stood in the Triage strip — no date, no
+//     sprint, no week, not parked — is PARKED;
+//  4. deadline stubs keep their week (they are not card files); project
+//     cards and planning cards have none already (schema 2);
+//  5. an open task on review with no review card gets the parked review
+//     card nobody has taken (K10, schema3Reviews).
+//
+// A subtask or a review card with a stray week loses it and is not parked:
+// it rides the card it belongs to. The rank is untouched. Telling a subtask
+// from a task needs the parent's type, so the cards are read first and
+// judged second.
+func schema3(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error) {
+	over := make(map[string][]byte, len(earlier))
+	gone := map[string]bool{}
+	for _, w := range earlier {
+		if w.Data == nil {
+			gone[w.Path] = true
+			continue
+		}
+		over[w.Path] = w.Data
+	}
+	type held struct {
+		path string
+		file CardFile
+	}
+	var cards []held
+	byID := map[string]board.Card{}
+	sprints := map[string]string{} // team name → its current sprint
+	err := tree.Files().ForEach(func(f *object.File) error {
+		if gone[f.Name] {
+			return nil
+		}
+		kind, ids := ParsePath(f.Name)
+		if kind == PathTeam {
+			data, err := readAll(f)
+			if err != nil {
+				return fmt.Errorf("%s: %w", f.Name, err)
+			}
+			if tf, err := DecodeTeam(data); err == nil && tf.Sprint.Current != "" {
+				sprints[tf.Name] = tf.Sprint.Current
+			}
+			return nil
+		}
+		if kind != PathCard {
+			return nil
+		}
+		orig, err := readAll(f)
+		if err != nil {
+			return fmt.Errorf("%s: %w", f.Name, err)
+		}
+		data, rewritten := over[f.Name]
+		if !rewritten {
+			data = orig
+		}
+		cf, err := DecodeCard(ids[0], data)
+		if err != nil {
+			return nil //nolint:nilerr // a broken card is left as every reader leaves it
+		}
+		if rewritten && cf.Card.Week == "" {
+			// An earlier step's write went through the codec, which no longer
+			// writes a week (K7): the week this step decides on is the one the
+			// file had in the tree.
+			if was, err := DecodeCard(ids[0], orig); err == nil {
+				cf.Card.Week = was.Card.Week
+			}
+		}
+		cards = append(cards, held{path: f.Name, file: cf})
+		byID[cf.Card.ItemID] = cf.Card
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	today := board.TodayIso()
+	var writes []FileWrite
+	for _, h := range cards {
+		c := h.file.Card
+		p, hasParent := byID[c.Parent]
+		// board.IsSubtask's reading: a parent that is not a planning card —
+		// or not in this tree at all (deleted, another repository) — makes
+		// it a subtask.
+		subtask := c.Parent != "" && (!hasParent || !board.IsPlanning(p))
+		if !parkForSchema3(&c, subtask, today, sprints[c.Team]) {
+			continue
+		}
+		h.file.Card = c
+		out, err := EncodeCard(h.file)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", h.path, err)
+		}
+		writes = append(writes, FileWrite{Path: h.path, Data: out})
+	}
+	all := make([]board.Card, 0, len(cards))
+	for _, h := range cards {
+		all = append(all, h.file.Card)
+	}
+	more, err := schema3Reviews(all, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	return append(writes, more...), nil
+}
+
+// schema3Reviews is schema 3's last step (K10, docs/design/backlog.md
+// "Reviews"): every OPEN task already on review with no review card gets the
+// card putting a task on review makes now — «review: <title>», of the task's
+// team, with nobody on it, parked in that team's backlog, carrying the
+// task's description — under a fresh ULID created at the bump and ranked at
+// the TOP of the board's order, before the first card, so it shows first in
+// its backlog (K10); several stand in a fixed order, the oldest task's
+// first. A task with a review card of any kind gets none (a finished one is
+// the re-review's to reactivate), so the step re-run finds nothing to do.
+func schema3Reviews(cards []board.Card, now time.Time) ([]FileWrite, error) {
+	reviewed := map[string]bool{}
+	first := ""
+	for _, c := range cards {
+		if c.ReviewOf != "" {
+			reviewed[c.ReviewOf] = true
+		}
+		if c.Rank != "" && (first == "" || c.Rank < first) {
+			first = c.Rank
+		}
+	}
+	var asking []board.Card
+	for _, c := range cards {
+		if c.Stage != board.StageReview || reviewed[c.ItemID] || board.IsPlanning(c) || c.Scope != "" ||
+			c.ReviewOf != "" || board.Complete(c.Stage, c.Progress) {
+			continue
+		}
+		asking = append(asking, c)
+	}
+	sort.SliceStable(asking, func(i, j int) bool {
+		if asking[i].CreatedAt != asking[j].CreatedAt {
+			return asking[i].CreatedAt < asking[j].CreatedAt
+		}
+		return asking[i].ItemID < asking[j].ItemID
+	})
+	// Ranked from the last up, each before the one after it, so the oldest
+	// task's review ends first of all.
+	ranks := make([]string, len(asking))
+	next := first
+	for i := len(asking) - 1; i >= 0; i-- {
+		rank, err := board.RankBetween("", next)
+		if err != nil {
+			return nil, err
+		}
+		ranks[i], next = rank, rank
+	}
+	var writes []FileWrite
+	for i, c := range asking {
+		rank := ranks[i]
+		// A pure function of the tree, so two replicas bumping it before
+		// either pushes write the same file at the same path: the id is
+		// derived from the task's (its ULID time, the "schema3-review"
+		// namespace, the task's id), and the created time is that ULID
+		// time too. A task id that is not a ULID falls back to the bump's
+		// own moment for the time.
+		at := now
+		if t, err := IDTime(c.ItemID); err == nil {
+			at = t
+		}
+		id := DeriveID(at, "schema3-review", c.ItemID)
+		created := at.UTC().Format(time.RFC3339)
+		review := CardFile{Card: board.Card{
+			ItemID: id, Title: "review: " + c.Title, Team: c.Team, Zone: board.ZoneGray,
+			ReviewOf: c.ItemID, Parked: true, Rank: rank, CreatedAt: created,
+			Description: board.StripEventLines(c.Description),
+		}}
+		out, err := EncodeCard(review)
+		if err != nil {
+			return nil, err
+		}
+		p, err := CardPath(id)
+		if err != nil {
+			return nil, err
+		}
+		writes = append(writes, FileWrite{Path: p, Data: out})
+	}
+	return writes, nil
+}
+
+// PlaceForSchema3 is schema 3's rule for one card as it stood before the
+// bump — its week included — and reports whether it changed anything: what
+// the bump writes, and what an importer writing the current schema applies
+// to a card it reads from a board with weeks (K8). subtask says whether the
+// card rides a TASK parent; today is the day the week is judged against;
+// teamSprint is the current sprint of the card's team ("" for none), which a
+// task whose week has come joins.
+func PlaceForSchema3(c *board.Card, subtask bool, today, teamSprint string) bool {
+	return parkForSchema3(c, subtask, today, teamSprint)
+}
+
+// parkForSchema3 is schema 3's rule for one card, and reports whether it
+// changed anything.
+func parkForSchema3(c *board.Card, subtask bool, today, teamSprint string) bool {
+	changed := false
+	if c.Week != "" {
+		// Steps 1 and 2: only a task that answers for its own place is
+		// placed; anything else just loses the week.
+		task := !board.IsStateTitle(c.Title) && !board.IsPlanning(*c) &&
+			c.Scope == "" && c.ReviewOf == "" && !subtask
+		if task && !board.Complete(c.Stage, c.Progress) {
+			switch {
+			case c.Week > board.MondayOf(today) && !board.InWork(*c):
+				// A week ahead: the backlog.
+				c.Parked = true
+			case c.Week <= board.MondayOf(today):
+				// A week that has come: a debt on the day boards, kept
+				// there. Its week's Monday to Friday become its dates when it
+				// has none, and with no sprint it joins its team's current
+				// one — the week is what kept it on its owner's Me board
+				// (D17), and an open card of a past day with no sprint is on
+				// no Me board.
+				if start, day, ok := board.WeekAsDates(*c); ok {
+					c.StartDate, c.Day = start, day
+				}
+				if c.SprintStart == "" && teamSprint != "" {
+					c.SprintStart = teamSprint
+				}
+			}
+		}
+		c.Week = ""
+		changed = true
+	}
+	// Step 3: the strip.
+	if board.Unplaced(*c, subtask) {
+		c.Parked = true
+		changed = true
+	}
+	return changed
 }

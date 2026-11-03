@@ -4,34 +4,26 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// maxTriageWeeks is the furthest the Triage window reaches — the cap a
-// listing may ask for, and the window a GESTURE is judged against when its
-// caller named none.
-const maxTriageWeeks = 26
-
 // Selector scopes a card LIST or watch subscription. View selectors reproduce
-// exactly what the UI renders (the Team grid, the Me day board, the Triage
-// weeks); the plain field selectors compose with no view.
+// exactly what the UI renders (the Team grid, the Me day board, the
+// backlogs); the plain field selectors compose with no view.
 type Selector struct {
-	// View is "", "all", "team", "me", "triage", "backlog" or "project". "" and "all" both list every
-	// card (the HTTP/MCP layer defaults an unspecified view to the caller's "me").
+	// View is "", "all", "team", "me", "backlog", "roadmap" or "project". ""
+	// and "all" both list every card (the HTTP/MCP layer defaults an
+	// unspecified view to the caller's "me").
 	View string
-	// Team is the team key for the team/triage views ("" = the no-team group).
+	// Team is the team key for the team/backlog views ("" = the no-team
+	// group); a comma-separated set lists several.
 	Team string
 	// Day is the viewed day for the team/me views (defaults to today).
 	Day string
 	// User is the person for the me view ("" = everyone).
 	User string
-	// From and Weeks bound the triage view: the columns from the Monday
-	// From (defaults to the current week) for Weeks weeks (defaults to 6).
-	From  string
-	Weeks int
 	// Project filters the project view to one project's scope columns. Empty
 	// means every project — the all-projects overview. Note this is the
 	// planning entity, NOT the GitHub board (that is addressed by owner+board).
@@ -68,12 +60,16 @@ type Selector struct {
 	Focus bool
 	// IncludeReviews brings review cards into a view. On me/team it APPENDS
 	// each returned card's linked review, so a client rendering the reviewer
-	// badge has it on hand without a second request; on triage it KEEPS the
-	// review cards the grid otherwise leaves out, placed by their own dates
-	// (board.TriageWeekOf). One flag, one meaning — reviews ride along — and
-	// off by default in both: agents listing a Me board do not want them
-	// mixed in, and a grid full of open reviews is not a plan.
+	// badge has it on hand without a second request. Off by default: agents
+	// listing a Me board do not want them mixed in.
 	IncludeReviews bool
+	// ProjectCards brings the PROJECT cards — cards in a Scope column — into
+	// the roadmap view, under the planning cards they are filed under. Off by
+	// default: the Roadmap is the plan of goals, initiatives, epics and the
+	// work under them, and the Project board's cards stay there unless asked
+	// for (the Roadmap toolbar's "Project cards" toggle). It means nothing on
+	// any other view.
+	ProjectCards bool
 }
 
 // ParseSelector reads a selector from query parameters. Unknown views error.
@@ -84,11 +80,11 @@ func ParseSelector(q url.Values) (Selector, error) {
 		Project:        q.Get("project"),
 		Day:            q.Get("day"),
 		User:           q.Get("user"),
-		From:           q.Get("from"),
 		Assignee:       q.Get("assignee"),
 		Focus:          q.Get("focus") == "true" || q.Get("focus") == "1",
 		Snapshot:       q.Get("snapshot") == "true" || q.Get("snapshot") == "1",
 		IncludeReviews: q.Get("reviews") == "true" || q.Get("reviews") == "1",
+		ProjectCards:   q.Get("projectCards") == "true" || q.Get("projectCards") == "1",
 		Fields:         q.Get("fields"),
 	}
 	switch sel.Fields {
@@ -107,15 +103,8 @@ func ParseSelector(q url.Values) (Selector, error) {
 		v := q.Get("zone")
 		sel.Zone = &v
 	}
-	if w := q.Get("weeks"); w != "" {
-		n, err := strconv.Atoi(w)
-		if err != nil || n < 1 || n > maxTriageWeeks {
-			return Selector{}, fmt.Errorf("weeks %q: want 1..%d", w, maxTriageWeeks)
-		}
-		sel.Weeks = n
-	}
 	switch sel.View {
-	case "", "all", "team", "me", "project", "triage", "backlog", "roadmap":
+	case "", "all", "team", "me", "project", "backlog", "roadmap":
 	default:
 		return Selector{}, fmt.Errorf("unknown view %q", sel.View)
 	}
@@ -141,20 +130,10 @@ func ParseViewSelector(view string, q url.Values) (Selector, error) {
 	return sel, nil
 }
 
-// normalized fills the selector's day/week defaults against the wall clock.
+// normalized fills the selector's day default against the wall clock.
 func (s Selector) normalized() Selector {
-	if s.View == "team" || s.View == "me" {
-		if s.Day == "" {
-			s.Day = board.TodayIso()
-		}
-	}
-	if s.View == "triage" {
-		if s.From == "" {
-			s.From = board.MondayOf(board.TodayIso())
-		}
-		if s.Weeks == 0 {
-			s.Weeks = 6
-		}
+	if (s.View == "team" || s.View == "me") && s.Day == "" {
+		s.Day = board.TodayIso()
 	}
 	return s
 }
@@ -163,27 +142,32 @@ func (s Selector) normalized() Selector {
 // initiative and epic, and every card with one of those above it: a task,
 // its subtasks, a project card (docs/design/hierarchy.md) — and, below it,
 // every OPEN task that has no planning card above it yet: the work in hand
-// on the Team and Me boards, the cards parked on a shelf, the strip. The
+// on the Team and Me boards and the cards parked in a backlog. The
 // loose work is listed because the Roadmap is where a lead drags it INTO the
 // tree, and a board cannot offer a drag of a card it does not draw.
 //
 // What stays out: a task already FINISHED outside the hierarchy — there is
 // nothing left to plan on it, and a roadmap of every card ever closed is a
-// log; a project card in no hierarchy — the Project board's alone (H4); and
-// a subtask whose parent task is out, since a subtask rides its parent. The
+// log; a project card in no hierarchy — the Project board's alone (H4); a
+// project card IN the hierarchy too, unless the reader asked for them
+// (projectCards); and a subtask whose parent task is out, since a subtask
+// rides its parent. The
 // tree is the client's to assemble from `parent`; the listing is the cards
 // that make it up.
-func roadmapCards(b board.Board, ix *board.Index) []board.Card {
+func roadmapCards(b board.Board, ix *board.Index, projectCards bool) []board.Card {
 	in := map[string]bool{}
 	for _, c := range b.Cards {
 		if board.IsStateTitle(c.Title) {
 			continue
 		}
+		if c.Scope != "" && !projectCards {
+			continue
+		}
 		switch {
 		case board.IsPlanning(c) || ix.HasPlanningAncestor(c):
 			in[c.ItemID] = true
-		// Open work with no planning ancestor: a task, parked or in the strip
-		// or on a day board. Not a review card — it follows the card it
+		// Open work with no planning ancestor: a task, parked or on a day
+		// board. Not a review card — it follows the card it
 		// reviews, which is the work, and cannot be filed under anything.
 		case c.Scope == "" && c.ReviewOf == "" && !ix.IsSubtask(c) && !board.Complete(c.Stage, c.Progress):
 			in[c.ItemID] = true
@@ -241,12 +225,10 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 			}
 			base = append(base, c)
 		}
-	case "triage":
-		base = triageCards(b, board.NewIndex(b), sel)
 	case "backlog":
-		base = backlogCards(b, sel)
+		base = backlogCards(b, board.NewIndex(b), sel)
 	case "roadmap":
-		base = roadmapCards(b, board.NewIndex(b))
+		base = roadmapCards(b, board.NewIndex(b), sel.ProjectCards)
 	default:
 		base = b.Cards
 	}
@@ -341,6 +323,12 @@ func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
 	extra := map[string][]board.Card{}
 	for _, c := range b.Cards {
 		if c.Parent == "" || !present[c.Parent] || present[c.ItemID] {
+			continue
+		}
+		// The rider does not bring back a project card the roadmap left out
+		// on purpose: one filed under a planning card is its CHILD, not a
+		// piece of it.
+		if sel.View == "roadmap" && c.Scope != "" && !sel.ProjectCards {
 			continue
 		}
 		if (sel.View == "me" || sel.View == "" || sel.View == "all") && !teamInSet(c.Team, sel.Team) {
@@ -481,7 +469,7 @@ func MarkRecords(list *CardList, records map[string]bool, asOf string) {
 func ListCards(b board.Board, sel Selector) CardList {
 	cards := FilterCards(b, sel)
 	// One index for the whole listing: every resource asks the board the
-	// same questions (lineage, standing, triage, reviewer), and asking them
+	// same questions (lineage, standing, backlog, reviewer), and asking them
 	// afresh per card was a walk of the board per card.
 	ix := board.NewIndex(b)
 	resource := CardSummaryResourceIn
@@ -493,58 +481,6 @@ func ListCards(b board.Board, sel Selector) CardList {
 		items = append(items, resource(b, ix, c))
 	}
 	return CardList{Kind: "CardList", Items: items}
-}
-
-// triageCards is the Triage board's own selection: the teams' cards placed
-// in the weeks asked for, the current sprint (which is the current week's
-// column), the debts owed from earlier weeks — they stand in that column too
-// — and the cards nobody placed at all, which are the triage strip (B3, B5).
-func triageCards(b board.Board, ix *board.Index, sel Selector) []board.Card {
-	today := board.TodayIso()
-	until := board.AddDays(sel.From, 7*sel.Weeks)
-	thisWeek := board.MondayOf(today)
-	var out []board.Card
-	for _, c := range b.Cards {
-		// A planning card is the Roadmap's (H3); a subtask rides its
-		// parent; a task under an epic stands here like any task (H1).
-		if board.IsPlanning(c) || ix.IsSubtask(c) || board.IsStateTitle(c.Title) {
-			continue
-		}
-		// A PROJECT card is the Project board's plan and stands in no week
-		// here (H4) — NeedsTriage and TriageWeekOf both say so; this is the
-		// same answer given once, before the team gate asks about a team the
-		// card no longer has.
-		if c.Scope != "" {
-			continue
-		}
-		// A REVIEW rides along only when asked. It is not triage work —
-		// nobody is waiting on a week for it — but it is work in the
-		// reviewer's hands and counts in their load, so the board offers to
-		// draw it (TriageWeekOf places it by its own dates). Off by default:
-		// every open review standing in the columns would bury the weeks the
-		// grid exists to plan.
-		if c.ReviewOf != "" && !sel.IncludeReviews {
-			continue
-		}
-		if !teamInSet(c.Team, sel.Team) {
-			continue
-		}
-		if ix.NeedsTriage(c, today) {
-			out = append(out, c)
-			continue
-		}
-		w := board.TriageWeekOf(b, c, today)
-		if w == "" {
-			continue
-		}
-		// In the window, or a debt from before it: an open card owed in a
-		// week already gone stands in the current one.
-		debt := !board.Complete(c.Stage, c.Progress) && w < thisWeek && sel.From <= thisWeek
-		if (w >= sel.From && w < until) || debt {
-			out = append(out, c)
-		}
-	}
-	return out
 }
 
 // teamInSet reports whether a card's team is in a comma-separated selector
@@ -571,30 +507,20 @@ func contains(s []string, v string) bool {
 	return false
 }
 
-// backlogCards is the view=backlog listing: the cards a team has PARKED on
-// its named lists, in the order each list is read — by hand first, then oldest
-// first, so a list nobody has arranged still answers "what has been sitting
-// here longest".
+// backlogCards is the view=backlog listing (docs/design/backlog.md, K2):
+// each named team's parked open tasks — no planning card, no project card,
+// no subtask, no review card, nothing finished (board.OnBacklog) — in the
+// order a backlog is read: by hand first, then oldest first
+// (board.BacklogOrder). `team` names one backlog or a comma-separated set of
+// them; the Backlog board draws them as one list, in this same order.
 //
-// It is a view of its own rather than a corner of the triage one because the
-// two answer different questions. The strip asks "when is this due"; a list
-// says "not now" and holds work that has no week at all, so a board drawing
-// the weeks has nowhere to put it. Filtering by `backlog` names one list;
-// leaving it empty gives every list the team has.
-func backlogCards(b board.Board, sel Selector) []board.Card {
-	planning := board.PlanningIDs(b)
+// A review NOBODY HAS TAKEN (board.NeedsReviewer) stands in the same order
+// as the tasks: it is made at the top of the board's order, so it shows
+// first until somebody drags it (K10).
+func backlogCards(b board.Board, ix *board.Index, sel Selector) []board.Card {
 	var out []board.Card
 	for _, c := range b.Cards {
-		if board.IsPlanning(c) || board.IsSubtaskIn(c, planning) || board.IsStateTitle(c.Title) {
-			continue
-		}
-		// A PROJECT card is never parked — the shelf is not its board's to
-		// offer (ErrNotYoursToPark) — but the storage is a repository anything
-		// may write to, so one carrying both is read as the plan it is (H4).
-		if c.Scope != "" {
-			continue
-		}
-		if !board.InBacklog(c) || !teamInSet(c.Team, sel.Team) {
+		if !ix.OnBacklog(c) || !teamInSet(c.Team, sel.Team) {
 			continue
 		}
 		out = append(out, c)
@@ -617,15 +543,6 @@ func backlogCards(b board.Board, sel Selector) []board.Card {
 // work off today's board is the point of half these gestures, and a gate on
 // the result would forbid exactly the ones that move it.
 func Drawn(b board.Board, sel Selector, uid string) bool {
-	// A caller that named no WINDOW is asking about the board, not about a
-	// screenful of it. The Triage listing defaults to six weeks because that
-	// is what a grid opens with — the SPA asks for nine and says so — and a
-	// gate that quietly kept the six would refuse a gesture on a card
-	// scheduled further out than the default, which is a card the board
-	// plainly draws. Debts from before the window are already in.
-	if sel.View == string(board.ViewTriage) && sel.Weeks == 0 {
-		sel.Weeks = maxTriageWeeks
-	}
 	for _, c := range FilterCards(b, sel) {
 		if c.ItemID == uid {
 			return true

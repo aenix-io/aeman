@@ -249,7 +249,6 @@ doneFrom: 0
 start: 2026-08-26
 day: 2026-08-28
 sprint: 2026-08-24
-week: 2026-08-24
 parked: false
 project: portal
 scope: Bugs
@@ -290,11 +289,16 @@ Rules:
   card, a card filed in the hierarchy and otherwise unchanged. A parent is
   always of a higher level than its child (H2), and of the same
   repository (H6).
-- `parked: true` puts the card on its TEAM's backlog — the third place a
-  card can be, beside a week and the Triage strip. Every team has one and
-  nothing declares it anywhere, which is what makes it safe: there is no
-  list to create, rename or remove, so nothing can be taken from under a
-  card. It is exclusive with `week`, at every door that sets either.
+- `parked: true` puts a task in its TEAM's backlog. A task is in work (a
+  `start`/`day` or a `sprint`) or parked, never both and never neither
+  (`docs/design/backlog.md`, K1): a writer that parks a task clears its
+  person, dates and sprint, and one that gives a parked task a date or a
+  sprint clears `parked`. Every team has a backlog and nothing declares it
+  anywhere, which is what makes it safe: there is no list to create,
+  rename or remove, so nothing can be taken from under a card.
+- A task has NO `week` (schema 3, K7): the key is read on a pre-schema-3
+  file and never written. Only a deadline stub
+  (`projects/<pid>/deadlines/<id>.yaml`) carries a week.
 - `zone` and `stage` are the domain keys (`red|yellow|green|gray`,
   `locked|review|recurrent|refuse`), not display names. Derived states
   (In Progress, Done-by-100%) are **not stored**, exactly as today — which
@@ -375,13 +379,34 @@ the primary domain.
 `board.yaml`, primary domain only:
 
 ```yaml
-schema: 1
+schema: 3
 title: aeman board
 ```
 
 `schema` is the layout version; the server refuses a repository whose
 schema is newer than it knows and migrates one that is older, in a
-commit.
+commit. Version 2 was the hierarchy (`hierarchy.md`); version 3 is the team
+backlog (`backlog.md`, K8): one idempotent pass parks every task that had
+a `week` and no `start`/`day`/`sprint`, takes the `week` off every task,
+and parks every open task that had no date, no sprint, no week and no
+`parked` — the shape the retired Triage strip held. A subtask (a card
+whose parent is not a planning card, or is not in the tree at all, as
+`board.IsSubtask` reads it) or a review card loses a stray week and is not
+parked; ranks are untouched. It also gives every open task on review with
+no review card its review card (K10): parked, nobody on it, of the task's
+team, at the top of the order, the oldest task's first. That card is a pure
+function of the tree, so two replicas bumping before either pushes write
+the same file at the same path: its id is `DeriveID(<the task ULID's time>,
+"schema3-review", <the task's id>)`, its `created` is that same time, and
+its rank sits before the smallest rank the repository holds. A writer
+targeting schema 3 must leave every open task in one of the two places.
+
+A review card made at RUNTIME — a task put on review with nobody to review
+it (`requestReview`) — gets a fresh ULID like every create: two replicas
+asking at once can each make one, and the rebase replays both. That is a
+race between two people pressing the same button within one sync, rare
+and visible (two review cards for one task); the second one is removed by
+hand or withdrawn with the ×.
 
 ### First start
 
@@ -410,6 +435,33 @@ the boundary. The key logic is pure and lives in `pkg/board`
 
 The same key orders teams, projects, scopes and deadlines. Because it is a plain string, roster fragments from different
 domains merge into one order.
+
+The **top** of the board is the top of the merged order: a card put first
+— a task parked at the top of its backlog, a review nobody has taken being
+made (K10) — gets a key below the smallest card key of EVERY domain, not
+only of its own repository. A card placed where a person typed it (the
+insert "+" of a backlog or a Team/Me cell, K13) gets a key strictly
+between its neighbours in the merged list, whichever repository each
+neighbour lives in.
+
+### What an external writer keeps true (K1, K10, K13)
+
+- **K1** — an open task is IN WORK (a `start`/`day` or a `sprint`) or
+  `parked: true`, never both and never neither; parking clears
+  `assignees`, `start`, `day`, `sprint` and sets `zone: gray`.
+- **K10** — a task with `stage: review` has a review card (`reviewOf`
+  naming it). With a reviewer it is theirs, in work. With nobody it is
+  `parked: true`, `assignees` empty, of the reviewed task's `team`,
+  `zone: gray`, at the top of the order. A writer that puts a task on
+  review must write that card in the same commit, or take the task off
+  review; a writer that deletes a review card must take its task off
+  review too (back to In progress: no stage, progress kept within
+  10–90). A writer clearing a reviewer while the task stays on review
+  parks the review card as above, rather than leaving it in work with
+  nobody. A project card (a `scope`) is never on review and has no review
+  card.
+- **K13** — a card's place in a list is its `rank`, between its
+  neighbours' keys in the merged board order (above).
 
 ## Commits
 

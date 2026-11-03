@@ -1,20 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { parkPatch, parkable, parked, parkedLocally } from "./backlog";
+import { keepPlaced, parkPatch, parkable, parked, parkedLocally, unplaced } from "./backlog";
 import type { Card } from "./providers/types";
 
 const card = (over: Partial<Card> = {}): Card =>
   ({ itemId: "c1", title: "A card", assignees: [], ...over }) as Card;
 
-// The shelf is the third place a card can be, and the board must not offer to
-// put work somewhere the server would refuse.
+// A task is in work or in its team's backlog (K1), and the board must not
+// offer to put work in a backlog where the server would refuse it.
 
 describe("what may be parked", () => {
   it("takes ordinary work", () => {
     expect(parkable(card())).toBe(true);
   });
 
-  // Its week is another board's to say: a slot's follows its start date.
+  // Its place is another board's to say: a slot's row follows its start date.
   it("refuses a project card", () => {
     expect(parkable(card({ scope: "Auth" }))).toBe(false);
   });
@@ -69,13 +69,22 @@ describe("the patch a drop on a shelf writes", () => {
 // answers. It has to be everything SetBacklog does, or the card sits wrong
 // until the round trip lands — and stays wrong if the write fails.
 describe("the optimistic shape of a parked card", () => {
-  it("empties the working area and makes the work planned", () => {
+  // K1: parked means out of work — no person, no day, no sprint. A shape that
+  // kept the dates would be in both places at once, and the Backlog board
+  // would draw a card the Team board's next frame also drew.
+  it("takes it out of work: nobody, no day, no sprint, planned (K1, K3)", () => {
     expect(parkedLocally()).toEqual({
       parked: true,
       zone: "gray",
-      week: undefined,
       assignees: [],
+      startDate: undefined,
+      day: undefined,
+      sprintStart: undefined,
     });
+  });
+
+  it("says nothing about a week: a task has none (K7)", () => {
+    expect(parkedLocally()).not.toHaveProperty("week");
   });
 
   // The zone is the half that was missing: the drawer draws a card by its
@@ -83,5 +92,42 @@ describe("the optimistic shape of a parked card", () => {
   // planning until the answer came back.
   it("says the zone, not only that the card is parked", () => {
     expect(parkedLocally().zone).toBe("gray");
+  });
+});
+
+// K1 is an invariant the server holds after every write (boardservice
+// keepPlaced): an open task left with no date, no sprint and no parent to
+// ride is parked in its team's backlog in the same request — a PLAIN park,
+// nothing else about the card moves. The optimistic patches of the doors
+// that can do that (ungrouping, detaching, freeing a deleted parent's
+// subtasks) carry the same answer, or the card vanishes from every board
+// until the next reload.
+describe("an open task never stands nowhere (K1)", () => {
+  it("is unplaced with no date, no sprint and no flag", () => {
+    expect(unplaced(card(), false)).toBe(true);
+    expect(unplaced(card({ progress: 30 }), false)).toBe(true);
+  });
+
+  it("is placed by a date, an end date, a sprint or the flag", () => {
+    for (const over of [{ startDate: "2026-09-01" }, { day: "2026-09-01" }, { sprintStart: "2026-09-01" }, { parked: true }]) {
+      expect(unplaced(card(over), false)).toBe(false);
+    }
+  });
+
+  it("asks nothing of what has no place of its own: a subtask, a review, a project card, a planning card", () => {
+    expect(unplaced(card({ parent: "t" }), true)).toBe(false);
+    expect(unplaced(card({ reviewOf: "o" }), false)).toBe(false);
+    expect(unplaced(card({ scope: "Auth" }), false)).toBe(false);
+    expect(unplaced(card({ type: "epic" }), false)).toBe(false);
+  });
+
+  it("asks nothing of finished work", () => {
+    expect(unplaced(card({ progress: 100 }), false)).toBe(false);
+    expect(unplaced(card({ stage: "done" }), false)).toBe(false);
+  });
+
+  it("parks an unplaced task with a plain park and leaves a placed one alone", () => {
+    expect(keepPlaced(card(), false)).toEqual({ parked: true });
+    expect(keepPlaced(card({ sprintStart: "2026-09-01" }), false)).toEqual({});
   });
 });

@@ -38,6 +38,9 @@ import {
   deleteWarning,
   freeSubtasks,
   removeChoices,
+  backlogPatch,
+  withdrawPatch,
+  unaskedRemoval,
   subtaskRemovalPatch,
   subtaskRemovalUndo,
   type RemoveChoice,
@@ -48,12 +51,16 @@ import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
-import { acceptsNewCard, mayRefuse, mayRemove, sortableWithin } from "../meboard";
+import type { OrderArg } from "../cardorder";
+import { selectedByOf, type PresenceMap } from "../presence";
+import { InsertGap } from "./InsertGap";
+import { cellGaps, gapAnchor, gapsInZone } from "../insertgap";
+import { insertedOrder, type Anchor } from "../backlogboard";
+import { mayRefuse, mayRemove, sortableWithin } from "../meboard";
 import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
 import { ConnectDialog } from "./ConnectDialog";
-import { parkedLocally } from "../backlog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
@@ -100,12 +107,14 @@ interface MeBoardProps {
   /** Swap an optimistic card for its server twin in place (keeps the slot). */
   replaceCard: (itemId: string, card: CardModel) => void;
   removeCard: (itemId: string) => void;
-  reorderCards: (orderedItemIds: string[]) => void;
+  reorderCards: (order: OrderArg) => void;
   reload: () => void;
   onError: (message: string) => void;
   onOpen: (card: CardModel) => void;
   /** Share the live selection with other boards ("" clears on deselect). */
   onPresence?: (card: string | null) => void;
+  /** Others' live selections (login → card uid), drawn on the cards (#290). */
+  presence?: PresenceMap;
 }
 
 /** Per-group metadata for the Me board: just the destination zone. */
@@ -167,6 +176,7 @@ export function MeBoard({
   onError,
   onOpen,
   onPresence,
+  presence,
 }: MeBoardProps) {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   // The card whose × is waiting on an answer the person gives in a dialog.
@@ -756,14 +766,13 @@ export function MeBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCardId, childrenOf]);
 
-  // Group a dropped card as a subtask; the server enforces depth and hands a
-  // scheduled card's week to the parent, which stands for it from then on.
+  // Group a dropped card as a subtask; the server enforces depth.
   const handleGroup = (card: CardModel, parentId: string) => {
     if (card.itemId === parentId || subtaskParent(card) === parentId) {
       return;
     }
-    const prev: Partial<CardModel> = { parent: card.parent, week: card.week };
-    patchCard(card.itemId, { parent: parentId, week: undefined });
+    const prev: Partial<CardModel> = { parent: card.parent };
+    patchCard(card.itemId, { parent: parentId });
     autoExpanded.current = null; // the drop keeps the target unfolded
     setExpandedSubs((cur) => new Set(cur).add(parentId));
     void provider
@@ -1035,8 +1044,8 @@ export function MeBoard({
   // it leaves today's board and is found by stepping back; the server records
   // the move and the re-list converges its outcome.
   // releaseCard hands the card to the server's smart × and takes what it
-  // decides: a card with a Project-board column or a week of its own is
-  // released to it, never destroyed. The re-list brings back whatever the
+  // decides: a card with a Project-board column is released to it, never
+  // destroyed. The re-list brings back whatever the
   // rule did.
   const releaseCard = (card: CardModel) => {
     // Show the outcome at once, as every other × on this board does: the
@@ -1097,8 +1106,8 @@ export function MeBoard({
   // board gets, from the same place (gridRemoval, mirroring
   // boardservice.Remove). This board used to decide on its own and sent
   // everything that was not demotable to DELETE /cards/{uid}, destroying a
-  // card the other board would have left in its week: one gesture,
-  // two boards, opposite outcomes.
+  // card the other board would have kept: one gesture, two boards, opposite
+  // outcomes.
   const choicesFor = (card: CardModel): RemoveChoice[] =>
     removeChoices(card, gridCtx(card));
 
@@ -1108,6 +1117,23 @@ export function MeBoard({
     if (card.itemId.startsWith("tmp-")) {
       cancelPendingCard(card.itemId);
       removeCard(card.itemId);
+      return;
+    }
+    // Withdrawing a review: the review card goes and its task leaves review,
+    // back to In progress (K10) — both shown at once. The server does the
+    // same through the ×'s off-board (boardservice.withdrawReview).
+    if (chosen === "withdraw") {
+      const task = board.cards.find((c) => c.itemId === card.reviewOf);
+      removeCard(card.itemId);
+      if (task) {
+        patchCard(task.itemId, withdrawPatch(task));
+      }
+      void provider.removeCard(card.itemId, "off-board").catch((err: unknown) => {
+        if (!isGone(err)) {
+          onError(errMessage(err));
+        }
+        reload();
+      });
       return;
     }
     // Work finished in the sprint before this one, and only marked done
@@ -1122,11 +1148,15 @@ export function MeBoard({
         });
       return;
     }
-    // The answer that destroys nothing: the work is kept, off the plan, on
-    // its team's shelf.
+    // The answer that destroys nothing: the task goes back to its team's
+    // backlog — nobody, no day, no sprint (K3) — through the ×'s own action,
+    // the unassign intent (removal.removeIntent).
     if (chosen === "backlog") {
-      patchCard(card.itemId, parkedLocally());
-      void provider.patchCard(card.itemId, { parked: true }).catch((err: unknown) => {
+      patchCard(card.itemId, backlogPatch(card, board.cards));
+      void provider.removeCard(card.itemId, "unassign").catch((err: unknown) => {
+        if (isGone(err)) {
+          return;
+        }
         onError(errMessage(err));
         reload();
       });
@@ -1135,18 +1165,19 @@ export function MeBoard({
     // The × asks BEFORE it acts, whatever it is about to do, and the dialog
     // names the act. It acts alone only when there is nothing to decide: one
     // answer, on a card made today that nobody has touched (asksFirst).
-    if (!chosen && asksFirst(card, justMade(card.itemId))) {
+    // Withdrawing a review always asks: it changes the TASK, not this card.
+    if (!chosen && (asksFirst(card, justMade(card.itemId)) || choicesFor(card).includes("withdraw"))) {
       setRemoveChoice(card);
       return;
     }
     // Unasked (a card made today that nobody touched), the card's own first
     // answer stands — the same one the dialog would have put at the top.
-    const choice = chosen ?? choicesFor(card)[0];
+    const choice = chosen ?? unaskedRemoval(choicesFor(card));
     if (!choice) {
       return;
     }
-    // Anything but destroying it is the release: a card handed back to its
-    // week or its column, a subtask taken out of its group.
+    // Anything but destroying it is the release: a project card handed back
+    // to its column, a subtask taken out of its group.
     if (choice !== "off-board") {
       releaseCard(card);
       return;
@@ -1423,7 +1454,6 @@ export function MeBoard({
       optimistic.parent = parentTo ?? undefined;
       patch.parent = parentTo ?? "";
       if (parentTo) {
-        optimistic.week = undefined;
         autoExpanded.current = null; // the drop keeps the target unfolded
         setExpandedSubs((cur) => new Set(cur).add(parentTo as string));
       }
@@ -1474,7 +1504,9 @@ export function MeBoard({
   // The card is scheduled for the viewed day as a one-day range; the server
   // joins the team's current sprint (recording a first sprint when the team
   // has none yet — reload picks the new pointer up in that case).
-  const handleCreate = (zone: ZoneKey, title: string, team?: string | null) => {
+  // The gap whose insert "+" is open, as "<band key>:<gap>" (InsertGap).
+  const [inserting, setInserting] = useState<string | null>(null);
+  const handleCreate = (zone: ZoneKey, title: string, team?: string | null, anchor: Anchor = null) => {
     const tempId = `tmp-${new Date().toISOString()}`;
     const sprint = currentSprint(board, team ?? null);
     const firstSprint = sprint === null;
@@ -1498,6 +1530,11 @@ export function MeBoard({
       notes: [],
     };
     addCard(optimistic);
+    // Typed into a gap: shown there at once, and the create names the place
+    // (after / before) so the server puts it there in the same request.
+    if (anchor) {
+      reorderCards((cur) => insertedOrder(cur, tempId, anchor));
+    }
     const creating = provider.createCard({
       title,
       zone,
@@ -1505,6 +1542,8 @@ export function MeBoard({
       start: selectedDate,
       assigneeLogin: viewMe || null,
       team: team ?? null,
+      after: anchor && "after" in anchor ? anchor.after : null,
+      before: anchor && "before" in anchor ? anchor.before : null,
     });
     registerPendingCard(
       tempId,
@@ -1670,6 +1709,12 @@ export function MeBoard({
       record={!!card.asOf}
       onLoadLinks={loadCardLinks}
       selected={card.itemId === selectedCardId}
+      selectedBy={selectedByOf(
+        presence,
+        card,
+        isSubtask(card) ? undefined : { children: (id) => childrenOf.get(id) ?? [], open: subsOpen },
+        me,
+      )}
       onSelect={(c) => setSelectedCardId(c.itemId)}
       onProgress={handleProgress}
       onDelete={handleDelete}
@@ -1886,6 +1931,34 @@ export function MeBoard({
                   onOpen={() => {}}
                 />
               )}
+              renderGap={(group, at) => {
+                // The insert "+" in the gaps of the ONE band the Me board adds
+                // in, the unplanned one (insertgap.gapsInZone): the card
+                // typed there is the reader's, in that band, right there.
+                if (holdsRecords || !gapsInZone("me", group.meta.zone) || !cellGaps(group.cards).includes(at)) {
+                  return null;
+                }
+                const key = `${group.key}:${at}`;
+                return (
+                  <InsertGap
+                    key={`gap-${at}`}
+                    at={at}
+                    open={inserting === key}
+                    empty={group.cards.length === 0}
+                    onOpen={() => setInserting(key)}
+                  >
+                    <AddCard
+                      autoOpen
+                      forcedTeam={teamFilter?.length === 1 ? teamFilter[0] || null : undefined}
+                      teams={teams}
+                      onCreate={(title, team) =>
+                        handleCreate(group.meta.zone, title, team, gapAnchor(group.cards.map((c) => c.itemId), at))
+                      }
+                      onClosed={() => setInserting(null)}
+                    />
+                  </InsertGap>
+                );
+              }}
               renderGroup={(group, body, { isOver, dropRef }) => {
                 const def = ZONES[group.meta.zone];
                 return (
@@ -1902,23 +1975,7 @@ export function MeBoard({
                     }
                   >
                     <span className="zone-spine">{def.spine}</span>
-                    <div className="zone-cards">
-                      {body}
-                      {acceptsNewCard(group.meta.zone) && (
-                        <AddCard
-                          hidden={holdsRecords}
-                          forcedTeam={
-                            teamFilter?.length === 1
-                              ? teamFilter[0] || null
-                              : undefined
-                          }
-                          teams={teams}
-                          onCreate={(title, team) =>
-                            handleCreate(group.meta.zone, title, team)
-                          }
-                        />
-                      )}
-                    </div>
+                    <div className="zone-cards">{body}</div>
                   </section>
                 );
               }}
@@ -1978,6 +2035,8 @@ export function MeBoard({
       {removeChoice && (
         <RemoveChoiceDialog
           title={removeChoice.title}
+          review={!!removeChoice.reviewOf}
+          reviewing={board.cards.find((c) => c.itemId === removeChoice.reviewOf)?.title}
           progress={removeChoice.progress ?? 0}
           choices={choicesFor(removeChoice)}
           subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}

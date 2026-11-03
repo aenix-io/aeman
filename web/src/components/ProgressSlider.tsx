@@ -4,7 +4,7 @@
 // snapped differently in the two would be the slider-wars bug again.
 import { useRef, useState } from "react";
 
-import { snapProgress } from "../progress";
+import { snapProgress, stepProgress } from "../progress";
 
 export const SEGMENTS = 10;
 
@@ -30,13 +30,16 @@ export interface ProgressSliderProps {
   readOnly?: boolean;
   /** Called once, on release, with the snapped value when it changed. */
   onCommit: (value: number) => void;
+  /** The drawer's bar: as wide as its row, a bigger handle, always shown,
+   *  and moved by the keyboard too (#289). */
+  large?: boolean;
 }
 
 /** ProgressSlider draws the bar and moves progress by dragging the handle.
  *  The bar itself stays inert on purpose: on a card it runs the full width,
  *  and a stray press while dragging cards around would silently rewrite
  *  someone's progress. */
-export function ProgressSlider({ value, locked, fill, title, readOnly, onCommit }: ProgressSliderProps) {
+export function ProgressSlider({ value, locked, fill, title, readOnly, onCommit, large }: ProgressSliderProps) {
   const [dragValue, setDragValue] = useState<number | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
   // While dragging the handle, show the snapped drag value; otherwise the card's.
@@ -85,7 +88,7 @@ export function ProgressSlider({ value, locked, fill, title, readOnly, onCommit 
   };
 
   return (
-    <div className="card-bar" ref={barRef} title={title ?? `${shown}%`}>
+    <div className={large ? "card-bar card-bar-large" : "card-bar"} ref={barRef} title={title ?? `${shown}%`}>
       {Array.from({ length: SEGMENTS }, (_, i) => (
         <span
           key={i}
@@ -105,6 +108,24 @@ export function ProgressSlider({ value, locked, fill, title, readOnly, onCommit 
           aria-valuemin={0}
           aria-valuemax={100}
           onClick={(e) => e.stopPropagation()}
+          // The drawer's large bar is reachable by the keyboard: arrows
+          // step it by 10, Home and End go to its ends (stepProgress).
+          tabIndex={large ? 0 : undefined}
+          onKeyDown={
+            large
+              ? (e) => {
+                  const next = stepProgress(value, e.key, locked);
+                  if (next === null) {
+                    return;
+                  }
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (next !== value) {
+                    onCommit(next);
+                  }
+                }
+              : undefined
+          }
           onPointerDown={onHandleDown}
           onPointerMove={onHandleMove}
           onPointerUp={onHandleUp}

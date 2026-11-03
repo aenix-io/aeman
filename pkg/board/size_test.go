@@ -94,16 +94,16 @@ func TestLoadNowWeighsWhatAPersonIsCarrying(t *testing.T) {
 	today := "2026-09-08"
 	b := Board{Cards: []Card{
 		{ItemID: "a", Assignees: []string{"kvaps"}, Size: SizeL, SprintStart: today},
-		{ItemID: "b", Assignees: []string{"kvaps"}, Size: SizeM, Progress: 100},       // done: not carried
-		{ItemID: "c", Assignees: []string{"kvaps"}, Size: SizeXL, Week: "2026-09-21"}, // a week ahead: not today's
-		{ItemID: "d", Assignees: []string{"kvaps"}, SprintStart: today},               // unsized: weighs the default (M)
+		{ItemID: "b", Assignees: []string{"kvaps"}, Size: SizeM, Progress: 100}, // done: not carried
+		{ItemID: "c", Assignees: []string{"kvaps"}, Size: SizeXL, Parked: true}, // in the backlog: not today's
+		{ItemID: "d", Assignees: []string{"kvaps"}, SprintStart: today},         // unsized: weighs the default (M)
 		{ItemID: "p", Assignees: []string{"tym83"}, Size: SizeXL, SprintStart: today},
 		{ItemID: "p1", Parent: "p", Assignees: []string{"tym83"}, Size: SizeS},
 		{ItemID: "p2", Parent: "p", Assignees: []string{"tym83"}, Size: SizeS},
 	}}
 	got := LoadNow(b, today)
 	if got["kvaps"] != 6 {
-		t.Errorf("kvaps carries 6 points (an L and an unsized card at the default; done and ahead weigh nothing), got %d", got["kvaps"])
+		t.Errorf("kvaps carries 6 points (an L and an unsized card at the default; done and parked weigh nothing), got %d", got["kvaps"])
 	}
 	// The umbrella is one card carried once, at its children's weight — the
 	// subtasks ride it and are not counted again on their own.

@@ -188,6 +188,8 @@ func (e NoteListKind) Valid() bool {
 // Defines values for ProblemCode.
 const (
 	AccessUndecided      ProblemCode = "accessUndecided"
+	AlreadyFinished      ProblemCode = "alreadyFinished"
+	AlreadyInWork        ProblemCode = "alreadyInWork"
 	AuthorizationExpired ProblemCode = "authorizationExpired"
 	BackwardsDefer       ProblemCode = "backwardsDefer"
 	BadCapacity          ProblemCode = "badCapacity"
@@ -219,7 +221,7 @@ const (
 	NoPlaceOfItsOwn      ProblemCode = "noPlaceOfItsOwn"
 	NoReviewer           ProblemCode = "noReviewer"
 	NoSuchView           ProblemCode = "noSuchView"
-	NotAMonday           ProblemCode = "notAMonday"
+	NobodyToTake         ProblemCode = "nobodyToTake"
 	NotAuthenticated     ProblemCode = "notAuthenticated"
 	NotFinished          ProblemCode = "notFinished"
 	NotOnThisBoard       ProblemCode = "notOnThisBoard"
@@ -229,7 +231,6 @@ const (
 	NotYoursToRemove     ProblemCode = "notYoursToRemove"
 	NoteNotFound         ProblemCode = "noteNotFound"
 	NoteTooLong          ProblemCode = "noteTooLong"
-	NowhereToLeaveIt     ProblemCode = "nowhereToLeaveIt"
 	OpenSubtasks         ProblemCode = "openSubtasks"
 	OwnerFollowsLink     ProblemCode = "ownerFollowsLink"
 	OwnerNeedsTeam       ProblemCode = "ownerNeedsTeam"
@@ -238,6 +239,7 @@ const (
 	PlanningCard         ProblemCode = "planningCard"
 	PointsRequired       ProblemCode = "pointsRequired"
 	ProjectCard          ProblemCode = "projectCard"
+	ProjectCardProgress  ProblemCode = "projectCardProgress"
 	ProjectExists        ProblemCode = "projectExists"
 	ProjectInUse         ProblemCode = "projectInUse"
 	ProjectNotFound      ProblemCode = "projectNotFound"
@@ -246,13 +248,15 @@ const (
 	ScopeInUse           ProblemCode = "scopeInUse"
 	ScopeNotFound        ProblemCode = "scopeNotFound"
 	SetupRequired        ProblemCode = "setupRequired"
+	SomebodysCard        ProblemCode = "somebodysCard"
 	SubtaskDepth         ProblemCode = "subtaskDepth"
-	SubtaskWeek          ProblemCode = "subtaskWeek"
+	TakeIntoWork         ProblemCode = "takeIntoWork"
 	TeamExists           ProblemCode = "teamExists"
 	TeamInUse            ProblemCode = "teamInUse"
 	TeamNotFound         ProblemCode = "teamNotFound"
 	TitleTooLong         ProblemCode = "titleTooLong"
 	TooManyCards         ProblemCode = "tooManyCards"
+	TwoPlaces            ProblemCode = "twoPlaces"
 	UnknownDomain        ProblemCode = "unknownDomain"
 	UnknownIntent        ProblemCode = "unknownIntent"
 	UnknownRoute         ProblemCode = "unknownRoute"
@@ -268,6 +272,10 @@ const (
 func (e ProblemCode) Valid() bool {
 	switch e {
 	case AccessUndecided:
+		return true
+	case AlreadyFinished:
+		return true
+	case AlreadyInWork:
 		return true
 	case AuthorizationExpired:
 		return true
@@ -331,7 +339,7 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case NoSuchView:
 		return true
-	case NotAMonday:
+	case NobodyToTake:
 		return true
 	case NotAuthenticated:
 		return true
@@ -351,8 +359,6 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case NoteTooLong:
 		return true
-	case NowhereToLeaveIt:
-		return true
 	case OpenSubtasks:
 		return true
 	case OwnerFollowsLink:
@@ -368,6 +374,8 @@ func (e ProblemCode) Valid() bool {
 	case PointsRequired:
 		return true
 	case ProjectCard:
+		return true
+	case ProjectCardProgress:
 		return true
 	case ProjectExists:
 		return true
@@ -385,9 +393,11 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case SetupRequired:
 		return true
+	case SomebodysCard:
+		return true
 	case SubtaskDepth:
 		return true
-	case SubtaskWeek:
+	case TakeIntoWork:
 		return true
 	case TeamExists:
 		return true
@@ -398,6 +408,8 @@ func (e ProblemCode) Valid() bool {
 	case TitleTooLong:
 		return true
 	case TooManyCards:
+		return true
+	case TwoPlaces:
 		return true
 	case UnknownDomain:
 		return true
@@ -534,8 +546,12 @@ type CardPatch struct {
 	Description *string         `json:"description,omitempty"`
 
 	// Parent Puts the card under another one; empty takes it out. Under a TASK the card becomes a subtask (its team, person and sprint follow); under a goal, an initiative or an epic it is filed in the hierarchy and nothing else changes. The level rule and the repository rule hold (422 `parentLevel`, `crossDomain`).
-	Parent     *string `json:"parent,omitempty"`
-	Parked     *bool   `json:"parked,omitempty"`
+	Parent *string `json:"parent,omitempty"`
+
+	// Parked `true` parks the task in its team's backlog; `false` takes a parked task that is already in work out of it, and is refused (422 `takeIntoWork`) on one with no date and no sprint — set a date, a sprint or `own` a person instead.
+	Parked *bool `json:"parked,omitempty"`
+
+	// Progress 0..100. A project card (one in a Scope column) is done or not done and takes 0 or 100 alone; any other value is 422 `projectCardProgress`.
 	Progress   *int    `json:"progress,omitempty"`
 	Project    *string `json:"project,omitempty"`
 	Recurrence *string `json:"recurrence,omitempty"`
@@ -547,17 +563,14 @@ type CardPatch struct {
 	// Size S, M, L or XL in any case; empty takes the size back.
 	Size *string `json:"size,omitempty"`
 
-	// Stage A name the board does not have is refused rather than stored. "done" clears the stage and fills 100; review and locked clamp the progress into [10, 90].
+	// Stage A name the board does not have is refused rather than stored. "done" clears the stage and fills 100; review and locked clamp the progress into [10, 90]. Setting `review` on a task with no review card makes one — «review: <title>», of the task's team, with nobody on it, parked in that team's backlog (the "needs a reviewer" item); name a reviewer with send-to-review, or with `own` on that card.
 	Stage *CardPatchStage `json:"stage,omitempty"`
 	Team  *string         `json:"team,omitempty"`
 	Title *string         `json:"title,omitempty"`
-
-	// Week The week the card is scheduled for; empty takes it off the weeks. Giving a STANDING subtask a week pulls it out of its group first — that is what the request means — while clearing one is free.
-	Week *string        `json:"week,omitempty"`
-	Zone *CardPatchZone `json:"zone,omitempty"`
+	Zone  *CardPatchZone  `json:"zone,omitempty"`
 }
 
-// CardPatchStage A name the board does not have is refused rather than stored. "done" clears the stage and fills 100; review and locked clamp the progress into [10, 90].
+// CardPatchStage A name the board does not have is refused rather than stored. "done" clears the stage and fills 100; review and locked clamp the progress into [10, 90]. Setting `review` on a task with no review card makes one — «review: <title>», of the task's team, with nobody on it, parked in that team's backlog (the "needs a reviewer" item); name a reviewer with send-to-review, or with `own` on that card.
 type CardPatchStage string
 
 // CardPatchZone defines model for CardPatch.Zone.
@@ -581,22 +594,28 @@ type CarryReport = boardservice.CarryReport
 
 // CreateCardRequest The card a board makes. Every field is optional here because what a board REQUIRES and what it refuses are the board's own rules, answered as a 422 that names the field.
 type CreateCardRequest struct {
+	// After On the backlog, team and me views, the uid of the card the new one is placed right AFTER, in the same request — the insert "+" between two cards of a backlog or of a Team/Me cell (the cell's person and band are the create's own fields). One of `after` and `before`, or neither (the card lands last); both are 422 `twoPlaces`, an anchor the board does not have is 404 `cardNotFound` and nothing is made. The roadmap and project views refuse it (422 `notOnThisBoard`); `view=all` takes it.
+	After *string `json:"after,omitempty"`
+
 	// Assignees Only the first is read — a card is one person's.
-	Assignees *[]string       `json:"assignees,omitempty"`
-	Dates     *CardDatesInput `json:"dates,omitempty"`
+	Assignees *[]string `json:"assignees,omitempty"`
+
+	// Before As `after`, the uid of the card the new one is placed right BEFORE — the "+" above the first card of a list.
+	Before *string         `json:"before,omitempty"`
+	Dates  *CardDatesInput `json:"dates,omitempty"`
 
 	// NoSprint Schedules the card for its day without joining any sprint — a "next sprint" create; the next carry-over to reach its day adopts it.
 	NoSprint *bool `json:"noSprint,omitempty"`
 
-	// Parent The card this one sits under. A TASK parent groups the card as a subtask — a `parent` and a `week` together are then refused (422): grouping hands the week to the parent. A goal, an initiative or an epic as parent files the card in the hierarchy; the parent must be of a higher level than the card (422 `parentLevel`) and in the card's own repository (422 `crossDomain`). A review card follows the card it reviews and sits under nothing of its own (422 `reviewCardLink`).
+	// Parent The card this one sits under. A TASK parent groups the card as a subtask. A goal, an initiative or an epic as parent files the card in the hierarchy; the parent must be of a higher level than the card (422 `parentLevel`) and in the card's own repository (422 `crossDomain`). A review card follows the card it reviews and sits under nothing of its own (422 `reviewCardLink`).
 	Parent *string `json:"parent,omitempty"`
 
-	// Parked Puts the card straight on its team's shelf. Like `week`, no dates are set and no sprint is joined.
+	// Parked Puts the task straight in its team's backlog, last: no dates are set and no sprint is joined. A task has no week.
 	Parked   *bool   `json:"parked,omitempty"`
 	Project  *string `json:"project,omitempty"`
 	ReviewOf *string `json:"reviewOf,omitempty"`
 
-	// Scope With `project`, files the card on the Project board under the column that pair identifies. Its row is the week of `dates.start` — `week` anchors it when there are no dates — and the dates may span weeks.
+	// Scope With `project`, files the card on the Project board under the column that pair identifies. Its row is `dates`, which may span weeks.
 	Scope *string `json:"scope,omitempty"`
 
 	// Size S, M, L or XL in any case; empty leaves the card unsized.
@@ -605,15 +624,12 @@ type CreateCardRequest struct {
 	Team           *string `json:"team,omitempty"`
 	Title          *string `json:"title,omitempty"`
 
-	// Type Makes a PLANNING card — on the roadmap view, where it is required; every other board refuses it (422 `notOnThisBoard`). A planning card takes its dates, its owner, a team and a parent, and none of a task's day-board state (422 `planningCard` for a column, a week, a shelf, a review or a sprint).
+	// Type Makes a PLANNING card — on the roadmap view, where it is required; every other board refuses it (422 `notOnThisBoard`). A planning card takes its dates, its owner, a team and a parent, and none of a task's day-board state (422 `planningCard` for a column, a backlog, a review or a sprint).
 	Type *CreateCardRequestType `json:"type,omitempty"`
-
-	// Week Schedules the card for a WEEK (its Monday) instead of a day: no dates are set and no sprint is joined.
-	Week *string                `json:"week,omitempty"`
 	Zone *CreateCardRequestZone `json:"zone,omitempty"`
 }
 
-// CreateCardRequestType Makes a PLANNING card — on the roadmap view, where it is required; every other board refuses it (422 `notOnThisBoard`). A planning card takes its dates, its owner, a team and a parent, and none of a task's day-board state (422 `planningCard` for a column, a week, a shelf, a review or a sprint).
+// CreateCardRequestType Makes a PLANNING card — on the roadmap view, where it is required; every other board refuses it (422 `notOnThisBoard`). A planning card takes its dates, its owner, a team and a parent, and none of a task's day-board state (422 `planningCard` for a column, a backlog, a review or a sprint).
 type CreateCardRequestType string
 
 // CreateCardRequestZone defines model for CreateCardRequest.Zone.
@@ -749,12 +765,6 @@ type PersonPatch struct {
 	Capacity *int `json:"capacity"`
 }
 
-// PlaceCardBody defines model for PlaceCardBody.
-type PlaceCardBody struct {
-	// Week The Monday of the week the card is placed in.
-	Week *string `json:"week,omitempty"`
-}
-
 // PresenceBody defines model for PresenceBody.
 type PresenceBody struct {
 	// Card The card the caller has selected; empty clears the mark.
@@ -829,6 +839,14 @@ type ReorderScopesBody struct {
 // ReorderTeamsBody defines model for ReorderTeamsBody.
 type ReorderTeamsBody struct {
 	Teams *[]string `json:"teams,omitempty"`
+}
+
+// ReviewedRef The card a review card reviews: its uid, title and people (its assignees — the review's counterpart, drawn as the small avatar on a review card).
+type ReviewedRef struct {
+	Assignees *[]string `json:"assignees,omitempty"`
+	Title     string    `json:"title"`
+	Type      *string   `json:"type,omitempty"`
+	UID       string    `json:"uid"`
 }
 
 // ScopeBody defines model for ScopeBody.
@@ -935,9 +953,6 @@ type Fields = string
 // Focus defines model for Focus.
 type Focus = string
 
-// From defines model for From.
-type From = string
-
 // Login defines model for Login.
 type Login = string
 
@@ -946,6 +961,9 @@ type NoteID = string
 
 // Project defines model for Project.
 type Project = string
+
+// ProjectCards defines model for ProjectCards.
+type ProjectCards = string
 
 // Reviews defines model for Reviews.
 type Reviews = string
@@ -967,9 +985,6 @@ type User = string
 
 // View defines model for View.
 type View = string
-
-// Weeks defines model for Weeks.
-type Weeks = string
 
 // Zone defines model for Zone.
 type Zone = string
@@ -1018,12 +1033,6 @@ type ListCardsParams struct {
 	// User Whose Me board to read. Who-am-I is resolved server-side, so a caller needs none; an explicit one wins, for a lead looking at somebody else's day.
 	User *User `form:"user,omitempty" json:"user,omitempty"`
 
-	// From The Monday the Triage window opens on; empty or absent is the current week.
-	From *From `form:"from,omitempty" json:"from,omitempty"`
-
-	// Weeks How many weeks the Triage window covers, that Monday included: 1..26, default 6. Anything else is refused (400). A client must ask for every week it intends to DRAW.
-	Weeks *Weeks `form:"weeks,omitempty" json:"weeks,omitempty"`
-
 	// Project One project's columns, for the Project board; empty is every project, including the columns that belong to none.
 	Project *Project `form:"project,omitempty" json:"project,omitempty"`
 
@@ -1039,8 +1048,11 @@ type ListCardsParams struct {
 	// Focus "true" or "1" keeps only the cards workable right now — done, on-review and locked are dropped.
 	Focus *Focus `form:"focus,omitempty" json:"focus,omitempty"`
 
-	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED, on triage the reviews the grid otherwise leaves out are KEPT, standing in the week their own dates fall in. Off by default in both.
+	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
+
+	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
+	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
@@ -1060,12 +1072,6 @@ type FinishedEarlierParams struct {
 	// User Whose Me board to read. Who-am-I is resolved server-side, so a caller needs none; an explicit one wins, for a lead looking at somebody else's day.
 	User *User `form:"user,omitempty" json:"user,omitempty"`
 
-	// From The Monday the Triage window opens on; empty or absent is the current week.
-	From *From `form:"from,omitempty" json:"from,omitempty"`
-
-	// Weeks How many weeks the Triage window covers, that Monday included: 1..26, default 6. Anything else is refused (400). A client must ask for every week it intends to DRAW.
-	Weeks *Weeks `form:"weeks,omitempty" json:"weeks,omitempty"`
-
 	// Project One project's columns, for the Project board; empty is every project, including the columns that belong to none.
 	Project *Project `form:"project,omitempty" json:"project,omitempty"`
 
@@ -1081,8 +1087,11 @@ type FinishedEarlierParams struct {
 	// Focus "true" or "1" keeps only the cards workable right now — done, on-review and locked are dropped.
 	Focus *Focus `form:"focus,omitempty" json:"focus,omitempty"`
 
-	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED, on triage the reviews the grid otherwise leaves out are KEPT, standing in the week their own dates fall in. Off by default in both.
+	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
+
+	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
+	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
@@ -1102,12 +1111,6 @@ type OwnCardParams struct {
 	// User Whose Me board to read. Who-am-I is resolved server-side, so a caller needs none; an explicit one wins, for a lead looking at somebody else's day.
 	User *User `form:"user,omitempty" json:"user,omitempty"`
 
-	// From The Monday the Triage window opens on; empty or absent is the current week.
-	From *From `form:"from,omitempty" json:"from,omitempty"`
-
-	// Weeks How many weeks the Triage window covers, that Monday included: 1..26, default 6. Anything else is refused (400). A client must ask for every week it intends to DRAW.
-	Weeks *Weeks `form:"weeks,omitempty" json:"weeks,omitempty"`
-
 	// Project One project's columns, for the Project board; empty is every project, including the columns that belong to none.
 	Project *Project `form:"project,omitempty" json:"project,omitempty"`
 
@@ -1123,50 +1126,11 @@ type OwnCardParams struct {
 	// Focus "true" or "1" keeps only the cards workable right now — done, on-review and locked are dropped.
 	Focus *Focus `form:"focus,omitempty" json:"focus,omitempty"`
 
-	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED, on triage the reviews the grid otherwise leaves out are KEPT, standing in the week their own dates fall in. Off by default in both.
+	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
 
-	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
-	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
-
-	// Snapshot "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give.
-	Snapshot *Snapshot `form:"snapshot,omitempty" json:"snapshot,omitempty"`
-}
-
-// PlaceCardParams defines parameters for PlaceCard.
-type PlaceCardParams struct {
-	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key.
-	Team *Team `form:"team,omitempty" json:"team,omitempty"`
-
-	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
-	Day *Day `form:"day,omitempty" json:"day,omitempty"`
-
-	// User Whose Me board to read. Who-am-I is resolved server-side, so a caller needs none; an explicit one wins, for a lead looking at somebody else's day.
-	User *User `form:"user,omitempty" json:"user,omitempty"`
-
-	// From The Monday the Triage window opens on; empty or absent is the current week.
-	From *From `form:"from,omitempty" json:"from,omitempty"`
-
-	// Weeks How many weeks the Triage window covers, that Monday included: 1..26, default 6. Anything else is refused (400). A client must ask for every week it intends to DRAW.
-	Weeks *Weeks `form:"weeks,omitempty" json:"weeks,omitempty"`
-
-	// Project One project's columns, for the Project board; empty is every project, including the columns that belong to none.
-	Project *Project `form:"project,omitempty" json:"project,omitempty"`
-
-	// Assignee Keep only the cards on one person.
-	Assignee *Assignee `form:"assignee,omitempty" json:"assignee,omitempty"`
-
-	// Stage Keep only the cards carrying one stage; present and empty means the cards carrying none.
-	Stage *Stage `form:"stage,omitempty" json:"stage,omitempty"`
-
-	// Zone Keep only the cards in one band; present and empty means the cards in none. The filter reads the same answer the listing states, so the two never disagree about a card.
-	Zone *Zone `form:"zone,omitempty" json:"zone,omitempty"`
-
-	// Focus "true" or "1" keeps only the cards workable right now — done, on-review and locked are dropped.
-	Focus *Focus `form:"focus,omitempty" json:"focus,omitempty"`
-
-	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED, on triage the reviews the grid otherwise leaves out are KEPT, standing in the week their own dates fall in. Off by default in both.
-	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
+	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
+	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
@@ -1186,12 +1150,6 @@ type RemoveCardParams struct {
 	// User Whose Me board to read. Who-am-I is resolved server-side, so a caller needs none; an explicit one wins, for a lead looking at somebody else's day.
 	User *User `form:"user,omitempty" json:"user,omitempty"`
 
-	// From The Monday the Triage window opens on; empty or absent is the current week.
-	From *From `form:"from,omitempty" json:"from,omitempty"`
-
-	// Weeks How many weeks the Triage window covers, that Monday included: 1..26, default 6. Anything else is refused (400). A client must ask for every week it intends to DRAW.
-	Weeks *Weeks `form:"weeks,omitempty" json:"weeks,omitempty"`
-
 	// Project One project's columns, for the Project board; empty is every project, including the columns that belong to none.
 	Project *Project `form:"project,omitempty" json:"project,omitempty"`
 
@@ -1207,8 +1165,11 @@ type RemoveCardParams struct {
 	// Focus "true" or "1" keeps only the cards workable right now — done, on-review and locked are dropped.
 	Focus *Focus `form:"focus,omitempty" json:"focus,omitempty"`
 
-	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED, on triage the reviews the grid otherwise leaves out are KEPT, standing in the week their own dates fall in. Off by default in both.
+	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
+
+	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
+	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
@@ -1217,8 +1178,8 @@ type RemoveCardParams struct {
 	Snapshot *Snapshot `form:"snapshot,omitempty" json:"snapshot,omitempty"`
 }
 
-// UntriageCardParams defines parameters for UntriageCard.
-type UntriageCardParams struct {
+// TakeCardParams defines parameters for TakeCard.
+type TakeCardParams struct {
 	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
@@ -1228,12 +1189,6 @@ type UntriageCardParams struct {
 	// User Whose Me board to read. Who-am-I is resolved server-side, so a caller needs none; an explicit one wins, for a lead looking at somebody else's day.
 	User *User `form:"user,omitempty" json:"user,omitempty"`
 
-	// From The Monday the Triage window opens on; empty or absent is the current week.
-	From *From `form:"from,omitempty" json:"from,omitempty"`
-
-	// Weeks How many weeks the Triage window covers, that Monday included: 1..26, default 6. Anything else is refused (400). A client must ask for every week it intends to DRAW.
-	Weeks *Weeks `form:"weeks,omitempty" json:"weeks,omitempty"`
-
 	// Project One project's columns, for the Project board; empty is every project, including the columns that belong to none.
 	Project *Project `form:"project,omitempty" json:"project,omitempty"`
 
@@ -1249,8 +1204,11 @@ type UntriageCardParams struct {
 	// Focus "true" or "1" keeps only the cards workable right now — done, on-review and locked are dropped.
 	Focus *Focus `form:"focus,omitempty" json:"focus,omitempty"`
 
-	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED, on triage the reviews the grid otherwise leaves out are KEPT, standing in the week their own dates fall in. Off by default in both.
+	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
+
+	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
+	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
@@ -1343,9 +1301,6 @@ type CreateCardJSONRequestBody = CreateCardRequest
 // OwnCardJSONRequestBody defines body for OwnCard for application/json ContentType.
 type OwnCardJSONRequestBody = OwnBody
 
-// PlaceCardJSONRequestBody defines body for PlaceCard for application/json ContentType.
-type PlaceCardJSONRequestBody = PlaceCardBody
-
 // RemoveCardJSONRequestBody defines body for RemoveCard for application/json ContentType.
 type RemoveCardJSONRequestBody = RemoveCardBody
 
@@ -1372,7 +1327,7 @@ type ServerInterface interface {
 	// MoveCard Reorder the card after (or before) another one.
 	// (POST /cards/{uid}/actions/move)
 	MoveCard(w http.ResponseWriter, r *http.Request, uid UID)
-	// RemoveReviewer Delete the linked review card.
+	// RemoveReviewer Take the reviewer off the card.
 	// (POST /cards/{uid}/actions/remove-reviewer)
 	RemoveReviewer(w http.ResponseWriter, r *http.Request, uid UID)
 	// ReopenCard Undo a done mark, restoring the progress the card had when done was set.
@@ -1483,15 +1438,12 @@ type ServerInterface interface {
 	// OwnCard Whose is this — a team and a person on it, a team alone, or nobody.
 	// (POST /views/{view}/cards/{uid}/actions/own)
 	OwnCard(w http.ResponseWriter, r *http.Request, view View, uid UID, params OwnCardParams)
-	// PlaceCard The Triage board's drop — put the card in a week, which is what triaging it means.
-	// (POST /views/{view}/cards/{uid}/actions/place)
-	PlaceCard(w http.ResponseWriter, r *http.Request, view View, uid UID, params PlaceCardParams)
 	// RemoveCard The board's × — hand the card back to a home it still has, or delete it by that board's rules.
 	// (POST /views/{view}/cards/{uid}/actions/remove)
 	RemoveCard(w http.ResponseWriter, r *http.Request, view View, uid UID, params RemoveCardParams)
-	// UntriageCard The Triage board's opposite — take the card's week away, back to the strip.
-	// (POST /views/{view}/cards/{uid}/actions/untriage)
-	UntriageCard(w http.ResponseWriter, r *http.Request, view View, uid UID, params UntriageCardParams)
+	// TakeCard The Backlog's "I take this into work" — the card becomes the caller's.
+	// (POST /views/{view}/cards/{uid}/actions/take)
+	TakeCard(w http.ResponseWriter, r *http.Request, view View, uid UID, params TakeCardParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -2452,32 +2404,6 @@ func (siw *ServerInterfaceWrapper) ListCards(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// ------------- Optional query parameter "from" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "weeks" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "weeks", r.URL.Query(), &params.Weeks, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "weeks"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "weeks", Err: err})
-		}
-		return
-	}
-
 	// ------------- Optional query parameter "project" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "project", r.URL.Query(), &params.Project, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -2552,6 +2478,19 @@ func (siw *ServerInterfaceWrapper) ListCards(w http.ResponseWriter, r *http.Requ
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reviews"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reviews", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "projectCards" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectCards", r.URL.Query(), &params.ProjectCards, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
 		}
 		return
 	}
@@ -2685,32 +2624,6 @@ func (siw *ServerInterfaceWrapper) FinishedEarlier(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// ------------- Optional query parameter "from" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "weeks" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "weeks", r.URL.Query(), &params.Weeks, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "weeks"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "weeks", Err: err})
-		}
-		return
-	}
-
 	// ------------- Optional query parameter "project" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "project", r.URL.Query(), &params.Project, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -2785,6 +2698,19 @@ func (siw *ServerInterfaceWrapper) FinishedEarlier(w http.ResponseWriter, r *htt
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reviews"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reviews", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "projectCards" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectCards", r.URL.Query(), &params.ProjectCards, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
 		}
 		return
 	}
@@ -2892,32 +2818,6 @@ func (siw *ServerInterfaceWrapper) OwnCard(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// ------------- Optional query parameter "from" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "weeks" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "weeks", r.URL.Query(), &params.Weeks, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "weeks"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "weeks", Err: err})
-		}
-		return
-	}
-
 	// ------------- Optional query parameter "project" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "project", r.URL.Query(), &params.Project, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -2992,6 +2892,19 @@ func (siw *ServerInterfaceWrapper) OwnCard(w http.ResponseWriter, r *http.Reques
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reviews"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reviews", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "projectCards" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectCards", r.URL.Query(), &params.ProjectCards, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
 		}
 		return
 	}
@@ -3024,213 +2937,6 @@ func (siw *ServerInterfaceWrapper) OwnCard(w http.ResponseWriter, r *http.Reques
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.OwnCard(w, r, view, uid, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// PlaceCard operation middleware
-func (siw *ServerInterfaceWrapper) PlaceCard(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "view" -------------
-	var view View
-
-	err = runtime.BindStyledParameterWithOptions("simple", "view", r.PathValue("view"), &view, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "view", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "uid" -------------
-	var uid UID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "uid", r.PathValue("uid"), &uid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uid", Err: err})
-		return
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params PlaceCardParams
-
-	// ------------- Optional query parameter "team" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "team", r.URL.Query(), &params.Team, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "team"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "day" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "day", r.URL.Query(), &params.Day, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "day"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "day", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "user" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "user", r.URL.Query(), &params.User, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "user"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "from" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "weeks" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "weeks", r.URL.Query(), &params.Weeks, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "weeks"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "weeks", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "project" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "project", r.URL.Query(), &params.Project, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "assignee" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "assignee", r.URL.Query(), &params.Assignee, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "assignee"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "assignee", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "stage" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "stage", r.URL.Query(), &params.Stage, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "stage"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "stage", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "zone" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "zone", r.URL.Query(), &params.Zone, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "zone"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "zone", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "focus" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "focus", r.URL.Query(), &params.Focus, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "focus"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "focus", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "reviews" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "reviews", r.URL.Query(), &params.Reviews, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reviews"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reviews", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "fields" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "fields", r.URL.Query(), &params.Fields, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "fields"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fields", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "snapshot" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "snapshot", r.URL.Query(), &params.Snapshot, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "snapshot"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "snapshot", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PlaceCard(w, r, view, uid, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3306,32 +3012,6 @@ func (siw *ServerInterfaceWrapper) RemoveCard(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// ------------- Optional query parameter "from" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "weeks" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "weeks", r.URL.Query(), &params.Weeks, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "weeks"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "weeks", Err: err})
-		}
-		return
-	}
-
 	// ------------- Optional query parameter "project" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "project", r.URL.Query(), &params.Project, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -3406,6 +3086,19 @@ func (siw *ServerInterfaceWrapper) RemoveCard(w http.ResponseWriter, r *http.Req
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reviews"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reviews", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "projectCards" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectCards", r.URL.Query(), &params.ProjectCards, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
 		}
 		return
 	}
@@ -3447,8 +3140,8 @@ func (siw *ServerInterfaceWrapper) RemoveCard(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
-// UntriageCard operation middleware
-func (siw *ServerInterfaceWrapper) UntriageCard(w http.ResponseWriter, r *http.Request) {
+// TakeCard operation middleware
+func (siw *ServerInterfaceWrapper) TakeCard(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3472,7 +3165,7 @@ func (siw *ServerInterfaceWrapper) UntriageCard(w http.ResponseWriter, r *http.R
 	}
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params UntriageCardParams
+	var params TakeCardParams
 
 	// ------------- Optional query parameter "team" -------------
 
@@ -3509,32 +3202,6 @@ func (siw *ServerInterfaceWrapper) UntriageCard(w http.ResponseWriter, r *http.R
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "user"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "from" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "weeks" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "weeks", r.URL.Query(), &params.Weeks, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "weeks"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "weeks", Err: err})
 		}
 		return
 	}
@@ -3617,6 +3284,19 @@ func (siw *ServerInterfaceWrapper) UntriageCard(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// ------------- Optional query parameter "projectCards" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectCards", r.URL.Query(), &params.ProjectCards, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "fields" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "fields", r.URL.Query(), &params.Fields, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -3644,7 +3324,7 @@ func (siw *ServerInterfaceWrapper) UntriageCard(w http.ResponseWriter, r *http.R
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UntriageCard(w, r, view, uid, params)
+		siw.Handler.TakeCard(w, r, view, uid, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3779,9 +3459,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/views/{view}/cards", wrapper.ListCards)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/views/{view}/cards", wrapper.CreateCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/views/{view}/cards/{uid}/actions/remove", wrapper.RemoveCard)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/views/{view}/cards/{uid}/actions/place", wrapper.PlaceCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/views/{view}/cards/{uid}/actions/own", wrapper.OwnCard)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/views/{view}/cards/{uid}/actions/untriage", wrapper.UntriageCard)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/views/{view}/cards/{uid}/actions/take", wrapper.TakeCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/views/{view}/cards/{uid}/actions/finished-earlier", wrapper.FinishedEarlier)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/cards/{uid}", wrapper.DeleteCard)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cards/{uid}", wrapper.GetCard)
@@ -5443,48 +5122,6 @@ func (response OwnCarddefaultApplicationProblemPlusJSONResponse) VisitOwnCardRes
 	return err
 }
 
-type PlaceCardRequestObject struct {
-	View   View `json:"view"`
-	UID    UID  `json:"uid"`
-	Params PlaceCardParams
-	Body   *PlaceCardJSONRequestBody
-}
-
-type PlaceCardResponseObject interface {
-	VisitPlaceCardResponse(w http.ResponseWriter) error
-}
-
-type PlaceCard200JSONResponse Card
-
-func (response PlaceCard200JSONResponse) VisitPlaceCardResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PlaceCarddefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response PlaceCarddefaultApplicationProblemPlusJSONResponse) VisitPlaceCardResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type RemoveCardRequestObject struct {
 	View   View `json:"view"`
 	UID    UID  `json:"uid"`
@@ -5521,19 +5158,19 @@ func (response RemoveCarddefaultApplicationProblemPlusJSONResponse) VisitRemoveC
 	return err
 }
 
-type UntriageCardRequestObject struct {
+type TakeCardRequestObject struct {
 	View   View `json:"view"`
 	UID    UID  `json:"uid"`
-	Params UntriageCardParams
+	Params TakeCardParams
 }
 
-type UntriageCardResponseObject interface {
-	VisitUntriageCardResponse(w http.ResponseWriter) error
+type TakeCardResponseObject interface {
+	VisitTakeCardResponse(w http.ResponseWriter) error
 }
 
-type UntriageCard200JSONResponse Card
+type TakeCard200JSONResponse Card
 
-func (response UntriageCard200JSONResponse) VisitUntriageCardResponse(w http.ResponseWriter) error {
+func (response TakeCard200JSONResponse) VisitTakeCardResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -5545,12 +5182,12 @@ func (response UntriageCard200JSONResponse) VisitUntriageCardResponse(w http.Res
 	return err
 }
 
-type UntriageCarddefaultApplicationProblemPlusJSONResponse struct {
+type TakeCarddefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
 }
 
-func (response UntriageCarddefaultApplicationProblemPlusJSONResponse) VisitUntriageCardResponse(w http.ResponseWriter) error {
+func (response TakeCarddefaultApplicationProblemPlusJSONResponse) VisitTakeCardResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -5585,7 +5222,7 @@ type StrictServerInterface interface {
 	// MoveCard Reorder the card after (or before) another one.
 	// (POST /cards/{uid}/actions/move)
 	MoveCard(ctx context.Context, request MoveCardRequestObject) (MoveCardResponseObject, error)
-	// RemoveReviewer Delete the linked review card.
+	// RemoveReviewer Take the reviewer off the card.
 	// (POST /cards/{uid}/actions/remove-reviewer)
 	RemoveReviewer(ctx context.Context, request RemoveReviewerRequestObject) (RemoveReviewerResponseObject, error)
 	// ReopenCard Undo a done mark, restoring the progress the card had when done was set.
@@ -5696,15 +5333,12 @@ type StrictServerInterface interface {
 	// OwnCard Whose is this — a team and a person on it, a team alone, or nobody.
 	// (POST /views/{view}/cards/{uid}/actions/own)
 	OwnCard(ctx context.Context, request OwnCardRequestObject) (OwnCardResponseObject, error)
-	// PlaceCard The Triage board's drop — put the card in a week, which is what triaging it means.
-	// (POST /views/{view}/cards/{uid}/actions/place)
-	PlaceCard(ctx context.Context, request PlaceCardRequestObject) (PlaceCardResponseObject, error)
 	// RemoveCard The board's × — hand the card back to a home it still has, or delete it by that board's rules.
 	// (POST /views/{view}/cards/{uid}/actions/remove)
 	RemoveCard(ctx context.Context, request RemoveCardRequestObject) (RemoveCardResponseObject, error)
-	// UntriageCard The Triage board's opposite — take the card's week away, back to the strip.
-	// (POST /views/{view}/cards/{uid}/actions/untriage)
-	UntriageCard(ctx context.Context, request UntriageCardRequestObject) (UntriageCardResponseObject, error)
+	// TakeCard The Backlog's "I take this into work" — the card becomes the caller's.
+	// (POST /views/{view}/cards/{uid}/actions/take)
+	TakeCard(ctx context.Context, request TakeCardRequestObject) (TakeCardResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -7051,41 +6685,6 @@ func (sh *strictHandler) OwnCard(w http.ResponseWriter, r *http.Request, view Vi
 	}
 }
 
-// PlaceCard operation middleware
-func (sh *strictHandler) PlaceCard(w http.ResponseWriter, r *http.Request, view View, uid UID, params PlaceCardParams) {
-	var request PlaceCardRequestObject
-
-	request.View = view
-	request.UID = uid
-	request.Params = params
-
-	var body PlaceCardJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.PlaceCard(ctx, request.(PlaceCardRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "PlaceCard")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(PlaceCardResponseObject); ok {
-		if err := validResponse.VisitPlaceCardResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // RemoveCard operation middleware
 func (sh *strictHandler) RemoveCard(w http.ResponseWriter, r *http.Request, view View, uid UID, params RemoveCardParams) {
 	var request RemoveCardRequestObject
@@ -7124,27 +6723,27 @@ func (sh *strictHandler) RemoveCard(w http.ResponseWriter, r *http.Request, view
 	}
 }
 
-// UntriageCard operation middleware
-func (sh *strictHandler) UntriageCard(w http.ResponseWriter, r *http.Request, view View, uid UID, params UntriageCardParams) {
-	var request UntriageCardRequestObject
+// TakeCard operation middleware
+func (sh *strictHandler) TakeCard(w http.ResponseWriter, r *http.Request, view View, uid UID, params TakeCardParams) {
+	var request TakeCardRequestObject
 
 	request.View = view
 	request.UID = uid
 	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.UntriageCard(ctx, request.(UntriageCardRequestObject))
+		return sh.ssi.TakeCard(ctx, request.(TakeCardRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "UntriageCard")
+		handler = middleware(handler, "TakeCard")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(UntriageCardResponseObject); ok {
-		if err := validResponse.VisitUntriageCardResponse(w); err != nil {
+	} else if validResponse, ok := response.(TakeCardResponseObject); ok {
+		if err := validResponse.VisitTakeCardResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

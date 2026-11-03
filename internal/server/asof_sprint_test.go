@@ -53,7 +53,7 @@ func TestADayInsideTheRunningSprintStaysLive(t *testing.T) {
 		writes := card(s.progress)
 		if i == 0 {
 			writes = append([]gitstore.FileWrite{
-				{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
+				{Path: gitstore.BoardPath, Data: []byte("schema: 3\ntitle: t\n")},
 				{Path: gitstore.TeamPath("01JB4TEAM"), Data: team},
 			}, writes...)
 		}

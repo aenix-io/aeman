@@ -23,6 +23,8 @@ import { slotMenuItems } from "../projectmenu";
 import { kindOf } from "../roadmap";
 import { Dropdown } from "./Dropdown";
 import { ParentOptionList } from "./ParentPicker";
+import { KindIcon } from "./KindIcon";
+import { nearestPlanning, openPlanning } from "../backlogboard";
 import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
 import { isSubtask } from "../subtasks";
@@ -695,18 +697,17 @@ export function ProjectBoard({
   // The slot's own "…" menu: open the card, attach it under a goal, an
   // initiative or an epic, mark it done and back, take it off the plan,
   // delete it. Only one is open at a time, so a single anchor ref serves
-  // whichever handle was last pressed. "Attach to…" swaps the menu for the
-  // list every "file it under" control draws (ParentOptionList), fed by
-  // the roadmap listing fetched the first time it is asked for.
+  // whichever handle was last pressed. Below its items it lists the goals,
+  // initiatives and epics to file it under (ParentOptionList), fed by the
+  // roadmap listing fetched the first time a menu opens.
   const [slotMenu, setSlotMenu] = useState<string | null>(null);
-  const [attachFor, setAttachFor] = useState<string | null>(null);
   const [roadmapCards, setRoadmapCards] = useState<CardModel[] | null>(null);
   const menuAnchor = useRef<HTMLButtonElement | null>(null);
   // A press on a slot is a click until it travels; a click that follows a
   // drag must not open the pane (beginMove, moveMove).
   const draggedRef = useRef(false);
   useEffect(() => {
-    if (!attachFor || roadmapCards !== null) {
+    if (!slotMenu || roadmapCards !== null) {
       return;
     }
     let dropped = false;
@@ -725,13 +726,12 @@ export function ProjectBoard({
     return () => {
       dropped = true;
     };
-  }, [attachFor, roadmapCards, provider]);
+  }, [slotMenu, roadmapCards, provider]);
 
   // Filing a project card under a planning card: the one link of the
   // hierarchy, written as the drawer's Under picker writes it. The server
   // holds the level rule and says so in its own words when it refuses.
   const attachTo = (card: CardModel, parent: CardModel | null) => {
-    setAttachFor(null);
     const nextId = parent?.itemId ?? "";
     if ((card.parent ?? "") === nextId) {
       return;
@@ -1544,6 +1544,28 @@ export function ProjectBoard({
                   </span>
                 )}
                 {card.title}
+                {/* The goal, initiative or epic it is attached to — the
+                    nearest — as a way into it (#288). */}
+                {(() => {
+                  const up = nearestPlanning(card);
+                  return (
+                    up && (
+                      <button
+                        type="button"
+                        className="project-slot-plan"
+                        title={`The ${up.type} «${up.title}»`}
+                        onPointerDown={(ev) => ev.stopPropagation()}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          void openPlanning(provider, up.uid, onOpen, (m) => onError(m));
+                        }}
+                      >
+                        {up.type && <KindIcon kind={up.type} size={12} />}
+                        <span className="project-slot-plan-text">{up.title}</span>
+                      </button>
+                    )
+                  );
+                })()}
                 {cardDomainBadge(board.domains, card.domain) && (
                   <span
                     className="project-slot-domain"
@@ -1568,7 +1590,6 @@ export function ProjectBoard({
                 onClick={(ev) => {
                   ev.stopPropagation();
                   menuAnchor.current = ev.currentTarget;
-                  setAttachFor(null);
                   setSlotMenu(slotMenu === card.itemId ? null : card.itemId);
                 }}
               >
@@ -1584,25 +1605,13 @@ export function ProjectBoard({
               <Dropdown
                 open={slotMenu === card.itemId}
                 anchorRef={menuAnchor}
-                onClose={() => {
-                  setSlotMenu(null);
-                  setAttachFor(null);
-                }}
-                className={attachFor === card.itemId ? "add-card-team-menu drawer-pick-menu" : "card-stage-menu project-slot-actions-menu"}
+                onClose={() => setSlotMenu(null)}
+                className="card-stage-menu project-slot-actions-menu"
               >
-                {attachFor === card.itemId ? (
-                  <ParentOptionList
-                    kind={kindOf(card)}
-                    current={card.parent}
-                    options={roadmapCards}
-                    self={card.itemId}
-                    onPick={(parent) => {
-                      setSlotMenu(null);
-                      attachTo(card, parent);
-                    }}
-                  />
-                ) : (
-                  slotMenuItems(card).map((item) => {
+                {/* A click in the menu is the menu's: it must not reach the
+                    slot, whose click opens the card (#288). */}
+                <div onClick={(ev) => ev.stopPropagation()} onPointerDown={(ev) => ev.stopPropagation()}>
+                  {slotMenuItems(card).map((item) => {
                     switch (item.key) {
                       case "open":
                         return (
@@ -1614,21 +1623,6 @@ export function ProjectBoard({
                               setSlotMenu(null);
                               onOpen(card);
                             }}
-                          >
-                            {item.label}
-                          </button>
-                        );
-                      case "attach":
-                        // The menu swaps for the one list every "file it
-                        // under" control draws, anchored where the menu was
-                        // — the card's pane does not open for this.
-                        return (
-                          <button
-                            key={item.key}
-                            type="button"
-                            className="card-stage-item"
-                            title="File it under a goal, an initiative or an epic"
-                            onClick={() => setAttachFor(card.itemId)}
                           >
                             {item.label}
                           </button>
@@ -1656,8 +1650,21 @@ export function ProjectBoard({
                           </button>
                         );
                     }
-                  })
-                )}
+                  })}
+                  {/* The goals, initiatives and epics to file it under, right
+                      here with their search — no second picker. */}
+                  <div className="card-assign-head">Attach to</div>
+                  <ParentOptionList
+                    kind={kindOf(card)}
+                    current={card.parent}
+                    options={roadmapCards}
+                    self={card.itemId}
+                    onPick={(parent) => {
+                      setSlotMenu(null);
+                      attachTo(card, parent);
+                    }}
+                  />
+                </div>
               </Dropdown>
               {/* One grip per edge: the top moves the slot's start, the
                   bottom its end. "from" is whichever edge stays put. */}

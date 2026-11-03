@@ -25,7 +25,7 @@ func viewOf(name string) (board.View, error) {
 }
 
 // selectorOf is the view's scope: the segment plus the selectors that narrow
-// it (team, day, user, the triage window). The me board is the caller's own
+// it (team, day, user). The me board is the caller's own
 // unless they say whose — "who am I" is resolved here, server side, so a
 // client never has to send it.
 //
@@ -53,7 +53,7 @@ func selectorOf(ctx context.Context, view board.View) (apiserver.Selector, error
 // they bite.
 //
 // The board first: a gesture a board does not draw is a route that is not
-// there (there is no week to drop into on the Me board). Then the CARD: a
+// there (there is no "finished earlier" on the Backlog). Then the CARD: a
 // person cannot press × on a card they cannot see, and an agent standing on
 // the Me board should not be able to either — it has to say `view=team&team=X`
 // or `view=all`, and then it has said which board it is acting from.
@@ -98,15 +98,8 @@ func (s *Server) gestureOn(ctx context.Context, view board.View, g boardservice.
 			}
 		}
 	}
-	// A board can be drawn from more than one listing — the Triage grid
-	// beside its drawer — and the × in the drawer is the Triage board's ×
-	// (board.Panes).
-	for _, pane := range board.Panes(view) {
-		paneSel := sel
-		paneSel.View = string(pane)
-		if apiserver.Drawn(b, paneSel, uid) {
-			return nil
-		}
+	if apiserver.Drawn(b, sel, uid) {
+		return nil
 	}
 	return problem(http.StatusNotFound, "cardNotOnBoard",
 		"that card is not on the "+string(view)+" board — act from the board that draws it, or say view=all")

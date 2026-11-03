@@ -113,7 +113,7 @@ func TestProjectViewDeliversWhatStandsInAColumnAndNothingElse(t *testing.T) {
 	for _, sel := range []Selector{
 		{View: "team", Team: "alpha", Day: today},
 		{View: "me", Day: today},
-		{View: "triage", Team: "alpha", From: board.MondayOf(today), Weeks: 6},
+		{View: "backlog", Team: "alpha"},
 	} {
 		for _, c := range FilterCards(b, sel) {
 			if c.ItemID == "plan" {
@@ -187,22 +187,23 @@ func TestAParkedParentTakesItsSubtasksOffTheView(t *testing.T) {
 	}
 }
 
-// view=backlog answers a different question from the strip, which is why it is
-// a view of its own: the strip asks "when is this due" and holds cards waiting
-// for an answer, while a list says "not now" and holds work with no week at
-// all — a board drawing the weeks has nowhere to put it.
+// view=backlog is each team's ranked list of parked open tasks (K2): no
+// planning card, no project card, no subtask on its own, no review card,
+// nothing finished, and nothing in work — taken into work, a task drops out
+// of the backlog at once (K4, K6).
 func TestTheBacklogViewListsWhatATeamHasParked(t *testing.T) {
-	b := board.Board{
-		Cards: []board.Card{
-			{ItemID: "now1", Team: "alpha", Parked: true, CreatedAt: "2026-01-02T00:00:00Z"},
-			{ItemID: "ice", Team: "alpha", Parked: true, CreatedAt: "2026-01-01T00:00:00Z"},
-			{ItemID: "planned", Team: "alpha", Week: "2026-08-31"},
-			{ItemID: "strip", Team: "alpha"},
-			{ItemID: "theirs", Team: "beta", Parked: true},
-			// A subtask rides its parent and is never listed on its own.
-			{ItemID: "kid", Team: "alpha", Parent: "now1", Parked: true},
-		},
-	}
+	b := board.NewBoard([]board.Card{
+		{ItemID: "now1", Team: "alpha", Parked: true, CreatedAt: "2026-01-02T00:00:00Z"},
+		{ItemID: "ice", Team: "alpha", Parked: true, CreatedAt: "2026-01-01T00:00:00Z"},
+		{ItemID: "inwork", Team: "alpha", SprintStart: "2026-08-31"},
+		{ItemID: "unplaced", Team: "alpha"},
+		{ItemID: "theirs", Team: "beta", Parked: true},
+		{ItemID: "done", Team: "alpha", Parked: true, Progress: 100},
+		{ItemID: "epic", Type: board.TypeEpic},
+		{ItemID: "review", Team: "alpha", Parked: true, ReviewOf: "now1", Assignees: []string{"bob"}},
+		// A subtask rides its parent and is never listed on its own.
+		{ItemID: "kid", Team: "alpha", Parent: "now1", Parked: true},
+	})
 	ids := func(sel Selector) []string {
 		out := []string{}
 		for _, c := range FilterCards(b, sel) {
@@ -218,8 +219,33 @@ func TestTheBacklogViewListsWhatATeamHasParked(t *testing.T) {
 	if got := ids(Selector{View: "backlog", Team: "alpha"}); !slices.Equal(got, []string{"ice", "now1", "kid"}) {
 		t.Fatalf("view=backlog&team=alpha = %v; want the parked cards, oldest first, pieces after", got)
 	}
-	// Another team's shelf is another team's business.
+	// Another team's backlog is another team's business — and a set of
+	// teams lists each, which is what the Backlog board's columns read.
 	if got := ids(Selector{View: "backlog", Team: "beta"}); !slices.Equal(got, []string{"theirs"}) {
 		t.Fatalf("view=backlog&team=beta = %v", got)
+	}
+	if got := ids(Selector{View: "backlog", Team: "alpha,beta"}); len(got) != 4 {
+		t.Fatalf("view=backlog&team=alpha,beta = %v, want both teams' backlogs", got)
+	}
+}
+
+// A review NOBODY HAS TAKEN stands in a backlog listing like any task, in
+// plain BacklogOrder (K10): it is made at the TOP of the board's order, so it
+// shows first until somebody drags it — there is no separate pinning.
+func TestAReviewNobodyHasTakenStandsInBacklogOrder(t *testing.T) {
+	b := board.NewBoard([]board.Card{
+		{ItemID: "t1", Team: "alpha", Parked: true, Rank: "b", CreatedAt: "2026-01-01T00:00:00Z"},
+		{ItemID: "o", Team: "alpha", Stage: board.StageReview, SprintStart: "2026-11-03"},
+		{ItemID: "r-top", Team: "alpha", ReviewOf: "o", Parked: true, Rank: "a", CreatedAt: "2026-11-03T10:00:00Z"},
+		{ItemID: "t2", Team: "alpha", Parked: true, Rank: "c", CreatedAt: "2026-01-02T00:00:00Z"},
+		{ItemID: "o2", Team: "alpha", Stage: board.StageReview, SprintStart: "2026-11-03"},
+		{ItemID: "r-dragged", Team: "alpha", ReviewOf: "o2", Parked: true, Rank: "d", CreatedAt: "2026-11-02T10:00:00Z"},
+	})
+	var got []string
+	for _, c := range FilterCards(b, Selector{View: "backlog", Team: "alpha"}) {
+		got = append(got, c.ItemID)
+	}
+	if want := []string{"r-top", "t1", "t2", "r-dragged"}; !slices.Equal(got, want) {
+		t.Fatalf("backlog = %v, want %v", got, want)
 	}
 }

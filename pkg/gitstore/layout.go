@@ -94,7 +94,9 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	w("start", c.StartDate)
 	w("day", c.Day)
 	w("sprint", c.SprintStart)
-	w("week", c.Week)
+	// No `week`: a task has none (K7). The reader still takes the key, so a
+	// file written before schema 3 is understood (and parked by the bump),
+	// and the next write of the card drops it.
 	if c.Parked {
 		b.WriteString("parked: true\n")
 	}

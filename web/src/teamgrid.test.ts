@@ -17,24 +17,8 @@ describe("inHandOn", () => {
     expect(inHandOn(card({ startDate: "2026-06-01" }), DAY, TODAY)).toBe(true);
   });
 
-  it("holds a debt: a week gone by, still open", () => {
-    const debt = card({ week: "2026-06-08", startDate: "2026-06-08" });
-    expect(inHandOn(debt, DAY, TODAY)).toBe(true);
-  });
-
-  it("leaves a subtask to its parent, and a parked card to the shelf", () => {
+  it("leaves a subtask to its parent", () => {
     expect(inHandOn(card({ parent: "p", startDate: "2026-06-01" }), DAY, TODAY)).toBe(false);
-    expect(inHandOn(card({ startDate: "2026-06-01", parked: true }), DAY, TODAY)).toBe(false);
-  });
-
-  it("never draws the Triage strip: nobody has said when", () => {
-    expect(inHandOn(card({}), DAY, TODAY)).toBe(false);
-  });
-
-  it("keeps a week ahead off the board until its Monday", () => {
-    const ahead = card({ week: "2026-07-06" });
-    expect(inHandOn(ahead, "2026-07-05", TODAY)).toBe(false);
-    expect(inHandOn(ahead, "2026-07-06", TODAY)).toBe(true);
   });
 
   it("gives finished work to the day it recorded, and to no other", () => {
@@ -98,6 +82,41 @@ describe("inHandOn", () => {
   });
 });
 
+// K1: a task is IN WORK (a date or a sprint) or PARKED in its team's
+// backlog — never both, never neither — and the Team board draws the first
+// kind only. Mirrors TestTeamGrid's K1 cases in pkg/board.
+describe("the Team board draws work in hand, never the backlog (K1)", () => {
+  const TODAY = "2026-06-23";
+
+  it("draws a task with a date, or with a sprint alone", () => {
+    expect(inHandOn(card({ startDate: "2026-06-22" }), TODAY, TODAY)).toBe(true);
+    expect(inHandOn(card({ day: "2026-06-23" }), TODAY, TODAY)).toBe(true);
+    expect(inHandOn(card({ sprintStart: "2026-06-22" }), "2026-06-22", TODAY)).toBe(true);
+  });
+
+  it("never draws a parked task, whatever dates or sprint a direct writer left on it", () => {
+    expect(inHandOn(card({ parked: true }), TODAY, TODAY)).toBe(false);
+    expect(inHandOn(card({ parked: true, startDate: "2026-06-01" }), TODAY, TODAY)).toBe(false);
+    expect(
+      inHandOn(card({ parked: true, sprintStart: "2026-06-22" }), "2026-06-22", TODAY, "2026-06-22"),
+    ).toBe(false);
+  });
+
+  it("never draws a task with neither a date nor a sprint: there is no strip any more", () => {
+    expect(inHandOn(card({}), TODAY, TODAY)).toBe(false);
+  });
+
+  it("reads a week left on a task as nothing: no week gate, no week plan (K7)", () => {
+    // An older repository may still carry a week on a task. It neither puts
+    // the task on the board (the week was the strip's plan, not a date) nor
+    // holds a dated task back until its Monday.
+    const weekOnly = { ...card({}), week: "2026-06-22" } as Card;
+    expect(inHandOn(weekOnly, TODAY, TODAY)).toBe(false);
+    const datedWithAWeekAhead = { ...card({ startDate: "2026-06-22" }), week: "2026-07-06" } as Card;
+    expect(inHandOn(datedWithAWeekAhead, TODAY, TODAY)).toBe(true);
+  });
+});
+
 // Looking FORWARD the board answers a different question: today is what is in
 // hand, a day still to come is a plan. Mirrors board.plannedFor and the case
 // pkg/board pins in TestATomorrowIsAPlanAndTodayIsAState.
@@ -112,24 +131,16 @@ describe("inHandOn, looking ahead", () => {
     expect(inHandOn(ranOver, TOMORROW, TODAY)).toBe(false);
   });
 
-  it("leaves a debt of a week gone by on today, and off tomorrow", () => {
-    const debt = card({ week: "2026-08-31" });
-    expect(inHandOn(debt, TODAY, TODAY)).toBe(true);
-    expect(inHandOn(debt, TOMORROW, TODAY)).toBe(false);
-  });
-
   it("holds what reaches the day ahead", () => {
     expect(inHandOn(card({ startDate: TODAY, day: TOMORROW }), TOMORROW, TODAY)).toBe(true);
     expect(inHandOn(card({ startDate: TOMORROW, day: TOMORROW }), TOMORROW, TODAY)).toBe(true);
   });
 
-  it("holds a card on the days of the week it was placed in, and no other", () => {
-    const ahead = card({ week: NEXT_MONDAY });
+  it("holds a card dated next week on its own days, and on no other day ahead", () => {
+    const ahead = card({ startDate: NEXT_MONDAY, day: "2026-09-16" });
     expect(inHandOn(ahead, NEXT_MONDAY, TODAY)).toBe(true);
     expect(inHandOn(ahead, "2026-09-16", TODAY)).toBe(true);
-    expect(inHandOn(ahead, "2026-09-21", TODAY)).toBe(false);
-    // And this week's card does not reach into next week.
-    expect(inHandOn(card({ week: "2026-09-07" }), NEXT_MONDAY, TODAY)).toBe(false);
+    expect(inHandOn(ahead, "2026-09-17", TODAY)).toBe(false);
   });
 });
 
@@ -186,14 +197,14 @@ describe("the current sprint accumulates its finished work and carry over leaves
 });
 
 // A card in a Scope column is a PROJECT CARD: the Project board's plan, not
-// work in hand, whatever its week or dates say (H4, docs/design/hierarchy.md).
+// work in hand, whatever its dates say (H4, docs/design/hierarchy.md).
 // It used to stand in its owner's column once its week came. Mirrors
 // TestAProjectCardIsOnNoDayBoard.
 describe("a project card is on no day board", () => {
   const TODAY = "2026-09-16";
   const WEEK = "2026-09-14";
-  it("is not in hand whatever its week, dates or sprint say", () => {
-    const plan = card({ scope: "Storage", project: "P", week: WEEK, startDate: TODAY, day: TODAY, sprintStart: TODAY });
+  it("is not in hand whatever its dates or sprint say", () => {
+    const plan = card({ scope: "Storage", project: "P", startDate: TODAY, day: TODAY, sprintStart: TODAY });
     expect(inHandOn(plan, TODAY, TODAY, TODAY)).toBe(false);
     expect(inHandOn(plan, WEEK, TODAY, TODAY)).toBe(false);
     // Written before schema 2: an owner it may no longer carry changes nothing.

@@ -16,7 +16,7 @@ import (
 func seedBoard(t *testing.T, r *Repo) {
 	t.Helper()
 	files := map[string]string{
-		BoardPath:                                 "schema: 2\ntitle: aeman board\n",
+		BoardPath:                                 "schema: 3\ntitle: aeman board\n",
 		TeamPath("_"):                             "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		TeamPath("01JB4TEAM"):                     "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n  previous: 2026-08-21\n",
 		ProjectPath("01JB4PROJ"):                  "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",

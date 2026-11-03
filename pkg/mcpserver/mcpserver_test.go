@@ -135,11 +135,11 @@ func TestMCPListsTools(t *testing.T) {
 		"reopen_card",
 		"set_capacity", "set_team_capacity",
 		// The gestures and reads the boards have and the tool set did not.
-		"place_card", "untriage_card", "finished_earlier", "list_sprints",
+		"finished_earlier", "list_sprints",
 		"list_day_logs", "reorder_teams", "reorder_scopes", "delete_team",
 		"set_sprint_state",
-		// The Roadmap's "whose is this" (H10).
-		"own_card",
+		// The Roadmap's "whose is this" (H10), and the Backlog's take (K11).
+		"own_card", "take_card",
 	}
 	for _, w := range want {
 		if !names[w] {
@@ -172,6 +172,26 @@ func TestMCPListCardsTeamView(t *testing.T) {
 	res := call(t, cs, "list_cards", map[string]any{"view": "team", "team": "alpha"})
 	if !strings.Contains(textOf(res), "c1") || strings.Contains(textOf(res), "c2") {
 		t.Fatalf("team view should hold exactly c1: %s", textOf(res))
+	}
+}
+
+// The Roadmap's "Project cards" toggle is the listing's projectCards flag,
+// the same selector the HTTP listing takes: by default the roadmap lists no
+// card in a Scope column, even one filed under a planning card.
+func TestMCPListCardsRoadmapHidesProjectCardsUnlessAsked(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
+		{ItemID: "task1", Title: "Receipts", Parent: "epic", Team: "alpha", Parked: true},
+		{ItemID: "slot1", Title: "Q1 slot", Parent: "epic", Scope: "Payments", Project: "core"},
+	}, nil)
+	cs := connect(t, Config{Board: "acme"}, fake)
+	plain := textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap"}))
+	if !strings.Contains(plain, "task1") || strings.Contains(plain, "slot1") {
+		t.Fatalf("the roadmap lists no project card by default: %s", plain)
+	}
+	asked := textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap", "projectCards": true}))
+	if !strings.Contains(asked, "slot1") {
+		t.Fatalf("asked for, the project card is listed: %s", asked)
 	}
 }
 
@@ -221,6 +241,53 @@ func TestMCPCreateCard(t *testing.T) {
 	}
 	if !strings.Contains(textOf(res), `"Card"`) {
 		t.Fatalf("create should return the Card resource: %s", textOf(res))
+	}
+}
+
+// An agent inserts a card INTO a backlog the way a person does with the "+"
+// between two cards: one create naming its place.
+func TestMCPCreateCardTakesItsPlaceInABacklog(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "a", Title: "first", Team: "alpha", Parked: true},
+		{ItemID: "b", Title: "second", Team: "alpha", Parked: true},
+	}, nil)
+	cs := connect(t, Config{Board: "acme"}, fake)
+	res := call(t, cs, "create_card", map[string]any{"view": "backlog", "team": "alpha", "title": "between", "before": "b"})
+	var made struct {
+		Metadata struct {
+			UID string `json:"uid"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal([]byte(textOf(res)), &made); err != nil {
+		t.Fatal(err)
+	}
+	if !fake.Saw("MoveCard " + made.Metadata.UID + " after=a") {
+		t.Fatalf("before «second» is right after «first»: %s", textOf(res))
+	}
+}
+
+// And into a Team cell the same way: the person and band are the cell's,
+// the place is the gap's.
+func TestMCPCreateCardTakesItsPlaceInATeamCell(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "a", Title: "first", Team: "alpha", Assignees: []string{"bob"}, StartDate: today, Day: today, SprintStart: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	cs := connect(t, Config{Board: "acme"}, fake)
+	res := call(t, cs, "create_card", map[string]any{"view": "team", "team": "alpha", "assignee": "bob", "zone": "planned", "title": "next", "after": "a"})
+	var made struct {
+		Metadata struct {
+			UID string `json:"uid"`
+		} `json:"metadata"`
+		Spec struct {
+			Zone string `json:"zone"`
+		} `json:"spec"`
+	}
+	if err := json.Unmarshal([]byte(textOf(res)), &made); err != nil {
+		t.Fatal(err)
+	}
+	if made.Spec.Zone != "planned" || !fake.Saw("MoveCard "+made.Metadata.UID+" after=a") {
+		t.Fatalf("born planned, right after «first»: %s", textOf(res))
 	}
 }
 
@@ -298,23 +365,23 @@ func TestMCPDeleteCardCascades(t *testing.T) {
 }
 
 func TestMCPRemoveCard(t *testing.T) {
-	// remove_card empties the working area. A card that is also scheduled for
-	// a WEEK is left in that week — whatever it carries; deleting
-	// deliberately is delete_card's job.
-	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Progress: 40, Week: "2026-08-24",
+	// remove_card with intent=unassign puts the card back in its team's
+	// backlog (K3) — whatever it carries; deleting deliberately is
+	// delete_card's job.
+	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Team: "alpha", Progress: 40,
 		SprintStart: "2026-08-28", StartDate: "2026-08-28"}}, nil)
 	cs := connect(t, Config{Board: "acme"}, fake)
-	call(t, cs, "remove_card", map[string]any{"uid": "c1"})
+	call(t, cs, "remove_card", map[string]any{"uid": "c1", "intent": "unassign"})
 	c := fake.Card("c1")
 	if c == nil {
-		t.Fatalf("a card scheduled for a week must not be deleted by remove_card")
+		t.Fatalf("unassign must not delete the card")
 	}
-	if c.Week != "2026-08-24" || c.SprintStart != "" {
-		t.Fatalf("it keeps its week and leaves the working area: %+v", c)
+	if !c.Parked || c.SprintStart != "" || c.StartDate != "" {
+		t.Fatalf("it is parked in its backlog, out of work: %+v", c)
 	}
-	// A card that is nowhere else — no week, no column — was only in the
-	// working area, and removing it from there is deletion; what it carries
-	// is the caller's to ask about first.
+	// Asked nothing, a card that is nowhere else — no column — was only in
+	// the working area, and removing it from there is deletion; what it
+	// carries is the caller's to ask about first.
 	fake2 := boardservicetest.New([]board.Card{{ItemID: "c2", Progress: 40}}, nil)
 	cs2 := connect(t, Config{Board: "acme"}, fake2)
 	call(t, cs2, "remove_card", map[string]any{"uid": "c2"})
@@ -503,8 +570,10 @@ func TestDescriptionsMatchWhatTheServiceDoes(t *testing.T) {
 	// update_card is one tool with twenty of them.
 	update := toolSurface(t, "update_card")
 	for _, want := range []struct{ rule, needle string }{
-		// The shelf refuses a review card and a subtask (G66).
-		{"the shelf refuses a card with no place of its own", "a place of its own to be parked out of"},
+		// The backlog refuses a review card and a subtask (G66).
+		{"the backlog refuses a card with no place of its own", "a place of its own to be parked in"},
+		// And a task leaves its backlog by being taken into work (K1, K4).
+		{"unparking is taking a task into work", "TAKEN INTO WORK"},
 		// And a review card takes neither review nor recurrent.
 		{"a review card cannot be reviewed or made recurrent", "review of a review"},
 	} {
@@ -530,10 +599,10 @@ func TestTheToolSetHoldsWhatTheBoardsDo(t *testing.T) {
 	for _, name := range []string{
 		// The day boards' own answers.
 		"finished_earlier",
-		// The Triage board's, beside place: a card pulled back out of every week into the strip.
-		"untriage_card", "place_card",
 		// The Roadmap's: whose is this, and where loose work goes when told.
 		"own_card",
+		// The Backlog's: I take this into work (K11).
+		"take_card",
 		// The roster gestures the manage dialogs make.
 		"reorder_teams", "reorder_scopes", "delete_team", "set_sprint_state",
 		// What a day board reads in one request instead of a log per card.
@@ -554,9 +623,9 @@ func TestAnAgentSaysWhichBoardItIsStandingOn(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "mine", Title: "mine", Team: "alpha", Assignees: []string{"kvaps"},
-			Week: board.MondayOf(today), StartDate: today, Day: today, SprintStart: today},
+			StartDate: today, Day: today, SprintStart: today},
 		{ItemID: "theirs", Title: "theirs", Team: "alpha", Assignees: []string{"carol"},
-			Week: board.MondayOf(today), StartDate: today, Day: today, SprintStart: today},
+			StartDate: today, Day: today, SprintStart: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	cs := connect(t, Config{Board: "acme", ResolveLogin: func(context.Context) (string, error) {
 		return "kvaps", nil
@@ -617,14 +686,24 @@ func TestAnAgentCreatesIntoABoard(t *testing.T) {
 		t.Fatal("the card was never created, so the assignee was never checked")
 	}
 
-	// And a board refuses the fields it does not own, by name. A card filed
-	// into a week AHEAD stands on no day: it waits for its Monday (B1). (The
-	// row that is NOW is the exception — that card carries today's days.)
+	// And a board refuses the fields it does not own, by name: a card typed
+	// into a backlog stands on no day.
 	if msg := callErr(t, cs, "create_card", map[string]any{
-		"view": "triage", "title": "later", "team": "alpha", "zone": "planned",
-		"week": board.AddDays(board.MondayOf(today), 7), "start": today,
+		"view": "backlog", "title": "later", "team": "alpha", "start": today,
 	}); !strings.Contains(msg, "does not take") {
-		t.Fatalf("a dated card typed into a week ahead = %q", msg)
+		t.Fatalf("a dated card typed into a backlog = %q", msg)
+	}
+	// A task has no week (K7): the tools take none, and say so by refusing
+	// the argument; the Triage board is no board at all (K9).
+	if msg := callErr(t, cs, "create_card", map[string]any{
+		"view": "team", "title": "x", "team": "alpha", "week": board.MondayOf(today),
+	}); !strings.Contains(msg, "week") {
+		t.Fatalf("a create with a week = %q, want it refused naming the week", msg)
+	}
+	if msg := callErr(t, cs, "create_card", map[string]any{
+		"view": "triage", "title": "x", "team": "alpha",
+	}); !strings.Contains(msg, "triage") {
+		t.Fatalf("a create into the retired Triage board = %q", msg)
 	}
 }
 
@@ -959,5 +1038,26 @@ func TestABodyThatFailsToLandNamesTheCardItLeftBehind(t *testing.T) {
 	}
 	if !strings.Contains(msg, made) {
 		t.Fatalf("the failure = %q, want the uid %q of the card standing on the board", msg, made)
+	}
+}
+
+// TAKE over MCP (K11): the agent takes a backlog card as the person it acts
+// for — the card becomes theirs on its own team and leaves the backlog — and
+// a task already in work is refused.
+func TestAnAgentTakesABacklogCardAsItsPerson(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "p", Title: "parked", Team: "alpha", Parked: true},
+		{ItemID: "w", Title: "in work", Team: "alpha", Assignees: []string{"ann"}, StartDate: today, Day: today, SprintStart: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	cs := connect(t, Config{Board: "acme", ResolveLogin: func(context.Context) (string, error) {
+		return "kvaps", nil
+	}}, fake)
+	call(t, cs, "take_card", map[string]any{"uid": "p", "view": "backlog", "team": "alpha"})
+	if got := fake.Card("p"); got == nil || got.Parked || len(got.Assignees) != 1 || got.Assignees[0] != "kvaps" || got.Team != "alpha" {
+		t.Fatalf("taken as the agent's person on its own team: %+v", got)
+	}
+	if msg := callErr(t, cs, "take_card", map[string]any{"uid": "w"}); !strings.Contains(msg, "already in work") {
+		t.Fatalf("take on work in hand = %q", msg)
 	}
 }

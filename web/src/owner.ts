@@ -2,8 +2,8 @@
 // it. An owner is a TEAM and, within it, a PERSON or nobody — the server's
 // `own` gesture takes the pair (docs/design/hierarchy.md, "Owner") and
 // files loose work where the pair says: a person's card lands on their
-// board today, a team's alone on that team's shelf, nobody's goes back to
-// the strip. The picker is the Team board's two-column menu with the
+// board today (K4), a team's alone in that team's backlog, nobody's in the
+// no-team backlog (K3). The picker is the Team board's two-column menu with the
 // difference that a team is not an answer by itself: picking one keeps the
 // menu open for the person, a person cannot be picked without a team, and
 // "no person" is an answer of its own.

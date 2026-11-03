@@ -1,0 +1,366 @@
+package gitstore
+
+import (
+	"strings"
+	"testing"
+)
+
+// Schema 3 is the team backlog (docs/design/backlog.md, K8): one commit per
+// domain that parks the weekly plan and the Triage strip and takes the week
+// off every task, in one idempotent pass.
+//
+//  1. A task with a week and no date and no sprint is parked; its week goes —
+//     a task with a week was the weekly plan: work accepted and not in hand.
+//  2. A task with a week and a date or a sprint keeps them and loses the week.
+//  3. An open task that would have stood in the strip — no date, no sprint,
+//     no week, not parked — is parked.
+//
+// Nothing else moves: the rank stays (BacklogOrder puts unranked cards after
+// ranked ones, oldest first), a subtask or a review card loses a stray week
+// and is not parked (it rides the card it belongs to), and a finished card,
+// a planning card and a project card are not asked to be placed at all.
+func TestSchema3ParksTheWeeklyPlanAndTheStripAndStripsTaskWeeks(t *testing.T) {
+	const (
+		weekOnly  = "01JB4K2E7QZMX3R8V0N5T9WYE1"
+		weekDated = "01JB4K2E7QZMX3R8V0N5T9WYE2"
+		strip     = "01JB4K2E7QZMX3R8V0N5T9WYE3"
+		stripDone = "01JB4K2E7QZMX3R8V0N5T9WYE4"
+		inWork    = "01JB4K2E7QZMX3R8V0N5T9WYE5"
+		parked    = "01JB4K2E7QZMX3R8V0N5T9WYE6"
+		kidWeek   = "01JB4K2E7QZMX3R8V0N5T9WYE7"
+		kid       = "01JB4K2E7QZMX3R8V0N5T9WYE8"
+		epic      = "01JB4K2E7QZMX3R8V0N5T9WYE9"
+		underEpic = "01JB4K2E7QZMX3R8V0N5T9WYEA"
+		review    = "01JB4K2E7QZMX3R8V0N5T9WYEB"
+		slot      = "01JB4K2E7QZMX3R8V0N5T9WYEC"
+		weekCame  = "01JB4K2E7QZMX3R8V0N5T9WYED"
+		weekDone  = "01JB4K2E7QZMX3R8V0N5T9WYEE"
+		owedDated = "01JB4K2E7QZMX3R8V0N5T9WYEF"
+		owedLoose = "01JB4K2E7QZMX3R8V0N5T9WYEG"
+		orphan    = "01JB4K2E7QZMX3R8V0N5T9WYEH"
+		gone      = "01JB4K2E7QZMX3R8V0N5T9WYEZ"
+	)
+	card := func(front string) string {
+		return "---\n" + front + "created: 2026-08-26T09:14:03Z\n---\n\nThe body stays.\n"
+	}
+	files := map[string]string{
+		weekOnly:  card("title: planned for a week ahead\nassignees: [kvaps]\nteam: portal\nweek: 2999-01-07\nrank: a\n"),
+		weekCame:  card("title: owed in a week that has come\nassignees: [kvaps]\nteam: portal\nprogress: 50\nweek: 2026-10-05\nrank: m\n"),
+		weekDone:  card("title: finished in its week\nteam: portal\nprogress: 100\nweek: 2026-10-05\nrank: n\n"),
+		owedDated: card("title: dated and owed in a week that has come\nteam: portal\nstart: 2026-10-06\nday: 2026-10-06\nweek: 2026-10-05\nrank: o\n"),
+		owedLoose: card("title: owed, of no team\nweek: 2026-10-05\nrank: p\n"),
+		weekDated: card("title: dated and weeked\nteam: portal\nstart: 2026-10-06\nday: 2026-10-06\nsprint: 2026-10-05\nweek: 2026-10-05\nrank: b\n"),
+		strip:     card("title: nobody said when\nteam: portal\nprogress: 30\nrank: c\n"),
+		stripDone: card("title: finished, never placed\nteam: portal\nprogress: 100\nrank: d\n"),
+		inWork:    card("title: in work\nteam: portal\nsprint: 2026-10-05\nrank: e\n"),
+		parked:    card("title: already parked\nteam: portal\nparked: true\nrank: f\n"),
+		kidWeek:   card("title: a subtask with a stray week\nteam: portal\nweek: 2026-10-05\nparent: " + strip + "\nrank: g\n"),
+		kid:       card("title: a subtask\nteam: portal\nparent: " + strip + "\nrank: h\n"),
+		// A subtask whose parent is not in this tree (deleted, or in another
+		// repository): board.IsSubtask reads it as a subtask, and so does the
+		// bump — it loses the week and rides nothing into work.
+		orphan:    card("title: an orphaned subtask\nteam: portal\nweek: 2026-10-05\nparent: " + gone + "\nrank: q\n"),
+		epic:      card("title: an epic\ntype: epic\nrank: i\n"),
+		underEpic: card("title: a task under the epic\nparent: " + epic + "\nrank: j\n"),
+		review:    card("title: review: in work\nteam: portal\nreviewOf: " + inWork + "\nrank: k\n"),
+		slot:      card("title: a project card\nproject: engineering\nscope: Cozystack\nstart: 2026-10-05\nday: 2026-10-09\nrank: l\n"),
+	}
+	tree := map[string]string{
+		BoardPath:                     "schema: 2\ntitle: b\n",
+		TeamPath("01JB4TEAM"):         "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-11-02\n  previous: 2026-10-30\n",
+		ProjectPath("01JB4PROJ"):      "name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		ScopePath("01JB4PROJ", "01C"): "name: Cozystack\nrank: a\ncreated: 2026-06-04T08:00:00Z\n",
+	}
+	path := func(id string) string { p, _ := CardPath(id); return p }
+	for id, body := range files {
+		tree[path(id)] = body
+	}
+	r := repoWith(t, tree)
+	head := r.Head()
+	migrated, err := MigrateSchema(r)
+	if err != nil || !migrated {
+		t.Fatalf("migrated=%v err=%v, want a migration", migrated, err)
+	}
+	c, _ := r.CommitObject(r.Head())
+	if len(c.ParentHashes) != 1 || c.ParentHashes[0] != head {
+		t.Fatalf("the bump is ONE commit on the old tip, got parents %v", c.ParentHashes)
+	}
+	read := func(id string) string {
+		data, err := r.ReadFile(path(id))
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		return string(data)
+	}
+	has := func(id string, want ...string) {
+		t.Helper()
+		got := read(id)
+		for _, w := range want {
+			if !strings.Contains(got, w) {
+				t.Errorf("%s: %q missing after the bump:\n%s", id, w, got)
+			}
+		}
+	}
+	lacks := func(id string, gone ...string) {
+		t.Helper()
+		got := read(id)
+		for _, g := range gone {
+			if strings.Contains(got, g) {
+				t.Errorf("%s: %q survived the bump:\n%s", id, g, got)
+			}
+		}
+	}
+	// Step 1: a week still AHEAD is the backlog — parked, its week gone,
+	// everything else kept.
+	has(weekOnly, "parked: true", "assignees: [kvaps]", "team: portal", "rank: a", "The body stays.")
+	lacks(weekOnly, "week:")
+	// A week that has COME stood on the day boards as a debt: it stays in
+	// work, the week's Monday to Friday becoming its dates, and is not
+	// parked — moving it to the backlog would take it out of somebody's hands.
+	// It also joins its team's CURRENT sprint: the week used to keep it on
+	// its owner's Me board (D17), and an open card of a past day with no
+	// sprint is on no Me board; in the sprint it is on Me and Team, and the
+	// next carry-over carries it like any open work.
+	has(weekCame, "start: 2026-10-05", "day: 2026-10-09", "sprint: 2026-11-02", "assignees: [kvaps]", "progress: 50")
+	lacks(weekCame, "week:", "parked:")
+	// The same for an owed card that already had dates: they stay, the
+	// sprint is added.
+	has(owedDated, "start: 2026-10-06", "sprint: 2026-11-02")
+	lacks(owedDated, "week:", "parked:")
+	// A card of no team has no sprint to join: the dates are all it gets.
+	has(owedLoose, "start: 2026-10-05")
+	lacks(owedLoose, "week:", "parked:", "sprint:")
+	// Finished work only loses the week: it is in no place to keep.
+	has(weekDone, "progress: 100")
+	lacks(weekDone, "week:", "parked:", "start:")
+	// Step 2: in work, the dates and sprint kept and the week gone.
+	has(weekDated, "start: 2026-10-06", "sprint: 2026-10-05", "rank: b")
+	lacks(weekDated, "week:", "parked:")
+	// Step 3: the strip is parked; a task under an epic is a task (H1).
+	has(strip, "parked: true", "progress: 30", "rank: c")
+	has(underEpic, "parked: true", "parent: "+epic)
+	// A subtask loses a stray week and rides its parent, unparked.
+	lacks(kidWeek, "week:", "parked:")
+	// So does one whose parent is not in the tree, as board.IsSubtask reads it.
+	lacks(orphan, "week:", "parked:", "start:", "sprint:")
+	has(kidWeek, "parent: "+strip)
+	// Untouched, byte for byte: finished work, work in hand, the already
+	// parked, a subtask with nothing to strip, the planning card, the review
+	// and the project card.
+	for _, id := range []string{stripDone, inWork, parked, kid, epic, review, slot} {
+		if got := read(id); got != files[id] {
+			t.Errorf("%s was rewritten:\n%s", id, got)
+		}
+	}
+	if data, _ := r.ReadFile(BoardPath); !strings.Contains(string(data), "schema: 3") {
+		t.Fatalf("board.yaml after the bump:\n%s", data)
+	}
+	// And the tree reads as a board where every open task is in work or in
+	// its backlog, and none carries a week.
+	snap, err := Load(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, card := range snap.Cards {
+		if card.Week != "" {
+			t.Errorf("%s still reads with a week", card.ItemID)
+		}
+	}
+	// Idempotent: the second run finds nothing to do.
+	if again, err := MigrateSchema(r); err != nil || again || r.Head() != c.Hash {
+		t.Fatalf("second run: migrated=%v err=%v head moved %v", again, err, r.Head() != c.Hash)
+	}
+}
+
+// A repository more than one version behind gets every step in the ONE
+// commit, and the steps compose on the same card: schema 2's rewrite and
+// schema 3's both land, rather than the later step's write — made from the
+// tree as it stood before the earlier one — undoing the earlier one's.
+func TestSchema3ComposesWithTheStepsBeforeIt(t *testing.T) {
+	const id = "01JB4K2E7QZMX3R8V0N5T9WYF1"
+	p, _ := CardPath(id)
+	r := repoWith(t, map[string]string{
+		BoardPath: "schema: 1\ntitle: b\n",
+		p:         "---\ntitle: a filed turn\nteam: portal\nweek: 2026-08-24\nprocess: Invoicing\ntask: 01JB4TASK\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n",
+	})
+	if migrated, err := MigrateSchema(r); err != nil || !migrated {
+		t.Fatalf("migrated=%v err=%v", migrated, err)
+	}
+	data, _ := r.ReadFile(p)
+	got := string(data)
+	for _, gone := range []string{"process:", "task:", "week:"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("%s survived the composed bump:\n%s", gone, got)
+		}
+	}
+	// Its week (2026-08-24) has come, so it stays in work on that week's dates.
+	if !strings.Contains(got, "start: 2026-08-24") || strings.Contains(got, "parked:") {
+		t.Errorf("schema 3 did not keep the owed card in work:\n%s", got)
+	}
+}
+
+// The card codec no longer WRITES a week (K7): a file read with one is
+// rewritten without it on its next edit, so no write path can carry a task's
+// week forward. The reader still understands the key, which is what lets the
+// bump above find the weekly plan.
+func TestTheCardCodecDropsAWeek(t *testing.T) {
+	in := "---\ntitle: x\nteam: portal\nweek: 2026-10-05\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n"
+	cf, err := DecodeCard("01JB4K2E7QZMX3R8V0N5T9WYF2", []byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cf.Card.Week != "2026-10-05" {
+		t.Fatalf("the reader lost the week it needs for the bump: %+v", cf.Card)
+	}
+	out, err := EncodeCard(cf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "week:") {
+		t.Fatalf("the writer kept a task's week:\n%s", out)
+	}
+}
+
+// Schema 3 also gives every OPEN task already on review with no review card
+// the card K10 makes now (docs/design/backlog.md "Reviews"): «review: <title>»
+// of the task's team, nobody on it, parked in that team's backlog, a fresh
+// ULID created at the bump, ranked after every card. A task that has a
+// review card gets none, nor does a finished one; and a second run creates
+// nothing.
+func TestSchema3GivesATaskOnReviewItsReviewCard(t *testing.T) {
+	const (
+		onReview = "01JB4K2E7QZMX3R8V0N5T9WYG1"
+		reviewed = "01JB4K2E7QZMX3R8V0N5T9WYG2"
+		itsCard  = "01JB4K2E7QZMX3R8V0N5T9WYG3"
+		plain    = "01JB4K2E7QZMX3R8V0N5T9WYG4"
+	)
+	path := func(id string) string { p, _ := CardPath(id); return p }
+	r := repoWith(t, map[string]string{
+		BoardPath:             "schema: 2\ntitle: b\n",
+		TeamPath("01JB4TEAM"): "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
+		path(onReview):        "---\ntitle: Invoices\nteam: portal\nstage: review\nprogress: 50\nsprint: 2026-11-02\nrank: m\ncreated: 2026-10-01T09:00:00Z\n---\n\nwhat to look at\n",
+		path(reviewed):        "---\ntitle: Receipts\nteam: portal\nstage: review\nprogress: 50\nsprint: 2026-11-02\nrank: n\ncreated: 2026-10-01T09:00:00Z\n---\n",
+		path(itsCard):         "---\ntitle: 'review: Receipts'\nassignees: [bob]\nteam: portal\nsprint: 2026-11-02\nstart: 2026-11-02\nreviewOf: " + reviewed + "\nrank: o\ncreated: 2026-10-02T09:00:00Z\n---\n",
+		path(plain):           "---\ntitle: In work\nteam: portal\nsprint: 2026-11-02\nrank: z\ncreated: 2026-10-01T09:00:00Z\n---\n",
+	})
+	if migrated, err := MigrateSchema(r); err != nil || !migrated {
+		t.Fatalf("migrated=%v err=%v", migrated, err)
+	}
+	head := r.Head()
+	snap, err := Load(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var made []string
+	var card struct {
+		title, team, rank string
+		parked            bool
+		assignees         []string
+		desc              string
+	}
+	for _, c := range snap.Cards {
+		if c.ReviewOf == onReview {
+			made = append(made, c.ItemID)
+			card.title, card.team, card.rank, card.parked, card.assignees, card.desc = c.Title, c.Team, c.Rank, c.Parked, c.Assignees, c.Description
+		}
+		if c.ReviewOf == reviewed && c.ItemID != itsCard {
+			t.Errorf("a task that has its review card got a second one: %s", c.ItemID)
+		}
+	}
+	if len(made) != 1 {
+		t.Fatalf("review cards made for the task on review = %v, want one", made)
+	}
+	if card.title != "review: Invoices" || card.team != "portal" || !card.parked || len(card.assignees) != 0 {
+		t.Fatalf("the made card = %+v, want «review: Invoices» of portal, parked, nobody on it", card)
+	}
+	if card.rank >= "m" {
+		t.Fatalf("the made card ranks %q, want before every card", card.rank)
+	}
+	if card.desc != "what to look at" {
+		t.Fatalf("the made card carries the task's context, got %q", card.desc)
+	}
+	if again, err := MigrateSchema(r); err != nil || again || r.Head() != head {
+		t.Fatalf("second run: migrated=%v err=%v head moved %v", again, err, r.Head() != head)
+	}
+	// And the step on its own, over the migrated tree, finds nothing to do.
+	c, _ := r.CommitObject(r.Head())
+	tree, _ := c.Tree()
+	if writes, err := schema3(tree, nil); err != nil || len(writes) != 0 {
+		t.Fatalf("the step re-run writes %d files (%v), want none", len(writes), err)
+	}
+}
+
+// Several made at once stand at the top in a fixed order: the OLDEST task's
+// review first.
+func TestSchema3RanksTheMadeReviewsOldestTaskFirst(t *testing.T) {
+	const older, newer = "01JB4K2E7QZMX3R8V0N5T9WYH1", "01JB4K2E7QZMX3R8V0N5T9WYH2"
+	path := func(id string) string { p, _ := CardPath(id); return p }
+	r := repoWith(t, map[string]string{
+		BoardPath:   "schema: 2\ntitle: b\n",
+		path(newer): "---\ntitle: Newer\nteam: portal\nstage: review\nprogress: 50\nsprint: 2026-11-02\nrank: c\ncreated: 2026-10-05T09:00:00Z\n---\n",
+		path(older): "---\ntitle: Older\nteam: portal\nstage: review\nprogress: 50\nsprint: 2026-11-02\nrank: d\ncreated: 2026-10-01T09:00:00Z\n---\n",
+	})
+	if _, err := MigrateSchema(r); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := Load(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ranks := map[string]string{}
+	for _, c := range snap.Cards {
+		if c.ReviewOf != "" {
+			ranks[c.ReviewOf] = c.Rank
+		}
+	}
+	if ranks[older] >= ranks[newer] || ranks[newer] >= "c" {
+		t.Fatalf("review ranks = %v, want the older task's first and both before every card", ranks)
+	}
+}
+
+// TWO REPLICAS BUMPING THE SAME TREE WRITE THE SAME REVIEW CARD. The review
+// card schema 3 makes for a task on review is a pure function of the tree:
+// its id is derived from the task's (DeriveID over the task's ULID time and
+// the "schema3-review" namespace), and so are its created time (the task's
+// own ULID time) and its rank — so two replicas that migrate before either
+// pushes write byte-identical files at the same path, and the rebase finds
+// nothing to reconcile rather than two review cards for one task.
+func TestSchema3MakesTheSameReviewCardOnEveryReplica(t *testing.T) {
+	const onReview = "01JB4K2E7QZMX3R8V0N5T9WYG1"
+	path := func(id string) string { p, _ := CardPath(id); return p }
+	tree := map[string]string{
+		BoardPath:             "schema: 2\ntitle: b\n",
+		TeamPath("01JB4TEAM"): "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
+		path(onReview):        "---\ntitle: Invoices\nteam: portal\nstage: review\nprogress: 50\nsprint: 2026-11-02\nrank: m\ncreated: 2026-10-01T09:00:00Z\n---\n",
+	}
+	made := func() map[string]string {
+		r := repoWith(t, tree)
+		if _, err := MigrateSchema(r); err != nil {
+			t.Fatal(err)
+		}
+		snap, err := Load(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]string{}
+		for _, c := range snap.Cards {
+			if c.ReviewOf == onReview {
+				data, err := r.ReadFile(path(c.ItemID))
+				if err != nil {
+					t.Fatal(err)
+				}
+				out[c.ItemID] = string(data)
+			}
+		}
+		return out
+	}
+	one, two := made(), made()
+	if len(one) != 1 || len(two) != 1 {
+		t.Fatalf("review cards made = %d and %d, want one each", len(one), len(two))
+	}
+	for id, data := range one {
+		if two[id] != data {
+			t.Fatalf("the two replicas wrote different review cards:\n%v\n%v", one, two)
+		}
+	}
+}

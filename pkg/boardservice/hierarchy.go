@@ -28,12 +28,12 @@ var ErrParentLevel = errors.New("a parent is of a higher level than its child")
 var ErrReviewCardLink = errors.New("a review card follows the card it reviews and sits under nothing of its own")
 
 // ErrPlanningCard is a goal, an initiative or an epic asked to carry what a
-// TASK carries: a stage, a progress, a band, a week, a shelf, a sprint, a
-// column, a review. A planning card is drawn on the Roadmap and on no day
+// TASK carries: a stage, a progress, a band, a backlog, a sprint, a column,
+// a review. A planning card is drawn on the Roadmap and on no day
 // board (H3), and its status is derived from the tasks under it (H5) — a
 // write of any of those would be a second answer to a question the tree
 // already answers.
-var ErrPlanningCard = errors.New("a planning card has no stage, progress, band, size, week, shelf, sprint, column or review of its own")
+var ErrPlanningCard = errors.New("a planning card has no stage, progress, band, size, backlog, sprint, column or review of its own")
 
 // notAPlanningCard is the guard every task-only write starts with.
 func notAPlanningCard(c board.Card, what string) error {
@@ -67,10 +67,8 @@ func planningCardCannotBe(args CreateCardArgs) error {
 		what = "band"
 	case args.Size != "":
 		what = "size"
-	case args.Week != "":
-		what = "week"
 	case args.Parked:
-		what = "shelf"
+		what = "backlog"
 	case args.ReviewOf != "":
 		what = "review"
 	case args.SprintStart != "" || args.StartNewSprint != nil:

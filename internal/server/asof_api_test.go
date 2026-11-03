@@ -44,7 +44,7 @@ func TestAPastDayIsServedAsThatDaysOwnBoard(t *testing.T) {
 		{"2026-08-24T11:00:00Z", 100, "as it is now"},
 	}
 	first := []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 3\ntitle: t\n")},
 		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-20\n")},
 	}
 	for i, s := range seed {
@@ -178,7 +178,7 @@ func TestAPastDayIsServedAsThatDaysOwnBoard(t *testing.T) {
 	// Process boards lay every week out at once — a day means nothing there —
 	// so the flag is ignored and the live board answers, which is what
 	// docs/api.md, docs/dates.md and G60 all say.
-	for _, view := range []string{"project", "all", "triage"} {
+	for _, view := range []string{"project", "all", "backlog"} {
 		items, asOf, _ := read("view=" + view + "&day=2026-08-21&snapshot=1")
 		if asOf != "" {
 			t.Fatalf("view=%s claimed a moment (%s); only Me and Team have days", view, asOf)

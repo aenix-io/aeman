@@ -1,3 +1,5 @@
+import { keepPlaced, parkedLocally, type PlaceFields } from "./backlog";
+import type { Card } from "./providers/types";
 import type { LineageRef } from "./providers/types";
 import { isSubtask } from "./subtasks";
 
@@ -59,16 +61,18 @@ export function deleteWarning(
 /** Freed is one subtask patched loose from a deleted parent. */
 export interface Freed {
   itemId: string;
-  patch: { parent: undefined; assignees?: string[] };
+  patch: { parent: undefined; assignees?: string[]; parked?: true };
 }
 
 /** freeSubtasks is what deleting a parent does to its subtasks on the server
  *  (deleteWithCascade): they become standalone cards, and one nobody had
  *  takes the parent's person so it lands in the cell the parent stood in.
+ *  One left with no date and no sprint — it rode a parked parent out of
+ *  every day — is parked in its team's backlog (K1, keepPlaced).
  *  The optimistic client applies the same, or the subtasks — still pointing
  *  at a parent that is gone — vanish from the grid until a refresh. */
 export function freeSubtasks(
-  cards: readonly { itemId: string; parent?: string; assignees: string[] }[],
+  cards: readonly ({ itemId: string; parent?: string; assignees: string[] } & Partial<PlaceFields>)[],
   parentId: string,
 ): Freed[] {
   const parent = cards.find((c) => c.itemId === parentId);
@@ -77,10 +81,11 @@ export function freeSubtasks(
     .filter((c) => c.parent === parentId)
     .map((c) => ({
       itemId: c.itemId,
-      patch:
-        c.assignees.length === 0 && inherit
-          ? { parent: undefined, assignees: [inherit] }
-          : { parent: undefined },
+      patch: {
+        parent: undefined,
+        ...(c.assignees.length === 0 && inherit ? { assignees: [inherit] } : {}),
+        ...keepPlaced(c, false),
+      },
     }));
 }
 
@@ -93,8 +98,6 @@ export interface RemovalHomes {
   /** Read by nothing here on purpose: a bare project name is a label, not a
    *  home. It is in the shape so a card can be passed whole. */
   project?: string;
-  /** A week is a home: the Triage board draws every card that has one. */
-  week?: string;
   sprintStart?: string;
   startDate?: string;
   day?: string;
@@ -117,11 +120,15 @@ export function hasColumn(c: RemovalHomes): boolean {
  *  card in a column is nobody's subtask now, H4.) */
 export type Outcome = "leave" | "delete";
 
-/** gridRemoval mirrors boardservice.Remove(from="grid"), in its order: a
- *  card scheduled for a WEEK goes back to that week on the Triage board;
- *  otherwise its column keeps it, or nothing does and it is deleted. One
- *  function so every board asks the same question — the Me board used to
- *  answer it differently and hard-deleted what the Team board kept. */
+/** gridRemoval mirrors boardservice.Remove with no intent, in its order: a
+ *  subtask is deleted; a project card's column keeps it; anything else had
+ *  nowhere else to be and is deleted. One function so every board asks the
+ *  same question — the Me board used to answer it differently and
+ *  hard-deleted what the Team board kept.
+ *
+ *  A task has no week to be sent back to (K7). Keeping the work is the
+ *  BACKLOG answer, which the dialog offers (removeChoices) and the board
+ *  sends as the unassign intent — never something this × does unasked. */
 export function gridRemoval(
   c: RemovalHomes & Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent" | "lineage">,
   _ctx: RemovalContext,
@@ -136,20 +143,6 @@ export function gridRemoval(
   // taken off (H1).
   if (isSubtask(c)) {
     return "delete";
-  }
-  // A card with a WEEK still has the Triage board to be on: taking it off
-  // the day grid puts it back in that week rather than destroying it. Only
-  // while it IS in the working area, though — a card that is nothing but its
-  // week has no second home to be handed to, and an × that always answered
-  // "back to your week" could never remove one at all.
-  //
-  // This mirrors boardservice.removeFromGrid exactly. It once said only
-  // `if (c.week)` while the server had moved on — so the dialog promised a
-  // card already in Unassigned that it would be moved to Unassigned, and the
-  // server deleted it. The card vanished under a sentence saying it would
-  // not.
-  if (c.week && !hasColumn(c) && inWorkingArea(c)) {
-    return "leave";
   }
   return hasColumn(c) ? "leave" : "delete";
 }
@@ -179,8 +172,10 @@ export function asksFirst(
 }
 
 /** RemoveChoice is one of the things an × can mean, and the dialog offers the
- *  card's own list of them (removeChoices). "backlog" is the answer that
- *  destroys nothing: the work is kept, off the plan, on its team's shelf.
+ *  card's own list of them (removeChoices). "backlog" is a TASK's answer that
+ *  destroys nothing: the work goes back to its team's backlog — parked,
+ *  nobody, no day, no sprint (K3); the board sends it as the unassign
+ *  intent. "unassign" is a PROJECT card's: its column keeps it.
  *
  *  The hierarchy's × has two answers of its own (roadmap.hierarchyChoices):
  *  "detach" takes the card out from under its parent and changes nothing
@@ -193,35 +188,35 @@ export type RemoveChoice =
   | "backlog"
   | "finished-earlier"
   | "detach"
-  | "delete";
+  | "delete"
+  | "withdraw";
 
-/** removeChoices is what the × may do to this card WHERE IT STANDS, most
- *  destructive first, and the × is drawn only where the list is not empty.
+/** removeChoices is what the × may do to this card WHERE IT STANDS, in the
+ *  order the dialog lists them, and the × is drawn only where the list is
+ *  not empty.
  *
- *  The gesture used to work this out for itself and do the one thing it
- *  decided: a card with a week was always handed back to that week, so taking
- *  one off the board took two presses — the second landing on a card that no
- *  longer looked like the one the person meant to remove. The choice is
- *  theirs now, and it is narrow on purpose:
- *
- *  - An ordinary card can go OFF THE BOARD. If it also has somewhere to be
- *    left — a week, a column — and it is standing in the working area, it can
- *    be UNASSIGNED into that instead.
+ *  - A TASK can go OFF THE BOARD, or back to its team's BACKLOG (K3): the
+ *    answer that destroys nothing, and one that is always there to go to —
+ *    so it is offered whoever holds the card and whatever dates it has. It
+ *    used to be "move it to Unassigned, back in its week", offered only to
+ *    a card with a week; a task has no week now (K7), and the two answers
+ *    that kept the work are one.
  *  - A PROJECT card can only be unassigned: it is the Project board's
- *    commitment and not this board's to destroy. Once already unassigned it
- *    has no × at all — an × that does nothing reads as a delete that failed.
- *  - A SUBTASK is its own case: the × takes it OUT OF THE GROUP when it has a
- *    column to be left in, and off the board when it has not.
- *  - And the BACKLOG stands under all of them, wherever the card could be
- *    parked: the answer that destroys nothing. It is LAST because the list is
- *    read most-destructive-first and, more to the point, because the × acting
- *    unasked takes the first answer — a card made today at 0% is still
- *    deleted without ceremony, as it always was, rather than quietly shelved.
+ *    commitment and not this board's to destroy, and its column keeps it.
+ *    Once already unassigned it has no × at all — an × that does nothing
+ *    reads as a delete that failed.
+ *  - A SUBTASK goes off the board: standing under its parent is not a place
+ *    of its own to be kept in.
  *
- *  Parking is not offered for work another board owns (a slot), for a card
- *  already on the shelf, or for a SUBTASK or a REVIEW: those two follow
- *  the card they belong to, and parking one alone would put it where nothing
- *  draws it — out of sight of the very card it is part of.
+ *  - A REVIEW somebody has is offered the backlog too (K10): "back to
+ *    backlog" takes the reviewer off and the review waits for one again in
+ *    the reviewed task's team backlog; the task stays on review.
+ *
+ *  The backlog is FIRST: it destroys nothing, and it is read above taking
+ *  the card off the board. The × acting unasked does not take the first
+ *  answer for that reason — it takes unaskedRemoval's, so a card made here
+ *  at 0% is still deleted without ceremony rather than quietly parked. It
+ *  is not offered for a card already in its backlog.
  *
  *  FINISHED EARLIER is the last of them, and the narrowest: work that was done
  *  in the sprint before this one and only marked done now. An engineer
@@ -245,8 +240,23 @@ export function removeChoices(
   if (isSubtask(c)) {
     return ["off-board"];
   }
-  const shelve: RemoveChoice[] =
-    !c.parked && !hasColumn(c) && !c.reviewOf ? ["backlog"] : [];
+  // A review NOBODY HAS TAKEN — the Backlog's needs-a-reviewer item — has
+  // one answer: WITHDRAW the review (K10). The card goes and the task leaves
+  // review, back to In progress (boardservice.withdrawReview). Deleting the
+  // card alone would leave the task on review with no review card.
+  if (c.reviewOf && c.parked && (c.assignees?.length ?? 0) === 0) {
+    return ["withdraw"];
+  }
+  // A review somebody HAS is withdrawn the same way, never taken off the
+  // board by itself — that would leave its task on review with no review
+  // card (K10) — or goes back to the backlog with nobody on it (K12).
+  if (c.reviewOf && !hasColumn(c)) {
+    return c.parked ? ["withdraw"] : ["backlog", "withdraw"];
+  }
+  // A REVIEW somebody has is offered it too (K10): back to the backlog takes
+  // the reviewer off, and it waits for one again in the reviewed task's team
+  // backlog (boardservice.returnReview).
+  const shelve: RemoveChoice[] = !c.parked && !hasColumn(c) ? ["backlog"] : [];
   // Only where it would MOVE the card: finished work, standing in the current
   // sprint, with an earlier sprint to send it to. Never for work another board
   // owns — a slot carries its own dates, and the sprint is not what places it.
@@ -258,18 +268,40 @@ export function removeChoices(
     !hasColumn(c)
       ? ["finished-earlier"]
       : [];
-  // Unassigned is where a card with NOBODY on it stands, and that — not its
-  // dates — is what the option would change. A card already there was being
-  // offered a move to the column it was in: the day grid draws a dated card
-  // nobody has taken in Unassigned too, so reading "in the working area" as
-  // "not in Unassigned" answered a different question than the one asked.
-  const somewhereElse = hasColumn(c) || !!c.week;
-  const unassign: RemoveChoice[] =
-    somewhereElse && (c.assignees?.length ?? 0) > 0 ? ["unassign"] : [];
+  // A PROJECT card's answer is its column. Unassigned is where one with
+  // NOBODY on it stands, and that — not its dates — is what the option would
+  // change, so one already there is offered nothing.
   if (hasColumn(c)) {
-    return unassign;
+    return (c.assignees?.length ?? 0) > 0 ? ["unassign"] : [];
   }
-  return ["off-board", ...unassign, ...finishedEarlier, ...shelve];
+  return [...shelve, "off-board", ...finishedEarlier];
+}
+
+/** unaskedRemoval is the answer the × takes when it acts WITHOUT asking — a
+ *  card made here that nobody touched (asksFirst): off the board, deleted
+ *  without ceremony, as it always was. The backlog is listed first in the
+ *  dialog, which is a reading order and not a default. */
+export function unaskedRemoval(choices: readonly RemoveChoice[]): RemoveChoice | undefined {
+  return choices.includes("off-board") ? "off-board" : choices[0];
+}
+
+/** backlogPatch is what the board shows the moment the backlog answer is
+ *  given: the card parked — nobody, no day, no sprint, planned (K3,
+ *  parkedLocally). A REVIEW also moves to the reviewed task's team, whose
+ *  backlog it waits in for a reviewer (K10, boardservice.returnReview). */
+export function backlogPatch(
+  c: { reviewOf?: string; team?: string | null },
+  cards: readonly { itemId: string; team?: string | null }[],
+): ReturnType<typeof parkedLocally> & { team?: string } {
+  const patch = parkedLocally();
+  if (!c.reviewOf) {
+    return patch;
+  }
+  const original = cards.find((x) => x.itemId === c.reviewOf);
+  if (!original || (original.team ?? "") === (c.team ?? "")) {
+    return patch;
+  }
+  return { ...patch, team: original.team ?? "" };
 }
 
 /** offersRemoval reports whether the × is drawn at all: only where it has
@@ -335,4 +367,58 @@ export function subtaskRemovalUndo(c: SubtaskUndo): SubtaskUndo {
     startDate: c.startDate,
     day: c.day,
   };
+}
+
+/** withdrawPatch is what the TASK shows the moment its review is withdrawn:
+ *  back to In progress the way the stage menu's In progress puts it
+ *  (board.ApplyInProgress, SetInProgress) — the stage cleared, the progress
+ *  nudged into its band at the edges only. */
+export function withdrawPatch(task: { stage?: string; progress?: number }): {
+  stage: undefined;
+  progress: number;
+} {
+  const cur = task.progress ?? 0;
+  let progress = cur;
+  if (cur < 10) {
+    progress = 10;
+  } else if (task.stage === "done" || cur >= 100) {
+    progress = 90;
+  }
+  return { stage: undefined, progress };
+}
+
+/** removeIntent is the intent an × answer is sent to the remove action as,
+ *  or null for an answer that is a gesture of its own (finished-earlier, the
+ *  hierarchy's two). Both KEEPING answers are the server's unassign: it parks
+ *  a task in its team's backlog — nobody, no day, no sprint (K3) — and leaves
+ *  a project card in its column. */
+export function removeIntent(choice: RemoveChoice): "unassign" | "off-board" | null {
+  switch (choice) {
+    case "backlog":
+    case "unassign":
+      return "unassign";
+    case "off-board":
+    case "withdraw":
+      return "off-board";
+    default:
+      return null;
+  }
+}
+
+/** reviewAssigneePatch is what a change of person shows at once, the way
+ *  the server answers it (boardservice.SetAssignee): on a REVIEW card nobody
+ *  named takes a taken review back to the backlog — parked, nobody, no day
+ *  (K12) — and a person on a review nobody has taken takes it into work
+ *  (K10). Any other change is the person alone. */
+export function reviewAssigneePatch(
+  c: { reviewOf?: string; assignees: string[]; parked?: boolean },
+  want: string[],
+): Partial<Card> {
+  if (c.reviewOf && want.length === 0 && c.assignees.length > 0) {
+    return parkedLocally();
+  }
+  if (c.reviewOf && want.length > 0 && c.parked && c.assignees.length === 0) {
+    return { assignees: want, parked: false };
+  }
+  return { assignees: want };
 }

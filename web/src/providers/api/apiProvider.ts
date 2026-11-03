@@ -132,7 +132,7 @@ export function showingDay(day: string): void {
 
 // The BOARD the reader is standing on, as the serialised selector its listing
 // used (viewquery.queryString). Every board GESTURE is made through it — the ×,
-// the drop into a week, the pull back into the strip, "finished earlier" — so
+// the owner picker, "finished earlier" — so
 // the server can answer "that card is not on this board" instead of acting on
 // a card the person cannot see. Set by the App as the view changes.
 let standing = "view=all";
@@ -294,9 +294,6 @@ function patchBody(patch: CardPatch): components["schemas"]["CardPatch"] {
     }
     body.dates = dates;
   }
-  if (patch.week !== undefined) {
-    body.week = patch.week;
-  }
   if (patch.parked !== undefined) {
     body.parked = patch.parked;
   }
@@ -376,28 +373,31 @@ export const apiProvider: Provider = {
     if (input.type) {
       body.type = input.type; // a planning card: the Roadmap's create
     }
-    // A card scheduled for a WEEK carries no dates; a day card passes its
-    // start/end and the server joins (or records) the sprint itself.
+    // A day card passes its start/end and the server joins (or records) the
+    // sprint itself.
     if (input.start || input.day) {
       body.dates = { start: input.start ?? "", end: input.day ?? "" };
     }
-    if (input.week) {
-      body.week = input.week;
-    }
-    // Born ON the shelf: like a week, it carries no dates and joins no sprint,
-    // and the card never passes through the strip on its way there. The
-    // drawer's create says so by being made THERE (views.createView), so
-    // nothing in the body has to.
+    // Born IN the backlog: no dates, no sprint, parked on its team, last
+    // (K3). A Backlog column's create says so by being made THERE
+    // (views.createView), so nothing in the body has to.
     if (input.scope) {
       body.scope = input.scope;
       body.project = input.project ?? "";
-      // No week: a slot's row is the week of its start date.
+      // A slot's row is the week of its start date.
     }
     if (input.startNewSprint !== undefined) {
       body.startNewSprint = input.startNewSprint;
     }
     if (input.noSprint) {
       body.noSprint = true;
+    }
+    // Born where it was typed (the backlog's insert "+"): the place rides
+    // the create, one request.
+    if (input.after) {
+      body.after = await resolveCardId(input.after);
+    } else if (input.before) {
+      body.before = await resolveCardId(input.before);
     }
     return cardFrom(
       client.POST("/views/{view}/cards", { params: { path: { view } }, body }),
@@ -501,15 +501,6 @@ export const apiProvider: Provider = {
     );
   },
 
-  async placeCard(uid: string, week: string): Promise<Card> {
-    uid = await resolveCardId(uid);
-    return cardFrom(
-      client.POST("/views/{view}/cards/{uid}/actions/place", {
-        params: standingScope(uid),
-        body: { week },
-      }),
-    );
-  },
 
   async finishedEarlier(uid: string): Promise<Card> {
     uid = await resolveCardId(uid);
@@ -520,15 +511,18 @@ export const apiProvider: Provider = {
     );
   },
 
-  async setCapacity(login: string, points: number): Promise<void> {
-    await client.PATCH("/people/{login}", {
-      params: { path: { login } },
-      body: { capacity: points },
-    });
-  },
 
   async setTeamCapacity(team: string, points: number): Promise<void> {
     await client.POST("/teams/actions/capacity", { body: { team, points } });
+  },
+
+  async takeCard(uid: string): Promise<Card> {
+    uid = await resolveCardId(uid);
+    return cardFrom(
+      client.POST("/views/{view}/cards/{uid}/actions/take", {
+        params: standingScope(uid),
+      }),
+    );
   },
 
   async ownCard(uid: string, team: string, person: string): Promise<Card> {
@@ -541,14 +535,6 @@ export const apiProvider: Provider = {
     );
   },
 
-  async untriageCard(uid: string): Promise<Card> {
-    uid = await resolveCardId(uid);
-    return cardFrom(
-      client.POST("/views/{view}/cards/{uid}/actions/untriage", {
-        params: standingScope(uid),
-      }),
-    );
-  },
 
   async carryOver(
     team: string | null,

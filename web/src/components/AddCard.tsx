@@ -24,13 +24,15 @@ interface AddCardProps {
   /** Offer the "no team" option; when false, the picker defaults to the first
    *  team instead of "no team". */
   allowNoTeam?: boolean;
+  /** The team the picker starts on, when the board says which (the Backlog
+   *  starts on the first selected team, the no-team group included). */
+  initialTeam?: string | null;
   /** Start with the form already open (input focused). */
   autoOpen?: boolean;
   /** The form closed; created reports whether a card was submitted. */
   onClosed?: (created: boolean) => void;
   /** An aside picker of something OTHER than a team, for a board where the
-   *  team is not the question: the Triage board picks a zone, because a
-   *  column there is a person and the team comes with them. Its answer
+   *  team is not the question (the Roadmap picks a level). Its answer
    *  arrives as the third argument of onCreate. */
   picker?: { title: string; options: AddCardOption[]; initial: string };
   /** Draw the pickers as their colour and nothing else. A form that stands
@@ -47,6 +49,7 @@ export function AddCard({
   teams,
   forcedTeam,
   allowNoTeam = true,
+  initialTeam,
   autoOpen,
   onClosed,
   picker,
@@ -55,7 +58,7 @@ export function AddCard({
   // With "no team" disabled the picker starts on the first team, so a filtered
   // create lands on a real team by default instead of "no team".
   const defaultTeam =
-    allowNoTeam || !teams || teams.length === 0 ? null : teams[0];
+    initialTeam !== undefined ? initialTeam : allowNoTeam || !teams || teams.length === 0 ? null : teams[0];
   const [open, setOpen] = useState(autoOpen ?? false);
   const [value, setValue] = useState("");
   const [team, setTeam] = useState<string | null>(defaultTeam);
@@ -68,8 +71,7 @@ export function AddCard({
   const pickRef = useRef<HTMLDivElement | null>(null);
 
   // The team picker is shown when a roster is supplied and no team is
-  // forced. A board may ask for one of its own beside it: the Triage board
-  // picks a zone, and picks a team too when it is showing more than one.
+  // forced. A board may ask for one of its own beside it (`picker`).
   const showPicker = forcedTeam === undefined && teams !== undefined;
 
   const close = (created: boolean) => {

@@ -85,11 +85,17 @@ var sentinels = []struct {
 	{boardservice.ErrTitleTooLong, http.StatusUnprocessableEntity, "titleTooLong"},
 	{boardservice.ErrBadDay, http.StatusUnprocessableEntity, "badDay"},
 	{boardservice.ErrSubtaskDepth, http.StatusUnprocessableEntity, "subtaskDepth"},
-	{boardservice.ErrSubtaskWeek, http.StatusUnprocessableEntity, "subtaskWeek"},
-	// The × was told to do something the card does not allow: a slot or a
-	// turn taken off the board, or a card unassigned into nowhere.
+	// The × was told to do something the card does not allow: a slot
+	// taken off the board.
 	{boardservice.ErrNotYoursToDestroy, http.StatusUnprocessableEntity, "notYoursToDestroy"},
-	{boardservice.ErrNowhereToLeaveIt, http.StatusUnprocessableEntity, "nowhereToLeaveIt"},
+	// A task taken out of its backlog with nothing to put it into (K1).
+	{boardservice.ErrTakeIntoWork, http.StatusUnprocessableEntity, "takeIntoWork"},
+	// Take (K11): nobody to give the card to, work already in hand, work
+	// already finished.
+	{boardservice.ErrNobodyToTake, http.StatusUnprocessableEntity, "nobodyToTake"},
+	{boardservice.ErrAlreadyInWork, http.StatusUnprocessableEntity, "alreadyInWork"},
+	{boardservice.ErrAlreadyFinished, http.StatusUnprocessableEntity, "alreadyFinished"},
+	{boardservice.ErrSomebodysCard, http.StatusUnprocessableEntity, "somebodysCard"},
 	// A list the team does not have, and work another board owns: both
 	// are rules refusing a change, not the forge failing.
 	{boardservice.ErrNotYoursToPark, http.StatusUnprocessableEntity, "notYoursToPark"},
@@ -101,6 +107,10 @@ var sentinels = []struct {
 	// or missing the one that board is: the view refused the change.
 	{boardservice.ErrNotOnThisBoard, http.StatusUnprocessableEntity, "notOnThisBoard"},
 	{boardservice.ErrViewNeedsField, http.StatusUnprocessableEntity, "viewNeedsField"},
+	// A new card told to land in two places at once.
+	{boardservice.ErrTwoPlaces, http.StatusUnprocessableEntity, "twoPlaces"},
+	// A project card's progress between done and not done.
+	{boardservice.ErrProjectCardProgress, http.StatusUnprocessableEntity, "projectCardProgress"},
 	// Work sent back to the sprint it was done in, where there is nothing
 	// to send or nowhere to send it: rules refusing a change, not a forge
 	// failure.
@@ -127,7 +137,6 @@ var sentinels = []struct {
 	// link decides — a subtask, a review card — is not asked.
 	{boardservice.ErrOwnerNeedsTeam, http.StatusUnprocessableEntity, "ownerNeedsTeam"},
 	{boardservice.ErrOwnerFollowsLink, http.StatusUnprocessableEntity, "ownerFollowsLink"},
-	{boardservice.ErrNotAMonday, http.StatusUnprocessableEntity, "notAMonday"},
 	{boardservice.ErrUnknownSize, http.StatusUnprocessableEntity, "unknownSize"},
 	{boardservice.ErrBadCapacity, http.StatusUnprocessableEntity, "badCapacity"},
 	// Written in the handler until they were found missing from the

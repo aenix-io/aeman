@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parkable } from "./backlog";
+import { onBacklog } from "./backlogboard";
 import { onMyDay } from "./meview";
 import { canBeFiledIntoAColumn } from "./placements";
 import { gridRemoval, removeChoices } from "./removal";
@@ -8,7 +9,6 @@ import { mayRemove } from "./meboard";
 import { pointsOf } from "./size";
 import { isPlanning, isSubtask } from "./subtasks";
 import { inHandOn } from "./teamgrid";
-import { needsTriage } from "./triage";
 import { createView } from "./views";
 import { viewQueries, watchQuery } from "./viewquery";
 import type { Board, Card } from "./providers/types";
@@ -67,10 +67,10 @@ describe("the day boards draw tasks", () => {
     expect(onMyDay(subtask, board, TODAY, TODAY)).toBe(false);
   });
 
-  it("the strip: a task under an epic that nobody scheduled, not the epic", () => {
-    expect(needsTriage(card({ parent: "epic", lineage: [{ uid: "epic", type: "epic", title: "Billing" }] }))).toBe(true);
-    expect(needsTriage(card({ type: "goal" }))).toBe(false);
-    expect(needsTriage(card({ parent: "t1" }))).toBe(false);
+  it("the backlog: a parked task under an epic, never the epic, never a subtask (K2)", () => {
+    expect(onBacklog(card({ parked: true, parent: "epic", lineage: [{ uid: "epic", type: "epic", title: "Billing" }] }))).toBe(true);
+    expect(onBacklog(card({ parked: true, type: "goal" }))).toBe(false);
+    expect(onBacklog(card({ parked: true, parent: "t1" }))).toBe(false);
   });
 });
 
@@ -83,12 +83,11 @@ describe("what a task under an epic may do, that a subtask may not", () => {
     expect(canBeFiledIntoAColumn({ parent: "t1", assignees: [] })).toBe(false);
     expect(canBeFiledIntoAColumn({ type: "epic", assignees: [] })).toBe(false);
     const ctx = { current: TODAY, today: TODAY };
-    // With a week to go back to, the grid × hands a task under an epic back
-    // to it, as it does any task; a subtask is deleted whatever it carries.
-    const week = "2026-10-26";
-    expect(gridRemoval({ ...underEpic, week }, ctx)).not.toBe("delete");
-    expect(gridRemoval({ ...subtask, week }, ctx)).toBe("delete");
-    expect(removeChoices({ ...underEpic, week }, ctx)).not.toEqual(["off-board"]);
+    // The × offers a task under an epic its team's backlog, as it does any
+    // task (K3); a subtask has the board alone and is deleted.
+    expect(removeChoices(underEpic, ctx)).toContain("backlog");
+    expect(removeChoices(subtask, ctx)).toEqual(["off-board"]);
+    expect(gridRemoval(subtask, ctx)).toBe("delete");
     expect(mayRemove(subtask, "u")).toBe(true);
     expect(mayRemove({ ...underEpic, author: "x", zone: "red" }, "u")).toBe(false);
   });

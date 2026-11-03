@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -61,6 +61,10 @@ interface SortableBoardProps<Meta> {
   renderCard: (card: CardModel, group: BoardGroup<Meta>) => ReactNode;
   /** Renders the lifted card inside the DragOverlay. */
   renderOverlay: (card: CardModel) => ReactNode;
+  /** Renders gap `at` of a group — 0 above the first card, i+1 after the
+   *  i-th — the insert "+" (InsertGap). Return null where there is none.
+   *  Not drawn while a card is being dragged. */
+  renderGap?: (group: BoardGroup<Meta>, at: number) => ReactNode;
   /** Optional layout wrapper. Receives every rendered group node keyed by
    *  group.key and arranges them (e.g. the Team grid groups cells into columns).
    *  Defaults to rendering the group nodes in their natural order. */
@@ -165,6 +169,7 @@ function DroppableGroup<Meta>({
   groupable,
   renderGroup,
   renderCard,
+  renderGap,
   isRecord,
 }: {
   group: BoardGroup<Meta>;
@@ -176,17 +181,21 @@ function DroppableGroup<Meta>({
   groupable: boolean;
   renderGroup: SortableBoardProps<Meta>["renderGroup"];
   renderCard: (card: CardModel, group: BoardGroup<Meta>) => ReactNode;
+  renderGap?: SortableBoardProps<Meta>["renderGap"];
   isRecord?: (card: CardModel) => boolean;
 }) {
+  const gap = (at: number) => (renderGap && activeId === null ? renderGap(group, at) : null);
   const { setNodeRef, isOver } = useDroppable({ id: group.key });
   const body = (
     <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-      {ids.map((id) => {
+      {gap(0)}
+      {ids.map((id, i) => {
         const c = cardById.get(id);
         if (!c) {
           return null;
         }
         return (
+          <Fragment key={id}>
           <SortableCard
             key={id}
             id={id}
@@ -198,6 +207,8 @@ function DroppableGroup<Meta>({
           >
             {renderCard(c, group)}
           </SortableCard>
+          {gap(i + 1)}
+          </Fragment>
         );
       })}
     </SortableContext>
@@ -225,6 +236,7 @@ export function SortableBoard<Meta>({
   renderCard,
   renderOverlay,
   renderLayout,
+  renderGap,
   onDrop,
   externalCards,
   onExternalDrop,
@@ -787,6 +799,7 @@ export function SortableBoard<Meta>({
         groupable={!!onGroupDrop}
         renderGroup={renderGroup}
         renderCard={renderCard}
+        renderGap={renderGap}
         isRecord={isRecord}
       />,
     );

@@ -24,3 +24,62 @@ describe("the stage survives the wire", () => {
     expect(resourceToCard(res({})).stage).toBeUndefined();
   });
 });
+
+// The Backlog board shows a task's due date as the end of the nearest planning
+// card above it (docs/design/backlog.md, "The card"), and that end rides on
+// the lineage entry. A mapper that dropped it would leave every backlog card
+// without a due date and nothing failing.
+describe("the lineage keeps each ancestor's end", () => {
+  const withLineage = (lineage: NonNullable<CardResource["status"]>["lineage"]): CardResource =>
+    ({ ...res({}), status: { complete: false, inProgress: false, lineage } }) as CardResource;
+
+  it("maps an ancestor's end date", () => {
+    const card = resourceToCard(
+      withLineage([
+        { uid: "g", type: "goal", title: "Grow" },
+        { uid: "e", type: "epic", title: "Billing", end: "2026-12-18" },
+      ]),
+    );
+    expect(card.lineage).toEqual([
+      { uid: "g", type: "goal", title: "Grow" },
+      { uid: "e", type: "epic", title: "Billing", end: "2026-12-18" },
+    ]);
+  });
+
+  it("leaves an ancestor with no end without one, not an empty string", () => {
+    const card = resourceToCard(withLineage([{ uid: "e", type: "epic", title: "Billing", end: "" }]));
+    expect(card.lineage?.[0]).not.toHaveProperty("end");
+  });
+});
+
+// K9: the Triage status fields are gone from the wire, and a task has no
+// week (K7) — nothing of either reaches the card model.
+describe("nothing of the Triage board reaches the card", () => {
+  it("carries no triage, triageWeek, due or week", () => {
+    const stale = { ...res({}), status: { complete: false, inProgress: false, triage: true, triageWeek: "2026-09-07", due: ["2026-09-14"] } } as unknown as CardResource;
+    (stale.spec as Record<string, unknown>).week = "2026-09-07";
+    const card = resourceToCard(stale) as unknown as Record<string, unknown>;
+    for (const gone of ["triage", "triageWeek", "due", "week"]) {
+      expect(card).not.toHaveProperty(gone);
+    }
+  });
+});
+
+// A task's due date is the server's (status.dueDate), carried as it came.
+describe("the due date survives the wire", () => {
+  it("maps status.dueDate, and nothing when it is absent", () => {
+    const withDue = { ...res({}), status: { complete: false, inProgress: false, dueDate: "2026-12-18" } } as CardResource;
+    expect(resourceToCard(withDue).dueDate).toBe("2026-12-18");
+    expect(resourceToCard(res({})).dueDate).toBeUndefined();
+  });
+});
+
+// A review card names the card it reviews (status.reviewed), carried as it
+// came, so the drawer and the backlog row can open it.
+describe("the reviewed card survives the wire", () => {
+  it("maps status.reviewed, and nothing when it is absent", () => {
+    const rev = { ...res({ reviewOf: "t" }), status: { complete: false, inProgress: false, reviewed: { uid: "t", title: "Invoices" } } } as CardResource;
+    expect(resourceToCard(rev).reviewed).toEqual({ uid: "t", title: "Invoices" });
+    expect(resourceToCard(res({})).reviewed).toBeUndefined();
+  });
+});

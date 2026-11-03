@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_DEPTH,
+  roadmapLines,
   DELETE_INTENT,
   allowedParentKinds,
   barOf,
@@ -24,12 +26,14 @@ import {
   statusOf,
   ticks,
   visibleLevels,
-  isPlanned,
   sectionOf,
   sectionsOf,
   writeDrop,
+  PROJECT_CARDS_DEFAULT,
+  storedProjectCards,
 } from "./roadmap";
 import type { Card } from "./providers/types";
+import { resourceToCard, type CardResource } from "./api/resources";
 
 // The Roadmap's rule file, case by case: the tree the listing makes, the
 // rows a depth range draws, a row's status, a card's bar and where it lands.
@@ -234,6 +238,14 @@ describe("the hierarchy's × and its two answers", () => {
     expect(plan.request).toEqual({ kind: "unlink", uid: "i" });
   });
 
+  // A task detached from its epic with no date and no sprint would stand on
+  // no board: the server parks it (K1), and so does the optimistic patch.
+  it("detaching a task with no place of its own parks it (K1)", () => {
+    const loose = { itemId: "lt", title: "loose", assignees: [], parent: "e" } as unknown as typeof task;
+    const plan = planningRemovalPlan([goal, ini, epic, loose], "lt", "detach");
+    expect(plan.patches).toEqual([{ itemId: "lt", parent: undefined, parked: true }]);
+  });
+
   it("says what deleting does to what sits under the card", () => {
     expect(childrenNote([goal, ini, epic, task, slot], "i")).toBe("The 2 cards under it move under «Grow».");
     expect(childrenNote([goal, ini], "g")).toBe("The card under it moves to the top.");
@@ -345,25 +357,34 @@ describe("dragging a row on the Roadmap", () => {
 
 describe("the sections below the tree", () => {
   const loosePlanned = card({ itemId: "w1", title: "Fix the build", team: "core", startDate: "2026-03-02", day: "2026-03-02" });
-  const looseWeek = card({ itemId: "w2", title: "Write the post", team: "core", week: "2026-03-02" });
+  const looseSprint = card({ itemId: "w2", title: "Write the post", team: "core", sprintStart: "2026-03-02" });
   const looseSub = card({ itemId: "w1s", title: "A step", parent: "w1", lineage: [{ uid: "w1", title: "Fix the build" }] });
   const parkedCore = card({ itemId: "b1", title: "Someday", team: "core", parked: true });
   const parkedNone = card({ itemId: "b2", title: "Nobody's shelf", parked: true });
-  const strip = card({ itemId: "u1", title: "Just typed" });
   const orphanUnder = card({ itemId: "o1", title: "Under an epic I cannot see", parent: "hidden", lineage: [{ uid: "hidden", type: "epic", title: "Hidden" }] });
 
-  it("files a root by what has been said about it: the tree, in work, a shelf, or unsorted", () => {
+  // K1: a task is in work or in its team's backlog, and the sections are
+  // exactly those two. There is no "unsorted" any more — the Triage strip it
+  // drew is gone, and every door that left a task there parks it (K3).
+  it("files a loose root in work or in its team's backlog, and in nothing else (K1)", () => {
     expect(sectionOf(goal)).toBe("tree");
     expect(sectionOf(task)).toBe("tree"); // under an epic
     expect(sectionOf(orphanUnder)).toBe("tree"); // its lineage names a planning card
     expect(sectionOf(loosePlanned)).toBe("in-work");
-    expect(sectionOf(looseWeek)).toBe("in-work");
+    expect(sectionOf(looseSprint)).toBe("in-work");
     expect(sectionOf(parkedCore)).toBe("backlog");
-    expect(sectionOf(strip)).toBe("unsorted");
+    // Parked wins over dates a direct writer left beside the flag: the
+    // backlog is where it is drawn, once (board.InBacklog).
+    expect(sectionOf(card({ itemId: "x", parked: true, startDate: "2026-03-02" }))).toBe("backlog");
   });
 
-  it("splits the forest's roots into the sections, the shelves grouped by team, and a subtask rides its task", () => {
-    const s = sectionsOf(buildTree([goal, ini, epic, task, loosePlanned, looseSub, parkedNone, parkedCore, strip, looseWeek]));
+  it("reads a week left on a task as nothing (K7)", () => {
+    const weekParked = { ...card({ itemId: "w3", parked: true }), week: "2026-03-02" } as Card;
+    expect(sectionOf(weekParked)).toBe("backlog");
+  });
+
+  it("splits the forest's roots into the sections, the backlogs grouped by team, and a subtask rides its task", () => {
+    const s = sectionsOf(buildTree([goal, ini, epic, task, loosePlanned, looseSub, parkedNone, parkedCore, looseSprint]));
     expect(s.tree.map((n) => n.card.itemId)).toEqual(["g"]);
     expect(s.inWork.map((n) => n.card.itemId)).toEqual(["w1", "w2"]);
     expect(s.inWork[0].children.map((n) => n.card.itemId)).toEqual(["w1s"]);
@@ -371,13 +392,7 @@ describe("the sections below the tree", () => {
       ["", ["b2"]],
       ["core", ["b1"]],
     ]);
-    expect(s.unsorted.map((n) => n.card.itemId)).toEqual(["u1"]);
-  });
-
-  it("says when a card is planned: a day, a week or a sprint", () => {
-    expect(isPlanned(strip)).toBe(false);
-    expect(isPlanned(looseWeek)).toBe(true);
-    expect(isPlanned(card({ sprintStart: "2026-03-02" }))).toBe(true);
+    expect(s).not.toHaveProperty("unsorted");
   });
 });
 
@@ -436,3 +451,55 @@ describe("writeDrop", () => {
   });
 });
 
+
+// The Roadmap hides PROJECT cards (cards in a Scope column) unless the
+// toolbar's "Project cards" toggle is on: OFF by default. Hiding only takes
+// rows out of the drawing — the planning rows' counts and status come from
+// the server and do not change — and every other card under the same epic
+// stays where it is.
+// The toggle's memory: OFF until the viewer turns it on, and a stored value
+// read back as it was written.
+describe("the project cards toggle", () => {
+  it("is off by default and reads back what was stored", () => {
+    expect(PROJECT_CARDS_DEFAULT).toBe(false);
+    expect(storedProjectCards(null)).toBe(false);
+    expect(storedProjectCards("1")).toBe(true);
+    expect(storedProjectCards("0")).toBe(false);
+  });
+});
+
+// The toggle on a REAL listing: the roadmap's wire cards, mapped the way the
+// board maps them — an epic, a task under it and a project card under it
+// (spec.scope, spec.parent the epic). The lines the table draws are one pure
+// function of the listing, the depth and the folds (roadmapLines); the
+// toggle is the listing's selector (viewquery, projectCards).
+describe("the lines the Roadmap draws, with the project cards toggle", () => {
+  const wire = (uid: string, spec: Partial<CardResource["spec"]>, lineage?: { uid: string; type: string; title: string }[]): CardResource =>
+    ({
+      kind: "Card",
+      metadata: { uid },
+      spec: { title: uid, assignees: [], progress: 0, ...spec },
+      status: { complete: false, inProgress: false, ...(lineage ? { lineage } : {}) },
+    }) as CardResource;
+  const up = [{ uid: "e", type: "epic", title: "Billing v2" }];
+  const listing = [
+    wire("e", { title: "Billing v2", type: "epic" }),
+    wire("t", { title: "Render PDF", parent: "e", team: "portal" }, up),
+    wire("s", { title: "Q1 payments slot", parent: "e", scope: "Payments", project: "Core", team: "portal" }, up),
+  ].map(resourceToCard);
+  const titles = (cards: readonly Card[]) =>
+    roadmapLines(cards, { depth: DEFAULT_DEPTH, expanded: () => true })
+      .filter((l) => l.kind === "row")
+      .map((l) => (l.kind === "row" ? `${l.row.depth}:${l.row.node.card.title}` : ""));
+
+  // The toggle is the server's selector: off, the listing carries no
+  // project card; on, it does, and it is drawn under its epic. The lines
+  // draw what the listing holds and filter nothing.
+  it("draws no project card when the listing has none", () => {
+    expect(titles(listing.filter((c) => !c.scope))).toEqual(["0:Billing v2", "1:Render PDF"]);
+  });
+
+  it("draws a listed project card under its epic", () => {
+    expect(titles(listing)).toEqual(["0:Billing v2", "1:Render PDF", "1:Q1 payments slot"]);
+  });
+});

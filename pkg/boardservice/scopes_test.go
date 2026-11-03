@@ -234,7 +234,7 @@ func TestBoardParsesProjectsAndScopes(t *testing.T) {
 // in the current sprint would smear across the team's whole day grid.
 // A PROJECT card stands in its column alone (H4, docs/design/hierarchy.md):
 // every door that would make it somebody's work in hand — a team, an owner,
-// a week of the weekly plan, a place on the Triage grid, a review — is
+// a review, the backlog — is
 // refused, and refused before anything is written. Taking a stale team or
 // owner OFF one (a card written before schema 2) is allowed: that is the
 // state the migration produces, reached by hand.
@@ -255,14 +255,11 @@ func TestAProjectCardTakesNoTeamNoOwnerNoWeek(t *testing.T) {
 	svc := New(fake)
 
 	refused := map[string]error{
-		"a team":      svc.SetTeam(ctx, "acme", "plan", "alpha", ""),
-		"an owner":    svc.SetAssignee(ctx, "acme", "plan", "kvaps"),
-		"a week":      svc.SetWeek(ctx, "acme", "plan", week),
-		"a place":     svc.Place(ctx, "acme", "plan", week),
-		"an untriage": svc.Untriage(ctx, "acme", "plan"),
-		"a review":    func() error { _, err := svc.SendToReview(ctx, "acme", "plan", "bob", "", ""); return err }(),
-		"a reviewOf":  svc.SetReviewOf(ctx, "acme", "plan", "task"),
-		"the shelf":   svc.SetBacklog(ctx, "acme", "plan", true),
+		"a team":     svc.SetTeam(ctx, "acme", "plan", "alpha", ""),
+		"an owner":   svc.SetAssignee(ctx, "acme", "plan", "kvaps"),
+		"a review":   func() error { _, err := svc.SendToReview(ctx, "acme", "plan", "bob", "", ""); return err }(),
+		"a reviewOf": svc.SetReviewOf(ctx, "acme", "plan", "task"),
+		"the shelf":  svc.SetBacklog(ctx, "acme", "plan", true),
 	}
 	for what, err := range refused {
 		if what == "the shelf" {
@@ -286,9 +283,6 @@ func TestAProjectCardTakesNoTeamNoOwnerNoWeek(t *testing.T) {
 	}
 	if err := svc.SetAssignee(ctx, "acme", "legacy", ""); err != nil {
 		t.Fatalf("taking a stale owner off a project card: %v", err)
-	}
-	if err := svc.SetWeek(ctx, "acme", "legacy", ""); err != nil {
-		t.Fatalf("taking a stale week off a project card: %v", err)
 	}
 	if got := fake.get("legacy"); got.Team != "" || len(got.Assignees) != 0 {
 		t.Fatalf("the stale team and owner stayed: %+v", got)
@@ -409,12 +403,10 @@ func with[T any](v T, f func(*T)) T {
 	return v
 }
 
-// Filing a card INTO a column takes it off the plans it was on: a card
-// scheduled for a week and nothing else takes that week's span as its dates
-// — Monday to Friday, the whole of the week it was owed in, so it lands in
-// the column with a row — and its week and sprint go, since neither the
-// weekly plan nor a day board draws a project card (H4). A card that has
-// dates of its own keeps them. One that carries a team, an owner or a
+// Filing a card INTO a column takes it out of the places it was in: its
+// sprint and its backlog go, since neither a day board nor a backlog draws a
+// project card (H4). A card that has dates of its own keeps them — they are
+// its row. One that carries a team, an owner or a
 // parent is refused: it is somebody's work in hand, and the person takes
 // those off first.
 func TestFilingACardIntoAColumnTakesItOffThePlansItWasOn(t *testing.T) {
@@ -422,10 +414,10 @@ func TestFilingACardIntoAColumnTakesItOffThePlansItWasOn(t *testing.T) {
 	fake := newFake([]board.Card{
 		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "Cozystack"},
 		{ItemID: "e1", Title: board.ScopeStateTitle, Scope: "Infra", Project: "Cozystack"},
-		{ItemID: "planned", Title: "of a week", Week: "2026-08-24"},
-		{ItemID: "dated", Title: "with dates", Week: "2026-08-24", StartDate: "2026-09-07", Day: "2026-09-09", SprintStart: today},
-		{ItemID: "teamed", Title: "a team's", Team: "alpha", Week: "2026-08-24"},
-		{ItemID: "owned", Title: "somebody's", Assignees: []string{"kvaps"}, Week: "2026-08-24"},
+		{ItemID: "planned", Title: "parked", Parked: true},
+		{ItemID: "dated", Title: "with dates", StartDate: "2026-09-07", Day: "2026-09-09", SprintStart: today},
+		{ItemID: "teamed", Title: "a team's", Team: "alpha"},
+		{ItemID: "owned", Title: "somebody's", Assignees: []string{"kvaps"}},
 		{ItemID: "parent", Title: "a parent"},
 		{ItemID: "child", Title: "a subtask", Parent: "parent"},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
@@ -435,14 +427,14 @@ func TestFilingACardIntoAColumnTakesItOffThePlansItWasOn(t *testing.T) {
 	if err := svc.SetScope(ctx, "acme", "planned", "Infra", &project); err != nil {
 		t.Fatal(err)
 	}
-	if c := fake.get("planned"); c.StartDate != "2026-08-24" || c.Day != "2026-08-28" || c.Week != "" {
-		t.Fatalf("a card of a week takes that week's span and leaves the plan: %+v", c)
+	if c := fake.get("planned"); c.Parked {
+		t.Fatalf("a parked card filed into a column leaves its backlog: %+v", c)
 	}
 	if err := svc.SetScope(ctx, "acme", "dated", "Infra", &project); err != nil {
 		t.Fatal(err)
 	}
-	if c := fake.get("dated"); c.StartDate != "2026-09-07" || c.Day != "2026-09-09" || c.Week != "" || c.SprintStart != "" {
-		t.Fatalf("a dated card keeps its dates and leaves the week and the sprint: %+v", c)
+	if c := fake.get("dated"); c.StartDate != "2026-09-07" || c.Day != "2026-09-09" || c.SprintStart != "" {
+		t.Fatalf("a dated card keeps its dates and leaves the sprint: %+v", c)
 	}
 	for _, id := range []string{"teamed", "owned", "child"} {
 		if err := svc.SetScope(ctx, "acme", id, "Infra", &project); !errors.Is(err, ErrProjectCard) {

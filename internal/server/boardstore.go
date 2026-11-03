@@ -43,6 +43,55 @@ type subscription struct {
 	rights *domainRights
 }
 
+// seen is a card resource as this subscriber may read it: status.lineage,
+// status.reviewed and status.dueDate name OTHER cards, and one in a
+// repository the subscriber cannot read is left out — the crumb dropped,
+// the reviewed card unnamed, the due date taken from the nearest planning
+// card the subscriber can read. A subscriber who reads everything is sent
+// the resource as built.
+func (sub *subscription) seen(res apiserver.Card, find func(string) (board.Card, bool)) apiserver.Card {
+	if sub.rights == nil {
+		return res
+	}
+	can := func(uid string) bool {
+		c, ok := find(uid)
+		return !ok || sub.rights.canRead(c.Domain)
+	}
+	hidden := false
+	for _, l := range res.Status.Lineage {
+		if !can(l.UID) {
+			hidden = true
+			break
+		}
+	}
+	if res.Status.Reviewed != nil && !can(res.Status.Reviewed.UID) {
+		hidden = true
+	}
+	if !hidden {
+		return res
+	}
+	out := res
+	out.Status.Lineage = nil
+	for _, l := range res.Status.Lineage {
+		if can(l.UID) {
+			out.Status.Lineage = append(out.Status.Lineage, l)
+		}
+	}
+	if res.Status.Reviewed != nil && !can(res.Status.Reviewed.UID) {
+		out.Status.Reviewed = nil
+	}
+	if res.Status.DueDate != "" {
+		out.Status.DueDate = ""
+		for i := len(out.Status.Lineage) - 1; i >= 0; i-- {
+			if out.Status.Lineage[i].Type != "" {
+				out.Status.DueDate = out.Status.Lineage[i].End
+				break
+			}
+		}
+	}
+	return out
+}
+
 // view is the board as this subscriber sees it.
 func (sub *subscription) view(b board.Board) board.Board {
 	if sub.rights == nil {
@@ -196,6 +245,16 @@ type boardEntry struct {
 	// watcher that an epic's counts moved. Seeded from each installed board
 	// and kept by cardChanged.
 	parentOf map[string]string
+	// shownOf is each planning card's title and dates as last announced:
+	// the part of it its descendants carry in their lineage (the Backlog's
+	// tag and due date), so a change to it can be sent down to them.
+	shownOf map[string]string
+	// reviewShown is each reviewed card's part its REVIEW card carries
+	// (status.reviewed: title, type, people; and the parent its chain hangs
+	// from), and reviewsOf the review cards linked to it: a change to that
+	// part re-sends those review cards, which no write touches.
+	reviewShown map[string]string
+	reviewsOf   map[string][]string
 	// planning is which cards are goals, initiatives or epics, kept beside
 	// parentOf: with the two the walk to a card's planning ancestors costs
 	// the depth of its chain, never an index of the whole board.
@@ -474,6 +533,13 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	// them, the originator included: it holds its own change, not the
 	// counts the tree derived from it.
 	ancestors := e.ancestorsChanged(c, verb)
+	// And the tasks under a planning card whose title or dates moved: they
+	// carry both in their lineage (descendantsShowingIt).
+	descendants := e.descendantsShowingIt(c, verb)
+	ancestors = append(ancestors, descendants...)
+	// And the review cards of a card whose title, type, people or chain moved
+	// (status.reviewed, status.lineage): no write touches them either.
+	ancestors = append(ancestors, e.reviewsShowingIt(c, verb, descendants)...)
 	// Built on demand: on a board whose tabs are all scoped — the ordinary
 	// case — a burst of changes must not pay for a resource nobody is sent.
 	// And built ONCE each: the card's resource and every ancestor's are the
@@ -524,7 +590,7 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 			if !built {
 				res, built = buildCard(e.board, index(), c), true
 			}
-			sub.send(watchFrame{Type: verb, Kind: "Card", Object: res})
+			sub.send(watchFrame{Type: verb, Kind: "Card", Object: sub.seen(res, index().Find)})
 		}
 		for i := range ancestors {
 			a := ancestorAt(i)
@@ -534,7 +600,7 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 			if !a.built {
 				a.res, a.built = buildCard(e.board, index(), a.card), true
 			}
-			sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: a.res})
+			sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: sub.seen(a.res, index().Find)})
 		}
 	}
 	if !scoped {
@@ -587,9 +653,9 @@ func (e *boardEntry) flushMembers() {
 			}
 			switch {
 			case !sub.members[c.ItemID]:
-				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: buildCard(e.board, ix, c)})
+				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix.Find)})
 			case touched:
-				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: buildCard(e.board, ix, c)})
+				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix.Find)})
 			}
 		}
 		for id := range sub.members {
@@ -598,7 +664,7 @@ func (e *boardEntry) flushMembers() {
 			}
 			obj := tombstone(id)
 			if c, ok := ix.Find(id); ok {
-				obj = buildCard(e.board, ix, c)
+				obj = sub.seen(buildCard(e.board, ix, c), ix.Find)
 			}
 			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})
 		}
@@ -629,7 +695,7 @@ func (e *boardEntry) reevaluate(origin string) {
 		for _, c := range apiserver.FilterCards(sub.view(e.board), *sub.sel) {
 			now[c.ItemID] = true
 			if !sub.members[c.ItemID] && !suppressed {
-				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: buildCard(e.board, ix, c)})
+				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix.Find)})
 			}
 		}
 		for id := range sub.members {
@@ -638,7 +704,7 @@ func (e *boardEntry) reevaluate(origin string) {
 			}
 			obj := tombstone(id)
 			if c, ok := ix.Find(id); ok {
-				obj = buildCard(e.board, ix, c)
+				obj = sub.seen(buildCard(e.board, ix, c), ix.Find)
 			}
 			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})
 		}
@@ -666,8 +732,8 @@ func (e *boardEntry) sprintChanged(origin, team string) {
 	// Shaped exactly as the listing shapes it: a client merges this frame
 	// into the state it holds, so a field the frame leaves out is a field the
 	// client LOSES. It used to leave out the capacity, and every carry-over
-	// therefore wiped the number every open Triage board measures its weeks
-	// against, until the next full reload.
+	// therefore wiped the team's number on every open board, until the next
+	// full reload.
 	res := apiserver.SprintResourceOf(e.board, team)
 	teamDomain := e.board.Domains[st.ItemID]
 	for sub := range e.watchers {
@@ -695,18 +761,36 @@ func (e *boardEntry) orderingChanged(origin string) {
 type presenceEntry struct {
 	Login string `json:"login"`
 	Card  string `json:"card"`
+	// Client is the tab the selection is from (X-Aeman-Client), the key the
+	// server holds it by: two tabs of one person are two selections.
+	Client string `json:"client,omitempty"`
 }
 
 // presenceChanged announces one user's selection to every subscription that
 // wants presence, skipping the originator (their own tab already shows it).
-// The caller holds e.mu.
+// A selection is board-wide, not a view's: one made on the Team board reaches
+// a Me board and the other way round (#290). The caller holds e.mu.
 func (e *boardEntry) presenceChanged(origin string, entry presenceEntry) {
 	for sub := range e.watchers {
 		if !sub.resources["presence"] || (origin != "" && sub.clientID == origin) {
 			continue
 		}
-		sub.send(watchFrame{Type: "MODIFIED", Kind: "Presence", Object: entry})
+		sub.send(watchFrame{Type: "MODIFIED", Kind: "Presence", Object: e.presenceFor(sub, entry)})
 	}
+}
+
+// presenceFor is a selection as one subscription may see it: a card in a
+// repository the visitor may not read is not named — the person's mark
+// reads as cleared, so a mark left on a card they could see does not linger
+// either. The caller holds e.mu.
+func (e *boardEntry) presenceFor(sub *subscription, entry presenceEntry) presenceEntry {
+	if entry.Card == "" || sub.rights == nil {
+		return entry
+	}
+	if c, ok := board.Find(e.board, entry.Card); ok && !sub.rights.canRead(c.Domain) {
+		return presenceEntry{Login: entry.Login, Client: entry.Client}
+	}
+	return entry
 }
 
 // SetPresence records (card != "") or clears (card == "") the selection of the
@@ -720,9 +804,9 @@ func (s *boardStore) SetPresence(key, clientID, login, card string) {
 	if card == "" {
 		delete(e.presence, clientID)
 	} else {
-		e.presence[clientID] = presenceEntry{Login: login, Card: card}
+		e.presence[clientID] = presenceEntry{Login: login, Card: card, Client: clientID}
 	}
-	e.presenceChanged(clientID, presenceEntry{Login: login, Card: card})
+	e.presenceChanged(clientID, presenceEntry{Login: login, Card: card, Client: clientID})
 	e.mu.Unlock()
 }
 
@@ -737,7 +821,7 @@ func (s *boardStore) ClearPresence(key, clientID string) {
 	entry, ok := e.presence[clientID]
 	if ok {
 		delete(e.presence, clientID)
-		e.presenceChanged(clientID, presenceEntry{Login: entry.Login, Card: ""})
+		e.presenceChanged(clientID, presenceEntry{Login: entry.Login, Card: "", Client: clientID})
 	}
 	e.mu.Unlock()
 }
@@ -876,7 +960,7 @@ func (s *boardStore) subscribeAs(key, clientID string, sel *apiserver.Selector, 
 	e.watchers[sub] = struct{}{}
 	if resources["presence"] {
 		for _, entry := range e.presence {
-			sub.send(watchFrame{Type: "MODIFIED", Kind: "Presence", Object: entry})
+			sub.send(watchFrame{Type: "MODIFIED", Kind: "Presence", Object: e.presenceFor(sub, entry)})
 		}
 	}
 	// Seed the unsynced-changes counter: a tab opened while the write-behind
@@ -1091,12 +1175,102 @@ func (b *storeBackend) installLocked(e *boardEntry, fresh board.Board) {
 func (e *boardEntry) rememberParents() {
 	e.parentOf = make(map[string]string, len(e.board.Cards))
 	e.planning = map[string]bool{}
+	e.shownOf = map[string]string{}
+	e.reviewShown = map[string]string{}
+	e.reviewsOf = map[string][]string{}
 	for _, c := range e.board.Cards {
+		if c.ReviewOf != "" {
+			e.reviewsOf[c.ReviewOf] = append(e.reviewsOf[c.ReviewOf], c.ItemID)
+		}
+	}
+	for _, c := range e.board.Cards {
+		if len(e.reviewsOf[c.ItemID]) > 0 {
+			e.reviewShown[c.ItemID] = shownInReview(c)
+		}
 		e.parentOf[c.ItemID] = c.Parent
 		if board.IsPlanning(c) {
 			e.planning[c.ItemID] = true
+			e.shownOf[c.ItemID] = shownInLineage(c)
 		}
 	}
+}
+
+// shownInLineage is what a descendant's lineage carries of a planning card:
+// its title and its dates (status.lineage[].title/end).
+func shownInLineage(c board.Card) string {
+	return c.Title + "\x00" + c.StartDate + "\x00" + c.Day
+}
+
+// shownInReview is what a review card carries of the card it reviews: its
+// title, type and people (status.reviewed) and the parent its planning
+// chain hangs from (status.lineage).
+func shownInReview(c board.Card) string {
+	return c.Title + "\x00" + c.Type + "\x00" + strings.Join(c.Assignees, ",") + "\x00" + c.Parent
+}
+
+// reviewsShowingIt is the REVIEW cards of a card whose shown part this
+// change moved — renamed, re-typed, handed to someone, re-parented — by id,
+// and of the tasks named in alsoFor (the direct tasks of a renamed planning
+// card, whose review cards carry its title in their chain). Only the review
+// cards linked by reviewOf: one or two per card, no flood. It keeps the
+// review links and what was shown for next time. The caller holds e.mu with
+// the cache already updated.
+func (e *boardEntry) reviewsShowingIt(c board.Card, verb string, alsoFor []string) []string {
+	if e.reviewsOf == nil {
+		return nil
+	}
+	var out []string
+	if c.ReviewOf != "" && verb != "DELETED" && !slices.Contains(e.reviewsOf[c.ReviewOf], c.ItemID) {
+		e.reviewsOf[c.ReviewOf] = append(e.reviewsOf[c.ReviewOf], c.ItemID)
+		if orig, ok := board.Find(e.board, c.ReviewOf); ok {
+			e.reviewShown[c.ReviewOf] = shownInReview(orig)
+		}
+	}
+	if c.ReviewOf != "" && verb == "DELETED" {
+		e.reviewsOf[c.ReviewOf] = slices.DeleteFunc(e.reviewsOf[c.ReviewOf], func(id string) bool { return id == c.ItemID })
+	}
+	if reviews := e.reviewsOf[c.ItemID]; len(reviews) > 0 && verb != "DELETED" {
+		now := shownInReview(c)
+		if was := e.reviewShown[c.ItemID]; was != now {
+			e.reviewShown[c.ItemID] = now
+			out = append(out, reviews...)
+		}
+	}
+	for _, id := range alsoFor {
+		out = append(out, e.reviewsOf[id]...)
+	}
+	return out
+}
+
+// descendantsShowingIt is the TASKS directly under a planning card whose
+// title or dates this change moved, by id. A task's lineage carries both, and
+// the Backlog shows the NEAREST planning card's — its tag and due date (K2) —
+// so a board that holds the tasks and not the planning card (the Backlog's
+// `view=all&team=<set>`) would otherwise keep showing the old ones (K6). Only
+// the DIRECT task children are named: a deeper task shows its own nearest
+// planning card, and re-sending a whole subtree for a goal's rename would be
+// a frame per task, more than a watcher's buffer holds. It records what was
+// shown for next time; a change that moved neither, or one to a card that is
+// not planning, names nothing. The caller holds e.mu with the cache already
+// updated.
+func (e *boardEntry) descendantsShowingIt(c board.Card, verb string) []string {
+	if !board.IsPlanning(c) || verb == "DELETED" || e.shownOf == nil {
+		return nil
+	}
+	now := shownInLineage(c)
+	was, known := e.shownOf[c.ItemID]
+	e.shownOf[c.ItemID] = now
+	if !known || was == now {
+		return nil
+	}
+	var out []string
+	for id, parent := range e.parentOf {
+		if parent == c.ItemID && !e.planning[id] {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ancestorsChanged is the planning cards whose standing a card change moved,

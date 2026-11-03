@@ -105,7 +105,17 @@ export function resourceToCard(res: CardResource): Card {
       uid: l.uid,
       type: (l.type as CardType | undefined) || undefined,
       title: l.title,
+      // The ancestor's end: the Backlog board's due date for a task under it.
+      ...(l.end ? { end: l.end } : {}),
     })),
+    dueDate: res.status?.dueDate || undefined,
+    reviewed: res.status?.reviewed
+      ? {
+          uid: res.status.reviewed.uid,
+          title: res.status.reviewed.title,
+          ...(res.status.reviewed.assignees?.length ? { assignees: res.status.reviewed.assignees } : {}),
+        }
+      : undefined,
     hierarchy: res.status?.hierarchy
       ? { status: res.status.hierarchy.status, done: res.status.hierarchy.done, total: res.status.hierarchy.total }
       : undefined,
@@ -113,14 +123,10 @@ export function resourceToCard(res: CardResource): Card {
     overdue: res.status?.overdue ?? false,
     asOf: res.status?.asOf,
     doneAt: res.status?.doneAt || undefined,
-    triage: res.status?.triage || undefined,
-    triageWeek: res.status?.triageWeek || undefined,
-    due: res.status?.due,
     recurrence: spec.recurrence || undefined,
     day: dates.end || undefined,
     startDate: dates.start || undefined,
     sprintStart: dates.sprint || undefined,
-    week: spec.week || undefined,
     parked: spec.parked || undefined,
     size: sizeFromWire(spec.size),
     scope: spec.scope || undefined,

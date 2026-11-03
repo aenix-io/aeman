@@ -243,28 +243,16 @@ func (s *Service) SetScope(ctx context.Context, boardID string, itemID, scope st
 	if scope == "" {
 		return nil
 	}
-	// Filed into a column, the card leaves the plans it was on. Its DATES are
-	// its row on the Project board, so a card that has none takes the span
-	// of the week it was scheduled for — Monday to Friday, the whole of the
-	// week it was owed in — rather than landing in the column with no row at
-	// all; and the WEEK and the SPRINT go, because neither the weekly plan
-	// nor a team's day board draws a project card (H4).
+	// Filed into a column, the card leaves the places it was in. Its DATES
+	// are its row on the Project board and it keeps them; the SPRINT and the
+	// BACKLOG go, because neither a team's day board nor a backlog draws a
+	// project card (H4). (A task has no week to convert any more, K7.)
 	card.Scope = scope
-	if start, end, ok := board.WeekAsDates(card); ok {
-		if err := s.backend.SetStart(ctx, b, card, start); err != nil {
+	if board.InBacklog(card) {
+		if err := s.backend.SetBacklog(ctx, b, card, false); err != nil {
 			return err
 		}
-		if err := s.backend.SetDay(ctx, b, card, end); err != nil {
-			return err
-		}
-		s.logEvent(ctx, b, card, board.EventDates, "", board.DateRange(start, end))
-		card.StartDate = start
-	}
-	if card.Week != "" {
-		if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {
-			return err
-		}
-		s.logEvent(ctx, b, card, board.EventWeek, card.Week, "")
+		s.logEvent(ctx, b, card, board.EventBacklog, backlogLabel(card), "")
 	}
 	if card.SprintStart != "" {
 		if err := s.backend.SetSprintStart(ctx, b, card, ""); err != nil {

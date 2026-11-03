@@ -616,11 +616,32 @@ func (mb *MultiBackend) DeleteCard(ctx context.Context, bd board.Board, card boa
 	return be.DeleteCard(ctx, bd, card)
 }
 
-// MoveCard reorders within the card's domain.
+// MoveCard reorders within the card's domain. The TOP of the board (afterID
+// "") is the top of the merged board, not of the card's own repository: the
+// board's order is one list across the domains, and a card put first — a
+// review nobody has taken being made (K10), a card parked at the top of its
+// backlog — must rank before every domain's first card.
 func (mb *MultiBackend) MoveCard(ctx context.Context, bd board.Board, card board.Card, afterID string) error {
 	be, err := mb.route(ctx, card)
 	if err != nil {
 		return err
+	}
+	if afterID == "" && len(mb.domains) > 1 && !board.IsStateTitle(card.Title) {
+		first := ""
+		for _, c := range bd.Cards {
+			if c.ItemID == card.ItemID || c.Rank == "" || board.IsStateTitle(c.Title) {
+				continue
+			}
+			if first == "" || c.Rank < first {
+				first = c.Rank
+			}
+		}
+		if first != "" {
+			rank, err := board.RankBetween("", first)
+			if err == nil && !board.RankTooLong(rank) {
+				return be.setCardRank(ctx, card, rank)
+			}
+		}
 	}
 	return be.MoveCard(ctx, bd, card, afterID)
 }

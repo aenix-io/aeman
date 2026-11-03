@@ -5,11 +5,13 @@ import type {
   CardEvent,
   CardLog,
   CardType,
+  LineageRef,
   Note,
   Provider,
   SizeKey,
   ZoneKey,
 } from "../providers/types";
+import { keepPlaced } from "../backlog";
 import { ZONES, ZONE_ORDER } from "../zones";
 import { SIZES, SIZE_ORDER } from "../size";
 import { STAGES, barColor, clampProgress, clampsProgress } from "../stages";
@@ -71,7 +73,8 @@ const errMessage = (err: unknown) => (err instanceof Error ? err.message : Strin
 
 /** childLevels is what a planning card's pane may make under it: the levels
  *  below its own, and under an epic a TASK — born here with no team and no
- *  day, it stands in the Triage strip until somebody plans it (H7). */
+ *  day, it is parked in the no-team backlog until somebody takes it into
+ *  work (H7, K3). */
 function childLevels(kind: RoadmapKind): (CardType | "task")[] {
   if (kind === "goal") {
     return ["initiative", "epic"];
@@ -189,6 +192,14 @@ export function CardDetail({
       .then(onOpenCard)
       .catch((err: unknown) => onError?.(errMessage(err)));
   };
+
+  // The breadcrumb: the card's ancestors, root first — and on a REVIEW card
+  // the task it reviews as the last crumb (status.reviewed), opened like the
+  // others. A review hangs under nothing of its own; its chain is its task's.
+  const crumbs: LineageRef[] = [
+    ...(card.lineage ?? []),
+    ...(card.reviewed ? [{ uid: card.reviewed.uid, title: card.reviewed.title }] : []),
+  ];
 
   // ---- whose this is: the owner, and the reviewer when it is on review ----
   const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
@@ -419,10 +430,13 @@ export function CardDetail({
     // Detach a child of a planning card, or ungroup a subtask: the same
     // write — the link goes, the card stays where it is.
     if (choice === "detach" || choice === "ungroup") {
-      const before = { parent: target.parent, lineage: target.lineage };
-      patchCard(target.itemId, { parent: undefined, lineage: undefined });
+      const before = { parent: target.parent, lineage: target.lineage, parked: target.parked };
+      // Out of its group or its plan with no place of its own, the server
+      // parks it (K1, keepPlaced); the optimistic card says the same.
+      const freed = { parent: undefined, lineage: undefined, ...keepPlaced(target, false) };
+      patchCard(target.itemId, freed);
       setHierarchy((h) =>
-        h ? { ...h, cards: h.cards.map((c) => (c.itemId === target.itemId ? { ...c, parent: undefined, lineage: undefined } : c)) } : h,
+        h ? { ...h, cards: h.cards.map((c) => (c.itemId === target.itemId ? { ...c, ...freed } : c)) } : h,
       );
       void provider.patchCard(target.itemId, { parent: "" }).catch((err: unknown) => {
         patchCard(target.itemId, before);
@@ -509,7 +523,7 @@ export function CardDetail({
   }, []);
   // What kind of work this is. It is set by which area of the Team board a
   // card stands in, which is no help when the card is met anywhere else —
-  // and on the Triage board a column is a person, so there is no area to
+  // and on the Backlog board a column is a team, so there is no area to
   // drop it into at all.
   const zoneRef = useRef<HTMLSpanElement | null>(null);
   const [zoneOpen, setZoneOpen] = useState(false);
@@ -733,7 +747,7 @@ export function CardDetail({
               planning crumb leads to the Roadmap, which is the one board that
               draws it; a task crumb is a name, since the day boards are where
               a task is met. */}
-          {(onBack || (card.lineage && card.lineage.length > 0)) && (
+          {(onBack || crumbs.length > 0) && (
             <nav className="modal-crumbs drawer-crumbs" aria-label="Hierarchy">
               {onBack && (
                 <button type="button" className="drawer-back" onClick={onBack} title="Back to the card this was opened from">
@@ -742,7 +756,7 @@ export function CardDetail({
               )}
               {/* Every crumb opens that card here; a planning crumb also
                   offers the Roadmap, which is the one board that draws it. */}
-              {card.lineage?.map((up, i) => (
+              {crumbs.map((up, i) => (
                 <span key={up.uid} className="modal-crumb">
                   {i > 0 && (
                     <span className="modal-crumb-sep" aria-hidden="true">
@@ -1100,7 +1114,7 @@ export function CardDetail({
                           </button>
                           {addLevel === "task" && (
                             <span className="drawer-hint drawer-add-hint">
-                              A task made here has no team and no day: it lands in Triage until somebody plans it.
+                              A task made here has no team and no day: it waits in the no-team backlog until somebody takes it into work.
                             </span>
                           )}
                         </form>
@@ -1174,14 +1188,33 @@ export function CardDetail({
                 {!planning && stageLabel && <span className="drawer-chip">{stageLabel}</span>}
               </>,
             )}
-            {/* The bar a task (or a project card) carries on its board, with
-                its handle: drag it here as there. A planning card's progress
-                is derived and has no bar of its own. */}
+            {/* The bar a task carries on its board, with its handle: drag it
+                here as there. A planning card's progress is derived and has
+                no bar of its own. */}
+            {/* A PROJECT card is done or not done (#288): a toggle, no bar —
+                the server takes 0 or 100 alone for it. */}
             {!planning &&
+              !!card.scope &&
+              row(
+                "Done",
+                <label className="drawer-done">
+                  <input
+                    type="checkbox"
+                    aria-label="Done"
+                    checked={complete}
+                    disabled={isRecord}
+                    onChange={(e) => setDone(e.target.checked)}
+                  />
+                  {complete ? "Done" : "Not done"}
+                </label>,
+              )}
+            {!planning &&
+              !card.scope &&
               row(
                 "Progress",
                 <div className="drawer-progress">
                   <ProgressSlider
+                    large
                     value={progressValue}
                     locked={clampsProgress(card.stage)}
                     fill={barColor(doneish ? "done" : card.stage)}
@@ -1336,7 +1369,6 @@ export function CardDetail({
                   </>,
                 )}
             {task && card.sprintStart && row("Sprint", card.sprintStart)}
-            {task && card.week && row("Week", card.week)}
             {subtask &&
               parentCrumb &&
               row(

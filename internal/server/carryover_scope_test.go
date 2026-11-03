@@ -74,7 +74,7 @@ func carryWithTabs(t *testing.T, name string, tabs int) (time.Duration, int64) {
 		t.Fatal(err)
 	}
 	files := []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 3\ntitle: t\n")},
 		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: " + yesterday + "\n")},
 	}
 	for i := range cards {
@@ -98,13 +98,13 @@ func carryWithTabs(t *testing.T, name string, tabs int) (time.Duration, int64) {
 	defer cancel()
 	srv.store.waitDrained(ctx)
 
-	// The views a team keeps open on a planning morning: the grid, the weeks
-	// ahead and people's own boards — every one of them scoped.
+	// The views a team keeps open on a planning morning: the grid, the
+	// backlog and people's own boards — every one of them scoped.
 	key := storeKey(srv.boardRef())
 	sels := []apiserver.Selector{
 		{View: "team", Team: "portal"},
 		{View: "me", User: "kvaps"},
-		{View: "triage", Team: "portal"},
+		{View: "backlog", Team: "portal"},
 	}
 	var frames atomic.Int64
 	var wg sync.WaitGroup

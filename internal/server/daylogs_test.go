@@ -31,7 +31,7 @@ func TestDayLogsAnswersForTheVisibleCardsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedRemoteFiles(t, closed, map[string]string{
-		gitstore.BoardPath:                      "schema: 2\ntitle: closed\n",
+		gitstore.BoardPath:                      "schema: 3\ntitle: closed\n",
 		gitstore.ProjectPath("01JB4PROJSECRET"): "name: secret\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		hiddenPath:                              "---\ntitle: in closed\nrank: a\ncreated: 2026-06-01T08:00:00Z\n---\n",
 	})

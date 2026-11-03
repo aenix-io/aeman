@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { RemoveChoice } from "../removal";
 
 interface RemoveChoiceDialogProps {
@@ -5,10 +6,16 @@ interface RemoveChoiceDialogProps {
   /** How far along the card is — what is at stake. */
   progress: number;
   /** What the × may do to this card where it stands (removal.removeChoices),
-   *  most destructive first. The dialog offers exactly these and nothing
+   *  in its own order. The dialog offers exactly these and nothing
    *  else: a card that cannot be destroyed is never shown a button that
    *  says it can. */
   choices: RemoveChoice[];
+  /** A REVIEW card: its backlog answer takes the reviewer off (K10), and
+   *  the dialog says so. */
+  review?: boolean;
+  /** The title of the task a review card reviews: the withdrawal says what
+   *  becomes of it. */
+  reviewing?: string;
   /** How many subtasks go with it, if any. */
   subtasks: number;
   /** What a destroying answer does to what sits under the card, said in
@@ -21,7 +28,7 @@ interface RemoveChoiceDialogProps {
 
 /** What each choice says: the button names the act, the line under it says
  *  where the card ends up. */
-function say(choice: RemoveChoice) {
+function say(choice: RemoveChoice, review = false, reviewing = "the task") {
   switch (choice) {
     case "detach":
       return {
@@ -38,7 +45,7 @@ function say(choice: RemoveChoice) {
     case "unassign":
       return {
         label: "Move it to Unassigned",
-        note: "It comes off the day — nobody’s, no dates — and stands in the week it is scheduled for.",
+        note: "Nobody holds it any more; it stays in its column on the Project board.",
         danger: false,
       };
     case "ungroup":
@@ -53,10 +60,23 @@ function say(choice: RemoveChoice) {
         note: "The work goes back to the sprint it was done in, and counts there instead of here.",
         danger: false,
       };
-    case "backlog":
+    case "withdraw":
       return {
-        label: "Send it to the backlog",
-        note: "Off the plan, kept on its team's shelf — nothing is lost, and nobody is holding it.",
+        label: "Withdraw the review",
+        note: `«${reviewing}» goes back to In progress.`,
+        danger: true,
+      };
+    case "backlog":
+      if (review) {
+        return {
+          label: "Back to backlog",
+          note: "The reviewer is taken off; it waits at the top of its task's team backlog for somebody to review it. The task stays on review.",
+          danger: false,
+        };
+      }
+      return {
+        label: "Send it back to the backlog",
+        note: "Out of work and back in its team's backlog — nobody, no day, no sprint. Nothing is lost.",
         danger: false,
       };
     default:
@@ -72,23 +92,73 @@ function say(choice: RemoveChoice) {
  *
  *  Every × puts this question, whatever it would do — the exception is a card
  *  made today that nobody has touched, which goes without ceremony
- *  (`asksFirst`). What it offers is the card's own list: an ordinary card can
- *  be taken off the board, and moved to Unassigned when it has a week or a
- *  column to be left in; a project card can only be moved there, since it is
- *  not this board's to destroy. */
+ *  (`asksFirst`). What it offers is the card's own list: a task can be taken
+ *  off the board or sent back to its team's backlog (K3); a project card can
+ *  only be moved to Unassigned, in its column, since it is not this board's
+ *  to destroy. */
 export function RemoveChoiceDialog({
   title,
   progress,
   choices,
+  review = false,
+  reviewing,
   subtasks,
   note,
   onClose,
   onSubmit,
 }: RemoveChoiceDialogProps) {
+  // Withdrawing a review changes the TASK, not the card the × was pressed
+  // on, so it asks again, in its own words, before it acts — at once when it
+  // is the only answer, after it is picked when there are others.
+  const task = reviewing ?? title.replace(/^review: /, "");
+  const [confirming, setConfirming] = useState(choices.length === 1 && choices[0] === "withdraw");
   const pick = (choice: RemoveChoice) => {
+    if (choice === "withdraw" && !confirming) {
+      setConfirming(true);
+      return;
+    }
     onSubmit(choice);
     onClose();
   };
+  // A review nobody has taken has one answer, and it is about the TASK:
+  // withdrawing the review takes it off review, back to In progress (K10).
+  // The question says that, and Cancel is the armed button.
+  if (confirming) {
+    return (
+      <div className="modal-backdrop" onClick={onClose}>
+        <div
+          className="modal modal-narrow"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Withdraw the review?"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              onClose();
+            }
+          }}
+        >
+          <div className="modal-header">
+            <h2 className="modal-title">Withdraw the review?</h2>
+            <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+              ✕
+            </button>
+          </div>
+          <div className="modal-body">
+            <p className="sprint-choice-text">«{task}» goes back to In progress.</p>
+            <div className="take-dialog-actions">
+              <button type="button" className="btn" autoFocus onClick={onClose}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => pick("withdraw")}>
+                Withdraw
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
   const hierarchy = choices.includes("delete");
   const destroys = choices.includes("off-board") || hierarchy;
   const family = note
@@ -98,7 +168,7 @@ export function RemoveChoiceDialog({
       : "";
   // The safe option takes the focus where there is one: a dialog that opens
   // with the destructive button armed answers itself on a stray Enter.
-  const focusOn = choices.find((c) => !say(c).danger) ?? choices[0];
+  const focusOn = choices.find((c) => !say(c, review, task).danger) ?? choices[0];
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -133,7 +203,7 @@ export function RemoveChoiceDialog({
           </p>
           <div className="sprint-choice-options">
             {choices.map((choice) => {
-              const { label, note, danger } = say(choice);
+              const { label, note, danger } = say(choice, review, task);
               return (
                 <button
                   key={choice}

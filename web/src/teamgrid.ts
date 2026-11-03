@@ -3,7 +3,7 @@
 // — the rule is the server's, the optimistic UI has to give the same answer
 // before the server has spoken, and a copy sitting inside a component is a
 // copy nothing tests. This one had drifted twice before it was a file.
-import { activeOnDay, mondayOf } from "./date";
+import { activeOnDay } from "./date";
 import { parked } from "./backlog";
 import { deferredPast, finishedOn, isComplete } from "./stages";
 import { isPlanning, isSubtask } from "./subtasks";
@@ -14,10 +14,11 @@ import type { Card } from "./providers/types";
  *  is the caller's — a board loads the teams it draws).
  *
  *  A card is in hand when it is not a subtask (those render nested under
- *  their parent), is not parked on a list, somebody has said WHEN it is for,
- *  it was not planned into a week after this day's, it is open or was
- *  finished on that very day, it was not deferred past the day, and — for a
- *  day still to come — somebody actually planned it for that day. The day a
+ *  their parent), is IN WORK rather than parked in its team's backlog (K1:
+ *  it has a date or a sprint), it is open or was finished on that very day,
+ *  it was not deferred past the day, and — for a day still to come —
+ *  somebody actually planned it for that day. A task has no week (K7): a
+ *  week an older repository left on one is read as nothing. The day a
  *  SPRINT began answers for the whole sprint instead, closed work included.
  *
  *  That is the whole rule. It used to be seven layered ones, and between them
@@ -36,29 +37,24 @@ export function inHandOn(
     return false;
   }
   // A card in a Scope column is a PROJECT CARD: the Project board's plan,
-  // not work in hand, whatever its week or dates say (H4,
+  // not work in hand, whatever its dates say (H4,
   // docs/design/hierarchy.md). Mirrors the same line in board.TeamGrid.
   if (c.scope) {
     return false;
   }
-  // Somebody has to have said WHEN: a week, a date or a sprint. A card with
-  // none of the three is the Triage strip — an inbox, not a day's work — and
-  // drawing it here would land the inbox in every column and keep it there.
-  if (!c.week && !c.startDate && !c.day && !c.sprintStart) {
-    return false;
-  }
-  // A card planned into a week AHEAD of this day's is on no day board until
-  // its Monday; the weeks BEHIND are never held back, so a debt does not fall
-  // off the board when the week it was owed in ends.
-  if (c.week && c.week > mondayOf(day)) {
+  // IN WORK means a date or a sprint (K1). A task with neither is parked in
+  // its team's backlog — drawn on the Backlog board, never here — and one
+  // with neither and no flag is a shape no door makes any more (schema 3
+  // parks the ones an older server left).
+  if (!c.startDate && !c.day && !c.sprintStart) {
     return false;
   }
   // THE CURRENT SPRINT ACCUMULATES ALL ITS WORK ON EVERY DAY: the day it began,
   // the days since and today each hold the work it opened with, the work typed
   // into it since, and the work already CLOSED — above both the start-date
   // gate and the finished gate for that reason. What still leaves it is what
-  // was taken OUT of the sprint: a card deferred past TODAY goes at once, and
-  // one planned into a week to come never reached it. Mirrors board.inSprintOn.
+  // was taken OUT of the sprint: a card deferred past TODAY goes at once.
+  // Mirrors board.inSprintOn.
   if (inSprintOn(c, day, today, currentSprint) && !deferredPast(c, today)) {
     return true;
   }
@@ -81,7 +77,8 @@ export function inHandOn(
 }
 
 /** plannedFor reports whether somebody put the card on a day: its own dates
- *  reach that day, or it was placed in the week the day belongs to.
+ *  reach that day. (It used to read a week the card was placed in as well;
+ *  a task has no week any more, K7.)
  *
  *  Asked of the days AHEAD only, and that asymmetry is the point. TODAY is
  *  what is in hand — a card planned for last Tuesday and still open stands
@@ -91,9 +88,6 @@ export function inHandOn(
  *  card stood on every future day, so a month out was simply the team's whole
  *  backlog. Mirrors board.plannedFor. */
 export function plannedFor(c: Partial<Card>, day: string): boolean {
-  if (c.week && c.week === mondayOf(day)) {
-    return true;
-  }
   return activeOnDay(c.startDate, c.day, day);
 }
 

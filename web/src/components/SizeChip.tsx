@@ -1,7 +1,6 @@
-// What a card WEIGHS, on the face of the card, wherever a board plans a
-// week: the Triage grid, and the backlog beside it — work is sized where it
-// is being weighed up, and walking to a card's own page for one letter is
-// what stops anyone doing it.
+// What a card WEIGHS, on the face of the card, on the board where work is
+// weighed up — the Backlog: work is sized where it is being weighed up, and
+// walking to a card's own page for one letter is what stops anyone doing it.
 //
 // A card nobody has sized wears the letter it is COUNTED as — M, or S for a
 // review — in an empty dashed chip rather than a solid one: that letter is

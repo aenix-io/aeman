@@ -2,11 +2,13 @@ package board
 
 // Reachable is every card some board still shows: the day boards for the days
 // a person opens (today, and each team's current and previous sprint day), the
-// Project board's columns and the weekly plan, plus the cards that ride one
-// of those — a subtask under its parent, a review card beside its original.
+// Project board's columns, the Roadmap and every team's backlog, plus the
+// cards that ride one of those — a subtask under its parent, a review card
+// beside its original.
 //
-// What it does NOT name is a card on no board at all: open, in no column, no
-// plan week, and standing on none of those days. The × used to make them by
+// What it does NOT name is a card on no board at all: open, in no column, not
+// parked, and standing on none of those days — an UNPLACED task (K1) among
+// them, the shape the Triage strip used to draw and schema 3 parks (K8). The × used to make them by
 // the dozen — it demoted a worked card into the previous sprint, out of
 // today's way and into a sprint the day grid does not draw, the Me board's
 // sprint gate hides and no carry-over ever picks up (a carry-over moves the
@@ -40,17 +42,13 @@ func Reachable(b Board, today string) map[string]bool {
 		case IsStateTitle(c.Title):
 		// A goal, an initiative or an epic: the Roadmap draws it (H3).
 		case IsPlanning(c):
-		// A Project-board column, and the weekly plan.
+		// A Project-board column.
 		case c.Scope != "":
-		case c.Week != "":
-		// The Triage board's STRIP: nobody has said when, which is a thing to
-		// be looked at rather than a thing that is lost — the strip is the
-		// inbox, and it is the one place such a card is meant to stand.
-		case NeedsTriage(b, c, today):
-		// A team's SHELF, which is a board — the whole point of parking is
+		// A team's BACKLOG, which is a board — the whole point of parking is
 		// that the card waits somewhere a person opens. The day boards
 		// deliberately do not draw it, so nothing else here would name it,
-		// and this list is handed to a cleanup that DELETES what it is given.
+		// and this list is handed to a cleanup that DELETES what it is given:
+		// everything schema 3 parks has to stay here.
 		case InBacklog(c):
 		// Planned for a day still to come: it arrives on its own.
 		case c.StartDate > today:

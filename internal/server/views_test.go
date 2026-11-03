@@ -16,8 +16,8 @@ import (
 // on it, and what a create means there (docs/design/view-scoped-api.md).
 
 // A gesture asked of a board that does not draw it is a route that is not
-// there — there is no week to drop into on the Me board, and no "finished in
-// the sprint before" on the Triage grid.
+// there — there is no "finished in the sprint before" on the Backlog, and the
+// Triage board's drop into a week is no route at all any more (K9).
 func TestAGestureIsAnsweredOnlyByTheBoardThatDrawsIt(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
@@ -27,19 +27,20 @@ func TestAGestureIsAnsweredOnlyByTheBoardThatDrawsIt(t *testing.T) {
 	srv := apiServer(t, Options{}, fake)
 	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
 
-	week := board.MondayOf(today)
-	if rec := do(t, srv, http.MethodPost, "/api/v1/views/me/cards/c1/actions/place",
-		`{"week":"`+week+`"}`); rec.Code != http.StatusNotFound {
-		t.Fatalf("a drop into a week on the Me board answered %d, want 404", rec.Code)
-	}
-	if rec := do(t, srv, http.MethodPost, "/api/v1/views/triage/cards/c1/actions/finished-earlier",
-		`{}`); rec.Code != http.StatusNotFound {
-		t.Fatalf("finished-earlier on the Triage board answered %d, want 404", rec.Code)
+	for _, target := range []string{
+		"/api/v1/views/backlog/cards/c1/actions/finished-earlier",
+		"/api/v1/views/team/cards/c1/actions/place",
+		"/api/v1/views/team/cards/c1/actions/untriage",
+		"/api/v1/views/triage/cards/c1/actions/remove",
+	} {
+		if rec := do(t, srv, http.MethodPost, target, `{}`); rec.Code != http.StatusNotFound {
+			t.Fatalf("%s answered %d, want 404", target, rec.Code)
+		}
 	}
 	// And on the board that does draw it, the same press lands.
-	if rec := do(t, srv, http.MethodPost, "/api/v1/views/triage/cards/c1/actions/place",
-		`{"week":"`+week+`"}`); rec.Code != http.StatusOK {
-		t.Fatalf("the Triage board's own drop answered %d: %s", rec.Code, rec.Body.String())
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards/c1/actions/finished-earlier",
+		`{}`); rec.Code == http.StatusNotFound {
+		t.Fatalf("the Team board's own finished-earlier answered 404: %s", rec.Body.String())
 	}
 }
 
@@ -97,12 +98,12 @@ func TestOwnIsAnsweredByTheBoardsThatDrawATask(t *testing.T) {
 func TestAGestureIsRefusedForACardTheBoardDoesNotDraw(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
-		// Both carry the week they were scheduled in, so the × has somewhere
-		// to leave them and the test is about the BOARD and nothing else.
+		// Unassign always has the backlog to leave them in (K3), so the test
+		// is about the BOARD and nothing else.
 		{ItemID: "mine", Title: "mine", Team: "alpha", Assignees: []string{"bob"},
-			Week: board.MondayOf(today), StartDate: today, Day: today, SprintStart: today},
+			StartDate: today, Day: today, SprintStart: today},
 		{ItemID: "theirs", Title: "theirs", Team: "alpha", Assignees: []string{"carol"},
-			Week: board.MondayOf(today), StartDate: today, Day: today, SprintStart: today},
+			StartDate: today, Day: today, SprintStart: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
 	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
@@ -124,10 +125,12 @@ func TestAGestureIsRefusedForACardTheBoardDoesNotDraw(t *testing.T) {
 
 // createdCard is the part of the answer the add-boxes differ by.
 type createdCard struct {
+	Metadata struct {
+		UID string `json:"uid"`
+	} `json:"metadata"`
 	Spec struct {
 		Assignees []string `json:"assignees"`
 		Zone      string   `json:"zone"`
-		Week      string   `json:"week"`
 		Parked    bool     `json:"parked"`
 		Dates     struct {
 			Start  string `json:"start"`
@@ -176,16 +179,16 @@ func TestACreateMeansWhatTheBoardMeansByIt(t *testing.T) {
 	if len(theirs.Spec.Assignees) != 0 {
 		t.Fatalf("the Team grid filed it on %v, want the Unassigned column", theirs.Spec.Assignees)
 	}
-	week := board.MondayOf(today)
-	later := created(t, do(t, newSrv(), http.MethodPost, "/api/v1/views/triage/cards",
-		`{"title":"later","team":"alpha","zone":"planned","week":"`+week+`"}`))
-	if later.Spec.Week != week || later.Spec.Dates.Start != "" || later.Spec.Dates.Sprint != "" {
-		t.Fatalf("a Triage create = %+v, want a week and no day", later.Spec)
-	}
 	shelved := created(t, do(t, newSrv(), http.MethodPost, "/api/v1/views/backlog/cards",
 		`{"title":"someday","team":"alpha","zone":"planned"}`))
-	if !shelved.Spec.Parked || shelved.Spec.Week != "" {
-		t.Fatalf("a drawer create = %+v, want the shelf alone", shelved.Spec)
+	if !shelved.Spec.Parked || shelved.Spec.Dates.Start != "" || shelved.Spec.Dates.Sprint != "" {
+		t.Fatalf("a backlog create = %+v, want the backlog alone", shelved.Spec)
+	}
+	// The Triage board is retired (K9): a create into it is a board nobody
+	// has.
+	if rec := do(t, newSrv(), http.MethodPost, "/api/v1/views/triage/cards",
+		`{"title":"later","team":"alpha"}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("a create into the retired Triage board answered %d, want 404", rec.Code)
 	}
 	// And a board refuses what it does not own, 422, naming the field.
 	rec := do(t, newSrv(), http.MethodPost, "/api/v1/views/me/cards",
@@ -246,11 +249,10 @@ func TestTheCatalogNamesTheBoardsAndTheirGestures(t *testing.T) {
 	want := map[string][]string{
 		"me":      {"remove", "finished-earlier", "own"},
 		"team":    {"remove", "finished-earlier", "own"},
-		"triage":  {"remove", "place", "untriage", "own"},
-		"backlog": {"remove", "own"},
+		"backlog": {"remove", "own", "take"},
 		"roadmap": {"remove", "own"},
 		"project": {"remove"},
-		"all":     {"remove", "place", "untriage", "finished-earlier", "own"},
+		"all":     {"remove", "finished-earlier", "own", "take"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("the catalog lists %v", got)
@@ -274,7 +276,7 @@ func TestTheCardARouteAddressesIsFoundThroughItsBoardToo(t *testing.T) {
 		"/api/v1/cards/c1":                                    "c1",
 		"/api/v1/cards/c1/notes":                              "c1",
 		"/api/v1/views/team/cards/c1/actions/remove":          "c1",
-		"/api/v1/views/triage/cards/c2/actions/place":         "c2",
+		"/api/v1/views/backlog/cards/c2/actions/own":          "c2",
 		"/api/v1/views/all/cards/c3/actions/finished-earlier": "c3",
 		// A collection addresses no card, and neither does anything else.
 		"/api/v1/views/team/cards": "",
@@ -299,7 +301,7 @@ func TestTheDoorHandsTheServiceTheBoardItWasPressedOn(t *testing.T) {
 			// Mine, and the plan has taken it up: the Me board draws no × on
 			// it (it is no longer only mine), the team's grid does.
 			{ItemID: "planned", Title: "in the plan", Team: "alpha", Author: "bob",
-				Assignees: []string{"bob"}, Zone: board.ZoneGray, Week: board.MondayOf(today),
+				Assignees: []string{"bob"}, Zone: board.ZoneGray,
 				StartDate: today, Day: today, SprintStart: today},
 		}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	}
@@ -319,21 +321,134 @@ func TestTheDoorHandsTheServiceTheBoardItWasPressedOn(t *testing.T) {
 	}
 }
 
-// A board can be drawn from more than one listing (board.Panes), and the ×
-// in the Triage board's DRAWER is the Triage board's ×. Collapsing Panes to
-// the view itself left every suite green while every parked card lost its ×.
-func TestTheDrawersCrossIsTheTriageBoards(t *testing.T) {
+// The Backlog is a STANDING board of its own (K5, K9): its gestures — the ×
+// and own, the owner picker that takes a task into work — are judged against
+// the backlog listing, so a parked task is drawn there and a gesture on it
+// lands; one on a task in work is refused, since the Backlog does not draw it.
+func TestTheBacklogIsABoardItsGesturesStandOn(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "shelved", Title: "someday", Team: "alpha", Parked: true},
+		{ItemID: "taken", Title: "in work", Team: "alpha", StartDate: today, Day: today, SprintStart: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
 	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
 
-	// A parked card is in no week, so the grid's own listing does not hold it
-	// — the drawer beside the grid does, and the board is one screen.
-	if rec := do(t, srv, http.MethodPost, "/api/v1/views/triage/cards/shelved/actions/remove?team=alpha",
-		`{"intent":"off-board"}`); rec.Code != http.StatusNoContent {
-		t.Fatalf("the drawer's × answered %d: %s", rec.Code, rec.Body.String())
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/backlog/cards/shelved/actions/own?team=alpha",
+		`{"team":"alpha","person":"bob"}`); rec.Code != http.StatusOK {
+		t.Fatalf("own from the Backlog answered %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := fake.Card("shelved"); got == nil || got.Parked || got.StartDate != today {
+		t.Fatalf("own with a person takes the task into work (K4): %+v", got)
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/backlog/cards/taken/actions/remove?team=alpha",
+		`{"intent":"off-board"}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("the Backlog's × on a task in work answered %d, want 404 — it does not draw it", rec.Code)
+	}
+}
+
+// A TASK HAS NO WEEK (K7): `week` is not a field of the create or the patch
+// any more, so the API takes nothing from it — the card a create answers with
+// carries no week, and a patch naming one changes nothing about the card.
+// Deadline stubs keep theirs: /deadlines still takes a week.
+func TestTheAPITakesNoWeekForATask(t *testing.T) {
+	today := board.TodayIso()
+	week := board.MondayOf(today)
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "c1", Title: "in work", Team: "alpha", StartDate: today, Day: today, SprintStart: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards", `{"title":"x","team":"alpha","week":"`+week+`"}`)
+	if rec.Code == http.StatusCreated && strings.Contains(rec.Body.String(), `"week"`) {
+		t.Fatalf("a create took a week: %s", rec.Body.String())
+	}
+	rec = do(t, srv, http.MethodPatch, "/api/v1/cards/c1", `{"week":"`+week+`"}`)
+	if rec.Code == http.StatusOK && strings.Contains(rec.Body.String(), `"week"`) {
+		t.Fatalf("a patch took a week: %s", rec.Body.String())
+	}
+	if got := fake.Card("c1"); got == nil || got.Week != "" {
+		t.Fatalf("the card carries a week after the patch: %+v", got)
+	}
+}
+
+// TAKE over HTTP (K11): the Backlog's own gesture, answered through the
+// gesture door — the caller is the one the card is given to, on the card's
+// own team, and it leaves the backlog; a task already in work is 422
+// `alreadyInWork`, and another board has no take at all.
+func TestTakeIsTheBacklogsGestureOverHTTP(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "p", Title: "parked", Team: "alpha", Parked: true},
+		{ItemID: "w", Title: "in work", Team: "alpha", Assignees: []string{"ann"}, StartDate: today, Day: today, SprintStart: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/backlog/cards/p/actions/take?team=alpha", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("take answered %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := fake.Card("p"); got == nil || got.Parked || len(got.Assignees) != 1 || got.Assignees[0] != "bob" || got.Team != "alpha" {
+		t.Fatalf("taken by the caller on its own team, out of the backlog: %+v", got)
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/all/cards/w/actions/take", ""); rec.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rec.Body.String(), "alreadyInWork") {
+		t.Fatalf("take on work in hand = %d %s, want 422 alreadyInWork", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards/w/actions/take?team=alpha", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("take on the Team board answered %d, want 404 — it is the backlog's", rec.Code)
+	}
+}
+
+// The insert "+" over HTTP is ONE create naming its place: the card is born
+// after the card above the gap (or before the one below it), in that
+// request — on the Backlog and in a Team or Me cell. Two places, or a place
+// on a board that is not a ranked list, are 422 by name.
+func TestABacklogCreateTakesItsPlaceOverHTTP(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "a", Title: "first", Team: "alpha", Parked: true},
+		{ItemID: "b", Title: "second", Team: "alpha", Parked: true},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/backlog/cards?team=alpha", `{"title":"between","team":"alpha","after":"a"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("a placed create answered %d: %s", rec.Code, rec.Body.String())
+	}
+	var made createdCard
+	if err := json.Unmarshal(rec.Body.Bytes(), &made); err != nil {
+		t.Fatal(err)
+	}
+	if !fake.Saw("MoveCard " + made.Metadata.UID + " after=a") {
+		t.Fatal("the card was not placed after «first» in the create")
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/backlog/cards?team=alpha",
+		`{"title":"x","team":"alpha","after":"a","before":"b"}`); rec.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rec.Body.String(), "twoPlaces") {
+		t.Fatalf("two places = %d %s, want 422 twoPlaces", rec.Code, rec.Body.String())
+	}
+	// A Team board cell takes a place too, keeping the cell's person and
+	// band; the Roadmap places by parent and refuses one by name.
+	rec = do(t, srv, http.MethodPost, "/api/v1/views/team/cards?team=alpha",
+		`{"title":"in a cell","team":"alpha","zone":"planned","assignees":["ann"],"before":"b"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("a placed Team create answered %d: %s", rec.Code, rec.Body.String())
+	}
+	var cell createdCard
+	if err := json.Unmarshal(rec.Body.Bytes(), &cell); err != nil {
+		t.Fatal(err)
+	}
+	if cell.Spec.Zone != "planned" || len(cell.Spec.Assignees) != 1 || cell.Spec.Assignees[0] != "ann" ||
+		!fake.Saw("MoveCard "+cell.Metadata.UID+" after=a") {
+		t.Fatalf("the cell's card = %+v, want ann's, planned, right before «second»", cell.Spec)
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/roadmap/cards",
+		`{"title":"x","type":"epic","after":"a"}`); rec.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rec.Body.String(), "notOnThisBoard") {
+		t.Fatalf("a place on the Roadmap = %d %s, want 422 notOnThisBoard", rec.Code, rec.Body.String())
 	}
 }

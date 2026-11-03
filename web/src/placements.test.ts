@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  attachSlotDates,
   attachTargets,
   canBeFiledIntoAColumn,
   canCreateInColumn,
@@ -22,6 +21,7 @@ import {
   type CardPlacements,
 } from "./placements";
 import type { Card } from "./providers/types";
+import { parkedLocally } from "./backlog";
 
 // The picker offers only columns the server would accept: projects of the
 // card's own repository, each with its scopes — a pair the server refuses
@@ -69,18 +69,6 @@ describe("attach targets", () => {
     expect(attachTargets(projects, single, "").map((p) => p.name)).toEqual(projects);
   });
 
-});
-
-// Attaching a card scheduled for a WEEK gives it the slot of that week —
-// Monday to Friday, the same dates the server writes, so the optimistic card
-// does not jump on the re-list.
-describe("attachSlotDates", () => {
-  it("spans the week it was taken from, Monday to Friday", () => {
-    expect(attachSlotDates("2026-08-24")).toEqual({
-      startDate: "2026-08-24",
-      day: "2026-08-28",
-    });
-  });
 });
 
 // The Project board's × means two different things, and the UI must know
@@ -201,8 +189,8 @@ describe("movingSlot", () => {
   });
 });
 
-// The attach patch mirrors the server's G55 clause: only a card with NO
-// dates of its own takes its week's slot — a chosen schedule survives.
+// The attach patch is the column and nothing else: a task has no week whose
+// slot it could take (K7), and a chosen schedule survives the move.
 describe("makeCardPlacements onAttachProject", () => {
   const board = {
     domains: [
@@ -238,21 +226,24 @@ describe("makeCardPlacements onAttachProject", () => {
     return patches[0];
   };
 
-  it("gives a dateless card scheduled for a week that week's slot", () => {
-    const patch = run(mk({ itemId: "c1", week: "2026-08-24" }));
-    expect(patch.startDate).toBe("2026-08-24");
-    expect(patch.day).toBe("2026-08-28");
+  it("takes no dates from a week an older repository left on the card (K7)", () => {
+    const patch = run({ ...mk({ itemId: "c1" }), week: "2026-08-24" } as Card);
+    expect(patch).toEqual({ project: "engineering", scope: "Cozystack" });
   });
 
   it("keeps a dated card's chosen schedule", () => {
-    const patch = run(mk({
-      itemId: "c1",
-      week: "2026-08-24",
-      startDate: "2026-09-07",
-      day: "2026-09-09",
-    }));
+    const patch = run(mk({ itemId: "c1", startDate: "2026-09-07", day: "2026-09-09" }));
     expect(patch.startDate).toBeUndefined();
     expect(patch.day).toBeUndefined();
+  });
+
+  // Parking from the assign menu is the same door as every other into the
+  // backlog: out of work — nobody, no day, no sprint — and planned (K1, K3).
+  it("parks the card out of work, the way every door into the backlog does", () => {
+    const patch = run(mk({ itemId: "c1", assignees: ["kvaps"], startDate: "2026-09-07", sprintStart: "2026-09-07" }), (p) =>
+      p.onPark?.(),
+    );
+    expect(patch).toEqual(parkedLocally());
   });
 });
 
@@ -289,7 +280,7 @@ describe("drawnOnProjectBoard", () => {
 describe("drawnAsSlot", () => {
   it("needs a start date to be a slot", () => {
     expect(drawnAsSlot(mk({ scope: "Cozystack", startDate: "2026-08-24" }))).toBe(true);
-    expect(drawnAsSlot(mk({ scope: "Cozystack", week: "2026-08-24" }))).toBe(false);
+    expect(drawnAsSlot({ ...mk({ scope: "Cozystack" }), week: "2026-08-24" } as Card)).toBe(false);
     expect(drawnAsSlot(mk({ scope: "Cozystack" }))).toBe(false);
   });
 });
@@ -639,8 +630,8 @@ describe("attach targets for a card a LINK holds", () => {
 });
 
 // The left stripe says where a card came FROM, and every board that draws one
-// asks this — the day boards down the card's edge, Triage on its slot. Two
-// boards deciding it apart is how one of them came to draw nothing at all
+// asks this — the day boards down the card's edge. Two boards deciding it
+// apart is how one of them came to draw nothing at all
 // after the weekly plan, whose band the stripe used to be, was taken out.
 describe("markOf", () => {
   // A review is what arrived from elsewhere; a project card, the other kind

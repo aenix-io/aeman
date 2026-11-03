@@ -4,7 +4,12 @@ import {
   freeSubtasks,
   gridRemoval,
   offersRemoval,
+  removeIntent,
   removeChoices,
+  backlogPatch,
+  unaskedRemoval,
+  withdrawPatch,
+  reviewAssigneePatch,
   subtaskRemovalPatch,
   subtaskRemovalUndo,
   type RemovableCard,
@@ -30,21 +35,14 @@ describe("what each × does, one answer for every board", () => {
   const ctx = { current: "2026-08-24", previous: "2026-08-17", today: "2026-08-29" };
   const inSprint = { sprintStart: "2026-08-24", startDate: "2026-08-29" };
 
-  it("sends a card back to the week it is scheduled for", () => {
-    expect(gridRemoval({ ...inSprint, week: "2026-08-24" }, ctx)).toBe("leave");
-    // Even one carrying work: the week is where it goes, not the bin.
-    expect(gridRemoval({ ...inSprint, week: "2026-08-24", progress: 40 }, ctx)).toBe(
-      "leave",
-    );
-  });
-
-  // The week counts as somewhere to go only while the card is ALSO in the
-  // working area. One that is nothing but its week — already standing in
-  // Unassigned — has no second home, and the × empties its last one. This
-  // rule drifted from the server's once, and the dialog then promised such a
-  // card it would be moved to Unassigned while the server deleted it.
-  it("deletes a card that is nothing but its week", () => {
-    expect(gridRemoval({ week: "2026-08-24" }, ctx)).toBe("delete");
+  // A task has no week to be sent back to any more (K7): the × off the board
+  // deletes what has no column, whatever an older repository left on it. The
+  // answer that keeps the work is the BACKLOG, which the dialog offers
+  // (removeChoices) and which is not this function's to take unasked.
+  it("has no week to send a card back to (K7)", () => {
+    const withAStaleWeek = { ...inSprint, week: "2026-08-24" } as Removable;
+    expect(gridRemoval(withAStaleWeek, ctx)).toBe("delete");
+    expect(gridRemoval({ ...withAStaleWeek, progress: 40 } as Removable, ctx)).toBe("delete");
   });
 
   // The Me board asked this question on its own and answered it differently
@@ -52,9 +50,6 @@ describe("what each × does, one answer for every board", () => {
   // splitting it from its parent, and looking like the × had done nothing.
   it("deletes a subtask, which has no home of its own", () => {
     expect(gridRemoval({ ...inSprint, parent: "p" }, ctx)).toBe("delete");
-    expect(gridRemoval({ ...inSprint, parent: "p", week: "2026-08-24" }, ctx)).toBe(
-      "delete",
-    );
     // A column written on a subtask (a repository from before schema 2)
     // spares it nothing: a card in a column is nobody's subtask (H4), so
     // the pair is not a home and the × answers for the subtask.
@@ -113,10 +108,10 @@ describe("the question before a delete", () => {
 // "silently disappeared" shape the × rules exist to prevent.
 describe("freeing the subtasks of a deleted parent", () => {
   const cards = [
-    { itemId: "p", assignees: ["kvaps"] },
-    { itemId: "s1", parent: "p", assignees: [] },
-    { itemId: "s2", parent: "p", assignees: ["bob"] },
-    { itemId: "other", parent: "q", assignees: [] },
+    { itemId: "p", assignees: ["kvaps"], sprintStart: "2026-09-01" },
+    { itemId: "s1", parent: "p", assignees: [], sprintStart: "2026-09-01" },
+    { itemId: "s2", parent: "p", assignees: ["bob"], sprintStart: "2026-09-01" },
+    { itemId: "other", parent: "q", assignees: [], sprintStart: "2026-09-01" },
   ];
 
   it("clears the parent and hands an unassigned subtask the parent's person", () => {
@@ -132,8 +127,22 @@ describe("freeing the subtasks of a deleted parent", () => {
   });
 
   it("frees a subtask as its own card when the parent had nobody either", () => {
-    const orphan = [{ itemId: "p", assignees: [] }, { itemId: "s", parent: "p", assignees: [] }];
+    const orphan = [
+      { itemId: "p", assignees: [], startDate: "2026-09-01" },
+      { itemId: "s", parent: "p", assignees: [], startDate: "2026-09-01" },
+    ];
     expect(freeSubtasks(orphan, "p")).toEqual([{ itemId: "s", patch: { parent: undefined } }]);
+  });
+
+  // The subtask of a PARKED parent rode it out of every day: freed, it has no
+  // place of its own and lands in its team's backlog, as the server parks it
+  // (K1, boardservice freeChildren) — a plain park, nothing else moves.
+  it("parks a freed subtask that has no date and no sprint (K1)", () => {
+    const shelved = [
+      { itemId: "p", assignees: [], parked: true },
+      { itemId: "s", parent: "p", assignees: [] },
+    ];
+    expect(freeSubtasks(shelved, "p")).toEqual([{ itemId: "s", patch: { parent: undefined, parked: true } }]);
   });
 });
 
@@ -269,59 +278,68 @@ describe("what the × offers", () => {
     startDate: "2026-08-28",
   };
 
-  it("offers an ordinary card the board, and its week beside it", () => {
-    expect(removeChoices({ ...held, week: "2026-08-24" }, ctx)).toEqual([
-      "off-board",
-      "unassign",
-      "backlog",
-    ]);
+  // A task's × has two answers that keep or lose it: off the board, or back
+  // in its team's BACKLOG (K3) — parked, nobody, no day, no sprint. The
+  // backlog is always there to go to, so it is offered to every task that
+  // is not in it already, whoever holds it and whatever dates it has. It used
+  // to be "move it to Unassigned, back in its week", offered only to a card
+  // with a week and refused (nowhereToLeaveIt) to one without.
+  it("offers a task its backlog and the board, nothing in between (K3)", () => {
+    expect(removeChoices(held, ctx)).toEqual(["backlog", "off-board"]);
+    // Nobody holding it changes nothing: the backlog is still somewhere else.
+    expect(removeChoices({ sprintStart: "2026-08-24" }, ctx)).toEqual(["backlog", "off-board"]);
+    expect(removeChoices({}, ctx)).toEqual(["backlog", "off-board"]);
   });
 
-  it("does not offer Unassigned to a card with nowhere to be left", () => {
-    // No week and no column: unassigning would leave it nowhere at all.
-    expect(removeChoices(held, ctx)).toEqual(["off-board", "backlog"]);
+  it("offers the backlog once: never as Unassigned beside it", () => {
+    // Unassigned is the PROJECT card's answer (its column keeps it); a task's
+    // keeping answer is the backlog, and offering both read as two ways of
+    // saying the same thing that the server answered differently.
+    const stale = { ...held, week: "2026-08-24" } as Removable;
+    expect(removeChoices(stale, ctx)).not.toContain("unassign");
+    expect(removeChoices(stale, ctx).filter((c) => c === "backlog")).toHaveLength(1);
   });
 
-  it("does not offer Unassigned to a card standing in it already", () => {
-    // Nobody is carrying it, dates or no dates: it is already there.
-    expect(removeChoices({ week: "2026-08-24" }, ctx)).toEqual([
-      "off-board",
-      "backlog",
-    ]);
-    expect(
-      removeChoices({ week: "2026-08-24", sprintStart: "2026-08-24" }, ctx),
-    ).toEqual(["off-board", "backlog"]);
+  // The BACKLOG is the answer that destroys nothing, so it is read FIRST,
+  // above taking the card off the board. Never for work another board owns,
+  // never for a card already in the backlog, and never for a subtask, which
+  // stands inside its parent and would be parked out of sight of it.
+  it("offers the backlog first, above the board, as the answer that destroys nothing", () => {
+    const got = removeChoices({ ...held, progress: 100 }, ctx);
+    expect(got).toEqual(["backlog", "off-board", "finished-earlier"]);
   });
 
-  // The BACKLOG is the third answer, and the least destructive of the three,
-  // so it comes last — the × unasked still means what it always meant, and
-  // the dialog is where the shelf becomes an option. It is offered wherever
-  // parking is: an ordinary card, whatever else it has. Never for work
-  // another board owns, never for a card already on the shelf, and never for
-  // a subtask or a review, which follow the card they belong to and would be
-  // parked out of sight of it.
-  it("offers the backlog last, as the answer that destroys nothing", () => {
-    expect(removeChoices({ ...held, week: "2026-08-24" }, ctx)).toEqual([
-      "off-board",
-      "unassign",
-      "backlog",
-    ]);
-    expect(removeChoices(held, ctx)).toEqual(["off-board", "backlog"]);
+  // The × acting UNASKED — a card made here that nobody touched — still
+  // means what it always meant: off the board, deleted without ceremony. The
+  // backlog's place at the top of the dialog does not make it the default.
+  it("takes a card off the board when it acts unasked, the backlog first in the list or not", () => {
+    expect(unaskedRemoval(["backlog", "off-board"])).toBe("off-board");
+    expect(unaskedRemoval(["backlog", "off-board", "finished-earlier"])).toBe("off-board");
+    expect(unaskedRemoval(["off-board"])).toBe("off-board");
+    expect(unaskedRemoval(["unassign"])).toBe("unassign");
+    expect(unaskedRemoval([])).toBeUndefined();
   });
 
   it("does not offer it to work another board owns", () => {
     expect(removeChoices({ ...held, scope: "Auth" }, ctx)).not.toContain("backlog");
   });
 
-  it("does not offer it to a card already on the shelf", () => {
+  it("does not offer it to a card already in its backlog", () => {
     expect(removeChoices({ ...held, parked: true }, ctx)).not.toContain("backlog");
   });
 
-  it("does not offer it to a subtask or a review", () => {
-    // Both follow the card they belong to; parking one alone would put it
-    // where nothing draws it, out of sight of its own parent.
+  it("does not offer it to a subtask", () => {
+    // It stands inside its parent; parking it alone would put it where
+    // nothing draws it, out of sight of its own parent.
     expect(removeChoices({ ...held, parent: "p1" }, ctx)).not.toContain("backlog");
-    expect(removeChoices({ ...held, reviewOf: "c9" }, ctx)).not.toContain("backlog");
+  });
+
+  // A REVIEW somebody has is offered "back to the backlog" (K10): the
+  // reviewer is taken off and it waits for one again in the reviewed task's
+  // team backlog. One already waiting there is not offered it again.
+  it("offers a review somebody has the backlog, above withdrawing it", () => {
+    expect(removeChoices({ ...held, reviewOf: "c9" }, ctx)).toEqual(["backlog", "withdraw"]);
+    expect(removeChoices({ reviewOf: "c9", parked: true }, ctx)).not.toContain("backlog");
   });
 
   it("offers a PROJECT card its column and nothing else", () => {
@@ -338,7 +356,7 @@ describe("what the × offers", () => {
 
   it("keeps drawing the × wherever there is something to do", () => {
     expect(offersRemoval({ ...held, scope: "Auth" }, ctx)).toBe(true);
-    expect(offersRemoval({ week: "2026-08-24" }, ctx)).toBe(true);
+    expect(offersRemoval({ sprintStart: "2026-08-24" }, ctx)).toBe(true);
     expect(offersRemoval({}, ctx)).toBe(true);
   });
 
@@ -351,3 +369,100 @@ describe("what the × offers", () => {
   });
 });
 
+
+// What the × sends. Both keeping answers are the server's UNASSIGN intent —
+// it parks a task in its team's backlog and leaves a project card in its
+// column (boardservice.Remove, K3) — so the board never says "park" through a
+// second door that judges the card differently.
+describe("the intent an answer is sent as", () => {
+  it("sends the backlog and Unassigned as unassign, off the board as off-board", () => {
+    expect(removeIntent("backlog")).toBe("unassign");
+    expect(removeIntent("unassign")).toBe("unassign");
+    expect(removeIntent("off-board")).toBe("off-board");
+  });
+
+  it("sends nothing for an answer that is a gesture of its own", () => {
+    expect(removeIntent("finished-earlier")).toBeNull();
+    expect(removeIntent("detach")).toBeNull();
+  });
+});
+
+// What the board shows the moment the backlog answer is given, before the
+// server answers: a task parked — nobody, no day, no sprint, planned (K3) —
+// and a REVIEW the same, and moved to the reviewed task's team, whose
+// backlog it waits in for a reviewer (K10).
+describe("the backlog answer, optimistically", () => {
+  const cards = [{ itemId: "t", team: "alpha" }];
+
+  it("parks a task where it is", () => {
+    const got = backlogPatch({ team: "beta" }, cards);
+    expect(got).toMatchObject({ parked: true, zone: "gray", assignees: [] });
+    expect(got).not.toHaveProperty("team");
+  });
+
+  it("parks a review in the reviewed task's team backlog, nobody on it", () => {
+    const got = backlogPatch({ team: "beta", reviewOf: "t" }, cards);
+    expect(got).toMatchObject({ parked: true, assignees: [], team: "alpha" });
+    expect(got.startDate).toBeUndefined();
+    expect(got.sprintStart).toBeUndefined();
+  });
+
+  it("leaves a review's team when its task is not on this board", () => {
+    expect(backlogPatch({ team: "beta", reviewOf: "gone" }, cards)).not.toHaveProperty("team");
+  });
+});
+
+// The × on a review NOBODY HAS TAKEN — the Backlog's needs-a-reviewer item —
+// WITHDRAWS the review (K10): the card goes and the task leaves review, back
+// to In progress. It is the only answer, sent as off-board; the server turns
+// it into the withdrawal (boardservice.withdrawReview).
+describe("the × on a review nobody has taken", () => {
+  const ctx = { today: "2026-08-28" };
+
+  it("offers the withdrawal and nothing else", () => {
+    expect(removeChoices({ reviewOf: "t", parked: true }, ctx)).toEqual(["withdraw"]);
+    expect(removeChoices({ reviewOf: "t", parked: true, assignees: [] }, ctx)).toEqual(["withdraw"]);
+  });
+
+  // A review somebody HAS is withdrawn the same way — never taken off the
+  // board by itself, which would leave its task on review with no review
+  // card (K10) — and can go back to the backlog instead (K12).
+  it("offers a review somebody has the backlog and the withdrawal, and never a bare off-the-board", () => {
+    const got = removeChoices({ reviewOf: "t", assignees: ["bob"], sprintStart: "2026-08-24" }, ctx);
+    expect(got).toEqual(["backlog", "withdraw"]);
+    expect(got).not.toContain("off-board");
+  });
+
+  it("sends the withdrawal as off-board", () => {
+    expect(removeIntent("withdraw")).toBe("off-board");
+  });
+
+  // The task goes back to In progress the way the stage menu's In progress
+  // puts it (board.ApplyInProgress): the stage cleared, the progress nudged
+  // into its band at the edges only.
+  it("puts the task back to In progress, its progress nudged into the band", () => {
+    expect(withdrawPatch({ stage: "review", progress: 60 })).toEqual({ stage: undefined, progress: 60 });
+    expect(withdrawPatch({ stage: "review", progress: 5 })).toEqual({ stage: undefined, progress: 10 });
+    expect(withdrawPatch({ stage: "review", progress: 100 })).toEqual({ stage: undefined, progress: 90 });
+  });
+});
+
+// The Team drag of a REVIEW card into a column names its reviewer, and the
+// server reads that as the owner picker's gesture (K10, K12): into
+// Unassigned, a taken review goes back to the backlog with nobody on it; a
+// person on a review nobody has taken takes it into work. The board shows
+// the same at once.
+describe("a review card's person, set by a drag", () => {
+  it("hands a taken review back to the backlog when nobody is named", () => {
+    expect(reviewAssigneePatch({ reviewOf: "t", assignees: ["bob"] }, [])).toMatchObject({ parked: true, assignees: [], zone: "gray" });
+  });
+
+  it("takes an unclaimed review into work when a person is named", () => {
+    expect(reviewAssigneePatch({ reviewOf: "t", assignees: [], parked: true }, ["ann"])).toMatchObject({ parked: false, assignees: ["ann"] });
+  });
+
+  it("is a plain change of person on anything else", () => {
+    expect(reviewAssigneePatch({ assignees: ["bob"] }, [])).toEqual({ assignees: [] });
+    expect(reviewAssigneePatch({ reviewOf: "t", assignees: ["bob"] }, ["ann"])).toEqual({ assignees: ["ann"] });
+  });
+});

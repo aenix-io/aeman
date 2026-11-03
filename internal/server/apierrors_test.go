@@ -21,7 +21,7 @@ import (
 // refused the change" — while what the sentinels table does not name answers
 // 502, "the forge could not be reached". A sentinel that misses the table
 // therefore tells the caller a lie about whose fault it is and invites a
-// retry that cannot help: ErrSubtaskWeek shipped exactly that way.
+// retry that cannot help: a sentinel once shipped exactly that way.
 //
 // The list of sentinels is read from the SOURCE, not from a table kept
 // here: a table has to be updated by the same person who forgot the other
@@ -62,8 +62,8 @@ func TestEverySentinelIsAnsweredByApiError(t *testing.T) {
 	// forbidden one 403. What no refusal may be is a GATEWAY failure,
 	// which is what falling off the table means.
 	// And the mapping is real, not just a mention: one sentinel end to end.
-	if code := statusFor(t, boardservice.ErrSubtaskWeek); code != 422 {
-		t.Fatalf("ErrSubtaskWeek answers %d, want 422", code)
+	if code := statusFor(t, boardservice.ErrTakeIntoWork); code != 422 {
+		t.Fatalf("ErrTakeIntoWork answers %d, want 422", code)
 	}
 }
 
@@ -205,10 +205,10 @@ func TestTheBodyIsReadBeforeTheBoardIsChecked(t *testing.T) {
 		want               int
 		code               string
 	}{
-		{"a gesture the board does not draw", "/api/v1/views/me/cards/c1/actions/place",
-			`{"week":"2026-09-14"}`, http.StatusNotFound, "gestureNotOffered"},
-		{"the same gesture with a body that does not parse", "/api/v1/views/me/cards/c1/actions/place",
-			`{"week":`, http.StatusBadRequest, "invalidBody"},
+		{"a gesture the board does not draw", "/api/v1/views/project/cards/c1/actions/own",
+			`{"team":"t"}`, http.StatusNotFound, "gestureNotOffered"},
+		{"the same gesture with a body that does not parse", "/api/v1/views/project/cards/c1/actions/own",
+			`{"team":`, http.StatusBadRequest, "invalidBody"},
 		{"a create into a board nobody has", "/api/v1/views/nope/cards",
 			`{"title":"x"}`, http.StatusNotFound, "noSuchView"},
 		{"the same create with a body that does not parse", "/api/v1/views/nope/cards",

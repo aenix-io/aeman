@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RoadmapBoard } from "./RoadmapBoard";
@@ -77,10 +79,12 @@ const board = (cards: Card[]): Board =>
 
 const provider = {} as Provider;
 
-function draw(b: Board, focusId: string | null = null) {
+function draw(b: Board, focusId: string | null = null, showProjects = false, onShowProjects = vi.fn()) {
   return renderToStaticMarkup(
     <RoadmapBoard
       board={b}
+      showProjects={showProjects}
+      onShowProjects={onShowProjects}
       provider={provider}
       roster={["core"]}
       patchCard={vi.fn()}
@@ -118,6 +122,26 @@ describe("the Roadmap's two panes", () => {
     expect(html).toContain("roadmap-status roadmap-status-done");
     expect(html).toContain("roadmap-status roadmap-status-todo");
     expect(html).toContain(">1/2<");
+  });
+
+  // The Status column is the table's last, and the timeline's divider is the
+  // table's own right border: the widest pill, IN PROGRESS, fits inside the
+  // column with room to spare, and the cell — header and rows alike — keeps
+  // real space before the divider. A margin on the pill inside a fixed,
+  // clipping cell does not: it only cut the pill off at the line.
+  it("keeps the Status column clear of the timeline, header and rows alike", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    expect(html).toContain('<span class="roadmap-cell roadmap-cell-status">Status</span>');
+    expect(html.match(/class="roadmap-cell roadmap-cell-status"/g)?.length).toBeGreaterThan(1);
+    const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
+    const grid = css.match(/\.roadmap-row \{\s*display: grid;\s*grid-template-columns: ([^;]+);/)?.[1] ?? "";
+    const status = Number(/(\d+)px\s*$/.exec(grid)?.[1] ?? 0);
+    expect(status).toBeGreaterThanOrEqual(110);
+    const cell = css.match(/\.roadmap-cell-status \{[^}]*\}/)?.[0] ?? "";
+    const right = Number(/padding-right: (\d+)px/.exec(cell)?.[1] ?? 0);
+    expect(right).toBeGreaterThanOrEqual(10);
+    const pill = css.match(/\.roadmap-status \{[^}]*\}/)?.[0] ?? "";
+    expect(pill).not.toMatch(/margin/);
   });
 
   it("draws a bar for every dated card, a done one distinct, and the today line", () => {
@@ -178,21 +202,20 @@ describe("the Roadmap's two panes", () => {
     expect(html).not.toContain("roadmap-row-drop-");
   });
 
-  it("lists the open work that is not in the tree below it: in work, the shelves by team, unsorted", () => {
+  it("lists the open work that is not in the tree below it: in work, then each team's backlog (K1)", () => {
     const inWork = card({ itemId: "w", title: "Fix the build", team: "core", startDate: today, day: today });
     const shelved = card({ itemId: "b", title: "Someday", team: "core", parked: true });
-    const strip = card({ itemId: "u", title: "Just typed" });
-    const html = draw(board([goal, ini, epic, done, open, inWork, shelved, strip]));
+    const html = draw(board([goal, ini, epic, done, open, inWork, shelved]));
     const at = (s: string) => html.indexOf(s);
     expect(at("Invoices")).toBeLessThan(at(">In work<"));
     expect(at(">In work<")).toBeLessThan(at("Fix the build"));
     expect(at("Fix the build")).toBeLessThan(at(">Backlog · core<"));
     expect(at(">Backlog · core<")).toBeLessThan(at("Someday"));
-    expect(at("Someday")).toBeLessThan(at(">Unsorted<"));
-    expect(at(">Unsorted<")).toBeLessThan(at("Just typed"));
+    // No third section: the strip is gone.
+    expect(html).not.toContain(">Unsorted<");
     // A header is a line on both panes, so the lanes stay in step.
-    expect(html.match(/roadmap-section-label/g)?.length).toBe(3);
-    expect(html.match(/class="roadmap-lane roadmap-lane-section"/g)?.length).toBe(3);
+    expect(html.match(/roadmap-section-label/g)?.length).toBe(2);
+    expect(html.match(/class="roadmap-lane roadmap-lane-section"/g)?.length).toBe(2);
   });
 
   it("filters by nobody's team: a planning card has none", () => {
@@ -208,5 +231,50 @@ describe("the Roadmap's two panes", () => {
     // space below". The inline form has a class of its own.
     expect(html).not.toMatch(/<div[^>]*class="[^"]*\broadmap-row-add\b/);
     expect(html).toMatch(/<button[^>]*class="roadmap-row-add"/);
+  });
+});
+
+// The toolbar's "Project cards" toggle: OFF by default, so a project card
+// under an epic is not listed and the button says so; pressed (remembered in
+// the viewer's localStorage by the app), the listing carries it under its
+// epic.
+describe("the Project cards toggle", () => {
+  const ep = card({ itemId: "pe", title: "Billing v2", type: "epic", parent: undefined, lineage: [] });
+  const task = card({ itemId: "pt", title: "Render PDF", parent: "pe", lineage: [{ uid: "pe", type: "epic", title: "Billing v2" }] });
+  const slot = card({
+    itemId: "ps",
+    title: "Q1 payments slot",
+    parent: "pe",
+    scope: "Payments",
+    project: "P",
+    lineage: [{ uid: "pe", type: "epic", title: "Billing v2" }],
+  });
+
+  // The toggle is the SERVER's selector (projectCards, viewquery.ts): the
+  // board draws the listing it was sent and filters nothing itself. Off, the
+  // server sends no project card; on, it sends them and they stand under
+  // their epic — the same listing drawn with the toggle in either state draws
+  // the same rows.
+  it("is the app's view toggle, unpressed while off, and the board draws what the server sent", () => {
+    const html = draw(board([ep, task]), null, false);
+    // The app's view toggle — the Me board's eye and focus buttons — not a
+    // segment of its own: an icon button, unpressed, named by its tooltip.
+    expect(html).toMatch(/<button[^>]*class="team-eye"[^>]*aria-pressed="false"[^>]*title="Show project cards"/);
+    expect(html).not.toContain("roadmap-projects");
+    // Its icon is the one a project card's row wears in the tree: the same
+    // KindIcon, not a lookalike.
+    expect(html).toMatch(/<button[^>]*class="team-eye"[^>]*title="Show project cards"[^>]*><svg[^>]*class="kind-icon kind-icon-project"/);
+    expect(html).toContain("Render PDF");
+    expect(html).not.toContain("Q1 payments slot");
+  });
+
+  it("is pressed while on, and draws the project cards the server sent under their epic", () => {
+    const html = draw(board([ep, task, slot]), null, true);
+    expect(html).toMatch(/<button[^>]*class="team-eye team-eye-on"[^>]*aria-pressed="true"[^>]*title="Show project cards"/);
+    expect(html).toContain("Q1 payments slot");
+  });
+
+  it("filters nothing itself: what it was sent, it draws", () => {
+    expect(draw(board([ep, task, slot]), null, false)).toContain("Q1 payments slot");
   });
 });

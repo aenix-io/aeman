@@ -22,7 +22,6 @@ import {
   DELETE_INTENT,
   KIND_LABEL,
   LEVELS,
-  SECTION_LABEL,
   STATUS_LABEL,
   barOf,
   buildTree,
@@ -39,11 +38,8 @@ import {
   planningRemovalPlan,
   previewCards,
   rangeFor,
-  rows as rowsOf,
-  sectionsOf,
   statusOf,
   ticks as ticksOf,
-  visibleLevels,
   zoneOf,
   type DepthRange,
   type DropZone,
@@ -54,15 +50,17 @@ import {
   type Row,
   type Zoom,
   writeDrop,
+  roadmapLines,
+  type RoadmapLine,
 } from "../roadmap";
 import { barColor } from "../stages";
+import { ViewToggle } from "./ViewToggle";
 import { isPlanning } from "../subtasks";
-import { teamColor } from "../avatar";
 import { ownerLabel, ownerOf, type Owner } from "../owner";
 import { displayName, type Avatars, type Names } from "../users";
 import { AddCard } from "./AddCard";
-import { Avatar } from "./Avatar";
 import { KindIcon } from "./KindIcon";
+import { OwnerBadge } from "./OwnerBadge";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
@@ -94,6 +92,10 @@ interface RoadmapBoardProps {
    *  and its row is marked; onFocused says it has been. */
   focusId?: string | null;
   onFocused?: () => void;
+  /** The "Project cards" toggle: the listing's selector (projectCards), held
+   *  and remembered by the app, which refetches and re-subscribes on it. */
+  showProjects: boolean;
+  onShowProjects: (next: boolean) => void;
 }
 
 const LS_DEPTH = "aeman.roadmap.depth";
@@ -175,7 +177,8 @@ const errText = (err: unknown) => (err instanceof Error ? err.message : String(e
 
 /** childLevels is what the + on a planning row may make under it: the
  *  levels below its own, and under an epic a TASK — born with no team and
- *  no day, it stands in the Triage strip until somebody plans it (H7). */
+ *  no day, it is parked in the no-team backlog until somebody takes it into
+ *  work (H7, K3). */
 function childLevels(kind: RoadmapKind): (CardType | "task")[] {
   if (kind === "goal") {
     return ["initiative", "epic"];
@@ -199,9 +202,8 @@ const detect: CollisionDetection = (args) => {
 /** A line of the table: a row of the tree or of a section, or a section's
  *  header. The timeline draws a lane per line, so the two panes stay in
  *  step whatever stands between the rows. */
-type RowLine = { kind: "row"; row: Row; section: RoadmapSection };
-type Line = RowLine | { kind: "header"; key: string; label: string };
-type RoadmapNodeLike = Parameters<typeof rowsOf>[0][number];
+type Line = RoadmapLine;
+type RowLine = Extract<RoadmapLine, { kind: "row" }>;
 
 /** Hover is where the drag stands: the row under it, the zone of that row,
  *  the placement that reads as, and whether the level rule allows it. */
@@ -337,23 +339,21 @@ function RoadmapRow({ row, section, today, open, focus, ghost, forbid, dragging,
       <span className="roadmap-cell roadmap-cell-owner">{owner}</span>
       <span className="roadmap-cell roadmap-cell-date">{shortDate(card.startDate, today)}</span>
       <span className="roadmap-cell roadmap-cell-date">{shortDate(card.day, today)}</span>
-      <span className="roadmap-cell">
+      <span className="roadmap-cell roadmap-cell-status">
         <span className={`roadmap-status roadmap-status-${status}`}>{STATUS_LABEL[status]}</span>
       </span>
     </div>
   );
 }
 
-/** OwnerCell is what a task row shows in its Owner column: the team's dot
- *  and the person's picture with the pair spelled out, or a dash — and the
- *  picker behind it. */
+/** OwnerCell is what a task row shows in its Owner column: the owner badge
+ *  (the team's avatar, the person's over it, one label) — and the picker
+ *  behind it. */
 function OwnerCell({ owner, avatars, names }: { owner: Owner; avatars?: Avatars; names?: Names }) {
   const label = ownerLabel(owner, (l) => displayName(l, names));
   return (
     <span className={`roadmap-owner${owner.team || owner.person ? "" : " roadmap-owner-none"}`} title={label}>
-      {owner.team && <span className="team-dot" style={{ background: teamColor(owner.team) }} />}
-      {owner.person && <Avatar login={owner.person} avatars={avatars} names={names} className="avatar-img roadmap-owner-avatar" />}
-      <span className="roadmap-owner-text">{label}</span>
+      <OwnerBadge owner={owner} avatars={avatars} names={names} />
     </span>
   );
 }
@@ -374,6 +374,8 @@ export function RoadmapBoard({
   onOpen,
   focusId,
   onFocused,
+  showProjects,
+  onShowProjects,
 }: RoadmapBoardProps) {
   const today = todayIso();
   const [depth, setDepthState] = useState<DepthRange>(readDepth);
@@ -458,31 +460,10 @@ export function RoadmapBoard({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const expanded = (id: string) => !folded.has(id);
-  // The lines of the table: the tree's rows first, then each section below
-  // it — a header line and its rows. The sections draw tasks and their
-  // subtasks (when the depth range reaches them); the depth range's upper
-  // levels are the tree's business.
-  const lines = (cards: readonly CardModel[]): Line[] => {
-    const sections = sectionsOf(buildTree(cards));
-    const sub = visibleLevels(depth).has("subtask");
-    const flat: DepthRange = { from: "task", to: sub ? "subtask" : "task" };
-    const out: Line[] = rowsOf(sections.tree, depth, expanded).map((row) => ({ kind: "row", row, section: "tree" as const }));
-    const add = (section: Exclude<RoadmapSection, "tree">, label: string, nodes: readonly RoadmapNodeLike[], key: string) => {
-      if (nodes.length === 0) {
-        return;
-      }
-      out.push({ kind: "header", key, label });
-      for (const row of rowsOf(nodes, flat, expanded)) {
-        out.push({ kind: "row", row, section });
-      }
-    };
-    add("in-work", SECTION_LABEL["in-work"], sections.inWork, "in-work");
-    for (const shelf of sections.backlog) {
-      add("backlog", `${SECTION_LABEL.backlog} · ${shelf.team || "no team"}`, shelf.nodes, `backlog-${shelf.team}`);
-    }
-    add("unsorted", SECTION_LABEL.unsorted, sections.unsorted, "unsorted");
-    return out;
-  };
+  // The lines of the table (roadmap.roadmapLines), keyed on everything that
+  // decides them. The Project cards toggle is the listing's own selector:
+  // the app refetches on it, and what arrives is what is drawn.
+  const lines = (cards: readonly CardModel[]): Line[] => roadmapLines(cards, { depth, expanded });
   const baseLines = useMemo(() => lines(shown), [shown, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
   // The tree's rows alone, which is what a drop is read against: a section
   // row is dropped on by nothing.
@@ -660,8 +641,8 @@ export function RoadmapBoard({
 
   // ---- the owner: whose is this task, and where does that put it ----
   // The pair goes to the `own` gesture, which files loose work where the
-  // pair says (a person's on their board today, a team's on its shelf,
-  // nobody's back to the strip); the board applies the team and the person
+  // pair says (a person's on their board today, a team's in its backlog,
+  // nobody's in the no-team backlog, K3); the board applies the team and the person
   // at once and takes the rest — the day, the band, the sprint, the shelf —
   // from the answer.
   const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
@@ -833,6 +814,10 @@ export function RoadmapBoard({
             {levelOptions()}
           </select>
         </label>
+        <ViewToggle on={showProjects} onToggle={() => onShowProjects(!showProjects)} title="Show project cards">
+          {/* The icon a project card's row wears in the tree. */}
+          <KindIcon kind="project" size={15} />
+        </ViewToggle>
         <div className="segmented roadmap-zoom" role="group" aria-label="Zoom">
           {(["3m", "1y", "fit"] as Zoom[]).map((z) => (
             <button
@@ -887,7 +872,7 @@ export function RoadmapBoard({
                 <span className="roadmap-cell roadmap-cell-owner">Owner</span>
                 <span className="roadmap-cell roadmap-cell-date">Start</span>
                 <span className="roadmap-cell roadmap-cell-date">End</span>
-                <span className="roadmap-cell">Status</span>
+                <span className="roadmap-cell roadmap-cell-status">Status</span>
               </div>
               {shownLines.map((line) => {
                 if (line.kind === "header") {

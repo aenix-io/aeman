@@ -43,11 +43,45 @@ function draw(c: Card, onReveal = vi.fn()) {
 const rows = (html: string) => [...html.matchAll(/class="drawer-label">([^<]+)</g)].map((m) => m[1]);
 
 describe("the card drawer", () => {
+  // From a review card one can get to the card it reviews: "Reviews: «task»"
+  // at the top, with the task's icon, opening it in the drawer.
+  // A review card's breadcrumb ends in the task it reviews: the last crumb
+  // of the same line, styled and opened like the others — no line of its own.
+  it("ends a review card's breadcrumb in the task it reviews", () => {
+    const html = draw(
+      card({
+        itemId: "r",
+        title: "review: Invoices",
+        reviewOf: "t",
+        lineage: [{ uid: "e", type: "epic", title: "Billing" }],
+        reviewed: { uid: "t", title: "Invoices" },
+      }),
+    );
+    const nav = html.slice(html.indexOf('aria-label="Hierarchy"'), html.indexOf("</nav>"));
+    expect(nav.indexOf(">Billing<")).toBeLessThan(nav.indexOf(">Invoices<"));
+    expect(nav).toMatch(/<button[^>]*class="modal-crumb-link"[^>]*title="Open «Invoices»"[^>]*>Invoices<\/button>/);
+    expect(html).not.toContain("drawer-reviews");
+    expect(html).not.toContain("Reviews:");
+  });
+
+  it("has no such crumb on a card that reviews nothing", () => {
+    expect(draw(card({}))).not.toContain('aria-label="Hierarchy"');
+  });
+
   it("is a drawer, not a centred box", () => {
     const html = draw(card());
     expect(html).toContain("drawer-backdrop");
     expect(html).toContain('class="drawer card-drawer"');
     expect(html).not.toContain('class="modal-backdrop"');
+  });
+
+  // #289: the drawer's bar is the large one — the full width of its row, a
+  // bigger handle reachable by the keyboard, and the value beside it.
+  it("draws the large progress bar, keyboard-reachable, with its value", () => {
+    const html = draw(card({ progress: 60, team: "core" }));
+    expect(html).toContain('class="card-bar card-bar-large"');
+    expect(html).toMatch(/role="slider"[^>]*tabindex="0"|tabindex="0"[^>]*role="slider"/);
+    expect(html).toContain('class="drawer-progress-pct">60%<');
   });
 
   it("gives a task every row: its owner, zone, size, and what it sits under", () => {
@@ -105,7 +139,10 @@ describe("the card drawer", () => {
 
   it("gives a project card its column and its dates, and a way under a planning card — no band, no size, no people", () => {
     const html = draw(card({ project: "cozy", scope: "Storage", startDate: "2026-03-02", day: "2026-03-13" }));
-    expect(rows(html)).toEqual(["Status", "Progress", "Dates", "Under", "Project", "Scope"]);
+    // #288: done or not done — a Done toggle, no progress bar.
+    expect(rows(html)).toEqual(["Status", "Done", "Dates", "Under", "Project", "Scope"]);
+    expect(html).toMatch(/<input[^>]*type="checkbox"[^>]*aria-label="Done"/);
+    expect(html).not.toContain("drawer-progress");
     expect(html).not.toContain("modal-size-chip");
     expect(html).not.toContain("modal-zone-btn");
     expect(html).not.toContain("owner-picker");

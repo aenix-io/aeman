@@ -5,9 +5,13 @@ import { slotMenuItems } from "./projectmenu";
 // The project card's "…" menu: what it offers and what it does not.
 
 describe("a project card's menu", () => {
-  it("opens, attaches, marks done and deletes — and nothing takes the card out of its project", () => {
+  // #288: the goals, initiatives and epics are listed IN the menu (the
+  // ParentOptionList, with its search) — there is no "Attach to…" item that
+  // opens a second picker.
+  it("opens, marks done and deletes, with the plan listed in the menu itself — and nothing takes the card out of its project", () => {
     const keys = slotMenuItems({ progress: 0 }).map((i) => i.key);
-    expect(keys).toEqual(["open", "attach", "done", "delete"]);
+    expect(keys).toEqual(["open", "done", "delete"]);
+    expect(keys).not.toContain("attach");
     expect(keys).not.toContain("remove");
     expect(slotMenuItems({ progress: 0 }).map((i) => i.label)).not.toContain("Remove from project");
   });

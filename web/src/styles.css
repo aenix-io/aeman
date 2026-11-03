@@ -99,11 +99,6 @@
   --zone-gray-bg: #f3f4f6;
   --zone-green-accent: #3fb950;
   --zone-green-bg: #eafaef;
-  /* The Triage board's internal lane (docs/design/triage.md): work
-     nobody outside asked for. No day-board zone means the same thing, so
-     it carries its own blue rather than borrowing a zone's colour. */
-  --lane-internal-accent: #1f6feb;
-  --lane-internal-bg: #e7f1fd;
 
   /* Progress-bar / stage palette, consumed from JS via stages.ts. */
   --stage-locked: #cf222e;
@@ -128,8 +123,6 @@
   --zone-gray-bg: #edeff3;
   --zone-green-accent: #009e73; /* teal-green — nice to have */
   --zone-green-bg: #63d3d8;
-  --lane-internal-accent: #0072b2; /* CVD-safe blue */
-  --lane-internal-bg: #7fc7ee;
 
   --stage-locked: #d55e00;
   --stage-review: #e69f00;
@@ -154,8 +147,6 @@
   --zone-gray-bg: #e3e6ea;
   --zone-green-accent: #2596b5; /* cyan */
   --zone-green-bg: #6fcbe0;
-  --lane-internal-accent: #1f6feb;
-  --lane-internal-bg: #9ecdf5;
 
   --stage-locked: #cf222e;
   --stage-review: #b07d1a;
@@ -224,8 +215,6 @@
   --zone-gray-bg: #2b3138;
   --zone-green-accent: #3fb950;
   --zone-green-bg: #1a3d2a;
-  --lane-internal-accent: #58a6ff;
-  --lane-internal-bg: #16324f;
 
   --stage-locked: #ff7b72;
   --stage-review: #e3b341;
@@ -249,8 +238,6 @@
   --zone-gray-bg: #242a30;
   --zone-green-accent: #2ec4a6;
   --zone-green-bg: #106f66;
-  --lane-internal-accent: #58a6ff;
-  --lane-internal-bg: #123c63;
 
   --stage-locked: #ff8a50;
   --stage-review: #f0b429;
@@ -273,8 +260,6 @@
   --zone-gray-bg: #242a30;
   --zone-green-accent: #56b6c2;
   --zone-green-bg: #0e665c;
-  --lane-internal-accent: #79c0ff;
-  --lane-internal-bg: #103a5e;
 
   --stage-locked: #ff7b72;
   --stage-review: #e3b341;
@@ -780,9 +765,12 @@ select {
 
 /* The zone's name set vertically on the left (rotated 270°, reading bottom-to-
    top) like a book spine. As a flex item its vertical text length is the zone's
-   natural height, so the area never becomes shorter than the label. */
+   natural height, so the area never becomes shorter than the label. It is
+   CENTRED in its band, whatever the band's height: stretched to the band and
+   left to text-align, it drifted to the top of a tall band. */
 .zone-spine {
   flex: none;
+  align-self: center;
   writing-mode: vertical-rl;
   transform: rotate(180deg);
   text-align: center;
@@ -848,6 +836,9 @@ select {
   cursor: grabbing;
 }
 
+/* The cards of a band, 4px apart, with the same 4px above the first and below
+   the last: the space the add box used to take at the foot is gone, and the
+   insert "+" adds none. */
 .zone-cards {
   flex: 1;
   min-width: 0;
@@ -855,6 +846,7 @@ select {
   flex-direction: column;
   gap: 4px;
   padding-top: 4px;
+  padding-bottom: 4px;
 }
 
 /* Keep "+ add" at the bottom of the zone when there is free space (e.g. an
@@ -958,7 +950,6 @@ select {
   width: 4px;
   border-radius: 5px 0 0 5px;
 }
-
 
 .card-review::before {
   background: var(--stage-review);
@@ -2341,7 +2332,6 @@ button.card-age {
   transition: width 0.2s;
 }
 
-
 .team-col-droptarget {
   outline: 2px dashed var(--accent);
   outline-offset: -2px;
@@ -3597,9 +3587,7 @@ button.card-age {
   opacity: 1;
 }
 
-/* What a card weighs, on its face: on a Triage box at the right edge — where
-   the Project board keeps its owner badge, so the hover actions land beside
-   it rather than pushing it — and on a backlog card beside its ×. */
+/* What a card weighs, on its face: on a Backlog card, beside its owner. */
 .size-chip {
   flex: none;
   position: relative;
@@ -3639,7 +3627,7 @@ button.card-age {
 
 /* Four letters, each with what it weighs: a menu narrow enough to open over
    a box without covering the column beside it. */
-.triage-size-menu {
+.backlog-size-menu {
   min-width: 0;
   background: var(--bg);
   border: 1px solid var(--line);
@@ -3651,7 +3639,7 @@ button.card-age {
   gap: 1px;
 }
 
-.triage-size-item {
+.backlog-size-item {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -3668,20 +3656,20 @@ button.card-age {
   cursor: pointer;
 }
 
-.triage-size-item:hover {
+.backlog-size-item:hover {
   background: var(--hover-overlay);
 }
 
-.triage-size-item-on {
+.backlog-size-item-on {
   background: var(--hover-overlay);
   font-weight: 700;
 }
 
-.triage-size-key {
+.backlog-size-key {
   font-weight: 700;
 }
 
-.triage-size-pts {
+.backlog-size-pts {
   color: var(--muted);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
@@ -4108,131 +4096,6 @@ button.card-age {
   width: 100%;
 }
 
-/* ---- Triage ---- */
-/* Who does what, and in which week (docs/design/triage.md). The strip on
-   the left holds what nobody has given a week; the grid on the right is the
-   Project board's shape with people across and weeks down. */
-.triage {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  height: 100%;
-}
-
-.triage .board-toolbar {
-  flex: none;
-}
-
-/* The grid takes the whole width the drawer is not using — closed, which is
-   most of the time, that is all of it. */
-.triage .project-board {
-  flex: 1;
-  min-width: 0;
-  margin: 0 14px 14px 10px;
-}
-
-/* A column is a person: the avatar and the name, in the header the grid
-   draws for every column. */
-.triage-person {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  /* The room on the right is the grip's: a name must not run under it. */
-  padding: 0 10px 0 6px;
-  overflow: hidden;
-}
-
-.triage-person .avatar-img {
-  width: 16px;
-  height: 16px;
-  font-size: 8px;
-  flex: none;
-}
-
-.triage-person-none {
-  font-size: 11px;
-  color: var(--muted);
-  font-style: italic;
-}
-
-/* The week column carries what that week holds UNDER its date, not beside
-   it: the column is as wide as "17 Aug" needs and no wider, so a date and a
-   three-figure count set on one line run into each other. */
-.triage .project-week {
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  line-height: 1.15;
-}
-
-/* A slot on this board carries a progress bar along its foot and a stripe
-   down its left, so a card reads the same here as it does on the day board. */
-.triage-slot {
-  padding-bottom: 6px;
-  /* What a slot's left mark is drawn FROM. The rules below say only what a
-     card's mark is (--mark) and never how it is painted, because the ghost of
-     a turn to come cannot paint it as a border at all (.triage-slot-coming)
-     and the colour must not be written down twice. */
-  border-left-color: var(--mark, var(--card-border));
-}
-
-/* Which week of a longer card this box is — (1/2), (2/2). Quiet: the title
-   is what the reader is looking for. */
-.triage-slot-part {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.triage-slot-bar {
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  bottom: 2px;
-  height: 3px;
-  border-radius: 2px;
-  overflow: hidden;
-  background: var(--line-soft);
-}
-
-.triage-slot-bar i {
-  display: block;
-  height: 100%;
-  /* The colour is the board's: the stage decides it (stages.barColor). */
-}
-
-/* The stripe down a card's left is the ZONE it stands in: what kind of work
-   it is, in the colours the Team board gives them. */
-.triage-slot-zone-gray {
-  --mark: var(--zone-gray-accent);
-}
-
-.triage-slot-zone-green {
-  --mark: var(--zone-green-accent);
-}
-
-.triage-slot-zone-yellow {
-  --mark: var(--zone-yellow-accent);
-}
-
-/* Urgent is the LIGHTER red, a debt the strong one: "must be done today" and
-   "was due and is not done" are different news and must not read as one. The
-   zone's own accent already is the lighter of the two in both themes
-   (#f85149 against #cf222e, #ff7b72 against #f85149), so it is taken as it
-   stands — a mix towards the background would wash out the colour-blind
-   palette, which repaints these accents and nothing else. */
-.triage-slot-zone-red {
-  --mark: var(--zone-red-accent);
-}
-
-
-
-
-/* The lock has taken the space before it, so the scale sits against it
-   rather than being pushed out again. */
-.triage .zoom-control {
-  margin-left: 0;
-}
-
 /* The one thing in the origin row that can be changed: what kind of work
    the card is. It reads as the rest of the row until it is reached for. */
 .modal-zone {
@@ -4300,669 +4163,19 @@ button.card-age {
   opacity: 0.6;
 }
 
-/* The number over a person's column: points carried against points a week.
-   Quiet while it fits; bright red past it — the one thing a daily sync is
-   there to notice. */
-/* Over a person's column: quiet figures, no box. A ring around a number
-   that is fine says nothing, and the header already carries an avatar and a
-   name — the reading is what a week is planned against, not a badge. The box
-   appears where it MEANS something: red when the plan does not fit, and an
-   outline under the pointer, which is how it still reads as a control. */
-.person-load {
-  margin-left: auto;
-  font: inherit;
-  font-size: 10px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  color: var(--muted);
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 2px 3px;
-  margin-left: 5px;
-  cursor: pointer;
-  flex: none;
-}
-
-.person-load:hover:not(:disabled) {
-  color: var(--fg);
-  border-color: var(--line);
-}
-
-.person-load:disabled {
-  cursor: default;
-}
-
-.person-load-full {
-  color: var(--fg);
-}
-
-.person-load-over,
-.person-load-over:hover {
-  color: #fff;
-  background: #d1242f;
-  border-color: #d1242f;
-}
-
 /* Every number a board takes is typed, never stepped: the native spinner is
    two arrows the width of the field itself, and these fields are small enough
    that the number they hold could not be read beside them. */
-.person-load-input,
-.teams-manage-cap-input,
-.triage-cap-input,
-.triage-points-input {
+.teams-manage-cap-input {
   appearance: textfield;
   -moz-appearance: textfield;
 }
 
-.person-load-input::-webkit-outer-spin-button,
-.person-load-input::-webkit-inner-spin-button,
 .teams-manage-cap-input::-webkit-outer-spin-button,
-.teams-manage-cap-input::-webkit-inner-spin-button,
-.triage-cap-input::-webkit-outer-spin-button,
-.triage-cap-input::-webkit-inner-spin-button,
-.triage-points-input::-webkit-outer-spin-button,
-.triage-points-input::-webkit-inner-spin-button {
+.teams-manage-cap-input::-webkit-inner-spin-button {
   appearance: none;
   -webkit-appearance: none;
   margin: 0;
-}
-
-/* Typing a team's week in place of the number that measured it — offered
-   only when ONE team is on screen, because otherwise there is no answer to
-   whose week it is. */
-.triage-points-input {
-  width: 32px;
-  margin-top: 1px;
-  padding: 0 2px;
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-  font-size: 9px;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-}
-
-/* Several teams on screen: the chip offers them, each with its own number —
-   the shape the Project board's weeks use for their deadlines. */
-.triage-cap-menu {
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px var(--elev-2);
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.triage-cap-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 12px;
-  color: var(--fg);
-}
-
-.triage-cap-row:hover {
-  background: var(--hover-overlay);
-}
-
-.triage-cap-team {
-  flex: 1;
-  min-width: 70px;
-}
-
-.triage-cap-input {
-  width: 46px;
-  padding: 2px 4px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.triage-cap-unit {
-  color: var(--muted);
-  font-size: 9px;
-  letter-spacing: 0.2px;
-}
-
-/* Beside each week of the Triage board: points scheduled against what the
-   teams on screen can plan. Same states as a person's number. */
-.triage-points {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  border: none;
-  background: none;
-  font: inherit;
-  cursor: pointer;
-  line-height: 1.05;
-  font-size: 9px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-  border-radius: 4px;
-  padding: 1px 3px;
-  margin-top: 1px;
-}
-
-/* The capacity sits UNDER the load with a hairline between them: a fraction
-   set the way a fraction is set, which is what keeps a three-digit week
-   inside a column only as wide as a date. */
-.triage-points-cap {
-  border-top: 1px solid currentColor;
-  padding-top: 1px;
-  margin-top: 1px;
-  opacity: 0.75;
-  align-self: stretch;
-  text-align: center;
-}
-
-.triage-points:hover {
-  color: var(--fg);
-  background: var(--hover-overlay-soft);
-}
-
-.triage-points-full {
-  color: var(--fg);
-}
-
-.triage-points-over {
-  color: #fff;
-  background: #d1242f;
-}
-
-.person-load-input {
-  font: inherit;
-  font-size: 10px;
-  width: 44px;
-  margin-left: 5px;
-  padding: 1px 3px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
-}
-
-/* Somewhere to start a card, standing where the next one would: under the
-   last of its cell, at the full width of the column, and no taller than the
-   card it is about to become — the board is read down a column and a form
-   twice a card's height would push the week open every time it is touched. */
-.triage-compose {
-  z-index: 3;
-  align-self: start;
-  padding: 0 3px;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.triage-compose .add-card-form {
-  width: 100%;
-  margin: 2px 0;
-  border-color: var(--line);
-  border-radius: 5px;
-  font-size: 11px;
-}
-
-.triage-compose .add-card-input {
-  padding: 1px 5px;
-  font-size: 11px;
-}
-
-.triage-compose .add-card-team-btn {
-  font-size: 10px;
-  padding: 0 4px;
-}
-
-/* A week a repeating card is going to come round in: drawn before the copy
-   exists, so it is drawn as an outline. Nothing can be done to it — there is
-   no card yet — and the cursor says so. */
-.triage-slot-coming {
-  background: none;
-  border-style: dashed;
-  /* The mark is NOT this card's left border. A rounded corner is shared
-     between the two sides that make it, and a dashed side takes its share in
-     dashes: the mark broke off a few pixels above the foot and the bottom-left
-     corner came out grey, so a copy to come wore a scratch where the standing
-     cards wear a stripe. Squaring the corner cured that and cost the ghost its
-     rounding, which is the shape that says "card" — so the dashes keep every
-     corner to themselves and the mark is drawn over the border, below. */
-  border-left-color: transparent;
-  box-shadow: none;
-  color: var(--muted);
-  cursor: default;
-}
-
-/* The mark itself: the width of the border it covers, the height of the whole
-   card including its top and bottom edges, rounded down the left the way the
-   card is — the same stripe a standing card wears, and the same one the day
-   boards draw (.card-project). */
-.triage-slot-coming::before {
-  content: "";
-  position: absolute;
-  left: -3px;
-  top: -1px;
-  bottom: -1px;
-  width: 3px;
-  border-radius: 5px 0 0 5px;
-  background: var(--mark, var(--muted));
-}
-
-
-/* A debt keeps the strong red, whatever zone it is in. */
-.triage-slot.project-slot-late {
-  --mark: var(--danger);
-}
-
-.triage-slot-resize {
-  cursor: ns-resize;
-}
-
-/* The right edge belongs to the SIZE, which is always on show; the × and the
-   shelf appear on hover and therefore stand beside it, never over it. (They
-   sat against the edge while the slot carried nothing permanent there, and
-   an invisible button over a visible one is still a button: the size could
-   not even be clicked.) */
-.triage-slot .project-slot-actions {
-  right: 28px;
-}
-
-/* On a shelf the chip stands at the row's right edge, outside the × — the ×
-   is hover-only, so it grows to the LEFT of the thing that is always there. */
-.backlog-card .size-chip {
-  margin-top: -1px;
-}
-
-/* The line at the foot of a cell: how many reviews stand in this person's
-   week. PLAIN TEXT, like the add control on the day boards — it is not a
-   card and drawing it as one said it was a thing standing in the week, which
-   is the very thing a review is not. It sits under everything the week is
-   actually planning, and pressing it hands the cell over to what it was
-   offering: the reviews take its place, and there is no way back, because
-   folding them away again is not a state anybody stays in. */
-/* The DONE line reads exactly like the reviews line under it — plain text at
-   the foot of a cell, not a card — because it is the same offer: here is the
-   rest of what this week holds. */
-.triage-done-line,
-.triage-reviews-line {
-  /* A grid item like the boxes above it, NOT an absolutely positioned one.
-     An abspos grid child resolves its auto end-lines to the grid's padding
-     edge rather than to the next line, so `grid-column: 5` reached from that
-     column to the right edge of the whole table — and the hover background
-     painted every person to its right. */
-  position: relative;
-  z-index: 2;
-  margin: 0 3px;
-  display: flex;
-  align-items: center;
-  padding: 0 6px;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: 10.5px;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  text-align: left;
-  cursor: pointer;
-  opacity: 0.85;
-  overflow: hidden;
-}
-
-.triage-done-line:hover,
-.triage-reviews-line:hover {
-  background: var(--hover-overlay-soft);
-  color: var(--fg);
-  opacity: 1;
-}
-
-/* A card the line has opened — a review, or work already finished: a record
-   of the week rather than work in it, so it is drawn as a card and behaves as
-   none. Nothing here plans it. */
-.triage-slot-done,
-.triage-slot-review {
-  border-left-width: 1px;
-  border-style: dashed;
-  background: none;
-  box-shadow: none;
-  color: var(--muted);
-  cursor: default;
-}
-
-/* Done work says so on its face, the way a finished card does everywhere. */
-.triage-slot-done .project-slot-title {
-  text-decoration: line-through;
-}
-
-/* The gap between the boxes of one card while it is carried or stretched:
-   behind them, above the cells, in the colour a cell wore when the cells
-   were the ones being lit. The top and the height are the board's — it knows
-   where in the week's stack the boxes stand. */
-.triage-span {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  margin: 0 3px;
-  pointer-events: none;
-  z-index: 1;
-}
-
-/* ── The backlog drawer ───────────────────────────────────────────────────
-   The shelf beside the weeks. The grid used to be the whole board — nothing
-   stood beside it — and now one thing does, so the two share a row and the
-   grid gives up the width the drawer takes rather than being scrolled under
-   it: a card is dragged BETWEEN them, and a target you have to scroll to is
-   not a target. */
-.triage-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
-
-.backlog-drawer {
-  flex: none;
-  width: 320px;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  position: relative;
-  border-left: 1px solid var(--line);
-  background: var(--bg-soft);
-}
-
-/* Drag strip over the pane's left border — the notes pane's own handle, in
-   the same place, so the two panes are one thing to learn. */
-.backlog-resizer {
-  position: absolute;
-  z-index: 3;
-  top: 0;
-  left: -3px;
-  width: 7px;
-  height: 100%;
-  cursor: col-resize;
-  touch-action: none;
-}
-
-.backlog-resizer:hover {
-  background: color-mix(in srgb, var(--accent) 30%, transparent);
-}
-
-.backlog-drawer-folded .backlog-resizer {
-  display: none;
-}
-
-.backlog-drawer-head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 8px 6px 12px;
-  border-bottom: 1px solid var(--line-soft);
-}
-
-.backlog-drawer-title {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-/* How much is parked altogether. It rides the header so it is also on the
-   RAIL when the pane is folded: a backlog whose size you cannot see without
-   opening it is a backlog nobody empties. */
-.backlog-drawer-total {
-  padding: 0 5px;
-  border-radius: 7px;
-  background: var(--line-soft);
-  color: var(--muted);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-
-.backlog-drawer-fold {
-  margin-left: auto;
-  padding: 0 4px;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.backlog-drawer-fold:hover {
-  color: var(--fg);
-}
-
-/* Folded: a rail with the name turned on its side and the count under it —
-   the same fold the notes pane makes, and the same width. */
-.backlog-drawer-folded {
-  width: 34px;
-  min-width: 34px;
-}
-
-.backlog-drawer-folded .backlog-drawer-head {
-  flex-direction: column-reverse;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 8px 4px;
-  border-bottom: none;
-}
-
-.backlog-drawer-folded .backlog-drawer-title {
-  writing-mode: vertical-rl;
-}
-
-.backlog-drawer-folded .backlog-drawer-fold {
-  margin-left: 0;
-}
-
-.backlog-drawer-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 8px 10px 12px;
-}
-
-/* The card in hand, drawn on the shelf it would land on. It is not there yet,
-   so it is drawn as an outline rather than a card — the reader is looking at
-   a promise, not at what the list holds. */
-.backlog-card-landing {
-  border-style: dashed;
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg-raised));
-  opacity: 0.85;
-  pointer-events: none;
-}
-
-/* One shelf per team, stacked: a shelf is a list of titles and reads DOWN,
-   and side by side they were two narrow gutters neither of which could show a
-   whole title. */
-.backlog-shelf + .backlog-shelf {
-  margin-top: 10px;
-}
-
-.backlog-shelf-head {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding-bottom: 4px;
-}
-
-/* The caret folds the shelf. A lead watching two teams reads one of them most
-   days, and the fold is remembered in this browser. */
-.backlog-shelf-fold {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  margin-left: -3px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: none;
-  color: var(--muted);
-  line-height: 1;
-  cursor: pointer;
-}
-
-.backlog-shelf-fold:hover {
-  color: var(--fg);
-  background: var(--line-soft);
-}
-
-/* The mark TURNS rather than being swapped for another glyph: the same
-   chevron pointing right when the shelf is shut and down when it is open, so
-   the eye follows one thing rotating instead of reading two symbols. */
-.backlog-caret {
-  transition: transform 120ms ease;
-}
-
-.backlog-caret-open {
-  transform: rotate(90deg);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .backlog-caret {
-    transition: none;
-  }
-}
-
-.backlog-shelf-dot {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
-
-.backlog-shelf-name {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.backlog-shelf-count {
-  font-size: 10px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.backlog-shelf-add {
-  margin-left: auto;
-  padding: 0 5px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: none;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.3;
-  cursor: pointer;
-}
-
-.backlog-shelf-add:hover {
-  color: var(--fg);
-  border-color: var(--line);
-}
-
-.backlog-shelf-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-height: 40px;
-  padding: 4px;
-  border: 1px dashed var(--line);
-  border-radius: 5px;
-  background: var(--bg);
-}
-
-/* The pointer is over this shelf: said by the shelf itself, because the card
-   being carried is drawn inside it rather than where it came from. */
-.backlog-shelf-over {
-  border-style: solid;
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
-}
-
-.backlog-shelf-empty {
-  margin: auto 0;
-  padding: 2px 4px;
-  font-size: 10px;
-  line-height: 1.3;
-  color: var(--muted);
-  text-align: center;
-}
-
-.backlog-shelf-body .add-card {
-  margin-bottom: 2px;
-}
-
-.backlog-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 4px 4px 4px 6px;
-  border: 1px solid var(--line-soft);
-  border-left: 3px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg-raised);
-  cursor: grab;
-  touch-action: none;
-}
-
-.backlog-card:hover {
-  border-color: var(--line);
-}
-
-.backlog-card-title {
-  flex: 1;
-  min-width: 0;
-  font-size: 11px;
-  line-height: 1.3;
-  color: var(--fg);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-}
-
-/* The board's own ×, on a card that is on the shelf and in no week: the only
-   thing it can mean there is off the board, and it says so in the colour every
-   other × here uses for that. Hidden until the row is reached for — a shelf is
-   read far more often than it is emptied. */
-.backlog-card-remove {
-  flex: none;
-  padding: 0 2px;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.2;
-  cursor: pointer;
-  opacity: 0;
-}
-
-.backlog-card:hover .backlog-card-remove {
-  opacity: 0.7;
-}
-
-.backlog-card-remove:hover {
-  color: var(--danger);
-  opacity: 1;
 }
 
 /* Not a third date step, so not a third button in that row: a full-width one
@@ -5004,17 +4217,299 @@ button.card-age {
   opacity: 1;
 }
 
-/* The park mark on a Triage slot, beside the ×: the two answers for work in
-   front of you that is not being done. It is the quieter of the two — a shelf
-   is not a bin — and only says so in colour when it is reached for. */
-.triage-slot-park {
-  display: inline-flex;
-  align-items: center;
-  color: var(--muted);
+/* ---- Backlog ----
+   One ranked list of the tasks the selected teams have accepted and not
+   taken into work, mixed in one order (docs/design/backlog.md). Top is next;
+   it reads DOWN. */
+.backlog-board {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.triage-slot-park:hover {
+/* The full width of the screen, with the Team board's gutters. */
+.backlog-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+}
+
+.backlog-list-body {
+  --insert-gap-gap: 6px;
+  --insert-gap-left: -6px;
+  flex: 1;
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  background: var(--bg-soft);
+  overflow-y: auto;
+}
+
+/* A card is being carried: said by the list itself, because the card is
+   drawn inside it where it would land rather than where it came from. */
+.backlog-list-over {
+  border-style: solid;
+  border-color: var(--accent);
+}
+
+.backlog-list-empty {
+  margin: 6px 0;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* The insert "+" (InsertGap), shared by the Backlog, the Team grid and the
+   Me board: every gap of a list — above the first card, between two, below
+   the last — shows a round + on hover; pressed, the gap opens the add form
+   right there. It ADDS NO HEIGHT: a gap is a zero-height line whose negative
+   margin cancels the flex gap it adds (--insert-gap-gap, the list's own
+   gap), so the cards stand exactly as far apart as without it; its hover
+   zone is laid over the existing gap, and the + sits out in the list's left
+   field (--insert-gap-left: a band's spine column on the day boards). The
+   gap of an empty cell shows its + on hover of the band; an empty backlog's
+   always. */
+.insert-gap {
+  position: relative;
+  flex: none;
+  height: 0;
+  margin-top: calc(-1 * var(--insert-gap-gap, 4px));
+}
+
+/* The hover zone: the gap between the two cards, centred on the line. */
+.insert-gap::before {
+  content: "";
+  position: absolute;
+  left: var(--insert-gap-left, -18px);
+  right: 0;
+  top: calc(var(--insert-gap-gap, 4px) / 2 - 5px);
+  height: 10px;
+}
+
+.insert-gap-always {
+  height: 24px;
+  margin-top: 0;
+}
+
+.insert-gap-open {
+  height: auto;
+  margin-top: 0;
+}
+
+.insert-gap-btn {
+  position: absolute;
+  left: var(--insert-gap-left, -18px);
+  top: calc(var(--insert-gap-gap, 4px) / 2);
+  translate: 0 -50%;
+  z-index: 3;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 14px;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.insert-gap-always .insert-gap-btn {
+  top: 50%;
+}
+
+.insert-gap:hover .insert-gap-btn,
+.insert-gap-always .insert-gap-btn,
+.zone-area:hover .insert-gap-empty .insert-gap-btn,
+.insert-gap-btn:focus-visible {
+  opacity: 1;
+}
+
+.insert-gap-btn:hover {
   color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* The parent chain, root first, on the right: each name opens its card's
+   drawer, and a long one is cut short (its tooltip names it whole). */
+.backlog-row-chain {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.backlog-row-chain-step {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 2px;
+}
+
+.backlog-row-chain-sep {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.backlog-row-chain-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 200px;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--line-soft);
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.backlog-row-chain-link:hover {
+  color: var(--fg);
+}
+
+.backlog-row-chain-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backlog-row-due {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* A backlog card IS a day board's card (.card, and .card-review for a review
+   nobody has taken): the same look, padding and title. It only spans the
+   list's width instead of the day boards' column. */
+.card.backlog-card {
+  width: 100%;
+  max-width: none;
+  touch-action: none;
+}
+
+.backlog-card-title {
+  flex: 1;
+}
+
+/* The card in hand, drawn where it would land: an outline, since it is not
+   there yet. */
+.backlog-card-landing {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* Take: a small button of its own, the card's right-most, drawn like the
+   app's small buttons (.btn) — a plain border, no offset, no shadow. */
+.backlog-take-btn {
+  flex: none;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.backlog-take-btn:hover {
+  border-color: var(--accent);
+}
+
+.backlog-take-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.take-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.backlog-row-owner {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+/* Inside a .card-assign (a review card's avatar and its counterpart) the
+   picker hugs the avatar, so the counterpart overlaps the avatar's corner
+   exactly as on the Team and Me boards rather than the picker's padding. */
+.backlog-row-owner .card-assign .owner-picker-btn {
+  padding: 0;
+  border: 0;
+}
+
+/* The owner picker's trigger sits flush in the row here: its own -6px pull
+   (for a table cell's text) set its hover box off-centre against the card. */
+.backlog-row-owner .owner-picker-btn {
+  margin-left: 0;
+}
+
+/* The × takes no room: a zero-width slot just left of the card's right-side
+   cluster (chain, size, avatar, Take) anchors it, and it shows over the
+   title's end only while the card is reached for — a backlog is read far
+   more often than it is emptied, and at rest the cluster has no gap. */
+.backlog-row-remove-slot {
+  position: relative;
+  flex: none;
+  width: 0;
+  align-self: stretch;
+}
+
+.backlog-row-remove {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  translate: 0 -50%;
+  z-index: 1;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.2;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Opaque over the title it covers: its muted colour keeps it quiet. */
+.backlog-card:hover .backlog-row-remove {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.backlog-row-remove:hover {
+  color: var(--danger);
+  opacity: 1;
 }
 
 /* ---- Roadmap ----
@@ -5092,7 +4587,7 @@ button.card-age {
 .roadmap-head,
 .roadmap-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px 64px 64px 92px;
+  grid-template-columns: minmax(0, 1fr) 150px 64px 64px 112px;
   align-items: center;
   border-bottom: 1px solid var(--line-soft);
   font-size: 12.5px;
@@ -5190,7 +4685,34 @@ button.card-age {
   flex: none;
 }
 
-.roadmap-owner-text {
+/* Whose a task is (OwnerBadge): the team's avatar, the person's stacked over
+   it by a quarter of its width, then one label. */
+.owner-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.owner-badge-stack {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.owner-badge-person {
+  width: 16px;
+  height: 16px;
+  position: relative;
+}
+
+.owner-badge-overlap .owner-badge-person {
+  margin-left: -4px;
+  box-shadow: 0 0 0 1.5px var(--bg-raised);
+}
+
+.owner-badge-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5264,7 +4786,7 @@ button.card-age {
   pointer-events: none;
 }
 
-/* The sections below the tree: in work, the shelves, unsorted. A header
+/* The sections below the tree: in work, then each team's backlog. A header
    line names each; its lane on the timeline is empty. */
 .roadmap-section {
   cursor: default;
@@ -5352,6 +4874,14 @@ button.card-age {
   display: block;
   cursor: default;
   padding-right: 6px;
+}
+
+/* The Status column is the table's last, and the timeline's divider is the
+   table's own right border: the column is wide enough for IN PROGRESS, and
+   its cell — header and rows — keeps real space before the divider. The
+   cell clips, so a margin on the pill inside it never made that space. */
+.roadmap-cell-status {
+  padding-right: 12px;
 }
 
 .roadmap-status {
@@ -5976,6 +5506,7 @@ button.card-age {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 6px 0 2px;
 }
 
@@ -6449,4 +5980,72 @@ button.card-age {
 
 .roadmap-drag-overlay-forbid {
   border-color: var(--danger);
+}
+
+/* A backlog row and the gap below it: the gap is the row's last child, a
+   zero-height line at the top of the list's own gap, not pulled into it. */
+.backlog-slot {
+  display: flex;
+  flex-direction: column;
+}
+
+.backlog-slot > .insert-gap {
+  margin-top: 0;
+}
+
+/* A project card's Done toggle in the drawer, in place of a bar (#288). */
+.drawer-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+/* The goal, initiative or epic a project card is attached to, under its
+   title on the Project board: a way into it (#288). */
+.project-slot-plan {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.project-slot-plan:hover {
+  color: var(--fg);
+}
+
+.project-slot-plan-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The drawer's progress bar (#289): the full width of its row, taller, with
+   a bigger handle always shown and a focus ring for the keyboard. */
+.card-bar.card-bar-large {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  height: 8px;
+  gap: 2px;
+}
+
+.card-bar-large .card-bar-handle {
+  width: 16px;
+  height: 16px;
+  opacity: 1;
+}
+
+.card-bar-large .card-bar-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

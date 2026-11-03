@@ -61,7 +61,7 @@ func seedOneCard(t *testing.T, uid string) gitstore.Remote {
 		t.Fatal(err)
 	}
 	files := []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 2\ntitle: t\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 3\ntitle: t\n")},
 		{Path: gitstore.TeamPath("01JB4TEAMA"), Data: fmt.Appendf(nil,
 			"name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: %s\n", today)},
 		{Path: p, Data: fmt.Appendf(nil,

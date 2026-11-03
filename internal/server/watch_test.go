@@ -88,7 +88,7 @@ func TestTheWatchUpgradesThroughTheMiddleware(t *testing.T) {
 	for _, path := range []string{
 		"/api/v1/views/me/watch?day=" + today,
 		"/api/v1/views/all/watch",
-		"/api/v1/views/triage/watch?team=alpha",
+		"/api/v1/views/backlog/watch?team=alpha",
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		c, resp, err := websocket.Dial(ctx, "ws"+ts.URL[len("http"):]+path, nil)
@@ -125,7 +125,7 @@ func TestWhichWatchesAreScoped(t *testing.T) {
 		// Naming a board is asking for what it draws.
 		{board.ViewMe, "", true},
 		{board.ViewTeam, "team=alpha", true},
-		{board.ViewTriage, "", true},
+		{board.ViewBacklog, "", true},
 		{board.ViewProject, "", true},
 		// No board and nothing narrowing it: the raw stream.
 		{board.ViewAll, "", false},

@@ -1,11 +1,10 @@
 /** The week grid — the geometry two boards share.
  *
  * A week grid is a table whose rows are weeks and whose columns are something
- * a card belongs to: an scope on the Project board, a person on Triage. The
- * rows, their labels, how far the window reaches, how wide a column is at a
- * given zoom and where a card's dates land in the grid are the same questions
- * on both, and they are answered here — once, without a DOM — so the two
- * boards cannot drift apart.
+ * a card belongs to: a scope on the Project board. The rows, their labels, how
+ * far the window reaches, how wide a column is at a given zoom and where a
+ * card's dates land in the grid are answered here — once, without a DOM — so
+ * the component draws and decides nothing about time.
  *
  * Nothing in this file knows what a column is. That is the whole point of the
  * seam: the caller names its columns, this file lays out the weeks.
@@ -49,10 +48,10 @@ export function weekLabel(monday: string): string {
   return `${String(d).padStart(2, "0")} ${MONTHS[m - 1]}`;
 }
 
-/** A dated thing the window must be wide enough to hold: its week and, when
- *  it was stretched, the day it runs to. Both boards call cards this. */
+/** A dated thing the window must be wide enough to hold: the day it starts
+ *  and, when it was stretched, the day it runs to. A task has no week (K7);
+ *  a card's row is its start's week. */
 export interface Dated {
-  week?: string;
   day?: string;
   startDate?: string;
 }
@@ -78,7 +77,7 @@ export function weekWindow(
   let first = addDays(thisMonday, -7 * (back + padBack));
   let last = addDays(thisMonday, 7 * (WEEKS_FWD + padFwd));
   for (const c of dated) {
-    const anchor = c.week ? mondayOf(c.week) : null;
+    const anchor = c.startDate ? mondayOf(c.startDate) : null;
     if (anchor && anchor < first) {
       first = anchor;
     }
@@ -313,12 +312,12 @@ export function laneStyle(s: Laned, fit: boolean, rowH: number, trim = 0): LaneP
 }
 
 /** extentOf places a card's dates in the window, or reports that they fall
- *  outside it. A card starts in the week of its start date (its week when it
- *  has none) and runs to the week of its end date; a card that ends before it
+ *  outside it. A card starts in the week of its start date and runs to the
+ *  week of its end date; a card that ends before it
  *  starts takes the one row, never a negative span, and one that would run
  *  past the last week stops there. */
 export function extentOf(card: Dated, weeks: readonly string[]): Extent | null {
-  const from = card.startDate || card.week;
+  const from = card.startDate;
   if (!from || weeks.length === 0) {
     return null;
   }

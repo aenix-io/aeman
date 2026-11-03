@@ -7,9 +7,13 @@ import { resourceToCard, sprintStateFrom, type WatchFrame } from "./api/resource
 import type { Board, Card as CardModel, SprintState } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
-import { TriageBoard } from "./components/TriageBoard";
+import { BacklogBoard } from "./components/BacklogBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
 import { RoadmapBoard } from "./components/RoadmapBoard";
+import { followFrame, followPatch } from "./detail";
+import { applyOrder, type OrderArg } from "./cardorder";
+import { presenceAfter, type PresenceMap } from "./presence";
+import { PROJECT_CARDS_KEY, storedProjectCards } from "./roadmap";
 import { TeamsModal } from "./components/TeamsModal";
 import { readProjectFilter, writeProjectFilter } from "./projectFilter";
 import {
@@ -30,6 +34,7 @@ import { forgetMade, justMade } from "./justmade";
 import {
   queryString,
   snapshotDay,
+  storedView,
   viewPath,
   viewQueries,
   watchQueries,
@@ -61,22 +66,7 @@ const LS_TEAM_FILTER = "aeman.teamFilter";
 const LS_VIEW_AS = "aeman.viewAs";
 
 function readView(): ViewMode {
-  const raw = localStorage.getItem(LS_VIEW);
-  if (raw === "team" || raw === "nixon") {
-    return "team";
-  }
-  // "plan" is the tab's pre-rename name — an existing localStorage entry
-  // still lands on the Project board rather than silently on Me.
-  if (raw === "project" || raw === "plan") {
-    return "project";
-  }
-  if (raw === "triage") {
-    return "triage";
-  }
-  if (raw === "roadmap") {
-    return "roadmap";
-  }
-  return "me";
+  return storedView(localStorage.getItem(LS_VIEW));
 }
 
 function readStringList(key: string): string[] | null {
@@ -304,7 +294,14 @@ export function App() {
   }, []);
   // Live selections of other users (login -> card uid), fed by Presence
   // watch frames; purely ephemeral shared-cursor state.
-  const [presence, setPresenceMap] = useState<Record<string, string>>({});
+  const [presence, setPresenceMap] = useState<PresenceMap>({});
+  // A board's selection, shared live (#290): Me, Team and Backlog all say
+  // which card their reader has selected, and draw everyone else's.
+  const sharePresence = (card: string | null) => {
+    if (config?.login) {
+      void provider.setPresence(config.login, card).catch(() => {});
+    }
+  };
   const [detailCard, setDetailCard] = useState<CardModel | null>(null);
   // The cards the pane was opened THROUGH: a crumb followed, a child row, the
   // task a subtask rides — each opens its card in the same drawer, and the
@@ -347,6 +344,25 @@ export function App() {
   // — Shift-click a chip to add/remove it. Persisted, and pruned to the teams
   // the board has once it is loaded.
   const [teamFilter, setTeamFilter] = useState<string[] | null>(readFilter);
+  // The Roadmap's "Project cards" toggle is the listing's selector, not a
+  // filter of what was sent: it rides the roadmap's queries and watch
+  // (viewquery, projectCards), so turning it refetches and re-subscribes.
+  // Remembered per viewer.
+  const [projectCards, setProjectCardsState] = useState<boolean>(() => {
+    try {
+      return storedProjectCards(localStorage.getItem(PROJECT_CARDS_KEY));
+    } catch {
+      return storedProjectCards(null);
+    }
+  });
+  const setProjectCards = useCallback((next: boolean) => {
+    setProjectCardsState(next);
+    try {
+      localStorage.setItem(PROJECT_CARDS_KEY, next ? "1" : "0");
+    } catch {
+      // a preference, not state
+    }
+  }, []);
 
   // The sprint pointers as they stand TODAY. A past day is served as a record
   // — its cards, its roster and its pointers are that day's — so the board in
@@ -654,12 +670,14 @@ export function App() {
         selectedDate,
         teamFilter ?? [...new Set([...roster, ""])],
         viewAs ?? undefined,
+        undefined,
+        { projectCards },
       ),
-    [view, selectedDate, teamFilter, roster, viewAs],
+    [view, selectedDate, teamFilter, roster, viewAs, projectCards],
   );
   const activeKey = activeQueries.map(queryString).join("|");
   // Which BOARD the reader is standing on, for the gestures made on it: the ×,
-  // the drop into a week, the pull back into the strip. It is the listing's own
+  // the owner picker, a create. It is the listing's own
   // selector minus what only a listing needs, so the server judges a press
   // against exactly the board the person is looking at.
   const standingKey = useMemo(() => {
@@ -697,8 +715,9 @@ export function App() {
         selectedDate,
         teamFilter ?? [...new Set([...roster, ""])],
         viewAs ?? undefined,
+        { projectCards },
       ).map(queryString),
-    [view, selectedDate, teamFilter, roster, viewAs],
+    [view, selectedDate, teamFilter, roster, viewAs, projectCards],
   );
   // One string for the watch effect's dep: the sockets are rebuilt only when
   // the selections actually change.
@@ -960,6 +979,10 @@ export function App() {
         });
         return changed ? { ...cur, cards } : cur;
       });
+      // The drawer's card follows the same patch when no board lists it — a
+      // card opened by uid — or it would show the old one until a reload.
+      setDetailCard((d) => followPatch(d, itemId, patch));
+      setDetailStack((st) => (st.some((c) => c.itemId === itemId) ? st.map((c) => followPatch(c, itemId, patch) ?? c) : st));
     },
     [],
   );
@@ -1029,18 +1052,8 @@ export function App() {
 
   // Reorder board.cards to match orderedIds. Cards whose ids are not listed keep
   // their relative order and are appended after the explicitly ordered ones.
-  const reorderCards = useCallback((orderedIds: string[]) => {
-    setBoard((cur) => {
-      if (!cur) {
-        return cur;
-      }
-      const rank = new Map(orderedIds.map((id, i) => [id, i]));
-      const ranked = cur.cards
-        .filter((c) => rank.has(c.itemId))
-        .sort((a, b) => rank.get(a.itemId)! - rank.get(b.itemId)!);
-      const rest = cur.cards.filter((c) => !rank.has(c.itemId));
-      return { ...cur, cards: [...ranked, ...rest] };
-    });
+  const reorderCards = useCallback((order: OrderArg) => {
+    setBoard((cur) => (cur ? { ...cur, cards: applyOrder(cur.cards, order) } : cur));
   }, []);
 
   // Live updates: the server pushes resource events over an unscoped WebSocket
@@ -1151,6 +1164,8 @@ export function App() {
             fn(card.itemId, deleted);
           }
         };
+        // The drawer's card hears its frames even when no board lists it.
+        setDetailCard((d) => followFrame(d, card, frame.type === "DELETED"));
         if (frame.type === "DELETED") {
           removeCard(card.itemId);
           notifyCardFrame(true);
@@ -1198,19 +1213,12 @@ export function App() {
         return;
       }
       if (frame.kind === "Presence") {
-        const { login, card } = frame.object;
+        const { login, card, client } = frame.object;
         if (!login) {
           return;
         }
-        setPresenceMap((cur) => {
-          const next = { ...cur };
-          if (card) {
-            next[login] = card;
-          } else {
-            delete next[login];
-          }
-          return next;
-        });
+        // Keyed by the tab it is from, as the server keys it (presence.ts).
+        setPresenceMap((cur) => presenceAfter(cur, { login, card, client }));
       }
     };
     const connect = () => {
@@ -1426,7 +1434,7 @@ export function App() {
         {/* The day belongs to the app, not to a board: it is the same value
             whichever day board is open, so the control that moves it stands
             with the view tabs rather than being drawn again inside each. The
-            boards that lay every week out at once (Triage, Project) have no
+            boards that are not of a day (Backlog, Roadmap, Project) have no
             day to show. */}
         {(view === "me" || view === "team") && (
           <DayNav
@@ -1498,11 +1506,11 @@ export function App() {
           <button
             type="button"
             role="tab"
-            aria-selected={view === "triage"}
-            className={`segment${view === "triage" ? " segment-active" : ""}`}
-            onClick={() => setView("triage")}
+            aria-selected={view === "backlog"}
+            className={`segment${view === "backlog" ? " segment-active" : ""}`}
+            onClick={() => setView("backlog")}
           >
-            Triage
+            Backlog
           </button>
           <button
             type="button"
@@ -1558,13 +1566,8 @@ export function App() {
             reload={reload}
             onError={onError}
             onOpen={openCard}
-            onPresence={(card) => {
-              if (board && config?.login) {
-                void provider
-                  .setPresence(config.login, card)
-                  .catch(() => {});
-              }
-            }}
+            onPresence={sharePresence}
+            presence={presence}
           />
         )}
         {board && view === "project" && (
@@ -1600,10 +1603,12 @@ export function App() {
             onOpen={openCard}
             focusId={roadmapFocus}
             onFocused={() => setRoadmapFocus(null)}
+            showProjects={projectCards}
+            onShowProjects={setProjectCards}
           />
         )}
-        {board && view === "triage" && (
-          <TriageBoard
+        {board && view === "backlog" && (
+          <BacklogBoard
             board={board}
             provider={provider}
             roster={roster}
@@ -1613,12 +1618,14 @@ export function App() {
             names={names}
             patchCard={patchCard}
             addCard={addCard}
-            replaceCard={replaceCard}
             removeCard={removeCard}
             reorderCards={reorderCards}
             reload={reload}
             onOpen={openCard}
             onError={onError}
+            presence={presence}
+            onPresence={sharePresence}
+            me={config?.login ?? ""}
           />
         )}
         {board && view === "team" && (
@@ -1645,6 +1652,7 @@ export function App() {
             removeCard={removeCard}
             reorderCards={reorderCards}
             presence={presence}
+            onPresence={sharePresence}
             reload={reload}
             track={trackLoad}
             onError={onError}

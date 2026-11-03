@@ -104,14 +104,13 @@ paths:
         - $ref: '#/components/parameters/Team'
         - $ref: '#/components/parameters/Day'
         - $ref: '#/components/parameters/User'
-        - $ref: '#/components/parameters/From'
-        - $ref: '#/components/parameters/Weeks'
         - $ref: '#/components/parameters/Project'
         - $ref: '#/components/parameters/Assignee'
         - $ref: '#/components/parameters/Stage'
         - $ref: '#/components/parameters/Zone'
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/ProjectCards'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       responses:
@@ -130,9 +129,12 @@ paths:
       description: >-
         A create means what the board means by it: typed into `me` the card is
         yours, today, in the sprint and in the unplanned band; into `team` it
-        lands in the Unassigned column unless somebody is named; into `triage`
-        it is scheduled for a week; into `backlog` it is parked on the team's
-        shelf; into `project` it is a slot under a column. Each board refuses
+        lands in the Unassigned column unless somebody is named; into `backlog`
+        it is parked in the team's backlog, last — or right where `after` /
+        `before` place it, in the same request; into `project` it is a slot
+        under a column; into `roadmap` it is a goal, an initiative or an epic,
+        or a task under one — parked in the no-team group's backlog when it
+        was given no dates. Each board refuses
         the fields it does not own — a parked card typed into a day, a column
         named on the Me board — with a 422 that says which field it was. A title
         that is nothing but a GitHub issue/PR URL becomes that item's real
@@ -172,14 +174,13 @@ paths:
         - $ref: '#/components/parameters/Team'
         - $ref: '#/components/parameters/Day'
         - $ref: '#/components/parameters/User'
-        - $ref: '#/components/parameters/From'
-        - $ref: '#/components/parameters/Weeks'
         - $ref: '#/components/parameters/Project'
         - $ref: '#/components/parameters/Assignee'
         - $ref: '#/components/parameters/Stage'
         - $ref: '#/components/parameters/Zone'
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/ProjectCards'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
         - name: resources
@@ -206,28 +207,33 @@ paths:
       summary: The board's × — hand the card back to a home it still has, or delete it by that board's rules.
       description: >-
         `intent` says which of the ×'s two meanings is wanted: `unassign`
-        empties the working area and leaves the card in its week or its column,
-        `off-board` takes it away with the subtasks that were pieces of it.
-        Omitted, the gesture decides for itself. `off-board` on a Project-board
-        slot is 422 — it belongs to another board's plan;
-        `unassign` on a card with no week and no column is 422 too, since it
-        would leave the card nowhere at all.
+        takes the card out of work and puts it back in its team's BACKLOG —
+        parked, no person, no day, no sprint (a subtask is pulled out of its
+        group first; on a review card it is "back to backlog": the reviewer
+        is taken off and the review waits, parked with nobody on it, at the
+        top of the reviewed task's team backlog while the task stays on
+        review; a Project-board slot is left in its column) —
+        and `off-board` takes it away with the subtasks that were pieces of
+        it. Omitted, the gesture decides for itself. `off-board` on a
+        Project-board slot is 422 — it belongs to another board's plan. On a
+        review card — whether a reviewer has it or nobody has taken it —
+        `off-board` and no intent WITHDRAW the review: the reviewed task
+        goes back to In progress and the review card goes.
 
 
         From the Me board the × is the narrow one: a person takes off their own
         board what they PUT there and what the plan has not taken up. Work
-        another person scheduled for them, or work they scheduled on the Team or
-        Triage board, is somebody's plan and is refused there (403) — the wide ×
+        another person scheduled for them, or work they scheduled on the Team
+        board, is somebody's plan and is refused there (403) — the wide ×
         lives on the board where the planning was done, and the answer to "I am
         not doing this" is `spec.stage: refuse`. A card with no recorded author
         is not exempt, and a subtask is outside the rule.
 
 
-        The × empties the WORKING AREA: assignee, sprint and dates cleared (a
-        slot keeps its dates — they are its row). The card then lands wherever
-        it still belongs — the week it is scheduled for, or its Project-board
-        column. With nowhere else to be the working area was its only home, and
-        the × deletes it. It takes the card's subtasks with it; a subtask
+        Asked nothing, the × empties the WORKING AREA: assignee, sprint and
+        dates cleared (a slot keeps its dates — they are its row). The card
+        then stays in its Project-board column; with none the working area was
+        its only home, and the × deletes it. It takes the card's subtasks with it; a subtask
         standing in a column of its own is freed into that column instead, and
         one whose column cannot come along (a column of the parent's repository)
         is answered like any other columnless card, which is deletion. A deleted
@@ -256,14 +262,13 @@ paths:
         - $ref: '#/components/parameters/Team'
         - $ref: '#/components/parameters/Day'
         - $ref: '#/components/parameters/User'
-        - $ref: '#/components/parameters/From'
-        - $ref: '#/components/parameters/Weeks'
         - $ref: '#/components/parameters/Project'
         - $ref: '#/components/parameters/Assignee'
         - $ref: '#/components/parameters/Stage'
         - $ref: '#/components/parameters/Zone'
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/ProjectCards'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       requestBody:
@@ -277,52 +282,6 @@ paths:
           description: The card is off that board.
         default:
           $ref: '#/components/responses/Problem'
-  /views/{view}/cards/{uid}/actions/place:
-    post:
-      operationId: placeCard
-      tags: [Cards]
-      summary: The Triage board's drop — put the card in a week, which is what triaging it means.
-      description: >-
-        `week` is a Monday; any other day is refused (422), since a week that is
-        not a Monday matches no column the board draws. A week AHEAD of this one
-        also empties the working area — the card is on no day board until that
-        Monday — while the CURRENT week joins the team's sprint instead. A
-        PROJECT card — one in a Scope column — is refused (422 `projectCard`):
-        it is not on this board, and its weeks are the Project board's rows,
-        moved there by its dates. It is not the same as PATCH {"week": …},
-        which writes the week and nothing else (and refuses a project card the
-        same way).
-      parameters:
-        - $ref: '#/components/parameters/View'
-        - $ref: '#/components/parameters/Uid'
-        - $ref: '#/components/parameters/Team'
-        - $ref: '#/components/parameters/Day'
-        - $ref: '#/components/parameters/User'
-        - $ref: '#/components/parameters/From'
-        - $ref: '#/components/parameters/Weeks'
-        - $ref: '#/components/parameters/Project'
-        - $ref: '#/components/parameters/Assignee'
-        - $ref: '#/components/parameters/Stage'
-        - $ref: '#/components/parameters/Zone'
-        - $ref: '#/components/parameters/Focus'
-        - $ref: '#/components/parameters/Reviews'
-        - $ref: '#/components/parameters/Fields'
-        - $ref: '#/components/parameters/Snapshot'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PlaceCardBody'
-      responses:
-        '200':
-          description: The card after the change.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Card'
-        default:
-          $ref: '#/components/responses/Problem'
   /views/{view}/cards/{uid}/actions/own:
     post:
       operationId: ownCard
@@ -331,19 +290,22 @@ paths:
       description: >-
         The Roadmap's answer for the loose work listed below its tree, offered
         by every board that draws a task (not the Project board). What the
-        answer DOES depends on whether the card has a plan — a day, a week or
-        a sprint. A `person` (with their `team`) files an UNPLANNED card the
-        way typing it into their Me board would: on the team, today, in the
-        unplanned band, in the team's sprint, off any shelf — so it stands on
-        their Team and Me boards at once; a planned card changes hands and
-        keeps its plan. A `team` alone parks an unplanned card on that team's
-        shelf — its Backlog on Triage — with nobody on it; a planned card
-        moves team, keeps its plan and loses its person. Neither takes the
-        team and the person off: a planned card keeps its plan in the no-team
-        group, an unplanned one is the strip's again. A person without a team
+        answer DOES depends on whether the card is in work — a date or a
+        sprint. A `person` (with their `team`) takes an UNPLANNED card into
+        work the way typing it into their Me board would: on the team, today,
+        in the unplanned band, in the team's sprint, out of its backlog — so it
+        stands on their Team and Me boards at once; a planned card changes
+        hands and keeps its plan. A `team` alone parks an unplanned card in
+        that team's backlog with nobody on it (a parked card handed to another
+        team stays parked); a planned card moves team, keeps its plan and
+        loses its person. Neither takes the team and the person off: a
+        planned card keeps its plan in the no-team group, an unplanned one is
+        parked in the no-team group's backlog. A person without a team
         is refused (422 `ownerNeedsTeam`); a subtask and a review card have
         no owner of their own (422 `ownerFollowsLink` — the parent's, the
-        reviewer); a planning card and a project card carry none (422
+        reviewer) — except a review NOBODY HAS TAKEN, where a person is its
+        reviewer and takes it into work like a task (today, the task's sprint,
+        out of the backlog); a planning card and a project card carry none (422
         `planningCard`, `projectCard`). Subtasks follow the card's team and
         person, as they do everywhere.
       parameters:
@@ -352,14 +314,13 @@ paths:
         - $ref: '#/components/parameters/Team'
         - $ref: '#/components/parameters/Day'
         - $ref: '#/components/parameters/User'
-        - $ref: '#/components/parameters/From'
-        - $ref: '#/components/parameters/Weeks'
         - $ref: '#/components/parameters/Project'
         - $ref: '#/components/parameters/Assignee'
         - $ref: '#/components/parameters/Stage'
         - $ref: '#/components/parameters/Zone'
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/ProjectCards'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       requestBody:
@@ -377,29 +338,37 @@ paths:
                 $ref: '#/components/schemas/Card'
         default:
           $ref: '#/components/responses/Problem'
-  /views/{view}/cards/{uid}/actions/untriage:
+  /views/{view}/cards/{uid}/actions/take:
     post:
-      operationId: untriageCard
+      operationId: takeCard
       tags: [Cards]
-      summary: The Triage board's opposite — take the card's week away, back to the strip.
+      summary: The Backlog's "I take this into work" — the card becomes the caller's.
       description: >-
-        A PROJECT card is refused (422 `projectCard`): it is not on this board
-        and has no week to take away — taking it off the column is the gesture
-        that means this. A card that is in no week already is left as it is.
+        Offered by the backlog view (and `all`). The caller — the signed-in
+        person, the identity every write records as its author — gets the card
+        on its OWN team (a card of the no-team group stays in it): a parked
+        task is taken into work as `own` with a person takes it — today, the
+        unplanned band, the team's sprint, out of the backlog — and a review
+        nobody has taken makes the caller its reviewer. Refused where there is
+        nothing to take: a planning card or a project card (422
+        `planningCard`, `projectCard`), a subtask or a review somebody already
+        has (422 `ownerFollowsLink`), finished work (422 `alreadyFinished`), a
+        task already in work (422 `alreadyInWork` — hand it over with `own`),
+        a parked card somebody else is named on (422 `somebodysCard`), and a
+        request that names nobody (422 `nobodyToTake`).
       parameters:
         - $ref: '#/components/parameters/View'
         - $ref: '#/components/parameters/Uid'
         - $ref: '#/components/parameters/Team'
         - $ref: '#/components/parameters/Day'
         - $ref: '#/components/parameters/User'
-        - $ref: '#/components/parameters/From'
-        - $ref: '#/components/parameters/Weeks'
         - $ref: '#/components/parameters/Project'
         - $ref: '#/components/parameters/Assignee'
         - $ref: '#/components/parameters/Stage'
         - $ref: '#/components/parameters/Zone'
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/ProjectCards'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       responses:
@@ -426,14 +395,13 @@ paths:
         - $ref: '#/components/parameters/Team'
         - $ref: '#/components/parameters/Day'
         - $ref: '#/components/parameters/User'
-        - $ref: '#/components/parameters/From'
-        - $ref: '#/components/parameters/Weeks'
         - $ref: '#/components/parameters/Project'
         - $ref: '#/components/parameters/Assignee'
         - $ref: '#/components/parameters/Stage'
         - $ref: '#/components/parameters/Zone'
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
+        - $ref: '#/components/parameters/ProjectCards'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       responses:
@@ -499,7 +467,9 @@ paths:
         the caller is CARRYING but did not create is refused here as it is at
         the × (403): `spec.stage: refuse` is the answer to work somebody else
         planned. A subtask, a review card and a card with no recorded author
-        are outside that rule.
+        are outside that rule. Deleting a REVIEW card withdraws the review:
+        the reviewed task goes back to In progress, since no door leaves a
+        task on review with no review card.
       parameters:
         - $ref: '#/components/parameters/Uid'
       responses:
@@ -624,7 +594,12 @@ paths:
     post:
       operationId: removeReviewer
       tags: [Cards]
-      summary: Delete the linked review card.
+      summary: Take the reviewer off the card.
+      description: >-
+        While the card is on review the review is still asked for: its review
+        card goes back to the task's team backlog with nobody on it, at the
+        top. A finished review, or one of a card no longer on review, is
+        deleted.
       parameters:
         - $ref: '#/components/parameters/Uid'
       responses:
@@ -1183,7 +1158,11 @@ paths:
         Ephemeral shared-cursor state, broadcast over the watch and never
         persisted. The login is the caller's authenticated identity, not a
         client-supplied value, and the client id (`X-Aeman-Client`) keys it, so
-        a closed tab clears its own mark.
+        a closed tab clears its own mark and a lead and a person each have
+        their own. A selection is board-wide, not a view's: one made on the
+        Team board reaches a Me board's watch and the other way round. A
+        watcher who may not read the card's repository is sent the mark as
+        cleared, never the card.
       requestBody:
         required: true
         content:
@@ -1223,9 +1202,12 @@ components:
       in: path
       required: true
       description: >-
-        The board the caller is standing on: me, team, triage, backlog, roadmap,
+        The board the caller is standing on: me, team, backlog, roadmap,
         project, or all — the escape hatch, which has to be said out loud. A
-        board nobody has is a route that is not there (404). The roadmap lists
+        board nobody has is a route that is not there (404) — `triage`, the
+        retired Triage board, among them. The backlog lists each named team's
+        parked open tasks in the order the backlog is read (by hand, then
+        oldest first). The roadmap lists
         the hierarchy — every goal, initiative and epic, and every card with one
         above it — and a create there is a planning card (`type` required).
       schema:
@@ -1269,26 +1251,6 @@ components:
         Whose Me board to read. Who-am-I is resolved server-side, so a caller
         needs none; an explicit one wins, for a lead looking at somebody else's
         day.
-      schema:
-        type: string
-    From:
-      name: from
-      in: query
-      required: false
-      description: >-
-        The Monday the Triage window opens on; empty or absent is the current
-        week.
-      schema:
-        type: string
-        pattern: '^(\d{4}-\d{2}-\d{2})?$'
-    Weeks:
-      name: weeks
-      in: query
-      required: false
-      description: >-
-        How many weeks the Triage window covers, that Monday included: 1..26,
-        default 6. Anything else is refused (400). A client must ask for every
-        week it intends to DRAW.
       schema:
         type: string
     Project:
@@ -1341,9 +1303,21 @@ components:
       required: false
       description: >-
         "true" or "1" brings review cards into the view: on me and team each
-        card's linked review is APPENDED, on triage the reviews the grid
-        otherwise leaves out are KEPT, standing in the week their own dates fall
-        in. Off by default in both.
+        card's linked review is APPENDED. Off by default.
+      schema:
+        type: string
+    ProjectCards:
+      name: projectCards
+      in: query
+      required: false
+      description: >-
+        On the roadmap view, "true" or "1" lists the PROJECT cards — cards in
+        a Scope column — under the planning cards they are filed under, and a
+        watch sends them. Off by default: the Roadmap is the plan of goals,
+        initiatives, epics and the work under them, and the Project board's
+        cards stay there unless asked for (the Roadmap's "Project cards"
+        toggle). A planning card's derived standing counts the same either
+        way. Means nothing on any other view.
       schema:
         type: string
     Fields:
@@ -1413,6 +1387,8 @@ components:
             board it is that rule's own name.
           enum:
             - accessUndecided
+            - alreadyFinished
+            - alreadyInWork
             - authorizationExpired
             - backwardsDefer
             - badCapacity
@@ -1442,12 +1418,12 @@ components:
             - invalidSelector
             - invalidStage
             - nameTaken
+            - nobodyToTake
             - noEarlierSprint
             - noHistory
             - noPlaceOfItsOwn
             - noReviewer
             - noSuchView
-            - notAMonday
             - notAuthenticated
             - notFinished
             - notOnThisBoard
@@ -1457,7 +1433,6 @@ components:
             - notYoursToRemove
             - noteNotFound
             - noteTooLong
-            - nowhereToLeaveIt
             - openSubtasks
             - ownerFollowsLink
             - ownerNeedsTeam
@@ -1470,13 +1445,15 @@ components:
             - projectNotFound
             - reviewCardLink
             - setupRequired
+            - somebodysCard
             - subtaskDepth
-            - subtaskWeek
             - teamExists
             - teamInUse
+            - takeIntoWork
             - teamNotFound
             - titleTooLong
             - tooManyCards
+            - twoPlaces
             - unknownDomain
             - unknownIntent
             - unknownRoute
@@ -1487,6 +1464,7 @@ components:
             - upstreamFailed
             - viewNeedsField
             - projectCard
+            - projectCardProgress
         actionUrl:
           type: string
           description: >-
@@ -1554,8 +1532,8 @@ components:
             card in the WORKING AREA — one carrying a sprint or dates of its own
             — always answers with a band: nobody having said means "planned",
             which is where every board draws it anyway. Absent is reserved for
-            cards that are on no day (the strip, a shelf, a week to come), where
-            "no band yet" is a state a client draws as one.
+            cards that are on no day (a parked task, a planning card, a project
+            card), where "no band yet" is a state a client draws as one.
           enum: [urgent, unplanned, planned, niceToHave]
         size:
           type: string
@@ -1602,26 +1580,21 @@ components:
             "month" once the interval has elapsed.
         dates:
           $ref: '#/components/schemas/CardDates'
-        week:
-          type: string
-          description: >-
-            The week a card with no dates is scheduled for, a Monday: its column
-            on the Triage board. Any other day is refused (422) — a column IS a
-            Monday. A slot's row is the week of its `dates.start`, always
-            derived, so setting a week on a card filed under a column is refused
-            too, though re-asserting the week it already derives is a harmless
-            no-op.
         parked:
           type: boolean
           description: >-
-            The card is on its team's SHELF rather than in the plan — work
-            somebody has read and put aside. Exclusive with `week`: setting one
-            clears the other, at every door. Parking empties the working area,
-            takes the card's subtasks off the board with it, withdraws any
-            unfinished review of it, and puts it at the top of the shelf. Every
-            team has a shelf and nothing declares it. A Project-board slot, a
-            review card and a subtask are refused (422): none of them has a
-            place of its own to be parked out of.
+            The task is in its team's BACKLOG rather than in work. A task is in
+            work (a date or a sprint) or parked, never both and never neither:
+            parking empties the working area — person, sprint, dates — takes
+            the card's subtasks off the board with it, withdraws any unfinished
+            review of it, and puts it at the top of the backlog; giving a parked
+            task a date or a sprint (or `own` with a person) takes it out of the
+            backlog. `false` alone on a parked task with no date and no sprint
+            is refused (422 `takeIntoWork`): a task leaves its backlog by being
+            taken into work. Every team has a backlog and nothing declares it. A
+            Project-board slot, a review card and a subtask are refused (422):
+            none of them has a place of its own to be parked in. A task has no
+            week.
         scope:
           type: string
           description: >-
@@ -1681,10 +1654,8 @@ components:
           type: boolean
           description: >-
             A promise made on ANOTHER board and broken: a slot past its end
-            date. A card
-            the Triage board scheduled into a week is not marked late for still
-            being open — that week is this board's own planning — though it is
-            still a debt.
+            date. A task's own dates are the day board's planning and never
+            mark it late.
         reviewedBy:
           type: string
           description: The assignee of the unfinished linked review card.
@@ -1706,24 +1677,6 @@ components:
         doneAt:
           type: string
           description: The board day the card reached 100, cleared on reopen.
-        triage:
-          type: boolean
-          description: >-
-            The card stands in the Triage board's strip: nobody has placed it in
-            a week and it is not being worked.
-        triageWeek:
-          type: string
-          description: >-
-            The Monday of the column the card stands in on the Triage board: its
-            week, or — for a review card, which has none of its own — the week
-            its own dates fall in.
-        due:
-          type: array
-          description: >-
-            A RECURRENT card's weeks to come: the ones it comes round in over
-            the planning horizon and no copy of it stands in yet.
-          items:
-            type: string
         leftAt:
           type: string
           description: >-
@@ -1742,11 +1695,47 @@ components:
           type: array
           description: >-
             Every ancestor of the card, ROOT FIRST — the breadcrumb a detail
-            pane draws above it, a task parent included. Absent on a root.
+            pane draws above it, a task parent included. Absent on a root. A
+            review card, which hangs under nothing of its own, carries the
+            planning chain of the task it reviews.
           items:
             $ref: '#/components/schemas/LineageRef'
+        reviewed:
+          allOf:
+            - $ref: '#/components/schemas/ReviewedRef'
+          description: >-
+            On a REVIEW card, the card it reviews — its uid, title and people
+            — so a client can name it, open it and draw whose it is without
+            looking it up. Absent on
+            every other card, and when the reviewed card is gone.
+        dueDate:
+          type: string
+          description: >-
+            A task's due date: the end of its NEAREST planning card (goal,
+            initiative or epic) — never one borrowed from a farther ancestor.
+            Absent with no planning card above it, when the nearest has no
+            end, and on a planning card. A review card is due when the task it
+            reviews is.
         hierarchy:
           $ref: '#/components/schemas/Hierarchy'
+    ReviewedRef:
+      type: object
+      description: >-
+        The card a review card reviews: its uid, title and people (its
+        assignees — the review's counterpart, drawn as the small avatar on a
+        review card).
+      required: [uid, title]
+      properties:
+        uid:
+          type: string
+        type:
+          type: string
+        title:
+          type: string
+        assignees:
+          type: array
+          items:
+            type: string
     LineageRef:
       type: object
       additionalProperties: false
@@ -1763,6 +1752,12 @@ components:
           description: The ancestor's level; absent for a task.
         title:
           type: string
+        end:
+          type: string
+          description: >-
+            The ancestor's end date, when it has one — a planning card's bar
+            ends there on the Roadmap. The Backlog shows the nearest planning
+            card's end as the due date of the task under it.
     Hierarchy:
       type: object
       additionalProperties: false
@@ -2310,8 +2305,8 @@ components:
         carried:
           type: integer
           description: >-
-            The open plan cards from earlier weeks — the debts now showing on
-            the target week's panel. They are not moved.
+            The unfinished cards of the closing sprint carried into the new
+            one (their subtasks ride along and are not counted).
         reseeded:
           type: integer
     CreateCardRequest:
@@ -2338,22 +2333,16 @@ components:
             type: string
         dates:
           $ref: '#/components/schemas/CardDatesInput'
-        week:
-          type: string
-          description: >-
-            Schedules the card for a WEEK (its Monday) instead of a day: no
-            dates are set and no sprint is joined.
         parked:
           type: boolean
           description: >-
-            Puts the card straight on its team's shelf. Like `week`, no dates
-            are set and no sprint is joined.
+            Puts the task straight in its team's backlog, last: no dates are
+            set and no sprint is joined. A task has no week.
         scope:
           type: string
           description: >-
             With `project`, files the card on the Project board under the column
-            that pair identifies. Its row is the week of `dates.start` — `week`
-            anchors it when there are no dates — and the dates may span weeks.
+            that pair identifies. Its row is `dates`, which may span weeks.
         project:
           type: string
         reviewOf:
@@ -2362,8 +2351,7 @@ components:
           type: string
           description: >-
             The card this one sits under. A TASK parent groups the card as a
-            subtask — a `parent` and a `week` together are then refused (422):
-            grouping hands the week to the parent. A goal, an initiative or an
+            subtask. A goal, an initiative or an
             epic as parent files the card in the hierarchy; the parent must be
             of a higher level than the card (422 `parentLevel`) and in the
             card's own repository (422 `crossDomain`). A review card follows
@@ -2375,7 +2363,7 @@ components:
             Makes a PLANNING card — on the roadmap view, where it is required;
             every other board refuses it (422 `notOnThisBoard`). A planning card
             takes its dates, its owner, a team and a parent, and none of a task's
-            day-board state (422 `planningCard` for a column, a week, a shelf, a
+            day-board state (422 `planningCard` for a column, a backlog, a
             review or a sprint).
           enum: [goal, initiative, epic]
         startNewSprint:
@@ -2385,6 +2373,22 @@ components:
           description: >-
             Schedules the card for its day without joining any sprint — a "next
             sprint" create; the next carry-over to reach its day adopts it.
+        after:
+          type: string
+          description: >-
+            On the backlog, team and me views, the uid of the card the new one
+            is placed right AFTER, in the same request — the insert "+"
+            between two cards of a backlog or of a Team/Me cell (the cell's
+            person and band are the create's own fields). One of `after` and
+            `before`, or neither (the card lands last); both are 422
+            `twoPlaces`, an anchor the board does not have is 404
+            `cardNotFound` and nothing is made. The roadmap and project views
+            refuse it (422 `notOnThisBoard`); `view=all` takes it.
+        before:
+          type: string
+          description: >-
+            As `after`, the uid of the card the new one is placed right
+            BEFORE — the "+" above the first card of a list.
     CardDatesInput:
       type: object
       properties:
@@ -2418,13 +2422,20 @@ components:
             type: string
         progress:
           type: integer
+          description: >-
+            0..100. A project card (one in a Scope column) is done or not
+            done and takes 0 or 100 alone; any other value is 422
+            `projectCardProgress`.
         stage:
           type: string
           enum: ["", locked, review, recurrent, refuse, done]
           description: >-
             A name the board does not have is refused rather than stored.
             "done" clears the stage and fills 100; review and locked clamp the
-            progress into [10, 90].
+            progress into [10, 90]. Setting `review` on a task with no review
+            card makes one — «review: <title>», of the task's team, with nobody
+            on it, parked in that team's backlog (the "needs a reviewer" item);
+            name a reviewer with send-to-review, or with `own` on that card.
         recurrence:
           type: string
         scope:
@@ -2437,14 +2448,13 @@ components:
           type: string
         dates:
           $ref: '#/components/schemas/CardDatesPatch'
-        week:
-          type: string
-          description: >-
-            The week the card is scheduled for; empty takes it off the weeks.
-            Giving a STANDING subtask a week pulls it out of its group first —
-            that is what the request means — while clearing one is free.
         parked:
           type: boolean
+          description: >-
+            `true` parks the task in its team's backlog; `false` takes a parked
+            task that is already in work out of it, and is refused (422
+            `takeIntoWork`) on one with no date and no sprint — set a date, a
+            sprint or `own` a person instead.
         reviewOf:
           type: string
         parent:
@@ -2472,12 +2482,6 @@ components:
           description: >-
             "unassign", "off-board", or left out for the gesture to decide for
             itself. Anything else is refused (400).
-    PlaceCardBody:
-      type: object
-      properties:
-        week:
-          type: string
-          description: The Monday of the week the card is placed in.
     OwnBody:
       type: object
       properties:
@@ -2749,12 +2753,17 @@ components:
     Presence:
       type: object
       additionalProperties: false
-      description: One person's live selection.
+      description: >-
+        One person's live selection, from one of their tabs: `client` is the
+        tab (its `X-Aeman-Client`), the key a selection is held by, so two
+        tabs of one person are two selections; an empty `card` clears it.
       required: [login, card]
       properties:
         login:
           type: string
         card:
+          type: string
+        client:
           type: string
     BoardFrame:
       type: object

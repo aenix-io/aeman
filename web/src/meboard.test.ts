@@ -28,7 +28,7 @@ describe("where a card can be added on the Me board", () => {
 // on this board: their own card, still standing in the one zone this board
 // adds to. Work somebody else planned for them is not theirs to take off the
 // board — and neither is work they planned SOMEWHERE ELSE, on the Team or
-// Triage board, which is where a lead plans and where that × belongs. The
+// Backlog board, which is where a lead plans and where that × belongs. The
 // answer to "I am not doing this" is the refuse stage, which leaves the card
 // where the lead can see it and decide.
 describe("what the × may remove on the Me board", () => {
@@ -137,8 +137,8 @@ describe("what a drag may do on the Me board", () => {
 
 // The Me board's add form stands in the unplanned zone alone — that is what
 // this board is FOR: something came up today, and the week's plan is made
-// elsewhere. The Team and Triage grids are where planning is done, and they
-// offer every zone in every column, one's own included.
+// elsewhere. The Team grid is where planning is done, and it offers every
+// zone in every column, one's own included.
 //
 // The SERVER holds the same rule now, and only for this board's create
 // (boardservice.addsUnplanned, `view=me`):

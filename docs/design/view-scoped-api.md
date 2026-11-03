@@ -6,6 +6,8 @@ This is the second half of what [api-redesign.md](api-redesign.md) set out to do
 
 ## What is wrong
 
+> **2026-11-03:** the Triage board (`triage`, its `place` and `untriage` gestures, the `from`/`weeks` selectors and `week` on a task) is retired by [backlog.md](backlog.md); the tables below say what the views are now, and the prose keeps the reasoning of the change that introduced them.
+
 ADR 0002 says the API and MCP mirror the frontend, not the backend. Two audits of the live tool set found where that stopped being true, and the pattern in both is the same: **the board's vocabulary is views and gestures, and the API's vocabulary is fields.**
 
 A person creating a card does it on a board, and the board is what makes the card what it is: typed into the Me board it is theirs, today, in this sprint; typed into a Triage week it is scheduled for that week and stands on no day; typed into the drawer it is parked; typed into a Project column it is a slot whose row is its start date. An agent creating the same cards sends `week`, `parked`, `scope`+`project` — flags that encode the boards, and nothing tells it which combinations are boards and which are states no board draws: `parked` with a `week` is a card in the drawer and in the plan at once, which the service now refuses.
@@ -21,7 +23,7 @@ GET    /api/v1/views                                  the boards this caller may
 GET    /api/v1/views/{view}/cards?…                   LIST, scoped to that board
 GET    /api/v1/views/{view}/watch?…                   WATCH, the same scope
 POST   /api/v1/views/{view}/cards                     create — what a card MEANS on that board
-POST   /api/v1/views/{view}/cards/{uid}/actions/{g}   a board GESTURE: remove, place, untriage, finished-earlier, own
+POST   /api/v1/views/{view}/cards/{uid}/actions/{g}   a board GESTURE: remove, finished-earlier, own
 ```
 
 and, unchanged, the card addressed as itself (the day feed, `GET /api/v1/logs?day=&uids=`, stays with it: the uids are given, so no board narrows it):
@@ -49,9 +51,8 @@ That is also why PATCH and DELETE stay off the view. Patching a field is not a g
 | --- | --- | --- |
 | `me` | the Me day board | the caller's own cards on `day` (`user=` for a lead looking at someone else's) |
 | `team` | the lead's day grid | the cards of `team=` on `day`, everyone's |
-| `triage` | the weeks grid | the cards of `team=` in the weeks `from`..`from+weeks` |
-| `backlog` | the Triage drawer | the parked cards of `team=` — a place of its own, not a week (B11) |
-| `roadmap` | the Roadmap | the hierarchy, board-wide: every goal, initiative and epic, and every card with one above it — and, below the tree, every open task with none above it yet: in hand, parked, or in the strip (`hierarchy.md`, H9) |
+| `backlog` | the teams' backlogs | each named team's parked open tasks, in backlog order (`backlog.md`, K2) |
+| `roadmap` | the Roadmap | the hierarchy, board-wide: every goal, initiative and epic, and every card with one above it — and, below the tree, every open task with none above it yet: in hand or parked (`hierarchy.md`, H9) |
 | `project` | the Project board | every card filed under a column |
 | `all` | no board | everything the caller may read — the escape hatch, and it has to be said out loud |
 
@@ -67,12 +68,11 @@ Three things, in the order they bite.
 
 | create in | the card that comes out | refused |
 | --- | --- | --- |
-| `me` | on the caller, `day` (today by default), the team's current sprint, in the UNPLANNED band (a subtask takes its parent's instead) | `scope`, `parked`, `week`, any other band |
-| `team` | on `team=`, `day`, that team's current sprint, in any band; `assignee` optional (the Unassigned column) | `scope`, `parked`, `week` |
-| `triage` | scheduled for `week`; no dates and no sprint, unless the week is the one being WORKED — a card started in the current row belongs to today too | `parked`, `scope`, and a `day` in any other week |
-| `backlog` | on `team=`'s shelf: parked, no week, no dates, no sprint | `week`, a `day`, `scope` |
-| `roadmap` | a PLANNING card: `type`, its dates and a `parent` of a higher level — no owner, no team, no sprint, no band (H3); or a TASK under a planning `parent`, undated unless dated (H7) | `scope`, `week`, `parked`, `reviewOf`, a sprint, a team, an assignee, a band, a size |
-| `project` | a slot under `scope` (+`project`): its row is the week of `dates.start`, no sprint; a planning `parent` allowed | `parked`, `team`, `assignee`, `reviewOf`, `week`, `type` |
+| `me` | on the caller, `day` (today by default), the team's current sprint, in the UNPLANNED band (a subtask takes its parent's instead) | `scope`, `parked`, any other band |
+| `team` | on `team=`, `day`, that team's current sprint, in any band; `assignee` optional (the Unassigned column) | `scope`, `parked` |
+| `backlog` | in `team=`'s backlog: parked, last, no dates, no sprint | a `day`, `scope` |
+| `roadmap` | a PLANNING card: `type`, its dates and a `parent` of a higher level — no owner, no team, no sprint, no band (H3); or a TASK under a planning `parent`, undated unless dated — parked in the no-team backlog when undated (H7, K3) | `scope`, `parked`, `reviewOf`, a sprint, a team, an assignee, a band, a size |
+| `project` | a slot under `scope` (+`project`): its row is `dates`, no sprint; a planning `parent` allowed | `parked`, `team`, `assignee`, `reviewOf`, `type` |
 | `all` | exactly what the fields say, as today | nothing |
 
 Every board but the roadmap refuses `type`: a goal, an initiative or an epic is made on the Roadmap and nowhere else (H7).
@@ -84,10 +84,8 @@ Every board but the roadmap refuses `type`: a goal, an initiative or an epic is 
 | gesture | offered by | means |
 | --- | --- | --- |
 | `remove` | every board (`all` included, as all four are) | the ×, with the intents that board offers (`removal.ts` already decides this per board; the view is how it says so) |
-| `place` | `triage` | give the card a week |
-| `untriage` | `triage` | take the week back, into the strip |
 | `finished-earlier` | `me`, `team` | work done in the sprint before this one, marked done now |
-| `own` | `roadmap`, `me`, `team`, `triage`, `backlog` — every board that draws a task | whose is this: a team and a person, a team alone, or nobody — and where an unplanned card goes when told (`hierarchy.md`, "Owner", H10) |
+| `own` | `roadmap`, `me`, `team`, `backlog` — every board that draws a task | whose is this: a team and a person, a team alone, or nobody — and where an unplanned card goes when told (`hierarchy.md`, "Owner", H10) |
 
 A gesture asked of a view that does not draw it is **404** — the same answer as asking for a route that is not there, because that is what it is.
 
@@ -116,7 +114,7 @@ These are the cluster-scoped half of the analogy, and it holds better here than 
 
 The GESTURES take one too, and here the default is the escape hatch, deliberately: an agent is not standing anywhere. It reaches a card by uid — from a listing, from a title search — and making it work out which board draws that card would be friction with no safety in it, since the rules that matter (whose card it is, what the × may do to it) live in the service and answer every caller alike. Naming a board is how an agent ASKS to be held to one, and then it is refused exactly as the SPA would be.
 
-The tools the boards have and MCP did not are added in the same pass, since "what the UI can do" is the list MCP is measured against: `place_card`, `untriage_card`, `finished_earlier`, `reorder_teams`, `reorder_scopes`, `delete_team`, `set_sprint_state`, `list_day_logs`, and `list_sprints` — when each team's sprint began, which every date rule is reckoned against and nothing answered. The parameter gaps go with them: `send_to_review`'s zone, `create_card`'s parent, `list_cards`'s `reviews`, `from` and `weeks`.
+The tools the boards have and MCP did not are added in the same pass, since "what the UI can do" is the list MCP is measured against: `finished_earlier`, `reorder_teams`, `reorder_scopes`, `delete_team`, `set_sprint_state`, `list_day_logs`, and `list_sprints` — when each team's sprint began, which every date rule is reckoned against and nothing answered. The parameter gaps go with them: `send_to_review`'s zone, `create_card`'s parent, `list_cards`'s `reviews`.
 
 ## The frontend
 
@@ -144,7 +142,7 @@ A plugin writing the repositories directly is unaffected: it writes files, not H
 
 ## Settled on the way in
 
-- **The Triage grid and its drawer are two listings on one screen.** They stay two — two questions — and `board.Panes` is what says a gesture made on the screen counts either. A single view with a flag would have made the drawer's × a Triage card's ×, which it is not.
+- ~~**The Triage grid and its drawer are two listings on one screen.**~~ Retired 2026-11-03 with the Triage board (`backlog.md`, K9): the backlog is a board of its own, one listing, and `board.Panes` is gone.
 - **`team` still takes a set** (`team=platform,marketing`), because a lead with three teams opens all three; a gesture that names none is judged on the card's own team.
 
 ## What it costs

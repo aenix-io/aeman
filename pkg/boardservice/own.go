@@ -16,18 +16,20 @@ import (
 // there. Every board that draws a task offers it as well, so the card's
 // drawer can ask the same question from wherever the card was opened.
 //
-// What the answer DOES depends on whether the card has a PLAN — a day, a
-// week or a sprint — because a home is somewhere the day boards draw:
+// What the answer DOES depends on whether the card is IN WORK — a date or a
+// sprint — because a home is somewhere a board draws:
 //
-//   - a PERSON files an unplanned card the way typing it into their Me board
-//     would: on their team, today, in the unplanned band, in the team's
-//     sprint, off any shelf — so it stands on their Team and Me boards at
-//     once. A planned card merely changes hands and keeps its plan.
-//   - a TEAM alone parks an unplanned card on that team's shelf — the
-//     Backlog of that team on Triage — with nobody on it. A planned card
-//     moves team, keeps its plan, and loses its person.
+//   - a PERSON takes an unplanned card into work the way typing it into
+//     their Me board would: on their team, today, in the unplanned band, in
+//     the team's sprint, out of its backlog — so it stands on their Team and
+//     Me boards at once (K4). A planned card merely changes hands and keeps
+//     its plan.
+//   - a TEAM alone parks an unplanned card in that team's backlog with
+//     nobody on it. A planned card moves team, keeps its plan, and loses its
+//     person.
 //   - NOBODY takes the team and the person off; a planned card keeps its
-//     plan in the no-team group, an unplanned one is the strip's again.
+//     plan in the no-team group, an unplanned one is parked in the no-team
+//     group's backlog (K3) — there is no strip to hand it to.
 //
 // A subtask follows its parent's team and person (S9) and is not asked; a
 // review card's person is its reviewer and is set by the review link;
@@ -62,6 +64,13 @@ func (s *Service) Own(ctx context.Context, boardID string, itemID, team, person 
 	if err := notAPlanningCard(card, "owner"); err != nil {
 		return err
 	}
+	// A review NOBODY HAS TAKEN takes one answer: a person, which takes it
+	// into work as that review's reviewer (K10) — the backlog's picker on the
+	// "needs a reviewer" item. Every other answer on a review card is its
+	// link's to give.
+	if card.ReviewOf != "" && board.NeedsReviewer(card) && person != "" {
+		return s.takeReview(ctx, b, card, person)
+	}
 	if board.IsSubtask(b, card) || card.ReviewOf != "" {
 		return fmt.Errorf("%w: %q", ErrOwnerFollowsLink, card.Title)
 	}
@@ -74,12 +83,10 @@ func (s *Service) Own(ctx context.Context, boardID string, itemID, team, person 
 	return s.disown(ctx, boardID, b, card)
 }
 
-// unplanned reports a card no day board draws by its own plan: no day, no
-// week, no sprint. The shelf is a separate fact — a parked card is unplanned
-// too, and comes off the shelf when a person takes it.
-func unplanned(c board.Card) bool {
-	return c.StartDate == "" && c.Day == "" && c.Week == "" && c.SprintStart == ""
-}
+// unplanned reports a card no day board draws by its own plan: no day and no
+// sprint. The backlog is a separate fact — a parked card is unplanned too,
+// and comes out of its backlog when a person takes it into work.
+func unplanned(c board.Card) bool { return !board.InWork(c) }
 
 // ownByPerson puts the card on a team and a person. Unplanned, it is filed
 // the way the Me board files a create — today, the unplanned band, the
@@ -88,11 +95,7 @@ func unplanned(c board.Card) bool {
 // the two cannot read differently.
 func (s *Service) ownByPerson(ctx context.Context, boardID string, b board.Board, card board.Card, team, person string) error {
 	if unplanned(card) {
-		if card.Parked {
-			if err := s.SetBacklog(ctx, boardID, card.ItemID, false); err != nil {
-				return err
-			}
-		}
+		// SetDates takes it out of its backlog on the way (takenIntoWork).
 		today := board.TodayIso()
 		if err := s.SetTeam(ctx, boardID, card.ItemID, team, today); err != nil {
 			return err
@@ -116,8 +119,8 @@ func (s *Service) ownByPerson(ctx context.Context, boardID string, b board.Board
 // changeHands moves a PLANNED card to a team and keeps its plan as it is —
 // its sprint included. A card in a sprint joins the new team's current one,
 // as the Team board's team menu does; a card in NO sprint stays in none: a
-// card placed into a week ahead has no sprint by design (B1 — no sprint
-// covers that week yet), and SetTeam would give it today's, which makes a
+// card dated for a day still to come has no sprint by design (no sprint
+// covers that day yet), and SetTeam would give it today's, which makes a
 // plan for next week this sprint's unfinished work and carries it over.
 func (s *Service) changeHands(ctx context.Context, boardID string, b board.Board, card board.Card, team string) error {
 	if card.SprintStart == "" {
@@ -127,9 +130,10 @@ func (s *Service) changeHands(ctx context.Context, boardID string, b board.Board
 }
 
 // ownByTeam puts the card on a team with nobody on it. Unplanned, it goes
-// onto that team's shelf — a card given a team and no plan is work the team
-// has accepted and not scheduled, which is what the Backlog holds — and
-// joins no sprint, since a shelf is on no day.
+// into that team's backlog — a card given a team and no plan is work the
+// team has accepted and not taken into work, which is what the backlog
+// holds — and joins no sprint, since a backlog is on no day. A parked card
+// handed to another team stays parked (K5).
 func (s *Service) ownByTeam(ctx context.Context, boardID string, b board.Board, card board.Card, team string) error {
 	if len(card.Assignees) > 0 {
 		if err := s.SetAssignee(ctx, boardID, card.ItemID, ""); err != nil {
@@ -152,8 +156,8 @@ func (s *Service) ownByTeam(ctx context.Context, boardID string, b board.Board, 
 }
 
 // disown takes the team and the person off. A planned card keeps its plan
-// in the no-team group; an unplanned one leaves the shelf, if it was on one,
-// and is the strip's again — on no team, in no sprint.
+// in the no-team group; an unplanned one is parked in the no-team group's
+// backlog (K3) — on no team, in no sprint, and somewhere a board draws.
 func (s *Service) disown(ctx context.Context, boardID string, b board.Board, card board.Card) error {
 	if len(card.Assignees) > 0 {
 		if err := s.SetAssignee(ctx, boardID, card.ItemID, ""); err != nil {
@@ -166,12 +170,13 @@ func (s *Service) disown(ctx context.Context, boardID string, b board.Board, car
 		}
 		return s.SetTeam(ctx, boardID, card.ItemID, "", "")
 	}
-	if card.Parked {
-		if err := s.SetBacklog(ctx, boardID, card.ItemID, false); err != nil {
-			return err
-		}
+	if err := s.moveTeamOffTheDay(ctx, b, card, ""); err != nil {
+		return err
 	}
-	return s.moveTeamOffTheDay(ctx, b, card, "")
+	if card.Parked {
+		return nil
+	}
+	return s.SetBacklog(ctx, boardID, card.ItemID, true)
 }
 
 // moveTeamOffTheDay moves an UNPLANNED card (and its subtasks) to a team

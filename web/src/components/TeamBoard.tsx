@@ -18,6 +18,11 @@ import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
+import type { OrderArg } from "../cardorder";
+import { selectedByOf, type PresenceMap } from "../presence";
+import { InsertGap } from "./InsertGap";
+import { cellGaps, gapAnchor, gapsInZone } from "../insertgap";
+import { insertedOrder, type Anchor } from "../backlogboard";
 import { TeamChips } from "./TeamChips";
 import { TeamsModal } from "./TeamsModal";
 import { SprintChoiceDialog } from "./SprintChoiceDialog";
@@ -28,6 +33,10 @@ import {
   asksFirst,
   offersRemoval,
   removeChoices,
+  backlogPatch,
+  withdrawPatch,
+  reviewAssigneePatch,
+  unaskedRemoval,
   type RemoveChoice,
   deleteWarning,
   hasColumn,
@@ -35,7 +44,6 @@ import {
   subtaskRemovalUndo,
 } from "../removal";
 import { makeCardPlacements, type CardPlacements } from "../placements";
-import { parkedLocally } from "../backlog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
 interface TeamBoardProps {
@@ -75,12 +83,14 @@ interface TeamBoardProps {
   /** Swap an optimistic card for its server twin in place (keeps the slot). */
   replaceCard: (itemId: string, card: CardModel) => void;
   removeCard: (itemId: string) => void;
-  reorderCards: (orderedItemIds: string[]) => void;
+  reorderCards: (order: OrderArg) => void;
   reload: () => void;
   /** Wraps a slow server call so the App's progress bar shows while it runs. */
   track: <T>(p: Promise<T>) => Promise<T>;
   /** Other users' live selections (login -> card uid) shown as avatars. */
-  presence?: Record<string, string>;
+  presence?: PresenceMap;
+  /** Broadcast this board's selection as shared presence (#290). */
+  onPresence?: (card: string | null) => void;
   onError: (message: string) => void;
   onOpen: (card: CardModel) => void;
 }
@@ -124,10 +134,17 @@ export function TeamBoard({
   reload,
   track,
   presence,
+  onPresence,
   onError,
   onOpen,
 }: TeamBoardProps) {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  // The selection is shared live (#290): the people the cards are on see the
+  // lead's selection on their Me boards, as the lead sees theirs here.
+  useEffect(() => {
+    onPresence?.(selectedCardId);
+  }, [selectedCardId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onPresence?.(null), []); // eslint-disable-line react-hooks/exhaustive-deps
   // The card whose × is waiting on a two-way answer (delete, or keep it in
   // the previous sprint).
   const [removeChoice, setRemoveChoice] = useState<CardModel | null>(null);
@@ -147,7 +164,10 @@ export function TeamBoard({
     title: string;
     team: string | null;
     sprint: string;
+    anchor: Anchor;
   } | null>(null);
+  // The gap whose insert "+" is open, as "<cell key>:<gap>" (InsertGap).
+  const [inserting, setInserting] = useState<string | null>(null);
   const [columnOrder, setColumnOrder] = useState<string[]>(() => {
     try {
       const v = localStorage.getItem("aeman.columnOrder");
@@ -187,8 +207,7 @@ export function TeamBoard({
   );
 
   // What the people are WORKING ON on the day being looked at, and nothing
-  // else — the same set the Triage board shows for that day, less anything
-  // put off to later. The rule itself is teamgrid.inHandOn, which mirrors
+  // else — work in hand (K1), never the backlog. The rule itself is teamgrid.inHandOn, which mirrors
   // board.TeamGrid.
   const filteredCards = useMemo(
     () =>
@@ -206,7 +225,7 @@ export function TeamBoard({
   // Columns are PEOPLE: the distinct assignees among the filtered cards (me
   // first). Columns come from everyone with a card in the selected teams in ANY
   // sprint (past or future), so a person's column stays (empty) on days they
-  // have no cards. The Unassigned column is always shown for triage.
+  // have no cards. The Unassigned column is always shown.
   const engineers = useMemo(() => {
     const set = new Set<string>();
     for (const card of inFilter) {
@@ -470,7 +489,6 @@ export function TeamBoard({
       optimistic.parent = parentTo ?? undefined;
       patch.parent = parentTo ?? "";
       if (parentTo) {
-        optimistic.week = undefined;
         autoExpanded.current = null; // the drop keeps the target unfolded
         setExpandedSubs((cur) => new Set(cur).add(parentTo as string));
       }
@@ -491,7 +509,9 @@ export function TeamBoard({
           fromMeta.kind !== "cell" ||
           fromMeta.engineer !== toMeta.engineer)
       ) {
-        optimistic.assignees = wantAssignees;
+        // A review card's person is its reviewer: the server takes or hands
+        // it back (K10, K12), and the board shows the same at once.
+        Object.assign(optimistic, reviewAssigneePatch(card, wantAssignees));
         patch.assignees = wantAssignees;
       }
     }
@@ -586,20 +606,13 @@ export function TeamBoard({
     return () => document.removeEventListener("keydown", onKey);
   }, [selectedCardId, childrenOf]);
 
-  // Group a dropped card as a subtask; the server enforces depth and hands a
-  // scheduled card's week to the parent, which stands for it from then on.
+  // Group a dropped card as a subtask; the server enforces depth.
   const handleGroup = (card: CardModel, parentId: string) => {
     if (card.itemId === parentId || subtaskParent(card) === parentId) {
       return;
     }
-    const prev: Partial<CardModel> = { parent: card.parent, week: card.week };
-    // The week goes to the parent; a COLUMN card keeps its own — that is
-    // the row the Project board draws it in, not a week anyone set here
-    // (mirrors boardservice.SetParent).
-    patchCard(card.itemId, {
-      parent: parentId,
-      ...(card.scope ? {} : { week: undefined }),
-    });
+    const prev: Partial<CardModel> = { parent: card.parent };
+    patchCard(card.itemId, { parent: parentId });
     autoExpanded.current = null; // the drop keeps the target unfolded
     setExpandedSubs((cur) => new Set(cur).add(parentId));
     void provider
@@ -778,25 +791,11 @@ export function TeamBoard({
     );
   };
 
-  const selectedByFor = (card: CardModel): string[] | undefined => {
-    if (!presence) {
-      return undefined;
-    }
-    const logins = Object.entries(presence)
-      .filter(([, uid]) => {
-        if (uid === card.itemId) {
-          return true;
-        }
-        // A collapsed parent wears its subtasks' presence; expanded, the marks
-        // sit on the subtask rows themselves.
-        if (!isSubtask(card) && !subsOpen(card.itemId)) {
-          return (childrenOf.get(card.itemId) ?? []).some((c) => c.itemId === uid);
-        }
-        return false;
-      })
-      .map(([login]) => login);
-    return logins.length > 0 ? logins : undefined;
-  };
+  // Who else has this card selected (presence, #290): one rule for every
+  // board (presence.selectedByOf); a folded parent wears its subtasks' marks.
+  const selectedByFor = (card: CardModel): string[] | undefined =>
+    selectedByOf(presence, card, isSubtask(card) ? undefined : { children: (id) => childrenOf.get(id) ?? [], open: subsOpen }, me);
+
 
   // Resolve a card's description links (GitHub refs get titles) for the menu.
   const loadCardLinks = (card: CardModel) =>
@@ -1024,14 +1023,32 @@ export function TeamBoard({
     // does not ask about is one made today that nobody has touched
     // (asksFirst), which the branch above has already answered for a card
     // that never reached the server at all.
-    if (!chosen && asksFirst(card, justMade(card.itemId))) {
+    // Withdrawing a review always asks: it changes the TASK, not this card.
+    if (!chosen && (asksFirst(card, justMade(card.itemId)) || removeChoices(card, gridCtx(card)).includes("withdraw"))) {
       setRemoveChoice(card);
       return;
     }
     // Unasked (a card made today that nobody touched), the card's own first
     // answer stands — the same one the dialog would have put at the top.
-    const choice = chosen ?? removeChoices(card, gridCtx(card))[0];
+    const choice = chosen ?? unaskedRemoval(removeChoices(card, gridCtx(card)));
     if (!choice) {
+      return;
+    }
+    // Withdrawing a review: the review card goes and its task leaves review,
+    // back to In progress (K10) — both shown at once. The server does the
+    // same through the ×'s off-board (boardservice.withdrawReview).
+    if (choice === "withdraw") {
+      const task = board.cards.find((c) => c.itemId === card.reviewOf);
+      removeCard(card.itemId);
+      if (task) {
+        patchCard(task.itemId, withdrawPatch(task));
+      }
+      void provider.removeCard(card.itemId, "off-board").catch((err: unknown) => {
+        if (!isGone(err)) {
+          onError(errMessage(err));
+        }
+        reload();
+      });
       return;
     }
     // Work finished in the sprint before this one, and only marked done
@@ -1046,11 +1063,15 @@ export function TeamBoard({
         });
       return;
     }
-    // The answer that destroys nothing: the work is kept, off the plan, on
-    // its team's shelf.
+    // The answer that destroys nothing: the task goes back to its team's
+    // backlog — nobody, no day, no sprint (K3) — through the ×'s own action,
+    // the unassign intent (removal.removeIntent).
     if (choice === "backlog") {
-      patchCard(card.itemId, parkedLocally());
-      void provider.patchCard(card.itemId, { parked: true }).catch((err: unknown) => {
+      patchCard(card.itemId, backlogPatch(card, board.cards));
+      void provider.removeCard(card.itemId, "unassign").catch((err: unknown) => {
+        if (isGone(err)) {
+          return;
+        }
         onError(errMessage(err));
         reload();
       });
@@ -1100,16 +1121,12 @@ export function TeamBoard({
       return;
     }
     let rollback: () => void;
-    // This × empties the working area (mirrors boardservice.Remove). With a
-    // WEEK of its own or a Project-board column to fall back on the card
-    // goes there, leaving the working area entirely, dates and all: a card
-    // whose start is the viewed day shows on the grid whatever its sprint
-    // says, which is how a handed-back card used to sit in two places at
-    // once. With nowhere else to be, the working area was the only place it
-    // was, and removing it from there deletes it — after a question when the
-    // card carries work or a review card, which the delete takes with it.
-    // Its subtasks go with it: they are pieces of the same work, and the
-    // dialog says how many.
+    // This × empties the working area (mirrors boardservice.Remove). Taken
+    // off the board, the card is deleted — after a question when it carries
+    // work or a review card, which the delete takes with it — and its
+    // subtasks go with it: they are pieces of the same work, and the dialog
+    // says how many. A PROJECT card's Unassigned answer (below) leaves it in
+    // its column.
     if (choice === "off-board") {
       const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
       const warning = deleteWarning(card, linkedReview?.title ?? null);
@@ -1427,6 +1444,7 @@ export function TeamBoard({
     startDate: string,
     day: string,
     noSprint = false,
+    anchor: Anchor = null,
   ) => {
     const sprint = currentSprint(board, team);
     const firstSprint = !noSprint && sprint === null;
@@ -1453,6 +1471,11 @@ export function TeamBoard({
       notes: [],
     };
     addCard(optimistic);
+    // Typed into a gap: shown there at once, and the create names the place
+    // (after / before) so the server puts it there in the same request.
+    if (anchor) {
+      reorderCards((cur) => insertedOrder(cur, tempId, anchor));
+    }
     const creating = provider.createCard({
       title,
       zone,
@@ -1461,6 +1484,8 @@ export function TeamBoard({
       assigneeLogin: engineer || null,
       team,
       noSprint: noSprint || undefined,
+      after: anchor && "after" in anchor ? anchor.after : null,
+      before: anchor && "before" in anchor ? anchor.before : null,
     });
     registerPendingCard(
       tempId,
@@ -1500,10 +1525,11 @@ export function TeamBoard({
     zone: ZoneKey,
     title: string,
     team?: string | null,
+    anchor: Anchor = null,
   ) => {
     const sprint = currentSprint(board, team ?? null);
     if (sprint !== null && selectedDate > sprint) {
-      setSprintChoice({ engineer, zone, title, team: team ?? null, sprint });
+      setSprintChoice({ engineer, zone, title, team: team ?? null, sprint, anchor });
       return;
     }
     createTeamCard(
@@ -1513,6 +1539,8 @@ export function TeamBoard({
       team ?? null,
       selectedDate,
       selectedDate,
+      false,
+      anchor,
     );
   };
 
@@ -1738,8 +1766,38 @@ export function TeamBoard({
               onOpen={() => {}}
             />
           )}
-          renderGroup={(group, body, { isOver, dropRef }) => {
+          renderGap={(group, at) => {
+            // The insert "+" in every gap of a cell (insertgap.ts): the card
+            // typed there is the cell's — its person, its band — and lands
+            // there. None inside a parent's subtasks, none on a record.
+            if (holdsRecords || !gapsInZone("team", group.meta.zone) || !cellGaps(group.cards).includes(at)) {
+              return null;
+            }
             const { engineer, zone } = group.meta;
+            const key = `${group.key}:${at}`;
+            return (
+              <InsertGap
+                key={`gap-${at}`}
+                at={at}
+                open={inserting === key}
+                empty={group.cards.length === 0}
+                onOpen={() => setInserting(key)}
+              >
+                <AddCard
+                  autoOpen
+                  teams={forcedTeam === undefined ? addTeams : undefined}
+                  forcedTeam={forcedTeam}
+                  allowNoTeam={pickerNoTeam}
+                  onCreate={(title, team) =>
+                    handleCreate(engineer, zone, title, team, gapAnchor(group.cards.map((c) => c.itemId), at))
+                  }
+                  onClosed={() => setInserting(null)}
+                />
+              </InsertGap>
+            );
+          }}
+          renderGroup={(group, body, { isOver, dropRef }) => {
+            const { zone } = group.meta;
             const def = ZONES[zone];
             return (
               <div
@@ -1754,18 +1812,7 @@ export function TeamBoard({
                 }
               >
                 <span className="zone-spine">{def.spine}</span>
-                <div className="zone-cards">
-                  {body}
-                  <AddCard
-                    hidden={holdsRecords}
-                    teams={forcedTeam === undefined ? addTeams : undefined}
-                    forcedTeam={forcedTeam}
-                    allowNoTeam={pickerNoTeam}
-                    onCreate={(title, team) =>
-                      handleCreate(engineer, zone, title, team)
-                    }
-                  />
-                </div>
+                <div className="zone-cards">{body}</div>
               </div>
             );
           }}
@@ -1858,6 +1905,7 @@ export function TeamBoard({
               selectedDate,
               selectedDate,
               noSprint,
+              sprintChoice.anchor,
             )
           }
         />
@@ -1865,6 +1913,8 @@ export function TeamBoard({
       {removeChoice && (
         <RemoveChoiceDialog
           title={removeChoice.title}
+          review={!!removeChoice.reviewOf}
+          reviewing={board.cards.find((c) => c.itemId === removeChoice.reviewOf)?.title}
           progress={removeChoice.progress ?? 0}
           choices={removeChoices(removeChoice, gridCtx(removeChoice))}
           subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}

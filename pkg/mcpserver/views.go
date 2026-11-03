@@ -18,8 +18,8 @@ import (
 
 // boardStand is where a gesture is made from.
 type boardStand struct {
-	View string `json:"view,omitempty" jsonschema:"the BOARD you are acting from, when you are acting AS one: me (your own day board), team (the lead's grid — say team too), triage (the weeks), backlog (a team's parked work), roadmap (the hierarchy: goals, initiatives, epics and the cards under them), project (the columns), or all when you have no board at all. Left out, nothing is assumed — you are not standing anywhere. Naming a board is how you ask to be held to it: a gesture that board does not draw, or one on a card it does not show, is then refused the way it would be refused of a person looking at that screen"`
-	Team string `json:"team,omitempty" jsonschema:"the team whose board you are acting from (team and triage); the card's own team by default"`
+	View string `json:"view,omitempty" jsonschema:"the BOARD you are acting from, when you are acting AS one: me (your own day board), team (the lead's grid — say team too), backlog (a team's ranked parked tasks — say team too), roadmap (the hierarchy: goals, initiatives, epics and the cards under them), project (the columns), or all when you have no board at all. Left out, nothing is assumed — you are not standing anywhere. Naming a board is how you ask to be held to it: a gesture that board does not draw, or one on a card it does not show, is then refused the way it would be refused of a person looking at that screen"`
+	Team string `json:"team,omitempty" jsonschema:"the team whose board you are acting from (team and backlog); the card's own team by default"`
 	Day  string `json:"day,omitempty" jsonschema:"the day of the day board you are acting from; today by default"`
 	User string `json:"user,omitempty" jsonschema:"whose me board you are acting from; yourself by default"`
 }
@@ -79,39 +79,14 @@ func (h *server) gestureOn(ctx context.Context, svc *boardservice.Service, board
 			}
 		}
 	}
-	// A board can be drawn from more than one listing — the Triage grid beside
-	// its drawer (board.Panes).
-	for _, pane := range board.Panes(view) {
-		paneSel := sel
-		paneSel.View = string(pane)
-		if apiserver.Drawn(b, paneSel, uid) {
-			return nil
-		}
+	sel.View = string(view)
+	if apiserver.Drawn(b, sel, uid) {
+		return nil
 	}
 	return fmt.Errorf("that card is not on the %s board — act from the board that draws it, or say view: all", view)
 }
 
 // --- The gestures the boards draw ----------------------------------------------
-
-type placeInput struct {
-	cardRef
-	boardStand
-	Week string `json:"week" jsonschema:"the week's Monday as yyyy-mm-dd"`
-}
-
-func (h *server) placeCard(ctx context.Context, _ *mcp.CallToolRequest, in placeInput) (*mcp.CallToolResult, apiserver.Card, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, apiserver.Card{}, err
-	}
-	if err := h.gestureOn(ctx, svc, boardID, in.boardStand, boardservice.GesturePlace, in.UID); err != nil {
-		return nil, apiserver.Card{}, err
-	}
-	if err := svc.Place(ctx, boardID, in.UID, in.Week); err != nil {
-		return nil, apiserver.Card{}, err
-	}
-	return h.cardResource(ctx, svc, boardID, in.UID)
-}
 
 type ownInput struct {
 	cardRef
@@ -139,20 +114,6 @@ type standOnCard struct {
 	boardStand
 }
 
-func (h *server) untriageCard(ctx context.Context, _ *mcp.CallToolRequest, in standOnCard) (*mcp.CallToolResult, apiserver.Card, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, apiserver.Card{}, err
-	}
-	if err := h.gestureOn(ctx, svc, boardID, in.boardStand, boardservice.GestureUntriage, in.UID); err != nil {
-		return nil, apiserver.Card{}, err
-	}
-	if err := svc.Untriage(ctx, boardID, in.UID); err != nil {
-		return nil, apiserver.Card{}, err
-	}
-	return h.cardResource(ctx, svc, boardID, in.UID)
-}
-
 func (h *server) finishedEarlier(ctx context.Context, _ *mcp.CallToolRequest, in standOnCard) (*mcp.CallToolResult, apiserver.Card, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
@@ -162,6 +123,28 @@ func (h *server) finishedEarlier(ctx context.Context, _ *mcp.CallToolRequest, in
 		return nil, apiserver.Card{}, err
 	}
 	if err := svc.FinishedEarlier(ctx, boardID, in.UID); err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	return h.cardResource(ctx, svc, boardID, in.UID)
+}
+
+// takeCard is the Backlog's "I take this into work" (K11): the card becomes
+// the acting person's, on its own team. The actor is the request's identity,
+// resolved the way a create resolves it when the transport named nobody.
+func (h *server) takeCard(ctx context.Context, _ *mcp.CallToolRequest, in standOnCard) (*mcp.CallToolResult, apiserver.Card, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	if board.ActorFrom(ctx) == "" && h.cfg.ResolveLogin != nil {
+		if login, err := h.cfg.ResolveLogin(ctx); err == nil && login != "" {
+			ctx = boardservice.WithActor(ctx, login)
+		}
+	}
+	if err := h.gestureOn(ctx, svc, boardID, in.boardStand, boardservice.GestureTake, in.UID); err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	if err := svc.Take(ctx, boardID, in.UID); err != nil {
 		return nil, apiserver.Card{}, err
 	}
 	return h.cardResource(ctx, svc, boardID, in.UID)

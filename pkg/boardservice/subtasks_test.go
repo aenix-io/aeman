@@ -48,22 +48,6 @@ func TestSetParentOneLevelOnly(t *testing.T) {
 	}
 }
 
-func TestSetParentHandsTheWeekToTheParent(t *testing.T) {
-	f := newFake([]board.Card{
-		{ItemID: "p", Team: "alpha"},
-		{ItemID: "w", Team: "alpha", Week: "2026-01-05"},
-	}, nil)
-	if err := f2svc(f).SetParent(ctx, "acme", "w", "p"); err != nil {
-		t.Fatal(err)
-	}
-	if f.get("p").Week != "2026-01-05" {
-		t.Fatalf("the parent did not take the week: %+v", f.get("p"))
-	}
-	if f.get("w").Week != "" {
-		t.Fatalf("the subtask kept a week of its own: %+v", f.get("w"))
-	}
-}
-
 func TestSetParentClearUngroups(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "p", Team: "alpha"},
@@ -337,38 +321,6 @@ func TestDeleteParentReleasedChildInheritsAssignee(t *testing.T) {
 	}
 	if got := f.get("c2").Assignees; len(got) != 1 || got[0] != "eve" {
 		t.Fatalf("released c2 assignees = %v, want its own eve kept", got)
-	}
-}
-
-// A card created today has no earlier sprint to demote into, and with no
-// week and no column it is nowhere else either: the × empties its only home
-// and the subtasks ride along into the delete. Scheduled for a WEEK, the
-// same parent is handed back to it instead — which is what this checks, so
-// the cascade is not mistaken for the rule.
-func TestSmartRemoveCreatedTodayHandsBackAParentThatHasAWeek(t *testing.T) {
-	today := board.TodayIso()
-	f := newFake([]board.Card{
-		{ItemID: "p", Team: "alpha", StartDate: today, SprintStart: today, Assignees: []string{"bob"},
-			Week: board.MondayOf(today)},
-		{ItemID: "c", Team: "alpha", Parent: "p", StartDate: today, SprintStart: today},
-	}, map[string]board.SprintState{
-		"alpha": {Current: today, Previous: "2026-01-03"},
-	})
-	if err := f2svc(f).Remove(ctx, "acme", "p", board.ViewAll, RemoveAuto); err != nil {
-		t.Fatal(err)
-	}
-	p := f.get("p")
-	if p == nil {
-		t.Fatalf("a created-today card is handed back, not deleted; log=%v", f.log)
-	}
-	if len(p.Assignees) != 0 || p.SprintStart != "" || p.Week == "" {
-		t.Fatalf("it leaves the person and the sprint for the week it is owed in: %+v", p)
-	}
-	// Nothing was destroyed, so the subtask stays nested under its parent
-	// instead of being orphaned into a standalone card.
-	c := f.get("c")
-	if c == nil || c.Parent != "p" {
-		t.Fatalf("the subtask rides along under its parent: %+v", c)
 	}
 }
 

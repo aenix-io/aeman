@@ -174,3 +174,215 @@ func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) 
 		t.Fatalf("the goal after the finished task joined: %s %+v, want MODIFIED done 1/1", got["goal"].Type, h)
 	}
 }
+
+// A TASK CARRIES ITS PLANNING CARD'S TITLE AND END (status.lineage), and the
+// Backlog draws both — the tag and the due date (K2, K6). The Backlog watches
+// `view=all&team=<set>`, which never holds the epic itself, so a retitled or
+// re-dated epic reached the Roadmap and not the backlog cards under it, which
+// went on showing the old name and the old due date. A planning card whose
+// title or dates change therefore re-sends its descendant TASKS, to every
+// board whose filter holds them; a change that moves neither (a description)
+// sends them nothing.
+func TestARetitledOrRedatedPlanningCardReachesTheTasksUnderIt(t *testing.T) {
+	today := board.TodayIso()
+	store := newBoardStore()
+	b := hierarchyWatchBoard(today)
+	b.Cards = append(b.Cards, board.Card{ItemID: "p1", Title: "Receipts", Team: "alpha", Parent: "epic", Parked: true})
+	e := seedEntry(store, "k", b)
+	sel := apiserver.Selector{View: "all", Team: "alpha"}
+	backlog, cancel := store.subscribe("k", "", &sel, map[string]bool{"cards": true})
+	defer cancel()
+	find := func(id string) board.Card {
+		c, _ := board.Find(e.board, id)
+		return c
+	}
+	change := func(edit func(*board.Card)) {
+		e.mu.Lock()
+		epic := find("epic")
+		edit(&epic)
+		e.upsertCard(epic)
+		e.cardChanged("", epic, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+
+	change(func(c *board.Card) { c.Title = "Payments" })
+	got := took(t, backlog, 1)
+	lin := got["p1"].Card.Status.Lineage
+	if got["p1"].Type != "MODIFIED" || len(lin) == 0 || lin[len(lin)-1].Title != "Payments" {
+		t.Fatalf("after the retitle the task under the epic = %+v", got["p1"])
+	}
+
+	change(func(c *board.Card) { c.StartDate, c.Day = today, "2026-12-31" })
+	got = took(t, backlog, 1)
+	lin = got["p1"].Card.Status.Lineage
+	if len(lin) == 0 || lin[len(lin)-1].End != "2026-12-31" {
+		t.Fatalf("after the re-date the task under the epic = %+v", got["p1"])
+	}
+
+	change(func(c *board.Card) { c.Description = "why we bill" })
+	noFrame(t, backlog)
+}
+
+// Only the NEAREST planning card is shown on a task (K2: the tag and the due
+// date are its parent's), so a change re-sends the DIRECT task children of
+// the planning card that changed and nothing deeper: a goal retitled sends
+// nothing to the tasks under its epics, and an epic retitled sends exactly
+// its own tasks — not a frame per task of the whole subtree, which on a big
+// tree overflowed a watcher's buffer and dropped the frames after it.
+func TestOnlyTheDirectTasksOfARetitledPlanningCardAreResent(t *testing.T) {
+	today := board.TodayIso()
+	store := newBoardStore()
+	b := hierarchyWatchBoard(today)
+	b.Cards = append(b.Cards,
+		board.Card{ItemID: "p1", Title: "Receipts", Team: "alpha", Parent: "epic", Parked: true},
+		board.Card{ItemID: "p2", Title: "Refunds", Team: "alpha", Parent: "epic", Parked: true},
+		board.Card{ItemID: "p3", Title: "Under the goal", Team: "alpha", Parent: "goal", Parked: true},
+		board.Card{ItemID: "k1", Title: "a piece", Team: "alpha", Parent: "p1"},
+	)
+	e := seedEntry(store, "k", b)
+	sel := apiserver.Selector{View: "all", Team: "alpha"}
+	backlog, cancel := store.subscribe("k", "", &sel, map[string]bool{"cards": true})
+	defer cancel()
+	retitle := func(id, title string) {
+		e.mu.Lock()
+		c, _ := board.Find(e.board, id)
+		c.Title = title
+		e.upsertCard(c)
+		e.cardChanged("", c, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+
+	retitle("goal", "Reach the world")
+	got := took(t, backlog, 1)
+	if _, ok := got["p3"]; !ok {
+		t.Fatalf("the goal's own task was not re-sent: %v", got)
+	}
+
+	retitle("epic", "Payments")
+	got = took(t, backlog, 2)
+	for _, id := range []string{"p1", "p2"} {
+		if got[id].Type != "MODIFIED" {
+			t.Fatalf("the epic's task %s was not re-sent: %v", id, got)
+		}
+	}
+}
+
+// THE WATCH HONOURS projectCards. A Roadmap that did not ask for project
+// cards is never sent one, and a task filed under the epic that is put INTO
+// a column leaves it — DELETED, as leaving any listing is — while a Roadmap
+// that asked keeps it, MODIFIED. The epic above hears the change either way:
+// its standing is the board's, not the listing's.
+func TestTheRoadmapWatchSendsProjectCardsOnlyWhenAskedFor(t *testing.T) {
+	today := board.TodayIso()
+	store := newBoardStore()
+	b := hierarchyWatchBoard(today)
+	b.Cards = append(b.Cards, board.Card{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha",
+		StartDate: today, Day: today, SprintStart: today})
+	e := seedEntry(store, "k", b)
+	plain := apiserver.Selector{View: "roadmap"}
+	asked := apiserver.Selector{View: "roadmap", ProjectCards: true}
+	without, cancel := store.subscribe("k", "", &plain, map[string]bool{"cards": true})
+	defer cancel()
+	with, cancel2 := store.subscribe("k", "", &asked, map[string]bool{"cards": true})
+	defer cancel2()
+	if !without.members["t"] || !with.members["t"] {
+		t.Fatalf("the task under the epic is on both: %v / %v", without.members, with.members)
+	}
+
+	e.mu.Lock()
+	c, _ := board.Find(e.board, "t")
+	c.Scope, c.Project = "Payments", "core"
+	e.upsertCard(c)
+	e.cardChanged("", c, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+
+	got := took(t, without, 4)
+	if got["t"].Type != "DELETED" {
+		t.Fatalf("a roadmap without project cards: the card put in a column = %q, want DELETED", got["t"].Type)
+	}
+	if got["epic"].Type != "MODIFIED" {
+		t.Fatalf("the epic above hears it either way: %+v", got["epic"].Type)
+	}
+	if without.members["t"] {
+		t.Fatal("the project card is still a member of the roadmap that did not ask for it")
+	}
+	got = took(t, with, 4)
+	if got["t"].Type != "MODIFIED" || got["t"].Card.Spec.Scope != "Payments" {
+		t.Fatalf("a roadmap with project cards: %+v, want MODIFIED in its column", got["t"])
+	}
+
+	// A change to the project card now reaches only the roadmap that asked.
+	e.mu.Lock()
+	c, _ = board.Find(e.board, "t")
+	c.Title = "Receipts, v2"
+	e.upsertCard(c)
+	e.cardChanged("", c, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+	if f := took(t, with, 4); f["t"].Card.Spec.Title != "Receipts, v2" {
+		t.Fatalf("the roadmap that asked: %+v", f["t"])
+	}
+	for _, f := range took(t, without, 3) {
+		if f.Card.Metadata.UID == "t" {
+			t.Fatal("the roadmap that did not ask was sent the project card")
+		}
+	}
+}
+
+// A REVIEW CARD UPDATES LIVE WITH ITS TASK. It carries what it shows of the
+// card it reviews — status.reviewed's title and people, and the task's chain
+// — and no write ever touches it when the task changes, so the task's change
+// re-sends its review card(s) in the same fan-out: renamed, the review
+// arrives MODIFIED with the new title; handed to somebody else, with the new
+// people. A change that moves none of that sends nothing extra.
+func TestATasksReviewCardHearsWhatItShowsOfTheTask(t *testing.T) {
+	today := board.TodayIso()
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "t", Title: "Receipts", Team: "alpha", Assignees: []string{"ann"}, Stage: board.StageReview,
+			StartDate: today, Day: today, SprintStart: today},
+		{ItemID: "r", Title: "review: Receipts", Team: "alpha", ReviewOf: "t", Parked: true},
+	})
+	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}}
+	e := seedEntry(store, "k", b)
+	backlog := apiserver.Selector{View: "all", Team: "alpha"}
+	raw, cancel := store.subscribe("k", "", nil, map[string]bool{"cards": true})
+	defer cancel()
+	scoped, cancel2 := store.subscribe("k", "", &backlog, map[string]bool{"cards": true})
+	defer cancel2()
+	change := func(edit func(*board.Card)) {
+		e.mu.Lock()
+		c, _ := board.Find(e.board, "t")
+		edit(&c)
+		e.upsertCard(c)
+		e.cardChanged("", c, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+
+	change(func(c *board.Card) { c.Title = "Receipts, v2" })
+	for _, sub := range []*subscription{raw, scoped} {
+		got := took(t, sub, 2)
+		r := got["r"]
+		if r.Type != "MODIFIED" || r.Card.Status.Reviewed == nil || r.Card.Status.Reviewed.Title != "Receipts, v2" {
+			t.Fatalf("after the rename the review card = %+v, want MODIFIED reviewing «Receipts, v2»", r)
+		}
+	}
+
+	change(func(c *board.Card) { c.Assignees = []string{"bob"} })
+	for _, sub := range []*subscription{raw, scoped} {
+		got := took(t, sub, 2)
+		if rv := got["r"].Card.Status.Reviewed; rv == nil || len(rv.Assignees) != 1 || rv.Assignees[0] != "bob" {
+			t.Fatalf("after the hand-over the review card shows %+v, want bob", rv)
+		}
+	}
+
+	// Progress is not what a review card shows: the task alone.
+	change(func(c *board.Card) { c.Progress = 70 })
+	if got := took(t, raw, 1); got["t"].Type != "MODIFIED" {
+		t.Fatalf("the task's own frame: %+v", got)
+	}
+}

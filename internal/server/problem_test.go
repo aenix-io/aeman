@@ -40,7 +40,7 @@ func TestAPIErrorsAreProblems(t *testing.T) {
 	}{
 		{"a card nobody has", http.MethodGet, "/api/v1/cards/nope", "", http.StatusNotFound, "cardNotFound"},
 		{"a board nobody has", http.MethodGet, "/api/v1/views/nope/cards", "", http.StatusNotFound, "noSuchView"},
-		{"a gesture the board does not draw", http.MethodPost, "/api/v1/views/backlog/cards/c1/actions/untriage", "",
+		{"a gesture the board does not draw", http.MethodPost, "/api/v1/views/backlog/cards/c1/actions/finished-earlier", "",
 			http.StatusNotFound, "gestureNotOffered"},
 		// The body is refused in the parse, before the service is asked: 400.
 		// The same route refusing a well-formed change is the service's 422.

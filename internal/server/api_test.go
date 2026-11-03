@@ -176,12 +176,9 @@ func TestAPICreateCanPutTheCardStraightOnTheBacklog(t *testing.T) {
 		t.Fatalf("the card is on the shelf it was created on: %+v", c.Spec)
 	}
 	// And on no day: a parked card is on no day board, so it takes no dates
-	// and joins no sprint — the same nothing a card given only a week gets.
+	// and joins no sprint.
 	if c.Spec.Dates.Start != "" || c.Spec.Dates.End != "" || c.Spec.Dates.Sprint != "" {
 		t.Fatalf("dates = %+v; a parked card is on no day", c.Spec.Dates)
-	}
-	if c.Spec.Week != "" {
-		t.Fatalf("week = %q; a card is on the shelf or in a week, never both", c.Spec.Week)
 	}
 }
 
@@ -189,7 +186,7 @@ func TestAPICreateCanPutTheCardStraightOnTheBacklog(t *testing.T) {
 //
 // This door used to refuse it (403). The refusal was written for the Me
 // board, whose add form stands in the unplanned zone alone — but the Team
-// and Triage grids send the SAME create (zone, day, assignee), so the server
+// grid sends the SAME create (zone, day, assignee), so the server
 // could not tell which board was asking and refused them all: a lead could
 // not put a card in their own column. Reported from the live board as
 // `work you plan for yourself is unplanned work: "gray"`.
@@ -774,19 +771,17 @@ func TestAPIRenameTeam(t *testing.T) {
 // libraries do by default) got the opposite of what it asked for, silently.
 func TestAPIRemoveReadsAStreamedIntent(t *testing.T) {
 	today := board.TodayIso()
-	// A card in the working area AND scheduled for a week: the two intents
-	// part company on exactly this card. The intentless gesture hands it back
-	// to its week and leaves it standing; off-board takes it away. A card
-	// without the working area would be deleted either way, and the test
-	// would pass while proving nothing.
+	// A card in work with nowhere else to be: the two answers part company
+	// on exactly this card. The intentless gesture deletes it; unassign puts
+	// it back in its team's backlog (K3).
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "c1", Team: "alpha", Assignees: []string{"kvaps"},
-			Week: board.MondayOf(today), SprintStart: today, StartDate: today, Day: today},
+			SprintStart: today, StartDate: today, Day: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
 
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/views/team/cards/c1/actions/remove",
-		strings.NewReader(`{"intent":"off-board"}`))
+		strings.NewReader(`{"intent":"unassign"}`))
 	r.Header.Set("Content-Type", "application/json")
 	r.ContentLength = -1 // what a streamed body looks like to the handler
 	rec := httptest.NewRecorder()
@@ -795,16 +790,16 @@ func TestAPIRemoveReadsAStreamedIntent(t *testing.T) {
 	if rec.Code >= http.StatusBadRequest {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	// off-board was asked for and off-board is what happened: the card is
-	// gone. Had the body gone unread, the intentless gesture would have handed
-	// it back to its week and left it standing.
-	if got := fake.Card("c1"); got != nil {
+	// unassign was asked for and unassign is what happened: the card is in
+	// its backlog. Had the body gone unread, the intentless gesture would
+	// have deleted it.
+	if got := fake.Card("c1"); got == nil || !got.Parked {
 		t.Fatalf("the streamed intent was dropped; card = %+v", got)
 	}
 }
 
 // The other half of the same rule: NO body at all is the intentless gesture,
-// which hands the card back to a home it still has rather than deleting it.
+// which deletes a card that has no column to be left in.
 // That tolerance is the document's, not the handler's — removeCard is the one
 // operation whose requestBody is `required: false`, and that word is what
 // makes the generated server forgive an empty body instead of refusing it with
@@ -812,12 +807,11 @@ func TestAPIRemoveReadsAStreamedIntent(t *testing.T) {
 // compiling; this is what notices.
 func TestAPIRemoveTakesNoBodyAtAll(t *testing.T) {
 	today := board.TodayIso()
-	// The same card the streamed case uses, and for the same reason: in the
-	// working area AND scheduled for a week, so the intentless gesture and
-	// off-board part company on it.
+	// The same card the streamed case uses, and for the same reason: the
+	// intentless gesture and unassign part company on it.
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "c1", Team: "alpha", Assignees: []string{"kvaps"},
-			Week: board.MondayOf(today), SprintStart: today, StartDate: today, Day: today},
+			SprintStart: today, StartDate: today, Day: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
 
@@ -825,15 +819,8 @@ func TestAPIRemoveTakesNoBodyAtAll(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("an empty body answered %d, want 204 — %s", rec.Code, rec.Body.String())
 	}
-	got := fake.Card("c1")
-	if got == nil {
-		t.Fatal("the intentless × deleted the card; it has a week to be handed back to")
-	}
-	if got.Week != board.MondayOf(today) {
-		t.Errorf("week = %q, want %q — the card was handed back to its week", got.Week, board.MondayOf(today))
-	}
-	if got.Day != "" {
-		t.Errorf("day = %q, want empty — the × takes it off the day board", got.Day)
+	if got := fake.Card("c1"); got != nil {
+		t.Fatalf("the intentless × left the card standing: %+v", got)
 	}
 }
 
@@ -860,7 +847,7 @@ func TestOnlyOneOperationTakesAnOptionalBody(t *testing.T) {
 			}
 		}
 	}
-	if bodies < 30 {
+	if bodies < 25 {
 		t.Fatalf("only %d operations declare a body — has the document moved?", bodies)
 	}
 	// removeCard alone: sending nothing is the intentless ×, and

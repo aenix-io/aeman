@@ -17,15 +17,15 @@ func backlogBoard() *fakeBackend {
 	return newFake([]board.Card{
 		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "core"},
 		{ItemID: "ep", Title: board.ScopeStateTitle, Scope: "Auth", Project: "core"},
-		// An ordinary card, in the working area and scheduled for a week.
+		// An ordinary card, in work.
 		{ItemID: "plain", Team: "alpha", Assignees: []string{"kvaps"},
-			Week: board.MondayOf(today), SprintStart: today, StartDate: today, Day: today},
+			SprintStart: today, StartDate: today, Day: today},
 		// A Project-board slot: not this board's to park.
 		{ItemID: "slot", Team: "alpha", Project: "core", Scope: "Auth", StartDate: today, Day: today},
 		// A card of the NO-TEAM group, which has a shelf like any other team.
-		{ItemID: "loose", Assignees: []string{"kvaps"}, Week: board.MondayOf(today)},
+		{ItemID: "loose", Assignees: []string{"kvaps"}},
 		// And one of a SECOND team.
-		{ItemID: "other", Team: "beta", Week: board.MondayOf(today)},
+		{ItemID: "other", Team: "beta"},
 	}, map[string]board.SprintState{
 		"alpha": {Current: today, ItemID: "s1"},
 		"beta":  {Current: today, ItemID: "s2"},
@@ -45,9 +45,9 @@ func logged(f *fakeBackend, prefix string) bool {
 	return false
 }
 
-// Parking takes the card out of the week and off the person: a card carrying
-// an owner reads as somebody's work when it is not being worked on at all.
-func TestParkingTakesTheCardOutOfTheWeekAndOffThePerson(t *testing.T) {
+// Parking takes the card out of work and off the person: a card carrying an
+// owner reads as somebody's work when it is not being worked on at all.
+func TestParkingTakesTheCardOutOfWorkAndOffThePerson(t *testing.T) {
 	f := backlogBoard()
 	if err := New(f).SetBacklog(ctx, "acme", "plain", true); err != nil {
 		t.Fatal(err)
@@ -55,9 +55,6 @@ func TestParkingTakesTheCardOutOfTheWeekAndOffThePerson(t *testing.T) {
 	c := f.get("plain")
 	if c == nil || !board.InBacklog(*c) {
 		t.Fatalf("the card is on the shelf: %+v", c)
-	}
-	if c.Week != "" {
-		t.Fatalf("a card is on the shelf or in a week, never both: %+v", c)
 	}
 	if len(c.Assignees) != 0 || c.SprintStart != "" || c.StartDate != "" || c.Day != "" {
 		t.Fatalf("parking empties the working area: %+v", c)
@@ -163,9 +160,8 @@ func TestParkingPutsTheCardAtTheTopOfTheShelf(t *testing.T) {
 	if !logged(f, "MoveCard plain after=") {
 		t.Fatalf("parking asks for the top of the order; calls were: %v", f.log)
 	}
-	// Taking a card OFF the shelf moves nothing: it is going back to the strip
-	// to be given a week, and its place among the parked work is not something
-	// the strip has an opinion about.
+	// Taking a card OFF the shelf moves nothing: it is going into work, and
+	// its place among the parked work is not the day board's business.
 	g := backlogBoard()
 	if err := New(g).SetBacklog(ctx, "acme", "plain", false); err != nil {
 		t.Fatal(err)
@@ -175,39 +171,50 @@ func TestParkingPutsTheCardAtTheTopOfTheShelf(t *testing.T) {
 	}
 }
 
-// And taking it back off the shelf is the other half: the card returns to the
-// strip, where somebody says when it is due.
-func TestUnparkingReturnsTheCardToTheStrip(t *testing.T) {
+// A task leaves its backlog by being TAKEN INTO WORK (K1, K4): parked:false
+// alone on a task with no date and no sprint would leave it in neither
+// place, so it is refused and names the way out. On a task already in work
+// (a direct writer can write both) it simply drops the flag.
+func TestUnparkingWithoutWorkIsRefused(t *testing.T) {
 	f := backlogBoard()
 	svc := New(f)
 	if err := svc.SetBacklog(ctx, "acme", "plain", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.SetBacklog(ctx, "acme", "plain", false); err != nil {
+	if err := svc.SetBacklog(ctx, "acme", "plain", false); !errors.Is(err, ErrTakeIntoWork) {
+		t.Fatalf("unpark with no work = %v, want ErrTakeIntoWork", err)
+	}
+	if c := f.get("plain"); !board.InBacklog(*c) {
+		t.Fatalf("the refusal fires before the write: %+v", c)
+	}
+	today := board.TodayIso()
+	g := newFake([]board.Card{
+		{ItemID: "both", Team: "alpha", Parked: true, StartDate: today, Day: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	if err := New(g).SetBacklog(ctx, "acme", "both", false); err != nil {
 		t.Fatal(err)
 	}
-	if c := f.get("plain"); c == nil || board.InBacklog(*c) {
-		t.Fatalf("the card comes off the shelf: %+v", c)
+	if c := g.get("both"); board.InBacklog(*c) {
+		t.Fatalf("a parked card in work drops the flag: %+v", c)
 	}
 }
 
-// Every door that GIVES a card a week takes it off its shelf, not just the one
-// that happens to be called SetWeek.
-//
-// This is the rule's second home, and it was missing: the Triage board places
-// a card with Place — it has its own dates work to do — which wrote the week
-// straight to the backend and left `parked` standing. The card then drew in
-// its week AND in the drawer, which is the exact double-drawing the
-// exclusivity exists to prevent, and it is what a person sees when they drag
-// work out of the backlog and watch it stay there.
-func TestEveryDoorThatGivesAWeekTakesTheCardOffItsShelf(t *testing.T) {
-	week := board.MondayOf(board.TodayIso())
+// Every door that TAKES A TASK INTO WORK unparks it (K4): a date set from
+// the drawer or a drag onto the Team board, a sprint, a defer, and own with
+// a person. It leaves the backlog at once — the backlog never shows work in
+// hand — and the day boards draw it.
+func TestEveryDoorThatTakesATaskIntoWorkUnparksIt(t *testing.T) {
+	today := board.TodayIso()
 	for _, tc := range []struct {
 		door string
-		give func(*Service) error
+		take func(*Service) error
 	}{
-		{"SetWeek", func(svc *Service) error { return svc.SetWeek(ctx, "acme", "plain", week) }},
-		{"Place", func(svc *Service) error { return svc.Place(ctx, "acme", "plain", week) }},
+		{"SetDates", func(svc *Service) error { return svc.SetDates(ctx, "acme", "plain", today, today) }},
+		{"SetStart", func(svc *Service) error { return svc.SetStart(ctx, "acme", "plain", today) }},
+		{"SetDay", func(svc *Service) error { return svc.SetDay(ctx, "acme", "plain", today) }},
+		{"SetSprintStart", func(svc *Service) error { return svc.SetSprintStart(ctx, "acme", "plain", today) }},
+		{"Defer", func(svc *Service) error { return svc.Defer(ctx, "acme", "plain", 1) }},
+		{"Own with a person", func(svc *Service) error { return svc.Own(ctx, "acme", "plain", "alpha", "kvaps") }},
 	} {
 		t.Run(tc.door, func(t *testing.T) {
 			f := backlogBoard()
@@ -215,39 +222,55 @@ func TestEveryDoorThatGivesAWeekTakesTheCardOffItsShelf(t *testing.T) {
 			if err := svc.SetBacklog(ctx, "acme", "plain", true); err != nil {
 				t.Fatal(err)
 			}
-			if err := tc.give(svc); err != nil {
+			if err := tc.take(svc); err != nil {
 				t.Fatal(err)
 			}
 			c := f.get("plain")
 			if board.InBacklog(*c) {
-				t.Fatalf("a card given a week is not still parked: %+v", c)
+				t.Fatalf("a task taken into work is still parked: %+v", c)
 			}
-			if c.Week != week {
-				t.Fatalf("and it has the week it was given: %+v", c)
+			if !board.InWork(*c) {
+				t.Fatalf("and it is in work: %+v", c)
 			}
 		})
 	}
-}
-
-// Grouping is the third door: a parent with no week of its own takes the
-// subtask's, and a PARKED parent taking one would stand in that week while
-// still sitting on the shelf.
-func TestGroupingUnderAParkedParentTakesTheParentOffItsShelf(t *testing.T) {
-	week := board.MondayOf(board.TodayIso())
+	// CLEARING a date is not taking anything into work: a parked card stays.
 	f := backlogBoard()
 	svc := New(f)
 	if err := svc.SetBacklog(ctx, "acme", "plain", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.SetWeek(ctx, "acme", "other", week); err != nil {
+	if err := svc.SetDates(ctx, "acme", "plain", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.SetParent(ctx, "acme", "other", "plain"); err != nil {
-		t.Fatal(err)
+	if c := f.get("plain"); !board.InBacklog(*c) {
+		t.Fatalf("clearing dates unparked the card: %+v", c)
 	}
-	p := f.get("plain")
-	if p.Week != "" && board.InBacklog(*p) {
-		t.Fatalf("a parent given its subtask's week comes off its shelf: %+v", p)
+}
+
+// Handing a parked task to ANOTHER team keeps it parked (K5): the card's
+// team chip is a change of team, and the card lands in that team's backlog — it joins no sprint on the way, as a team change on a card
+// in work would.
+func TestReteamingAParkedTaskKeepsItInTheBacklog(t *testing.T) {
+	for _, door := range []string{"SetTeam", "Own with a team"} {
+		f := backlogBoard()
+		svc := New(f)
+		if err := svc.SetBacklog(ctx, "acme", "plain", true); err != nil {
+			t.Fatal(err)
+		}
+		var err error
+		if door == "SetTeam" {
+			err = svc.SetTeam(ctx, "acme", "plain", "beta", "")
+		} else {
+			err = svc.Own(ctx, "acme", "plain", "beta", "")
+		}
+		if err != nil {
+			t.Fatalf("%s: %v", door, err)
+		}
+		c := f.get("plain")
+		if c.Team != "beta" || !board.InBacklog(*c) || board.InWork(*c) {
+			t.Fatalf("%s: want it in beta's backlog, out of work: %+v", door, c)
+		}
 	}
 }
 
@@ -282,7 +305,7 @@ func TestParkingWithdrawsAnUntouchedReview(t *testing.T) {
 	today := board.TodayIso()
 	f := newFake([]board.Card{
 		{ItemID: "orig", Team: "alpha", Stage: board.StageReview, Progress: 50,
-			Week: board.MondayOf(today), SprintStart: today, StartDate: today},
+			SprintStart: today, StartDate: today},
 		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Assignees: []string{"lllamnyp"},
 			SprintStart: today, StartDate: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
@@ -304,7 +327,7 @@ func TestParkingLeavesAReviewSomebodyHasStarted(t *testing.T) {
 	today := board.TodayIso()
 	f := newFake([]board.Card{
 		{ItemID: "orig", Team: "alpha", Stage: board.StageReview, Progress: 50,
-			Week: board.MondayOf(today), SprintStart: today, StartDate: today},
+			SprintStart: today, StartDate: today},
 		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 40,
 			Assignees: []string{"lllamnyp"}, SprintStart: today, StartDate: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})

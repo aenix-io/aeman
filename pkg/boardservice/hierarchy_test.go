@@ -79,9 +79,9 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 
 	// The epic's +: a TASK born on the Roadmap, under a planning card, with
 	// a title and a parent and nothing a day board gives — no team, no owner,
-	// no day it was not given, no sprint — so it stands in the Triage strip
-	// of the no-team group and on the Roadmap until somebody dates or weeks
-	// it. Dates, when given, are kept.
+	// no day it was not given, no sprint — so it is PARKED in the no-team
+	// group's backlog (K3), and stands on the Roadmap under its parent.
+	// Dates, when given, are kept, and then it is in work, not parked.
 	t.Run("a task is born under a planning card from the Roadmap", func(t *testing.T) {
 		f := hierarchySeed(today)
 		svc := f2svc(f)
@@ -92,8 +92,11 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 		if c.Type != board.TypeTask || c.Parent != "epic" {
 			t.Fatalf("card = %+v", c)
 		}
-		if c.Team != "" || len(c.Assignees) != 0 || c.Day != "" || c.StartDate != "" || c.SprintStart != "" || c.Week != "" || c.Zone != board.ZoneNone {
+		if c.Team != "" || len(c.Assignees) != 0 || c.Day != "" || c.StartDate != "" || c.SprintStart != "" {
 			t.Fatalf("a Roadmap-born task has nothing a day board gives: %+v", c)
+		}
+		if !c.Parked {
+			t.Fatalf("an undated Roadmap-born task is parked in the no-team backlog (K3): %+v", c)
 		}
 		if st := f.b.SprintStates[""]; st.Current != "" {
 			t.Fatalf("a Roadmap-born task minted a sprint for the no-team group: %+v", st)
@@ -110,7 +113,6 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 			"an owner":  func(a *CreateCardArgs) { a.Assignee = "dev" },
 			"a band":    func(a *CreateCardArgs) { a.Zone = board.ZoneYellow },
 			"a size":    func(a *CreateCardArgs) { a.Size = board.SizeM },
-			"a week":    func(a *CreateCardArgs) { a.Week = board.MondayOf(today) },
 			"a column":  func(a *CreateCardArgs) { a.Scope = "Compliance"; a.Project = "eu" },
 			"the shelf": func(a *CreateCardArgs) { a.Parked = true },
 			"a review":  func(a *CreateCardArgs) { a.ReviewOf = "loose" },
@@ -129,10 +131,10 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 	})
 
 	t.Run("no day board makes a planning card", func(t *testing.T) {
-		for _, v := range []board.View{board.ViewMe, board.ViewTeam, board.ViewTriage, board.ViewBacklog, board.ViewProject} {
+		for _, v := range []board.View{board.ViewMe, board.ViewTeam, board.ViewBacklog, board.ViewProject} {
 			f := hierarchySeed(today)
 			_, err := f2svc(f).CreateInView(ctx, "acme", v, CreateCardArgs{
-				Title: "x", Type: board.TypeEpic, Team: "alpha", Week: board.MondayOf(today), Scope: "Compliance", Project: "eu",
+				Title: "x", Type: board.TypeEpic, Team: "alpha", Scope: "Compliance", Project: "eu",
 			})
 			if !errors.Is(err, ErrNotOnThisBoard) {
 				t.Errorf("%s: err = %v, want ErrNotOnThisBoard", v, err)
@@ -147,7 +149,6 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 		}
 		for _, args := range []CreateCardArgs{
 			{Title: "x", Type: board.TypeGoal, Scope: "Compliance", Project: "eu"},
-			{Title: "x", Type: board.TypeGoal, Week: board.MondayOf(today)},
 			{Title: "x", Type: board.TypeGoal, Parked: true},
 			{Title: "x", Type: board.TypeGoal, ReviewOf: "task"},
 			{Title: "x", Type: board.TypeGoal, SprintStart: today},
@@ -383,9 +384,7 @@ func TestAPlanningCardHasNoDayBoardState(t *testing.T) {
 		"inprog":    svc.SetInProgress(ctx, "acme", "epic"),
 		"zone":      svc.SetZone(ctx, "acme", "epic", board.ZoneRed),
 		"size":      svc.SetSize(ctx, "acme", "epic", board.SizeM),
-		"week":      svc.SetWeek(ctx, "acme", "epic", board.MondayOf(today)),
 		"backlog":   svc.SetBacklog(ctx, "acme", "epic", true),
-		"place":     svc.Place(ctx, "acme", "epic", board.MondayOf(today)),
 		"finished":  svc.FinishedEarlier(ctx, "acme", "epic"),
 		"scope":     svc.SetScope(ctx, "acme", "epic", "Compliance", nil),
 		"sprint":    svc.SetSprintStart(ctx, "acme", "epic", today),

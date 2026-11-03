@@ -39,7 +39,8 @@ const card = (over: Partial<Card> = {}): Card =>
     stage: "",
     project: "cozy",
     scope: "Storage",
-    week,
+    // A slot's row is its start's week (a task has no week, K7).
+    startDate: week,
     ...over,
   }) as Card;
 
@@ -100,6 +101,29 @@ describe("the Project board's grid", () => {
     expect(html).toContain("project-slot-menu");
     expect(html).not.toContain("project-slot-team");
     expect(html).not.toContain("border-left-color");
+  });
+
+  // #288: a card shows the goal, initiative or epic it is attached to — the
+  // nearest one, its kind icon and name — as a way into it.
+  it("shows the planning card a project card is attached to, as a way into it", () => {
+    const html = draw(
+      board({
+        cards: [
+          card({
+            lineage: [
+              { uid: "g", type: "goal", title: "Grow" },
+              { uid: "e", type: "epic", title: "Billing v2" },
+            ],
+          }),
+        ],
+      }),
+    );
+    expect(html).toMatch(/<button[^>]*class="project-slot-plan"[^>]*title="The epic «Billing v2»"[^>]*>.*kind-icon-epic.*Billing v2/s);
+    expect(html).not.toContain(">Grow<");
+  });
+
+  it("shows nothing of the kind on a card attached to nothing", () => {
+    expect(draw(board())).not.toContain("project-slot-plan");
   });
 
   it("puts no × on a card: deleting is the menu's and the pane's, never a hover's", () => {

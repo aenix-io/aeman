@@ -1,7 +1,7 @@
 // Package apiserver is the Kubernetes-style resource layer of the aeman API:
 // it translates the internal board domain into Card/Sprint/Note/Ordering
 // resources (metadata/spec/status), evaluates LIST selectors for the Team, Me
-// and Triage views, and derives the fields the UI would otherwise compute.
+// and Backlog views, and derives the fields the UI would otherwise compute.
 // It is backend-agnostic: everything works on the domain board snapshot.
 package apiserver
 
@@ -76,18 +76,14 @@ type CardSpec struct {
 	// sprint, "week" / "month" = once the interval has elapsed.
 	Recurrence string    `json:"recurrence,omitempty"`
 	Dates      CardDates `json:"dates"`
-	// Week is the week the card is scheduled for, a Monday: its row on the
-	// Triage board, and — for an scope card — on the Project board.
-	Week string `json:"week,omitempty"`
-	// Parked says the card is on its team's SHELF rather than in the plan.
-	// Every team has one and nothing declares it. Exclusive with Week — a card
-	// is on the shelf or in a week, never both. A parked card is on no day
-	// board and out of the Triage strip: parking is the act of reading the
-	// inbox and saying "not now".
+	// Parked says the task is in its team's BACKLOG rather than in work.
+	// Every team has one and nothing declares it. A task is in work (a date
+	// or a sprint) or parked, never both and never neither
+	// (docs/design/backlog.md, K1). A task has no week (K7).
 	Parked bool `json:"parked,omitempty"`
 	// Scope and Project are the column the card is filed under ("" = none) —
-	// the pair, since scope names repeat across projects. The card's Week is
-	// the row, and Dates span the weeks its slot stretches over.
+	// the pair, since scope names repeat across projects. Dates are its row,
+	// spanning the weeks its slot stretches over.
 	Scope    string `json:"scope,omitempty"`
 	Project  string `json:"project,omitempty"`
 	ReviewOf string `json:"reviewOf,omitempty"`
@@ -109,6 +105,20 @@ type LineageRef struct {
 	UID   string `json:"uid"`
 	Type  string `json:"type,omitempty"`
 	Title string `json:"title"`
+	// End is the ancestor's end date, when it has one: a planning card's
+	// bar ends there on the Roadmap, and the Backlog shows the nearest
+	// planning card's end as the due date of the task under it.
+	End string `json:"end,omitempty"`
+}
+
+// ReviewedRef is the card a review card reviews, in status.reviewed: enough
+// to name it, open it and draw whose it is (the small counterpart avatar)
+// without a lookup.
+type ReviewedRef struct {
+	UID       string   `json:"uid"`
+	Type      string   `json:"type,omitempty"`
+	Title     string   `json:"title"`
+	Assignees []string `json:"assignees,omitempty"`
 }
 
 // Hierarchy is a planning card's derived standing (status.hierarchy): where
@@ -121,17 +131,12 @@ type Hierarchy struct {
 	Total  int    `json:"total"`
 }
 
-// DueWeeksAhead is the planning horizon a recurrent card's coming weeks are
-// projected over (status.due): a quarter, which is as far as the Triage
-// board lays weeks out.
-const DueWeeksAhead = 13
-
 // CardStatus is derived by the server, never written by clients.
 type CardStatus struct {
 	Complete   bool `json:"complete"`
 	InProgress bool `json:"inProgress"`
-	// Overdue: a card that came from a plan — a slot, a card scheduled for a
-	// week — still open past the day it was owed by. Derived on read from
+	// Overdue: a card that came from a plan — a Project-board slot — still
+	// open past the day it was owed by. Derived on read from
 	// the card's own dates (board.Overdue); never stored.
 	Overdue     bool   `json:"overdue,omitempty"`
 	ReviewedBy  string `json:"reviewedBy,omitempty"`
@@ -153,20 +158,6 @@ type CardStatus struct {
 	// DoneAt is the board day the card reached 100 (cleared on reopen) — the
 	// day boards show a done card that day and drop it the next.
 	DoneAt string `json:"doneAt,omitempty"`
-	// Triage marks a card the Triage board's strip holds: nobody placed
-	// it in a week and it is not being worked (B5).
-	Triage bool `json:"triage,omitempty"`
-	// TriageWeek is the Monday of the column the card stands in on the
-	// Triage board: its week, or — for a review card, which has none of its
-	// own — the week its own dates fall in. Absent means it stands in none: the strip
-	// holds it until somebody says when the work is due (B5).
-	TriageWeek string `json:"triageWeek,omitempty"`
-	// Due is a RECURRENT card's weeks to come: the ones it comes round in
-	// over the planning horizon and no copy of it stands in yet. A team's own
-	// repeating work — the weekly report, the monthly invoice — is reseeded
-	// by carry-over, and the weeks it will land in are spoken for. Absent on
-	// everything else, and on a recurrence with no calendar (per sprint).
-	Due []string `json:"due,omitempty"`
 	// LeftAt is the board day the older × demoted the card into the previous
 	// sprint, which a RECORD of that day gives back (G60). Nothing writes it
 	// any more; the cards that carry it still stand in the history.
@@ -179,6 +170,17 @@ type CardStatus struct {
 	// Lineage is every ancestor of the card, root first — the breadcrumb a
 	// detail pane draws above it. Absent on a root.
 	Lineage []LineageRef `json:"lineage,omitempty"`
+	// Reviewed is, on a REVIEW card, the card it reviews — its uid, title and
+	// people — so a client shows "Reviews: «task»", opens it and draws whose
+	// it is without a lookup.
+	// Absent on every other card, and when the reviewed card is gone.
+	Reviewed *ReviewedRef `json:"reviewed,omitempty"`
+	// DueDate is a task's due date (named apart from the retired Triage
+	// status.due, a list of weeks): the end of its NEAREST planning card — the
+	// epic it is for — never one borrowed from a farther ancestor. Absent
+	// with no planning card above it, when the nearest has no end, and on a
+	// planning card (its own end is its date).
+	DueDate string `json:"dueDate,omitempty"`
 	// Hierarchy is a PLANNING card's derived standing, from the tasks under
 	// it. Absent on a task, whose stage and progress are its own.
 	Hierarchy *Hierarchy `json:"hierarchy,omitempty"`
@@ -218,8 +220,8 @@ type SprintSpec struct {
 
 // SprintCapacity is a team's capacity as the API states it: the POINTS a week
 // it gets through, a number somebody SET and never derived — absent when
-// nobody has said. The Triage board holds each week's scheduled points against
-// it.
+// nobody has said. No board draws it at the moment (the Triage board's load
+// panel went with that board); it is kept for the backlog to show load again.
 type SprintCapacity struct {
 	Points int `json:"points,omitempty"`
 }
@@ -408,7 +410,7 @@ func CardSummaryResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 
 // CardResource is the resource for one card. It reads the board once (an
 // Index) for the questions that walk it — the lineage, a planning card's
-// standing, the triage strip, the reviewer. A LISTING builds the index once
+// standing, the reviewer. A LISTING builds the index once
 // and asks CardResourceIn of every card: three thousand cards walking the
 // board for each of those questions was the listing's whole cost, paid again
 // for every watcher's projection.
@@ -430,7 +432,6 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 		Stage:       string(c.Stage),
 		Recurrence:  c.Recurrence,
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
-		Week:        c.Week,
 		Parked:      c.Parked,
 		Scope:       c.Scope,
 		Project:     c.Project,
@@ -446,12 +447,37 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 		Domain:      c.Domain,
 		DoneAt:      c.DoneAt,
 		LeftAt:      c.LeftAt,
-		Triage:      ix.NeedsTriage(c, board.TodayIso()),
-		TriageWeek:  board.TriageWeekOf(b, c, board.TodayIso()),
 	}
-	status.Due = board.UpcomingRecurrences(b, c, board.TodayIso(), DueWeeksAhead)
-	for _, a := range ix.Lineage(c) {
-		status.Lineage = append(status.Lineage, LineageRef{UID: a.ItemID, Type: a.Type, Title: a.Title})
+	up := ix.Lineage(c)
+	// A REVIEW card hangs under nothing of its own; its chain is the
+	// planning chain of the task it reviews (K10: the Backlog draws a review
+	// nobody has taken with it), never the task itself, which would read as
+	// a task parent.
+	if c.ReviewOf != "" {
+		if original, ok := ix.Find(c.ReviewOf); ok {
+			status.Reviewed = &ReviewedRef{UID: original.ItemID, Type: original.Type, Title: original.Title,
+				Assignees: original.Assignees}
+		}
+	}
+	if c.ReviewOf != "" && c.Parent == "" {
+		if original, ok := ix.Find(c.ReviewOf); ok {
+			for _, a := range ix.Lineage(original) {
+				if board.IsPlanning(a) {
+					up = append(up, a)
+				}
+			}
+		}
+	}
+	for _, a := range up {
+		status.Lineage = append(status.Lineage, LineageRef{UID: a.ItemID, Type: a.Type, Title: a.Title, End: a.Day})
+	}
+	if !board.IsPlanning(c) {
+		for i := len(up) - 1; i >= 0; i-- {
+			if board.IsPlanning(up[i]) {
+				status.DueDate = up[i].Day
+				break
+			}
+		}
 	}
 	if board.IsPlanning(c) {
 		st, done, total := ix.HierarchyStatus(c)

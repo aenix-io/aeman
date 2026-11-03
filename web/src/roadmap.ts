@@ -4,6 +4,7 @@
 // planning card is the server's derived one, and a bar is a card's own
 // dates — so a component re-deciding any of it would drift from what the
 // listing says (docs/design/hierarchy.md, "The Roadmap tab").
+import { keepPlaced, type PlaceFields } from "./backlog";
 import { addDays, mondayOf } from "./date";
 import { isComplete, isInProgress } from "./stages";
 import { isPlanning, isSubtask } from "./subtasks";
@@ -72,58 +73,64 @@ export function buildTree(cards: readonly Card[]): RoadmapNode[] {
   return roots.sort((a, b) => levelOf(a.kind) - levelOf(b.kind) || 0);
 }
 
+/** PROJECT_CARDS_DEFAULT is the toolbar's "Project cards" toggle as a viewer
+ *  first meets it: OFF — the Roadmap is the plan of goals, initiatives,
+ *  epics and the work under them, and the Project board's cards stay there
+ *  unless asked for. */
+export const PROJECT_CARDS_DEFAULT = false;
+
+/** PROJECT_CARDS_KEY is where the viewer's toggle is remembered. */
+export const PROJECT_CARDS_KEY = "aeman.roadmap.projectCards";
+
+/** storedProjectCards reads the remembered toggle: the default until the
+ *  viewer has said otherwise. The toggle itself is the listing's selector
+ *  (viewquery.ts, projectCards): the server leaves the project cards out
+ *  unless asked, and the board filters nothing. */
+export function storedProjectCards(raw: string | null): boolean {
+  return raw === null ? PROJECT_CARDS_DEFAULT : raw === "1";
+}
+
 /** RoadmapSection is where a root of the forest is drawn. The TREE is the
  *  hierarchy: every planning card and everything under one. Below it, after
  *  everything else, stands the open work that is not in the tree yet — the
- *  roadmap listing carries it so a lead can file it (H9): IN WORK is what
- *  the day boards draw (a card with a day, a week or a sprint), BACKLOG is
- *  what is parked on a team's shelf, UNSORTED is the strip — a card with no
- *  plan and no team, nobody's yet. */
-export type RoadmapSection = "tree" | "in-work" | "backlog" | "unsorted";
+ *  roadmap listing carries it so a lead can file it (H9) — in the two places
+ *  a task can be (K1): IN WORK is what the day boards draw (a card with a
+ *  date or a sprint), BACKLOG is what is parked in a team's backlog. There
+ *  is no third: the Triage strip ("unsorted") is gone, and every door that
+ *  left a task there parks it instead (K3). */
+export type RoadmapSection = "tree" | "in-work" | "backlog";
 
 export const SECTION_LABEL: Record<Exclude<RoadmapSection, "tree">, string> = {
   "in-work": "In work",
   backlog: "Backlog",
-  unsorted: "Unsorted",
 };
-
-/** isPlanned reports a card somebody has said WHEN for — a day, a week or a
- *  sprint — which is what puts it on a day board. Mirrors the server's
- *  "unplanned" in the own gesture (hierarchy.md, "Owner"). */
-export function isPlanned(c: Pick<Card, "startDate" | "day" | "week" | "sprintStart">): boolean {
-  return !!(c.startDate || c.day || c.week || c.sprintStart);
-}
 
 /** sectionOf is the section a ROOT card is drawn in: the tree for a planning
  *  card or a card with a planning ancestor (its lineage names one — a root
  *  with such a lineage is a card whose parent the reader may not see, and
- *  it stays in the tree rather than reading as loose work); else the shelf
- *  it is parked on, the day boards it is planned for, or the strip. A
- *  subtask is never asked: it rides its task into whichever section. */
-export function sectionOf(
-  c: Pick<Card, "type" | "lineage" | "parked" | "startDate" | "day" | "week" | "sprintStart">,
-): RoadmapSection {
+ *  it stays in the tree rather than reading as loose work); else the
+ *  backlog it is parked in, or in work. Parked is read as board.InBacklog
+ *  reads it — the flag — so a card a direct writer left with the flag AND
+ *  dates is drawn once, in the backlog. A subtask is never asked: it rides
+ *  its task into whichever section. */
+export function sectionOf(c: Pick<Card, "type" | "lineage" | "parked">): RoadmapSection {
   if (isPlanning(c) || (c.lineage ?? []).some((up) => !!up.type)) {
     return "tree";
   }
-  if (c.parked) {
-    return "backlog";
-  }
-  return isPlanned(c) ? "in-work" : "unsorted";
+  return c.parked ? "backlog" : "in-work";
 }
 
 /** RoadmapSections is the forest split by section: the tree's roots, then
- *  the loose roots — in work, on a shelf (grouped by team, the way the
- *  Triage board draws the shelves; "" is the no-team shelf), unsorted. */
+ *  the loose roots — in work, then each team's backlog (grouped by team, the
+ *  way the Backlog board draws its columns; "" is the no-team group). */
 export interface RoadmapSections {
   tree: RoadmapNode[];
   inWork: RoadmapNode[];
   backlog: { team: string; nodes: RoadmapNode[] }[];
-  unsorted: RoadmapNode[];
 }
 
 export function sectionsOf(roots: readonly RoadmapNode[]): RoadmapSections {
-  const out: RoadmapSections = { tree: [], inWork: [], backlog: [], unsorted: [] };
+  const out: RoadmapSections = { tree: [], inWork: [], backlog: [] };
   for (const node of roots) {
     switch (sectionOf(node.card)) {
       case "tree":
@@ -132,7 +139,7 @@ export function sectionsOf(roots: readonly RoadmapNode[]): RoadmapSections {
       case "in-work":
         out.inWork.push(node);
         break;
-      case "backlog": {
+      default: {
         const team = node.card.team ?? "";
         let shelf = out.backlog.find((s) => s.team === team);
         if (!shelf) {
@@ -140,10 +147,7 @@ export function sectionsOf(roots: readonly RoadmapNode[]): RoadmapSections {
           out.backlog.push(shelf);
         }
         shelf.nodes.push(node);
-        break;
       }
-      default:
-        out.unsorted.push(node);
     }
   }
   return out;
@@ -443,7 +447,7 @@ export const DELETE_INTENT = "off-board" as const;
  *  patches the board applies at once (the children moving up, or the link
  *  going), and the one request that makes it so. */
 export interface RemovalPlan {
-  patches: { itemId: string; parent: string | undefined }[];
+  patches: { itemId: string; parent: string | undefined; parked?: true }[];
   request: { kind: "remove"; uid: string; intent: typeof DELETE_INTENT } | { kind: "unlink"; uid: string };
   /** The card leaves the board (delete) — the row goes with it. */
   gone: boolean;
@@ -454,13 +458,16 @@ export interface RemovalPlan {
  *  intent the server needs; detach clears the card's own parent and sends
  *  that one patch. */
 export function planningRemovalPlan(
-  cards: readonly Pick<Card, "itemId" | "parent">[],
+  cards: readonly (Pick<Card, "itemId" | "parent"> & Partial<PlaceFields>)[],
   id: string,
   choice: HierarchyChoice,
 ): RemovalPlan {
   if (choice === "detach") {
+    // A task with no place of its own detached from its plan is parked, as
+    // the server parks it (K1, keepPlaced).
+    const card = cards.find((c) => c.itemId === id);
     return {
-      patches: [{ itemId: id, parent: undefined }],
+      patches: [{ itemId: id, parent: undefined, ...(card ? keepPlaced(card, false) : {}) }],
       request: { kind: "unlink", uid: id },
       gone: false,
     };
@@ -514,7 +521,7 @@ export function allowedParentKinds(kind: RoadmapKind): RoadmapKind[] {
 // (it joins that gap's parent at that place). The level rule decides what
 // may land where (H2), a card never changes its type by being dragged, and
 // the tree shows the subtree where it WOULD land before the pointer is
-// released — the preview is the moved rows themselves, as the Triage board
+// released — the preview is the moved rows themselves, as the Backlog board
 // draws a card where it would land.
 
 /** DropZone is where on the hovered row the dragged row stands: its top
@@ -774,3 +781,45 @@ export const KIND_LABEL: Record<RoadmapKind, string> = {
   subtask: "Subtask",
   project: "Project card",
 };
+
+/** RoadmapLine is one line of the Roadmap's table: a row, in the section it
+ *  is drawn in, or a section's header. */
+export type RoadmapLine =
+  | { kind: "row"; row: Row; section: RoadmapSection }
+  | { kind: "header"; key: string; label: string };
+
+/** roadmapLines is the table's lines, ONE function of what decides them —
+ *  the listing, the depth range and the folds — so the board's memo of it is
+ *  keyed on exactly these. The listing is what the server sent: the Project
+ *  cards toggle is its selector (projectCards), not a filter here. The tree's
+ *  rows come first, then each section
+ *  below it: a header line and its rows. The sections draw tasks and their
+ *  subtasks (when the depth range reaches them); the range's upper levels
+ *  are the tree's business. */
+export function roadmapLines(
+  cards: readonly Card[],
+  opts: { depth: DepthRange; expanded: (id: string) => boolean },
+): RoadmapLine[] {
+  const sections = sectionsOf(buildTree(cards));
+  const sub = visibleLevels(opts.depth).has("subtask");
+  const flat: DepthRange = { from: "task", to: sub ? "subtask" : "task" };
+  const out: RoadmapLine[] = rows(sections.tree, opts.depth, opts.expanded).map((row) => ({
+    kind: "row",
+    row,
+    section: "tree" as const,
+  }));
+  const add = (section: Exclude<RoadmapSection, "tree">, label: string, nodes: readonly RoadmapNode[], key: string) => {
+    if (nodes.length === 0) {
+      return;
+    }
+    out.push({ kind: "header", key, label });
+    for (const row of rows(nodes, flat, opts.expanded)) {
+      out.push({ kind: "row", row, section });
+    }
+  };
+  add("in-work", SECTION_LABEL["in-work"], sections.inWork, "in-work");
+  for (const shelf of sections.backlog) {
+    add("backlog", `${SECTION_LABEL.backlog} · ${shelf.team || "no team"}`, shelf.nodes, `backlog-${shelf.team}`);
+  }
+  return out;
+}

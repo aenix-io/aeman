@@ -258,8 +258,8 @@ func TestACardInAColumnOrOfALevelReadsWithNoZoneOrSize(t *testing.T) {
 			t.Errorf("%s reads with sprint %q week %q, want neither", id, c.SprintStart, c.Week)
 		}
 	}
-	if c, _ := Find(b, "task"); c.Zone != ZoneGreen || c.Size != SizeS || c.SprintStart == "" || c.Week == "" {
-		t.Errorf("a task keeps its band, size, sprint and week, got %+v", c)
+	if c, _ := Find(b, "task"); c.Zone != ZoneGreen || c.Size != SizeS || c.SprintStart == "" || c.Week != "" {
+		t.Errorf("a task keeps its band, size and sprint and reads no week (K7), got %+v", c)
 	}
 }
 
@@ -269,8 +269,9 @@ func TestACardInAColumnOrOfALevelReadsWithNoZoneOrSize(t *testing.T) {
 // existed) would then have no row at all: on no board, and nothing to bring
 // it back. So the week it was owed in BECOMES its dates, Monday to Friday,
 // before it is dropped — the same conversion the door that files a card into
-// a column makes (WeekAsDates). Dates it already has win; a task keeps its
-// week; a planning card never had one to convert.
+// a column makes (WeekAsDates). Dates it already has win; a task's week is
+// read as nothing (K7) and no dates are invented for it; a planning card
+// never had one to convert.
 func TestAWeekOnlyProjectCardReadsAsItsWeeksDates(t *testing.T) {
 	t.Parallel()
 	b := NewBoard([]Card{
@@ -285,8 +286,8 @@ func TestAWeekOnlyProjectCardReadsAsItsWeeksDates(t *testing.T) {
 	if c, _ := Find(b, "dated"); c.StartDate != "2026-10-01" || c.Day != "2026-10-03" || c.Week != "" {
 		t.Errorf("a column card's own dates win over its week, got start %q day %q week %q", c.StartDate, c.Day, c.Week)
 	}
-	if c, _ := Find(b, "task"); c.Week != "2026-10-05" || c.StartDate != "" {
-		t.Errorf("a task keeps its week and gets no dates, got %+v", c)
+	if c, _ := Find(b, "task"); c.Week != "" || c.StartDate != "" {
+		t.Errorf("a task's week is read as nothing and no dates are invented, got %+v", c)
 	}
 	if c, _ := Find(b, "epic"); c.StartDate != "" || c.Day != "" || c.Week != "" {
 		t.Errorf("a planning card's stray week is dropped and no dates invented, got %+v", c)
@@ -407,9 +408,8 @@ func TestPlanningCardsAreOnNoDayBoardAndTasksUnderThemAre(t *testing.T) {
 		{ItemID: "sub", Parent: "under", Team: "alpha", Assignees: []string{"u"},
 			StartDate: today, Day: today, SprintStart: today},
 		{ItemID: "loose", Team: "alpha", Assignees: []string{"u"}, StartDate: today, Day: today, SprintStart: today},
-		// A task under an epic with no week: it is in the strip, like any
-		// task nobody has scheduled.
-		{ItemID: "unscheduled", Parent: "epic", Team: "alpha"},
+		// A task under an epic, parked: in its team's backlog like any task.
+		{ItemID: "unscheduled", Parent: "epic", Team: "alpha", Parked: true},
 	})
 	b.SprintStates = map[string]SprintState{"alpha": {Current: today}}
 	if got := ids(TeamGrid(b, "alpha", today)); !reflect.DeepEqual(got, []string{"under", "loose"}) {
@@ -418,17 +418,18 @@ func TestPlanningCardsAreOnNoDayBoardAndTasksUnderThemAre(t *testing.T) {
 	if got := ids(MeView(b, "u", today)); !reflect.DeepEqual(got, []string{"under", "loose"}) {
 		t.Errorf("MeView = %v, want the two tasks", got)
 	}
+	ix := NewIndex(b)
 	e, _ := Find(b, "epic")
-	if NeedsTriage(b, e, today) {
-		t.Error("a planning card is not in the strip")
+	if ix.OnBacklog(e) {
+		t.Error("a planning card is in no backlog")
 	}
 	u, _ := Find(b, "unscheduled")
-	if !NeedsTriage(b, u, today) {
-		t.Error("a task under an epic that nobody scheduled is in the strip like any other")
+	if !ix.OnBacklog(u) {
+		t.Error("a parked task under an epic is in its team's backlog like any other")
 	}
 	s, _ := Find(b, "sub")
-	if NeedsTriage(b, s, today) {
-		t.Error("a subtask is not in the strip")
+	if ix.OnBacklog(s) {
+		t.Error("a subtask is in no backlog: it rides its parent")
 	}
 	// Load: the task under the epic is on its person's hands; the epic is
 	// not work in hand, and the subtask rides its parent.
@@ -502,8 +503,5 @@ func TestTheRoadmapIsAView(t *testing.T) {
 	}
 	if ScopedByTeam(ViewRoadmap) {
 		t.Fatal("the Roadmap is board-wide")
-	}
-	if got := Panes(ViewRoadmap); !reflect.DeepEqual(got, []View{ViewRoadmap}) {
-		t.Fatalf("Panes(roadmap) = %v", got)
 	}
 }
