@@ -330,11 +330,22 @@ func schema3(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error) {
 	}
 	var cards []held
 	byID := map[string]board.Card{}
+	sprints := map[string]string{} // team name → its current sprint
 	err := tree.Files().ForEach(func(f *object.File) error {
 		if gone[f.Name] {
 			return nil
 		}
 		kind, ids := ParsePath(f.Name)
+		if kind == PathTeam {
+			data, err := readAll(f)
+			if err != nil {
+				return fmt.Errorf("%s: %w", f.Name, err)
+			}
+			if tf, err := DecodeTeam(data); err == nil && tf.Sprint.Current != "" {
+				sprints[tf.Name] = tf.Sprint.Current
+			}
+			return nil
+		}
 		if kind != PathCard {
 			return nil
 		}
@@ -371,7 +382,7 @@ func schema3(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error) {
 		c := h.file.Card
 		p, hasParent := byID[c.Parent]
 		subtask := c.Parent != "" && hasParent && !board.IsPlanning(p)
-		if !parkForSchema3(&c, subtask, today) {
+		if !parkForSchema3(&c, subtask, today, sprints[c.Team]) {
 			continue
 		}
 		h.file.Card = c
@@ -384,22 +395,42 @@ func schema3(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error) {
 	return writes, nil
 }
 
+// PlaceForSchema3 is schema 3's rule for one card as it stood before the
+// bump — its week included — and reports whether it changed anything: what
+// the bump writes, and what an importer writing the current schema applies
+// to a card it reads from a board with weeks (K8). subtask says whether the
+// card rides a TASK parent; today is the day the week is judged against.
+func PlaceForSchema3(c *board.Card, subtask bool, today string) bool {
+	return parkForSchema3(c, subtask, today)
+}
+
 // parkForSchema3 is schema 3's rule for one card, and reports whether it
 // changed anything.
-func parkForSchema3(c *board.Card, subtask bool, today string) bool {
+func parkForSchema3(c *board.Card, subtask bool, today, teamSprint string) bool {
 	changed := false
 	if c.Week != "" {
-		// Step 1: only a task that answers for its own place is placed;
-		// anything else just loses the week.
+		// Steps 1 and 2: only a task that answers for its own place is
+		// placed; anything else just loses the week.
 		task := !board.IsStateTitle(c.Title) && !board.IsPlanning(*c) &&
 			c.Scope == "" && c.ReviewOf == "" && !subtask
-		if task && !board.InWork(*c) && !board.Complete(c.Stage, c.Progress) {
-			if c.Week > board.MondayOf(today) {
+		if task && !board.Complete(c.Stage, c.Progress) {
+			switch {
+			case c.Week > board.MondayOf(today) && !board.InWork(*c):
 				// A week ahead: the backlog.
 				c.Parked = true
-			} else if start, day, ok := board.WeekAsDates(*c); ok {
-				// A week that has come: a debt on the day boards, kept there.
-				c.StartDate, c.Day = start, day
+			case c.Week <= board.MondayOf(today):
+				// A week that has come: a debt on the day boards, kept
+				// there. Its week's Monday to Friday become its dates when it
+				// has none, and with no sprint it joins its team's current
+				// one — the week is what kept it on its owner's Me board
+				// (D17), and an open card of a past day with no sprint is on
+				// no Me board.
+				if start, day, ok := board.WeekAsDates(*c); ok {
+					c.StartDate, c.Day = start, day
+				}
+				if c.SprintStart == "" && teamSprint != "" {
+					c.SprintStart = teamSprint
+				}
 			}
 		}
 		c.Week = ""

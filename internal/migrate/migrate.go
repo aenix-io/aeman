@@ -444,14 +444,17 @@ func (m *mapper) convert() {
 		}
 		// The board is written at the current schema, so a task comes in in
 		// one of its two places (docs/design/backlog.md, K1): in work, or
-		// parked in its team's backlog. One Projects v2 had planned for a
-		// week and nothing else, or nobody had placed at all, is parked —
-		// what schema 3 does to a repository written before it (K8). A week
-		// it carried is already gone: the loader reads a task's week as
-		// nothing.
-		if board.Unplaced(c, c.Parent != "" && board.IsSubtask(m.b, src)) {
-			c.Parked = true
+		// parked in its team's backlog — by schema 3's own rule (K8). The
+		// loader reads a task's week as nothing, so the week the rule needs
+		// is the source item's: a week still ahead of the import day parks
+		// the task, a week that has come becomes that week's Monday to
+		// Friday, a finished task only loses it; and an open task nobody
+		// had placed at all is parked. A column card's week already became
+		// its dates on read (board.SettleCard).
+		if c.Scope == "" && c.Week == "" {
+			c.Week = gh.Week
 		}
+		gitstore.PlaceForSchema3(&c, c.Parent != "" && board.IsSubtask(m.b, src), board.TodayIso())
 		c.Rank = ranks[i]
 		c.Notes = nil
 		for j, n := range src.Notes {

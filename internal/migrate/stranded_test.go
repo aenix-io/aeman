@@ -111,47 +111,96 @@ func TestAMigrationWithNothingStrandedWritesNoCleanup(t *testing.T) {
 }
 
 // The importer writes the CURRENT schema, so it brings a board in already in
-// the shape schema 3 leaves (K8): a task Projects v2 had planned for a week
-// and nothing else, and an open task nobody had placed at all, arrive PARKED
-// in their team's backlog — and since a parked task is reachable, the
-// stranded-card cleanup, which DELETES what Unreachable names, keeps them.
-func TestTheImporterParksWhatTheStripAndTheWeeklyPlanHeld(t *testing.T) {
+// the shape schema 3 leaves (K8), by schema 3's own rule for a task that had
+// nothing but a WEEK in Projects v2 — read from the source item, since the
+// loader reads a task's week as nothing:
+//
+//   - a week still AHEAD of the import day was the weekly plan: the task is
+//     PARKED in its team's backlog;
+//   - a week that has COME stood on the day boards as a debt: the task stays
+//     in work, with that week's Monday to Friday as its dates;
+//   - a FINISHED task only loses the week.
+//
+// An open task nobody had placed at all is parked too, and since a parked
+// task is reachable, the stranded-card cleanup, which DELETES what
+// Unreachable names, keeps every one of them.
+func TestTheImporterPlacesAWeekOnlyTaskByWhereItsWeekStands(t *testing.T) {
 	const cur = "2026-09-01"
-	src := boardservicetest.New([]board.Card{
-		{ItemID: "PVTI_week", Title: "planned for a week", Team: "portal", Week: "2026-09-07",
+	today := board.TodayIso()
+	thisWeek := board.MondayOf(today)
+	ahead := board.AddDays(thisWeek, 7)
+	gone := board.AddDays(thisWeek, -14)
+	cards := []board.Card{
+		{ItemID: "PVTI_ahead", Title: "planned for next week", Team: "portal", Week: ahead,
 			Assignees: []string{"kvaps"}, CreatedAt: "2026-08-28T09:00:00Z"},
+		{ItemID: "PVTI_come", Title: "owed this week", Team: "portal", Week: thisWeek,
+			Assignees: []string{"kvaps"}, CreatedAt: "2026-08-28T09:10:00Z"},
+		{ItemID: "PVTI_gone", Title: "owed two weeks ago", Team: "portal", Week: gone,
+			CreatedAt: "2026-08-28T09:20:00Z"},
+		{ItemID: "PVTI_wdone", Title: "finished in its week", Team: "portal", Week: gone, Progress: 100,
+			CreatedAt: "2026-08-28T09:30:00Z"},
 		{ItemID: "PVTI_strip", Title: "nobody said when", Team: "portal", Progress: 20,
 			CreatedAt: "2026-08-29T09:00:00Z"},
 		{ItemID: "PVTI_done", Title: "finished, never placed", Team: "portal", Progress: 100,
 			CreatedAt: "2026-08-29T09:30:00Z"},
 		{ItemID: "PVTI_live", Title: "in work", Team: "portal", SprintStart: cur, StartDate: cur, Day: cur,
 			CreatedAt: "2026-09-01T09:00:00Z"},
-	}, map[string]board.SprintState{"portal": {Current: cur, ItemID: "PVTI_team"}})
+	}
+	items := map[string]ghsource.Item{}
+	for _, c := range cards {
+		items[c.ItemID] = ghsource.Item{IsDraft: true, Week: c.Week}
+	}
+	src := boardservicetest.New(cards, map[string]board.SprintState{"portal": {Current: cur, ItemID: "PVTI_team"}})
 	remote := newRemote(t, "")
-	rep, err := Run(context.Background(), plainSource{src}, memory.NewStorage(), remote, base)
+	rep, err := Run(context.Background(), itemsSource{src, items}, memory.NewStorage(), remote, base)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(rep.Stranded) != 0 || len(rep.Placeless) != 0 {
-		t.Fatalf("stranded = %v, placeless = %v; a parked task is in its backlog", rep.Stranded, rep.Placeless)
+		t.Fatalf("stranded = %v, placeless = %v; every task is in work or in its backlog", rep.Stranded, rep.Placeless)
 	}
 	s, err := gitstore.Load(clone(t, remote))
 	if err != nil {
 		t.Fatal(err)
 	}
-	parked := map[string]bool{}
+	got := map[string]board.Card{}
 	for _, c := range s.Cards {
-		parked[c.Title] = c.Parked
+		got[c.Title] = c
 		if c.Week != "" {
 			t.Errorf("%q came in with a week", c.Title)
 		}
 	}
-	for title, want := range map[string]bool{
-		"planned for a week": true, "nobody said when": true,
-		"finished, never placed": false, "in work": false,
+	type want struct {
+		parked     bool
+		start, day string
+	}
+	for title, w := range map[string]want{
+		"planned for next week":  {parked: true},
+		"owed this week":         {start: thisWeek, day: board.AddDays(thisWeek, 4)},
+		"owed two weeks ago":     {start: gone, day: board.AddDays(gone, 4)},
+		"finished in its week":   {},
+		"nobody said when":       {parked: true},
+		"finished, never placed": {},
+		"in work":                {start: cur, day: cur},
 	} {
-		if parked[title] != want {
-			t.Errorf("%q parked = %v, want %v", title, parked[title], want)
+		c := got[title]
+		if c.Parked != w.parked || c.StartDate != w.start || c.Day != w.day {
+			t.Errorf("%q = parked %v %s..%s, want parked %v %s..%s", title, c.Parked, c.StartDate, c.Day, w.parked, w.start, w.day)
 		}
 	}
+}
+
+// itemsSource is a source board with the GitHub side of each item given —
+// the source WEEK among it, which the loader's board no longer carries.
+type itemsSource struct {
+	*boardservicetest.Backend
+	items map[string]ghsource.Item
+}
+
+func (s itemsSource) LoadBoard(ctx context.Context, owner string, _ int) (ghsource.Export, error) {
+	b, err := s.Backend.LoadBoard(ctx, owner)
+	if err != nil {
+		return ghsource.Export{}, err
+	}
+	return ghsource.Export{Board: b, Items: s.items}, nil
 }

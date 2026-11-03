@@ -27,6 +27,10 @@ type Item struct {
 	// Events is the action log parsed out of the draft body (or the log
 	// comment on an issue card), in source order.
 	Events []board.Event
+	// Week is the item's Week field as Projects v2 had it. The domain board
+	// reads a task's week as nothing (K7), so the importer reads it here to
+	// place a task that had nothing but a week the way schema 3 does (K8).
+	Week string
 }
 
 // Field is a Projects v2 field definition — what the roles are resolved from.
@@ -74,6 +78,7 @@ func mapDomainBoard(owner string, raw *rawProject) Export {
 	items := make(map[string]Item, len(raw.Items.Nodes))
 	for i := range raw.Items.Nodes {
 		card, item := mapDomainItem(&raw.Items.Nodes[i], roles)
+		item.Week = card.Week
 		cards = append(cards, card)
 		items[card.ItemID] = item
 	}
