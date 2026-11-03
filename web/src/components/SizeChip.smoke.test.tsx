@@ -3,9 +3,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { SizeChip } from "./SizeChip";
 import type { Card } from "../providers/types";
 
-// The chip is the one place a size is SET on a board — the Triage grid and
-// the backlog beside it both draw this component, so what it says about an
-// unsized card is said in both.
+// The chip is the one place a size is SET on a board — the Backlog board
+// draws it on every card, so what it says about an unsized card is said
+// there.
 const card = (over: Partial<Card> = {}): Card =>
   ({ itemId: "c1", title: "A card", assignees: [], progress: 0, ...over }) as Card;
 

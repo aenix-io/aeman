@@ -34,7 +34,7 @@ export function acceptsNewCard(zone: ZoneKey): boolean {
  *  this person put on this board themselves — their own card, still standing
  *  in the one zone the board adds to (ADD_ZONE). Anything else is somebody's
  *  plan: work another person scheduled for them, or work they scheduled on
- *  the Team or Triage board, where planning is done and where that × lives.
+ *  the Team or Backlog board, where planning is done and where that × lives.
  *  The answer to "I am not doing this" is the refuse stage, which leaves the
  *  card standing for the lead.
  *

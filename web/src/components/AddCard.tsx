@@ -29,8 +29,7 @@ interface AddCardProps {
   /** The form closed; created reports whether a card was submitted. */
   onClosed?: (created: boolean) => void;
   /** An aside picker of something OTHER than a team, for a board where the
-   *  team is not the question: the Triage board picks a zone, because a
-   *  column there is a person and the team comes with them. Its answer
+   *  team is not the question (the Roadmap picks a level). Its answer
    *  arrives as the third argument of onCreate. */
   picker?: { title: string; options: AddCardOption[]; initial: string };
   /** Draw the pickers as their colour and nothing else. A form that stands
@@ -68,8 +67,7 @@ export function AddCard({
   const pickRef = useRef<HTMLDivElement | null>(null);
 
   // The team picker is shown when a roster is supplied and no team is
-  // forced. A board may ask for one of its own beside it: the Triage board
-  // picks a zone, and picks a team too when it is showing more than one.
+  // forced. A board may ask for one of its own beside it (`picker`).
   const showPicker = forcedTeam === undefined && teams !== undefined;
 
   const close = (created: boolean) => {

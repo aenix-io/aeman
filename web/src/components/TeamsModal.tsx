@@ -135,7 +135,7 @@ function TeamRow({
           beside the team's name, rather than guessed anywhere. Blank is
           "nobody has said", which the boards draw as no limit at all. */}
       {onSetCapacity && (
-        <label className="teams-manage-cap" title="Points a week this team gets through — what the Triage board holds each week's plan against. Blank: nobody has said">
+        <label className="teams-manage-cap" title="Points a week this team gets through. Blank: nobody has said">
           <input
             type="number"
             className="teams-manage-cap-input"

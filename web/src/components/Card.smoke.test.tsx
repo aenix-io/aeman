@@ -4,8 +4,7 @@ import { Card as CardView } from "./Card";
 import type { Card } from "../providers/types";
 
 // A card's left stripe says where the card came FROM, and it says it on every
-// board the card is met on — the day boards draw it here, the Triage board on
-// its own slot (.triage-slot-project). It went missing from the day boards
+// board the card is met on — the day boards draw it here. It went missing from the day boards
 // once already: the stripe used to be the weekly plan's band, and when the
 // plan was taken out the mark went with it, leaving project cards
 // indistinguishable from the day's own work.
@@ -72,10 +71,10 @@ describe("what moves when a pointer crosses a card", () => {
     expect(at(html, "card-links")).toBeLessThan(at(html, "card-status-btn"));
   });
 
-  // The SIZE is not among them. It is read on the boards that plan a week —
-  // Triage, where it is on the face of every box — and set in the card's own
-  // page; on a day board it was another glyph in a row already crowded, on a
-  // card whose week was decided somewhere else.
+  // The SIZE is not among them. It is read on the board where work is
+  // weighed up — the Backlog, where it is on the face of every card — and set
+  // in the card's own page; on a day board it was another glyph in a row
+  // already crowded, on a card taken into work somewhere else.
   it("draws no size on a day board's card", () => {
     // The chip's own class, not a name nothing renders: asserting the
     // absence of a class that never existed passes whatever the card draws.
