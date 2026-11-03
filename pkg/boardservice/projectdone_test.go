@@ -42,3 +42,39 @@ func TestAProjectCardIsDoneOrNotDone(t *testing.T) {
 		t.Fatalf("a task's progress is its own: %v", err)
 	}
 }
+
+// And no stage door moves a project card between done and not done (#288):
+// review (which would also make a review card for it) and locked hold a
+// card inside 10–90, and In progress nudges it to 10 — all refused by name
+// (ErrProjectCard). Reopening a finished project card takes it back to not
+// done, 0, whatever it carried before done. Old values are not migrated: a
+// project card already at 60% keeps it until somebody changes it.
+func TestNoStageDoorPutsAProjectCardBetweenDoneAndNotDone(t *testing.T) {
+	seed := func() *fakeBackend {
+		return newFake([]board.Card{
+			{ItemID: "slot", Title: "BYOK", Scope: "Security", Project: "core"},
+			{ItemID: "done", Title: "Shipped", Scope: "Security", Project: "core", Progress: 100, DoneFrom: 60},
+		}, nil)
+	}
+	for _, stage := range []board.StageKey{board.StageReview, board.StageLocked} {
+		f := seed()
+		if err := New(f).SetStage(ctx, "acme", "slot", stage); !errors.Is(err, ErrProjectCard) {
+			t.Fatalf("%s on a project card = %v, want ErrProjectCard", stage, err)
+		}
+		for _, c := range f.b.Cards {
+			if c.ReviewOf == "slot" {
+				t.Fatal("a review card was made for a project card")
+			}
+		}
+	}
+	f := seed()
+	if err := New(f).SetInProgress(ctx, "acme", "slot"); !errors.Is(err, ErrProjectCard) {
+		t.Fatalf("In progress on a project card = %v, want ErrProjectCard", err)
+	}
+	if err := New(f).Reopen(ctx, "acme", "done"); err != nil {
+		t.Fatal(err)
+	}
+	if c := f.get("done"); c.Progress != 0 || board.Complete(c.Stage, c.Progress) {
+		t.Fatalf("reopened = %+v, want not done at 0", c)
+	}
+}

@@ -375,6 +375,24 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	return card, nil
 }
 
+// reopenProjectCard takes a finished project card back to not done: no
+// stage, progress 0 (#288).
+func (s *Service) reopenProjectCard(ctx context.Context, b board.Board, card board.Card) error {
+	if card.Stage != board.StageNone {
+		if err := s.backend.SetStage(ctx, b, card, board.StageNone); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventStage, string(card.Stage), "reopened")
+	}
+	if card.Progress != 0 {
+		if err := s.backend.SetProgress(ctx, b, card, 0); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventProgress, strconv.Itoa(card.Progress), "0")
+	}
+	return nil
+}
+
 // ErrProjectCardProgress is a progress between 0 and 100 on a project card:
 // the plan a project card stands for is done or not done (#288), and its
 // progress takes 0 or 100 alone.
@@ -1558,6 +1576,12 @@ func (s *Service) SetStage(ctx context.Context, boardID string, itemID string, s
 	if err := notAPlanningCard(card, "stage"); err != nil {
 		return err
 	}
+	// A PROJECT card is done or not done (#288): review (which would make a
+	// review card for it) and locked hold a card inside 10–90, so neither
+	// is its to take.
+	if card.Scope != "" && (stage == board.StageReview || stage == board.StageLocked) {
+		return fmt.Errorf("%w: %q is done or not done, never %s", ErrProjectCard, card.Title, stage)
+	}
 	// A review card is auxiliary and one-off: it cannot be made recurrent,
 	// and it cannot be sent to review either — a review of a review is a
 	// chain nothing draws and the stage menu never offered (Card.tsx).
@@ -1721,6 +1745,11 @@ func (s *Service) Reopen(ctx context.Context, boardID string, itemID string) err
 	if err != nil {
 		return err
 	}
+	// A PROJECT card reopened is simply not done (#288): 0, whatever it
+	// carried before done.
+	if card.Scope != "" {
+		return s.reopenProjectCard(ctx, b, card)
+	}
 	// The write that took the card to 100 stored where it came from
 	// (DoneFrom): that is the value owed back, and it does not depend on a
 	// history that a horizon may have cut. A card without one (done before
@@ -1821,6 +1850,11 @@ func (s *Service) SetInProgress(ctx context.Context, boardID string, itemID stri
 	}
 	if err := notAPlanningCard(card, "stage"); err != nil {
 		return err
+	}
+	// A PROJECT card is done or not done (#288): In progress nudges it into
+	// 10–90, which is not its to carry.
+	if card.Scope != "" {
+		return fmt.Errorf("%w: %q is done or not done, never in progress", ErrProjectCard, card.Title)
 	}
 	newStage, newProgress := board.ApplyInProgress(card.Stage, card.Progress)
 	if err := s.backend.SetStage(ctx, b, card, newStage); err != nil {

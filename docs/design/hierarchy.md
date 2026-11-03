@@ -96,8 +96,10 @@ Team or a Backlog**. Its week is no longer derived from its dates, and nothing
 syncs it. A file that still carries a band or a size on such a card is
 read without them and rewritten without them the next time it changes.
 It is **done or not done**: its progress takes 0 or 100 alone (any other
-value is refused, `projectCardProgress`), and its drawer shows a Done
-toggle in place of a bar. On the Project board it shows the goal,
+value is refused, `projectCardProgress`), no stage door puts it between
+the two (review, locked and In progress are refused; reopening takes it to
+0), and its drawer shows a Done toggle in place of a bar. Values written
+before this rule are left as they are. On the Project board it shows the goal,
 initiative or epic it is attached to, and its "…" menu lists them to attach
 it to right there. It stands in its Scope column on the
 Project board, may be placed under an epic, initiative or goal (a

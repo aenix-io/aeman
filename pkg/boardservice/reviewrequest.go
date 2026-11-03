@@ -18,6 +18,11 @@ func (s *Service) requestReview(ctx context.Context, b board.Board, card board.C
 	if _, ok := findReviewCard(b, card.ItemID); ok {
 		return nil
 	}
+	// A project card is never on review (#288): no review card for one,
+	// whatever door asked.
+	if card.Scope != "" {
+		return nil
+	}
 	created, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:    "review: " + card.Title,
 		Zone:     board.ZoneGray,
