@@ -1197,10 +1197,13 @@ func (e *boardEntry) rememberParents() {
 	}
 }
 
-// shownInLineage is what a descendant's lineage carries of a planning card:
-// its title and its dates (status.lineage[].title/end).
+// shownInLineage is what a descendant carries of a planning card: its title
+// and its dates (status.lineage[].title/end), and its team and customers
+// (status.effectiveTeam/effectiveCustomers).
 func shownInLineage(c board.Card) string {
-	return c.Title + "\x00" + c.StartDate + "\x00" + c.Day
+	// And its team and customers: the cards below take them as their
+	// effective team and customers (ownership.md, O3, O4).
+	return c.Title + "\x00" + c.StartDate + "\x00" + c.Day + "\x00" + c.Team + "\x00" + strings.Join(c.Customers, ",")
 }
 
 // shownInReview is what a review card carries of the card it reviews: its

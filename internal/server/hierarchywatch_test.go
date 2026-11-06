@@ -386,3 +386,33 @@ func TestATasksReviewCardHearsWhatItShowsOfTheTask(t *testing.T) {
 		t.Fatalf("the task's own frame: %+v", got)
 	}
 }
+
+// A PLAN ITEM'S TEAM AND CUSTOMERS REACH THE TASKS DIRECTLY UNDER IT. Their
+// effective team and customers (ownership.md, O3, O4) are computed from the
+// plan item and no write touches them, so naming a customer on an epic
+// re-sends the tasks under it with their new effective customers — as a
+// rename re-sends their lineage.
+func TestAPlanItemsCustomersReachTheTasksUnderIt(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
+		{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha", Parked: true},
+	})
+	b.Customers = []board.Customer{{ID: "cu1", Name: "Hidora"}}
+	e := seedEntry(store, "k", b)
+	raw, cancel := store.subscribe("k", "", nil, map[string]bool{"cards": true})
+	defer cancel()
+	e.mu.Lock()
+	c, _ := board.Find(e.board, "epic")
+	c.Customers = []string{"cu1"}
+	c.Team = "beta"
+	e.upsertCard(c)
+	e.cardChanged("", c, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+	got := took(t, raw, 2)
+	task := got["t"].Card
+	if got["t"].Type != "MODIFIED" || len(task.Status.EffectiveCustomers) != 1 || task.Status.EffectiveTeam != "alpha" {
+		t.Fatalf("the task under the epic = %+v, want MODIFIED with Hidora and its own team", task.Status)
+	}
+}
