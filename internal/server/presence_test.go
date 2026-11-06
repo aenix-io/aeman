@@ -249,3 +249,52 @@ func TestAReadableAncestorAboveAnUnreadableOneGivesNothing(t *testing.T) {
 		}
 	}
 }
+
+// And a review card with no team of its own counts under its task's (O13) in
+// a cut frame too — the task's own, else what the task inherits from a plan
+// item the watcher may read — as the listing on their visible board says.
+func TestACutFramesReviewCardCountsUnderItsTasksTeam(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("shared", []board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Team: "portal"},
+		{ItemID: "t", Title: "Receipts", Parent: "epic", Parked: true},
+		{ItemID: "hidden", Title: "Secret", Team: "alpha", Domain: "closed"},
+		{ItemID: "r", Title: "review: Receipts", ReviewOf: "t", Parked: true},
+		{ItemID: "rh", Title: "review: Secret", ReviewOf: "hidden", Parked: true},
+		// A task of alpha under an epic the watcher cannot read: its review
+		// card's frame is cut by that crumb, and still counts under alpha.
+		{ItemID: "closedEpic", Title: "Secret epic", Type: board.TypeEpic, Domain: "closed"},
+		{ItemID: "tx", Title: "Alpha task", Team: "alpha", Parent: "closedEpic", Parked: true},
+		{ItemID: "rx", Title: "review: Alpha task", ReviewOf: "tx", Parked: true},
+	})
+	e := seedEntry(store, "k", b)
+	rights := rightsOn([]string{"shared"}, nil)
+	narrow, cancel := store.subscribeAs("k", "bob", nil, map[string]bool{"cards": true}, rights)
+	defer cancel()
+	for _, id := range []string{"r", "rh", "rx"} {
+		e.mu.Lock()
+		c, _ := board.Find(e.board, id)
+		c.Title += "!"
+		e.upsertCard(c)
+		e.cardChanged("", c, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+	got := cardFrames(narrow)
+	e.mu.Lock()
+	visible := board.Visible(e.board, rights.primary, rights.readable)
+	e.mu.Unlock()
+	for _, id := range []string{"r", "rh", "rx"} {
+		c, _ := board.Find(visible, id)
+		want := apiserver.CardResource(visible, c).Status.EffectiveTeam
+		if got[id].Status.EffectiveTeam != want {
+			t.Errorf("%s: the frame says %q, the listing %q", id, got[id].Status.EffectiveTeam, want)
+		}
+	}
+	if got["rx"].Status.EffectiveTeam != "alpha" {
+		t.Errorf("rx counts under %q, want its task's alpha", got["rx"].Status.EffectiveTeam)
+	}
+	if got["r"].Status.EffectiveTeam != "portal" {
+		t.Errorf("r counts under %q, want its task's portal", got["r"].Status.EffectiveTeam)
+	}
+}
