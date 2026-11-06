@@ -12,6 +12,8 @@ import (
 
 	"github.com/go-git/go-git/v5/storage/memory"
 
+	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/boardservice/boardservicetest"
 	"github.com/aenix-io/aeman/pkg/gitstore"
 )
 
@@ -166,5 +168,24 @@ func TestAWriteFromAPastDayIsRefused(t *testing.T) {
 	}
 	if code := create("portal", "2026-08-20"); code != http.StatusConflict {
 		t.Fatalf("a create on a day that team has moved past answered %d, want 409", code)
+	}
+}
+
+// O13 — a card made from a past day is judged by the team it will STAND
+// UNDER: a subtask typed under a task that inherits portal names no team of
+// its own, and a day portal has moved past is a record for it all the same.
+func TestACreateFromAPastDayIsJudgedByTheTeamItWillStandUnder(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Team: "portal"},
+		{ItemID: "t", Title: "Receipts", Parent: "epic", Assignees: []string{"bob"}, SprintStart: "2026-08-20", StartDate: "2026-08-20"},
+	}, map[string]board.SprintState{"portal": {Current: "2026-08-25", Previous: "2026-08-20", ItemID: "sp"}})
+	srv := apiServer(t, Options{}, fake)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/views/team/cards", strings.NewReader(`{"title":"Sub","parent":"t"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Aeman-As-Of", "2026-08-21")
+	rec := httptest.NewRecorder()
+	srv.handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("a create under portal's task on a day over for portal answered %d %s, want 409", rec.Code, rec.Body.String())
 	}
 }

@@ -74,7 +74,8 @@ func (h *server) gestureOn(ctx context.Context, svc *boardservice.Service, board
 	if sel.Team == "" && board.ScopedByTeam(view) {
 		for _, c := range b.Cards {
 			if c.ItemID == uid {
-				sel.Team = c.Team
+				// The team it STANDS UNDER (O13): the grid it is drawn on.
+				sel.Team = apiserver.TeamSelector(board.PlacedTeam(b, c))
 				break
 			}
 		}

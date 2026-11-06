@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { hiddenByFilters, meFilterPasses, moreTasksLabel, onMyDay } from "./meview";
+import { placerOf } from "./ownership";
 import type { Board, Card } from "./providers/types";
 
 const card = (over: Partial<Card>): Card =>
@@ -122,16 +123,16 @@ describe("the Me board's filter", () => {
   ];
 
   it("passes everything while no team is chosen", () => {
-    expect(cards.every((c) => meFilterPasses(c, null))).toBe(true);
-    expect(cards.every((c) => meFilterPasses(c, []))).toBe(true);
+    expect(cards.every((c) => meFilterPasses(c, placerOf(cards), null))).toBe(true);
+    expect(cards.every((c) => meFilterPasses(c, placerOf(cards), []))).toBe(true);
   });
 
   it("keeps the chosen teams, the no-team group being a team", () => {
-    expect(cards.filter((c) => meFilterPasses(c, ["alpha", ""])).map((c) => c.itemId)).toEqual(["a", "n"]);
+    expect(cards.filter((c) => meFilterPasses(c, placerOf(cards), ["alpha", ""])).map((c) => c.itemId)).toEqual(["a", "n"]);
   });
 
   it("counts what it hides of what the day would draw", () => {
-    expect(hiddenByFilters(cards, () => [], (c) => meFilterPasses(c, ["alpha"]))).toBe(2);
+    expect(hiddenByFilters(cards, () => [], (c) => meFilterPasses(c, placerOf(cards), ["alpha"]))).toBe(2);
     expect(hiddenByFilters(cards, () => [], () => true)).toBe(0);
     expect(moreTasksLabel(1)).toBe("1 more task");
     expect(moreTasksLabel(3)).toBe("3 more tasks");
@@ -145,8 +146,33 @@ describe("the Me board's filter", () => {
       a: [card({ itemId: "a1", team: "alpha" }), card({ itemId: "a2", team: "beta" })],
       b: [card({ itemId: "b1", team: "beta" }), card({ itemId: "b2", team: "alpha" })],
     };
-    const passes = (c: ReturnType<typeof card>) => meFilterPasses(c, ["alpha"]);
+    const passes = (c: ReturnType<typeof card>) => meFilterPasses(c, placerOf(cards), ["alpha"]);
     // b and both its subtasks; n; a's beta subtask.
     expect(hiddenByFilters(cards, (id) => kids[id] ?? [], passes)).toBe(5);
+  });
+});
+
+// O13 on the Me board: a task with no team of its own stands under its plan
+// item's team — in the Team filter, and for the sprint its day is read by.
+describe("the Me board by the team a task stands under", () => {
+  it("keeps an inheriting task under its plan item's team", () => {
+    const inherited = card({ itemId: "i", team: "", parent: "e", effectiveTeam: "alpha" });
+    expect(meFilterPasses(inherited, placerOf([inherited]), ["alpha"])).toBe(true);
+    expect(meFilterPasses(inherited, placerOf([inherited]), [""])).toBe(false);
+  });
+
+  it("reads the day by the sprint of the team it stands under", () => {
+    // In alpha's current sprint, a past day of it: on the board by alpha's
+    // sprint, which the no-team group does not have.
+    const inherited = card({
+      itemId: "i",
+      team: "",
+      parent: "e",
+      lineage: [{ uid: "e", type: "epic", title: "Billing" }],
+      effectiveTeam: "alpha",
+      sprintStart: THIS_WEEK,
+    });
+    expect(onMyDay(inherited, board, TODAY, TODAY)).toBe(true);
+    expect(onMyDay(inherited, board, "2026-09-15", TODAY)).toBe(true);
   });
 });

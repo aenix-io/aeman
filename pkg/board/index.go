@@ -93,13 +93,19 @@ func (ix *Index) Lineage(c Card) []Card {
 // EffectiveTeam is the team a card counts under (O3): its own, else the
 // nearest ancestor's that has one. A task's own team always wins over an
 // inherited one; nothing is written down the tree. A project card has none
-// (H4), whatever an old file's `team:` says.
+// (H4), whatever an old file's `team:` says. A review card with no team of
+// its own counts under its task's (O13).
 func (ix *Index) EffectiveTeam(c Card) string {
 	if c.Scope != "" {
 		return ""
 	}
 	if c.Team != "" {
 		return c.Team
+	}
+	if c.ReviewOf != "" {
+		if task, ok := ix.Find(c.ReviewOf); ok && task.ReviewOf == "" {
+			return ix.EffectiveTeam(task)
+		}
 	}
 	up := ix.Lineage(c)
 	for i := len(up) - 1; i >= 0; i-- {

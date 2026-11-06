@@ -54,7 +54,7 @@ func (s *Server) recordWriteGuard(next http.Handler) http.Handler {
 		// that is live on screen is never refused here.
 		if uid := cardOfPath(r.URL.Path); uid != "" {
 			card, ok := findCardByID(bd, uid)
-			if !ok || !board.IsRecord(card, past) {
+			if !ok || !board.IsRecord(bd, card, past) {
 				next.ServeHTTP(w, r)
 				return
 			}

@@ -5,7 +5,7 @@
 // and falls back to the server's where the ancestors are not on the board.
 import type { Card } from "./providers/types";
 
-type Held = readonly Pick<Card, "itemId" | "title" | "parent" | "team" | "customers" | "reviewOf">[];
+type Held = readonly Pick<Card, "itemId" | "title" | "parent" | "team" | "customers" | "reviewOf" | "effectiveTeam" | "scope" | "type">[];
 
 function ancestorsOf(c: Pick<Card, "itemId" | "parent">, cards: Held): Held[number][] | null {
   const byId = new Map(cards.map((x) => [x.itemId, x]));
@@ -26,32 +26,90 @@ function ancestorsOf(c: Pick<Card, "itemId" | "parent">, cards: Held): Held[numb
   return up;
 }
 
-/** effectiveTeamOf is the team a card counts under (O3): its own, else the
- *  nearest ancestor's that has one. A project card has none (H4). */
-export function effectiveTeamOf(c: Card, cards: Held): string {
+type HeldCard = Held[number];
+
+/** effectiveIn is effectiveTeamOf over a map of the held cards by id. */
+function effectiveIn(byId: ReadonlyMap<string, HeldCard>, c: HeldCard): string {
   if (c.scope) {
     return "";
   }
   if (c.team) {
     return c.team;
   }
-  const up = ancestorsOf(c, cards);
-  if (!up) {
-    return c.effectiveTeam ?? "";
+  // A review card counts under its task's (O13).
+  if (c.reviewOf) {
+    const task = byId.get(c.reviewOf);
+    return task && !task.reviewOf ? effectiveIn(byId, task) : (c.effectiveTeam ?? "");
   }
-  for (let i = up.length - 1; i >= 0; i--) {
-    if (up[i].team) {
-      return up[i].team ?? "";
+  const seen = new Set([c.itemId]);
+  for (let id = c.parent, hops = 0; id && hops < 7; hops++) {
+    const p = byId.get(id);
+    if (!p) {
+      return c.effectiveTeam ?? ""; // an ancestor the board does not hold: ask the server's
     }
+    if (seen.has(p.itemId)) {
+      break;
+    }
+    seen.add(p.itemId);
+    if (p.team) {
+      return p.team;
+    }
+    id = p.parent;
   }
   return "";
 }
 
-/** inheritedTeamOf is the team a card takes from an ancestor, and which one
- *  — null when the card has a team of its own or inherits none. */
+const byIdOf = (cards: Held) => new Map(cards.map((x) => [x.itemId, x]));
+
+/** effectiveTeamOf is the team a card counts under (O3): its own, else the
+ *  nearest ancestor's that has one; a review card's, its task's. A project
+ *  card has none (H4). */
+export function effectiveTeamOf(c: HeldCard, cards: Held): string {
+  return effectiveIn(byIdOf(cards), c);
+}
+
+/** placerOf reads the held cards once and answers, card by card, the team
+ *  each STANDS UNDER on the day boards and backlogs (O13): its effective
+ *  team, a plan item keeping its own — the server's board.PlacedTeam. A
+ *  board builds one per render rather than a map per card. */
+export function placerOf(cards: Held): (c: HeldCard) => string {
+  const byId = byIdOf(cards);
+  return (c) => (c.type ? (c.team ?? "") : effectiveIn(byId, c));
+}
+
+/** placedTeamOf is one card's placed team (placerOf, for a single read). */
+export function placedTeamOf(c: HeldCard, cards: Held): string {
+  return placerOf(cards)(c);
+}
+
+/** sprintTeamOf is the team a card's sprint is resolved by (O13) — the
+ *  team a gesture names when it names one; "" names none, so the card's
+ *  own team is off and it stands under what it inherits; left out, the
+ *  team it stands under now — as currentSprint takes it: null for the
+ *  no-team group. */
+export function sprintTeamOf(c: HeldCard, cards: Held, team?: string): string | null {
+  if (team) {
+    return team;
+  }
+  const placed = placedTeamOf(team === "" ? { ...c, team: "" } : c, cards);
+  return placed || null;
+}
+
+/** inheritedTeamOf is the team a card takes from an ancestor — or, a
+ *  review card, from its task — and which one: null when the card has a
+ *  team of its own or inherits none. */
 export function inheritedTeamOf(c: Card, cards: Held): { team: string; from: string } | null {
   if (c.team || c.scope) {
     return null;
+  }
+  // A review card counts under its task's (O13), and says so.
+  if (c.reviewOf) {
+    const task = cards.find((x) => x.itemId === c.reviewOf);
+    if (!task || task.reviewOf) {
+      return c.effectiveTeam ? { team: c.effectiveTeam, from: "" } : null;
+    }
+    const team = placedTeamOf(task, cards);
+    return team ? { team, from: task.title } : null;
   }
   const up = ancestorsOf(c, cards);
   if (!up) {

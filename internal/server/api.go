@@ -441,8 +441,16 @@ func (a surface) CreateCard(ctx context.Context, req apiv1.CreateCardRequestObje
 	// sprint began adds a card there — and only a team the day is OVER for is
 	// refused.
 	if day := asOfDay(ctx); day != "" {
-		if bd, err := svc.Board(ctx, boardID); err == nil && board.TeamsPast(bd, day)[strOf(in.Team)] {
-			team := strOf(in.Team)
+		// The team the card will STAND UNDER (O13): the one it names, else
+		// what it inherits from the parent it is made under — a subtask typed
+		// under an inheriting task names no team of its own.
+		var team string
+		past := false
+		if bd, err := svc.Board(ctx, boardID); err == nil {
+			team = board.PlacedTeamAs(bd, board.Card{Parent: strOf(in.Parent), ReviewOf: strOf(in.ReviewOf)}, strOf(in.Team))
+			past = board.TeamsPast(bd, day)[team]
+		}
+		if past {
 			if team == "" {
 				team = "no team"
 			}

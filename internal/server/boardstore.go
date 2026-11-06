@@ -134,13 +134,27 @@ func inheritedFromReadable(res apiserver.Card, find func(string) (board.Card, bo
 		}
 		return up
 	}
-	team := c.Team
-	if team == "" {
-		up := chain(c)
-		for i := len(up) - 1; i >= 0 && team == ""; i-- {
-			team = up[i].Team
+	// Its own team, else — a review card — its readable task's, else the
+	// nearest readable ancestor's (board.Index.EffectiveTeam, O3, O13).
+	var teamOf func(c board.Card, depth int) string
+	teamOf = func(c board.Card, depth int) string {
+		if c.Team != "" {
+			return c.Team
 		}
+		if c.ReviewOf != "" && depth == 0 {
+			if task, ok := find(c.ReviewOf); ok && can(task) && task.ReviewOf == "" {
+				return teamOf(task, depth+1)
+			}
+		}
+		up := chain(c)
+		for i := len(up) - 1; i >= 0; i-- {
+			if up[i].Team != "" {
+				return up[i].Team
+			}
+		}
+		return ""
 	}
+	team := teamOf(c, 0)
 	known := map[string]bool{}
 	for _, id := range res.Status.EffectiveCustomers {
 		known[id] = true

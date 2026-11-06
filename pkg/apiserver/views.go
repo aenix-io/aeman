@@ -368,6 +368,10 @@ func setOf(v string) map[string]bool {
 // view rules delegate to the same domain filters the views always used.
 func FilterCards(b board.Board, sel Selector) []board.Card {
 	sel = sel.normalized()
+	// One index for the listing, built on first use and shared by every
+	// rule below that reads the hierarchy — placement (O13), customers,
+	// the roadmap's tree.
+	index := lazyIndex(b)
 	var base []board.Card
 	switch sel.View {
 	case "team":
@@ -375,7 +379,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		// it shows in one request; the grids are unioned, deduped by item id.
 		seen := map[string]bool{}
 		for _, t := range strings.Split(sel.Team, ",") {
-			for _, c := range board.TeamGrid(b, strings.TrimSpace(t), sel.Day) {
+			for _, c := range board.TeamGridIn(b, index(), strings.TrimSpace(t), sel.Day) {
 				if !seen[c.ItemID] {
 					seen[c.ItemID] = true
 					base = append(base, c)
@@ -383,7 +387,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 			}
 		}
 	case "me":
-		base = board.MeView(b, sel.User, sel.Day)
+		base = board.MeViewIn(b, index(), sel.User, sel.Day)
 	case "project":
 		// The Project board: every card filed under an scope, whatever its week
 		// — the client lays rows (weeks) and columns (scopes) out itself. The
@@ -402,9 +406,9 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 			base = append(base, c)
 		}
 	case "backlog":
-		base = backlogCards(b, board.NewIndex(b), sel)
+		base = backlogCards(b, index(), sel)
 	case "roadmap":
-		ix := board.NewIndex(b)
+		ix := index()
 		base = roadmapNarrowed(ix, roadmapCards(b, ix, sel.ProjectCards), sel)
 	default:
 		base = b.Cards
@@ -416,7 +420,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	var dayIx *board.Index
 	if sel.View != "roadmap" && sel.View != "project" {
 		if dayCustomers = setOf(sel.Customer); dayCustomers != nil {
-			dayIx = board.NewIndex(b)
+			dayIx = index()
 		}
 	}
 	for _, c := range base {
@@ -448,7 +452,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		// ?view=me&team=marketing,portal narrows a Me list to those teams; the
 		// Me board itself filters what it holds by its Team filter, to count
 		// what the filter hides.
-		if offTheTeamList(c, sel) {
+		if offTheTeamList(c, sel, index) {
 			continue
 		}
 		if sel.Focus && !board.Workable(c) {
@@ -460,14 +464,14 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	// field filters above apply to these too — a card of another team, or
 	// somebody else's on a Me board, was not on THIS board that day.
 	if sel.LeftOn != "" {
-		if back := leftBehindOn(b, sel, out); len(back) > 0 {
+		if back := leftBehindOn(b, sel, out, index); len(back) > 0 {
 			out = append(out, back...)
 			// A listing is served in BOARD order; appending to the tail put
 			// the given-back cards after everything regardless of rank.
 			sort.SliceStable(out, func(i, j int) bool { return out[i].Rank < out[j].Rank })
 		}
 	}
-	out = withSubtasks(b, out, sel)
+	out = withSubtasks(b, out, sel, index)
 	if sel.View == "project" {
 		out = projectViewCards(b, out, sel.Project)
 	}
@@ -505,7 +509,7 @@ func projectViewCards(_ board.Board, out []board.Card, project string) []board.C
 // its old sprint's days) is the CLIENT's rendering rule: the client needs the
 // full set anyway, or its optimistic derived-progress math diverges from the
 // server's and the parent's bar jumps on every reload.
-func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
+func withSubtasks(b board.Board, out []board.Card, sel Selector, index func() *board.Index) []board.Card {
 	present := make(map[string]bool, len(out))
 	planning := map[string]bool{}
 	for _, c := range out {
@@ -531,7 +535,7 @@ func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
 		if sel.View == "roadmap" && c.Scope != "" && !sel.ProjectCards {
 			continue
 		}
-		if offTheTeamList(c, sel) {
+		if offTheTeamList(c, sel, index) {
 			continue
 		}
 		if sel.Focus && !board.Workable(c) {
@@ -589,7 +593,7 @@ func (s Selector) Matches(b board.Board, c board.Card) bool {
 // they carry that day in LeftAt, and their dates have since moved into the
 // previous sprint. Each is given in the state it has now — which, on the
 // board of that evening, is the state it ended the day with.
-func leftBehindOn(b board.Board, sel Selector, have []board.Card) []board.Card {
+func leftBehindOn(b board.Board, sel Selector, have []board.Card, index func() *board.Index) []board.Card {
 	seen := make(map[string]bool, len(have))
 	for _, c := range have {
 		seen[c.ItemID] = true
@@ -598,7 +602,7 @@ func leftBehindOn(b board.Board, sel Selector, have []board.Card) []board.Card {
 	customers := setOf(sel.Customer)
 	var ix *board.Index
 	if customers != nil {
-		ix = board.NewIndex(b)
+		ix = index()
 	}
 	for _, c := range b.Cards {
 		if c.LeftAt != sel.LeftOn || seen[c.ItemID] {
@@ -612,7 +616,7 @@ func leftBehindOn(b board.Board, sel Selector, have []board.Card) []board.Card {
 		if !sel.RecordCards[c.ItemID] {
 			continue
 		}
-		if !onThisBoard(c, sel) {
+		if !onThisBoard(c, sel, index) {
 			continue
 		}
 		out = append(out, c)
@@ -622,17 +626,17 @@ func leftBehindOn(b board.Board, sel Selector, have []board.Card) []board.Card {
 
 // onThisBoard is the scope a view is read in — whose board it is — applied to
 // a card the view's own placement rules never saw.
-func onThisBoard(c board.Card, sel Selector) bool {
+func onThisBoard(c board.Card, sel Selector, index func() *board.Index) bool {
 	switch sel.View {
 	case "team":
-		if !teamInSet(c.Team, sel.Team) {
+		if !teamInSet(index().PlacedTeam(c), sel.Team) {
 			return false
 		}
 	case "me":
 		if sel.User != "" && !contains(c.Assignees, sel.User) {
 			return false
 		}
-		if !teamInSet(c.Team, sel.Team) {
+		if !teamInSet(index().PlacedTeam(c), sel.Team) {
 			return false
 		}
 	default:
@@ -696,14 +700,39 @@ func ListCards(b board.Board, sel Selector) CardList {
 // narrowed by a team: its team says who carries it out (O1) and puts it on
 // no day board (H3), so these lists hold tasks under a team, as they did
 // before planning cards had one.
-func offTheTeamList(c board.Card, sel Selector) bool {
+//
+// A task is judged by the team it STANDS UNDER (O13): its own, else the plan
+// item's above it — read off the listing's index, built only when a team
+// narrows the list.
+func offTheTeamList(c board.Card, sel Selector, index func() *board.Index) bool {
 	if sel.View != "me" && sel.View != "" && sel.View != "all" {
 		return false
 	}
 	if strings.TrimSpace(sel.Team) == "" {
 		return false
 	}
-	return board.IsPlanning(c) || !teamInSet(c.Team, sel.Team)
+	return board.IsPlanning(c) || !teamInSet(index().PlacedTeam(c), sel.Team)
+}
+
+// lazyIndex is board.NewIndex, built on first use and once.
+func lazyIndex(b board.Board) func() *board.Index {
+	var ix *board.Index
+	return func() *board.Index {
+		if ix == nil {
+			ix = board.NewIndex(b)
+		}
+		return ix
+	}
+}
+
+// TeamSelector is one team written as a `team` selector: the no-team group
+// alone is ",", since an empty selector is no filter (or, on view=team, the
+// no-team group by another reading — "," says it on every view).
+func TeamSelector(team string) string {
+	if team == "" {
+		return ","
+	}
+	return team
 }
 
 // teamInSet reports whether a card's team is in a comma-separated selector
@@ -743,7 +772,9 @@ func contains(s []string, v string) bool {
 func backlogCards(b board.Board, ix *board.Index, sel Selector) []board.Card {
 	var out []board.Card
 	for _, c := range b.Cards {
-		if !ix.OnBacklog(c) || !teamInSet(c.Team, sel.Team) {
+		// A backlog is the tasks STANDING UNDER its team (O13): its own,
+		// else the plan item's above it.
+		if !ix.OnBacklog(c) || !teamInSet(ix.PlacedTeam(c), sel.Team) {
 			continue
 		}
 		out = append(out, c)

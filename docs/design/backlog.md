@@ -211,8 +211,8 @@ parked tasks reachable, so nothing the migration parks is lost.
 
 | Row | Rule |
 | --- | --- |
-| K1 | A task is either in work (a date or a sprint) or parked in its team's backlog; never both, never neither. |
-| K2 | The backlog lists a team's parked open tasks only — no planning, project, subtask, review or finished card — in `BacklogOrder`. |
+| K1 | A task is either in work (a date or a sprint) or parked in its team's backlog — the team it stands under, its own else its plan item's (O13); never both, never neither. |
+| K2 | The backlog lists the parked open tasks standing under a team (its effective team, O13) only — no planning, project, subtask, review or finished card — in `BacklogOrder`. |
 | K3 | Every door that used to leave a task with no place (a create with no day, `own` with nobody, a Roadmap-born task, the × unassign) parks it in its team's backlog instead. |
 | K4 | Taking a task into work (a person, a date or a sprint) unparks it; it leaves the backlog at once. |
 | K5 | A drag in the backlog moves the card by `after`/`before` anchors of its neighbours in the merged list; handing it to another team is its team chip (`own` with a team alone), and it stays parked. |

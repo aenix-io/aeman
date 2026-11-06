@@ -186,5 +186,18 @@ func (s *Service) reparentChildren(ctx context.Context, b board.Board, card boar
 		}
 		s.logEvent(ctx, b, c, board.EventParent, card.Title, to)
 	}
-	return nil
+	// Handed up, the work below may stand under another team (O13).
+	return s.followPlacement(ctx, b, func(nb *board.Board) {
+		var kept []board.Card
+		for _, c := range nb.Cards {
+			if c.ItemID == card.ItemID {
+				continue
+			}
+			if c.Parent == card.ItemID {
+				c.Parent = card.Parent
+			}
+			kept = append(kept, c)
+		}
+		nb.Cards = kept
+	})
 }

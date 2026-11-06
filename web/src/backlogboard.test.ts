@@ -434,3 +434,21 @@ describe("take", () => {
     expect(ownPlan(card({ team: "alpha" }), takeOwner(card({ team: "alpha" }), "kvaps"))).toBe("take");
   });
 });
+
+// O13 — a backlog holds the parked tasks STANDING UNDER its team: one with no
+// team of its own under an epic of portal is portal's, and not the no-team
+// group's (the server's word, status.effectiveTeam, where the epic is not on
+// the board).
+describe("a backlog by the team a task stands under", () => {
+  it("lists an inheriting task under its plan item's team", () => {
+    const inherited = card({ itemId: "i", parked: true, parent: "e", lineage: [EPIC], effectiveTeam: "portal" });
+    expect(backlogList([inherited], ["portal"]).map((c) => c.itemId)).toEqual(["i"]);
+    expect(backlogList([inherited], [""]).map((c) => c.itemId)).toEqual([]);
+  });
+
+  it("opens the add box on the team the card above stands under", () => {
+    const inherited = card({ itemId: "i", parked: true, parent: "e", lineage: [EPIC], effectiveTeam: "portal" });
+    const spot = insertSpot([inherited], 1, ["", "portal"]);
+    expect("initialTeam" in spot.box && spot.box.initialTeam).toBe("portal");
+  });
+});

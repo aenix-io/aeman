@@ -1326,7 +1326,9 @@ components:
       in: query
       required: false
       description: >-
-        A comma-separated set of team keys; the listings union them. The
+        A comma-separated set of team keys; the listings union them. A task
+        is placed by the team it stands under: its own, else the nearest
+        ancestor's (ownership.md, O13). The
         no-team group is the empty member — `alpha,` is alpha and the no-team
         group, `,` the no-team group alone. Left empty it means, per view: on
         `team`, the no-team group's grid; on `backlog`, `me`, `all` and

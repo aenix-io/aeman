@@ -14,7 +14,7 @@ import { cardIsGone, followFrame, followPatch } from "./detail";
 import { applyOrder, type OrderArg } from "./cardorder";
 import { presenceAfter, type PresenceMap } from "./presence";
 import { PROJECT_CARDS_KEY, storedProjectCards } from "./roadmap";
-import { ROADMAP_FILTERS_KEY, storedRoadmapFilters, type RoadmapFilters } from "./ownership";
+import { ROADMAP_FILTERS_KEY, sprintTeamOf, storedRoadmapFilters, type RoadmapFilters } from "./ownership";
 import { TeamsModal } from "./components/TeamsModal";
 import { CustomersModal } from "./components/CustomersModal";
 import { readProjectFilter, writeProjectFilter } from "./projectFilter";
@@ -637,7 +637,9 @@ export function App() {
     setSelectedDate(todayIso());
     const card = liveBoard.current?.cards.find((c) => c.itemId === uid);
     if (card) {
-      setCarryRequest({ team: card.team ?? null, at: Date.now() });
+      // The carry-over of the team the card stands under (O13): an
+      // inheriting task's is its plan item's team's, not the no-team group's.
+      setCarryRequest({ team: sprintTeamOf(card, liveBoard.current?.cards ?? []), at: Date.now() });
     }
     return "";
   }, []);

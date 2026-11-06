@@ -24,13 +24,14 @@ func TeamsPast(live Board, day string) map[string]bool {
 // in web/src/viewquery.ts.
 func HasRecords(view string) bool { return view == "me" || view == "team" }
 
-// IsRecord reports that the day is over for this card: its team's sprint has
-// moved past it, so what the card shows is a record and cannot be changed.
+// IsRecord reports that the day is over for this card: the sprint of the team
+// it stands under (PlacedTeam, O13) has moved past it, so what the card shows
+// is a record and cannot be changed.
 // Every door asks THIS — the merge that builds the day, and the guard that
 // refuses a write made from it — or the two answer differently and a card is
 // live on screen and refused by the server.
-func IsRecord(c Card, past map[string]bool) bool {
-	return past[c.Team]
+func IsRecord(b Board, c Card, past map[string]bool) bool {
+	return past[PlacedTeam(b, c)]
 }
 
 // MergeAsOf is one day on one screen with two moments in it: the teams the
@@ -51,8 +52,16 @@ func MergeAsOf(live, then Board, past map[string]bool) (Board, map[string]bool) 
 	out.Cards = make([]Card, 0, len(live.Cards))
 	record := make(map[string]bool, len(live.Cards))
 	seen := make(map[string]bool, len(live.Cards))
+	// Which copy a card is drawn from is decided by the team it stands under
+	// TODAY (O13) — the same answer the write guard gives (IsRecord), so a
+	// card is never live on screen and refused, or the other way round. The
+	// copy taken is then drawn as it stood: a record is placed by the
+	// evening's own chain, which is what that day showed even if a plan
+	// item's team has changed since. A card the live board no longer holds
+	// is judged by the evening's copy, the only one there is.
+	liveTeams, thenTeams := PlacedTeams(live), PlacedTeams(then)
 	for _, c := range live.Cards {
-		if IsRecord(c, past) {
+		if past[liveTeams[c.ItemID]] {
 			record[c.ItemID] = true
 			continue
 		}
@@ -67,7 +76,7 @@ func MergeAsOf(live, then Board, past map[string]bool) (Board, map[string]bool) 
 		// The card is a record when TODAY says so; a card the live board no
 		// longer holds at all is judged by the evening's own copy, which is
 		// the only one there is.
-		if !record[c.ItemID] && !IsRecord(c, past) {
+		if !record[c.ItemID] && !past[thenTeams[c.ItemID]] {
 			continue
 		}
 		out.Cards = append(out.Cards, c)

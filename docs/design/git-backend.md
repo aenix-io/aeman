@@ -350,6 +350,10 @@ Rules:
   `customers:` (the roster's, `customers/<id>.yaml`); `owner:` is a login
   and is read on a goal, an initiative or an epic only
   (`ownership.md`).
+- A task's `team:` is its OWN team; a task with none under a goal, an
+  initiative or an epic that has one is drawn under that team on every day
+  board and backlog, and joins that team's sprint (`ownership.md` O13). A
+  writer leaves it unwritten to inherit, and writes it to override.
 - `link` is the only trace of the 7 issue-backed cards: a URL in the
   card, nothing else. There is no issue/PR integration.
 - `github` is the Projects v2 item id the card was migrated from, kept

@@ -25,7 +25,7 @@ import { cellGaps, gapAnchor, gapsInZone } from "../insertgap";
 import { insertedOrder, type Anchor } from "../backlogboard";
 import { FilterSelect } from "./FilterSelect";
 import { customerOptions, teamOptions } from "../filteroptions";
-import { bornCustomers, customerPasses } from "../ownership";
+import { bornCustomers, customerPasses, placerOf, sprintTeamOf } from "../ownership";
 import { useKeptCreated } from "../keptcreated";
 import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
@@ -205,14 +205,17 @@ export function TeamBoard({
   // Customer filter by effective customers — the server's rule for the
   // listing and the watch (O11), applied to what the board holds.
   const { kept, keep } = useKeptCreated(customerFilter.join(","));
+  // A card is judged by the team it STANDS UNDER (O13): its own, else the
+  // plan item's above it.
+  const place = useMemo(() => placerOf(board.cards), [board.cards]);
   const passesFilter = (card: CardModel): boolean =>
-    (teamFilter === null || teamFilter.includes(card.team ?? "")) &&
+    (teamFilter === null || teamFilter.includes(place(card))) &&
     customerPasses(card, board.cards, customerFilter, kept);
 
   const inFilter = useMemo(
     () => board.cards.filter((c) => passesFilter(c)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [board.cards, teamFilter, customerFilter, kept],
+    [board.cards, teamFilter, customerFilter, kept, place],
   );
 
   // What the people are WORKING ON on the day being looked at, and nothing
@@ -225,10 +228,10 @@ export function TeamBoard({
           c,
           selectedDate,
           todayIso(),
-          currentSprint(board, c.team ?? null) ?? "",
+          currentSprint(board, place(c) || null) ?? "",
         ),
       ),
-    [inFilter, selectedDate, board],
+    [inFilter, selectedDate, board, place],
   );
 
   // Columns are PEOPLE: the distinct assignees among the filtered cards (me
@@ -980,8 +983,9 @@ export function TeamBoard({
 
   // The team's explicit previous sprint — where deleting a grid card demotes it
   // (back to last sprint) instead of removing it.
+  // The sprints of the team the card stands under (O13).
   const previousSprintFor = (card: CardModel): string | null =>
-    previousSprint(board, card.team ?? null);
+    previousSprint(board, sprintTeamOf(card, board.cards));
 
   // The grid ×: one remove intent — the server hands the card back to a home
   // it still has, or deletes it for real (cascading the linked review card,
@@ -990,7 +994,7 @@ export function TeamBoard({
   // The × asks the same question on every board: gridCtx names the sprints
   // it is asked in, reviewOf the card a delete would take along.
   const gridCtx = (card: CardModel) => ({
-    current: currentSprint(board, card.team ?? null) ?? undefined,
+    current: currentSprint(board, sprintTeamOf(card, board.cards)) ?? undefined,
     previous: previousSprintFor(card) ?? undefined,
     today: todayIso(),
   });
@@ -1190,7 +1194,9 @@ export function TeamBoard({
       team: card.team,
       sprintStart: card.sprintStart,
     };
-    const sprintStart = currentSprint(board, team) ?? selectedDate;
+    // The sprint of the team it will stand under (O13): the one given, else
+    // — its own team taken off — the plan item's above it.
+    const sprintStart = currentSprint(board, sprintTeamOf(card, board.cards, team ?? "")) ?? selectedDate;
     patchCard(card.itemId, { team: team ?? undefined, sprintStart });
     void provider
       .patchCard(card.itemId, { team: team ?? "" })
@@ -1306,7 +1312,8 @@ export function TeamBoard({
   const handleSendToReview = (card: CardModel, reviewerLogin: string) => {
     const team = card.team ?? null;
     const zone: ZoneKey = card.zone ?? "gray";
-    const sprintStart = currentSprint(board, team) ?? selectedDate;
+    // The sprint of the team the card stands under (O13).
+    const sprintStart = currentSprint(board, sprintTeamOf(card, board.cards)) ?? selectedDate;
     const title = `review: ${card.title}`;
     const tempId = `tmp-${new Date().toISOString()}`;
     const optimistic: CardModel = {
@@ -1379,7 +1386,7 @@ export function TeamBoard({
     // parks it, a day the team can still reach takes that day's sprint, and
     // a day older than that keeps the team's current one rather than a
     // sprint that closed, which would take the card off every board.
-    const sprint = sprintForDate(board, card.team ?? null, start ?? "");
+    const sprint = sprintForDate(board, sprintTeamOf(card, board.cards), start ?? "");
     const prev = {
       startDate: card.startDate,
       sprintStart: card.sprintStart,
@@ -1598,8 +1605,10 @@ export function TeamBoard({
     // call — changing the day now would refetch the view against the not-yet-
     // advanced sprint and blank the board. Only the closing (current) sprint's
     // unfinished cards carry, mirroring boardservice.CarryOver.
+    // The cards standing under the team (O13): its own, else the plan
+    // item's above them — as boardservice.CarryOver carries them.
     for (const c of board.cards) {
-      const sameTeam = team === null ? c.team == null : c.team === team;
+      const sameTeam = (place(c) || null) === team;
       if (!sameTeam || isComplete(c) || c.itemId.startsWith("tmp-")) {
         continue;
       }

@@ -233,6 +233,10 @@ func (s *Service) linkInHierarchy(ctx context.Context, b board.Board, card, p bo
 	if err := s.backend.SetParent(ctx, b, card, p.ItemID); err != nil {
 		return err
 	}
+	// Under another plan item it may stand under another team (O13).
+	if err := s.followPlacement(ctx, b, editCard(card.ItemID, func(c *board.Card) { c.Parent = p.ItemID })); err != nil {
+		return err
+	}
 	if wasSubtask {
 		if op, ok := findCard(b, card.Parent); ok {
 			s.logEvent(ctx, b, op, board.EventSubtask, card.Title, "")
@@ -347,6 +351,10 @@ func (s *Service) ungroupWith(ctx context.Context, b board.Board, card board.Car
 	freed.Parent = ""
 	if hadParent && board.IsPlanning(op) {
 		s.logEvent(ctx, b, card, board.EventParent, op.Title, "")
+		// Out from under the plan item it may stand under no team (O13).
+		if err := s.followPlacement(ctx, b, editCard(card.ItemID, func(c *board.Card) { c.Parent = "" })); err != nil {
+			return err
+		}
 		return s.keepPlaced(ctx, b, freed, false)
 	}
 	// A subtask usually has no assignee of its own — it rides the

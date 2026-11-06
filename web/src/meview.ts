@@ -7,6 +7,7 @@ import { parked } from "./backlog";
 import { activeSprint } from "./sprint";
 import { isComplete } from "./stages";
 import { isPlanning, isSubtask } from "./subtasks";
+import { placerOf } from "./ownership";
 import type { Board, Card } from "./providers/types";
 
 /** onMyDay reports whether a card of the viewer's is on their board on a day.
@@ -24,6 +25,7 @@ export function onMyDay(
   board: Board,
   day: string,
   today: string,
+  place: (c: Card) => string = placerOf(board.cards ?? []),
 ): boolean {
   // A planning card is the Roadmap's, not a person's day (H3).
   if (isPlanning(c)) {
@@ -65,7 +67,9 @@ export function onMyDay(
   if (c.startDate && c.day && c.day >= c.startDate && day >= c.startDate && day <= c.day) {
     return true;
   }
-  const as = activeSprint(board, c.team ?? null, day);
+  // The sprint of the team it STANDS UNDER (O13): its own, else the plan
+  // item's above it.
+  const as = activeSprint(board, place(c as Card) || null, day);
   // A sprint-less day card (a "next sprint" create) stays visible from its
   // scheduled day on — the sprint gate below would otherwise hide it right
   // when its day arrives, until a carry-over adopts it. Only cards scheduled
@@ -82,10 +86,11 @@ export function onMyDay(
 }
 
 /** meFilterPasses is the Me board's Team filter on one of the viewer's
- *  cards (O12): its team is among the chosen ones (the no-team group being
- *  ""), none chosen passing every card. The Me board has no Customer filter. */
-export function meFilterPasses(c: Card, teams: readonly string[] | null): boolean {
-  return !teams || teams.length === 0 || teams.includes(c.team ?? "");
+ *  cards (O12): the team it stands under (O13: its own, else the plan
+ *  item's above it) is among the chosen ones (the no-team group being ""),
+ *  none chosen passing every card. The Me board has no Customer filter. */
+export function meFilterPasses(c: Card, place: (c: Card) => string, teams: readonly string[] | null): boolean {
+  return !teams || teams.length === 0 || teams.includes(place(c));
 }
 
 /** hiddenByFilters is how many of the cards the board would draw on the

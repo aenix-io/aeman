@@ -111,9 +111,11 @@ func (s *Service) ownPlan(ctx context.Context, b board.Board, card board.Card, t
 }
 
 // setPlanTeam gives a planning card the team that carries it out (O1). It
-// places nothing — the card lives in the primary (H3) — and joins no
-// sprint: a planning card is on no day board. A team the roster lacks is
-// declared, as at every other door.
+// places nothing itself — the card lives in the primary (H3) — and joins no
+// sprint: a planning card is on no day board. But the tasks below it with
+// no team of their own stand under it (O13), so those in work follow it
+// into its sprint (followPlacement). A team the roster lacks is declared,
+// as at every other door.
 func (s *Service) setPlanTeam(ctx context.Context, b board.Board, card board.Card, team string) error {
 	if err := s.declareTeam(ctx, b, team); err != nil {
 		return err
@@ -122,7 +124,7 @@ func (s *Service) setPlanTeam(ctx context.Context, b board.Board, card board.Car
 		return err
 	}
 	s.logEvent(ctx, b, card, board.EventTeam, card.Team, team)
-	return nil
+	return s.followPlacement(ctx, b, editCard(card.ItemID, func(c *board.Card) { c.Team = team }))
 }
 
 // SetCustomers names the customers a card is for (ids from the roster; nil
