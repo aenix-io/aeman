@@ -59,10 +59,11 @@ func planningCardCannotBe(args CreateCardArgs) error {
 	switch {
 	case args.Scope != "" || args.Project != "":
 		what = "column"
-	case args.Team != "":
-		what = "team"
 	case args.Assignee != "":
-		what = "owner"
+		// Its OWNER is the person who answers for it (O1, CreateCardArgs
+		// .Owner); an assignee is somebody doing the work, which a plan
+		// item never is.
+		what = "assignee"
 	case args.Zone != board.ZoneNone:
 		what = "band"
 	case args.Size != "":
@@ -123,14 +124,18 @@ func (s *Service) createPlanningCard(ctx context.Context, b board.Board, args Cr
 	if err := planningCardCannotBe(args); err != nil {
 		return board.Card{}, err
 	}
-	// Nobody's and no team's: the people and the teams are on the tasks
-	// under it, which is where the Roadmap reads them from (H3).
+	// Nobody's work: the people are on the tasks under it (H3). The team
+	// that carries it out it may be born with (O1); it places nothing.
+	if err := s.declareTeam(ctx, b, args.Team); err != nil {
+		return board.Card{}, err
+	}
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:  args.Title,
 		Type:   args.Type,
 		Day:    args.Day,
 		Start:  args.Start,
 		Parent: args.Parent,
+		Team:   args.Team,
 	})
 	card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
 	if err == nil {

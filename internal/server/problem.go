@@ -79,6 +79,13 @@ var sentinels = []struct {
 	{gitstore.ErrNameTaken, http.StatusUnprocessableEntity, "nameTaken"},
 	{boardservice.ErrTeamExists, http.StatusUnprocessableEntity, "teamExists"},
 	{boardservice.ErrTeamNotFound, http.StatusUnprocessableEntity, "teamNotFound"},
+	// Ownership (docs/design/ownership.md): an owner on what is not a plan
+	// item, and the customer roster's own refusals.
+	{boardservice.ErrOwnerIsThePlans, http.StatusUnprocessableEntity, "ownerIsThePlans"},
+	{boardservice.ErrCustomerNotFound, http.StatusUnprocessableEntity, "customerNotFound"},
+	{boardservice.ErrCustomerExists, http.StatusUnprocessableEntity, "customerExists"},
+	{boardservice.ErrCustomerName, http.StatusUnprocessableEntity, "customerName"},
+	{boardservice.ErrOwnershipUnsupported, http.StatusNotImplemented, "ownershipUnsupported"},
 	{boardservice.ErrInvalidStage, http.StatusUnprocessableEntity, "invalidStage"},
 	{boardservice.ErrDescriptionTooLong, http.StatusUnprocessableEntity, "descriptionTooLong"},
 	{boardservice.ErrNoteTooLong, http.StatusUnprocessableEntity, "noteTooLong"},

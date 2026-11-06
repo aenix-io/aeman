@@ -91,8 +91,8 @@ func (h *server) gestureOn(ctx context.Context, svc *boardservice.Service, board
 type ownInput struct {
 	cardRef
 	boardStand
-	Team   string `json:"team,omitempty" jsonschema:"the team the card is handed to; left out with no person, the team comes off"`
-	Person string `json:"person,omitempty" jsonschema:"the person on that team the card is handed to; needs a team"`
+	Team   string `json:"team,omitempty" jsonschema:"the team the card is handed to; left out with no person, the team comes off. On a goal, an initiative or an epic it is the team that carries it out, and left out with a person it stays as it is"`
+	Person string `json:"person,omitempty" jsonschema:"the person on that team the card is handed to; needs a team. On a goal, an initiative or an epic it is the card's OWNER and needs no team; left out with a team the owner stays as it is (take one half off alone with update_card)"`
 }
 
 func (h *server) ownCard(ctx context.Context, _ *mcp.CallToolRequest, in ownInput) (*mcp.CallToolResult, apiserver.Card, error) {

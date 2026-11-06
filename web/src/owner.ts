@@ -38,17 +38,42 @@ export interface OwnerStep {
   refused?: string;
 }
 
-export function ownerStep(team: string, pick: OwnerPick): OwnerStep {
+/** planOwnerOf reads a PLANNING card's owner: its team (the team that
+ *  carries it out) and its owner (the one person who answers for it). */
+export function planOwnerOf(c: Pick<Card, "team" | "owner" | "assignees">): Owner {
+  return { team: c.team ?? "", person: c.owner ?? "" };
+}
+
+/** planOwnPatch is the update a press on a PLANNING card's owner picker
+ *  writes: only the halves that moved, so taking one off — "no person" under
+ *  a team, a person with the team unpicked — is said outright. `own` on a
+ *  plan item keeps the half it is not given (O9), and could not say it.
+ *  null when nothing moved. */
+export function planOwnPatch(now: Owner, next: Owner): { team?: string; owner?: string } | null {
+  const patch: { team?: string; owner?: string } = {};
+  if (next.team !== now.team) {
+    patch.team = next.team;
+  }
+  if (next.person !== now.person) {
+    patch.owner = next.person;
+  }
+  return Object.keys(patch).length ? patch : null;
+}
+
+/** ownerStep reads one press. On a PLANNING card ({planning: true}) a person
+ *  needs no team: they answer for the plan item, they do not do it
+ *  (ownership.md, O9). */
+export function ownerStep(team: string, pick: OwnerPick, opts: { planning?: boolean } = {}): OwnerStep {
   switch (pick.kind) {
     case "team":
       return { team: pick.team, answer: null };
     case "person":
-      if (!team) {
+      if (!team && !opts.planning) {
         return { team, answer: null, refused: "Pick a team first: a person is somebody on a team." };
       }
       return { team, answer: { team, person: pick.person } };
     case "no-person":
-      if (!team) {
+      if (!team && !opts.planning) {
         return { team, answer: null, refused: "Pick a team first." };
       }
       return { team, answer: { team, person: "" } };

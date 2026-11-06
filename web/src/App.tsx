@@ -10,10 +10,11 @@ import { TeamBoard } from "./components/TeamBoard";
 import { BacklogBoard } from "./components/BacklogBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
 import { RoadmapBoard } from "./components/RoadmapBoard";
-import { followFrame, followPatch } from "./detail";
+import { cardIsGone, followFrame, followPatch } from "./detail";
 import { applyOrder, type OrderArg } from "./cardorder";
 import { presenceAfter, type PresenceMap } from "./presence";
 import { PROJECT_CARDS_KEY, storedProjectCards } from "./roadmap";
+import { ROADMAP_FILTERS_KEY, storedRoadmapFilters, type RoadmapFilters } from "./ownership";
 import { TeamsModal } from "./components/TeamsModal";
 import { readProjectFilter, writeProjectFilter } from "./projectFilter";
 import {
@@ -44,6 +45,7 @@ import { frozenProvider } from "./providers/frozen";
 import { todayIso, setBoardTimezone } from "./date";
 import { doneAtAfter } from "./stages";
 import { mergeNotes } from "./notes";
+import { openWatches } from "./watch";
 import { nameConflict } from "./names";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
@@ -355,6 +357,23 @@ export function App() {
       return storedProjectCards(null);
     }
   });
+  // The Roadmap's Team, Customer and Owner filters (ownership.md, O7, O8):
+  // the listing's selectors, like the toggle above; remembered per viewer.
+  const [roadmapFilters, setRoadmapFiltersState] = useState<RoadmapFilters>(() => {
+    try {
+      return storedRoadmapFilters(localStorage.getItem(ROADMAP_FILTERS_KEY));
+    } catch {
+      return storedRoadmapFilters(null);
+    }
+  });
+  const setRoadmapFilters = useCallback((next: RoadmapFilters) => {
+    setRoadmapFiltersState(next);
+    try {
+      localStorage.setItem(ROADMAP_FILTERS_KEY, JSON.stringify(next));
+    } catch {
+      // a preference, not state
+    }
+  }, []);
   const setProjectCards = useCallback((next: boolean) => {
     setProjectCardsState(next);
     try {
@@ -671,9 +690,9 @@ export function App() {
         teamFilter ?? [...new Set([...roster, ""])],
         viewAs ?? undefined,
         undefined,
-        { projectCards },
+        { projectCards, filters: roadmapFilters },
       ),
-    [view, selectedDate, teamFilter, roster, viewAs, projectCards],
+    [view, selectedDate, teamFilter, roster, viewAs, projectCards, roadmapFilters],
   );
   const activeKey = activeQueries.map(queryString).join("|");
   // Which BOARD the reader is standing on, for the gestures made on it: the ×,
@@ -715,9 +734,9 @@ export function App() {
         selectedDate,
         teamFilter ?? [...new Set([...roster, ""])],
         viewAs ?? undefined,
-        { projectCards },
+        { projectCards, filters: roadmapFilters },
       ).map(queryString),
-    [view, selectedDate, teamFilter, roster, viewAs, projectCards],
+    [view, selectedDate, teamFilter, roster, viewAs, projectCards, roadmapFilters],
   );
   // One string for the watch effect's dep: the sockets are rebuilt only when
   // the selections actually change.
@@ -1060,7 +1079,8 @@ export function App() {
   // watch (Kubernetes style). We LIST via loadBoard, then mirror the ADDED /
   // MODIFIED / DELETED frames: Card frames upsert/remove by uid, Sprint frames
   // update the team's pointer, Ordering frames re-sort the local cards. On a
-  // socket drop we re-LIST after reconnecting to reconcile anything missed.
+  // socket drop we re-LIST after reconnecting to reconcile anything missed,
+  // and at once when the server says the watch fell behind (G85, watch.ts).
   // Refs keep the socket from being rebuilt on every board change.
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
@@ -1088,16 +1108,6 @@ export function App() {
     if (!boardLoaded || !authenticated) {
       return;
     }
-    // One socket per selector. Any of them dropping rebuilds the whole set
-    // after a re-LIST, so they stay in step.
-    const sockets: WebSocket[] = [];
-    let closed = false;
-    let retry: number | undefined;
-    const closeAll = () => {
-      for (const s of sockets.splice(0)) {
-        s.close();
-      }
-    };
     const applyFrame = (frame: WatchFrame) => {
       // A past day on screen is a picture of a day that ended. Live frames
       // are about TODAY's board — applying them here would edit the picture
@@ -1164,8 +1174,10 @@ export function App() {
             fn(card.itemId, deleted);
           }
         };
-        // The drawer's card hears its frames even when no board lists it.
-        setDetailCard((d) => followFrame(d, card, frame.type === "DELETED"));
+        // The drawer's card hears its frames even when no board lists it, and
+        // closes only for a card deleted outright: one that left this board's
+        // selection is still the card it shows.
+        setDetailCard((d) => followFrame(d, card, cardIsGone(frame)));
         if (frame.type === "DELETED") {
           removeCard(card.itemId);
           notifyCardFrame(true);
@@ -1221,56 +1233,30 @@ export function App() {
         setPresenceMap((cur) => presenceAfter(cur, { login, card, client }));
       }
     };
-    const connect = () => {
-      // A fresh connection replays the presence and queue snapshots; drop
-      // stale marks (the queue may have drained while we were away).
-      setPresenceMap({});
-      queuePendingSync(0);
-      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      // Scope the watch to the active view: Me watches its day selection, Team
-      // watches every card of the
-      // teams it shows, whatever day it lands on. A card entering the selection
-      // arrives as ADDED, one leaving as DELETED. ?client= keeps our own
-      // mutations from echoing back. Re-subscribes when watchKey changes (a
-      // dep below).
-      for (const key of watchKey.split("|")) {
-        // The board is a path segment here too (viewquery.viewPath), so a
-        // socket and the listing beside it address the same board.
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    // Scope the watch to the active view: Me watches its day selection, Team
+    // watches every card of the teams it shows, whatever day it lands on. A
+    // card entering the selection arrives as ADDED, one leaving as DELETED.
+    // ?client= keeps our own mutations from echoing back. Re-subscribes when
+    // watchKey changes (a dep below). The board is a path segment here too
+    // (viewquery.viewPath), so a socket and the listing beside it address the
+    // same board. One socket per selector, kept in step by watch.ts, which
+    // also answers a watch the server ended for falling behind (G85).
+    return openWatches({
+      urls: watchKey.split("|").map((key) => {
         const path = viewPath(key, "watch");
         const sep = path.includes("?") ? "&" : "?";
-        const url = `${proto}//${window.location.host}/api/v1${path}${sep}client=${clientId}`;
-        const socket = new WebSocket(url);
-        sockets.push(socket);
-        socket.addEventListener("message", (e) => {
-          let frame: WatchFrame;
-          try {
-            frame = JSON.parse(e.data as string) as WatchFrame;
-          } catch {
-            return;
-          }
-          applyFrame(frame);
-        });
-        socket.addEventListener("close", () => {
-          // A socket we closed ourselves (teardown, or the rebuild below) is
-          // no longer in the set and must not schedule another rebuild.
-          if (closed || !sockets.includes(socket) || retry !== undefined) {
-            return;
-          }
-          retry = window.setTimeout(() => {
-            retry = undefined;
-            closeAll();
-            reloadRef.current();
-            connect();
-          }, 3000);
-        });
-      }
-    };
-    connect();
-    return () => {
-      closed = true;
-      window.clearTimeout(retry);
-      closeAll();
-    };
+        return `${proto}//${window.location.host}/api/v1${path}${sep}client=${clientId}`;
+      }),
+      onFrame: applyFrame,
+      relist: () => reloadRef.current(),
+      // A fresh connection replays the presence and queue snapshots; drop
+      // stale marks (the queue may have drained while we were away).
+      onConnect: () => {
+        setPresenceMap({});
+        queuePendingSync(0);
+      },
+    });
   }, [
     boardLoaded,
     authenticated,
@@ -1605,6 +1591,8 @@ export function App() {
             onFocused={() => setRoadmapFocus(null)}
             showProjects={projectCards}
             onShowProjects={setProjectCards}
+            filters={roadmapFilters}
+            onFilters={setRoadmapFilters}
           />
         )}
         {board && view === "backlog" && (
@@ -1689,6 +1677,13 @@ export function App() {
           onOpenCard={openWithin}
           onBack={detailStack.length > 0 ? backInDetail : undefined}
           onError={onError}
+          onCustomerAdded={(cu) =>
+            setBoard((cur) =>
+              cur && !(cur.customers ?? []).some((c) => c.id === cu.id)
+                ? { ...cur, customers: [...(cur.customers ?? []), cu] }
+                : cur,
+            )
+          }
         />
       )}
 

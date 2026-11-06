@@ -31,6 +31,7 @@ import type {
   CardLog,
   CardPatch,
   CarryReport,
+  CustomerRef,
   NewCardInput,
   Note,
   Provider,
@@ -72,6 +73,7 @@ export function boardMetadata(
   | "domains"
   | "teamDomains"
   | "projectDomains"
+  | "customers"
 > {
   return {
     title: info.metadata.title ?? "",
@@ -99,6 +101,8 @@ export function boardMetadata(
     // from offering a pair the server will refuse.
     teamDomains: info.metadata.teamDomains ?? undefined,
     projectDomains: info.metadata.projectDomains ?? undefined,
+    // The customer roster (ownership.md): what a card's customer ids name.
+    customers: (info.metadata.customers ?? []).map((c) => ({ id: c.id, name: c.name })),
   };
 }
 
@@ -263,6 +267,12 @@ function patchBody(patch: CardPatch): components["schemas"]["CardPatch"] {
   if (patch.team !== undefined) {
     body.team = patch.team;
   }
+  if (patch.owner !== undefined) {
+    body.owner = patch.owner;
+  }
+  if (patch.customers !== undefined) {
+    body.customers = patch.customers;
+  }
   if (patch.zone !== undefined) {
     body.zone = semanticZone(patch.zone);
   }
@@ -391,6 +401,12 @@ export const apiProvider: Provider = {
     }
     if (input.noSprint) {
       body.noSprint = true;
+    }
+    if (input.owner) {
+      body.owner = input.owner;
+    }
+    if (input.customers?.length) {
+      body.customers = input.customers;
     }
     // Born where it was typed (the backlog's insert "+"): the place rides
     // the create, one request.
@@ -594,6 +610,23 @@ export const apiProvider: Provider = {
     await client.POST("/scopes/actions/set-project", {
       body: { scope, from, project },
     });
+  },
+
+  async addCustomer(name: string): Promise<CustomerRef> {
+    const data = await answered(client.POST("/customers", { body: { name } }));
+    return { id: data.id, name: data.name };
+  },
+
+  async renameCustomer(id: string, to: string): Promise<void> {
+    await client.POST("/customers/actions/rename", { body: { customer: id, to } });
+  },
+
+  async reorderCustomers(ids: string[]): Promise<void> {
+    await client.POST("/customers/actions/reorder", { body: { customers: ids } });
+  },
+
+  async deleteCustomer(id: string): Promise<void> {
+    await client.POST("/customers/actions/delete", { body: { customer: id } });
   },
 
   async addProject(name: string, domain?: string): Promise<void> {

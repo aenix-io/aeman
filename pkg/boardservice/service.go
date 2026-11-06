@@ -316,6 +316,11 @@ type CreateCardArgs struct {
 	// was not given must not be invented for it, or it would land on today's
 	// board for a team it does not have. It joins no sprint either.
 	Undated bool
+	// Owner is the person who answers for a PLANNING card (O1); refused on
+	// any other card. Customers are roster ids the card is for (O5); refused
+	// on a project card (H4). Both are written in the create's own request.
+	Owner     string
+	Customers []string
 	// After and Before place the new card in the board's order as it is
 	// made: right after the card After names, or right before the card
 	// Before names (the top of the list has nothing above it). The Backlog's
@@ -339,6 +344,53 @@ type CreateCardArgs struct {
 // the day and the card joins that fresh sprint. It mirrors handleCreate in
 // TeamBoard.tsx / MeBoard.tsx.
 func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCardArgs) (board.Card, error) {
+	if args.Owner == "" && len(args.Customers) == 0 {
+		return s.createPlaced(ctx, boardID, args)
+	}
+	// Owner and customers are checked before anything is written, and
+	// written after the card exists — in the create's own request.
+	ob, err := s.ownership()
+	if err != nil {
+		return board.Card{}, err
+	}
+	if args.Owner != "" && args.Type == board.TypeTask {
+		return board.Card{}, fmt.Errorf("%w: %q", ErrOwnerIsThePlans, args.Title)
+	}
+	if len(args.Customers) > 0 && args.Scope != "" {
+		return board.Card{}, fmt.Errorf("%w: %q stands in a column and is for no customer", ErrProjectCard, args.Title)
+	}
+	b, err := s.backend.LoadBoard(ctx, boardID)
+	if err != nil {
+		return board.Card{}, err
+	}
+	for _, id := range args.Customers {
+		if err := hasCustomer(b, id); err != nil {
+			return board.Card{}, err
+		}
+	}
+	owner, customers := args.Owner, args.Customers
+	args.Owner, args.Customers = "", nil
+	card, err := s.createPlaced(ctx, boardID, args)
+	if err != nil {
+		return card, err
+	}
+	if owner != "" {
+		if err := s.setOwner(ctx, ob, b, card, owner); err != nil {
+			return card, err
+		}
+		card.Owner = owner
+	}
+	if len(customers) > 0 {
+		if err := s.setCustomers(ctx, ob, b, card, customers); err != nil {
+			return card, err
+		}
+		card.Customers = customers
+	}
+	return card, nil
+}
+
+// createPlaced is the create with its place, when one was given.
+func (s *Service) createPlaced(ctx context.Context, boardID string, args CreateCardArgs) (board.Card, error) {
 	if args.After == "" && args.Before == "" {
 		return s.createCard(ctx, boardID, args)
 	}
@@ -2638,12 +2690,13 @@ func (s *Service) SetTeam(ctx context.Context, boardID string, itemID, team, day
 	if team != "" && card.Scope != "" {
 		return fmt.Errorf("%w: %q stands in a column and takes no team", ErrProjectCard, card.Title)
 	}
-	// Nor does a PLANNING card (H3): the teams are on the tasks under it,
-	// and with no team it lives in the primary repository.
-	if team != "" {
-		if err := notAPlanningCard(card, "team"); err != nil {
-			return err
+	// A PLANNING card's team is the team that carries it out (O1): it
+	// places nothing and joins no sprint (setPlanTeam).
+	if board.IsPlanning(card) {
+		if card.Team == team {
+			return nil
 		}
+		return s.setPlanTeam(ctx, b, card, team)
 	}
 	if err := guardRoster(b, team, card.Project); err != nil {
 		return err

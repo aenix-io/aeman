@@ -86,7 +86,7 @@ describe("the card drawer", () => {
 
   it("gives a task every row: its owner, zone, size, and what it sits under", () => {
     const html = draw(card({ zone: "red", team: "core", assignees: ["ann"], project: "cozy" }));
-    expect(rows(html)).toEqual(["Status", "Progress", "Owner", "Zone", "Size", "Under", "Project"]);
+    expect(rows(html)).toEqual(["Status", "Progress", "Owner", "Zone", "Size", "Under", "Customers", "Project"]);
     expect(html).toContain(">urgent<");
     // The owner is the team and the person, in one menu (OwnerPicker).
     expect(html).toContain("core · ann");
@@ -113,15 +113,15 @@ describe("the card drawer", () => {
   it("reads a subtask's owner as its task's, and names the task as a way to it", () => {
     const sub = card({ parent: "t", team: "core", assignees: ["ann"], lineage: [{ uid: "t", title: "Render PDF" }] });
     const html = draw(sub);
-    expect(rows(html)).toEqual(["Status", "Progress", "Owner", "Zone", "Size", "Subtask of", "Project"].filter((r) => r !== "Project"));
+    expect(rows(html)).toEqual(["Status", "Progress", "Owner", "Zone", "Size", "Subtask of", "Customers"]);
     expect(html).not.toContain("owner-picker");
     expect(html).toContain('title="Open «Render PDF»"');
     expect(html).not.toContain('aria-label="Subtasks"'); // one level deep: a subtask has none
   });
 
-  it("gives a planning card its level, its standing, its dates and what it is under — no band, no size, no people", () => {
+  it("gives a planning card its level, its standing, its owner and team, its dates, what it is under and who it is for — no band, no size, no assignee", () => {
     const html = draw(card({ type: "epic", hierarchy: { status: "in-progress", done: 2, total: 5 }, startDate: "2026-02-09" }));
-    expect(rows(html)).toEqual(["Level", "Status", "Dates", "Under"]);
+    expect(rows(html)).toEqual(["Level", "Status", "Owner", "Dates", "Under", "Customers"]);
     expect(html).toContain("roadmap-status-in-progress");
     expect(html).toContain(">2/5<");
     expect(html).not.toContain("modal-size-chip");
@@ -133,8 +133,8 @@ describe("the card drawer", () => {
   });
 
   it("gives a goal no Under row, and an initiative or an epic one", () => {
-    expect(rows(draw(card({ type: "goal" })))).toEqual(["Level", "Status", "Dates"]);
-    expect(rows(draw(card({ type: "initiative" })))).toEqual(["Level", "Status", "Dates", "Under"]);
+    expect(rows(draw(card({ type: "goal" })))).toEqual(["Level", "Status", "Owner", "Dates", "Customers"]);
+    expect(rows(draw(card({ type: "initiative" })))).toEqual(["Level", "Status", "Owner", "Dates", "Under", "Customers"]);
   });
 
   it("gives a project card its column and its dates, and a way under a planning card — no band, no size, no people", () => {
@@ -204,5 +204,52 @@ describe("the card drawer and the hierarchy", () => {
   it("offers delete alone on a card that is under nothing", () => {
     expect(draw(card())).toContain("Delete…");
     expect(draw(card())).not.toContain("Delete or unlink…");
+  });
+});
+
+// docs/design/ownership.md in the drawer: a plan item's owner and team in one
+// picker (a person needs no team there), and every card's customers — its
+// own as chips it can remove, the inherited ones grey, saying where they
+// come from, not removable here. A project card has no customers (H4).
+describe("ownership in the drawer", () => {
+  const withRoster = (cards: Card[]) =>
+    ({
+      ...board,
+      cards,
+      customers: [
+        { id: "hidora", name: "Hidora" },
+        { id: "acme", name: "Acme" },
+      ],
+    }) as unknown as Board;
+  const drawOn = (c: Card, b: Board) =>
+    renderToStaticMarkup(
+      <CardDetail card={c} board={b} provider={{} as Provider} onClose={vi.fn()} reload={vi.fn()} patchCard={vi.fn()} onOpenCard={vi.fn()} />,
+    );
+
+  it("names a plan item's team and owner in the owner picker", () => {
+    const html = drawOn(card({ type: "epic", team: "portal", owner: "ann" }), withRoster([]));
+    expect(html).toContain("portal · ann");
+    expect(html).toContain('class="owner-picker drawer-owner-picker"');
+  });
+
+  it("shows inherited customers grey with where they come from, and the card's own removable", () => {
+    const goal = card({ itemId: "g", title: "Grow", type: "goal", customers: ["hidora"] });
+    const task = card({ itemId: "t", title: "Receipts", parent: "g", team: "core", customers: ["acme"], lineage: [{ uid: "g", type: "goal", title: "Grow" }] });
+    const html = drawOn(task, withRoster([goal, task]));
+    expect(html).toMatch(/<span class="customer-chip customer-chip-inherited" title="From «Grow»">Hidora<\/span>/);
+    expect(html).toMatch(/<span class="customer-chip">Acme<button[^>]*aria-label="Remove Acme"/);
+    expect(html).not.toContain('aria-label="Remove Hidora"');
+    expect(html).toContain('aria-label="Add a customer"');
+  });
+
+  it("shows a task's inherited team grey, with where it comes from", () => {
+    const goal = card({ itemId: "g", title: "Grow", type: "goal", team: "portal" });
+    const task = card({ itemId: "t", title: "Receipts", parent: "g", lineage: [{ uid: "g", type: "goal", title: "Grow" }] });
+    const html = drawOn(task, withRoster([goal, task]));
+    expect(html).toMatch(/class="drawer-inherited"[^>]*title="From «Grow»"[^>]*>portal/);
+  });
+
+  it("gives a project card no customers", () => {
+    expect(rows(drawOn(card({ project: "cozy", scope: "Storage" }), withRoster([])))).not.toContain("Customers");
   });
 });

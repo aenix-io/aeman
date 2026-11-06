@@ -240,6 +240,7 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 		}
 	}
 	b.Board = f.board.Board
+	b.Customers = append([]board.Customer(nil), f.board.Customers...)
 	// The roster's people ride along: a capacity SetPersonCapacity wrote
 	// must be what the next LoadBoard reads, or the service re-writes it.
 	if len(f.board.People) > 0 {
@@ -698,3 +699,93 @@ func (f *Backend) SetSprintState(_ context.Context, _ board.Board, team, current
 
 // Backend must satisfy boardservice.Backend.
 var _ boardservice.Backend = (*Backend)(nil)
+
+// ---- ownership (docs/design/ownership.md) ----
+
+func (f *Backend) SetOwner(_ context.Context, _ board.Board, card board.Card, login string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetOwner %s %s", card.ItemID, login)
+	if c := f.card(card.ItemID); c != nil {
+		c.Owner = login
+	}
+	return nil
+}
+
+func (f *Backend) SetCustomers(_ context.Context, _ board.Board, card board.Card, ids []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetCustomers %s %s", card.ItemID, strings.Join(ids, ","))
+	if c := f.card(card.ItemID); c != nil {
+		c.Customers = append([]string(nil), ids...)
+	}
+	return nil
+}
+
+func (f *Backend) AddCustomer(_ context.Context, _ board.Board, name string) (board.Customer, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextID++
+	cu := board.Customer{ID: fmt.Sprintf("cu%d", f.nextID), Name: name}
+	f.rec("AddCustomer %s", name)
+	f.board.Customers = append(f.board.Customers, cu)
+	return cu, nil
+}
+
+func (f *Backend) RenameCustomer(_ context.Context, _ board.Board, id, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("RenameCustomer %s %s", id, name)
+	for i := range f.board.Customers {
+		if f.board.Customers[i].ID == id {
+			f.board.Customers[i].Name = name
+		}
+	}
+	return nil
+}
+
+func (f *Backend) MoveCustomer(_ context.Context, _ board.Board, id, afterID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("MoveCustomer %s after=%s", id, afterID)
+	var moved board.Customer
+	var rest []board.Customer
+	for _, c := range f.board.Customers {
+		if c.ID == id {
+			moved = c
+		} else {
+			rest = append(rest, c)
+		}
+	}
+	at := 0
+	for i, c := range rest {
+		if c.ID == afterID {
+			at = i + 1
+		}
+	}
+	f.board.Customers = append(append(append([]board.Customer{}, rest[:at]...), moved), rest[at:]...)
+	return nil
+}
+
+func (f *Backend) DeleteCustomer(_ context.Context, _ board.Board, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("DeleteCustomer %s", id)
+	var keep []board.Customer
+	for _, c := range f.board.Customers {
+		if c.ID != id {
+			keep = append(keep, c)
+		}
+	}
+	f.board.Customers = keep
+	for i := range f.board.Cards {
+		var ids []string
+		for _, x := range f.board.Cards[i].Customers {
+			if x != id {
+				ids = append(ids, x)
+			}
+		}
+		f.board.Cards[i].Customers = ids
+	}
+	return nil
+}

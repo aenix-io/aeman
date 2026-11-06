@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/aenix-io/aeman/pkg/apiserver"
@@ -136,5 +137,115 @@ func TestACardFrameNamesOnlyCardsItsWatcherMayRead(t *testing.T) {
 	}
 	if len(w["t"].Status.Lineage) != 1 || w["t"].Status.DueDate != "2026-12-18" || w["r"].Status.Reviewed == nil {
 		t.Fatalf("the wide watcher was not told everything: %+v / %+v", w["t"].Status, w["r"].Status)
+	}
+}
+
+// And the effective team and customers are worked out from those other
+// cards too (O3, O4, O6): a watcher who cannot read the epic above a task is
+// not told the epic's team or customers through the task, nor a hidden
+// task's customers through its review card. What is left is what the
+// watcher may read — the card's own, and its readable ancestors'.
+func TestACardFrameInheritsOnlyFromCardsItsWatcherMayRead(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("shared", []board.Card{
+		{ItemID: "epic", Title: "Secret epic", Type: board.TypeEpic, Team: "portal", Customers: []string{"cu1"}, Domain: "closed"},
+		{ItemID: "t", Title: "Open task", Parent: "epic", Customers: []string{"cu2"}, Parked: true},
+		{ItemID: "hidden", Title: "Secret task", Team: "alpha", Customers: []string{"cu1"}, Stage: board.StageReview, Domain: "closed"},
+		{ItemID: "r", Title: "review: something", Team: "alpha", ReviewOf: "hidden", Parked: true},
+	})
+	b.Customers = []board.Customer{{ID: "cu1", Name: "Hidora"}, {ID: "cu2", Name: "Acme"}}
+	e := seedEntry(store, "k", b)
+	cards := map[string]bool{"cards": true}
+	narrow, cancel := store.subscribeAs("k", "bob", nil, cards, rightsOn([]string{"shared"}, nil))
+	defer cancel()
+	wide, cancel2 := store.subscribeAs("k", "lead", nil, cards, rightsOn([]string{"shared", "closed"}, nil))
+	defer cancel2()
+	for _, id := range []string{"t", "r"} {
+		e.mu.Lock()
+		c, _ := board.Find(e.board, id)
+		c.Title += "!"
+		e.upsertCard(c)
+		e.cardChanged("", c, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+	n, w := cardFrames(narrow), cardFrames(wide)
+	if st := n["t"].Status; st.EffectiveTeam != "" || !reflect.DeepEqual(st.EffectiveCustomers, []string{"cu2"}) {
+		t.Fatalf("the narrow watcher inherits from the secret epic: team %q customers %v", st.EffectiveTeam, st.EffectiveCustomers)
+	}
+	if st := n["r"].Status; len(st.EffectiveCustomers) != 0 {
+		t.Fatalf("the narrow watcher is told the secret task's customers: %v", st.EffectiveCustomers)
+	}
+	if st := w["t"].Status; st.EffectiveTeam != "portal" || !reflect.DeepEqual(st.EffectiveCustomers, []string{"cu1", "cu2"}) {
+		t.Fatalf("the wide watcher was not told everything: team %q customers %v", st.EffectiveTeam, st.EffectiveCustomers)
+	}
+	if st := w["r"].Status; !reflect.DeepEqual(st.EffectiveCustomers, []string{"cu1"}) {
+		t.Fatalf("the wide watcher's review card = %v, want the task's", st.EffectiveCustomers)
+	}
+}
+
+// cardFrames drains a subscription into the last card frame per uid.
+func cardFrames(sub *subscription) map[string]apiserver.Card {
+	out := map[string]apiserver.Card{}
+	for {
+		select {
+		case raw := <-sub.ch:
+			var f struct {
+				Kind   string          `json:"kind"`
+				Object json.RawMessage `json:"object"`
+			}
+			_ = json.Unmarshal(raw, &f)
+			var c apiserver.Card
+			if f.Kind == "Card" && json.Unmarshal(f.Object, &c) == nil {
+				out[c.Metadata.UID] = c
+			}
+		default:
+			return out
+		}
+	}
+}
+
+// And the frame agrees with the LISTING the same watcher would get, which is
+// built on their visible board: there a card's chain ends at the first
+// ancestor they cannot read (board.Visible drops it, Index.Lineage stops),
+// so a readable goal ABOVE an unreadable epic gives the task below nothing.
+// The frame used to skip the unreadable epic and inherit from the goal. A
+// review card with no team of its own reads the same way.
+func TestAReadableAncestorAboveAnUnreadableOneGivesNothing(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("shared", []board.Card{
+		{ItemID: "goal", Title: "Grow", Type: board.TypeGoal, Team: "portal", Customers: []string{"cu1"}},
+		{ItemID: "epic", Title: "Secret epic", Type: board.TypeEpic, Parent: "goal", Domain: "closed"},
+		{ItemID: "t", Title: "Open task", Parent: "epic", Parked: true},
+		{ItemID: "r", Title: "review: Open task", ReviewOf: "t", Parked: true},
+	})
+	b.Customers = []board.Customer{{ID: "cu1", Name: "Hidora"}}
+	e := seedEntry(store, "k", b)
+	rights := rightsOn([]string{"shared"}, nil)
+	narrow, cancel := store.subscribeAs("k", "bob", nil, map[string]bool{"cards": true}, rights)
+	defer cancel()
+	for _, id := range []string{"t", "r"} {
+		e.mu.Lock()
+		c, _ := board.Find(e.board, id)
+		c.Title += "!"
+		e.upsertCard(c)
+		e.cardChanged("", c, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+	got := cardFrames(narrow)
+	e.mu.Lock()
+	visible := board.Visible(e.board, rights.primary, rights.readable)
+	e.mu.Unlock()
+	for _, id := range []string{"t", "r"} {
+		c, _ := board.Find(visible, id)
+		listed := apiserver.CardResource(visible, c).Status
+		st := got[id].Status
+		if st.EffectiveTeam != "" || len(st.EffectiveCustomers) != 0 {
+			t.Errorf("%s's frame inherits past the unreadable epic: team %q customers %v", id, st.EffectiveTeam, st.EffectiveCustomers)
+		}
+		if st.EffectiveTeam != listed.EffectiveTeam || !reflect.DeepEqual(st.EffectiveCustomers, listed.EffectiveCustomers) {
+			t.Errorf("%s: the frame says %q %v, the listing %q %v", id, st.EffectiveTeam, st.EffectiveCustomers, listed.EffectiveTeam, listed.EffectiveCustomers)
+		}
 	}
 }

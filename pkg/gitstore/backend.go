@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -334,6 +335,8 @@ func boardFromSnapshotIn(primary string, s Snapshot) board.Board {
 	}
 	cards = append(cards, s.Cards...)
 	bd := board.NewBoardIn(primary, cards)
+	// The customer roster, in rank order (ties by creation, then id).
+	bd.Customers = customersOf(s.Customers)
 	// The people the roster knows: users/<login>.yaml in the primary — a
 	// capacity a lead set travels here.
 	for _, u := range s.Users {
@@ -1258,4 +1261,196 @@ func (b *Backend) SetSprintState(ctx context.Context, _ board.Board, team, curre
 	return b.editTeam(ctx, "sprint-state", TeamPath(id), func(f *TeamFile) {
 		f.Sprint = SprintPointer{Current: current, Previous: previous}
 	})
+}
+
+// customersOf is the roster in board order: by rank, then by creation, then
+// by id, so two entries a direct writer gave one rank still read the same
+// way everywhere.
+func customersOf(in []Customer) []board.Customer {
+	sorted := slices.Clone(in)
+	slices.SortStableFunc(sorted, func(a, b Customer) int {
+		if c := strings.Compare(a.Rank, b.Rank); c != 0 {
+			return c
+		}
+		if c := strings.Compare(a.Created, b.Created); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	var out []board.Customer
+	for _, c := range sorted {
+		out = append(out, board.Customer{ID: c.ID, Name: c.Name, Rank: c.Rank})
+	}
+	return out
+}
+
+// ---- ownership: docs/design/ownership.md ------------------------------------
+
+// ErrCustomerNotFound is a customer id the roster does not hold.
+var ErrCustomerNotFound = errors.New("gitstore: customer not found")
+
+// SetOwner writes a planning card's owner ("" takes it off).
+func (b *Backend) SetOwner(ctx context.Context, _ board.Board, card board.Card, login string) error {
+	return b.editCard(ctx, "owner", card, func(f *CardFile) { f.Card.Owner = login })
+}
+
+// SetCustomers writes the customers a card names (ids; empty takes them
+// all off).
+func (b *Backend) SetCustomers(ctx context.Context, _ board.Board, card board.Card, ids []string) error {
+	return b.editCard(ctx, "customers", card, func(f *CardFile) { f.Card.Customers = slices.Clone(ids) })
+}
+
+// AddCustomer declares a customer, last in the roster.
+func (b *Backend) AddCustomer(ctx context.Context, _ board.Board, name string) (board.Customer, error) {
+	s, err := b.snapshot(ctx)
+	if err != nil {
+		return board.Customer{}, err
+	}
+	last := ""
+	for _, c := range s.Customers {
+		if c.Rank > last {
+			last = c.Rank
+		}
+	}
+	rank, err := board.RankBetween(last, "")
+	if err != nil {
+		return board.Customer{}, err
+	}
+	now := b.now()
+	id := NewID(now)
+	out, err := EncodeCustomer(CustomerFile{Name: name, Rank: rank, Created: now.UTC().Format(time.RFC3339)})
+	if err != nil {
+		return board.Customer{}, err
+	}
+	if err := b.write(ctx, "add-customer", nil, CustomerPath(id), out); err != nil {
+		return board.Customer{}, err
+	}
+	return board.Customer{ID: id, Name: name, Rank: rank}, nil
+}
+
+func (b *Backend) editCustomer(ctx context.Context, op, id string, fn func(*CustomerFile)) error {
+	p := CustomerPath(id)
+	data, ok, err := b.read(ctx, p)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrCustomerNotFound, id)
+	}
+	f, err := DecodeCustomer(data)
+	if err != nil {
+		return err
+	}
+	fn(&f)
+	out, err := EncodeCustomer(f)
+	if err != nil {
+		return err
+	}
+	return b.write(ctx, op, nil, p, out)
+}
+
+// RenameCustomer renames a customer: one file, and every card that names it
+// reads the new name at once (cards hold the id).
+func (b *Backend) RenameCustomer(ctx context.Context, _ board.Board, id, name string) error {
+	return b.editCustomer(ctx, "rename-customer", id, func(f *CustomerFile) { f.Name = name })
+}
+
+// MoveCustomer puts a customer right after afterID in the roster ("" = first).
+func (b *Backend) MoveCustomer(ctx context.Context, _ board.Board, id, afterID string) error {
+	s, err := b.snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	order := customersOf(s.Customers)
+	prev, next := "", ""
+	if afterID == "" {
+		for _, c := range order {
+			if c.ID != id {
+				next = c.Rank
+				break
+			}
+		}
+	} else {
+		for i, c := range order {
+			if c.ID != afterID {
+				continue
+			}
+			prev = c.Rank
+			for _, n := range order[i+1:] {
+				if n.ID != id {
+					next = n.Rank
+					break
+				}
+			}
+			break
+		}
+	}
+	if prev != "" && next != "" && prev >= next {
+		next = ""
+	}
+	rank, err := board.RankBetween(prev, next)
+	if err != nil {
+		return err
+	}
+	return b.editCustomer(ctx, "move-customer", id, func(f *CustomerFile) { f.Rank = rank })
+}
+
+// DeleteCustomer takes a customer out of the roster and off every card of
+// this repository that names it — the roster file and the cards in ONE
+// commit, so no reader ever sees a card naming a customer that is gone.
+func (b *Backend) DeleteCustomer(ctx context.Context, _ board.Board, id string) error {
+	s, err := b.snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	var writes []FileWrite
+	var cards []string
+	for _, c := range s.Cards {
+		if !slices.Contains(c.Customers, id) {
+			continue
+		}
+		p, err := CardPath(c.ItemID)
+		if err != nil {
+			return err
+		}
+		data, ok, err := b.read(ctx, p)
+		if err != nil || !ok {
+			continue
+		}
+		f, err := DecodeCard(c.ItemID, data)
+		if err != nil {
+			return err
+		}
+		f.Card.Customers = slices.DeleteFunc(f.Card.Customers, func(x string) bool { return x == id })
+		out, err := EncodeCard(f)
+		if err != nil {
+			return err
+		}
+		writes = append(writes, FileWrite{Path: p, Data: out})
+		cards = append(cards, c.ItemID)
+	}
+	if _, ok, err := b.read(ctx, CustomerPath(id)); err != nil {
+		return err
+	} else if ok {
+		writes = append(writes, FileWrite{Path: CustomerPath(id), Data: nil})
+	}
+	return b.writeAll(ctx, "delete-customer", cards, writes)
+}
+
+// writeAll records several file changes as one: staged under a scope, else
+// committed together as action op.
+func (b *Backend) writeAll(ctx context.Context, op string, cards []string, writes []FileWrite) error {
+	if len(writes) == 0 {
+		return nil
+	}
+	if scopeOf(ctx) != nil {
+		for _, w := range writes {
+			if err := b.write(ctx, op, cards, w.Path, w.Data); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	_, err := b.repo.Commit(Action{Name: op, Actor: actorOf(ctx), At: b.now(), Cards: cards, Summary: op}, writes)
+	return err
 }

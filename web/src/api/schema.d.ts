@@ -124,7 +124,7 @@ export interface paths {
         put?: never;
         /**
          * Whose is this — a team and a person on it, a team alone, or nobody.
-         * @description The Roadmap's answer for the loose work listed below its tree, offered by every board that draws a task (not the Project board). What the answer DOES depends on whether the card is in work — a date or a sprint. A `person` (with their `team`) takes an UNPLANNED card into work the way typing it into their Me board would: on the team, today, in the unplanned band, in the team's sprint, out of its backlog — so it stands on their Team and Me boards at once; a planned card changes hands and keeps its plan. A `team` alone parks an unplanned card in that team's backlog with nobody on it (a parked card handed to another team stays parked); a planned card moves team, keeps its plan and loses its person. Neither takes the team and the person off: a planned card keeps its plan in the no-team group, an unplanned one is parked in the no-team group's backlog. A person without a team is refused (422 `ownerNeedsTeam`); a subtask and a review card have no owner of their own (422 `ownerFollowsLink` — the parent's, the reviewer) — except a review NOBODY HAS TAKEN, where a person is its reviewer and takes it into work like a task (today, the task's sprint, out of the backlog); a planning card and a project card carry none (422 `planningCard`, `projectCard`). Subtasks follow the card's team and person, as they do everywhere.
+         * @description The Roadmap's answer for the loose work listed below its tree, offered by every board that draws a task (not the Project board). What the answer DOES depends on whether the card is in work — a date or a sprint. A `person` (with their `team`) takes an UNPLANNED card into work the way typing it into their Me board would: on the team, today, in the unplanned band, in the team's sprint, out of its backlog — so it stands on their Team and Me boards at once; a planned card changes hands and keeps its plan. A `team` alone parks an unplanned card in that team's backlog with nobody on it (a parked card handed to another team stays parked); a planned card moves team, keeps its plan and loses its person. Neither takes the team and the person off: a planned card keeps its plan in the no-team group, an unplanned one is parked in the no-team group's backlog. A person without a team is refused (422 `ownerNeedsTeam`); a subtask and a review card have no owner of their own (422 `ownerFollowsLink` — the parent's, the reviewer) — except a review NOBODY HAS TAKEN, where a person is its reviewer and takes it into work like a task (today, the task's sprint, out of the backlog); a project card carries none (422 `projectCard`). On a goal, an initiative or an epic the answer is the card's TEAM (the team that carries it out) and its OWNER (the one person who answers for it): a person needs no team there, a person alone keeps the card's team and a team alone keeps its owner, neither takes both off (a PATCH with `team` or `owner` empty takes one half off alone), and nothing about it reaches a day board. Subtasks follow the card's team and person, as they do everywhere.
          */
         post: operations["ownCard"];
         delete?: never;
@@ -737,6 +737,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/customers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a customer to the board's roster, last.
+         * @description Cards name a customer by its id (spec.customers), so the name can be changed later and every card follows. A name the roster already has, case aside, is 422 `customerExists`; an empty one 422 `customerName`.
+         */
+        post: operations["addCustomer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/customers/actions/rename": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rename a customer; every card that names it reads the new name. */
+        post: operations["renameCustomer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/customers/actions/reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply the roster's order — the ids named first, in that order. */
+        post: operations["reorderCustomers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/customers/actions/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete a customer and take it off every card that names it.
+         * @description Needs the right to write the roster (the primary repository) and every repository holding a card that names the customer; otherwise 403 and nothing changes.
+         */
+        post: operations["deleteCustomer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams/actions/rename": {
         parameters: {
             query?: never;
@@ -832,7 +906,7 @@ export interface components {
              * @description The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
              * @enum {string}
              */
-            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "dayIsARecord" | "descriptionTooLong" | "domainConflict" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "scopeExists" | "scopeInUse" | "scopeNotFound" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAuthenticated" | "notFinished" | "notOnThisBoard" | "notYoursToDestroy" | "notYoursToPark" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "projectExists" | "projectInUse" | "projectNotFound" | "reviewCardLink" | "setupRequired" | "somebodysCard" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "twoPlaces" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField" | "projectCard" | "projectCardProgress";
+            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "customerExists" | "customerName" | "customerNotFound" | "dayIsARecord" | "descriptionTooLong" | "domainConflict" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "scopeExists" | "scopeInUse" | "scopeNotFound" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAuthenticated" | "notFinished" | "notOnThisBoard" | "notYoursToDestroy" | "notYoursToPark" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "ownerIsThePlans" | "ownershipUnsupported" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "projectExists" | "projectInUse" | "projectNotFound" | "reviewCardLink" | "setupRequired" | "somebodysCard" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "twoPlaces" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField" | "projectCard" | "projectCardProgress";
             /** @description Where the person can go to fix the refusal — installing the board's app — for a client to offer as a button. */
             actionUrl?: string;
         };
@@ -855,7 +929,12 @@ export interface components {
             title: string;
             /** @description The card's body. ABSENT in a listing — that is the "not loaded" marker — and always present, possibly empty, on a full resource, so an empty body never reads as a missing one. */
             description?: string;
+            /** @description The card's own team. On a goal, an initiative or an epic it is the team that carries the plan item out: it places nothing, and the cards below take it as their effective team when they have none (status.effectiveTeam). */
             team?: string;
+            /** @description The one person who answers for a goal, an initiative or an epic — breaks it down, keeps its status honest. Never inherited, and it puts nothing on any day board. Absent on every other card (a task's people are its assignees). */
+            owner?: string;
+            /** @description Ids from the board's customer roster (`metadata.customers`) that this card itself names. The cards below add to them (status.effectiveCustomers). A project card names none. */
+            customers?: string[];
             /**
              * @description The band the card stands in, by meaning rather than by colour. A card in the WORKING AREA — one carrying a sprint or dates of its own — always answers with a band: nobody having said means "planned", which is where every board draws it anyway. Absent is reserved for cards that are on no day (a parked task, a planning card, a project card), where "no band yet" is a state a client draws as one.
              * @enum {string}
@@ -917,6 +996,10 @@ export interface components {
             lineage?: components["schemas"]["LineageRef"][];
             /** @description On a REVIEW card, the card it reviews — its uid, title and people — so a client can name it, open it and draw whose it is without looking it up. Absent on every other card, and when the reviewed card is gone. */
             reviewed?: components["schemas"]["ReviewedRef"];
+            /** @description The team the card counts under: its own, else the nearest ancestor's that has one. Computed, never written. */
+            effectiveTeam?: string;
+            /** @description The customers the card is for: every ancestor's and its own, the ancestors' first; a review card's are the task's it reviews. Computed, never written. */
+            effectiveCustomers?: string[];
             /** @description A task's due date: the end of its NEAREST planning card (goal, initiative or epic) — never one borrowed from a farther ancestor. Absent with no planning card above it, when the nearest has no end, and on a planning card. A review card is due when the task it reviews is. */
             dueDate?: string;
             hierarchy?: components["schemas"]["Hierarchy"];
@@ -1012,12 +1095,18 @@ export interface components {
             kind: "Board";
             metadata: components["schemas"]["BoardMetadata"];
         };
+        CustomerRef: {
+            id: string;
+            name: string;
+        };
         BoardMetadata: {
             title?: string;
             url?: string;
             /** @description The teams that have sprint pointers, in board order. */
             teams: string[];
             projects?: string[];
+            /** @description The board's customer roster in board order: what a card's `customers` ids name. */
+            customers?: components["schemas"]["CustomerRef"][];
             deadlines?: components["schemas"]["DeadlineRef"][];
             scopes?: components["schemas"]["ScopeRef"][];
             /** @description Every distinct assignee on the board, in login order, with the numbers beside each — the people roster the pickers offer. Who may READ a repository is the other list, `domains[].members`. */
@@ -1154,6 +1243,10 @@ export interface components {
         CreateCardRequest: {
             title?: string;
             team?: string;
+            /** @description On the roadmap view, the person who answers for the goal, the initiative or the epic being made; refused on a task (422 `ownerIsThePlans`). */
+            owner?: string;
+            /** @description Ids from the board's customer roster the new card is for; refused on a project card. */
+            customers?: string[];
             /** @enum {string} */
             zone?: "" | "urgent" | "unplanned" | "planned" | "niceToHave";
             /** @description S, M, L or XL in any case; empty leaves the card unsized. */
@@ -1191,7 +1284,12 @@ export interface components {
         CardPatch: {
             title?: string;
             description?: string;
+            /** @description A task's team; on a goal, an initiative or an epic the team that carries it out (it places nothing and joins no sprint). */
             team?: string;
+            /** @description The person who answers for a goal, an initiative or an epic; empty takes them off. On any other card 422 `ownerIsThePlans`. */
+            owner?: string;
+            /** @description Ids from the board's customer roster this card names, replacing those it named; empty takes them all off. An id the roster lacks is 422 `customerNotFound`; a project card names none (422 `projectCard`). */
+            customers?: string[];
             /** @enum {string} */
             zone?: "" | "urgent" | "unplanned" | "planned" | "niceToHave";
             /** @description S, M, L or XL in any case; empty takes the size back. */
@@ -1307,6 +1405,21 @@ export interface components {
             from?: string;
             to?: string;
         };
+        AddCustomerBody: {
+            name?: string;
+        };
+        CustomerBody: {
+            /** @description The customer's id. */
+            customer?: string;
+        };
+        RenameCustomerBody: {
+            /** @description The customer's id. */
+            customer?: string;
+            to?: string;
+        };
+        ReorderCustomersBody: {
+            customers?: string[];
+        };
         AddProjectBody: {
             name?: string;
             /** @description The repository to declare the project in; empty is the primary. */
@@ -1336,7 +1449,7 @@ export interface components {
             card?: string;
         };
         /** @description One frame of the watch stream. No operation references it — a WebSocket upgrade has no response body to describe — but a client applying the stream needs the shapes, so they are stated here. */
-        WatchFrame: components["schemas"]["CardFrame"] | components["schemas"]["SprintFrame"] | components["schemas"]["OrderingFrame"] | components["schemas"]["PresenceFrame"] | components["schemas"]["BoardFrame"] | components["schemas"]["LoadFrame"] | components["schemas"]["SyncFrame"] | components["schemas"]["QueueFrame"] | components["schemas"]["SyncErrorFrame"];
+        WatchFrame: components["schemas"]["CardFrame"] | components["schemas"]["SprintFrame"] | components["schemas"]["OrderingFrame"] | components["schemas"]["PresenceFrame"] | components["schemas"]["BoardFrame"] | components["schemas"]["LoadFrame"] | components["schemas"]["SyncFrame"] | components["schemas"]["QueueFrame"] | components["schemas"]["SyncErrorFrame"] | components["schemas"]["StatusFrame"];
         /** @description A card changed. On a SCOPED subscription the verb is about the SELECTION: a card entering it arrives as ADDED and one leaving it as DELETED, whatever became of the card itself. */
         CardFrame: {
             /** @enum {string} */
@@ -1416,6 +1529,24 @@ export interface components {
                 pending: number;
             };
         };
+        /** @description The LAST frame of a watch that fell behind (G85): a frame did not fit in the watcher's buffer, so what the client holds is out of date. Nothing follows it and the server closes the stream. The client re-LISTs its view and opens a new watch — what it would do after any dropped connection. Kubernetes' shape: an ERROR carrying a Status of code 410, reason Expired. */
+        StatusFrame: {
+            /** @enum {string} */
+            type: "ERROR";
+            /** @enum {string} */
+            kind: "Status";
+            object: {
+                /** @enum {string} */
+                kind: "Status";
+                /** @enum {string} */
+                status: "Failure";
+                /** @enum {string} */
+                reason: "Expired";
+                /** @enum {integer} */
+                code: 410;
+                message?: string;
+            };
+        };
         /** @description A write was lost after its retries. Nobody is spared this one — the client that made the change needs the rollback most of all. */
         SyncErrorFrame: {
             /** @enum {string} */
@@ -1447,7 +1578,7 @@ export interface components {
         NoteId: string;
         /** @description The person's forge login. */
         Login: string;
-        /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. */
+        /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors. */
         Team: string;
         /** @description The day a day board is read for, yyyy-mm-dd. Empty or absent is today. */
         Day: string;
@@ -1465,6 +1596,10 @@ export interface components {
         Focus: string;
         /** @description "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default. */
         Reviews: string;
+        /** @description On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND. */
+        Customer: string;
+        /** @description On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND. */
+        Owner: string;
         /** @description On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view. */
         ProjectCards: string;
         /** @description The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400). */
@@ -1532,7 +1667,7 @@ export interface operations {
     listCards: {
         parameters: {
             query?: {
-                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. */
+                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors. */
                 team?: components["parameters"]["Team"];
                 /** @description The day a day board is read for, yyyy-mm-dd. Empty or absent is today. */
                 day?: components["parameters"]["Day"];
@@ -1552,6 +1687,10 @@ export interface operations {
                 reviews?: components["parameters"]["Reviews"];
                 /** @description On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view. */
                 projectCards?: components["parameters"]["ProjectCards"];
+                /** @description On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND. */
+                customer?: components["parameters"]["Customer"];
+                /** @description On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND. */
+                owner?: components["parameters"]["Owner"];
                 /** @description The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400). */
                 fields?: components["parameters"]["Fields"];
                 /** @description "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give. */
@@ -1609,7 +1748,7 @@ export interface operations {
     watchView: {
         parameters: {
             query?: {
-                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. */
+                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors. */
                 team?: components["parameters"]["Team"];
                 /** @description The day a day board is read for, yyyy-mm-dd. Empty or absent is today. */
                 day?: components["parameters"]["Day"];
@@ -1629,6 +1768,10 @@ export interface operations {
                 reviews?: components["parameters"]["Reviews"];
                 /** @description On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view. */
                 projectCards?: components["parameters"]["ProjectCards"];
+                /** @description On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND. */
+                customer?: components["parameters"]["Customer"];
+                /** @description On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND. */
+                owner?: components["parameters"]["Owner"];
                 /** @description The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400). */
                 fields?: components["parameters"]["Fields"];
                 /** @description "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give. */
@@ -1659,7 +1802,7 @@ export interface operations {
     removeCard: {
         parameters: {
             query?: {
-                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. */
+                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors. */
                 team?: components["parameters"]["Team"];
                 /** @description The day a day board is read for, yyyy-mm-dd. Empty or absent is today. */
                 day?: components["parameters"]["Day"];
@@ -1679,6 +1822,10 @@ export interface operations {
                 reviews?: components["parameters"]["Reviews"];
                 /** @description On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view. */
                 projectCards?: components["parameters"]["ProjectCards"];
+                /** @description On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND. */
+                customer?: components["parameters"]["Customer"];
+                /** @description On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND. */
+                owner?: components["parameters"]["Owner"];
                 /** @description The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400). */
                 fields?: components["parameters"]["Fields"];
                 /** @description "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give. */
@@ -1712,7 +1859,7 @@ export interface operations {
     ownCard: {
         parameters: {
             query?: {
-                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. */
+                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors. */
                 team?: components["parameters"]["Team"];
                 /** @description The day a day board is read for, yyyy-mm-dd. Empty or absent is today. */
                 day?: components["parameters"]["Day"];
@@ -1732,6 +1879,10 @@ export interface operations {
                 reviews?: components["parameters"]["Reviews"];
                 /** @description On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view. */
                 projectCards?: components["parameters"]["ProjectCards"];
+                /** @description On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND. */
+                customer?: components["parameters"]["Customer"];
+                /** @description On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND. */
+                owner?: components["parameters"]["Owner"];
                 /** @description The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400). */
                 fields?: components["parameters"]["Fields"];
                 /** @description "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give. */
@@ -1767,7 +1918,7 @@ export interface operations {
     takeCard: {
         parameters: {
             query?: {
-                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. */
+                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors. */
                 team?: components["parameters"]["Team"];
                 /** @description The day a day board is read for, yyyy-mm-dd. Empty or absent is today. */
                 day?: components["parameters"]["Day"];
@@ -1787,6 +1938,10 @@ export interface operations {
                 reviews?: components["parameters"]["Reviews"];
                 /** @description On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view. */
                 projectCards?: components["parameters"]["ProjectCards"];
+                /** @description On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND. */
+                customer?: components["parameters"]["Customer"];
+                /** @description On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND. */
+                owner?: components["parameters"]["Owner"];
                 /** @description The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400). */
                 fields?: components["parameters"]["Fields"];
                 /** @description "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give. */
@@ -1818,7 +1973,7 @@ export interface operations {
     finishedEarlier: {
         parameters: {
             query?: {
-                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. */
+                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors. */
                 team?: components["parameters"]["Team"];
                 /** @description The day a day board is read for, yyyy-mm-dd. Empty or absent is today. */
                 day?: components["parameters"]["Day"];
@@ -1838,6 +1993,10 @@ export interface operations {
                 reviews?: components["parameters"]["Reviews"];
                 /** @description On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view. */
                 projectCards?: components["parameters"]["ProjectCards"];
+                /** @description On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND. */
+                customer?: components["parameters"]["Customer"];
+                /** @description On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND. */
+                owner?: components["parameters"]["Owner"];
                 /** @description The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400). */
                 fields?: components["parameters"]["Fields"];
                 /** @description "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give. */
@@ -2695,6 +2854,100 @@ export interface operations {
         };
         responses: {
             /** @description The project is renamed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    addCustomer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddCustomerBody"];
+            };
+        };
+        responses: {
+            /** @description The customer as it was added. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerRef"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    renameCustomer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameCustomerBody"];
+            };
+        };
+        responses: {
+            /** @description The customer is renamed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    reorderCustomers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReorderCustomersBody"];
+            };
+        };
+        responses: {
+            /** @description The order is applied. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteCustomer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomerBody"];
+            };
+        };
+        responses: {
+            /** @description The customer is gone, from the roster and from every card. */
             204: {
                 headers: {
                     [name: string]: unknown;

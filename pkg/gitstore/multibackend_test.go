@@ -826,3 +826,49 @@ func TestMultiBackendTopIsTheTopOfTheMergedBoard(t *testing.T) {
 		t.Fatalf("the closed card ranks %q, the shared one %q: the top is not the board's", ranks["01CARDB2"], ranks["01CARDA1"])
 	}
 }
+
+// The customer roster lives in the primary and is the board's whatever the
+// domains: a customer added through the MultiBackend is a file of the
+// primary, read on the merged board, and a delete takes it off a card of a
+// closed domain too.
+func TestMultiBackendKeepsTheCustomerRosterInThePrimary(t *testing.T) {
+	mb, shared, closed := twoDomains(t)
+	ctx := ctxAs("kvaps")
+	b, _ := mb.LoadBoard(ctx, "x")
+	cu, err := mb.AddCustomer(ctx, b, "Hidora")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := shared.ReadFile(CustomerPath(cu.ID)); err != nil {
+		t.Fatalf("the customer is not in the primary: %v", err)
+	}
+	if _, err := closed.ReadFile(CustomerPath(cu.ID)); err == nil {
+		t.Fatal("the customer leaked into the closed repository")
+	}
+	b, _ = mb.LoadBoard(ctx, "x")
+	if len(b.Customers) != 1 || b.Customers[0].Name != "Hidora" {
+		t.Fatalf("the merged board's roster = %+v", b.Customers)
+	}
+	var card board.Card
+	for _, c := range b.Cards {
+		if c.ItemID == "01CARDB2" {
+			card = c
+		}
+	}
+	if err := mb.SetCustomers(ctx, b, card, []string{cu.ID}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = mb.LoadBoard(ctx, "x")
+	if err := mb.DeleteCustomer(ctx, b, cu.ID); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = mb.LoadBoard(ctx, "x")
+	for _, c := range b.Cards {
+		if len(c.Customers) != 0 {
+			t.Fatalf("%s still names %v", c.ItemID, c.Customers)
+		}
+	}
+	if len(b.Customers) != 0 {
+		t.Fatalf("the roster still holds %+v", b.Customers)
+	}
+}

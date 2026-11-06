@@ -17,6 +17,10 @@ type Index struct {
 	// the original's id: the first such card in board order, as the
 	// resource's own walk found it.
 	reviewedBy map[string]string
+	// customers is the board's customer roster by id: a card may name an id
+	// the roster no longer holds (a delete that raced an edit, a replayed
+	// write), and such an id is nobody's (EffectiveCustomers).
+	customers map[string]bool
 }
 
 // NewIndex reads the board once.
@@ -27,6 +31,10 @@ func NewIndex(b Board) *Index {
 		children:   map[string][]Card{},
 		planning:   map[string]bool{},
 		reviewedBy: map[string]string{},
+		customers:  make(map[string]bool, len(b.Customers)),
+	}
+	for _, cu := range b.Customers {
+		ix.customers[cu.ID] = true
 	}
 	for _, c := range b.Cards {
 		ix.byID[c.ItemID] = c
@@ -80,6 +88,69 @@ func (ix *Index) Lineage(c Card) []Card {
 		up[i], up[j] = up[j], up[i]
 	}
 	return up
+}
+
+// EffectiveTeam is the team a card counts under (O3): its own, else the
+// nearest ancestor's that has one. A task's own team always wins over an
+// inherited one; nothing is written down the tree. A project card has none
+// (H4), whatever an old file's `team:` says.
+func (ix *Index) EffectiveTeam(c Card) string {
+	if c.Scope != "" {
+		return ""
+	}
+	if c.Team != "" {
+		return c.Team
+	}
+	up := ix.Lineage(c)
+	for i := len(up) - 1; i >= 0; i-- {
+		if up[i].Team != "" {
+			return up[i].Team
+		}
+	}
+	return ""
+}
+
+// EffectiveCustomers is the customers a card is for (O4): every ancestor's
+// and its own, the ancestors' first, each once — a lower card adds to them
+// and never overwrites them. A review card is for its task's (O6), and a
+// project card for none (H4). An id the board's roster does not hold is left
+// out: it names nobody (O5).
+func (ix *Index) EffectiveCustomers(c Card) []string {
+	if c.Scope != "" {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	add := func(ids []string) {
+		for _, id := range ids {
+			if id != "" && !seen[id] && ix.customers[id] {
+				seen[id] = true
+				out = append(out, id)
+			}
+		}
+	}
+	if c.ReviewOf != "" {
+		if task, ok := ix.Find(c.ReviewOf); ok && task.ReviewOf == "" {
+			add(ix.EffectiveCustomers(task))
+		}
+	}
+	for _, a := range ix.Lineage(c) {
+		add(a.Customers)
+	}
+	add(c.Customers)
+	return out
+}
+
+// OnRoster is the ids of the given ones the board's customer roster holds,
+// in order: what a card's own customers read as (O5).
+func (ix *Index) OnRoster(ids []string) []string {
+	var out []string
+	for _, id := range ids {
+		if ix.customers[id] {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // HasPlanningAncestor is board.HasPlanningAncestor.

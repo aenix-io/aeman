@@ -18,6 +18,7 @@ func fullBoard() board.Board {
 			ItemID:    id,
 			Title:     id,
 			Assignees: []string{"ann"},
+			Customers: []string{"cu1"},
 			Notes:     []board.Note{{ID: "n1", Body: "first"}},
 		}
 	}
@@ -33,6 +34,7 @@ func fullBoard() board.Board {
 		ProjectStates:  map[string]string{"proj": "ps1"},
 		Domains:        map[string]string{"s1": "primary"},
 		DroppedParents: map[string]string{"c1": "gone"},
+		Customers:      []board.Customer{{ID: "cu1", Name: "Hidora"}},
 	}
 }
 

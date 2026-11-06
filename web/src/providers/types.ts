@@ -87,8 +87,18 @@ export interface Card {
   progress?: number;
   /** Explicit status (locked/review/done) driving the progress-bar colour. */
   stage?: StageKey;
-  /** Team label the card belongs to (a free-text field, used for filtering). */
+  /** Team label the card belongs to (a free-text field, used for filtering).
+   *  On a goal, an initiative or an epic: the team that carries it out. */
   team?: string;
+  /** The one person who answers for a goal, an initiative or an epic
+   *  (ownership.md, O1); never inherited, on no day board. */
+  owner?: string;
+  /** Ids of the board's customers this card itself names (O5). */
+  customers?: string[];
+  /** The server's effective team (O3) and customers (O4): computed, never
+   *  written. ownership.ts works them out the same way from held cards. */
+  effectiveTeam?: string;
+  effectiveCustomers?: string[];
   /** On a review card, the itemId of the original card it reviews (review →
    * original; find the reverse by scanning for `reviewOf === original.itemId`). */
   reviewOf?: string;
@@ -186,6 +196,10 @@ export interface NewCardInput {
    *  the no-team backlog until taken into work (K3). Client-side only; never
    *  sent. */
   underPlanning?: boolean | null;
+  /** A planning card's owner, and the customer ids a card is born for
+   *  (ownership.md). */
+  owner?: string | null;
+  customers?: string[] | null;
   /** Where a backlog card is born (the insert "+"): right after the card
    *  `after` names, or right before the card `before` names — one or
    *  neither. The create places it in the same request. */
@@ -263,6 +277,15 @@ export interface Board {
   projectDomains?: Record<string, string>;
   /** Per-team sprint pointers, keyed by team name ("" = the no-team group). */
   sprintStates: Record<string, SprintState>;
+  /** The customer roster in board order (ownership.md, O5): cards name
+   *  customers by id. Absent from an older server. */
+  customers?: CustomerRef[];
+}
+
+/** CustomerRef is one entry of the board's customer roster. */
+export interface CustomerRef {
+  id: string;
+  name: string;
 }
 
 /** CardPatch is a partial spec edit mirroring PATCH /cards/{uid}: only the
@@ -293,6 +316,10 @@ export interface CardPatch {
   reviewOf?: string;
   /** Group under another card as a subtask ("" ungroups back to standalone). */
   parent?: string;
+  /** A planning card's owner ("" takes them off; ownership.md). */
+  owner?: string;
+  /** The customer ids the card itself names (replacing what it named). */
+  customers?: string[];
   /** Recurrent card's reseed cycle: "" = every sprint, "week" | "month". */
   recurrence?: string;
 }
@@ -433,6 +460,13 @@ export interface Provider {
     scope: string,
     project: string,
   ): Promise<void>;
+  /** The customer roster (ownership.md, O5): add one (its id comes back),
+   *  rename it (cards hold the id), set the order, delete it (it comes off
+   *  every card that names it). */
+  addCustomer(name: string): Promise<CustomerRef>;
+  renameCustomer(id: string, to: string): Promise<void>;
+  reorderCustomers(ids: string[]): Promise<void>;
+  deleteCustomer(id: string): Promise<void>;
   /** Declare a project — the Project board's top grouping. `domain` picks the
    *  repository it is declared in (default: the primary). */
   addProject(name: string, domain?: string): Promise<void>;

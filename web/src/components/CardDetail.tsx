@@ -5,6 +5,7 @@ import type {
   CardEvent,
   CardLog,
   CardType,
+  CustomerRef,
   LineageRef,
   Note,
   Provider,
@@ -20,7 +21,9 @@ import { Dropdown } from "./Dropdown";
 import { eventLabel } from "../eventlog";
 import { localDateIso, todayIso } from "../date";
 import { reviewerCandidates } from "../domains";
-import { ownerLabel, ownerOf, type Owner } from "../owner";
+import { ownerLabel, ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
+import { customerChips, inheritedTeamOf } from "../ownership";
+import { CustomerField } from "./CustomerField";
 import { teamColor } from "../avatar";
 import { avatarsFrom, displayName, namesFrom } from "../users";
 import type { RemoveChoice } from "../removal";
@@ -67,6 +70,9 @@ interface CardDetailProps {
   /** A write the server refused, in its own words (a parent of the wrong
    *  level, another repository, a project card). */
   onError?: (message: string) => void;
+  /** A customer the drawer added to the roster (ownership.md): the board's
+   *  roster takes it at once. */
+  onCustomerAdded?: (customer: CustomerRef) => void;
 }
 
 const errMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -114,6 +120,7 @@ export function CardDetail({
   onOpenCard,
   onBack,
   onError,
+  onCustomerAdded,
 }: CardDetailProps) {
   // A record: what the card was on a day its team has moved past. Nothing
   // here is editable, and the pane says so rather than pretending.
@@ -504,6 +511,49 @@ export function CardDetail({
         patchCard(card.itemId, prev);
         onError?.(errMessage(err));
       });
+  };
+
+  // ---- ownership (ownership.md): a plan item's team and owner, any card's
+  // customers, and the roster they come from ----
+  const planOwner = planOwnerOf(card);
+  const inheritedTeam = inheritedTeamOf(card, known);
+  const setPlanOwner = (next: Owner) => {
+    const change = planOwnPatch(planOwner, next);
+    if (!change) {
+      return;
+    }
+    const before: Partial<CardModel> = { team: card.team, owner: card.owner };
+    patchCard(card.itemId, { team: next.team || undefined, owner: next.person || undefined });
+    void provider
+      .patchCard(card.itemId, change)
+      .then((updated) => patchCard(card.itemId, { team: updated.team, owner: updated.owner }))
+      .catch((err: unknown) => {
+        patchCard(card.itemId, before);
+        onError?.(errMessage(err));
+      });
+  };
+  const setCustomers = (ids: string[]) => {
+    const before: Partial<CardModel> = { customers: card.customers };
+    patchCard(card.itemId, { customers: ids.length ? ids : undefined });
+    void provider
+      .patchCard(card.itemId, { customers: ids })
+      .then((updated) =>
+        patchCard(card.itemId, { customers: updated.customers, effectiveCustomers: updated.effectiveCustomers }),
+      )
+      .catch((err: unknown) => {
+        patchCard(card.itemId, before);
+        onError?.(errMessage(err));
+      });
+  };
+  // A customer the roster lacks is added to it first, then named on the card.
+  const createCustomer = (name: string) => {
+    void provider
+      .addCustomer(name)
+      .then((cu) => {
+        onCustomerAdded?.(cu);
+        setCustomers([...(card.customers ?? []), cu.id]);
+      })
+      .catch((err: unknown) => onError?.(errMessage(err)));
   };
 
   const [editingTitle, setEditingTitle] = useState(false);
@@ -1257,6 +1307,16 @@ export function CardDetail({
                   </OwnerPicker>
                 ),
               )}
+            {/* A task with no team of its own counts under its plan's
+                (ownership.md, O3): said grey, with where it comes from. */}
+            {task && inheritedTeam && (
+              <div className="drawer-row drawer-row-quiet">
+                <span className="drawer-label-quiet">Team</span>
+                <span className="drawer-inherited" title={inheritedTeam.from ? `From «${inheritedTeam.from}»` : "Inherited"}>
+                  {inheritedTeam.team}
+                </span>
+              </div>
+            )}
             {/* On review: who is reviewing it — the person on the linked
                 review card — chosen from those who can read the card's
                 repository, as the boards' picker chooses. */}
@@ -1342,6 +1402,35 @@ export function CardDetail({
                   ))}
                 </span>,
               )}
+            {/* A plan item's team — who carries it out — and its OWNER, the
+                one person who answers for it: one picker, where a person
+                needs no team (ownership.md, O1, O9). */}
+            {planning &&
+              row(
+                "Owner",
+                <OwnerPicker
+                  planning
+                  current={planOwner}
+                  teams={board.teams}
+                  people={members}
+                  cards={board.cards}
+                  avatars={avatars}
+                  names={names}
+                  disabled={isRecord || temp}
+                  onPick={setPlanOwner}
+                  className="drawer-owner-picker"
+                  title="Who carries it out (a team) and who answers for it (its owner)"
+                >
+                  <span className={`drawer-owner${planOwner.team || planOwner.person ? "" : " drawer-owner-none"}`}>
+                    {planOwner.team && <span className="team-dot" style={{ background: teamColor(planOwner.team) }} />}
+                    {planOwner.person && <Avatar login={planOwner.person} avatars={avatars} names={names} className="avatar-img roadmap-owner-avatar" />}
+                    <span className="drawer-owner-text">
+                      {planOwner.team || planOwner.person ? ownerLabel(planOwner, (l) => displayName(l, names)) : "Nobody yet"}
+                    </span>
+                  </span>
+                  {!isRecord && !temp && <span className="add-card-team-caret">▾</span>}
+                </OwnerPicker>,
+              )}
             {editsDates
               ? row(
                   "Dates",
@@ -1397,6 +1486,20 @@ export function CardDetail({
                   disabled={isRecord || temp}
                   onOpen={() => setWantsOptions(true)}
                   onPick={setParent}
+                />,
+              )}
+            {/* Who the work is for: the card's own customers and those it
+                inherits (ownership.md, O4). A project card has none (H4). */}
+            {!project &&
+              row(
+                "Customers",
+                <CustomerField
+                  chips={customerChips(card, known)}
+                  roster={board.customers ?? []}
+                  disabled={isRecord || temp}
+                  onAdd={(id) => setCustomers([...(card.customers ?? []), id])}
+                  onRemove={(id) => setCustomers((card.customers ?? []).filter((x) => x !== id))}
+                  onCreate={createCustomer}
                 />,
               )}
             {card.project && row("Project", card.project)}

@@ -4496,8 +4496,7 @@ button.card-age {
   color: var(--muted);
 }
 
-.roadmap-depth select,
-.roadmap-who {
+.roadmap-depth select {
   font: inherit;
   font-size: 12px;
   color: var(--fg);
@@ -6000,4 +5999,80 @@ button.card-age {
 .card-bar-large .card-bar-handle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Who the work is for (ownership.md): a card's own customers as chips with a
+   ×, the inherited ones grey and quiet, and the input that adds one. */
+.customer-field {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.customer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-soft);
+  font-size: 11.5px;
+}
+
+.customer-chip-inherited {
+  border-style: dashed;
+  background: transparent;
+  color: var(--muted);
+}
+
+.customer-chip-remove {
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.customer-chip-remove:hover {
+  color: var(--danger);
+}
+
+.customer-input {
+  width: 140px;
+  margin: 0;
+}
+
+/* A task's team taken from its plan: grey, saying where it comes from. */
+.drawer-row-quiet {
+  padding-top: 0;
+}
+
+.drawer-label-quiet {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.drawer-inherited {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* The Roadmap's Team, Customer and Owner filters. */
+.filter-select-btn {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.filter-select-on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.filter-select-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
 }

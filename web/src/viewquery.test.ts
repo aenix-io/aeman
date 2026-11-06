@@ -243,3 +243,29 @@ describe("the Roadmap's project cards", () => {
     expect(watchQuery("project", TODAY, [], undefined, { projectCards: true })).toEqual({ view: "project" });
   });
 });
+
+// The Roadmap's team, customer and owner filters (ownership.md, O7, O8) are
+// the server's: they ride the listing and the watch as selectors, so a
+// change refetches and re-subscribes; nothing is filtered locally.
+describe("the Roadmap's filters", () => {
+  it("ask nothing while none is chosen", () => {
+    expect(viewQueries("roadmap", TODAY, [], undefined, TODAY, { filters: { teams: [], customers: [], owners: [] } })).toEqual([
+      { view: "roadmap" },
+    ]);
+  });
+
+  it("ask the listing and the watch for the chosen ones, each a set", () => {
+    const opts = { filters: { teams: ["portal", "ops"], customers: ["cu1"], owners: ["ann"] } };
+    const want = { view: "roadmap", team: "portal,ops", customer: "cu1", owner: "ann" };
+    expect(viewQueries("roadmap", TODAY, [], undefined, TODAY, opts)).toEqual([want]);
+    expect(watchQuery("roadmap", TODAY, [], undefined, opts)).toEqual(want);
+  });
+
+  it("ride along with the project cards", () => {
+    expect(watchQuery("roadmap", TODAY, [], undefined, { projectCards: true, filters: { teams: [], customers: [], owners: ["ann"] } })).toEqual({
+      view: "roadmap",
+      projectCards: "true",
+      owner: "ann",
+    });
+  });
+});

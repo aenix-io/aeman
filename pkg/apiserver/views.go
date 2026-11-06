@@ -70,6 +70,13 @@ type Selector struct {
 	// for (the Roadmap toolbar's "Project cards" toggle). It means nothing on
 	// any other view.
 	ProjectCards bool
+	// Customer and Owner narrow the roadmap view (docs/design/ownership.md,
+	// O7, O8), each a comma-separated set: Customer by effective customers
+	// (customer ids), Owner by a planning card's own owner. On the roadmap
+	// Team narrows by EFFECTIVE team the same way. Several values in one are
+	// OR, different ones AND; every match comes with its ancestors.
+	Customer string
+	Owner    string
 }
 
 // ParseSelector reads a selector from query parameters. Unknown views error.
@@ -85,6 +92,8 @@ func ParseSelector(q url.Values) (Selector, error) {
 		Snapshot:       q.Get("snapshot") == "true" || q.Get("snapshot") == "1",
 		IncludeReviews: q.Get("reviews") == "true" || q.Get("reviews") == "1",
 		ProjectCards:   q.Get("projectCards") == "true" || q.Get("projectCards") == "1",
+		Customer:       q.Get("customer"),
+		Owner:          q.Get("owner"),
 		Fields:         q.Get("fields"),
 	}
 	switch sel.Fields {
@@ -188,6 +197,151 @@ func roadmapCards(b board.Board, ix *board.Index, projectCards bool) []board.Car
 	return out
 }
 
+// Mirrored reports whether a client can work out this selection's membership
+// itself — mirror it — so a watch may spare it the ADDED and DELETED of its
+// own changes. The Roadmap's team, customer and owner filters are the
+// server's alone (roadmapNarrowed): a board filtered by them draws what it
+// was sent, and must be sent what its own change put in or took out.
+func (sel Selector) Mirrored() bool {
+	if sel.View != "roadmap" {
+		return true
+	}
+	return setOf(sel.Team) == nil && setOf(sel.Customer) == nil && setOf(sel.Owner) == nil
+}
+
+// roadmapNarrowed applies the Roadmap's team, customer and owner filters
+// (O7, O8) to its listing, each judged on its own and AND across them:
+//
+//   - a PLANNING card passes team (customer) when its own effective team
+//     (customers) or any task's under it does, and owner when its OWN owner
+//     (never inherited) or a task's under it assignee is one of them;
+//   - a TASK or subtask passes team and customer by its effective values,
+//     and owner when one of its assignees is one of them;
+//
+// and every card listed comes with its ancestors. With no filter the
+// listing is as it was.
+func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.Card {
+	teams, customers, owners := setOf(sel.Team), setOf(sel.Customer), setOf(sel.Owner)
+	if teams == nil && customers == nil && owners == nil {
+		return cards
+	}
+	teamOK := func(c board.Card) bool { return teams == nil || teams[ix.EffectiveTeam(c)] }
+	customerOK := func(c board.Card) bool {
+		if customers == nil {
+			return true
+		}
+		for _, id := range ix.EffectiveCustomers(c) {
+			if customers[id] {
+				return true
+			}
+		}
+		return false
+	}
+	// A person matches a plan item they OWN (never inherited) and a task or
+	// subtask they are ASSIGNED to (O8).
+	ownerOK := func(c board.Card) bool {
+		if owners == nil {
+			return true
+		}
+		if board.IsPlanning(c) {
+			return owners[c.Owner]
+		}
+		for _, a := range c.Assignees {
+			if owners[a] {
+				return true
+			}
+		}
+		return false
+	}
+	listed := map[string]bool{}
+	for _, c := range cards {
+		listed[c.ItemID] = true
+	}
+	// The tasks under each planning card, through every level, as listed.
+	tasksUnder := func(p board.Card) []board.Card {
+		var out []board.Card
+		seen := map[string]bool{p.ItemID: true}
+		for frontier := []string{p.ItemID}; len(frontier) > 0; {
+			var next []string
+			for _, id := range frontier {
+				for _, c := range ix.ChildrenOf(id) {
+					if seen[c.ItemID] || !listed[c.ItemID] {
+						continue
+					}
+					seen[c.ItemID] = true
+					next = append(next, c.ItemID)
+					if !board.IsPlanning(c) {
+						out = append(out, c)
+					}
+				}
+			}
+			frontier = next
+		}
+		return out
+	}
+	planPasses := func(p board.Card) bool {
+		under := tasksUnder(p)
+		anyUnder := func(ok func(board.Card) bool) bool {
+			for _, t := range under {
+				if ok(t) {
+					return true
+				}
+			}
+			return false
+		}
+		return (teamOK(p) || anyUnder(teamOK)) && (customerOK(p) || anyUnder(customerOK)) &&
+			(ownerOK(p) || anyUnder(ownerOK))
+	}
+	passedPlans := map[string]bool{}
+	for _, c := range cards {
+		if board.IsPlanning(c) && planPasses(c) {
+			passedPlans[c.ItemID] = true
+		}
+	}
+	keep := map[string]bool{}
+	include := func(c board.Card) {
+		keep[c.ItemID] = true
+		for _, a := range ix.Lineage(c) {
+			keep[a.ItemID] = true
+		}
+	}
+	for _, c := range cards {
+		if board.IsPlanning(c) {
+			if passedPlans[c.ItemID] {
+				include(c)
+			}
+			continue
+		}
+		if !teamOK(c) || !customerOK(c) || !ownerOK(c) {
+			continue
+		}
+		include(c)
+	}
+	var out []board.Card
+	for _, c := range cards {
+		if keep[c.ItemID] && listed[c.ItemID] {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// setOf reads a comma-separated selector value as a set; nil when empty.
+func setOf(v string) map[string]bool {
+	var out map[string]bool
+	for _, x := range strings.Split(v, ",") {
+		x = strings.TrimSpace(x)
+		if x == "" {
+			continue
+		}
+		if out == nil {
+			out = map[string]bool{}
+		}
+		out[x] = true
+	}
+	return out
+}
+
 // FilterCards returns the cards matching the selector, in board order. The
 // view rules delegate to the same domain filters the views always used.
 func FilterCards(b board.Board, sel Selector) []board.Card {
@@ -228,7 +382,8 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	case "backlog":
 		base = backlogCards(b, board.NewIndex(b), sel)
 	case "roadmap":
-		base = roadmapCards(b, board.NewIndex(b), sel.ProjectCards)
+		ix := board.NewIndex(b)
+		base = roadmapNarrowed(ix, roadmapCards(b, ix, sel.ProjectCards), sel)
 	default:
 		base = b.Cards
 	}
@@ -258,7 +413,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		// and default lists). It accepts a comma-separated set, so
 		// ?view=me&team=marketing,portal narrows the Me board to those
 		// teams — the Me view's team-focus toggle over the selected chips.
-		if (sel.View == "me" || sel.View == "" || sel.View == "all") && !teamInSet(c.Team, sel.Team) {
+		if offTheTeamList(c, sel) {
 			continue
 		}
 		if sel.Focus && !board.Workable(c) {
@@ -317,12 +472,22 @@ func projectViewCards(_ board.Board, out []board.Card, project string) []board.C
 // server's and the parent's bar jumps on every reload.
 func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
 	present := make(map[string]bool, len(out))
+	planning := map[string]bool{}
 	for _, c := range out {
 		present[c.ItemID] = true
+		if board.IsPlanning(c) {
+			planning[c.ItemID] = true
+		}
 	}
 	extra := map[string][]board.Card{}
 	for _, c := range b.Cards {
 		if c.Parent == "" || !present[c.Parent] || present[c.ItemID] {
+			continue
+		}
+		// Only a SUBTASK rides its parent: what stands under a planning card
+		// is that card's child, listed — or left out by a filter — on its
+		// own merit (O7).
+		if planning[c.Parent] {
 			continue
 		}
 		// The rider does not bring back a project card the roadmap left out
@@ -331,7 +496,7 @@ func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
 		if sel.View == "roadmap" && c.Scope != "" && !sel.ProjectCards {
 			continue
 		}
-		if (sel.View == "me" || sel.View == "" || sel.View == "all") && !teamInSet(c.Team, sel.Team) {
+		if offTheTeamList(c, sel) {
 			continue
 		}
 		if sel.Focus && !board.Workable(c) {
@@ -481,6 +646,21 @@ func ListCards(b board.Board, sel Selector) CardList {
 		items = append(items, resource(b, ix, c))
 	}
 	return CardList{Kind: "CardList", Items: items}
+}
+
+// offTheTeamList is a card the team selector leaves off the views it
+// narrows (me, all and the default list). A planning card is never on one
+// narrowed by a team: its team says who carries it out (O1) and puts it on
+// no day board (H3), so these lists hold tasks under a team, as they did
+// before planning cards had one.
+func offTheTeamList(c board.Card, sel Selector) bool {
+	if sel.View != "me" && sel.View != "" && sel.View != "all" {
+		return false
+	}
+	if strings.TrimSpace(sel.Team) == "" {
+		return false
+	}
+	return board.IsPlanning(c) || !teamInSet(c.Team, sel.Team)
 }
 
 // teamInSet reports whether a card's team is in a comma-separated selector

@@ -929,3 +929,73 @@ func (mb *MultiBackend) SetSprintState(ctx context.Context, bd board.Board, team
 	}
 	return be.SetSprintState(ctx, bd, team, current, previous)
 }
+
+// ---- ownership: docs/design/ownership.md ------------------------------------
+
+// SetOwner writes a planning card's owner where the card lives (the primary).
+func (mb *MultiBackend) SetOwner(ctx context.Context, bd board.Board, card board.Card, login string) error {
+	be, err := mb.route(ctx, card)
+	if err != nil {
+		return err
+	}
+	return be.SetOwner(ctx, bd, card, login)
+}
+
+// SetCustomers writes a card's customers where the card lives: a customer
+// id places nothing.
+func (mb *MultiBackend) SetCustomers(ctx context.Context, bd board.Board, card board.Card, ids []string) error {
+	be, err := mb.route(ctx, card)
+	if err != nil {
+		return err
+	}
+	return be.SetCustomers(ctx, bd, card, ids)
+}
+
+// AddCustomer declares a customer in the primary, where the roster lives.
+func (mb *MultiBackend) AddCustomer(ctx context.Context, bd board.Board, name string) (board.Customer, error) {
+	be, err := mb.backend(mb.primary())
+	if err != nil {
+		return board.Customer{}, err
+	}
+	return be.AddCustomer(ctx, bd, name)
+}
+
+// RenameCustomer renames a customer in the primary's roster.
+func (mb *MultiBackend) RenameCustomer(ctx context.Context, bd board.Board, id, name string) error {
+	be, err := mb.backend(mb.primary())
+	if err != nil {
+		return err
+	}
+	return be.RenameCustomer(ctx, bd, id, name)
+}
+
+// MoveCustomer reorders the primary's roster.
+func (mb *MultiBackend) MoveCustomer(ctx context.Context, bd board.Board, id, afterID string) error {
+	be, err := mb.backend(mb.primary())
+	if err != nil {
+		return err
+	}
+	return be.MoveCustomer(ctx, bd, id, afterID)
+}
+
+// DeleteCustomer takes the customer off every card of EVERY domain that
+// names it and out of the primary's roster. Each repository's part is one
+// commit; under a scope the action is one commit per repository it touched.
+// The other domains go first and the roster last, so a reader never sees a
+// card naming a customer the roster no longer has.
+func (mb *MultiBackend) DeleteCustomer(ctx context.Context, bd board.Board, id string) error {
+	for _, d := range mb.domainList()[1:] {
+		be, err := mb.backend(d.Name)
+		if err != nil {
+			return err
+		}
+		if err := be.DeleteCustomer(ctx, bd, id); err != nil {
+			return err
+		}
+	}
+	be, err := mb.backend(mb.primary())
+	if err != nil {
+		return err
+	}
+	return be.DeleteCustomer(ctx, bd, id)
+}

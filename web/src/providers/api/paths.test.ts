@@ -129,6 +129,27 @@ describe("the board in the address", () => {
     expect(calls[0].body).not.toHaveProperty("before");
   });
 
+  // The customer roster's routes (ownership.md, ADR 0002).
+  it("keeps the customer roster through its own routes", async () => {
+    await apiProvider.renameCustomer("cu1", "Hidora SA");
+    await apiProvider.reorderCustomers(["cu2", "cu1"]);
+    await apiProvider.deleteCustomer("cu1");
+    expect(calls.map((c) => c.url)).toEqual([
+      "/api/v1/customers/actions/rename",
+      "/api/v1/customers/actions/reorder",
+      "/api/v1/customers/actions/delete",
+    ]);
+    expect(calls[0].body).toEqual({ customer: "cu1", to: "Hidora SA" });
+    expect(calls[1].body).toEqual({ customers: ["cu2", "cu1"] });
+    expect(calls[2].body).toEqual({ customer: "cu1" });
+  });
+
+  it("patches a card's owner and customers", async () => {
+    await apiProvider.patchCard("c1", { owner: "ann", customers: ["cu1"] });
+    expect(calls[0].url).toBe("/api/v1/cards/c1");
+    expect(calls[0].body).toEqual({ owner: "ann", customers: ["cu1"] });
+  });
+
   it("and into the board the shape names, whatever is open", async () => {
     standingOn("day=2026-09-11&team=portal&view=team");
     await apiProvider.createCard({ title: "someday", zone: "gray", team: "portal", parked: true });

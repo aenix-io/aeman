@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ownerLabel, ownerOf, ownerStep, peopleOfTeam } from "./owner";
+import { ownerLabel, ownerOf, ownerStep, peopleOfTeam, planOwnerOf, planOwnPatch } from "./owner";
 
 // The owner picker's rule, press by press: a team is not an answer by
 // itself, a person needs a team, a team alone and nobody at all are answers.
@@ -54,5 +54,38 @@ describe("reading an owner", () => {
     ];
     expect(peopleOfTeam(["ann", "bob", "cid"], "core", cards)).toEqual(["bob", "ann", "cid"]);
     expect(peopleOfTeam(["ann", "bob"], "none", cards)).toEqual(["ann", "bob"]);
+  });
+});
+
+// A PLANNING card's owner is the one person who answers for it, and its team
+// the team that carries it out (ownership.md, O1, O9): there a person needs
+// no team — picking one with no team chosen is an answer of its own.
+describe("the owner picker on a goal, an initiative or an epic", () => {
+  it("takes a person with no team", () => {
+    expect(ownerStep("", { kind: "person", person: "ann" }, { planning: true })).toEqual({
+      team: "",
+      answer: { team: "", person: "ann" },
+    });
+  });
+
+  it("takes a person with a team, and a team with nobody, as on a task", () => {
+    expect(ownerStep("portal", { kind: "person", person: "ann" }, { planning: true }).answer).toEqual({ team: "portal", person: "ann" });
+    expect(ownerStep("portal", { kind: "no-person" }, { planning: true }).answer).toEqual({ team: "portal", person: "" });
+  });
+
+  it("reads a plan item's owner from its owner field, not its assignees", () => {
+    expect(planOwnerOf({ team: "portal", owner: "ann", assignees: [] })).toEqual({ team: "portal", person: "ann" });
+  });
+
+  // `own` on a plan item keeps the half it is not given (O9), so a press
+  // that takes one half off — "no person" under a team, a person with the
+  // team unpicked — is written as an update of the halves that moved.
+  it("writes only the halves a press moved", () => {
+    const now = { team: "portal", person: "ann" };
+    expect(planOwnPatch(now, { team: "portal", person: "" })).toEqual({ owner: "" });
+    expect(planOwnPatch(now, { team: "", person: "ann" })).toEqual({ team: "" });
+    expect(planOwnPatch(now, { team: "docs", person: "bob" })).toEqual({ team: "docs", owner: "bob" });
+    expect(planOwnPatch(now, { team: "", person: "" })).toEqual({ team: "", owner: "" });
+    expect(planOwnPatch(now, now)).toBeNull();
   });
 });

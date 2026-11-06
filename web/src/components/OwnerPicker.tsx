@@ -22,6 +22,9 @@ interface OwnerPickerProps {
   children: ReactNode;
   className?: string;
   title?: string;
+  /** A goal, an initiative or an epic: the person is its OWNER, who answers
+   *  for it, and needs no team (ownership.md, O9). */
+  planning?: boolean;
 }
 
 /** OwnerPicker is the Team board's "whose is this?" menu — a team column
@@ -30,7 +33,7 @@ interface OwnerPickerProps {
  *  on the right (those with work on the team first), a person cannot be
  *  picked before a team, and a team with "No person" is an answer of its
  *  own. "No owner" clears both. The rule is owner.ts's; the menu draws it. */
-export function OwnerPicker({ current, teams, people, cards, avatars, names, disabled, onPick, children, className, title }: OwnerPickerProps) {
+export function OwnerPicker({ current, teams, people, cards, avatars, names, disabled, onPick, children, className, title, planning }: OwnerPickerProps) {
   const [open, setOpen] = useState(false);
   const [team, setTeam] = useState(current.team);
   const [typed, setTyped] = useState("");
@@ -46,7 +49,7 @@ export function OwnerPicker({ current, teams, people, cards, avatars, names, dis
     setOpen((o) => !o);
   };
   const press = (pick: Parameters<typeof ownerStep>[1]) => {
-    const step = ownerStep(team, pick);
+    const step = ownerStep(team, pick, { planning });
     setTeam(step.team);
     setRefused(step.refused ?? null);
     if (step.answer) {
@@ -103,10 +106,10 @@ export function OwnerPicker({ current, teams, people, cards, avatars, names, dis
               No owner
             </button>
           </div>
-          <div className={`card-assign-col${team ? "" : " owner-col-waiting"}`} aria-disabled={!team}>
-            <div className="card-assign-head">Person{team ? ` · ${team}` : ""}</div>
-            {!team && <span className="card-stage-item owner-col-hint">Pick a team first</span>}
-            {team && (
+          <div className={`card-assign-col${team || planning ? "" : " owner-col-waiting"}`} aria-disabled={!team && !planning}>
+            <div className="card-assign-head">{planning ? "Owner" : "Person"}{team ? ` · ${team}` : ""}</div>
+            {!team && !planning && <span className="card-stage-item owner-col-hint">Pick a team first</span>}
+            {(team || planning) && (
               <button
                 type="button"
                 className={`card-stage-item card-stage-clear${current.team === team && !current.person ? " card-stage-item-active" : ""}`}
@@ -118,7 +121,7 @@ export function OwnerPicker({ current, teams, people, cards, avatars, names, dis
                 No person
               </button>
             )}
-            {team &&
+            {(team || planning) &&
               ordered.map((p) => (
                 <button
                   key={`p-${p}`}
@@ -133,7 +136,7 @@ export function OwnerPicker({ current, teams, people, cards, avatars, names, dis
                   {displayName(p, names)}
                 </button>
               ))}
-            {team && (
+            {(team || planning) && (
               <input
                 type="text"
                 className="add-card-input card-assign-input"

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { followFrame, followPatch } from "./detail";
+import { cardIsGone, followFrame, followPatch } from "./detail";
 import type { Card } from "./providers/types";
 
 const card = (over: Partial<Card>): Card => ({ itemId: "t", title: "Invoices", assignees: [], progress: 0, ...over }) as Card;
@@ -45,5 +45,17 @@ describe("the drawer's card", () => {
     const shown = card({});
     expect(followFrame(shown, card({}), true)).toBeNull();
     expect(followFrame(shown, card({ itemId: "x" }), true)).toBe(shown);
+  });
+});
+
+// A scoped watch's DELETED says a card LEFT the board's selection — on a
+// filtered Roadmap, the author's own reassignment does that — and carries the
+// card as it now is; only a card deleted outright arrives as a bare uid. The
+// drawer closes for the second alone.
+describe("a DELETED frame", () => {
+  it("is a card gone only when it carries nothing but its uid", () => {
+    expect(cardIsGone({ type: "DELETED", object: { metadata: { uid: "t" }, spec: { title: "" } } })).toBe(true);
+    expect(cardIsGone({ type: "DELETED", object: { metadata: { uid: "t" }, spec: { title: "Invoices" } } })).toBe(false);
+    expect(cardIsGone({ type: "MODIFIED", object: { metadata: { uid: "t" }, spec: { title: "" } } })).toBe(false);
   });
 });

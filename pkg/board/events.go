@@ -48,6 +48,10 @@ const (
 	EventParent          = "parent"
 	EventSubtask         = "subtask"
 	EventRecurrence      = "recurrence"
+	// EventOwner and EventCustomers record a planning card's owner and a
+	// card's customers (docs/design/ownership.md).
+	EventOwner     = "owner"
+	EventCustomers = "customers"
 )
 
 // DateRange renders a start..end pair for a dates event value ("" parts kept

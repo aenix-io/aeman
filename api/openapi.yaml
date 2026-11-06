@@ -41,6 +41,8 @@ tags:
     description: The deadline lines a project draws across the weeks.
   - name: Projects
     description: The Project board's top grouping.
+  - name: Customers
+    description: Who the work is for — the board's customer roster.
   - name: Teams
     description: Team names and what a team gets through in a week.
   - name: Presence
@@ -111,6 +113,8 @@ paths:
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/ProjectCards'
+        - $ref: '#/components/parameters/Customer'
+        - $ref: '#/components/parameters/Owner'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       responses:
@@ -181,6 +185,8 @@ paths:
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/ProjectCards'
+        - $ref: '#/components/parameters/Customer'
+        - $ref: '#/components/parameters/Owner'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
         - name: resources
@@ -269,6 +275,8 @@ paths:
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/ProjectCards'
+        - $ref: '#/components/parameters/Customer'
+        - $ref: '#/components/parameters/Owner'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       requestBody:
@@ -305,9 +313,14 @@ paths:
         no owner of their own (422 `ownerFollowsLink` — the parent's, the
         reviewer) — except a review NOBODY HAS TAKEN, where a person is its
         reviewer and takes it into work like a task (today, the task's sprint,
-        out of the backlog); a planning card and a project card carry none (422
-        `planningCard`, `projectCard`). Subtasks follow the card's team and
-        person, as they do everywhere.
+        out of the backlog); a project card carries none (422 `projectCard`).
+        On a goal, an initiative or an epic the answer is the card's TEAM (the
+        team that carries it out) and its OWNER (the one person who answers
+        for it): a person needs no team there, a person alone keeps the
+        card's team and a team alone keeps its owner, neither takes both off
+        (a PATCH with `team` or `owner` empty takes one half off alone), and
+        nothing about it reaches a day board. Subtasks follow the card's team
+        and person, as they do everywhere.
       parameters:
         - $ref: '#/components/parameters/View'
         - $ref: '#/components/parameters/Uid'
@@ -321,6 +334,8 @@ paths:
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/ProjectCards'
+        - $ref: '#/components/parameters/Customer'
+        - $ref: '#/components/parameters/Owner'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       requestBody:
@@ -369,6 +384,8 @@ paths:
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/ProjectCards'
+        - $ref: '#/components/parameters/Customer'
+        - $ref: '#/components/parameters/Owner'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       responses:
@@ -402,6 +419,8 @@ paths:
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/ProjectCards'
+        - $ref: '#/components/parameters/Customer'
+        - $ref: '#/components/parameters/Owner'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       responses:
@@ -1110,6 +1129,82 @@ paths:
           description: The project is renamed.
         default:
           $ref: '#/components/responses/Problem'
+  /customers:
+    post:
+      operationId: addCustomer
+      tags: [Customers]
+      summary: Add a customer to the board's roster, last.
+      description: >-
+        Cards name a customer by its id (spec.customers), so the name can be
+        changed later and every card follows. A name the roster already has,
+        case aside, is 422 `customerExists`; an empty one 422 `customerName`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCustomerBody'
+      responses:
+        '201':
+          description: The customer as it was added.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerRef'
+        default:
+          $ref: '#/components/responses/Problem'
+  /customers/actions/rename:
+    post:
+      operationId: renameCustomer
+      tags: [Customers]
+      summary: Rename a customer; every card that names it reads the new name.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameCustomerBody'
+      responses:
+        '204':
+          description: The customer is renamed.
+        default:
+          $ref: '#/components/responses/Problem'
+  /customers/actions/reorder:
+    post:
+      operationId: reorderCustomers
+      tags: [Customers]
+      summary: Apply the roster's order — the ids named first, in that order.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReorderCustomersBody'
+      responses:
+        '204':
+          description: The order is applied.
+        default:
+          $ref: '#/components/responses/Problem'
+  /customers/actions/delete:
+    post:
+      operationId: deleteCustomer
+      tags: [Customers]
+      summary: Delete a customer and take it off every card that names it.
+      description: >-
+        Needs the right to write the roster (the primary repository) and
+        every repository holding a card that names the customer; otherwise
+        403 and nothing changes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerBody'
+      responses:
+        '204':
+          description: The customer is gone, from the roster and from every card.
+        default:
+          $ref: '#/components/responses/Problem'
   /teams/actions/rename:
     post:
       operationId: renameTeam
@@ -1232,7 +1327,10 @@ components:
       required: false
       description: >-
         A comma-separated set of team keys; the listings union them. Empty is
-        every team, and the no-team group is the empty key.
+        every team, and the no-team group is the empty key. On the roadmap
+        view it narrows by EFFECTIVE team: a task whose own or inherited team
+        is among them, a planning card that is or has such a task under it,
+        each with its ancestors.
       schema:
         type: string
     Day:
@@ -1304,6 +1402,30 @@ components:
       description: >-
         "true" or "1" brings review cards into the view: on me and team each
         card's linked review is APPENDED. Off by default.
+      schema:
+        type: string
+    Customer:
+      name: customer
+      in: query
+      required: false
+      description: >-
+        On the roadmap view, a comma-separated set of customer ids: a task is
+        listed when one of its effective customers is among them, a planning
+        card when it is itself or any task under it is, each with its
+        ancestors. Several values are OR; with `team` and `owner`, AND.
+      schema:
+        type: string
+    Owner:
+      name: owner
+      in: query
+      required: false
+      description: >-
+        On the roadmap view, a comma-separated set of logins — the Roadmap's
+        one person filter: a goal, an initiative or an epic is listed when its
+        OWN owner is among them (never inherited), and a task or a subtask
+        when one of its assignees is; each with its ancestors. A planning card
+        also passes this filter by a task under it assigned to one of them.
+        Several values are OR; with `team` and `customer`, AND.
       schema:
         type: string
     ProjectCards:
@@ -1399,6 +1521,9 @@ components:
             - cardNotOnBoard
             - crossDomain
             - crossSiteBlocked
+            - customerExists
+            - customerName
+            - customerNotFound
             - dayIsARecord
             - descriptionTooLong
             - domainConflict
@@ -1436,6 +1561,8 @@ components:
             - openSubtasks
             - ownerFollowsLink
             - ownerNeedsTeam
+            - ownerIsThePlans
+            - ownershipUnsupported
             - parentLevel
             - parentNotFound
             - planningCard
@@ -1525,6 +1652,26 @@ components:
             an empty body never reads as a missing one.
         team:
           type: string
+          description: >-
+            The card's own team. On a goal, an initiative or an epic it is the
+            team that carries the plan item out: it places nothing, and the
+            cards below take it as their effective team when they have none
+            (status.effectiveTeam).
+        owner:
+          type: string
+          description: >-
+            The one person who answers for a goal, an initiative or an epic —
+            breaks it down, keeps its status honest. Never inherited, and it
+            puts nothing on any day board. Absent on every other card (a
+            task's people are its assignees).
+        customers:
+          type: array
+          description: >-
+            Ids from the board's customer roster (`metadata.customers`) that
+            this card itself names. The cards below add to them
+            (status.effectiveCustomers). A project card names none.
+          items:
+            type: string
         zone:
           type: string
           description: >-
@@ -1708,6 +1855,19 @@ components:
             — so a client can name it, open it and draw whose it is without
             looking it up. Absent on
             every other card, and when the reviewed card is gone.
+        effectiveTeam:
+          type: string
+          description: >-
+            The team the card counts under: its own, else the nearest
+            ancestor's that has one. Computed, never written.
+        effectiveCustomers:
+          type: array
+          description: >-
+            The customers the card is for: every ancestor's and its own, the
+            ancestors' first; a review card's are the task's it reviews.
+            Computed, never written.
+          items:
+            type: string
         dueDate:
           type: string
           description: >-
@@ -1958,6 +2118,18 @@ components:
           enum: [Board]
         metadata:
           $ref: '#/components/schemas/BoardMetadata'
+    CustomerRef:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.CustomerRef
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
     BoardMetadata:
       type: object
       additionalProperties: false
@@ -1979,6 +2151,13 @@ components:
           type: array
           items:
             type: string
+        customers:
+          type: array
+          description: >-
+            The board's customer roster in board order: what a card's
+            `customers` ids name.
+          items:
+            $ref: '#/components/schemas/CustomerRef'
         deadlines:
           type: array
           items:
@@ -2320,6 +2499,19 @@ components:
           type: string
         team:
           type: string
+        owner:
+          type: string
+          description: >-
+            On the roadmap view, the person who answers for the goal, the
+            initiative or the epic being made; refused on a task (422
+            `ownerIsThePlans`).
+        customers:
+          type: array
+          description: >-
+            Ids from the board's customer roster the new card is for; refused
+            on a project card.
+          items:
+            type: string
         zone:
           type: string
           enum: ["", urgent, unplanned, planned, niceToHave]
@@ -2410,6 +2602,23 @@ components:
           type: string
         team:
           type: string
+          description: >-
+            A task's team; on a goal, an initiative or an epic the team that
+            carries it out (it places nothing and joins no sprint).
+        owner:
+          type: string
+          description: >-
+            The person who answers for a goal, an initiative or an epic; empty
+            takes them off. On any other card 422 `ownerIsThePlans`.
+        customers:
+          type: array
+          description: >-
+            Ids from the board's customer roster this card names, replacing
+            those it named; empty takes them all off. An id the roster lacks is
+            422 `customerNotFound`; a project card names none (422
+            `projectCard`).
+          items:
+            type: string
         zone:
           type: string
           enum: ["", urgent, unplanned, planned, niceToHave]
@@ -2627,6 +2836,32 @@ components:
           type: string
         to:
           type: string
+    AddCustomerBody:
+      type: object
+      properties:
+        name:
+          type: string
+    CustomerBody:
+      type: object
+      properties:
+        customer:
+          type: string
+          description: The customer's id.
+    RenameCustomerBody:
+      type: object
+      properties:
+        customer:
+          type: string
+          description: The customer's id.
+        to:
+          type: string
+    ReorderCustomersBody:
+      type: object
+      properties:
+        customers:
+          type: array
+          items:
+            type: string
     AddProjectBody:
       type: object
       properties:
@@ -2694,6 +2929,7 @@ components:
         - $ref: '#/components/schemas/SyncFrame'
         - $ref: '#/components/schemas/QueueFrame'
         - $ref: '#/components/schemas/SyncErrorFrame'
+        - $ref: '#/components/schemas/StatusFrame'
     CardFrame:
       type: object
       description: >-
@@ -2850,6 +3086,41 @@ components:
           properties:
             pending:
               type: integer
+    StatusFrame:
+      type: object
+      description: >-
+        The LAST frame of a watch that fell behind (G85): a frame did not fit
+        in the watcher's buffer, so what the client holds is out of date.
+        Nothing follows it and the server closes the stream. The client
+        re-LISTs its view and opens a new watch — what it would do after any
+        dropped connection. Kubernetes' shape: an ERROR carrying a Status of
+        code 410, reason Expired.
+      required: [type, kind, object]
+      properties:
+        type:
+          type: string
+          enum: [ERROR]
+        kind:
+          type: string
+          enum: [Status]
+        object:
+          type: object
+          required: [kind, status, reason, code]
+          properties:
+            kind:
+              type: string
+              enum: [Status]
+            status:
+              type: string
+              enum: [Failure]
+            reason:
+              type: string
+              enum: [Expired]
+            code:
+              type: integer
+              enum: [410]
+            message:
+              type: string
     SyncErrorFrame:
       type: object
       description: >-

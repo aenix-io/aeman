@@ -342,3 +342,41 @@ func TestUnpushedCommitsOldestFirst(t *testing.T) {
 		t.Fatalf("unpushed = %v (%v), want [h1 h2]", cs, err)
 	}
 }
+
+// O5 — a replay can bring back a customer the other side deleted: a names
+// it on a card while b deletes it from the roster (and from every card that
+// named it then — this one did not yet). The replayed field wins, so the
+// card names an id the roster no longer holds. That is the state a reader
+// must survive, and does: such an id is nobody's (board
+// TestADanglingCustomerIsNoOnesEffective) and an edit drops it (boardservice
+// TestADanglingCustomerDoesNotLockTheCard).
+func TestRebaseCanReplayACustomerTheOtherSideDeleted(t *testing.T) {
+	remote, a, b := twoReplicas(t)
+	cu := CustomerPath("01CU_HIDORA")
+	if _, err := b.Commit(Action{Name: "add-customer", Summary: "add"}, []FileWrite{{Path: cu, Data: []byte("name: Hidora\nrank: a\n")}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Push(context.Background(), remote); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.Fetch(context.Background(), remote); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.ResetTo(b.Head()); err != nil {
+		t.Fatal(err)
+	}
+	commitFile(t, a, "customers", "cards/a/1/A1.md", "---\ntitle: a\nprogress: 40\ncustomers: [01CU_HIDORA]\n---\n")
+	if _, err := b.Commit(Action{Name: "delete-customer", Summary: "delete"}, []FileWrite{{Path: cu}}); err != nil {
+		t.Fatal(err)
+	}
+	tip := pushRejected(t, remote, a, b)
+	if _, err := a.Rebase(tip); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.ReadFile(cu); err == nil {
+		t.Fatal("the deleted customer came back to the roster")
+	}
+	if got := mustRead(t, a, "cards/a/1/A1.md"); !strings.Contains(got, "01CU_HIDORA") {
+		t.Fatalf("the replayed customers field was lost:\n%s", got)
+	}
+}

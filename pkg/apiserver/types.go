@@ -66,7 +66,14 @@ type CardSpec struct {
 	// fetch the body", so an empty body never reads as a missing one.
 	Description *string `json:"description,omitempty"`
 	Team        string  `json:"team,omitempty"`
-	Zone        string  `json:"zone,omitempty"`
+	// Owner is the one person who answers for a goal, an initiative or an
+	// epic (docs/design/ownership.md, O1); absent on every other card.
+	Owner string `json:"owner,omitempty"`
+	// Customers are the ids of the board's customers this card is for, as
+	// written on the card itself; status.effectiveCustomers adds the
+	// ancestors'.
+	Customers []string `json:"customers,omitempty"`
+	Zone      string   `json:"zone,omitempty"`
 	// Size is what somebody said the card weighs: S, M, L or XL, or absent.
 	Size      string   `json:"size,omitempty"`
 	Assignees []string `json:"assignees"`
@@ -175,6 +182,13 @@ type CardStatus struct {
 	// it is without a lookup.
 	// Absent on every other card, and when the reviewed card is gone.
 	Reviewed *ReviewedRef `json:"reviewed,omitempty"`
+	// EffectiveTeam is the team the card counts under (O3): its own, else
+	// the nearest ancestor's that has one. Computed, never written.
+	EffectiveTeam string `json:"effectiveTeam,omitempty"`
+	// EffectiveCustomers is who the card is for (O4): every ancestor's
+	// customers and its own, the ancestors' first; a review card's are its
+	// task's (O6). Computed, never written.
+	EffectiveCustomers []string `json:"effectiveCustomers,omitempty"`
 	// DueDate is a task's due date (named apart from the retired Triage
 	// status.due, a list of weeks): the end of its NEAREST planning card — the
 	// epic it is for — never one borrowed from a farther ancestor. Absent
@@ -262,6 +276,12 @@ type BoardInfo struct {
 	Metadata BoardMetadata `json:"metadata"`
 }
 
+// CustomerRef is one entry of the board's customer roster.
+type CustomerRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 type BoardMetadata struct {
 	Title string   `json:"title,omitempty"`
 	URL   string   `json:"url,omitempty"`
@@ -297,6 +317,9 @@ type BoardMetadata struct {
 	// board names none at all. A client needs them to keep a card's team and
 	// project in one repository: the pair cannot both be honoured, so the
 	// pickers must not offer it (boardservice.ErrDomainConflict).
+	// Customers is the board's customer roster in board order: the ids the
+	// cards name and the names to show (docs/design/ownership.md, O5).
+	Customers      []CustomerRef     `json:"customers,omitempty"`
 	TeamDomains    map[string]string `json:"teamDomains,omitempty"`
 	ProjectDomains map[string]string `json:"projectDomains,omitempty"`
 }
@@ -425,6 +448,8 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 		Title:       c.Title,
 		Description: &description,
 		Team:        c.Team,
+		Owner:       c.Owner,
+		Customers:   ix.OnRoster(c.Customers),
 		Zone:        SemanticZone(board.ZoneOf(c)),
 		Size:        sizeOut(c.Size),
 		Assignees:   append([]string{}, c.Assignees...),
@@ -447,6 +472,10 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 		Domain:      c.Domain,
 		DoneAt:      c.DoneAt,
 		LeftAt:      c.LeftAt,
+	}
+	if !board.IsStateTitle(c.Title) {
+		status.EffectiveTeam = ix.EffectiveTeam(c)
+		status.EffectiveCustomers = ix.EffectiveCustomers(c)
 	}
 	up := ix.Lineage(c)
 	// A REVIEW card hangs under nothing of its own; its chain is the
@@ -656,12 +685,20 @@ func BoardResourceWithPeople(b board.Board, person func(login string) Member) Bo
 		Kind: "Board",
 		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams,
 			Projects: append([]string{}, b.Projects...), Scopes: scopeRefs(b),
-			Deadlines: deadlineWeeks(b), Members: people,
+			Deadlines: deadlineWeeks(b), Members: people, Customers: customerRefs(b),
 			TeamDomains: rosterDomains(teams, func(name string) string { return board.TeamDomain(b, name) }),
 			ProjectDomains: rosterDomains(b.Projects, func(name string) string {
 				return board.ProjectDomain(b, name)
 			})},
 	}
+}
+
+func customerRefs(b board.Board) []CustomerRef {
+	var out []CustomerRef
+	for _, c := range b.Customers {
+		out = append(out, CustomerRef{ID: c.ID, Name: c.Name})
+	}
+	return out
 }
 
 func sortStrings(s []string) {

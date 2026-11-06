@@ -55,12 +55,12 @@ type DomainResolver interface {
 // An unknown reference falls through to the next rule; nothing deciding
 // means the primary domain, "".
 func DomainOf(c Card, r DomainResolver) string {
-	// A planning card — a goal, an initiative, an epic — has no team and no
-	// project (H3): the people and the projects are on the tasks under it.
-	// With nothing for rules 1-3 to read it is the primary's, and that is
-	// said here rather than left to fall through, so a stray value a direct
-	// writer put on one cannot move the whole tree's root into a closed
-	// repository.
+	// A planning card — a goal, an initiative, an epic — has no project
+	// (H3), and its team places nothing (O1): it says who carries the plan
+	// item out. With nothing for rules 1-3 to read it is the primary's, and
+	// that is said here rather than left to fall through, so its team — or a
+	// stray value a direct writer put on one — cannot move the whole tree's
+	// root into a closed repository.
 	if IsPlanning(c) {
 		return ""
 	}

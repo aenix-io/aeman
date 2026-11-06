@@ -167,9 +167,9 @@ func TestOwnGivesLooseWorkAHome(t *testing.T) {
 		}
 	})
 
-	t.Run("a planning card, a project card, a subtask and a review card have no owner of their own", func(t *testing.T) {
+	// A planning card's own is its team and its owner (O9, ownership_test.go).
+	t.Run("a project card, a subtask and a review card have no owner of their own", func(t *testing.T) {
 		for id, want := range map[string]error{
-			"epic":      ErrPlanningCard,
 			"slot":      ErrProjectCard,
 			"strip-sub": ErrOwnerFollowsLink,
 			"review":    ErrOwnerFollowsLink,

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/http"
 	"reflect"
 	"slices"
 	"sort"
@@ -41,14 +42,27 @@ type subscription struct {
 	// a domain they cannot read never reaches the socket, and roster frames
 	// carry their projection of the board. Nil = everything.
 	rights *domainRights
+	// overflowed is set by the first frame that does not fit in ch (G85):
+	// nothing more is queued, and gone is closed so the watch's writer —
+	// which may be blocked on a slow socket with ch full — ends the stream
+	// with a 410 rather than leave the client on a board missing a change.
+	overflowed atomic.Bool
+	gone       chan struct{}
 }
+
+// watchBuffer is how many frames wait for a slow watcher. It sizes the
+// burst a watcher rides out without a re-list, never what it is told: a
+// frame that does not fit ends the watch with a 410 (G85).
+const watchBuffer = 256
 
 // seen is a card resource as this subscriber may read it: status.lineage,
 // status.reviewed and status.dueDate name OTHER cards, and one in a
 // repository the subscriber cannot read is left out — the crumb dropped,
 // the reviewed card unnamed, the due date taken from the nearest planning
-// card the subscriber can read. A subscriber who reads everything is sent
-// the resource as built.
+// card the subscriber can read. status.effectiveTeam and effectiveCustomers
+// are inherited from those cards too (O3, O4, O6), so they are worked out
+// again from the card's own and its readable ancestors'. A subscriber who
+// reads everything is sent the resource as built.
 func (sub *subscription) seen(res apiserver.Card, find func(string) (board.Card, bool)) apiserver.Card {
 	if sub.rights == nil {
 		return res
@@ -89,7 +103,70 @@ func (sub *subscription) seen(res apiserver.Card, find func(string) (board.Card,
 			}
 		}
 	}
+	out.Status.EffectiveTeam, out.Status.EffectiveCustomers = inheritedFromReadable(res, find, func(c board.Card) bool { return sub.rights.canRead(c.Domain) })
 	return out
+}
+
+// inheritedFromReadable is a card's effective team and customers as the
+// LISTING on this subscriber's visible board computes them (board.Visible,
+// Index.EffectiveTeam / EffectiveCustomers): the chain above a card ends at
+// the first ancestor the subscriber cannot read — a readable one above it
+// gives nothing — and a review card takes its task's customers only when the
+// task is readable. Ids the full answer did not hold (off the roster) stay
+// out.
+func inheritedFromReadable(res apiserver.Card, find func(string) (board.Card, bool), can func(board.Card) bool) (string, []string) {
+	c, ok := find(res.Metadata.UID)
+	if !ok || c.Scope != "" {
+		return "", nil
+	}
+	chain := func(c board.Card) []board.Card {
+		const maxHops = 6
+		var up []board.Card
+		seen := map[string]bool{c.ItemID: true}
+		for cur := c; cur.Parent != "" && len(up) < maxHops; {
+			p, ok := find(cur.Parent)
+			if !ok || !can(p) || seen[p.ItemID] {
+				break
+			}
+			seen[p.ItemID] = true
+			up = append([]board.Card{p}, up...)
+			cur = p
+		}
+		return up
+	}
+	team := c.Team
+	if team == "" {
+		up := chain(c)
+		for i := len(up) - 1; i >= 0 && team == ""; i-- {
+			team = up[i].Team
+		}
+	}
+	known := map[string]bool{}
+	for _, id := range res.Status.EffectiveCustomers {
+		known[id] = true
+	}
+	var customers []string
+	add := func(ids []string) {
+		for _, id := range ids {
+			if known[id] && !slices.Contains(customers, id) {
+				customers = append(customers, id)
+			}
+		}
+	}
+	var of func(c board.Card, depth int)
+	of = func(c board.Card, depth int) {
+		if c.ReviewOf != "" && depth == 0 {
+			if task, ok := find(c.ReviewOf); ok && can(task) && task.ReviewOf == "" {
+				of(task, depth+1)
+			}
+		}
+		for _, a := range chain(c) {
+			add(a.Customers)
+		}
+		add(c.Customers)
+	}
+	of(c, 0)
+	return team, customers
 }
 
 // view is the board as this subscriber sees it.
@@ -100,8 +177,8 @@ func (sub *subscription) view(b board.Board) board.Board {
 	return board.Visible(b, sub.rights.primary, sub.rights.readable)
 }
 
-// send marshals and delivers one frame; a slow subscriber drops it and
-// reconciles on its next re-list.
+// send marshals and delivers one frame. A subscriber too slow to take it is
+// ended with a 410 and re-lists (sendRaw, G85).
 func (sub *subscription) send(frame watchFrame) {
 	data, err := json.Marshal(frame)
 	if err != nil {
@@ -112,11 +189,51 @@ func (sub *subscription) send(frame watchFrame) {
 
 // sendRaw delivers a frame already marshalled — one built for a whole group
 // of subscriptions that see the same board (see flushRoster).
+//
+// A frame that does not fit is never dropped silently (G85): the
+// subscription is marked overflowed, nothing more is queued for it, and its
+// writer ends the stream with a 410 (next) — the client re-lists.
 func (sub *subscription) sendRaw(data []byte) {
+	if sub.overflowed.Load() {
+		return
+	}
 	select {
 	case sub.ch <- data:
 	default:
+		if sub.overflowed.CompareAndSwap(false, true) {
+			close(sub.gone)
+		}
 	}
+}
+
+// expiredFrame is the watch's last frame after an overflow, in the
+// Kubernetes shape: an ERROR carrying a Status of code 410, reason Expired —
+// what the client has is out of date, re-LIST and watch again.
+var expiredFrame = mustMarshal(watchFrame{Type: "ERROR", Kind: "Status", Object: map[string]any{
+	"kind":    "Status",
+	"status":  "Failure",
+	"reason":  "Expired",
+	"code":    http.StatusGone,
+	"message": "the watch fell behind and frames were lost: re-list and watch again",
+}})
+
+func mustMarshal(v any) []byte {
+	data, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+// deliver is what the watch's writer sends for a frame it took off ch, and
+// whether it is the last: once the subscription overflowed that is the 410
+// instead, ahead of anything still queued, so nothing reaches the client
+// after it. The writer also wakes on gone, for a buffer it was not reading.
+func (sub *subscription) deliver(data []byte) ([]byte, bool) {
+	if sub.overflowed.Load() {
+		return expiredFrame, true
+	}
+	return data, false
 }
 
 // clientIDCtxKey carries the mutating client's self-assigned id (the
@@ -249,6 +366,11 @@ type boardEntry struct {
 	// the part of it its descendants carry in their lineage (the Backlog's
 	// tag and due date), so a change to it can be sent down to them.
 	shownOf map[string]string
+	// ownedOf is every card's team and customers as last announced: the
+	// cards below it take them as their effective team and customers
+	// (ownership.md, O3, O4), through every level, so a change to them is
+	// sent down the whole subtree (subtreeOwning).
+	ownedOf map[string]string
 	// reviewShown is each reviewed card's part its REVIEW card carries
 	// (status.reviewed: title, type, people; and the parent its chain hangs
 	// from), and reviewsOf the review cards linked to it: a change to that
@@ -499,6 +621,7 @@ func detached(b board.Board) board.Board {
 	b.ProjectStates = maps.Clone(b.ProjectStates)
 	b.Domains = maps.Clone(b.Domains)
 	b.DroppedParents = maps.Clone(b.DroppedParents)
+	b.Customers = slices.Clone(b.Customers)
 	return b
 }
 
@@ -510,6 +633,7 @@ func detachedCards(cards []board.Card) []board.Card {
 	for i := range out {
 		out[i].Assignees = slices.Clone(out[i].Assignees)
 		out[i].Notes = slices.Clone(out[i].Notes)
+		out[i].Customers = slices.Clone(out[i].Customers)
 	}
 	return out
 }
@@ -536,10 +660,14 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	// And the tasks under a planning card whose title or dates moved: they
 	// carry both in their lineage (descendantsShowingIt).
 	descendants := e.descendantsShowingIt(c, verb)
+	// And every card below one whose team or customers moved: they take both
+	// as their effective team and customers, at any depth (O3, O4).
+	descendants = unionIDs(descendants, e.subtreeOwning(c, verb))
 	ancestors = append(ancestors, descendants...)
-	// And the review cards of a card whose title, type, people or chain moved
-	// (status.reviewed, status.lineage): no write touches them either.
-	ancestors = append(ancestors, e.reviewsShowingIt(c, verb, descendants)...)
+	// And the review cards of a card whose title, type, people, customers or
+	// chain moved (status.reviewed, status.lineage, effectiveCustomers), and
+	// of every card re-sent above: no write touches them either.
+	ancestors = unionIDs(ancestors, e.reviewsShowingIt(c, verb, descendants))
 	// Built on demand: on a board whose tabs are all scoped — the ordinary
 	// case — a burst of changes must not pay for a resource nobody is sent.
 	// And built ONCE each: the card's resource and every ancestor's are the
@@ -644,11 +772,15 @@ func (e *boardEntry) flushMembers() {
 		if sub.sel == nil || !sub.resources["cards"] {
 			continue
 		}
+		// A board with no mirror of its selection (a filtered Roadmap) cannot
+		// place its own change: its author is sent the membership changes
+		// too, and spared only the MODIFIED echo.
+		mirrored := sub.sel.Mirrored()
 		now := map[string]bool{}
 		for _, c := range apiserver.FilterCards(sub.view(e.board), *sub.sel) {
 			now[c.ItemID] = true
 			changed, touched := moved[c.ItemID]
-			if mine(changed, sub.clientID) {
+			if mine(changed, sub.clientID) && (mirrored || sub.members[c.ItemID]) {
 				continue
 			}
 			switch {
@@ -659,7 +791,7 @@ func (e *boardEntry) flushMembers() {
 			}
 		}
 		for id := range sub.members {
-			if now[id] || mine(moved[id], sub.clientID) {
+			if now[id] || (mirrored && mine(moved[id], sub.clientID)) {
 				continue
 			}
 			obj := tombstone(id)
@@ -944,7 +1076,8 @@ func (s *boardStore) subscribe(key, clientID string, sel *apiserver.Selector, re
 func (s *boardStore) subscribeAs(key, clientID string, sel *apiserver.Selector, resources map[string]bool, rights *domainRights) (*subscription, func()) {
 	e := s.entry(key)
 	sub := &subscription{
-		ch:        make(chan []byte, 64),
+		ch:        make(chan []byte, watchBuffer),
+		gone:      make(chan struct{}),
 		clientID:  clientID,
 		sel:       sel,
 		resources: resources,
@@ -1176,6 +1309,7 @@ func (e *boardEntry) rememberParents() {
 	e.parentOf = make(map[string]string, len(e.board.Cards))
 	e.planning = map[string]bool{}
 	e.shownOf = map[string]string{}
+	e.ownedOf = make(map[string]string, len(e.board.Cards))
 	e.reviewShown = map[string]string{}
 	e.reviewsOf = map[string][]string{}
 	for _, c := range e.board.Cards {
@@ -1188,6 +1322,7 @@ func (e *boardEntry) rememberParents() {
 			e.reviewShown[c.ItemID] = shownInReview(c)
 		}
 		e.parentOf[c.ItemID] = c.Parent
+		e.ownedOf[c.ItemID] = shownOwning(c)
 		if board.IsPlanning(c) {
 			e.planning[c.ItemID] = true
 			e.shownOf[c.ItemID] = shownInLineage(c)
@@ -1195,17 +1330,92 @@ func (e *boardEntry) rememberParents() {
 	}
 }
 
-// shownInLineage is what a descendant's lineage carries of a planning card:
-// its title and its dates (status.lineage[].title/end).
+// shownInLineage is what a descendant carries of a planning card in its
+// lineage: its title and its dates (status.lineage[].title/end).
 func shownInLineage(c board.Card) string {
 	return c.Title + "\x00" + c.StartDate + "\x00" + c.Day
 }
 
+// shownOwning is what every card below a card takes from it: its team and
+// its customers (status.effectiveTeam/effectiveCustomers; O3, O4).
+func shownOwning(c board.Card) string {
+	return c.Team + "\x00" + strings.Join(c.Customers, ",")
+}
+
 // shownInReview is what a review card carries of the card it reviews: its
-// title, type and people (status.reviewed) and the parent its planning
-// chain hangs from (status.lineage).
+// title, type and people (status.reviewed), the parent its planning chain
+// hangs from (status.lineage) and its customers, which are the review
+// card's own (status.effectiveCustomers, O6).
 func shownInReview(c board.Card) string {
-	return c.Title + "\x00" + c.Type + "\x00" + strings.Join(c.Assignees, ",") + "\x00" + c.Parent
+	return c.Title + "\x00" + c.Type + "\x00" + strings.Join(c.Assignees, ",") + "\x00" + c.Parent + "\x00" + strings.Join(c.Customers, ",")
+}
+
+// unionIDs is a followed by the ids of b it does not hold yet, in order.
+func unionIDs(a, b []string) []string {
+	if len(b) == 0 {
+		return a
+	}
+	seen := make(map[string]bool, len(a)+len(b))
+	for _, id := range a {
+		seen[id] = true
+	}
+	for _, id := range b {
+		if !seen[id] {
+			seen[id] = true
+			a = append(a, id)
+		}
+	}
+	return a
+}
+
+// subtreeOwning is every card below one whose team or customers this change
+// moved, by id, nearest first: a planning card's or a task's team and
+// customers are the effective ones of everything under it (O3, O4) — the
+// planning cards, the tasks and their subtasks, at any depth — and no write
+// touches those. Their review cards follow through reviewsShowingIt. A goal
+// with many tasks names many cards here, possibly more than a watcher's
+// buffer (watchBuffer) holds; a watcher that cannot keep up is ended with a
+// 410 and re-lists (G85). The order puts the levels a board draws first
+// ahead of the deep ones, and a scoped watcher is sent only the ones its
+// view holds (flushMembers). It records what was shown for next time; the
+// caller holds e.mu with the cache already updated.
+func (e *boardEntry) subtreeOwning(c board.Card, verb string) []string {
+	if e.ownedOf == nil {
+		return nil
+	}
+	if verb == "DELETED" {
+		delete(e.ownedOf, c.ItemID)
+		return nil
+	}
+	now := shownOwning(c)
+	was, known := e.ownedOf[c.ItemID]
+	e.ownedOf[c.ItemID] = now
+	if !known || was == now || c.ReviewOf != "" {
+		return nil
+	}
+	children := map[string][]string{}
+	for id, parent := range e.parentOf {
+		if parent != "" {
+			children[parent] = append(children[parent], id)
+		}
+	}
+	var out []string
+	seen := map[string]bool{c.ItemID: true}
+	for level := []string{c.ItemID}; len(level) > 0; {
+		var next []string
+		for _, id := range level {
+			for _, kid := range children[id] {
+				if !seen[kid] {
+					seen[kid] = true
+					next = append(next, kid)
+				}
+			}
+		}
+		sort.Strings(next)
+		out = append(out, next...)
+		level = next
+	}
+	return out
 }
 
 // reviewsShowingIt is the REVIEW cards of a card whose shown part this
@@ -1243,7 +1453,8 @@ func (e *boardEntry) reviewsShowingIt(c board.Card, verb string, alsoFor []strin
 }
 
 // descendantsShowingIt is the TASKS directly under a planning card whose
-// title or dates this change moved, by id. A task's lineage carries both, and
+// title or dates this change moved, by id (its team and customers reach the
+// whole subtree instead: subtreeOwning). A task's lineage carries both, and
 // the Backlog shows the NEAREST planning card's — its tag and due date (K2) —
 // so a board that holds the tasks and not the planning card (the Backlog's
 // `view=all&team=<set>`) would otherwise keep showing the old ones (K6). Only

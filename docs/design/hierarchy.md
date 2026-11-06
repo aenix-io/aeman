@@ -48,12 +48,16 @@ Three consequences, each deliberate:
   detail pane, because it is stored and served like any other card —
   nothing was added to the storage for it. Its dates are the card's own
   `start` and `day`, which is why the Roadmap draws a goal and a task by
-  one rule. It carries **no `assignees` and no `team`**: the people and
-  the teams are on the tasks under it, and the Roadmap reads them off the
-  tree (an initiative is "in progress" the moment one of its tasks is
-  somebody's). A write that sets either is refused; one found in a file
-  is read off. With nothing to place it, a planning card lives in the
-  **primary** repository, always.
+  one rule. It carries **no `assignees`**: the people are on the tasks
+  under it, and the Roadmap reads them off the tree (an initiative is "in
+  progress" the moment one of its tasks is somebody's). A write that sets
+  one is refused; one found in a file is read off. It MAY carry a `team` —
+  the team that carries it out — an `owner` — the one person who answers
+  for it — and `customers` ([ownership.md](ownership.md), O1–O10, amended
+  2026-11-06): none of them places it or puts it on any day board, and the
+  team and customers are inherited by the cards below as their effective
+  ones. With nothing to place it, a planning card lives in the **primary**
+  repository, always.
 
 ### What a level is for
 
@@ -199,7 +203,7 @@ The inheritance rule loses one clause and keeps its order:
 4. any other card lives where its **team** lives (the no-team group
    lives in the primary domain).
 
-A planning card has no team and no project, so nothing places it: it
+A planning card has no project and its team places nothing, so nothing places it: it
 lives in the **primary** repository, always — the one repository every
 reader of the board can read (without it there is no board at all,
 403). A hierarchy link does **not** move the child — a task under an
@@ -332,10 +336,14 @@ subtask" — a level above the range is skipped and its rows stand in its
 place, a level below is cut with its subtree; initiative to task by
 default), a zoom (3 months, a year, fit — three months and a year open
 two weeks before this Monday, fit spans every bar with a week of margin),
-the window's dates and a person filter — a filter keeps the matching
-cards and every card above them, so the tree keeps its shape. There is no
-team filter: a planning card has no team. The depth, the zoom and which
-rows are folded are the reader's own, kept in the browser.
+the window's dates, and the team, customer and owner filters
+([ownership.md](ownership.md), O7, O8: team and customer match a task by
+its effective value and a planning card by itself or any task under it;
+owner — the one person filter — matches a planning card by its own owner
+and a task or subtask by its assignees), applied by the server — a filter
+keeps the matching cards and every card above them, so the tree keeps its
+shape. The depth, the zoom, the filters and which rows are folded are the
+reader's own, kept in the browser.
 
 **Below the tree, after everything else, the loose work** (H9): the open
 cards with no planning card above them, in sections — **In work**
@@ -347,7 +355,7 @@ panes so the lanes stay in step; its rows show the task's owner and
 subtasks like the tree's, and a row there **drags into the tree** under
 a planning card by the same rule and with the same preview — dragging
 within the sections does nothing, and nothing is dropped onto a section
-row. The person filter applies to them too. (`sectionOf` / `sectionsOf`
+row. The filters apply to them too. (`sectionOf` / `sectionsOf`
 in `roadmap.ts`: a root with a planning crumb in its lineage stays in the
 tree even when its parent is not in the listing — a hole is worse than a
 flat row.)
@@ -558,7 +566,7 @@ task.
 - H3 — a planning card is drawn on the Roadmap and on no day board, is
   never carried, weighed or overdue, and has no stage, progress, band,
   backlog, sprint, column or review of its own (`ErrPlanningCard`,
-  422 `planningCard`); its dates are its own, and it has no owner and no team — those are on the tasks under it — so it lives in the primary repository. Pinned by
+  422 `planningCard`); its dates are its own, and it has no assignee — the people doing the work are on the tasks under it; it may carry a team and an owner (who carries it out, who answers for it, `ownership.md`), which place nothing — so it lives in the primary repository. Pinned by
   board `TestPlanningCardsAreOnNoDayBoardAndTasksUnderThemAre`; service
   `TestAPlanningCardHasNoDayBoardState`,
   `TestDeletingAPlanningCardReparentsItsChildren`; apiserver

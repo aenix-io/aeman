@@ -386,3 +386,169 @@ func TestATasksReviewCardHearsWhatItShowsOfTheTask(t *testing.T) {
 		t.Fatalf("the task's own frame: %+v", got)
 	}
 }
+
+// A PLAN ITEM'S TEAM AND CUSTOMERS REACH THE TASKS DIRECTLY UNDER IT. Their
+// effective team and customers (ownership.md, O3, O4) are computed from the
+// plan item and no write touches them, so naming a customer on an epic
+// re-sends the tasks under it with their new effective customers — as a
+// rename re-sends their lineage.
+func TestAPlanItemsCustomersReachTheTasksUnderIt(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
+		{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha", Parked: true},
+	})
+	b.Customers = []board.Customer{{ID: "cu1", Name: "Hidora"}}
+	e := seedEntry(store, "k", b)
+	raw, cancel := store.subscribe("k", "", nil, map[string]bool{"cards": true})
+	defer cancel()
+	e.mu.Lock()
+	c, _ := board.Find(e.board, "epic")
+	c.Customers = []string{"cu1"}
+	c.Team = "beta"
+	e.upsertCard(c)
+	e.cardChanged("", c, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+	got := took(t, raw, 2)
+	task := got["t"].Card
+	if got["t"].Type != "MODIFIED" || len(task.Status.EffectiveCustomers) != 1 || task.Status.EffectiveTeam != "alpha" {
+		t.Fatalf("the task under the epic = %+v, want MODIFIED with Hidora and its own team", task.Status)
+	}
+}
+
+// AND THE WHOLE SUBTREE, WHEN IT IS THE TEAM OR THE CUSTOMERS. A goal's
+// customers are every card's below it, through every level (O4), so naming
+// one re-sends the initiative, the epic, the task, its subtask and the task's
+// review card — each carries the new effective customers. A task's own
+// customers reach its subtask and its review card the same way. A title
+// change still reaches the direct tasks alone (their lineage), as before.
+func TestAnOwnershipChangeReachesTheWholeSubtree(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "goal", Title: "Grow", Type: board.TypeGoal},
+		{ItemID: "init", Title: "Portugal", Type: board.TypeInitiative, Parent: "goal"},
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "init"},
+		{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha", Parked: true},
+		{ItemID: "sub", Title: "Receipt PDF", Parent: "t", Team: "alpha"},
+		{ItemID: "r", Title: "review: Receipts", ReviewOf: "t", Team: "alpha", Parked: true},
+	})
+	b.Customers = []board.Customer{{ID: "cu1", Name: "Hidora"}, {ID: "cu2", Name: "Acme"}}
+	e := seedEntry(store, "k", b)
+	raw, cancel := store.subscribe("k", "", nil, map[string]bool{"cards": true})
+	defer cancel()
+	change := func(id string, edit func(*board.Card)) {
+		e.mu.Lock()
+		c, _ := board.Find(e.board, id)
+		edit(&c)
+		e.upsertCard(c)
+		e.cardChanged("", c, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+
+	change("goal", func(c *board.Card) { c.Customers = []string{"cu1"} })
+	got := took(t, raw, 6)
+	for _, id := range []string{"init", "epic", "t", "sub", "r"} {
+		if cs := got[id].Card.Status.EffectiveCustomers; len(cs) != 1 || cs[0] != "cu1" {
+			t.Fatalf("%s after the goal's customer = %+v, want Hidora", id, got[id])
+		}
+	}
+
+	// The task, the three plan items above it (their standing), its subtask
+	// and its review card.
+	change("t", func(c *board.Card) { c.Customers = []string{"cu2"} })
+	got = took(t, raw, 6)
+	for _, id := range []string{"sub", "r"} {
+		if cs := got[id].Card.Status.EffectiveCustomers; len(cs) != 2 {
+			t.Fatalf("%s after the task's customer = %v, want Hidora and Acme", id, cs)
+		}
+	}
+
+	// A title is shown by the direct tasks' lineage alone.
+	change("goal", func(c *board.Card) { c.Title = "Grow more" })
+	got = took(t, raw, 1)
+	if _, ok := got["goal"]; !ok || len(got) != 1 {
+		t.Fatalf("a goal's rename re-sent %v", got)
+	}
+}
+
+// A FILTERED ROADMAP HAS NO CLIENT MIRROR, SO ITS AUTHOR IS TOLD TOO. The
+// team, customer and owner filters are the server's alone (O7, O8): the
+// board draws what it was sent. An author's own ADDED and DELETED used to be
+// held back — their tab was assumed to have placed the card itself — while
+// the ancestors that came along only for that card were sent as DELETED, so
+// the author's Roadmap kept the card with no chain above it. On a filtered
+// Roadmap the author is sent the membership changes like everyone else; only
+// the MODIFIED echo of their own write is spared.
+func TestAFilteredRoadmapTellsItsAuthorWhatLeftAndEntered(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "goal", Title: "Grow", Type: board.TypeGoal},
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "goal"},
+		{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha", Assignees: []string{"ann"}},
+		{ItemID: "loose", Title: "Docs", Team: "alpha", Assignees: []string{"ann"}},
+	})
+	e := seedEntry(store, "k", b)
+	sel := &apiserver.Selector{View: "roadmap", Owner: "ann"}
+	author, cancel := store.subscribe("k", "me", sel, map[string]bool{"cards": true})
+	defer cancel()
+	other, cancel2 := store.subscribe("k", "other", sel, map[string]bool{"cards": true})
+	defer cancel2()
+	assign := func(who string) {
+		e.mu.Lock()
+		c, _ := board.Find(e.board, "t")
+		c.Assignees = []string{who}
+		e.upsertCard(c)
+		e.cardChanged("me", c, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+
+	// t leaves the filter, and with it the goal and the epic, which were
+	// drawn only as its chain.
+	assign("bob")
+	for name, sub := range map[string]*subscription{"author": author, "other": other} {
+		got := took(t, sub, 3)
+		for _, id := range []string{"goal", "epic", "t"} {
+			if got[id].Type != "DELETED" {
+				t.Fatalf("%s: %s = %q, want DELETED (%v)", name, id, got[id].Type, got)
+			}
+		}
+	}
+	// And it enters again, with its chain.
+	assign("ann")
+	for name, sub := range map[string]*subscription{"author": author, "other": other} {
+		got := took(t, sub, 3)
+		for _, id := range []string{"goal", "epic", "t"} {
+			if got[id].Type != "ADDED" {
+				t.Fatalf("%s: %s = %q, want ADDED (%v)", name, id, got[id].Type, got)
+			}
+		}
+	}
+}
+
+// An unfiltered Roadmap keeps sparing its author: the board places a card
+// it moved by the same rules (roadmap.ts), so an echo would only make it
+// jump.
+func TestAnUnfilteredRoadmapSparesItsAuthor(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
+		{ItemID: "t", Title: "Receipts", Team: "alpha", Assignees: []string{"ann"}},
+	})
+	e := seedEntry(store, "k", b)
+	author, cancel := store.subscribe("k", "me", &apiserver.Selector{View: "roadmap"}, map[string]bool{"cards": true})
+	defer cancel()
+	e.mu.Lock()
+	c, _ := board.Find(e.board, "t")
+	c.Parent = "epic"
+	e.upsertCard(c)
+	e.cardChanged("me", c, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+	got := took(t, author, 1)
+	if got["t"].Type != "" || got["epic"].Type != "MODIFIED" {
+		t.Fatalf("the author was sent %v, want the epic's new standing alone", got)
+	}
+}

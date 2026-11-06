@@ -84,6 +84,16 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	}
 	w("author", c.Author)
 	w("team", c.Team)
+	// A planning card's owner (one login) and any card's customers (roster
+	// ids): docs/design/ownership.md.
+	w("owner", c.Owner)
+	if len(c.Customers) > 0 {
+		items := make([]string, len(c.Customers))
+		for i, id := range c.Customers {
+			items[i] = scalar(id)
+		}
+		b.WriteString("customers: [" + strings.Join(items, ", ") + "]\n")
+	}
 	w("zone", string(c.Zone))
 	w("size", string(c.Size))
 	w("stage", string(c.Stage))
@@ -308,7 +318,7 @@ func resolveNode(n *yaml.Node, seen map[*yaml.Node]bool) *yaml.Node {
 func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 	num := func() int { n, _ := strconv.Atoi(val.Value); return n }
 	strs := map[string]*string{
-		"title": &c.Title, "type": &c.Type, "author": &c.Author, "team": &c.Team, "start": &c.StartDate,
+		"title": &c.Title, "type": &c.Type, "author": &c.Author, "team": &c.Team, "owner": &c.Owner, "start": &c.StartDate,
 		"day": &c.Day, "sprint": &c.SprintStart, "week": &c.Week, "project": &c.Project,
 		"scope": &c.Scope, "parent": &c.Parent, "reviewOf": &c.ReviewOf, "recurrence": &c.Recurrence,
 		// `epic` is what the column key was called before schema 2: read as
@@ -328,6 +338,10 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 	case "assignees":
 		for _, it := range val.Content {
 			c.Assignees = append(c.Assignees, it.Value)
+		}
+	case "customers":
+		for _, it := range val.Content {
+			c.Customers = append(c.Customers, it.Value)
 		}
 	case "zone":
 		c.Zone = board.ZoneKey(val.Value)
