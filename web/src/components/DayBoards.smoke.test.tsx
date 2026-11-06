@@ -300,3 +300,25 @@ describe("the Me board's filter", () => {
     expect(html).not.toContain("filter-hidden-btn");
   });
 });
+
+// The count is of what the board draws: rows and the subtasks nested under
+// them. A shown row's subtask of another team is hidden, and counted.
+describe("the Me board's N more tasks", () => {
+  it("counts a subtask the Team filter hides under a shown row", () => {
+    const html = renderToStaticMarkup(
+      <MeBoard
+        {...common}
+        board={{ ...board([
+          card({ itemId: "p", title: "Parent", zone: "gray" }),
+          card({ itemId: "k", title: "Beta kid", zone: "gray", team: "beta", parent: "p" }),
+        ]), teams: ["alpha", "beta"] } as Board}
+        teamFilter={["alpha"]}
+        viewAs={null}
+        onViewAs={vi.fn()}
+        connectHint=""
+        teams={["alpha", "beta"]}
+      />,
+    );
+    expect(html).toMatch(/>1 more task</);
+  });
+});

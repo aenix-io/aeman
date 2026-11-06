@@ -131,9 +131,22 @@ describe("the Me board's filter", () => {
   });
 
   it("counts what it hides of what the day would draw", () => {
-    expect(hiddenByFilters(cards, (c) => meFilterPasses(c, ["alpha"]))).toBe(2);
-    expect(hiddenByFilters(cards, () => true)).toBe(0);
+    expect(hiddenByFilters(cards, () => [], (c) => meFilterPasses(c, ["alpha"]))).toBe(2);
+    expect(hiddenByFilters(cards, () => [], () => true)).toBe(0);
     expect(moreTasksLabel(1)).toBe("1 more task");
     expect(moreTasksLabel(3)).toBe("3 more tasks");
+  });
+
+  // What the board draws is rows AND the subtasks nested under them, so the
+  // count is of both: a hidden row takes its subtasks with it, and a shown
+  // row's subtask of another team is hidden on its own.
+  it("counts the subtasks it hides, under a hidden row and a shown one", () => {
+    const kids: Record<string, ReturnType<typeof card>[]> = {
+      a: [card({ itemId: "a1", team: "alpha" }), card({ itemId: "a2", team: "beta" })],
+      b: [card({ itemId: "b1", team: "beta" }), card({ itemId: "b2", team: "alpha" })],
+    };
+    const passes = (c: ReturnType<typeof card>) => meFilterPasses(c, ["alpha"]);
+    // b and both its subtasks; n; a's beta subtask.
+    expect(hiddenByFilters(cards, (id) => kids[id] ?? [], passes)).toBe(5);
   });
 });

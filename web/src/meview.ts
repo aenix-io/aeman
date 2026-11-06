@@ -89,9 +89,21 @@ export function meFilterPasses(c: Card, teams: readonly string[] | null): boolea
 }
 
 /** hiddenByFilters is how many of the cards the board would draw on the
- *  day with no filter the filter hides — the "N more tasks" button. */
-export function hiddenByFilters(drawn: readonly Card[], passes: (c: Card) => boolean): number {
-  return drawn.filter((c) => !passes(c)).length;
+ *  day with no filter the filter hides — the "N more tasks" button. The
+ *  board draws rows and, nested under each, its subtasks on the day
+ *  (`kidsOf`, unfiltered): a hidden row hides its subtasks with it, and a
+ *  shown row's subtask the filter leaves out is hidden on its own. */
+export function hiddenByFilters(
+  rows: readonly Card[],
+  kidsOf: (id: string) => readonly Card[],
+  passes: (c: Card) => boolean,
+): number {
+  let n = 0;
+  for (const r of rows) {
+    const kids = kidsOf(r.itemId);
+    n += passes(r) ? kids.filter((k) => !passes(k)).length : 1 + kids.length;
+  }
+  return n;
 }
 
 /** moreTasksLabel is the button's words. */

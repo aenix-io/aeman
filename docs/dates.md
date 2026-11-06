@@ -152,7 +152,8 @@ The rules above place TODAY's cards on a day. That is what a day-lens is: dates 
   Me board share, `ownership.md` O12) narrows it to the chosen teams — the
   no-team group being one. When it hides any of the day's cards, a yellow
   "N more tasks" button beside it says how many, counted over what the day
-  would draw with no filter, and clears it. The Me board has no Customer
+  would draw with no filter — rows and the subtasks nested under them — and
+  clears it. The Me board has no Customer
   filter: a customer chosen on the Team board or the Backlog hides nothing
   here.
 

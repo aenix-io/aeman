@@ -298,7 +298,6 @@ export function MeBoard({
     [teamFilter, kept],
   );
   const myCards = useMemo(() => dayCards.filter(filterPasses), [dayCards, filterPasses]);
-  const hiddenCount = hiddenByFilters(dayCards, filterPasses);
 
   const byZone = useMemo(() => {
     const buckets: Record<ZoneKey, CardModel[]> = {
@@ -436,15 +435,14 @@ export function MeBoard({
   const subtaskOnDay = (c: CardModel): boolean =>
     subtaskShows(c, { today: todayIso(), day: selectedDate });
 
-  const childrenOf = useMemo(() => {
+  // Every subtask the day would nest with no filter, by parent — what the
+  // "N more tasks" button counts against — and the ones the filter keeps.
+  const dayChildren = useMemo(() => {
     const m = new Map<string, CardModel[]>();
     for (const c of mine) {
       // Under a TASK only: a task under an epic is a row of its own.
       const under = subtaskParent(c);
       if (!under || !subtaskOnDay(c)) {
-        continue;
-      }
-      if (!filterPasses(c)) {
         continue;
       }
       const list = m.get(under) ?? [];
@@ -453,7 +451,20 @@ export function MeBoard({
     }
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mine, filterPasses, selectedDate, board]);
+  }, [mine, selectedDate, board]);
+  const childrenOf = useMemo(() => {
+    const m = new Map<string, CardModel[]>();
+    for (const [under, kids] of dayChildren) {
+      const kept = kids.filter(filterPasses);
+      if (kept.length > 0) {
+        m.set(under, kept);
+      }
+    }
+    return m;
+  }, [dayChildren, filterPasses]);
+  // Rows and nested subtasks alike: what the board would draw unfiltered
+  // that the Team filter hides (meview.hiddenByFilters).
+  const hiddenCount = hiddenByFilters(dayCards, (id) => dayChildren.get(id) ?? [], filterPasses);
 
   // The notes machinery sees subtasks too: they never render as zone rows,
   // but their notes and events belong to the day's feed — and their logs must
