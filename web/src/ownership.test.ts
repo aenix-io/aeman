@@ -108,4 +108,12 @@ describe("the owner filter's options", () => {
     ];
     expect(ownerFilterOptions(["ann", "carl"], held, ["zed"])).toEqual(["ann", "bob", "carl", "gwen", "zed"]);
   });
+
+  // The listing a filtered Roadmap holds is the filter's answer, so the
+  // people on it shrink to the ones chosen; the options must not shrink with
+  // it, or the filter could only ever be narrowed.
+  it("keep the people the board has shown before, though the filtered listing no longer holds them", () => {
+    const filtered = [card({ itemId: "t", assignees: ["ann"] })];
+    expect(ownerFilterOptions([], filtered, ["ann"], ["bob", "gwen"])).toEqual(["ann", "bob", "gwen"]);
+  });
 });

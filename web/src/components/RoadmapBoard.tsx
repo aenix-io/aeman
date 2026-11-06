@@ -57,7 +57,7 @@ import { barColor } from "../stages";
 import { ViewToggle } from "./ViewToggle";
 import { FilterSelect } from "./FilterSelect";
 import { CustomersModal } from "./CustomersModal";
-import { ownerFilterOptions, type RoadmapFilters } from "../ownership";
+import { NO_ROADMAP_FILTERS, ownerFilterOptions, peopleOf, type RoadmapFilters } from "../ownership";
 import { isPlanning } from "../subtasks";
 import { ownerLabel, ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
 import { displayName, type Avatars, type Names } from "../users";
@@ -434,10 +434,16 @@ export function RoadmapBoard({
   // the board's people, the plan items' owners, the tasks' assignees and
   // whoever is chosen. The filters are the server's (O7, O8), so what was
   // sent is what is drawn.
-  const owners = useMemo(
-    () => ownerFilterOptions(board.members.map((m) => m.login), board.cards, filters.owners),
-    [board.members, board.cards, filters.owners],
-  );
+  // Everyone the board has shown since it opened: a filtered listing holds
+  // only the filter's answer, and the options must not shrink with it.
+  const seenPeople = useRef(new Set<string>());
+  const owners = useMemo(() => {
+    for (const p of peopleOf(board.cards)) {
+      seenPeople.current.add(p);
+    }
+    return ownerFilterOptions(board.members.map((m) => m.login), board.cards, filters.owners, seenPeople.current);
+  }, [board.members, board.cards, filters.owners]);
+  const filtering = filters.teams.length > 0 || filters.customers.length > 0 || filters.owners.length > 0;
   const shown = board.cards;
 
   // ---- the drag: where it stands, and the preview of where it would land ----
@@ -541,7 +547,7 @@ export function RoadmapBoard({
     }
     // The listing order is the board's; with a filter on, the order of what
     // is shown says nothing about the rest, so it is left to the response.
-    if (!filters.teams.length && !filters.customers.length && !filters.owners.length) {
+    if (!filtering) {
       reorderCards?.(commit.order);
     }
     // A parent the server took stays: only a refused parent is rolled
@@ -882,9 +888,18 @@ export function RoadmapBoard({
 
       {shownLines.length === 0 ? (
         <p className="placeholder roadmap-empty">
-          {board.cards.length === 0
-            ? "Nothing on the roadmap yet: add a goal, an initiative or an epic, and file work under it from a card's pane."
-            : "Nothing to draw at this depth and filter."}
+          {filtering ? (
+            <>
+              {board.cards.length === 0 ? "Nothing matches the filters." : "Nothing to draw at this depth and filter."}{" "}
+              <button type="button" className="btn roadmap-clear-filters" onClick={() => onFilters(NO_ROADMAP_FILTERS)}>
+                Clear the filters
+              </button>
+            </>
+          ) : board.cards.length === 0 ? (
+            "Nothing on the roadmap yet: add a goal, an initiative or an epic, and file work under it from a card's pane."
+          ) : (
+            "Nothing to draw at this depth."
+          )}
         </p>
       ) : (
         <DndContext

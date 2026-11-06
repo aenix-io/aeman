@@ -315,6 +315,16 @@ describe("ownership on the Roadmap", () => {
     expect(html).toMatch(/<button[^>]*aria-label="Owner filter"[^>]*>[^<]*Owner: anyone/);
   });
 
+  // A filter that matches nothing is not an empty roadmap: say so, and offer
+  // the way out.
+  it("says nothing matches the filters, and offers to clear them", () => {
+    const html = draw(board([]), null, false, vi.fn(), { teams: [], customers: [], owners: ["nobody"] });
+    expect(html).toContain("Nothing matches the filters");
+    expect(html).not.toContain("Nothing on the roadmap yet");
+    expect(html).toMatch(/<button[^>]*>Clear the filters<\/button>/);
+    expect(draw(board([]))).toContain("Nothing on the roadmap yet");
+  });
+
   it("opens the customer roster from the toolbar", () => {
     expect(draw(board([owned]))).toMatch(/<button[^>]*title="Manage the customers"/);
   });

@@ -130,13 +130,19 @@ export function customerChips(c: Card, cards: Held): CustomerChip[] {
 
 /** ownerFilterOptions is whom the Roadmap's Owner filter offers — its one
  *  person filter (O8): the board's members, every plan item's owner, every
- *  task's assignee and whoever is already chosen, once each, sorted. */
+ *  task's assignee, whoever is already chosen and whoever the board has
+ *  shown before (`seen`: a filtered listing holds only the filter's answer,
+ *  and the options must not shrink with it), once each, sorted. */
 export function ownerFilterOptions(
   members: readonly string[],
   cards: readonly Pick<Card, "owner" | "assignees">[],
   selected: readonly string[],
+  seen: Iterable<string> = [],
 ): string[] {
   const out = new Set<string>(members);
+  for (const p of seen) {
+    out.add(p);
+  }
   for (const c of cards) {
     if (c.owner) {
       out.add(c.owner);
@@ -149,6 +155,20 @@ export function ownerFilterOptions(
     out.add(s);
   }
   return [...out].sort();
+}
+
+/** peopleOf is every plan item's owner and every task's assignee. */
+export function peopleOf(cards: readonly Pick<Card, "owner" | "assignees">[]): string[] {
+  const out = new Set<string>();
+  for (const c of cards) {
+    if (c.owner) {
+      out.add(c.owner);
+    }
+    for (const a of c.assignees ?? []) {
+      out.add(a);
+    }
+  }
+  return [...out];
 }
 
 /** RoadmapFilters are the Roadmap's team, customer and owner filters
