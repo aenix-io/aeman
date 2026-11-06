@@ -552,3 +552,72 @@ func TestAnUnfilteredRoadmapSparesItsAuthor(t *testing.T) {
 		t.Fatalf("the author was sent %v, want the epic's new standing alone", got)
 	}
 }
+
+// O4, O11 — the Me board filters by effective customers on what it holds, so
+// a change to an ancestor's customers must reach the tasks on it: the subtree
+// re-send (subtreeOwning) reaches a scoped watch as MODIFIED frames for the
+// descendants its view holds — Me included — carrying the new effective
+// customers. Not only the unscoped stream.
+func TestAnAncestorsCustomersReachTheMeBoard(t *testing.T) {
+	today := board.TodayIso()
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Customers: []string{"cu1"}},
+		{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha", Assignees: []string{"ann"},
+			StartDate: today, Day: today, SprintStart: today},
+	})
+	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}}
+	b.Customers = []board.Customer{{ID: "cu1", Name: "Hidora"}}
+	e := seedEntry(store, "k", b)
+	me, cancel := store.subscribe("k", "", &apiserver.Selector{View: "me", User: "ann", Day: today}, map[string]bool{"cards": true})
+	defer cancel()
+	e.mu.Lock()
+	c, _ := board.Find(e.board, "epic")
+	c.Customers = nil
+	e.upsertCard(c)
+	e.cardChanged("other", c, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+	got := took(t, me, 1)
+	if got["t"].Type != "MODIFIED" || len(got["t"].Card.Status.EffectiveCustomers) != 0 {
+		t.Fatalf("the Me board heard %+v, want the task MODIFIED with no customer", got)
+	}
+}
+
+// O11 — the Team board's and the Backlog's watch narrowed by customer: a
+// card that gains a chosen customer enters it as ADDED, one that loses it
+// leaves as DELETED — for every other watcher. Its author is spared both:
+// these boards apply the same rule to what they hold (customerPasses), so
+// their own change has already placed the card.
+func TestACustomerFilteredWatchSeesCardsEnterAndLeave(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "t", Title: "Receipts", Team: "alpha", Parked: true},
+	})
+	b.Customers = []board.Customer{{ID: "cu1", Name: "Hidora"}}
+	e := seedEntry(store, "k", b)
+	sel := &apiserver.Selector{View: "all", Team: "alpha", Customer: "cu1"}
+	viewer, cancel := store.subscribe("k", "viewer", sel, map[string]bool{"cards": true})
+	defer cancel()
+	author, cancel2 := store.subscribe("k", "me", sel, map[string]bool{"cards": true})
+	defer cancel2()
+	set := func(ids []string) {
+		e.mu.Lock()
+		c, _ := board.Find(e.board, "t")
+		c.Customers = ids
+		e.upsertCard(c)
+		e.cardChanged("me", c, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+	set([]string{"cu1"})
+	if got := took(t, viewer, 1); got["t"].Type != "ADDED" {
+		t.Fatalf("gaining Hidora: the viewer heard %v, want ADDED", got)
+	}
+	noFrame(t, author)
+	set(nil)
+	if got := took(t, viewer, 1); got["t"].Type != "DELETED" {
+		t.Fatalf("losing Hidora: the viewer heard %v, want DELETED", got)
+	}
+	noFrame(t, author)
+}

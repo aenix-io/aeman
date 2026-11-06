@@ -275,3 +275,61 @@ func TestABacklogOfTheNoTeamGroupAloneIsItsOwn(t *testing.T) {
 		t.Fatalf("backlog team=, = %v, want the no-team group's alone", got)
 	}
 }
+
+// O11 on the day boards' own views: the Me list and the Team grid narrowed
+// by customer keep a task by its effective customers, bring its subtasks
+// along (they ride their task, and are for its customers too, O4) and the
+// review cards linked to what is kept (reviews=true; a review card is for
+// its task's customers, O6). A task for nobody chosen stays out, its review
+// with it. And a record of a past day gives back only what the customer
+// filter would have kept that day.
+func TestTheDayViewsByCustomerKeepSubtasksAndReviews(t *testing.T) {
+	const day = "2026-08-24"
+	b := board.NewBoard([]board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Customers: []string{"cu1"}},
+		{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha", Assignees: []string{"ann"}, SprintStart: day, StartDate: day, Day: day, Rank: "a"},
+		{ItemID: "s", Title: "Receipt PDF", Parent: "t", Team: "alpha", Assignees: []string{"ann"}, SprintStart: day, StartDate: day, Day: day, Rank: "b"},
+		{ItemID: "r", Title: "review: Receipts", ReviewOf: "t", Team: "alpha", Assignees: []string{"bob"}, SprintStart: day, StartDate: day, Day: day, Rank: "c"},
+		{ItemID: "u", Title: "Docs", Team: "alpha", Assignees: []string{"ann"}, SprintStart: day, StartDate: day, Day: day, Rank: "d"},
+		{ItemID: "ru", Title: "review: Docs", ReviewOf: "u", Team: "alpha", Assignees: []string{"bob"}, SprintStart: day, StartDate: day, Day: day, Rank: "e"},
+	})
+	b.SprintStates = map[string]board.SprintState{"alpha": {Current: day}}
+	b.Customers = []board.Customer{{ID: "cu1", Name: "Hidora"}}
+	ids := func(sel Selector) map[string]bool {
+		out := map[string]bool{}
+		for _, c := range FilterCards(b, sel) {
+			out[c.ItemID] = true
+		}
+		return out
+	}
+	me := ids(Selector{View: "me", User: "ann", Day: day, Customer: "cu1", IncludeReviews: true})
+	if !me["t"] || !me["s"] || !me["r"] || me["u"] || me["ru"] {
+		t.Fatalf("ann's Me for Hidora = %v, want the task, its subtask and its review only", me)
+	}
+	team := ids(Selector{View: "team", Team: "alpha", Day: day, Customer: "cu1", IncludeReviews: true})
+	if !team["t"] || !team["s"] || !team["r"] || team["u"] || team["ru"] {
+		t.Fatalf("alpha's grid for Hidora = %v", team)
+	}
+}
+
+func TestARecordGivesBackOnlyWhatTheCustomerFilterKeeps(t *testing.T) {
+	const day, prev = "2026-08-24", "2026-08-17"
+	b := board.NewBoard([]board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Customers: []string{"cu1"}},
+		{ItemID: "forHidora", Parent: "epic", Team: "portal", Assignees: []string{"ann"}, Progress: 100,
+			SprintStart: prev, StartDate: prev, Day: prev, LeftAt: day, Rank: "a"},
+		{ItemID: "forNobody", Team: "portal", Assignees: []string{"ann"}, Progress: 100,
+			SprintStart: prev, StartDate: prev, Day: prev, LeftAt: day, Rank: "b"},
+	})
+	b.SprintStates = map[string]board.SprintState{"portal": {Current: day, Previous: prev}}
+	b.Customers = []board.Customer{{ID: "cu1", Name: "Hidora"}}
+	sel := Selector{View: "team", Team: "portal", Day: day, LeftOn: day, Customer: "cu1",
+		RecordCards: map[string]bool{"forHidora": true, "forNobody": true}}
+	var got []string
+	for _, c := range FilterCards(b, sel) {
+		got = append(got, c.ItemID)
+	}
+	if !reflect.DeepEqual(got, []string{"forHidora"}) {
+		t.Fatalf("the record for Hidora gives back %v", got)
+	}
+}
