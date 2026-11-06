@@ -431,9 +431,9 @@ export function RoadmapBoard({
     setFolded(next);
   };
 
-  // The people on the Roadmap, for the one filter it has: every assignee a
-  // task carries. There is no team filter — a planning card has no team,
-  // and the rows a lead reads here are the planning cards.
+  // The people on the Roadmap, for the person filter: every assignee a task
+  // carries. The team, customer and owner filters are the server's
+  // (ownership.md, O7, O8).
   const people = useMemo(() => {
     const out = new Set<string>();
     for (const c of board.cards) {
