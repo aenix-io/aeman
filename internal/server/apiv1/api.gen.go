@@ -200,6 +200,9 @@ const (
 	CardNotOnBoard       ProblemCode = "cardNotOnBoard"
 	CrossDomain          ProblemCode = "crossDomain"
 	CrossSiteBlocked     ProblemCode = "crossSiteBlocked"
+	CustomerExists       ProblemCode = "customerExists"
+	CustomerName         ProblemCode = "customerName"
+	CustomerNotFound     ProblemCode = "customerNotFound"
 	DayIsARecord         ProblemCode = "dayIsARecord"
 	DescriptionTooLong   ProblemCode = "descriptionTooLong"
 	DomainConflict       ProblemCode = "domainConflict"
@@ -233,7 +236,9 @@ const (
 	NoteTooLong          ProblemCode = "noteTooLong"
 	OpenSubtasks         ProblemCode = "openSubtasks"
 	OwnerFollowsLink     ProblemCode = "ownerFollowsLink"
+	OwnerIsThePlans      ProblemCode = "ownerIsThePlans"
 	OwnerNeedsTeam       ProblemCode = "ownerNeedsTeam"
+	OwnershipUnsupported ProblemCode = "ownershipUnsupported"
 	ParentLevel          ProblemCode = "parentLevel"
 	ParentNotFound       ProblemCode = "parentNotFound"
 	PlanningCard         ProblemCode = "planningCard"
@@ -296,6 +301,12 @@ func (e ProblemCode) Valid() bool {
 	case CrossDomain:
 		return true
 	case CrossSiteBlocked:
+		return true
+	case CustomerExists:
+		return true
+	case CustomerName:
+		return true
+	case CustomerNotFound:
 		return true
 	case DayIsARecord:
 		return true
@@ -363,7 +374,11 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case OwnerFollowsLink:
 		return true
+	case OwnerIsThePlans:
+		return true
 	case OwnerNeedsTeam:
+		return true
+	case OwnershipUnsupported:
 		return true
 	case ParentLevel:
 		return true

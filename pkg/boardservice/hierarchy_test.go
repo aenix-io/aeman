@@ -50,14 +50,14 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 		}
 	})
 
-	// A goal, an initiative or an epic is nobody's and no team's: the people
-	// and the teams are on the tasks under it, and the Roadmap reads them off
-	// the tree. The board's own door refuses the field by name; the raw door
-	// refuses the card.
-	t.Run("a planning card has no owner and no team", func(t *testing.T) {
+	// A goal, an initiative or an epic is nobody's WORK: the people doing it
+	// are on the tasks under it, so an ASSIGNEE is refused — by name at the
+	// board's own door, as the card at the raw door. (Its team and its owner
+	// — who carries it out, who answers for it — it may be born with, O1:
+	// ownership_test.go.)
+	t.Run("a planning card has no assignee", func(t *testing.T) {
 		for what, args := range map[string]CreateCardArgs{
-			"an owner": {Title: "Launch", Type: board.TypeInitiative, Assignee: "po"},
-			"a team":   {Title: "Launch", Type: board.TypeInitiative, Team: "alpha"},
+			"an assignee": {Title: "Launch", Type: board.TypeInitiative, Assignee: "po"},
 		} {
 			svc := f2svc(hierarchySeed(today))
 			if _, err := svc.CreateInView(ctx, "acme", board.ViewRoadmap, args); !errors.Is(err, ErrNotOnThisBoard) {
@@ -390,7 +390,6 @@ func TestAPlanningCardHasNoDayBoardState(t *testing.T) {
 		"sprint":    svc.SetSprintStart(ctx, "acme", "epic", today),
 		"recurrent": svc.SetRecurrence(ctx, "acme", "epic", "week"),
 		"owner":     svc.SetAssignee(ctx, "acme", "epic", "po"),
-		"team":      svc.SetTeam(ctx, "acme", "epic", "alpha", ""),
 	}
 	for what, err := range refused {
 		if !errors.Is(err, ErrPlanningCard) {

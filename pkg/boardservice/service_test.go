@@ -141,6 +141,7 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string) (board.Board, error
 	}
 	b := board.NewBoardIn(f.b.Primary, cards)
 	b.Board = f.b.Board
+	b.Customers = append([]board.Customer(nil), f.b.Customers...)
 	if len(f.b.People) > 0 {
 		b.People = make(map[string]board.Person, len(f.b.People))
 		for login, p := range f.b.People {
@@ -2722,4 +2723,94 @@ func TestLegacyGitHubIDResolvesTheCard(t *testing.T) {
 	if c2, err := svc.Card(t.Context(), "o", "01JB4KA0M2P4R6T8V0X2Z4B6D8"); err != nil || c2.GitHubID != "PVTI_lADOold" {
 		t.Fatalf("own id lookup = %+v, %v", c2, err)
 	}
+}
+
+// ---- ownership (docs/design/ownership.md) ----
+
+func (f *fakeBackend) SetOwner(_ context.Context, _ board.Board, card board.Card, login string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetOwner %s %s", card.ItemID, login)
+	if c := f.get(card.ItemID); c != nil {
+		c.Owner = login
+	}
+	return nil
+}
+
+func (f *fakeBackend) SetCustomers(_ context.Context, _ board.Board, card board.Card, ids []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetCustomers %s %s", card.ItemID, strings.Join(ids, ","))
+	if c := f.get(card.ItemID); c != nil {
+		c.Customers = append([]string(nil), ids...)
+	}
+	return nil
+}
+
+func (f *fakeBackend) AddCustomer(_ context.Context, _ board.Board, name string) (board.Customer, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextID++
+	cu := board.Customer{ID: fmt.Sprintf("cu%d", f.nextID), Name: name}
+	f.rec("AddCustomer %s", name)
+	f.b.Customers = append(f.b.Customers, cu)
+	return cu, nil
+}
+
+func (f *fakeBackend) RenameCustomer(_ context.Context, _ board.Board, id, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("RenameCustomer %s %s", id, name)
+	for i := range f.b.Customers {
+		if f.b.Customers[i].ID == id {
+			f.b.Customers[i].Name = name
+		}
+	}
+	return nil
+}
+
+func (f *fakeBackend) MoveCustomer(_ context.Context, _ board.Board, id, afterID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("MoveCustomer %s after=%s", id, afterID)
+	var moved board.Customer
+	var rest []board.Customer
+	for _, c := range f.b.Customers {
+		if c.ID == id {
+			moved = c
+		} else {
+			rest = append(rest, c)
+		}
+	}
+	at := 0
+	for i, c := range rest {
+		if c.ID == afterID {
+			at = i + 1
+		}
+	}
+	f.b.Customers = append(append(append([]board.Customer{}, rest[:at]...), moved), rest[at:]...)
+	return nil
+}
+
+func (f *fakeBackend) DeleteCustomer(_ context.Context, _ board.Board, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("DeleteCustomer %s", id)
+	var keep []board.Customer
+	for _, c := range f.b.Customers {
+		if c.ID != id {
+			keep = append(keep, c)
+		}
+	}
+	f.b.Customers = keep
+	for i := range f.b.Cards {
+		var ids []string
+		for _, x := range f.b.Cards[i].Customers {
+			if x != id {
+				ids = append(ids, x)
+			}
+		}
+		f.b.Cards[i].Customers = ids
+	}
+	return nil
 }

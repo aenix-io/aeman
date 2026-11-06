@@ -1399,6 +1399,9 @@ components:
             - cardNotOnBoard
             - crossDomain
             - crossSiteBlocked
+            - customerExists
+            - customerName
+            - customerNotFound
             - dayIsARecord
             - descriptionTooLong
             - domainConflict
@@ -1436,6 +1439,8 @@ components:
             - openSubtasks
             - ownerFollowsLink
             - ownerNeedsTeam
+            - ownerIsThePlans
+            - ownershipUnsupported
             - parentLevel
             - parentNotFound
             - planningCard

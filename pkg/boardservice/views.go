@@ -87,7 +87,12 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 			{args.Parked, "parked"}, {args.Scope != "", "scope"},
 			{args.ReviewOf != "", "reviewOf"},
 			{args.SprintStart != "", "sprintStart"},
-			{args.Team != "", "team"}, {args.Assignee != "", "assignee"},
+			// A planning card may be born with its team, its owner and its
+			// customers (O1); the Roadmap's task under one is born with
+			// none of a team or an owner.
+			{args.Team != "" && args.Type == board.TypeTask, "team"},
+			{args.Owner != "" && args.Type == board.TypeTask, "owner"},
+			{args.Assignee != "", "assignee"},
 			{args.Zone != board.ZoneNone, "zone"}, {args.Size != "", "size"},
 			{placed, "a place among the cards"},
 		}
