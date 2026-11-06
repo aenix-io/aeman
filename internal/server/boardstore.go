@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/http"
 	"reflect"
 	"slices"
 	"sort"
@@ -41,7 +42,18 @@ type subscription struct {
 	// a domain they cannot read never reaches the socket, and roster frames
 	// carry their projection of the board. Nil = everything.
 	rights *domainRights
+	// overflowed is set by the first frame that does not fit in ch (G84):
+	// nothing more is queued, and gone is closed so the watch's writer —
+	// which may be blocked on a slow socket with ch full — ends the stream
+	// with a 410 rather than leave the client on a board missing a change.
+	overflowed atomic.Bool
+	gone       chan struct{}
 }
+
+// watchBuffer is how many frames wait for a slow watcher. It sizes the
+// burst a watcher rides out without a re-list, never what it is told: a
+// frame that does not fit ends the watch with a 410 (G84).
+const watchBuffer = 256
 
 // seen is a card resource as this subscriber may read it: status.lineage,
 // status.reviewed and status.dueDate name OTHER cards, and one in a
@@ -157,11 +169,51 @@ func (sub *subscription) send(frame watchFrame) {
 
 // sendRaw delivers a frame already marshalled — one built for a whole group
 // of subscriptions that see the same board (see flushRoster).
+//
+// A frame that does not fit is never dropped silently (G84): the
+// subscription is marked overflowed, nothing more is queued for it, and its
+// writer ends the stream with a 410 (next) — the client re-lists.
 func (sub *subscription) sendRaw(data []byte) {
+	if sub.overflowed.Load() {
+		return
+	}
 	select {
 	case sub.ch <- data:
 	default:
+		if sub.overflowed.CompareAndSwap(false, true) {
+			close(sub.gone)
+		}
 	}
+}
+
+// expiredFrame is the watch's last frame after an overflow, in the
+// Kubernetes shape: an ERROR carrying a Status of code 410, reason Expired —
+// what the client has is out of date, re-LIST and watch again.
+var expiredFrame = mustMarshal(watchFrame{Type: "ERROR", Kind: "Status", Object: map[string]any{
+	"kind":    "Status",
+	"status":  "Failure",
+	"reason":  "Expired",
+	"code":    http.StatusGone,
+	"message": "the watch fell behind and frames were lost: re-list and watch again",
+}})
+
+func mustMarshal(v any) []byte {
+	data, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+// deliver is what the watch's writer sends for a frame it took off ch, and
+// whether it is the last: once the subscription overflowed that is the 410
+// instead, ahead of anything still queued, so nothing reaches the client
+// after it. The writer also wakes on gone, for a buffer it was not reading.
+func (sub *subscription) deliver(data []byte) ([]byte, bool) {
+	if sub.overflowed.Load() {
+		return expiredFrame, true
+	}
+	return data, false
 }
 
 // clientIDCtxKey carries the mutating client's self-assigned id (the
@@ -1000,7 +1052,8 @@ func (s *boardStore) subscribe(key, clientID string, sel *apiserver.Selector, re
 func (s *boardStore) subscribeAs(key, clientID string, sel *apiserver.Selector, resources map[string]bool, rights *domainRights) (*subscription, func()) {
 	e := s.entry(key)
 	sub := &subscription{
-		ch:        make(chan []byte, 64),
+		ch:        make(chan []byte, watchBuffer),
+		gone:      make(chan struct{}),
 		clientID:  clientID,
 		sel:       sel,
 		resources: resources,

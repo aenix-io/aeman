@@ -2929,6 +2929,7 @@ components:
         - $ref: '#/components/schemas/SyncFrame'
         - $ref: '#/components/schemas/QueueFrame'
         - $ref: '#/components/schemas/SyncErrorFrame'
+        - $ref: '#/components/schemas/StatusFrame'
     CardFrame:
       type: object
       description: >-
@@ -3085,6 +3086,41 @@ components:
           properties:
             pending:
               type: integer
+    StatusFrame:
+      type: object
+      description: >-
+        The LAST frame of a watch that fell behind (G84): a frame did not fit
+        in the watcher's buffer, so what the client holds is out of date.
+        Nothing follows it and the server closes the stream. The client
+        re-LISTs its view and opens a new watch — what it would do after any
+        dropped connection. Kubernetes' shape: an ERROR carrying a Status of
+        code 410, reason Expired.
+      required: [type, kind, object]
+      properties:
+        type:
+          type: string
+          enum: [ERROR]
+        kind:
+          type: string
+          enum: [Status]
+        object:
+          type: object
+          required: [kind, status, reason, code]
+          properties:
+            kind:
+              type: string
+              enum: [Status]
+            status:
+              type: string
+              enum: [Failure]
+            reason:
+              type: string
+              enum: [Expired]
+            code:
+              type: integer
+              enum: [410]
+            message:
+              type: string
     SyncErrorFrame:
       type: object
       description: >-

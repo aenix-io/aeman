@@ -118,8 +118,18 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-sub.gone:
+			// The watcher fell behind and frames were lost (G84): it is told
+			// so, last, and re-lists.
+			endExpired(ctx, conn)
+			return
 		case data := <-sub.ch:
-			if err := writeWSMessage(ctx, conn, data); err != nil {
+			out, last := sub.deliver(data)
+			if last {
+				endExpired(ctx, conn)
+				return
+			}
+			if err := writeWSMessage(ctx, conn, out); err != nil {
 				return
 			}
 		case <-midnight.C:
@@ -159,6 +169,15 @@ func untilNextLocalMidnight() time.Duration {
 	now := time.Now()
 	next := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Add(24 * time.Hour)
 	return time.Until(next) + 2*time.Second
+}
+
+// endExpired sends the 410 that ends an overflowed watch (G84) and closes
+// the stream.
+func endExpired(ctx context.Context, conn *websocket.Conn) {
+	if err := writeWSMessage(ctx, conn, expiredFrame); err != nil {
+		return
+	}
+	_ = conn.Close(websocket.StatusNormalClosure, "resync needed")
 }
 
 // writeWSMessage sends one text frame under a write deadline.

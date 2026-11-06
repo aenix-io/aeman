@@ -135,6 +135,14 @@ Clients follow the Kubernetes list/watch pattern:
 
 Apply Card events by `metadata.uid`; Sprint events replace a team's pointer; an Ordering event carries the full uid list to re-sort by. On reconnect, re-list to reconcile. Frames about a domain the visitor cannot read are never sent.
 
+**A watch that falls behind is ended, never left stale** (G84). Frames wait for a slow client in a bounded buffer; when one does not fit, nothing more is queued for that watch and its stream ends with one last frame, Kubernetes-style, after which the server closes the socket:
+
+```json
+{ "type": "ERROR", "kind": "Status", "object": { "kind": "Status", "status": "Failure", "reason": "Expired", "code": 410, "message": "..." } }
+```
+
+What the client holds is out of date: re-LIST the view and open a new watch, as after any dropped connection. No frame follows it. The buffer's size decides how large a burst a watcher rides out without a re-list, never whether it is told. (An ERROR of kind `SyncError` is different: a lost write, after which the stream goes on.)
+
 The optional `client` id keys **echo suppression**: send the same value in the `X-Aeman-Client` header on your own mutations and the server will not stream your own changes back on that watch connection (your optimistic state and the mutation responses already carry them).
 
 **Scoped watch**: the board is the path segment, as it is for a listing, and the same narrowing parameters apply (`team=`, `day=`, `stage=`, ...); the subscription tracks that selection — a card entering it arrives as `ADDED` and one leaving it as `DELETED`, so a thin client can mirror a single view without knowing the board rules. Memberships are re-diffed when a sprint pointer moves and when the local day rolls over. `resources=cards,sprints,ordering` picks the kinds. A `Presence` frame is one person's live selection on a Me, Team or Backlog board (`POST /presence`), from one of their tabs (`client`, the key it is held by — two tabs are two selections): board-wide, whatever the watch's view, so a selection on the Team board reaches a Me board and the other way round; a watcher who may not read the card's repository is sent the mark as cleared.

@@ -1449,7 +1449,7 @@ export interface components {
             card?: string;
         };
         /** @description One frame of the watch stream. No operation references it — a WebSocket upgrade has no response body to describe — but a client applying the stream needs the shapes, so they are stated here. */
-        WatchFrame: components["schemas"]["CardFrame"] | components["schemas"]["SprintFrame"] | components["schemas"]["OrderingFrame"] | components["schemas"]["PresenceFrame"] | components["schemas"]["BoardFrame"] | components["schemas"]["LoadFrame"] | components["schemas"]["SyncFrame"] | components["schemas"]["QueueFrame"] | components["schemas"]["SyncErrorFrame"];
+        WatchFrame: components["schemas"]["CardFrame"] | components["schemas"]["SprintFrame"] | components["schemas"]["OrderingFrame"] | components["schemas"]["PresenceFrame"] | components["schemas"]["BoardFrame"] | components["schemas"]["LoadFrame"] | components["schemas"]["SyncFrame"] | components["schemas"]["QueueFrame"] | components["schemas"]["SyncErrorFrame"] | components["schemas"]["StatusFrame"];
         /** @description A card changed. On a SCOPED subscription the verb is about the SELECTION: a card entering it arrives as ADDED and one leaving it as DELETED, whatever became of the card itself. */
         CardFrame: {
             /** @enum {string} */
@@ -1527,6 +1527,24 @@ export interface components {
             kind: "Queue";
             object: {
                 pending: number;
+            };
+        };
+        /** @description The LAST frame of a watch that fell behind (G84): a frame did not fit in the watcher's buffer, so what the client holds is out of date. Nothing follows it and the server closes the stream. The client re-LISTs its view and opens a new watch — what it would do after any dropped connection. Kubernetes' shape: an ERROR carrying a Status of code 410, reason Expired. */
+        StatusFrame: {
+            /** @enum {string} */
+            type: "ERROR";
+            /** @enum {string} */
+            kind: "Status";
+            object: {
+                /** @enum {string} */
+                kind: "Status";
+                /** @enum {string} */
+                status: "Failure";
+                /** @enum {string} */
+                reason: "Expired";
+                /** @enum {integer} */
+                code: 410;
+                message?: string;
             };
         };
         /** @description A write was lost after its retries. Nobody is spared this one — the client that made the change needs the rollback most of all. */

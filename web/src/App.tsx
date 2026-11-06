@@ -45,6 +45,7 @@ import { frozenProvider } from "./providers/frozen";
 import { todayIso, setBoardTimezone } from "./date";
 import { doneAtAfter } from "./stages";
 import { mergeNotes } from "./notes";
+import { openWatches } from "./watch";
 import { nameConflict } from "./names";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
@@ -1078,7 +1079,8 @@ export function App() {
   // watch (Kubernetes style). We LIST via loadBoard, then mirror the ADDED /
   // MODIFIED / DELETED frames: Card frames upsert/remove by uid, Sprint frames
   // update the team's pointer, Ordering frames re-sort the local cards. On a
-  // socket drop we re-LIST after reconnecting to reconcile anything missed.
+  // socket drop we re-LIST after reconnecting to reconcile anything missed,
+  // and at once when the server says the watch fell behind (G84, watch.ts).
   // Refs keep the socket from being rebuilt on every board change.
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
@@ -1106,16 +1108,6 @@ export function App() {
     if (!boardLoaded || !authenticated) {
       return;
     }
-    // One socket per selector. Any of them dropping rebuilds the whole set
-    // after a re-LIST, so they stay in step.
-    const sockets: WebSocket[] = [];
-    let closed = false;
-    let retry: number | undefined;
-    const closeAll = () => {
-      for (const s of sockets.splice(0)) {
-        s.close();
-      }
-    };
     const applyFrame = (frame: WatchFrame) => {
       // A past day on screen is a picture of a day that ended. Live frames
       // are about TODAY's board — applying them here would edit the picture
@@ -1239,56 +1231,30 @@ export function App() {
         setPresenceMap((cur) => presenceAfter(cur, { login, card, client }));
       }
     };
-    const connect = () => {
-      // A fresh connection replays the presence and queue snapshots; drop
-      // stale marks (the queue may have drained while we were away).
-      setPresenceMap({});
-      queuePendingSync(0);
-      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      // Scope the watch to the active view: Me watches its day selection, Team
-      // watches every card of the
-      // teams it shows, whatever day it lands on. A card entering the selection
-      // arrives as ADDED, one leaving as DELETED. ?client= keeps our own
-      // mutations from echoing back. Re-subscribes when watchKey changes (a
-      // dep below).
-      for (const key of watchKey.split("|")) {
-        // The board is a path segment here too (viewquery.viewPath), so a
-        // socket and the listing beside it address the same board.
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    // Scope the watch to the active view: Me watches its day selection, Team
+    // watches every card of the teams it shows, whatever day it lands on. A
+    // card entering the selection arrives as ADDED, one leaving as DELETED.
+    // ?client= keeps our own mutations from echoing back. Re-subscribes when
+    // watchKey changes (a dep below). The board is a path segment here too
+    // (viewquery.viewPath), so a socket and the listing beside it address the
+    // same board. One socket per selector, kept in step by watch.ts, which
+    // also answers a watch the server ended for falling behind (G84).
+    return openWatches({
+      urls: watchKey.split("|").map((key) => {
         const path = viewPath(key, "watch");
         const sep = path.includes("?") ? "&" : "?";
-        const url = `${proto}//${window.location.host}/api/v1${path}${sep}client=${clientId}`;
-        const socket = new WebSocket(url);
-        sockets.push(socket);
-        socket.addEventListener("message", (e) => {
-          let frame: WatchFrame;
-          try {
-            frame = JSON.parse(e.data as string) as WatchFrame;
-          } catch {
-            return;
-          }
-          applyFrame(frame);
-        });
-        socket.addEventListener("close", () => {
-          // A socket we closed ourselves (teardown, or the rebuild below) is
-          // no longer in the set and must not schedule another rebuild.
-          if (closed || !sockets.includes(socket) || retry !== undefined) {
-            return;
-          }
-          retry = window.setTimeout(() => {
-            retry = undefined;
-            closeAll();
-            reloadRef.current();
-            connect();
-          }, 3000);
-        });
-      }
-    };
-    connect();
-    return () => {
-      closed = true;
-      window.clearTimeout(retry);
-      closeAll();
-    };
+        return `${proto}//${window.location.host}/api/v1${path}${sep}client=${clientId}`;
+      }),
+      onFrame: applyFrame,
+      relist: () => reloadRef.current(),
+      // A fresh connection replays the presence and queue snapshots; drop
+      // stale marks (the queue may have drained while we were away).
+      onConnect: () => {
+        setPresenceMap({});
+        queuePendingSync(0);
+      },
+    });
   }, [
     boardLoaded,
     authenticated,
