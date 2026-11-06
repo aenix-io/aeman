@@ -56,7 +56,7 @@ export function openWatches(opts: WatchOptions): () => void {
   const healthyMs = opts.healthyMs ?? 30_000;
   const maxBackoffMs = opts.maxBackoffMs ?? 30_000;
   const random = opts.random ?? Math.random;
-  // 410s in a row, each from a watch that died young (G84).
+  // 410s in a row, each from a watch that died young (G85).
   let streak = 0;
   let openedAt = Date.now();
   const sockets: SocketLike[] = [];

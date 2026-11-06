@@ -178,7 +178,7 @@ func (sub *subscription) view(b board.Board) board.Board {
 }
 
 // send marshals and delivers one frame. A subscriber too slow to take it is
-// ended with a 410 and re-lists (sendRaw, G84).
+// ended with a 410 and re-lists (sendRaw, G85).
 func (sub *subscription) send(frame watchFrame) {
 	data, err := json.Marshal(frame)
 	if err != nil {
@@ -1375,7 +1375,7 @@ func unionIDs(a, b []string) []string {
 // touches those. Their review cards follow through reviewsShowingIt. A goal
 // with many tasks names many cards here, possibly more than a watcher's
 // buffer (watchBuffer) holds; a watcher that cannot keep up is ended with a
-// 410 and re-lists (G84). The order puts the levels a board draws first
+// 410 and re-lists (G85). The order puts the levels a board draws first
 // ahead of the deep ones, and a scoped watcher is sent only the ones its
 // view holds (flushMembers). It records what was shown for next time; the
 // caller holds e.mu with the cache already updated.
