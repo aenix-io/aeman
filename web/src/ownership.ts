@@ -27,8 +27,11 @@ function ancestorsOf(c: Pick<Card, "itemId" | "parent">, cards: Held): Held[numb
 }
 
 /** effectiveTeamOf is the team a card counts under (O3): its own, else the
- *  nearest ancestor's that has one. */
+ *  nearest ancestor's that has one. A project card has none (H4). */
 export function effectiveTeamOf(c: Card, cards: Held): string {
+  if (c.scope) {
+    return "";
+  }
   if (c.team) {
     return c.team;
   }
@@ -47,7 +50,7 @@ export function effectiveTeamOf(c: Card, cards: Held): string {
 /** inheritedTeamOf is the team a card takes from an ancestor, and which one
  *  — null when the card has a team of its own or inherits none. */
 export function inheritedTeamOf(c: Card, cards: Held): { team: string; from: string } | null {
-  if (c.team) {
+  if (c.team || c.scope) {
     return null;
   }
   const up = ancestorsOf(c, cards);

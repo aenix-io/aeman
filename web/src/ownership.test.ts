@@ -36,6 +36,11 @@ describe("the effective team (O3)", () => {
     expect(inheritedTeamOf(cards[3], cards)).toBeNull();
   });
 
+  it("is none on a project card, whatever an old file says (H4)", () => {
+    expect(effectiveTeamOf(card({ itemId: "slot", scope: "Security", project: "core", team: "ops" }), cards)).toBe("");
+    expect(inheritedTeamOf(card({ itemId: "slot", scope: "Security", project: "core" }), cards)).toBeNull();
+  });
+
   it("falls back to the server's when the ancestors are not on the board", () => {
     expect(effectiveTeamOf(card({ itemId: "lonely", parent: "gone", effectiveTeam: "ops" }), cards)).toBe("ops");
   });

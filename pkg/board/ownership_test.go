@@ -122,3 +122,14 @@ func TestADanglingCustomerIsNoOnesEffective(t *testing.T) {
 		t.Errorf("with no roster the task's customers = %v, want none", ix.EffectiveCustomers(c))
 	}
 }
+
+// H4, O3 — a project card has no team, and so no effective one: a stray
+// `team:` an old file still carries is not read as the team it counts
+// under, the way its customers are none (O6).
+func TestAProjectCardHasNoEffectiveTeam(t *testing.T) {
+	ix := NewIndex(NewBoard([]Card{{ItemID: "slot", Scope: "Security", Project: "core", Team: "ops"}}))
+	c, _ := ix.Find("slot")
+	if got := ix.EffectiveTeam(c); got != "" {
+		t.Fatalf("a project card's effective team = %q, want none", got)
+	}
+}
