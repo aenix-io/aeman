@@ -652,3 +652,58 @@ func TestAPlanItemsTeamMovesTheTasksBelowBetweenWatches(t *testing.T) {
 		t.Fatalf("docs's watch heard %v, want the task ADDED under docs", got)
 	}
 }
+
+// And the Team board's day grid and the Backlog's own view: a plan item's
+// team change and a task filed under another plan item move the task — its
+// subtask riding it on the grid — between the teams' watches.
+func TestPlacementMovesTasksBetweenTheGridAndBacklogWatches(t *testing.T) {
+	today := board.TodayIso()
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Team: "portal"},
+		{ItemID: "docsEpic", Title: "Docs", Type: board.TypeEpic, Team: "docs"},
+		{ItemID: "w", Title: "In work", Parent: "epic", Assignees: []string{"ann"}, StartDate: today, Day: today, SprintStart: today},
+		{ItemID: "ws", Title: "Its subtask", Parent: "w", Assignees: []string{"ann"}, StartDate: today, Day: today, SprintStart: today},
+		{ItemID: "p", Title: "Parked", Parent: "epic", Parked: true},
+	})
+	b.SprintStates = map[string]board.SprintState{"portal": {Current: today}, "docs": {Current: today}}
+	e := seedEntry(store, "k", b)
+	grid := func(team string) *subscription {
+		s, cancel := store.subscribe("k", "", &apiserver.Selector{View: "team", Team: team, Day: today}, map[string]bool{"cards": true})
+		t.Cleanup(cancel)
+		return s
+	}
+	backlog := func(team string) *subscription {
+		s, cancel := store.subscribe("k", "", &apiserver.Selector{View: "backlog", Team: team}, map[string]bool{"cards": true})
+		t.Cleanup(cancel)
+		return s
+	}
+	portalGrid, docsGrid, portalBacklog, docsBacklog := grid("portal"), grid("docs"), backlog("portal"), backlog("docs")
+	change := func(id string, edit func(*board.Card)) {
+		e.mu.Lock()
+		c, _ := board.Find(e.board, id)
+		edit(&c)
+		e.upsertCard(c)
+		e.cardChanged("lead", c, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+	change("epic", func(c *board.Card) { c.Team = "docs" })
+	if got := took(t, portalGrid, 2); got["w"].Type != "DELETED" || got["ws"].Type != "DELETED" {
+		t.Fatalf("portal's grid heard %v, want the task and its subtask DELETED", got)
+	}
+	if got := took(t, docsGrid, 2); got["w"].Type != "ADDED" || got["ws"].Type != "ADDED" {
+		t.Fatalf("docs's grid heard %v, want the task and its subtask ADDED", got)
+	}
+	if got := took(t, portalBacklog, 1); got["p"].Type != "DELETED" {
+		t.Fatalf("portal's backlog heard %v", got)
+	}
+	if got := took(t, docsBacklog, 1); got["p"].Type != "ADDED" {
+		t.Fatalf("docs's backlog heard %v", got)
+	}
+	// Taken out from under the epic, the parked task leaves docs's backlog.
+	change("p", func(c *board.Card) { c.Parent = "" })
+	if got := took(t, docsBacklog, 1); got["p"].Type != "DELETED" {
+		t.Fatalf("unfiled: docs's backlog heard %v", got)
+	}
+}
