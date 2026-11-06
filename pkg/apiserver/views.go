@@ -648,8 +648,6 @@ func ListCards(b board.Board, sel Selector) CardList {
 	return CardList{Kind: "CardList", Items: items}
 }
 
-// teamInSet reports whether a card's team is in a comma-separated selector
-// set. An empty set matches every team (no team filter).
 // offTheTeamList is a card the team selector leaves off the views it
 // narrows (me, all and the default list). A planning card is never on one
 // narrowed by a team: its team says who carries it out (O1) and puts it on
@@ -665,6 +663,8 @@ func offTheTeamList(c board.Card, sel Selector) bool {
 	return board.IsPlanning(c) || !teamInSet(c.Team, sel.Team)
 }
 
+// teamInSet reports whether a card's team is in a comma-separated selector
+// set. An empty set matches every team (no team filter).
 func teamInSet(team, set string) bool {
 	set = strings.TrimSpace(set)
 	if set == "" {
