@@ -3089,7 +3089,7 @@ components:
     StatusFrame:
       type: object
       description: >-
-        The LAST frame of a watch that fell behind (G84): a frame did not fit
+        The LAST frame of a watch that fell behind (G85): a frame did not fit
         in the watcher's buffer, so what the client holds is out of date.
         Nothing follows it and the server closes the stream. The client
         re-LISTs its view and opens a new watch — what it would do after any

@@ -16,7 +16,7 @@ import (
 	"github.com/aenix-io/aeman/pkg/boardservice/boardservicetest"
 )
 
-// A WATCH THAT FALLS BEHIND IS TOLD SO, NEVER LEFT STALE (G84). A watcher's
+// A WATCH THAT FALLS BEHIND IS TOLD SO, NEVER LEFT STALE (G85). A watcher's
 // frames wait in a bounded buffer; one a slow socket cannot take used to be
 // dropped without a word, and the client kept a board missing that change
 // until a reload. Now the first frame that does not fit marks the

@@ -135,7 +135,7 @@ Clients follow the Kubernetes list/watch pattern:
 
 Apply Card events by `metadata.uid`; Sprint events replace a team's pointer; an Ordering event carries the full uid list to re-sort by. On reconnect, re-list to reconcile. Frames about a domain the visitor cannot read are never sent.
 
-**A watch that falls behind is ended, never left stale** (G84). Frames wait for a slow client in a bounded buffer; when one does not fit, nothing more is queued for that watch and its stream ends with one last frame, Kubernetes-style, after which the server closes the socket:
+**A watch that falls behind is ended, never left stale** (G85). Frames wait for a slow client in a bounded buffer; when one does not fit, nothing more is queued for that watch and its stream ends with one last frame, Kubernetes-style, after which the server closes the socket:
 
 ```json
 { "type": "ERROR", "kind": "Status", "object": { "kind": "Status", "status": "Failure", "reason": "Expired", "code": 410, "message": "..." } }

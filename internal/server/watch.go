@@ -119,7 +119,7 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case <-sub.gone:
-			// The watcher fell behind and frames were lost (G84): it is told
+			// The watcher fell behind and frames were lost (G85): it is told
 			// so, last, and re-lists.
 			endExpired(ctx, conn)
 			return
@@ -171,7 +171,7 @@ func untilNextLocalMidnight() time.Duration {
 	return time.Until(next) + 2*time.Second
 }
 
-// endExpired sends the 410 that ends an overflowed watch (G84) and closes
+// endExpired sends the 410 that ends an overflowed watch (G85) and closes
 // the stream.
 func endExpired(ctx context.Context, conn *websocket.Conn) {
 	if err := writeWSMessage(ctx, conn, expiredFrame); err != nil {

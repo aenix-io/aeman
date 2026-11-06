@@ -1529,7 +1529,7 @@ export interface components {
                 pending: number;
             };
         };
-        /** @description The LAST frame of a watch that fell behind (G84): a frame did not fit in the watcher's buffer, so what the client holds is out of date. Nothing follows it and the server closes the stream. The client re-LISTs its view and opens a new watch — what it would do after any dropped connection. Kubernetes' shape: an ERROR carrying a Status of code 410, reason Expired. */
+        /** @description The LAST frame of a watch that fell behind (G85): a frame did not fit in the watcher's buffer, so what the client holds is out of date. Nothing follows it and the server closes the stream. The client re-LISTs its view and opens a new watch — what it would do after any dropped connection. Kubernetes' shape: an ERROR carrying a Status of code 410, reason Expired. */
         StatusFrame: {
             /** @enum {string} */
             type: "ERROR";

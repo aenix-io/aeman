@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { openWatches, type SocketLike } from "./watch";
 import type { WatchFrame } from "./api/resources";
 
-// G84 — a watch that fell behind is ended by the server with one ERROR frame
+// G85 — a watch that fell behind is ended by the server with one ERROR frame
 // (a Status of code 410, reason Expired) and nothing after it. The board
 // answers it the way it answers a dropped socket, only at once: it re-LISTs
 // its view and opens its watches again — no page reload, so the drawer and

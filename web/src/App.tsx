@@ -1080,7 +1080,7 @@ export function App() {
   // MODIFIED / DELETED frames: Card frames upsert/remove by uid, Sprint frames
   // update the team's pointer, Ordering frames re-sort the local cards. On a
   // socket drop we re-LIST after reconnecting to reconcile anything missed,
-  // and at once when the server says the watch fell behind (G84, watch.ts).
+  // and at once when the server says the watch fell behind (G85, watch.ts).
   // Refs keep the socket from being rebuilt on every board change.
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
@@ -1239,7 +1239,7 @@ export function App() {
     // watchKey changes (a dep below). The board is a path segment here too
     // (viewquery.viewPath), so a socket and the listing beside it address the
     // same board. One socket per selector, kept in step by watch.ts, which
-    // also answers a watch the server ended for falling behind (G84).
+    // also answers a watch the server ended for falling behind (G85).
     return openWatches({
       urls: watchKey.split("|").map((key) => {
         const path = viewPath(key, "watch");

@@ -1,6 +1,6 @@
 // The board's watch sockets: one per selector, kept in step. The server ends
 // a watch that fell behind with one ERROR frame — a Status of code 410,
-// reason Expired (G84) — and nothing after it; that is answered at once the
+// reason Expired (G85) — and nothing after it; that is answered at once the
 // way a dropped socket is answered after a pause: re-LIST the view and open
 // the watches again. No page reload: the drawer and the selection stay.
 import type { WatchFrame } from "./api/resources";

@@ -42,7 +42,7 @@ type subscription struct {
 	// a domain they cannot read never reaches the socket, and roster frames
 	// carry their projection of the board. Nil = everything.
 	rights *domainRights
-	// overflowed is set by the first frame that does not fit in ch (G84):
+	// overflowed is set by the first frame that does not fit in ch (G85):
 	// nothing more is queued, and gone is closed so the watch's writer —
 	// which may be blocked on a slow socket with ch full — ends the stream
 	// with a 410 rather than leave the client on a board missing a change.
@@ -52,7 +52,7 @@ type subscription struct {
 
 // watchBuffer is how many frames wait for a slow watcher. It sizes the
 // burst a watcher rides out without a re-list, never what it is told: a
-// frame that does not fit ends the watch with a 410 (G84).
+// frame that does not fit ends the watch with a 410 (G85).
 const watchBuffer = 256
 
 // seen is a card resource as this subscriber may read it: status.lineage,
@@ -170,7 +170,7 @@ func (sub *subscription) send(frame watchFrame) {
 // sendRaw delivers a frame already marshalled — one built for a whole group
 // of subscriptions that see the same board (see flushRoster).
 //
-// A frame that does not fit is never dropped silently (G84): the
+// A frame that does not fit is never dropped silently (G85): the
 // subscription is marked overflowed, nothing more is queued for it, and its
 // writer ends the stream with a 410 (next) — the client re-lists.
 func (sub *subscription) sendRaw(data []byte) {
