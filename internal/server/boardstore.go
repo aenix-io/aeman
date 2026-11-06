@@ -752,11 +752,15 @@ func (e *boardEntry) flushMembers() {
 		if sub.sel == nil || !sub.resources["cards"] {
 			continue
 		}
+		// A board with no mirror of its selection (a filtered Roadmap) cannot
+		// place its own change: its author is sent the membership changes
+		// too, and spared only the MODIFIED echo.
+		mirrored := sub.sel.Mirrored()
 		now := map[string]bool{}
 		for _, c := range apiserver.FilterCards(sub.view(e.board), *sub.sel) {
 			now[c.ItemID] = true
 			changed, touched := moved[c.ItemID]
-			if mine(changed, sub.clientID) {
+			if mine(changed, sub.clientID) && (mirrored || sub.members[c.ItemID]) {
 				continue
 			}
 			switch {
@@ -767,7 +771,7 @@ func (e *boardEntry) flushMembers() {
 			}
 		}
 		for id := range sub.members {
-			if now[id] || mine(moved[id], sub.clientID) {
+			if now[id] || (mirrored && mine(moved[id], sub.clientID)) {
 				continue
 			}
 			obj := tombstone(id)

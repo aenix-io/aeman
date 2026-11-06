@@ -10,7 +10,7 @@ import { TeamBoard } from "./components/TeamBoard";
 import { BacklogBoard } from "./components/BacklogBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
 import { RoadmapBoard } from "./components/RoadmapBoard";
-import { followFrame, followPatch } from "./detail";
+import { cardIsGone, followFrame, followPatch } from "./detail";
 import { applyOrder, type OrderArg } from "./cardorder";
 import { presenceAfter, type PresenceMap } from "./presence";
 import { PROJECT_CARDS_KEY, storedProjectCards } from "./roadmap";
@@ -1174,8 +1174,10 @@ export function App() {
             fn(card.itemId, deleted);
           }
         };
-        // The drawer's card hears its frames even when no board lists it.
-        setDetailCard((d) => followFrame(d, card, frame.type === "DELETED"));
+        // The drawer's card hears its frames even when no board lists it, and
+        // closes only for a card deleted outright: one that left this board's
+        // selection is still the card it shows.
+        setDetailCard((d) => followFrame(d, card, cardIsGone(frame)));
         if (frame.type === "DELETED") {
           removeCard(card.itemId);
           notifyCardFrame(true);

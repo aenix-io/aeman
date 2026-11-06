@@ -197,6 +197,18 @@ func roadmapCards(b board.Board, ix *board.Index, projectCards bool) []board.Car
 	return out
 }
 
+// Mirrored reports whether a client can work out this selection's membership
+// itself — mirror it — so a watch may spare it the ADDED and DELETED of its
+// own changes. The Roadmap's team, customer and owner filters are the
+// server's alone (roadmapNarrowed): a board filtered by them draws what it
+// was sent, and must be sent what its own change put in or took out.
+func (sel Selector) Mirrored() bool {
+	if sel.View != "roadmap" {
+		return true
+	}
+	return setOf(sel.Team) == nil && setOf(sel.Customer) == nil && setOf(sel.Owner) == nil
+}
+
 // roadmapNarrowed applies the Roadmap's team, customer and owner filters
 // (O7, O8) to its listing, each judged on its own and AND across them:
 //

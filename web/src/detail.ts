@@ -39,3 +39,11 @@ export function followFrame(shown: Card | null, framed: Card, deleted: boolean):
     notes: framed.notes ?? shown.notes,
   };
 }
+
+/** cardIsGone is a Card frame for a card deleted outright: a DELETED that
+ *  carries nothing but the uid (the server's tombstone). A scoped watch's
+ *  DELETED for a card that only LEFT the board's selection carries the card
+ *  as it now is, and the drawer showing it stays open. */
+export function cardIsGone(frame: { type: string; object: { metadata?: { uid?: string }; spec?: { title?: string } } }): boolean {
+  return frame.type === "DELETED" && !frame.object.spec?.title;
+}
