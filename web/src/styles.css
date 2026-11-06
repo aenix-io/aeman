@@ -1118,75 +1118,7 @@ select {
   color: var(--accent);
 }
 
-/* team selector chips in the toolbar */
-.team-select {
-  align-items: center;
-}
-
-.team-chips {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 5px;
-  max-width: 60vw;
-}
-
-.team-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 4px 2px 2px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--bg);
-  font-size: 12px;
-}
-
-.team-chip-name {
-  color: var(--fg);
-}
-
-.team-chip-x {
-  border: none;
-  background: transparent;
-  color: var(--faint);
-  cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
-  padding: 0 2px;
-}
-
-.team-chip-x:hover {
-  color: var(--danger);
-}
-
-/* filter chips: a toggle button + a remove × per roster team */
-.team-filter-chip {
-  cursor: pointer;
-  user-select: none;
-}
-
-.team-chip-toggle {
-  border: none;
-  background: transparent;
-  padding: 0;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  font: inherit;
-  color: inherit;
-}
-
-.team-filter-chip-off {
-  opacity: 0.45;
-}
-
-.team-filter-chip:not(.team-filter-chip-off) {
-  border-color: var(--accent);
-  background: var(--bg-soft);
-}
-
-/* eye toggle by the team chips (Me board): focus on the selected teams */
+/* the eye-shaped toggle of a toolbar (ViewToggle) */
 .team-eye {
   border: 1px solid transparent;
   background: transparent;
@@ -1207,12 +1139,6 @@ select {
   color: var(--accent);
   border-color: var(--accent);
   background: var(--bg-soft);
-}
-
-.team-chips .team-add-input {
-  width: 110px;
-  flex: none;
-  margin-top: 0;
 }
 
 /* compact circular team avatar on the right edge of a card */
@@ -2765,10 +2691,6 @@ button.card-age {
     flex-wrap: wrap;
     gap: 8px;
     align-items: center;
-  }
-
-  .team-chips {
-    flex-wrap: wrap;
   }
 
   .me-left {

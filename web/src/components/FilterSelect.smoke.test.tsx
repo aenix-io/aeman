@@ -87,3 +87,13 @@ describe("the filter dropdown on a narrow screen", () => {
     expect(bar).toMatch(/flex-wrap: wrap/);
   });
 });
+
+// The chip rows the dropdown replaced are gone, their styles with them; the
+// toolbar's eye-shaped toggles (ViewToggle) stay.
+describe("the styles of the chip rows", () => {
+  it("are gone, the toggles' kept", () => {
+    const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
+    expect(css).not.toMatch(/\.team-chips?\b|\.team-filter-chip|\.team-chip-toggle|\.team-select\b/);
+    expect(css).toMatch(/\.team-eye \{/);
+  });
+});
