@@ -74,7 +74,6 @@ describe("the Team grid's insert +", () => {
         onSelectDate={vi.fn()}
         liveSprints={{ alpha: { current: today } } as never}
         roster={["alpha"]}
-        onReorderTeams={vi.fn()}
         track={(p) => p}
       />,
     );
@@ -138,7 +137,6 @@ describe("a band's label", () => {
         onSelectDate={vi.fn()}
         liveSprints={{ alpha: { current: today } } as never}
         roster={["alpha"]}
-        onReorderTeams={vi.fn()}
         track={(p) => p}
       />,
     );
@@ -215,5 +213,42 @@ describe("the Me board's presence marks", () => {
     );
     expect(html).toContain("card-peer-selected");
     expect(html).toContain('title="Selected by lead"');
+  });
+});
+
+// O11 — the Team board's toolbar wears the boards' one filter dropdown: a
+// Team filter (No team among the teams, Manage teams at its foot) and a
+// Customer filter, in place of the chip row. The customer choice narrows
+// the grid by effective customers, as the server narrows the listing.
+describe("the Team board's filters", () => {
+  const draw = (cards: Card[], extra: Record<string, unknown> = {}) =>
+    renderToStaticMarkup(
+      <TeamBoard
+        {...common}
+        board={{ ...board(cards), customers: [{ id: "cu1", name: "Hidora" }] } as Board}
+        onSelectDate={vi.fn()}
+        liveSprints={{ alpha: { current: today } } as never}
+        roster={["alpha"]}
+        track={(p) => p}
+        {...extra}
+      />,
+    );
+
+  it("are the Team and Customer dropdowns, not chips", () => {
+    const html = draw([], { teamFilter: [""] });
+    expect(html).not.toContain("team-filter-chip");
+    expect(html).toMatch(/aria-label="Team filter"[^>]*>Team: No team</);
+    expect(html).toMatch(/aria-label="Customer filter"[^>]*>Customer: anyone</);
+  });
+
+  it("narrow the grid by effective customers", () => {
+    const cards = [
+      card({ itemId: "a", title: "For Hidora", zone: "gray", customers: ["cu1"], effectiveCustomers: ["cu1"] }),
+      card({ itemId: "b", title: "For nobody", zone: "gray" }),
+    ];
+    const html = draw(cards, { customerFilter: ["cu1"] });
+    expect(html).toContain("For Hidora");
+    expect(html).not.toContain("For nobody");
+    expect(draw(cards)).toContain("For nobody");
   });
 });

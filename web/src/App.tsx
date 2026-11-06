@@ -1639,6 +1639,10 @@ export function App() {
             roster={roster}
             teamFilter={teamFilter}
             onSetFilter={setTeamFilter}
+            customerFilter={customerFilter}
+            onSetCustomerFilter={setCustomerFilter}
+            onManageTeams={() => setManagingTeams(true)}
+            onManageCustomers={() => setManagingCustomers(true)}
             avatars={avatars}
             names={names}
             patchCard={patchCard}
@@ -1667,10 +1671,10 @@ export function App() {
             roster={roster}
             teamFilter={teamFilter}
             onSetFilter={setTeamFilter}
-            onAddTeam={addTeam}
-            onRemoveTeam={removeTeam}
-            onRenameTeam={renameTeam}
-            onReorderTeams={reorderTeams}
+            customerFilter={customerFilter}
+            onSetCustomerFilter={setCustomerFilter}
+            onManageTeams={() => setManagingTeams(true)}
+            onManageCustomers={() => setManagingCustomers(true)}
             patchCard={patchCard}
             addCard={addCard}
             replaceCard={replaceCard}
