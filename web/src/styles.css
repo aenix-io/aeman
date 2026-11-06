@@ -5025,6 +5025,38 @@ button.card-age {
   width: 100%;
 }
 
+/* The Owner's picker and its × to unset it, on one line. */
+.drawer-owner-field {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.drawer-owner-field .owner-picker {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.drawer-owner-clear {
+  flex: none;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--faint);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.drawer-owner-clear:hover,
+.drawer-owner-clear:focus-visible {
+  color: var(--fg);
+  background: var(--bg-soft);
+}
+
 .drawer-pick-link .drawer-pick-text {
   color: var(--accent-emphasis);
 }

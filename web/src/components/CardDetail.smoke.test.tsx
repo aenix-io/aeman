@@ -265,6 +265,21 @@ describe("ownership in the drawer", () => {
     expect(drawOn(task, withRoster([goal, task]))).not.toContain("drawer-owner-inherited");
   });
 
+  it("offers a × to unset an Owner the card has of its own", () => {
+    const epic = card({ itemId: "e", title: "Ship", type: "epic", team: "portal", owner: "ann" });
+    expect(drawOn(epic, withRoster([epic]))).toMatch(/<button[^>]*class="drawer-owner-clear"[^>]*aria-label="Unset the owner"/);
+    const task = card({ itemId: "t", title: "Receipts", team: "portal", assignees: ["ann"] });
+    expect(drawOn(task, withRoster([task]))).toContain('aria-label="Unset the owner"');
+  });
+
+  it("offers no × where there is nothing of the card's own to unset", () => {
+    const goal = card({ itemId: "g", title: "Grow", type: "goal", team: "portal" });
+    const inherited = card({ itemId: "e", title: "Ship", type: "epic", parent: "g", lineage: [{ uid: "g", type: "goal", title: "Grow" }] });
+    expect(drawOn(inherited, withRoster([goal, inherited]))).not.toContain("Unset the owner");
+    const bare = card({ itemId: "b", title: "Bare", type: "epic" });
+    expect(drawOn(bare, withRoster([bare]))).not.toContain("Unset the owner");
+  });
+
   it("gives a project card no customers", () => {
     expect(rows(drawOn(card({ project: "cozy", scope: "Storage" }), withRoster([])))).not.toContain("Customers");
   });

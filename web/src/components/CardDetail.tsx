@@ -1280,7 +1280,8 @@ export function CardDetail({
             {task &&
               row(
                 "Owner",
-                subtask ? (
+                <span className="drawer-owner-field">
+                  {subtask ? (
                   <DrawerOwnerFace owner={owner} inherited={inheritedTeam} avatars={avatars} names={names} title="A subtask's owner is its task's" />
                 ) : (
                   <OwnerPicker
@@ -1297,7 +1298,11 @@ export function CardDetail({
                     <DrawerOwnerFace owner={owner} inherited={inheritedTeam} avatars={avatars} names={names} />
                     {!isRecord && !temp && <span className="add-card-team-caret">▾</span>}
                   </OwnerPicker>
-                ),
+                  )}
+                  {!subtask && !isRecord && !temp && (owner.team || owner.person) && (
+                    <OwnerClear onClear={() => setOwner({ team: "", person: "" })} />
+                  )}
+                </span>,
               )}
             {/* On review: who is reviewing it — the person on the linked
                 review card — chosen from those who can read the card's
@@ -1390,6 +1395,7 @@ export function CardDetail({
             {planning &&
               row(
                 "Owner",
+                <span className="drawer-owner-field">
                 <OwnerPicker
                   planning
                   current={planOwner}
@@ -1405,7 +1411,11 @@ export function CardDetail({
                 >
                   <DrawerOwnerFace owner={planOwner} inherited={inheritedTeam} avatars={avatars} names={names} />
                   {!isRecord && !temp && <span className="add-card-team-caret">▾</span>}
-                </OwnerPicker>,
+                </OwnerPicker>
+                {!isRecord && !temp && (planOwner.team || planOwner.person) && (
+                  <OwnerClear onClear={() => setPlanOwner({ team: "", person: "" })} />
+                )}
+                </span>,
               )}
             {editsDates
               ? row(
@@ -1550,5 +1560,16 @@ function DrawerOwnerFace({
       {shown.person && <Avatar login={shown.person} avatars={avatars} names={names} className="avatar-img roadmap-owner-avatar" />}
       <span className="drawer-owner-text">{shown.team || shown.person ? label : "Nobody yet"}</span>
     </span>
+  );
+}
+
+/** OwnerClear is the drawer Owner's ×: what the picker's "No owner" does —
+ *  the card's own team and person off — in one press, shown only while the
+ *  card has either of its own (an inherited team is nothing to unset). */
+function OwnerClear({ onClear }: { onClear: () => void }) {
+  return (
+    <button type="button" className="drawer-owner-clear" aria-label="Unset the owner" title="Unset the owner" onClick={onClear}>
+      ×
+    </button>
   );
 }
