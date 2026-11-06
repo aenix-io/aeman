@@ -25,7 +25,7 @@ import { ownerLabel, ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../o
 import { customerChips, inheritedTeamOf } from "../ownership";
 import { CustomerField } from "./CustomerField";
 import { teamColor } from "../avatar";
-import { avatarsFrom, displayName, namesFrom } from "../users";
+import { avatarsFrom, displayName, namesFrom, type Avatars, type Names } from "../users";
 import type { RemoveChoice } from "../removal";
 import {
   KIND_LABEL,
@@ -1280,12 +1280,9 @@ export function CardDetail({
             {task &&
               row(
                 "Owner",
-                subtask ? (
-                  <span className="drawer-owner" title="A subtask's owner is its task's">
-                    {owner.team && <span className="team-dot" style={{ background: teamColor(owner.team) }} />}
-                    {owner.person && <Avatar login={owner.person} avatars={avatars} names={names} className="avatar-img roadmap-owner-avatar" />}
-                    <span className={owner.team || owner.person ? "" : "drawer-none"}>{ownerLabel(owner, (l) => displayName(l, names))}</span>
-                  </span>
+                <span className="drawer-owner-field">
+                  {subtask ? (
+                  <DrawerOwnerFace owner={owner} inherited={inheritedTeam} avatars={avatars} names={names} title="A subtask's owner is its task's" />
                 ) : (
                   <OwnerPicker
                     current={owner}
@@ -1298,25 +1295,15 @@ export function CardDetail({
                     onPick={setOwner}
                     className="drawer-owner-picker"
                   >
-                    <span className={`drawer-owner${owner.team || owner.person ? "" : " drawer-owner-none"}`}>
-                      {owner.team && <span className="team-dot" style={{ background: teamColor(owner.team) }} />}
-                      {owner.person && <Avatar login={owner.person} avatars={avatars} names={names} className="avatar-img roadmap-owner-avatar" />}
-                      <span className="drawer-owner-text">{owner.team || owner.person ? ownerLabel(owner, (l) => displayName(l, names)) : "Nobody yet"}</span>
-                    </span>
+                    <DrawerOwnerFace owner={owner} inherited={inheritedTeam} avatars={avatars} names={names} />
                     {!isRecord && !temp && <span className="add-card-team-caret">▾</span>}
                   </OwnerPicker>
-                ),
+                  )}
+                  {!subtask && !card.reviewOf && !isRecord && !temp && (owner.team || owner.person) && (
+                    <OwnerClear onClear={() => setOwner({ team: "", person: "" })} />
+                  )}
+                </span>,
               )}
-            {/* A task with no team of its own counts under its plan's
-                (ownership.md, O3): said grey, with where it comes from. */}
-            {task && inheritedTeam && (
-              <div className="drawer-row drawer-row-quiet">
-                <span className="drawer-label-quiet">Team</span>
-                <span className="drawer-inherited" title={inheritedTeam.from ? `From «${inheritedTeam.from}»` : "Inherited"}>
-                  {inheritedTeam.team}
-                </span>
-              </div>
-            )}
             {/* On review: who is reviewing it — the person on the linked
                 review card — chosen from those who can read the card's
                 repository, as the boards' picker chooses. */}
@@ -1408,6 +1395,7 @@ export function CardDetail({
             {planning &&
               row(
                 "Owner",
+                <span className="drawer-owner-field">
                 <OwnerPicker
                   planning
                   current={planOwner}
@@ -1421,15 +1409,13 @@ export function CardDetail({
                   className="drawer-owner-picker"
                   title="Who carries it out (a team) and who answers for it (its owner)"
                 >
-                  <span className={`drawer-owner${planOwner.team || planOwner.person ? "" : " drawer-owner-none"}`}>
-                    {planOwner.team && <span className="team-dot" style={{ background: teamColor(planOwner.team) }} />}
-                    {planOwner.person && <Avatar login={planOwner.person} avatars={avatars} names={names} className="avatar-img roadmap-owner-avatar" />}
-                    <span className="drawer-owner-text">
-                      {planOwner.team || planOwner.person ? ownerLabel(planOwner, (l) => displayName(l, names)) : "Nobody yet"}
-                    </span>
-                  </span>
+                  <DrawerOwnerFace owner={planOwner} inherited={inheritedTeam} avatars={avatars} names={names} />
                   {!isRecord && !temp && <span className="add-card-team-caret">▾</span>}
-                </OwnerPicker>,
+                </OwnerPicker>
+                {!isRecord && !temp && (planOwner.team || planOwner.person) && (
+                  <OwnerClear onClear={() => setPlanOwner({ team: "", person: "" })} />
+                )}
+                </span>,
               )}
             {editsDates
               ? row(
@@ -1542,5 +1528,48 @@ export function CardDetail({
         />
       )}
     </div>
+  );
+}
+
+/** DrawerOwnerFace is what the drawer's Owner shows: the card's own team and
+ *  person, or — with no team of its own — the team it counts under (O3),
+ *  drawn translucent as the Roadmap's Owner cell draws it, with where it
+ *  comes from in the tooltip. The picker around it still sets the card's OWN
+ *  value. */
+function DrawerOwnerFace({
+  owner,
+  inherited,
+  avatars,
+  names,
+  title,
+}: {
+  owner: Owner;
+  inherited: { team: string; from: string } | null;
+  avatars?: Avatars;
+  names?: Names;
+  title?: string;
+}) {
+  const borrowed = !owner.team && inherited ? inherited : null;
+  const shown: Owner = borrowed ? { ...owner, team: borrowed.team } : owner;
+  const label = ownerLabel(shown, (l) => displayName(l, names));
+  const tip = borrowed ? `${label} — ${borrowed.from ? `from «${borrowed.from}»` : "inherited"}` : title;
+  const cls = `drawer-owner${shown.team || shown.person ? "" : " drawer-owner-none"}${borrowed ? " drawer-owner-inherited" : ""}`;
+  return (
+    <span className={cls} title={tip}>
+      {shown.team && <span className="team-dot drawer-owner-team" style={{ background: teamColor(shown.team) }} />}
+      {shown.person && <Avatar login={shown.person} avatars={avatars} names={names} className="avatar-img roadmap-owner-avatar" />}
+      <span className="drawer-owner-text">{shown.team || shown.person ? label : "Nobody yet"}</span>
+    </span>
+  );
+}
+
+/** OwnerClear is the drawer Owner's ×: what the picker's "No owner" does —
+ *  the card's own team and person off — in one press, shown only while the
+ *  card has either of its own (an inherited team is nothing to unset). */
+function OwnerClear({ onClear }: { onClear: () => void }) {
+  return (
+    <button type="button" className="drawer-owner-clear" aria-label="Unset the owner" title="Unset the owner" onClick={onClear}>
+      ×
+    </button>
   );
 }

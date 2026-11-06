@@ -109,3 +109,11 @@ export function ownerLabel(o: Owner, name: (login: string) => string = (l) => l)
   }
   return o.person ? `${o.team} · ${name(o.person)}` : o.team;
 }
+
+/** pickerTeams is the Team column of the owner picker: the roster without
+ *  the no-team group's entry (""; it is the group's own file, its rank and
+ *  sprint). An empty team there means "none picked yet", and taking the team
+ *  off a card is "No owner". */
+export function pickerTeams(roster: readonly string[]): string[] {
+  return roster.filter((t) => t !== "");
+}
