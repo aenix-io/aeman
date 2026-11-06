@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { COLUMN_DEFAULTS, COLUMN_MINS } from "../roadmapcolumns";
 import { RoadmapBoard } from "./RoadmapBoard";
 import type { RoadmapFilters } from "../ownership";
 import type { Board, Card, Provider } from "../providers/types";
@@ -140,12 +141,15 @@ describe("the Roadmap's two panes", () => {
   // clipping cell does not: it only cut the pill off at the line.
   it("keeps the Status column clear of the timeline, header and rows alike", () => {
     const html = draw(board([goal, ini, epic, done, open]));
-    expect(html).toContain('<span class="roadmap-cell roadmap-cell-status">Status</span>');
-    expect(html.match(/class="roadmap-cell roadmap-cell-status"/g)?.length).toBeGreaterThan(1);
+    expect(html).toMatch(/<span class="roadmap-cell roadmap-cell-status roadmap-head-cell">Status</);
+    expect(html.match(/class="roadmap-cell roadmap-cell-status/g)?.length).toBeGreaterThan(1);
     const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
-    const grid = css.match(/\.roadmap-row \{\s*display: grid;\s*grid-template-columns: ([^;]+);/)?.[1] ?? "";
-    const status = Number(/(\d+)px\s*$/.exec(grid)?.[1] ?? 0);
+    const grid = css.match(/\.roadmap-row \{\s*display: grid;\s*grid-template-columns:([^;]+);/)?.[1] ?? "";
+    const status = Number(/var\(--rm-status, (\d+)px\)/.exec(grid)?.[1] ?? 0);
     expect(status).toBeGreaterThanOrEqual(110);
+    // The column is the reader's to size, and never narrower than the pill.
+    expect(COLUMN_DEFAULTS.status).toBeGreaterThanOrEqual(110);
+    expect(COLUMN_MINS.status).toBeGreaterThanOrEqual(110);
     const cell = css.match(/\.roadmap-cell-status \{[^}]*\}/)?.[0] ?? "";
     const right = Number(/padding-right: (\d+)px/.exec(cell)?.[1] ?? 0);
     expect(right).toBeGreaterThanOrEqual(10);
@@ -344,5 +348,30 @@ describe("ownership on the Roadmap", () => {
     expect(html).not.toContain("Manage the customers");
     expect(html).not.toContain("roadmap-customers-btn");
     expect(html).toMatch(/aria-label="Team filter"[^>]*>Team: No team</);
+  });
+});
+
+// The table's columns are the reader's to size (roadmapcolumns.ts): a handle
+// on every boundary of the header — the last one being the split with the
+// timeline — reachable by the keyboard, and the widths reach the rows as
+// CSS variables on the board.
+describe("the Roadmap's column handles", () => {
+  it("stand on every boundary of the header, as keyboard separators", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    const head = html.slice(html.indexOf("roadmap-head"), html.indexOf("roadmap-rowgroup"));
+    const handles = head.match(/<span[^>]*role="separator"[^>]*>/g) ?? [];
+    expect(handles).toHaveLength(5);
+    for (const h of handles) {
+      expect(h).toContain('tabindex="0"');
+      expect(h).toContain('aria-orientation="vertical"');
+      expect(h).toMatch(/aria-valuenow="\d+"/);
+    }
+    expect(head).toContain('aria-label="Resize the Card column"');
+    expect(head).toContain('aria-label="Resize the table against the timeline"');
+  });
+
+  it("set the widths as CSS variables on the board, the defaults first", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    expect(html).toMatch(/class="roadmap"[^>]*style="[^"]*--rm-title:290px[^"]*--rm-table:680px/);
   });
 });

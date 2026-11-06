@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -57,6 +57,17 @@ import { barColor } from "../stages";
 import { ViewToggle } from "./ViewToggle";
 import { FilterSelect } from "./FilterSelect";
 import { customerOptions, teamOptions } from "../filteroptions";
+import {
+  COLUMN_MINS,
+  ROADMAP_COLUMNS_KEY,
+  columnVars,
+  resetColumn,
+  resized,
+  steppedWidth,
+  storedColumns,
+  type ColumnWidths,
+  type RoadmapColumn,
+} from "../roadmapcolumns";
 import { NO_ROADMAP_FILTERS, ownerFilterOptions, peopleOf, roadmapOwnerCell, type RoadmapFilters } from "../ownership";
 import { isPlanning } from "../subtasks";
 import { ownerLabel, ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
@@ -117,7 +128,6 @@ const LS_FOLDED = "aeman.roadmap.folded";
  *  timeline stay aligned without ever measuring each other. */
 const ROW_PX = 30;
 const HEAD_PX = 26;
-const TABLE_PX = 680;
 /** INDENT_PX is one level of the tree. */
 const INDENT_PX = 18;
 
@@ -360,6 +370,68 @@ function RoadmapRow({ row, section, today, open, focus, ghost, forbid, dragging,
 /** OwnerCell is what a task row shows in its Owner column: the owner badge
  *  (the team's avatar, the person's over it, one label) — and the picker
  *  behind it. */
+/** ColumnHandle is one boundary of the table's header (roadmapcolumns.ts):
+ *  a pointer drag sizes the column on its left — the last one, the table
+ *  against the timeline — a double-click puts it back, and the arrow keys
+ *  step it on a focused handle. While a drag runs only the board's CSS
+ *  variables move (`onLive`); the width is kept when it ends (`onCommit`). */
+function ColumnHandle({
+  col,
+  widths,
+  label,
+  onLive,
+  onCommit,
+}: {
+  col: RoadmapColumn;
+  widths: ColumnWidths;
+  label: string;
+  onLive: (next: ColumnWidths) => void;
+  onCommit: (next: ColumnWidths) => void;
+}) {
+  const onPointerDown = (e: ReactPointerEvent<HTMLSpanElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = widths[col];
+    let next = widths;
+    const move = (ev: PointerEvent) => {
+      next = resized(widths, col, startW + ev.clientX - startX);
+      onLive(next);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      onCommit(next);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  return (
+    <span
+      className="roadmap-col-handle"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      aria-valuenow={widths[col]}
+      aria-valuemin={COLUMN_MINS[col]}
+      tabIndex={0}
+      title="Drag to size · double-click to reset"
+      onPointerDown={onPointerDown}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onCommit(resetColumn(widths, col));
+      }}
+      onKeyDown={(e) => {
+        const w = steppedWidth(widths, col, e.key, e.shiftKey);
+        if (w !== null) {
+          e.preventDefault();
+          onCommit(resized(widths, col, w));
+        }
+      }}
+    />
+  );
+}
+
 function OwnerCell({ owner, avatars, names, from }: { owner: Owner; avatars?: Avatars; names?: Names; from?: string }) {
   const label = ownerLabel(owner, (l) => displayName(l, names));
   // A team taken from above (O3) is drawn greyed and says where from; the
@@ -400,6 +472,38 @@ export function RoadmapBoard({
   onManageCustomers,
 }: RoadmapBoardProps) {
   const today = todayIso();
+  // The table's column widths (roadmapcolumns.ts), the reader's own. A drag
+  // moves only the CSS variables on the board (rootRef); the state and the
+  // remembered value follow when it ends.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [widths, setWidthsState] = useState<ColumnWidths>(() => {
+    try {
+      return storedColumns(localStorage.getItem(ROADMAP_COLUMNS_KEY));
+    } catch {
+      return storedColumns(null);
+    }
+  });
+  const liveWidths = (next: ColumnWidths) => {
+    const el = rootRef.current;
+    if (!el) {
+      return;
+    }
+    for (const [k, v] of Object.entries(columnVars(next))) {
+      el.style.setProperty(k, v);
+    }
+  };
+  const commitWidths = (next: ColumnWidths) => {
+    liveWidths(next);
+    setWidthsState(next);
+    try {
+      localStorage.setItem(ROADMAP_COLUMNS_KEY, JSON.stringify(next));
+    } catch {
+      // a preference, not state
+    }
+  };
+  const handle = (col: RoadmapColumn, label: string) => (
+    <ColumnHandle col={col} widths={widths} label={label} onLive={liveWidths} onCommit={commitWidths} />
+  );
   const [depth, setDepthState] = useState<DepthRange>(readDepth);
   const [zoom, setZoomState] = useState<Zoom>(readZoom);
   const [folded, setFoldedState] = useState<Set<string>>(readFolded);
@@ -826,7 +930,7 @@ export function RoadmapBoard({
   const addingRow = rows.find((r) => r.node.card.itemId === addingUnder);
 
   return (
-    <div className="roadmap">
+    <div className="roadmap" ref={rootRef} style={columnVars(widths) as CSSProperties}>
       <div className="board-toolbar roadmap-toolbar">
         <AddCard
           placeholder="Add a goal, an initiative or an epic…"
@@ -924,13 +1028,23 @@ export function RoadmapBoard({
           onDragCancel={settle}
         >
           <div className={`roadmap-body${dragging ? " roadmap-body-dragging" : ""}`}>
-            <div className="roadmap-table" style={{ width: TABLE_PX }}>
+            <div className="roadmap-table">
               <div className="roadmap-head" style={{ height: HEAD_PX }}>
-                <span className="roadmap-cell roadmap-cell-title">Card</span>
-                <span className="roadmap-cell roadmap-cell-owner">Owner</span>
-                <span className="roadmap-cell roadmap-cell-date">Start</span>
-                <span className="roadmap-cell roadmap-cell-date">End</span>
-                <span className="roadmap-cell roadmap-cell-status">Status</span>
+                <span className="roadmap-cell roadmap-cell-title roadmap-head-cell">
+                  Card{handle("title", "Resize the Card column")}
+                </span>
+                <span className="roadmap-cell roadmap-cell-owner roadmap-head-cell">
+                  Owner{handle("owner", "Resize the Owner column")}
+                </span>
+                <span className="roadmap-cell roadmap-cell-date roadmap-head-cell">
+                  Start{handle("start", "Resize the Start column")}
+                </span>
+                <span className="roadmap-cell roadmap-cell-date roadmap-head-cell">
+                  End{handle("end", "Resize the End column")}
+                </span>
+                <span className="roadmap-cell roadmap-cell-status roadmap-head-cell">
+                  Status{handle("status", "Resize the table against the timeline")}
+                </span>
               </div>
               {shownLines.map((line) => {
                 if (line.kind === "header") {

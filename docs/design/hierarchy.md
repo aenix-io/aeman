@@ -342,8 +342,11 @@ its effective value and a planning card by itself or any task under it;
 owner — the one person filter — matches a planning card by its own owner
 and a task or subtask by its assignees), applied by the server — a filter
 keeps the matching cards and every card above them, so the tree keeps its
-shape. The depth, the zoom, the filters and which rows are folded are the
-reader's own, kept in the browser.
+shape. The table's column widths are the reader's to size too — a drag
+on any boundary of the header, the last one being the split with the
+timeline, a double-click to put one back (H12). The depth, the zoom, the
+filters, the column widths and which rows are folded are the reader's own,
+kept in the browser.
 
 **Below the tree, after everything else, the loose work** (H9): the open
 cards with no planning card above them, in sections — **In work**

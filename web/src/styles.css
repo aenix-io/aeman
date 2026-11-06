@@ -4532,6 +4532,9 @@ button.card-age {
 
 .roadmap-table {
   flex: none;
+  /* As wide as its columns add up (roadmapcolumns.ts): the last column's
+     handle is the split between the table and the timeline. */
+  width: var(--rm-table, 680px);
   border-right: 1px solid var(--line);
   position: sticky;
   left: 0;
@@ -4542,7 +4545,9 @@ button.card-age {
 .roadmap-head,
 .roadmap-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px 64px 64px 112px;
+  grid-template-columns:
+    var(--rm-title, 290px) var(--rm-owner, 150px) var(--rm-start, 64px)
+    var(--rm-end, 64px) var(--rm-status, 112px);
   align-items: center;
   border-bottom: 1px solid var(--line-soft);
   font-size: 12.5px;
@@ -4562,6 +4567,33 @@ button.card-age {
 
 .roadmap-row {
   cursor: pointer;
+}
+
+/* A boundary of the header the reader drags to size the column on its left
+   (roadmapcolumns.ts); focusable, the arrow keys step it. */
+.roadmap-head-cell {
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.roadmap-col-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 1;
+}
+
+.roadmap-col-handle:hover,
+.roadmap-col-handle:focus-visible {
+  background: var(--accent);
+  opacity: 0.5;
+  outline: none;
 }
 
 .roadmap-row:hover {
