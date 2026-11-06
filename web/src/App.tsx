@@ -122,7 +122,7 @@ export function App() {
   const [tokenWarningDismissed, setTokenWarningDismissed] = useState(false);
 
   const [view, setView] = useState<ViewMode>(readView);
-  // The project chips' selection on the Project tab.
+  // The Project filter's selection on the Project tab.
   const [projectFilter, setProjectFilterState] = useState<string[] | null>(readProjectFilter);
   const setProjectFilter = (keys: string[] | null) => {
     setProjectFilterState(keys);
@@ -351,9 +351,9 @@ export function App() {
   // this list as soon as the board declares them (see teams.ts). Nothing of it
   // is persisted.
   const [pendingTeams, setPendingTeams] = useState<string[]>([]);
-  // Team filter: null = all, else the selected groups ("" = no-team). Multi-select
-  // — Shift-click a chip to add/remove it. Persisted, and pruned to the teams
-  // the board has once it is loaded.
+  // Team filter: null = all, else the selected groups ("" = no-team), several
+  // being OR (the Team dropdown's checkboxes). Persisted, and pruned to the
+  // teams the board has once it is loaded.
   const [teamFilter, setTeamFilter] = useState<string[] | null>(readFilter);
   // Customer filter of the day boards: [] = none, else customer ids (OR).
   const [customerFilter, setCustomerFilterState] = useState<string[]>(() => readStringList(LS_CUSTOMER_FILTER) ?? []);

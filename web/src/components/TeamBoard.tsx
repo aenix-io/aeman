@@ -68,9 +68,10 @@ interface TeamBoardProps {
   /** Display names by login (the board roster); a login without one is shown
    *  as is. */
   names: Names;
-  /** Known teams (the roster), shown as filter chips. */
+  /** Known teams (the roster), offered by the Team filter. */
   roster: string[];
-  /** Single-select team filter: null = all, "" = no team, else a team name. */
+  /** The Team filter, shared with the Backlog and the Me board: null = all,
+   *  else the chosen teams ("" being the no-team group), several being OR. */
   teamFilter: string[] | null;
   onSetFilter: (keys: string[] | null) => void;
   /** The day boards' Customer filter (O11): [] = none, else ids (OR). */

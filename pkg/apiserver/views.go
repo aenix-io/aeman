@@ -445,8 +445,9 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		}
 		// team filters the views that are not already scoped by it (the me, all
 		// and default lists). It accepts a comma-separated set, so
-		// ?view=me&team=marketing,portal narrows the Me board to those
-		// teams — the Me view's team-focus toggle over the selected chips.
+		// ?view=me&team=marketing,portal narrows a Me list to those teams; the
+		// Me board itself filters what it holds by its Team filter, to count
+		// what the filter hides.
 		if offTheTeamList(c, sel) {
 			continue
 		}

@@ -96,7 +96,9 @@ interface MeBoardProps {
   subscribeCardFrames?: (fn: (uid: string, deleted: boolean) => void) => () => void;
   /** Known teams to offer in the team selector. */
   teams: string[];
-  /** Shared single-select team (also the team for new cards); null = none. */
+  /** The Team filter, shared with the Team board and the Backlog: null =
+   *  all, else the chosen teams ("" the no-team group); one chosen is also
+   *  the team a new card is made on. */
   teamFilter: string[] | null;
   onSetFilter: (keys: string[] | null) => void;
   patchCard: (
@@ -187,7 +189,7 @@ export function MeBoard({
   useEffect(() => () => onPresence?.(null), []); // eslint-disable-line react-hooks/exhaustive-deps
   // Focus toggle (the meditation glyph by the View-as picker): show only cards
   // that can be worked on right now — drops locked/review/done. Ephemeral,
-  // resets to off on reload, like the team-focus eye.
+  // resets to off on reload.
   const [focus, setFocus] = useState(false);
   // Subtask UI state: manually expanded parents, the card a drag would group
   // under (its middle band is hovered — the card highlights), and the parent
@@ -427,7 +429,7 @@ export function MeBoard({
   const loadCardLinks = (card: CardModel) =>
     provider.listLinks(card.itemId);
 
-  // Subtasks grouped by parent. The Me board's team-focus filter applies to
+  // Subtasks grouped by parent. The Me board's Team filter applies to
   // subtask rows the same way it applies to cards.
   // The shared rule (subtasks.ts): a subtask keeps its own day visibility
   // even though it rides its parent.
