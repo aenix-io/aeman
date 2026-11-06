@@ -29,8 +29,18 @@ type mcpLoginCtxKey struct{}
 // registerMCP mounts the MCP streamable HTTP transport at /mcp, guarded by the
 // bearer-token middleware so unauthenticated callers get a 401 carrying the
 // protected-resource metadata URL. It is only mounted in OAuth mode.
+//
+// The SDK's DNS-rebinding guard is off here. It rejects a request that
+// arrives on a loopback address with a non-loopback Host, which is exactly
+// what every request looks like behind a proxy on the same host (cloudflared,
+// Caddy, a sidecar): the client got its token and then a 403 on every call.
+// The guard protects an UNAUTHENTICATED local server from a page that rebinds
+// a hostname to 127.0.0.1; this endpoint answers nothing without a bearer
+// token, which such a page does not have.
 func (s *Server) registerMCP(mux *http.ServeMux) {
-	handler := mcp.NewStreamableHTTPHandler(s.mcpServerForRequest, nil)
+	handler := mcp.NewStreamableHTTPHandler(s.mcpServerForRequest, &mcp.StreamableHTTPOptions{
+		DisableLocalhostProtection: true,
+	})
 	protected := auth.RequireBearerToken(s.auth.verifyToken, &auth.RequireBearerTokenOptions{
 		ResourceMetadataURL: s.auth.baseURL() + "/.well-known/oauth-protected-resource",
 	})(handler)

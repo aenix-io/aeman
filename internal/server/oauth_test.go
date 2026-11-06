@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -415,6 +416,53 @@ func TestMCPInitializeWithBearer(t *testing.T) {
 	}
 	if rec.Header().Get("Mcp-Session-Id") == "" {
 		t.Fatalf("expected an Mcp-Session-Id header for a fresh session")
+	}
+}
+
+// An aeman behind a proxy on the same host — cloudflared, Caddy, a sidecar —
+// receives every request on a loopback address with the public Host. The MCP
+// SDK's DNS-rebinding guard answers that pair with 403 "invalid Host header",
+// which a client reads as its fresh token being refused, so MCP could never
+// connect. In OAuth mode /mcp is behind the bearer gate (a rebinding page has
+// no token to send), so the guard is off there and the request initializes.
+func TestMCPInitializesBehindALocalProxy(t *testing.T) {
+	srv, _ := newOAuthServer(t)
+	code, clientID, redirectURI, verifier := mintCode(t, srv)
+	tok := redeemToken(t, srv, code, verifier, redirectURI, clientID)
+	if tok.Code != http.StatusOK {
+		t.Fatalf("token status = %d, body = %s", tok.Code, tok.Body.String())
+	}
+	var tr struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(tok.Body.Bytes(), &tr); err != nil {
+		t.Fatalf("decode token: %v", err)
+	}
+	host := strings.TrimPrefix(strings.TrimPrefix(testBaseURL, "https://"), "http://")
+
+	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}`
+	r := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	r.Host = host
+	r = r.WithContext(context.WithValue(r.Context(), http.LocalAddrContextKey,
+		&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8765}))
+	r.Header.Set("Authorization", "Bearer "+tr.AccessToken)
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Accept", "application/json, text/event-stream")
+	rec := httptest.NewRecorder()
+	srv.handler.ServeHTTP(rec, r)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("initialize via a local proxy: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	// The bearer gate still stands in front of it: no token, no MCP.
+	r = httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	r.Host = host
+	r = r.WithContext(context.WithValue(r.Context(), http.LocalAddrContextKey,
+		&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8765}))
+	rec = httptest.NewRecorder()
+	srv.handler.ServeHTTP(rec, r)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no token via a local proxy: status = %d, want 401", rec.Code)
 	}
 }
 
