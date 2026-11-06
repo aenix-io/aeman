@@ -42,6 +42,7 @@ import { isPlanning, isSubtask, subtaskParent } from "../subtasks";
 import { Avatar } from "./Avatar";
 import { DescriptionEditor } from "./DescriptionEditor";
 import { KindIcon } from "./KindIcon";
+import { placementAnswer } from "../detail";
 import { OwnerPicker } from "./OwnerPicker";
 import { ParentPicker } from "./ParentPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
@@ -233,12 +234,11 @@ export function CardDetail({
       .ownCard(card.itemId, next.team, next.person)
       .then((updated) =>
         patchCard(card.itemId, {
-          team: updated.team,
+          ...placementAnswer(updated),
           assignees: updated.assignees,
           startDate: updated.startDate,
           day: updated.day,
           zone: updated.zone,
-          sprintStart: updated.sprintStart,
           parked: updated.parked,
         }),
       )
@@ -360,7 +360,9 @@ export function CardDetail({
     });
     void provider
       .patchCard(card.itemId, { parent: nextId })
-      .then((updated) => patchCard(card.itemId, { parent: updated.parent, lineage: updated.lineage }))
+      // Filed under another plan item it may stand under another team, in
+      // that team's sprint (O13): take where the server put it.
+      .then((updated) => patchCard(card.itemId, placementAnswer(updated)))
       .catch((err: unknown) => {
         patchCard(card.itemId, before);
         onError?.(errMessage(err));
@@ -526,7 +528,7 @@ export function CardDetail({
     patchCard(card.itemId, { team: next.team || undefined, owner: next.person || undefined });
     void provider
       .patchCard(card.itemId, change)
-      .then((updated) => patchCard(card.itemId, { team: updated.team, owner: updated.owner }))
+      .then((updated) => patchCard(card.itemId, { ...placementAnswer(updated), owner: updated.owner }))
       .catch((err: unknown) => {
         patchCard(card.itemId, before);
         onError?.(errMessage(err));

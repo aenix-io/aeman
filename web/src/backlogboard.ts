@@ -25,7 +25,7 @@ import { gapAnchor } from "./insertgap";
 import { isPlanning, isSubtask } from "./subtasks";
 import { isComplete } from "./stages";
 import type { Owner } from "./owner";
-import { placedTeamOf } from "./ownership";
+import { placedTeamOf, placerOf } from "./ownership";
 import type { Card, LineageRef, Provider } from "./providers/types";
 
 /** onBacklog reports whether a card is listed in its team's backlog (K2): a
@@ -77,7 +77,8 @@ export function backlogList(cards: readonly Card[], teams: readonly string[]): C
   const shown = new Set(teams);
   // A backlog holds the tasks STANDING UNDER its team (O13): its own, else
   // the plan item's above it.
-  return cards.filter((c) => onBacklog(c) && shown.has(placedTeamOf(c, cards)));
+  const place = placerOf(cards);
+  return cards.filter((c) => onBacklog(c) && shown.has(place(c)));
 }
 
 /** takeOwner is what TAKE leaves on the card, the server's `take` (K11)

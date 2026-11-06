@@ -5,6 +5,8 @@ import {
   bornCustomers,
   customerPasses,
   placedTeamOf,
+  placerOf,
+  sprintTeamOf,
   roadmapOwnerCell,
   effectiveCustomersOf,
   effectiveTeamOf,
@@ -210,5 +212,45 @@ describe("the team a card stands under", () => {
   it("is the server's when the chain is not held", () => {
     expect(placedTeamOf(card({ itemId: "x", parent: "gone", effectiveTeam: "ops" }), cards)).toBe("ops");
     expect(placedTeamOf(card({ itemId: "rx", reviewOf: "gone", effectiveTeam: "ops" }), cards)).toBe("ops");
+  });
+});
+
+// The placement read once per board render: one map of the held cards, the
+// same answer card by card as placedTeamOf, which builds it per call.
+describe("the board's placer", () => {
+  it("answers as placedTeamOf does, card by card", () => {
+    const review = card({ itemId: "rv", reviewOf: "t" });
+    const held = [...cards, review, card({ itemId: "x", parent: "gone", effectiveTeam: "ops" })];
+    const place = placerOf(held);
+    for (const c of held) {
+      expect(place(c)).toBe(placedTeamOf(c, held));
+    }
+  });
+});
+
+// O13 on the client's sprint reads: a sprint is resolved for the team a
+// card stands under — the one a gesture names when it names one, else its
+// own, else the plan item's above it — never the no-team group's for a task
+// that inherits. null is the no-team group, as currentSprint takes it.
+describe("the team a card's sprint is read by", () => {
+  it("is the named team, else the one the card stands under", () => {
+    expect(sprintTeamOf(cards[2], cards)).toBe("portal");
+    expect(sprintTeamOf(cards[2], cards, "docs")).toBe("docs");
+    expect(sprintTeamOf(cards[3], cards, "")).toBe("portal"); // own team taken off: the epic's
+    expect(sprintTeamOf(card({ itemId: "loose" }), cards)).toBeNull();
+  });
+});
+
+// The drawer's inherited team covers a review card: with no team of its own
+// it counts under its task's, and says so.
+describe("a review card's inherited team", () => {
+  it("is its task's, from the task", () => {
+    const review = card({ itemId: "rv", title: "review: Receipts", reviewOf: "t" });
+    expect(inheritedTeamOf(review, [...cards, review])).toEqual({ team: "portal", from: "Receipts" });
+  });
+
+  it("is the server's when the task is not held, and none with a team of its own", () => {
+    expect(inheritedTeamOf(card({ itemId: "rv", reviewOf: "gone", effectiveTeam: "ops" }), cards)).toEqual({ team: "ops", from: "" });
+    expect(inheritedTeamOf(card({ itemId: "rv", reviewOf: "t", team: "ops" }), cards)).toBeNull();
   });
 });

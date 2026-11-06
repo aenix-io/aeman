@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cardIsGone, followFrame, followPatch } from "./detail";
+import { cardIsGone, followFrame, followPatch, placementAnswer } from "./detail";
 import type { Card } from "./providers/types";
 
 const card = (over: Partial<Card>): Card => ({ itemId: "t", title: "Invoices", assignees: [], progress: 0, ...over }) as Card;
@@ -57,5 +57,23 @@ describe("a DELETED frame", () => {
     expect(cardIsGone({ type: "DELETED", object: { metadata: { uid: "t" }, spec: { title: "" } } })).toBe(true);
     expect(cardIsGone({ type: "DELETED", object: { metadata: { uid: "t" }, spec: { title: "Invoices" } } })).toBe(false);
     expect(cardIsGone({ type: "MODIFIED", object: { metadata: { uid: "t" }, spec: { title: "" } } })).toBe(false);
+  });
+});
+
+// O13 — a write that can move where a card stands (own, a team, a parent)
+// is answered with the card as the server now places it: the drawer's board
+// takes its team, the team it stands under, its customers, its sprint and
+// its chain from that answer rather than keeping what it guessed.
+describe("the answer to a placing write", () => {
+  it("carries the team the card stands under and the sprint it was moved to", () => {
+    const answer = card({ team: undefined, effectiveTeam: "docs", effectiveCustomers: ["cu1"], sprintStart: "2026-01-07", parent: "e", lineage: [] });
+    expect(placementAnswer(answer)).toEqual({
+      team: undefined,
+      effectiveTeam: "docs",
+      effectiveCustomers: ["cu1"],
+      sprintStart: "2026-01-07",
+      parent: "e",
+      lineage: [],
+    });
   });
 });

@@ -61,7 +61,7 @@ import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { SizeChip } from "./SizeChip";
 import { FilterSelect } from "./FilterSelect";
 import { customerOptions, teamOptions } from "../filteroptions";
-import { bornCustomers, customerPasses } from "../ownership";
+import { bornCustomers, customerPasses, sprintTeamOf } from "../ownership";
 import { useKeptCreated } from "../keptcreated";
 
 /** How far the pointer must travel before a press on a card becomes a drag;
@@ -221,7 +221,7 @@ export function BacklogBoard({
         zone: card.zone,
         sprintStart: card.sprintStart,
       };
-      patchCard(card.itemId, takenIntoWorkLocally(owner, today, currentSprint(board, owner.team || null)));
+      patchCard(card.itemId, takenIntoWorkLocally(owner, today, currentSprint(board, sprintTeamOf(card, board.cards, owner.team))));
       void provider
         .ownCard(card.itemId, owner.team, owner.person)
         .then(addCard)
@@ -249,7 +249,9 @@ export function BacklogBoard({
         zone: card.zone,
         sprintStart: card.sprintStart,
       };
-      patchCard(card.itemId, takenIntoWorkLocally(owner, today, currentSprint(board, owner.team || null)));
+      // Taken on its own team, in the sprint of the team it stands under
+      // (O13): an inheriting task joins its plan item's team's sprint.
+      patchCard(card.itemId, takenIntoWorkLocally(owner, today, currentSprint(board, sprintTeamOf(card, board.cards))));
       void provider
         .takeCard(card.itemId)
         .then(addCard)
@@ -430,8 +432,8 @@ export function BacklogBoard({
     (card: CardModel) =>
       removeChoices(card, {
         today,
-        current: currentSprint(board, card.team ?? null) ?? undefined,
-        previous: previousSprint(board, card.team ?? null) ?? undefined,
+        current: currentSprint(board, sprintTeamOf(card, board.cards)) ?? undefined,
+        previous: previousSprint(board, sprintTeamOf(card, board.cards)) ?? undefined,
       }),
     [board, today],
   );

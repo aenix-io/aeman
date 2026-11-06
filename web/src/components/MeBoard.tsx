@@ -61,6 +61,7 @@ import { Dropdown } from "./Dropdown";
 import { FilterSelect } from "./FilterSelect";
 import { ViewToggle } from "./ViewToggle";
 import { teamOptions } from "../filteroptions";
+import { placerOf, sprintTeamOf } from "../ownership";
 import { useKeptCreated } from "../keptcreated";
 import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
 import { ConnectDialog } from "./ConnectDialog";
@@ -287,15 +288,17 @@ export function MeBoard({
   // own: whose cards these are (mine, above) and the two toggles.
   // What the day draws with no Team filter — what the "N more tasks" button
   // counts against — and what it draws with it (O12).
+  // Which team each card stands under (O13), read once per render.
+  const place = useMemo(() => placerOf(board.cards), [board.cards]);
   const dayCards = useMemo(
-    () => mine.filter((c) => (!focus || isWorkable(c)) && onMyDay(c, board, selectedDate, todayIso())),
-    [mine, board, selectedDate, focus],
+    () => mine.filter((c) => (!focus || isWorkable(c)) && onMyDay(c, board, selectedDate, todayIso(), place)),
+    [mine, board, selectedDate, focus, place],
   );
   const filtering = (teamFilter?.length ?? 0) > 0;
   const { kept, keep } = useKeptCreated((teamFilter ?? []).join(","));
   const filterPasses = useCallback(
-    (c: CardModel) => kept.has(c.itemId) || meFilterPasses(c, board.cards, teamFilter),
-    [board.cards, teamFilter, kept],
+    (c: CardModel) => kept.has(c.itemId) || meFilterPasses(c, place, teamFilter),
+    [place, teamFilter, kept],
   );
   const myCards = useMemo(() => dayCards.filter(filterPasses), [dayCards, filterPasses]);
 
@@ -1036,7 +1039,9 @@ export function MeBoard({
       team: card.team,
       sprintStart: card.sprintStart,
     };
-    const sprintStart = currentSprint(board, team) ?? selectedDate;
+    // The sprint of the team it will stand under (O13): the one given, else
+    // — its own team taken off — the plan item's above it.
+    const sprintStart = currentSprint(board, sprintTeamOf(card, board.cards, team ?? "")) ?? selectedDate;
     patchCard(card.itemId, { team: team ?? undefined, sprintStart });
     void provider
       .patchCard(card.itemId, { team: team ?? "" })
@@ -1105,9 +1110,10 @@ export function MeBoard({
     });
   };
 
+  // The sprints of the team the card stands under (O13).
   const gridCtx = (card: CardModel) => ({
-    current: currentSprint(board, card.team ?? null) ?? undefined,
-    previous: previousSprint(board, card.team ?? null) ?? undefined,
+    current: currentSprint(board, sprintTeamOf(card, board.cards)) ?? undefined,
+    previous: previousSprint(board, sprintTeamOf(card, board.cards)) ?? undefined,
     today: todayIso(),
   });
   // What the × actually does to a team card here — the same answer the Team
@@ -1310,7 +1316,8 @@ export function MeBoard({
   const handleSendToReview = (card: CardModel, reviewerLogin: string) => {
     const team = card.team ?? null;
     const zone: ZoneKey = "yellow";
-    const sprintStart = currentSprint(board, team) ?? selectedDate;
+    // The sprint of the team the card stands under (O13).
+    const sprintStart = currentSprint(board, sprintTeamOf(card, board.cards)) ?? selectedDate;
     const title = `review: ${card.title}`;
     const tempId = `tmp-${new Date().toISOString()}`;
     const optimistic: CardModel = {

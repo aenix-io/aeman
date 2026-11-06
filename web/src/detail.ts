@@ -47,3 +47,18 @@ export function followFrame(shown: Card | null, framed: Card, deleted: boolean):
 export function cardIsGone(frame: { type: string; object: { metadata?: { uid?: string }; spec?: { title?: string } } }): boolean {
   return frame.type === "DELETED" && !frame.object.spec?.title;
 }
+
+/** placementAnswer is what a board takes from the server's answer to a
+ *  write that can move where a card stands — own, a team, a parent (O13):
+ *  its own team, the team it stands under, its customers, its sprint and
+ *  its chain, as the server now has them. */
+export function placementAnswer(u: Card): Partial<Card> {
+  return {
+    team: u.team,
+    effectiveTeam: u.effectiveTeam,
+    effectiveCustomers: u.effectiveCustomers,
+    sprintStart: u.sprintStart,
+    parent: u.parent,
+    lineage: u.lineage,
+  };
+}

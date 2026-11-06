@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { hiddenByFilters, meFilterPasses, moreTasksLabel, onMyDay } from "./meview";
+import { placerOf } from "./ownership";
 import type { Board, Card } from "./providers/types";
 
 const card = (over: Partial<Card>): Card =>
@@ -122,16 +123,16 @@ describe("the Me board's filter", () => {
   ];
 
   it("passes everything while no team is chosen", () => {
-    expect(cards.every((c) => meFilterPasses(c, cards, null))).toBe(true);
-    expect(cards.every((c) => meFilterPasses(c, cards, []))).toBe(true);
+    expect(cards.every((c) => meFilterPasses(c, placerOf(cards), null))).toBe(true);
+    expect(cards.every((c) => meFilterPasses(c, placerOf(cards), []))).toBe(true);
   });
 
   it("keeps the chosen teams, the no-team group being a team", () => {
-    expect(cards.filter((c) => meFilterPasses(c, cards, ["alpha", ""])).map((c) => c.itemId)).toEqual(["a", "n"]);
+    expect(cards.filter((c) => meFilterPasses(c, placerOf(cards), ["alpha", ""])).map((c) => c.itemId)).toEqual(["a", "n"]);
   });
 
   it("counts what it hides of what the day would draw", () => {
-    expect(hiddenByFilters(cards, () => [], (c) => meFilterPasses(c, cards, ["alpha"]))).toBe(2);
+    expect(hiddenByFilters(cards, () => [], (c) => meFilterPasses(c, placerOf(cards), ["alpha"]))).toBe(2);
     expect(hiddenByFilters(cards, () => [], () => true)).toBe(0);
     expect(moreTasksLabel(1)).toBe("1 more task");
     expect(moreTasksLabel(3)).toBe("3 more tasks");
@@ -145,7 +146,7 @@ describe("the Me board's filter", () => {
       a: [card({ itemId: "a1", team: "alpha" }), card({ itemId: "a2", team: "beta" })],
       b: [card({ itemId: "b1", team: "beta" }), card({ itemId: "b2", team: "alpha" })],
     };
-    const passes = (c: ReturnType<typeof card>) => meFilterPasses(c, cards, ["alpha"]);
+    const passes = (c: ReturnType<typeof card>) => meFilterPasses(c, placerOf(cards), ["alpha"]);
     // b and both its subtasks; n; a's beta subtask.
     expect(hiddenByFilters(cards, (id) => kids[id] ?? [], passes)).toBe(5);
   });
@@ -156,8 +157,8 @@ describe("the Me board's filter", () => {
 describe("the Me board by the team a task stands under", () => {
   it("keeps an inheriting task under its plan item's team", () => {
     const inherited = card({ itemId: "i", team: "", parent: "e", effectiveTeam: "alpha" });
-    expect(meFilterPasses(inherited, [inherited], ["alpha"])).toBe(true);
-    expect(meFilterPasses(inherited, [inherited], [""])).toBe(false);
+    expect(meFilterPasses(inherited, placerOf([inherited]), ["alpha"])).toBe(true);
+    expect(meFilterPasses(inherited, placerOf([inherited]), [""])).toBe(false);
   });
 
   it("reads the day by the sprint of the team it stands under", () => {
