@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode } from "react";
 import { teamColor } from "../avatar";
-import { ownerStep, peopleOfTeam, type Owner } from "../owner";
+import { ownerStep, peopleOfTeam, pickerTeams, type Owner } from "../owner";
 import type { Card as CardModel } from "../providers/types";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
@@ -81,7 +81,7 @@ export function OwnerPicker({ current, teams, people, cards, avatars, names, dis
         <div className="card-assign-cols" onPointerDown={(e) => e.stopPropagation()}>
           <div className="card-assign-col">
             <div className="card-assign-head">Team</div>
-            {teams.map((t) => (
+            {pickerTeams(teams).map((t) => (
               <button
                 key={`t-${t}`}
                 type="button"

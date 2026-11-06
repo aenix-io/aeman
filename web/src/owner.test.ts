@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ownerLabel, ownerOf, ownerStep, peopleOfTeam, planOwnerOf, planOwnPatch } from "./owner";
+import { ownerLabel, ownerOf, ownerStep, peopleOfTeam, pickerTeams, planOwnerOf, planOwnPatch } from "./owner";
 
 // The owner picker's rule, press by press: a team is not an answer by
 // itself, a person needs a team, a team alone and nobody at all are answers.
@@ -87,5 +87,18 @@ describe("the owner picker on a goal, an initiative or an epic", () => {
     expect(planOwnPatch(now, { team: "docs", person: "bob" })).toEqual({ team: "docs", owner: "bob" });
     expect(planOwnPatch(now, { team: "", person: "" })).toEqual({ team: "", owner: "" });
     expect(planOwnPatch(now, now)).toBeNull();
+  });
+});
+
+describe("the teams the owner picker offers", () => {
+  // The roster carries "" for the no-team group's own file (teams/_.yaml: its
+  // rank and sprint). In the picker an empty team is "no team picked yet",
+  // and taking the team off is "No owner" — so "" is no row of its own.
+  it("leaves out the no-team group's roster entry", () => {
+    expect(pickerTeams(["portal", "", "marketing"])).toEqual(["portal", "marketing"]);
+  });
+
+  it("keeps the roster's order", () => {
+    expect(pickerTeams(["sales", "portal"])).toEqual(["sales", "portal"]);
   });
 });
