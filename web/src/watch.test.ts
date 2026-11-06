@@ -42,7 +42,7 @@ const expired = {
   object: { kind: "Status", status: "Failure", reason: "Expired", code: 410, message: "re-list" },
 };
 
-function open() {
+function open(extra: Partial<Parameters<typeof openWatches>[0]> = {}) {
   FakeSocket.all = [];
   const frames: WatchFrame[] = [];
   const relist = vi.fn();
@@ -54,6 +54,7 @@ function open() {
     onConnect: connected,
     retryMs: 3000,
     makeSocket: (url) => new FakeSocket(url),
+    ...extra,
   });
   return { frames, relist, connected, stop };
 }
@@ -101,6 +102,49 @@ describe("the board's watches", () => {
     vi.advanceTimersByTime(10_000);
     expect(relist).not.toHaveBeenCalled();
     expect(FakeSocket.all).toHaveLength(2);
+    vi.useRealTimers();
+  });
+});
+
+// A board that keeps falling behind — a burst the server cannot get out
+// before the next one — must not re-list in a tight loop: the first 410 is
+// answered at once, each one after it within a short life waits longer, with
+// jitter so many tabs do not come back in step, up to a ceiling; a watch that
+// lived a while before its 410 starts over.
+describe("the board's answer to repeated 410s", () => {
+  it("backs off, with jitter, and starts over after a healthy watch", () => {
+    vi.useFakeTimers();
+    const { relist } = open({ random: () => 0.5, healthyMs: 30_000 });
+    const latest = () => FakeSocket.all[FakeSocket.all.length - 1];
+    latest().send(expired);
+    expect(relist).toHaveBeenCalledTimes(1); // the first: at once
+    latest().send(expired);
+    expect(relist).toHaveBeenCalledTimes(1); // the second waits
+    vi.advanceTimersByTime(749);
+    expect(relist).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1); // 1 s × (0.5 + 0.5/2)
+    expect(relist).toHaveBeenCalledTimes(2);
+    latest().send(expired);
+    vi.advanceTimersByTime(1499);
+    expect(relist).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(1); // twice as long
+    expect(relist).toHaveBeenCalledTimes(3);
+    // A watch that lived past healthyMs: the next 410 is answered at once.
+    vi.advanceTimersByTime(30_000);
+    latest().send(expired);
+    expect(relist).toHaveBeenCalledTimes(4);
+    vi.useRealTimers();
+  });
+
+  it("never waits past the ceiling", () => {
+    vi.useFakeTimers();
+    const { relist } = open({ random: () => 1, healthyMs: 1e12, maxBackoffMs: 5000 });
+    const latest = () => FakeSocket.all[FakeSocket.all.length - 1];
+    for (let i = 1; i <= 8; i++) {
+      latest().send(expired);
+      vi.advanceTimersByTime(5000);
+      expect(relist).toHaveBeenCalledTimes(i);
+    }
     vi.useRealTimers();
   });
 });

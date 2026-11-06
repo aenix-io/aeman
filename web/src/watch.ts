@@ -22,6 +22,24 @@ export interface WatchOptions {
   /** The pause before a dropped socket is rebuilt. */
   retryMs?: number;
   makeSocket?: (url: string) => SocketLike;
+  /** A watch that lived this long before its 410 was healthy: the next 410
+   *  is answered at once again. */
+  healthyMs?: number;
+  /** The longest wait before answering a 410. */
+  maxBackoffMs?: number;
+  /** Jitter's source, [0, 1). */
+  random?: () => number;
+}
+
+/** expiredDelay is the wait before answering the streak-th 410 in a row:
+ *  none for the first, then 1 s doubling up to the ceiling, each scaled by a
+ *  jitter in [0.5, 1) so many tabs do not come back in step. */
+export function expiredDelay(streak: number, maxMs: number, random: () => number): number {
+  if (streak <= 1) {
+    return 0;
+  }
+  const base = Math.min(1000 * 2 ** (streak - 2), maxMs);
+  return Math.min(base * (0.5 + random() / 2), maxMs);
 }
 
 /** isExpired is the server's "you fell behind, re-list" frame. */
@@ -35,6 +53,12 @@ export function isExpired(frame: WatchFrame): boolean {
 export function openWatches(opts: WatchOptions): () => void {
   const make = opts.makeSocket ?? ((url: string) => new WebSocket(url) as unknown as SocketLike);
   const retryMs = opts.retryMs ?? 3000;
+  const healthyMs = opts.healthyMs ?? 30_000;
+  const maxBackoffMs = opts.maxBackoffMs ?? 30_000;
+  const random = opts.random ?? Math.random;
+  // 410s in a row, each from a watch that died young (G84).
+  let streak = 0;
+  let openedAt = Date.now();
   const sockets: SocketLike[] = [];
   let stopped = false;
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -52,7 +76,27 @@ export function openWatches(opts: WatchOptions): () => void {
     opts.relist();
     connect();
   };
+  // A 410 is answered at once the first time; a board that keeps falling
+  // behind waits longer each time before it re-lists, so it does not hammer
+  // the server in a loop. The sockets are let go at once either way.
+  const expired = () => {
+    streak = Date.now() - openedAt >= healthyMs ? 1 : streak + 1;
+    const wait = expiredDelay(streak, maxBackoffMs, random);
+    if (wait === 0) {
+      rebuild();
+      return;
+    }
+    closeAll();
+    if (retry !== undefined) {
+      clearTimeout(retry);
+    }
+    retry = setTimeout(() => {
+      retry = undefined;
+      rebuild();
+    }, wait);
+  };
   const connect = () => {
+    openedAt = Date.now();
     opts.onConnect?.();
     for (const url of opts.urls) {
       const socket = make(url);
@@ -68,7 +112,7 @@ export function openWatches(opts: WatchOptions): () => void {
           return;
         }
         if (isExpired(frame)) {
-          rebuild();
+          expired();
           return;
         }
         opts.onFrame(frame);

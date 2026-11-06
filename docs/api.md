@@ -141,7 +141,7 @@ Apply Card events by `metadata.uid`; Sprint events replace a team's pointer; an 
 { "type": "ERROR", "kind": "Status", "object": { "kind": "Status", "status": "Failure", "reason": "Expired", "code": 410, "message": "..." } }
 ```
 
-What the client holds is out of date: re-LIST the view and open a new watch, as after any dropped connection. No frame follows it. The buffer's size decides how large a burst a watcher rides out without a re-list, never whether it is told. (An ERROR of kind `SyncError` is different: a lost write, after which the stream goes on.)
+What the client holds is out of date: re-LIST the view and open a new watch, as after any dropped connection. A client that keeps getting it should back off between attempts (the board waits 1 s doubling to 30 s, with jitter, from the second 410 in a row). No frame follows it. The buffer's size decides how large a burst a watcher rides out without a re-list, never whether it is told. (An ERROR of kind `SyncError` is different: a lost write, after which the stream goes on.)
 
 The optional `client` id keys **echo suppression**: send the same value in the `X-Aeman-Client` header on your own mutations and the server will not stream your own changes back on that watch connection (your optimistic state and the mutation responses already carry them).
 
