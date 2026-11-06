@@ -3,7 +3,7 @@
 Who is answerable for a goal, an initiative or an epic, which team carries
 it out, and which customers the work is for. Decided 2026-11-06 with Andrei
 Kvapil; this document is the source of truth for the change and the rules
-are pinned in [behavior-matrix.md](behavior-matrix.md) rows O1–O12. It
+are pinned in [behavior-matrix.md](behavior-matrix.md) rows O1–O13. It
 amends H3 of [hierarchy.md](hierarchy.md) (a planning card had no team and
 no owner) and leaves H4 (a project card has neither) as it is.
 
@@ -47,8 +47,20 @@ A planning card has an optional **team**: the team that carries it out.
 - A task's own team always wins over an inherited one. An epic of `portal`
   can hold tasks of `cozystack`: those tasks simply carry their own team.
 - A task with no team of its own (one born on the Roadmap, say) takes the
-  effective team of its planning ancestors for filtering and display; it
-  stays in its own team group on the day boards as today.
+  effective team of its planning ancestors for filtering and display, and
+  — amended 2026-11-06 (O13) — **stands under it on every day board and
+  backlog**: the Team board draws it in that team's grid, the Backlog lists
+  it in that team's backlog, every team filter and `team` selector counts it
+  that team's, and wherever a team's sprint is resolved for it (taken into
+  work, dated, made under the plan item, carried over) it is that team's
+  sprint. It is still inherited, not written: change the plan item's team
+  and the task moves with it. A review card stands under its task's team.
+  The no-team group is the cards whose effective team is empty.
+- What stays the card's OWN team: storage (the file's `team:`), the domain
+  rule (which repository a card lives in, `DomainOf`), and every write —
+  PATCH, `own`, the owner picker, the "+" of a team's row or backlog. The
+  team a reader cannot read an ancestor of is not inherited for them: their
+  board stops the chain there.
 - A planning card still lives in the primary repository (H3): its team
   places nothing.
 
@@ -145,7 +157,7 @@ where it sits. The choice is remembered per viewer in the browser.
 | --- | --- |
 | O1 | A planning card may have one owner (a person) and one team; a project card has neither (H4). |
 | O2 | An owner is never inherited and puts nothing on any day board. |
-| O3 | A card's effective team is its own, else the nearest ancestor's; a task's own team always wins. |
+| O3 | A card's effective team is its own, else the nearest ancestor's (a review card's, its task's); a task's own team always wins. |
 | O4 | A card's effective customers are its own plus all its ancestors'; a lower card is added to, never overwritten. |
 | O5 | Customers come from the board's roster, are referred to by id, and a rename or a delete reaches every card. |
 | O6 | Project cards carry no customers; a review card shows its task's. |
@@ -155,3 +167,4 @@ where it sits. The choice is remembered per viewer in the browser.
 | O10 | Deleting a customer needs the right to write every repository it reaches. |
 | O11 | The no-team group is a team in every team filter, and the day boards filter by customer too. |
 | O12 | Every board filters through one dropdown, with the roster's Manage inside; the Me board says what its filters hide. |
+| O13 | A task stands under its effective team on every day board, backlog, team filter and sprint; its own team is still what is stored and written. |

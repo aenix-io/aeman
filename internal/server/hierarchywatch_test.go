@@ -621,3 +621,34 @@ func TestACustomerFilteredWatchSeesCardsEnterAndLeave(t *testing.T) {
 	}
 	noFrame(t, author)
 }
+
+// O13 — a task with no team of its own stands under its plan item's team, so
+// when the plan item's team changes the task MOVES between teams' lists: it
+// leaves the old team's Team-board and Backlog watch as DELETED and enters
+// the new team's as ADDED — though no write touched the task.
+func TestAPlanItemsTeamMovesTheTasksBelowBetweenWatches(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Team: "portal"},
+		{ItemID: "t", Title: "Receipts", Parent: "epic", Parked: true},
+		{ItemID: "own", Title: "Own team", Parent: "epic", Team: "ops", Parked: true},
+	})
+	e := seedEntry(store, "k", b)
+	portal, cancel := store.subscribe("k", "viewer", &apiserver.Selector{View: "all", Team: "portal"}, map[string]bool{"cards": true})
+	defer cancel()
+	docs, cancel2 := store.subscribe("k", "viewer2", &apiserver.Selector{View: "all", Team: "docs"}, map[string]bool{"cards": true})
+	defer cancel2()
+	e.mu.Lock()
+	c, _ := board.Find(e.board, "epic")
+	c.Team = "docs"
+	e.upsertCard(c)
+	e.cardChanged("lead", c, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+	if got := took(t, portal, 1); got["t"].Type != "DELETED" {
+		t.Fatalf("portal's watch heard %v, want the task DELETED", got)
+	}
+	if got := took(t, docs, 1); got["t"].Type != "ADDED" || got["t"].Card.Status.EffectiveTeam != "docs" {
+		t.Fatalf("docs's watch heard %v, want the task ADDED under docs", got)
+	}
+}

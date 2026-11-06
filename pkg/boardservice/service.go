@@ -565,7 +565,11 @@ func (s *Service) createCard(ctx context.Context, boardID string, args CreateCar
 			return board.Card{}, err
 		}
 	} else {
-		cur := board.CurrentSprint(b, args.Team)
+		// The sprint of the team the card will STAND UNDER (O13): the one
+		// it names, else the plan item's above the parent it is born under.
+		// Only its own team is written.
+		placed := board.PlacedTeamAs(b, board.Card{Parent: args.Parent, ReviewOf: args.ReviewOf}, args.Team)
+		cur := board.CurrentSprint(b, placed)
 		startNew := cur == ""
 		if args.StartNewSprint != nil {
 			startNew = *args.StartNewSprint || cur == ""
@@ -577,7 +581,7 @@ func (s *Service) createCard(ctx context.Context, boardID string, args CreateCar
 			if sprint == "" {
 				sprint = day
 			}
-			if err := s.backend.SetSprintState(ctx, b, args.Team, sprint, cur); err != nil {
+			if err := s.backend.SetSprintState(ctx, b, placed, sprint, cur); err != nil {
 				return board.Card{}, err
 			}
 		} else if sprint == "" {
@@ -840,6 +844,9 @@ func selectCarry(b board.Board, team, old, today string) (carry, reseed, relocat
 	// card from the current sprint is final and it never boomerangs back. A
 	// finished recurrent card stays behind and reseeds a fresh copy instead.
 	planning := board.PlanningIDs(b)
+	// A team carries the tasks STANDING UNDER it (O13): its own, else the
+	// plan item's above them.
+	teams := board.PlacedTeams(b)
 	for _, c := range b.Cards {
 		// A subtask is never carried on its own - it rides with its parent
 		// (below), whatever team either of them belongs to. A task under an
@@ -855,7 +862,7 @@ func selectCarry(b board.Board, team, old, today string) (carry, reseed, relocat
 		if c.Scope != "" {
 			continue
 		}
-		if c.Team != team {
+		if teams[c.ItemID] != team {
 			continue
 		}
 		// Adopt sprint-less day cards whose scheduled day has arrived (a "next
@@ -1189,7 +1196,7 @@ func (s *Service) SetDates(ctx context.Context, boardID string, itemID, start, e
 			// production board); it stopped one sprint short. The dates are
 			// the person's to choose — they go back exactly as asked — and
 			// the sprint is where the work STANDS.
-			sprint = board.CurrentSprint(b, c.Team)
+			sprint = board.CurrentSprint(b, board.PlacedTeam(b, c))
 			if sprint == "" {
 				// A team with no sprint pointer at all: the day seeds it.
 				sprint = start
@@ -2432,7 +2439,7 @@ func (s *Service) sendToReview(ctx context.Context, b board.Board, card board.Ca
 	// sprint, and carry-over would split them.
 	sprintStart := card.SprintStart
 	if sprintStart == "" {
-		sprintStart = board.CurrentSprint(b, card.Team)
+		sprintStart = board.CurrentSprint(b, board.PlacedTeam(b, card))
 	}
 	if sprintStart == "" {
 		sprintStart = day
@@ -2707,7 +2714,9 @@ func (s *Service) SetTeam(ctx context.Context, boardID string, itemID, team, day
 	if err := s.declareTeam(ctx, b, team); err != nil {
 		return err
 	}
-	sprintStart := board.CurrentSprint(b, team)
+	// The sprint of the team the card will STAND UNDER (O13): the team
+	// given, else — taking its own team off — the plan item's above it.
+	sprintStart := board.CurrentSprint(b, board.PlacedTeamAs(b, card, team))
 	if sprintStart == "" {
 		sprintStart = day
 	}

@@ -60,7 +60,7 @@ func (s *Service) takeReview(ctx context.Context, b board.Board, review board.Ca
 		sprint = original.SprintStart
 	}
 	if sprint == "" {
-		sprint = board.CurrentSprint(b, review.Team)
+		sprint = board.CurrentSprint(b, board.PlacedTeam(b, review))
 	}
 	if sprint == "" {
 		sprint = today

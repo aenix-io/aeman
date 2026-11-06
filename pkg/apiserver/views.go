@@ -368,6 +368,7 @@ func setOf(v string) map[string]bool {
 // view rules delegate to the same domain filters the views always used.
 func FilterCards(b board.Board, sel Selector) []board.Card {
 	sel = sel.normalized()
+	teams := placedTeamsOf(b)
 	var base []board.Card
 	switch sel.View {
 	case "team":
@@ -448,7 +449,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		// ?view=me&team=marketing,portal narrows a Me list to those teams; the
 		// Me board itself filters what it holds by its Team filter, to count
 		// what the filter hides.
-		if offTheTeamList(c, sel) {
+		if offTheTeamList(c, sel, teams) {
 			continue
 		}
 		if sel.Focus && !board.Workable(c) {
@@ -506,6 +507,7 @@ func projectViewCards(_ board.Board, out []board.Card, project string) []board.C
 // full set anyway, or its optimistic derived-progress math diverges from the
 // server's and the parent's bar jumps on every reload.
 func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
+	teams := placedTeamsOf(b)
 	present := make(map[string]bool, len(out))
 	planning := map[string]bool{}
 	for _, c := range out {
@@ -531,7 +533,7 @@ func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
 		if sel.View == "roadmap" && c.Scope != "" && !sel.ProjectCards {
 			continue
 		}
-		if offTheTeamList(c, sel) {
+		if offTheTeamList(c, sel, teams) {
 			continue
 		}
 		if sel.Focus && !board.Workable(c) {
@@ -595,6 +597,7 @@ func leftBehindOn(b board.Board, sel Selector, have []board.Card) []board.Card {
 		seen[c.ItemID] = true
 	}
 	var out []board.Card
+	teams := placedTeamsOf(b)
 	customers := setOf(sel.Customer)
 	var ix *board.Index
 	if customers != nil {
@@ -612,7 +615,7 @@ func leftBehindOn(b board.Board, sel Selector, have []board.Card) []board.Card {
 		if !sel.RecordCards[c.ItemID] {
 			continue
 		}
-		if !onThisBoard(c, sel) {
+		if !onThisBoard(c, sel, teams) {
 			continue
 		}
 		out = append(out, c)
@@ -622,17 +625,17 @@ func leftBehindOn(b board.Board, sel Selector, have []board.Card) []board.Card {
 
 // onThisBoard is the scope a view is read in — whose board it is — applied to
 // a card the view's own placement rules never saw.
-func onThisBoard(c board.Card, sel Selector) bool {
+func onThisBoard(c board.Card, sel Selector, teams func() map[string]string) bool {
 	switch sel.View {
 	case "team":
-		if !teamInSet(c.Team, sel.Team) {
+		if !teamInSet(teams()[c.ItemID], sel.Team) {
 			return false
 		}
 	case "me":
 		if sel.User != "" && !contains(c.Assignees, sel.User) {
 			return false
 		}
-		if !teamInSet(c.Team, sel.Team) {
+		if !teamInSet(teams()[c.ItemID], sel.Team) {
 			return false
 		}
 	default:
@@ -696,14 +699,39 @@ func ListCards(b board.Board, sel Selector) CardList {
 // narrowed by a team: its team says who carries it out (O1) and puts it on
 // no day board (H3), so these lists hold tasks under a team, as they did
 // before planning cards had one.
-func offTheTeamList(c board.Card, sel Selector) bool {
+//
+// A task is judged by the team it STANDS UNDER (O13): its own, else the plan
+// item's above it — `teams` (board.PlacedTeams), built only when a team
+// narrows the list.
+func offTheTeamList(c board.Card, sel Selector, teams func() map[string]string) bool {
 	if sel.View != "me" && sel.View != "" && sel.View != "all" {
 		return false
 	}
 	if strings.TrimSpace(sel.Team) == "" {
 		return false
 	}
-	return board.IsPlanning(c) || !teamInSet(c.Team, sel.Team)
+	return board.IsPlanning(c) || !teamInSet(teams()[c.ItemID], sel.Team)
+}
+
+// placedTeamsOf is board.PlacedTeams, built on first use.
+func placedTeamsOf(b board.Board) func() map[string]string {
+	var teams map[string]string
+	return func() map[string]string {
+		if teams == nil {
+			teams = board.PlacedTeams(b)
+		}
+		return teams
+	}
+}
+
+// TeamSelector is one team written as a `team` selector: the no-team group
+// alone is ",", since an empty selector is no filter (or, on view=team, the
+// no-team group by another reading — "," says it on every view).
+func TeamSelector(team string) string {
+	if team == "" {
+		return ","
+	}
+	return team
 }
 
 // teamInSet reports whether a card's team is in a comma-separated selector
@@ -743,7 +771,9 @@ func contains(s []string, v string) bool {
 func backlogCards(b board.Board, ix *board.Index, sel Selector) []board.Card {
 	var out []board.Card
 	for _, c := range b.Cards {
-		if !ix.OnBacklog(c) || !teamInSet(c.Team, sel.Team) {
+		// A backlog is the tasks STANDING UNDER its team (O13): its own,
+		// else the plan item's above it.
+		if !ix.OnBacklog(c) || !teamInSet(ix.PlacedTeam(c), sel.Team) {
 			continue
 		}
 		out = append(out, c)

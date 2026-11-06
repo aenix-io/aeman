@@ -66,8 +66,11 @@ func (s *Service) FinishedEarlier(ctx context.Context, boardID string, itemID st
 	if hasColumn(card) {
 		return fmt.Errorf("%w: %q", ErrNotYoursToPark, card.Title)
 	}
-	previous := board.PreviousSprint(b, card.Team)
-	if previous == "" || card.SprintStart != board.CurrentSprint(b, card.Team) {
+	// The sprints of the team it stands under (O13): its own, else the
+	// plan item's above it.
+	team := board.PlacedTeam(b, card)
+	previous := board.PreviousSprint(b, team)
+	if previous == "" || card.SprintStart != board.CurrentSprint(b, team) {
 		return fmt.Errorf("%w: %q", ErrNoEarlierSprint, card.Title)
 	}
 	if err := s.backend.SetSprintStart(ctx, b, card, previous); err != nil {
@@ -116,7 +119,7 @@ func (s *Service) FinishedEarlier(ctx context.Context, boardID string, itemID st
 // Only a card that is actually behind is moved: reopening one where it already
 // stands must not drag it anywhere.
 func (s *Service) pullBackFromAnEarlierSprint(ctx context.Context, b board.Board, card board.Card) error {
-	current := board.CurrentSprint(b, card.Team)
+	current := board.CurrentSprint(b, board.PlacedTeam(b, card))
 	if current == "" || card.SprintStart == "" || card.SprintStart >= current {
 		return nil
 	}

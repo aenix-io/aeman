@@ -93,7 +93,8 @@ func (s *Server) gestureOn(ctx context.Context, view board.View, g boardservice.
 		// Me listing, and the child rides in on the parent.
 		for _, c := range b.Cards {
 			if c.ItemID == uid {
-				sel.Team = c.Team
+				// The team it STANDS UNDER (O13): the grid it is drawn on.
+				sel.Team = apiserver.TeamSelector(board.PlacedTeam(b, c))
 				break
 			}
 		}
