@@ -1299,7 +1299,7 @@ export function CardDetail({
                     {!isRecord && !temp && <span className="add-card-team-caret">▾</span>}
                   </OwnerPicker>
                   )}
-                  {!subtask && !isRecord && !temp && (owner.team || owner.person) && (
+                  {!subtask && !card.reviewOf && !isRecord && !temp && (owner.team || owner.person) && (
                     <OwnerClear onClear={() => setOwner({ team: "", person: "" })} />
                   )}
                 </span>,

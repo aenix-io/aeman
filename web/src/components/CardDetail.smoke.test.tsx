@@ -280,6 +280,12 @@ describe("ownership in the drawer", () => {
     expect(drawOn(bare, withRoster([bare]))).not.toContain("Unset the owner");
   });
 
+  it("offers no × on a review card, whose owner follows the card it reviews", () => {
+    const orig = card({ itemId: "t", title: "Receipts", team: "portal", stage: "review" });
+    const review = card({ itemId: "r", title: "review: Receipts", team: "portal", assignees: ["ann"], reviewOf: "t" });
+    expect(drawOn(review, withRoster([orig, review]))).not.toContain("Unset the owner");
+  });
+
   it("gives a project card no customers", () => {
     expect(rows(drawOn(card({ project: "cozy", scope: "Storage" }), withRoster([])))).not.toContain("Customers");
   });
