@@ -83,3 +83,25 @@ describe("the reviewed card survives the wire", () => {
     expect(resourceToCard(res({})).reviewed).toBeUndefined();
   });
 });
+
+// Ownership on the wire (ownership.md): the owner and customers as written,
+// the effective team and customers as computed.
+describe("ownership survives the wire", () => {
+  it("maps spec.owner, spec.customers and the effective values", () => {
+    const r = {
+      ...res({ owner: "ann", customers: ["cu1"] } as never),
+      status: { complete: false, inProgress: false, effectiveTeam: "portal", effectiveCustomers: ["cu0", "cu1"] },
+    } as CardResource;
+    const c = resourceToCard(r);
+    expect(c.owner).toBe("ann");
+    expect(c.customers).toEqual(["cu1"]);
+    expect(c.effectiveTeam).toBe("portal");
+    expect(c.effectiveCustomers).toEqual(["cu0", "cu1"]);
+  });
+
+  it("leaves them absent when the server sends none", () => {
+    const c = resourceToCard(res({}));
+    expect(c.owner).toBeUndefined();
+    expect(c.customers).toBeUndefined();
+  });
+});

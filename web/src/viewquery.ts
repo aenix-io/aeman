@@ -2,6 +2,7 @@
 // scoped watch so both cover exactly what the active board shows.
 
 import { todayIso } from "./date";
+import type { RoadmapFilters } from "./ownership";
 
 export type ViewMode = "me" | "team" | "backlog" | "roadmap" | "project";
 
@@ -11,10 +12,24 @@ export type ViewMode = "me" | "team" | "backlog" | "roadmap" | "project";
  *  re-subscribes on — nothing is filtered out of what was already sent. */
 export interface ViewOptions {
   projectCards?: boolean;
+  /** The Roadmap's team, customer and owner filters (ownership.md, O7,
+   *  O8): selectors the server applies, each a comma-separated set. */
+  filters?: RoadmapFilters;
 }
 
 function roadmapQuery(opts: ViewOptions): Record<string, string> {
-  return opts.projectCards ? { view: "roadmap", projectCards: "true" } : { view: "roadmap" };
+  const q: Record<string, string> = opts.projectCards ? { view: "roadmap", projectCards: "true" } : { view: "roadmap" };
+  const f = opts.filters;
+  if (f?.teams.length) {
+    q.team = f.teams.join(",");
+  }
+  if (f?.customers.length) {
+    q.customer = f.customers.join(",");
+  }
+  if (f?.owners.length) {
+    q.owner = f.owners.join(",");
+  }
+  return q;
 }
 
 // viewQueries builds the LIST selectors for a board view — possibly several,
