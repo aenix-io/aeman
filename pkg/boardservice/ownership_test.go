@@ -23,7 +23,8 @@ func ownershipSeed() *fakeBackend {
 
 // O9, O1, O2 — `own` on a planning card sets its owner and its team instead
 // of being refused: a person needs no team there (they answer for the plan
-// item, they do not do it), nobody clears the owner, and nothing about it
+// item, they do not do it), a person alone keeps the team and a team alone
+// keeps the owner, nobody clears both, and nothing about it
 // puts the card on a day board — no dates, no sprint, no band.
 func TestOwnOnAPlanningCardSetsItsOwnerAndTeam(t *testing.T) {
 	f := ownershipSeed()
@@ -43,6 +44,30 @@ func TestOwnOnAPlanningCardSetsItsOwnerAndTeam(t *testing.T) {
 	}
 	if board.InWork(*e) || e.SprintStart != "" || e.Zone != board.ZoneNone {
 		t.Fatalf("owning an epic put it on a day board: %+v", e)
+	}
+	// A person alone keeps the team, and a team alone keeps the owner: each
+	// half of the answer is set by itself.
+	if err := svc.Own(ctx, "acme", "epic", "", "bob"); err != nil {
+		t.Fatal(err)
+	}
+	if e := f.get("epic"); e.Owner != "bob" || e.Team != "beta" {
+		t.Fatalf("a person alone left owner %q team %q, want bob of beta", e.Owner, e.Team)
+	}
+	if err := svc.Own(ctx, "acme", "epic", "alpha", ""); err != nil {
+		t.Fatal(err)
+	}
+	if e := f.get("epic"); e.Owner != "bob" || e.Team != "alpha" {
+		t.Fatalf("a team alone left owner %q team %q, want bob of alpha", e.Owner, e.Team)
+	}
+	// Clearing one half is the update's: SetTeam / SetOwner with "".
+	if err := svc.SetTeam(ctx, "acme", "epic", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if e := f.get("epic"); e.Owner != "bob" || e.Team != "" {
+		t.Fatalf("clearing the team left owner %q team %q", e.Owner, e.Team)
+	}
+	if err := svc.Own(ctx, "acme", "epic", "beta", ""); err != nil {
+		t.Fatal(err)
 	}
 	if err := svc.Own(ctx, "acme", "epic", "", ""); err != nil {
 		t.Fatal(err)

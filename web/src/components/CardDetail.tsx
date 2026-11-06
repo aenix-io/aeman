@@ -21,7 +21,7 @@ import { Dropdown } from "./Dropdown";
 import { eventLabel } from "../eventlog";
 import { localDateIso, todayIso } from "../date";
 import { reviewerCandidates } from "../domains";
-import { ownerLabel, ownerOf, planOwnerOf, type Owner } from "../owner";
+import { ownerLabel, ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
 import { customerChips, inheritedTeamOf } from "../ownership";
 import { CustomerField } from "./CustomerField";
 import { teamColor } from "../avatar";
@@ -518,13 +518,14 @@ export function CardDetail({
   const planOwner = planOwnerOf(card);
   const inheritedTeam = inheritedTeamOf(card, known);
   const setPlanOwner = (next: Owner) => {
-    if (next.team === planOwner.team && next.person === planOwner.person) {
+    const change = planOwnPatch(planOwner, next);
+    if (!change) {
       return;
     }
     const before: Partial<CardModel> = { team: card.team, owner: card.owner };
     patchCard(card.itemId, { team: next.team || undefined, owner: next.person || undefined });
     void provider
-      .ownCard(card.itemId, next.team, next.person)
+      .patchCard(card.itemId, change)
       .then((updated) => patchCard(card.itemId, { team: updated.team, owner: updated.owner }))
       .catch((err: unknown) => {
         patchCard(card.itemId, before);

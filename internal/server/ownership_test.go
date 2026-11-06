@@ -57,6 +57,20 @@ func TestOwnershipOverHTTP(t *testing.T) {
 	if o := fake.Card("other"); o.Owner != "ann" || o.Team != "alpha" {
 		t.Fatalf("the owned epic = %+v", o)
 	}
+	// One half comes off alone through the update (the owner picker's "no
+	// person" and an unpicked team), the other half staying.
+	if rec := do(t, srv, http.MethodPatch, "/api/v1/cards/other", `{"team":""}`); rec.Code != http.StatusOK {
+		t.Fatalf("take the epic's team off = %d %s", rec.Code, rec.Body.String())
+	}
+	if o := fake.Card("other"); o.Owner != "ann" || o.Team != "" {
+		t.Fatalf("the epic with its team off = %+v", o)
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/roadmap/cards/other/actions/own", `{"team":"alpha"}`); rec.Code != http.StatusOK {
+		t.Fatalf("a team alone on a planning card = %d %s", rec.Code, rec.Body.String())
+	}
+	if o := fake.Card("other"); o.Owner != "ann" || o.Team != "alpha" {
+		t.Fatalf("a team alone took the owner off: %+v", o)
+	}
 
 	rec = do(t, srv, http.MethodGet, "/api/v1/views/roadmap/cards?customer="+cu.ID, "")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"uid":"task"`) || strings.Contains(rec.Body.String(), `"uid":"other"`) {

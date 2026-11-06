@@ -59,7 +59,7 @@ import { FilterSelect } from "./FilterSelect";
 import { CustomersModal } from "./CustomersModal";
 import type { RoadmapFilters } from "../ownership";
 import { isPlanning } from "../subtasks";
-import { ownerLabel, ownerOf, planOwnerOf, type Owner } from "../owner";
+import { ownerLabel, ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
 import { displayName, type Avatars, type Names } from "../users";
 import { AddCard } from "./AddCard";
 import { KindIcon } from "./KindIcon";
@@ -707,14 +707,14 @@ export function RoadmapBoard({
   // A plan item's team and owner (ownership.md, O1, O9): the same gesture,
   // where a person needs no team and nothing reaches a day board.
   const ownPlan = (card: CardModel, next: Owner) => {
-    const current = planOwnerOf(card);
-    if (current.team === next.team && current.person === next.person) {
+    const change = planOwnPatch(planOwnerOf(card), next);
+    if (!change) {
       return;
     }
     const before: Partial<CardModel> = { team: card.team, owner: card.owner };
     patchCard(card.itemId, { team: next.team || undefined, owner: next.person || undefined });
     void provider
-      .ownCard(card.itemId, next.team, next.person)
+      .patchCard(card.itemId, change)
       .then((updated) => patchCard(card.itemId, { team: updated.team, owner: updated.owner }))
       .catch((err: unknown) => {
         patchCard(card.itemId, before);

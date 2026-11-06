@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ownerLabel, ownerOf, ownerStep, peopleOfTeam, planOwnerOf } from "./owner";
+import { ownerLabel, ownerOf, ownerStep, peopleOfTeam, planOwnerOf, planOwnPatch } from "./owner";
 
 // The owner picker's rule, press by press: a team is not an answer by
 // itself, a person needs a team, a team alone and nobody at all are answers.
@@ -75,5 +75,17 @@ describe("the owner picker on a goal, an initiative or an epic", () => {
 
   it("reads a plan item's owner from its owner field, not its assignees", () => {
     expect(planOwnerOf({ team: "portal", owner: "ann", assignees: [] })).toEqual({ team: "portal", person: "ann" });
+  });
+
+  // `own` on a plan item keeps the half it is not given (O9), so a press
+  // that takes one half off — "no person" under a team, a person with the
+  // team unpicked — is written as an update of the halves that moved.
+  it("writes only the halves a press moved", () => {
+    const now = { team: "portal", person: "ann" };
+    expect(planOwnPatch(now, { team: "portal", person: "" })).toEqual({ owner: "" });
+    expect(planOwnPatch(now, { team: "", person: "ann" })).toEqual({ team: "" });
+    expect(planOwnPatch(now, { team: "docs", person: "bob" })).toEqual({ team: "docs", owner: "bob" });
+    expect(planOwnPatch(now, { team: "", person: "" })).toEqual({ team: "", owner: "" });
+    expect(planOwnPatch(now, now)).toBeNull();
   });
 });

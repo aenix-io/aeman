@@ -316,7 +316,9 @@ paths:
         out of the backlog); a project card carries none (422 `projectCard`).
         On a goal, an initiative or an epic the answer is the card's TEAM (the
         team that carries it out) and its OWNER (the one person who answers
-        for it), each set as given — a person needs no team there — and
+        for it): a person needs no team there, a person alone keeps the
+        card's team and a team alone keeps its owner, neither takes both off
+        (a PATCH with `team` or `owner` empty takes one half off alone), and
         nothing about it reaches a day board. Subtasks follow the card's team
         and person, as they do everywhere.
       parameters:

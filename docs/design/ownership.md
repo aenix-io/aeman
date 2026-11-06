@@ -99,7 +99,10 @@ where it sits. The choice is remembered per viewer in the browser.
   inherited team are shown in grey with where they come from, and cannot be
   removed there.
 - **`own`** (H10) on a planning card sets its owner and/or team instead of
-  being refused; on a task it is unchanged.
+  being refused; on a task it is unchanged. A person alone keeps the card's
+  team and a team alone keeps its owner; nobody (neither) takes both off.
+  One half comes off alone through the update (`team` or `owner` empty),
+  and that is what the owner picker writes on a plan item.
 - **API / MCP.** `CardSpec` gains `owner` (planning cards) and `customers`
   (ids); `status` gains the computed `effectiveTeam` and
   `effectiveCustomers`. The customer roster has its own routes and MCP tools

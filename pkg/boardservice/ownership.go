@@ -86,13 +86,21 @@ func (s *Service) setOwner(ctx context.Context, ob OwnershipBackend, b board.Boa
 }
 
 // ownPlan is `own` on a planning card (O9): the answer is its team and its
-// owner, each set as given — a person needs no team here, since they answer
-// for the plan item rather than doing it — and nothing about it reaches a
-// day board.
+// owner — a person needs no team here, since they answer for the plan item
+// rather than doing it — and nothing about it reaches a day board. Each half
+// is set only when it is given: a person alone keeps the card's team, a team
+// alone keeps its owner, and nobody (neither) takes both off. Clearing one
+// half alone is the update's (SetTeam, SetOwner with "").
 func (s *Service) ownPlan(ctx context.Context, b board.Board, card board.Card, team, person string) error {
 	ob, err := s.ownership()
 	if err != nil {
 		return err
+	}
+	if team == "" && person != "" {
+		team = card.Team
+	}
+	if person == "" && team != "" {
+		person = card.Owner
 	}
 	if card.Team != team {
 		if err := s.setPlanTeam(ctx, b, card, team); err != nil {
