@@ -58,9 +58,11 @@ import { ViewToggle } from "./ViewToggle";
 import { FilterSelect } from "./FilterSelect";
 import { customerOptions, teamOptions } from "../filteroptions";
 import {
+  COLUMN_MAX,
   COLUMN_MINS,
   ROADMAP_COLUMNS_KEY,
   columnVars,
+  draggedWidths,
   resetColumn,
   resized,
   steppedWidth,
@@ -388,23 +390,40 @@ function ColumnHandle({
   onLive: (next: ColumnWidths) => void;
   onCommit: (next: ColumnWidths) => void;
 }) {
+  // The pointer is captured on the handle for the drag, so its moves and
+  // its end come here wherever it goes, and nothing is left listening on
+  // the window if the board goes away mid-drag. A cancelled drag (the
+  // browser took the pointer) puts the width back.
+  const drag = useRef<{ id: number; startX: number; startW: number; next: ColumnWidths } | null>(null);
   const onPointerDown = (e: ReactPointerEvent<HTMLSpanElement>) => {
+    if (e.button !== 0) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
-    const startX = e.clientX;
-    const startW = widths[col];
-    let next = widths;
-    const move = (ev: PointerEvent) => {
-      next = resized(widths, col, startW + ev.clientX - startX);
-      onLive(next);
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      onCommit(next);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    drag.current = { id: e.pointerId, startX: e.clientX, startW: widths[col], next: widths };
+  };
+  const onPointerMove = (e: ReactPointerEvent<HTMLSpanElement>) => {
+    const d = drag.current;
+    if (!d || d.id !== e.pointerId) {
+      return;
+    }
+    d.next = draggedWidths(widths, col, d.startW, d.startX, e.clientX);
+    onLive(d.next);
+  };
+  const end = (e: ReactPointerEvent<HTMLSpanElement>, cancelled: boolean) => {
+    const d = drag.current;
+    if (!d || d.id !== e.pointerId) {
+      return;
+    }
+    drag.current = null;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    if (cancelled) {
+      onLive(widths);
+    } else {
+      onCommit(d.next);
+    }
   };
   return (
     <span
@@ -414,9 +433,14 @@ function ColumnHandle({
       aria-label={label}
       aria-valuenow={widths[col]}
       aria-valuemin={COLUMN_MINS[col]}
+      aria-valuemax={COLUMN_MAX}
       tabIndex={0}
       title="Drag to size · double-click to reset"
       onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={(e) => end(e, false)}
+      onPointerCancel={(e) => end(e, true)}
+      onLostPointerCapture={(e) => end(e, true)}
       onDoubleClick={(e) => {
         e.stopPropagation();
         onCommit(resetColumn(widths, col));

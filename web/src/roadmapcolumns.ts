@@ -19,7 +19,8 @@ export const COLUMN_DEFAULTS: ColumnWidths = { title: 290, owner: 150, start: 64
  *  for its widest pill, IN PROGRESS. */
 export const COLUMN_MINS: ColumnWidths = { title: 120, owner: 60, start: 48, end: 48, status: 110 };
 
-const COLUMN_MAX = 1200;
+/** COLUMN_MAX is the ceiling of any column. */
+export const COLUMN_MAX = 1200;
 const STEP = 8;
 const BIG_STEP = 32;
 
@@ -32,6 +33,12 @@ function clamp(col: RoadmapColumn, w: number): number {
 /** resized is the widths with one column dragged to `w`, clamped. */
 export function resized(widths: ColumnWidths, col: RoadmapColumn, w: number): ColumnWidths {
   return { ...widths, [col]: clamp(col, w) };
+}
+
+/** draggedWidths is the widths during a drag on `col`'s handle: the width
+ *  it had at the press plus the pointer's travel since, clamped. */
+export function draggedWidths(widths: ColumnWidths, col: RoadmapColumn, startW: number, startX: number, x: number): ColumnWidths {
+  return resized(widths, col, startW + x - startX);
 }
 
 /** resetColumn puts one column back to its default. */

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { COLUMN_DEFAULTS, COLUMN_MINS } from "../roadmapcolumns";
+import { COLUMN_DEFAULTS, COLUMN_MAX, COLUMN_MINS } from "../roadmapcolumns";
 import { RoadmapBoard } from "./RoadmapBoard";
 import type { RoadmapFilters } from "../ownership";
 import type { Board, Card, Provider } from "../providers/types";
@@ -365,6 +365,8 @@ describe("the Roadmap's column handles", () => {
       expect(h).toContain('tabindex="0"');
       expect(h).toContain('aria-orientation="vertical"');
       expect(h).toMatch(/aria-valuenow="\d+"/);
+      expect(h).toMatch(/aria-valuemin="\d+"/);
+      expect(h).toContain(`aria-valuemax="${COLUMN_MAX}"`);
     }
     expect(head).toContain('aria-label="Resize the Card column"');
     expect(head).toContain('aria-label="Resize the table against the timeline"');

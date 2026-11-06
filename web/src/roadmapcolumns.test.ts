@@ -5,6 +5,7 @@ import {
   COLUMN_MINS,
   ROADMAP_COLUMNS_KEY,
   columnVars,
+  draggedWidths,
   resized,
   resetColumn,
   steppedWidth,
@@ -58,5 +59,14 @@ describe("the Roadmap's column widths", () => {
       "--rm-status": "112px",
       "--rm-table": "680px",
     });
+  });
+});
+
+// A drag is read off where it started: the pointer's travel since the press,
+// added to the width the column had then, clamped.
+describe("a drag on a column handle", () => {
+  it("adds the pointer's travel to the width it started from", () => {
+    expect(draggedWidths(COLUMN_DEFAULTS, "owner", 150, 100, 160).owner).toBe(210);
+    expect(draggedWidths(COLUMN_DEFAULTS, "owner", 150, 100, -500).owner).toBe(COLUMN_MINS.owner);
   });
 });
