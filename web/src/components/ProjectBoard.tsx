@@ -25,7 +25,8 @@ import { nearestPlanning, openPlanning } from "../backlogboard";
 import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
 import { isSubtask } from "../subtasks";
-import { TeamChips } from "./TeamChips";
+import { FilterSelect } from "./FilterSelect";
+import { projectOptions } from "../filteroptions";
 import { ZoomControl } from "./ZoomControl";
 import {
   type Laned,
@@ -146,9 +147,9 @@ export function ProjectBoard({
   onOpen,
 }: ProjectBoardProps) {
 
-  // Which project(s) the chips select; null is every project. "" is the chip
-  // for columns that belong to no project.
-  // The chips' selection is owned by the App, so it survives a tab switch.
+  // Which project(s) the Project filter selects; null is every project. ""
+  // is the option for columns that belong to no project. The selection is
+  // owned by the App, so it survives a tab switch.
   const selectFilter = onSetFilter;
 
   // The columns in view: the selected projects' scopes, in board order. Every
@@ -228,7 +229,7 @@ export function ProjectBoard({
 
   // Dragging a column header sideways reorders the columns. A column can
   // always be moved among the columns of ITS OWN project — that order is what
-  // the board stores — so dragging works whatever the chips are showing; a
+  // the board stores — so dragging works whatever the filter is showing; a
   // header of another project simply is not a landing place.
   const colDrag = useRef<{
     key: string;
@@ -997,20 +998,17 @@ export function ProjectBoard({
 
   return (
     <div className="project" ref={wrapRef}>
-      {/* The same toolbar row the other boards wear — the chips are a shared
-          control and must not look like a stray line of text here. */}
+      {/* The same toolbar row the other boards wear — the filter dropdown is
+          a shared control and must not look like a stray line of text here. */}
       <div className="board-toolbar">
-        <TeamChips
+        <FilterSelect
           label="Project"
-          entity="project"
-          teams={board.projects}
-          selectedKeys={filter}
-          onSelect={selectFilter}
-          onAdd={() => undefined}
-          onRemove={() => undefined}
-          canManage={false}
-          onManage={onManageProjects}
-          noneChip={looseScopes ? "No project" : undefined}
+          anyLabel="all"
+          options={projectOptions(board.projects, !!looseScopes)}
+          selected={filter ?? []}
+          onChange={(next) => selectFilter(next.length ? next : null)}
+          manage={{ label: "Manage projects", onClick: onManageProjects }}
+          title="Show only these projects' columns"
         />
         {!empty && (
           <ZoomControl zoom={zoom} onChange={grid.setZoom} />

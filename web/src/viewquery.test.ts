@@ -269,3 +269,39 @@ describe("the Roadmap's filters", () => {
     });
   });
 });
+
+// O11 — the no-team group is the empty member of every team set, so the set
+// holding it ALONE is written "," — an empty `team=` would ask for every
+// team. And the Team board's and the Backlog's Customer filter rides their
+// listing and watch; the Me board filters what it holds itself, since it
+// counts what its filters hide.
+describe("the day boards' team and customer sets", () => {
+  it("write the Roadmap's No team alone as ',' too", () => {
+    expect(watchQuery("roadmap", TODAY, [], undefined, { filters: { teams: [""], customers: [], owners: [] } }).team).toBe(",");
+  });
+
+  it("write the no-team group alone as ','", () => {
+    expect(viewQueries("backlog", TODAY, [""], undefined, TODAY)[0].team).toBe(",");
+    expect(viewQueries("team", TODAY, [""], undefined, TODAY)[0].team).toBe(",");
+    expect(watchQuery("team", TODAY, [""])).toEqual({ view: "all", team: "," });
+  });
+
+  it("ask the Team board's and the Backlog's listing and watch for the chosen customers", () => {
+    const opts = { customers: ["cu1", "cu2"] };
+    expect(viewQueries("backlog", TODAY, ["alpha"], undefined, TODAY, opts)).toEqual([
+      { view: "backlog", team: "alpha", customer: "cu1,cu2" },
+    ]);
+    expect(viewQueries("team", TODAY, ["alpha"], undefined, TODAY, opts)[0].customer).toBe("cu1,cu2");
+    expect(watchQuery("backlog", TODAY, ["alpha"], undefined, opts)).toEqual({ view: "all", team: "alpha", customer: "cu1,cu2" });
+  });
+
+  it("leave the Me board's listing and watch whole", () => {
+    const opts = { customers: ["cu1"] };
+    expect(viewQueries("me", TODAY, ["alpha"], undefined, TODAY, opts)[0].customer).toBeUndefined();
+    expect(watchQuery("me", TODAY, ["alpha"], undefined, opts).customer).toBeUndefined();
+  });
+
+  it("ask nothing about customers while none is chosen", () => {
+    expect(viewQueries("backlog", TODAY, ["alpha"], undefined, TODAY, { customers: [] })[0].customer).toBeUndefined();
+  });
+});

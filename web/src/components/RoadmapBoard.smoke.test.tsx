@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { COLUMN_DEFAULTS, COLUMN_MAX, COLUMN_MINS } from "../roadmapcolumns";
 import { RoadmapBoard } from "./RoadmapBoard";
 import type { RoadmapFilters } from "../ownership";
 import type { Board, Card, Provider } from "../providers/types";
@@ -140,12 +141,15 @@ describe("the Roadmap's two panes", () => {
   // clipping cell does not: it only cut the pill off at the line.
   it("keeps the Status column clear of the timeline, header and rows alike", () => {
     const html = draw(board([goal, ini, epic, done, open]));
-    expect(html).toContain('<span class="roadmap-cell roadmap-cell-status">Status</span>');
-    expect(html.match(/class="roadmap-cell roadmap-cell-status"/g)?.length).toBeGreaterThan(1);
+    expect(html).toMatch(/<span class="roadmap-cell roadmap-cell-status roadmap-head-cell">Status</);
+    expect(html.match(/class="roadmap-cell roadmap-cell-status/g)?.length).toBeGreaterThan(1);
     const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
-    const grid = css.match(/\.roadmap-row \{\s*display: grid;\s*grid-template-columns: ([^;]+);/)?.[1] ?? "";
-    const status = Number(/(\d+)px\s*$/.exec(grid)?.[1] ?? 0);
+    const grid = css.match(/\.roadmap-row \{\s*display: grid;\s*grid-template-columns:([^;]+);/)?.[1] ?? "";
+    const status = Number(/var\(--rm-status, (\d+)px\)/.exec(grid)?.[1] ?? 0);
     expect(status).toBeGreaterThanOrEqual(110);
+    // The column is the reader's to size, and never narrower than the pill.
+    expect(COLUMN_DEFAULTS.status).toBeGreaterThanOrEqual(110);
+    expect(COLUMN_MINS.status).toBeGreaterThanOrEqual(110);
     const cell = css.match(/\.roadmap-cell-status \{[^}]*\}/)?.[0] ?? "";
     const right = Number(/padding-right: (\d+)px/.exec(cell)?.[1] ?? 0);
     expect(right).toBeGreaterThanOrEqual(10);
@@ -307,6 +311,18 @@ describe("ownership on the Roadmap", () => {
     expect(row).toContain('title="Team core"');
   });
 
+  // O3 — a card with no team of its own shows the team it takes from
+  // above, greyed, saying where from; one with its own team does not.
+  it("shows an inherited team greyed, with where it comes from", () => {
+    const task = card({ itemId: "ot", title: "Receipts", parent: "oe", lineage: [{ uid: "oe", type: "epic", title: "Billing" }] });
+    const html = draw(board([owned, task]));
+    const row = html.slice(html.indexOf(">Receipts<"));
+    expect(row).toMatch(/class="roadmap-owner roadmap-owner-inherited" title="core — from «Billing»"/);
+    expect(row).toContain('title="Team core"');
+    const own = html.slice(html.indexOf(">Billing<"), html.indexOf(">Receipts<"));
+    expect(own).not.toContain("roadmap-owner-inherited");
+  });
+
   it("offers the three filters and says what is chosen", () => {
     const b = { ...board([owned]), customers: [{ id: "cu1", name: "Hidora" }] } as unknown as Board;
     const html = draw(b, null, false, vi.fn(), { teams: ["core"], customers: ["cu1"], owners: [] });
@@ -325,7 +341,39 @@ describe("ownership on the Roadmap", () => {
     expect(draw(board([]))).toContain("Nothing on the roadmap yet");
   });
 
-  it("opens the customer roster from the toolbar", () => {
-    expect(draw(board([owned]))).toMatch(/<button[^>]*title="Manage the customers"/);
+  // The rosters are managed from the bottom of their filters (FilterSelect's
+  // Manage entry), not from buttons of their own; and No team is a team.
+  it("keeps no roster button of its own, and names No team as a team", () => {
+    const html = draw(board([owned]), null, false, vi.fn(), { teams: [""], customers: [], owners: [] });
+    expect(html).not.toContain("Manage the customers");
+    expect(html).not.toContain("roadmap-customers-btn");
+    expect(html).toMatch(/aria-label="Team filter"[^>]*>Team: No team</);
+  });
+});
+
+// The table's columns are the reader's to size (roadmapcolumns.ts): a handle
+// on every boundary of the header — the last one being the split with the
+// timeline — reachable by the keyboard, and the widths reach the rows as
+// CSS variables on the board.
+describe("the Roadmap's column handles", () => {
+  it("stand on every boundary of the header, as keyboard separators", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    const head = html.slice(html.indexOf("roadmap-head"), html.indexOf("roadmap-rowgroup"));
+    const handles = head.match(/<span[^>]*role="separator"[^>]*>/g) ?? [];
+    expect(handles).toHaveLength(5);
+    for (const h of handles) {
+      expect(h).toContain('tabindex="0"');
+      expect(h).toContain('aria-orientation="vertical"');
+      expect(h).toMatch(/aria-valuenow="\d+"/);
+      expect(h).toMatch(/aria-valuemin="\d+"/);
+      expect(h).toContain(`aria-valuemax="${COLUMN_MAX}"`);
+    }
+    expect(head).toContain('aria-label="Resize the Card column"');
+    expect(head).toContain('aria-label="Resize the table against the timeline"');
+  });
+
+  it("set the widths as CSS variables on the board, the defaults first", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    expect(html).toMatch(/class="roadmap"[^>]*style="[^"]*--rm-title:290px[^"]*--rm-table:680px/);
   });
 });

@@ -23,8 +23,10 @@ import { selectedByOf, type PresenceMap } from "../presence";
 import { InsertGap } from "./InsertGap";
 import { cellGaps, gapAnchor, gapsInZone } from "../insertgap";
 import { insertedOrder, type Anchor } from "../backlogboard";
-import { TeamChips } from "./TeamChips";
-import { TeamsModal } from "./TeamsModal";
+import { FilterSelect } from "./FilterSelect";
+import { customerOptions, teamOptions } from "../filteroptions";
+import { bornCustomers, customerPasses } from "../ownership";
+import { useKeptCreated } from "../keptcreated";
 import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
@@ -66,15 +68,19 @@ interface TeamBoardProps {
   /** Display names by login (the board roster); a login without one is shown
    *  as is. */
   names: Names;
-  /** Known teams (the roster), shown as filter chips. */
+  /** Known teams (the roster), offered by the Team filter. */
   roster: string[];
-  /** Single-select team filter: null = all, "" = no team, else a team name. */
+  /** The Team filter, shared with the Backlog and the Me board: null = all,
+   *  else the chosen teams ("" being the no-team group), several being OR. */
   teamFilter: string[] | null;
   onSetFilter: (keys: string[] | null) => void;
-  onAddTeam: (team: string, domain?: string) => void;
-  onRemoveTeam: (team: string) => void;
-  onRenameTeam: (from: string, to: string) => void;
-  onReorderTeams: (ordered: string[]) => void;
+  /** The day boards' Customer filter (O11): [] = none, else ids (OR). */
+  customerFilter?: string[];
+  onSetCustomerFilter?: (next: string[]) => void;
+  /** Open the team and customer rosters' dialogs, from the bottom of the
+   *  Team and Customer filters. */
+  onManageTeams?: () => void;
+  onManageCustomers?: () => void;
   patchCard: (
     itemId: string,
     patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
@@ -122,10 +128,10 @@ export function TeamBoard({
   roster,
   teamFilter,
   onSetFilter,
-  onAddTeam,
-  onRemoveTeam,
-  onRenameTeam,
-  onReorderTeams,
+  customerFilter = [],
+  onSetCustomerFilter,
+  onManageTeams,
+  onManageCustomers,
   patchCard,
   addCard,
   replaceCard,
@@ -177,7 +183,6 @@ export function TeamBoard({
     }
   });
   const [dragCol, setDragCol] = useState<string | null>(null);
-  const [teamsModalOpen, setTeamsModalOpen] = useState(false);
   // Remember the hand-picked order of the people columns in the browser.
   useEffect(() => {
     localStorage.setItem("aeman.columnOrder", JSON.stringify(columnOrder));
@@ -196,14 +201,18 @@ export function TeamBoard({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [sprintMenuOpen]);
 
-  // Single-select: no filter shows all; otherwise match the card's group.
+  // No team filter shows all; otherwise match the card's group. And the
+  // Customer filter by effective customers — the server's rule for the
+  // listing and the watch (O11), applied to what the board holds.
+  const { kept, keep } = useKeptCreated(customerFilter.join(","));
   const passesFilter = (card: CardModel): boolean =>
-    teamFilter === null || teamFilter.includes(card.team ?? "");
+    (teamFilter === null || teamFilter.includes(card.team ?? "")) &&
+    customerPasses(card, board.cards, customerFilter, kept);
 
   const inFilter = useMemo(
     () => board.cards.filter((c) => passesFilter(c)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [board.cards, teamFilter],
+    [board.cards, teamFilter, customerFilter, kept],
   );
 
   // What the people are WORKING ON on the day being looked at, and nothing
@@ -1004,13 +1013,6 @@ export function TeamBoard({
 
   // What a week of a team's plan is weighed against. The board derives
   // nothing, so the answer comes back from the server and the reload is it.
-  const setTeamCapacity = (team: string, points: number) => {
-    void provider
-      .setTeamCapacity(team, points)
-      .then(() => reload())
-      .catch((err: unknown) => onError(errMessage(err)));
-  };
-
   const handleGridDelete = (card: CardModel, chosen?: RemoveChoice) => {
     if (card.itemId.startsWith("tmp-")) {
       cancelPendingCard(card.itemId);
@@ -1449,8 +1451,16 @@ export function TeamBoard({
     const sprint = currentSprint(board, team);
     const firstSprint = !noSprint && sprint === null;
     const tempId = `tmp-${new Date().toISOString()}`;
+    // Typed in under the Customer filter: born for its one customer, or —
+    // with several chosen — kept shown until the filter changes, so it does
+    // not vanish the moment it is made (O11).
+    const born = bornCustomers(customerFilter);
+    if (customerFilter.length > 1) {
+      keep(tempId);
+    }
     const optimistic: CardModel = {
       itemId: tempId,
+      customers: born,
       // A bare GitHub reference reads as its readable label at once; the
       // server's background resolve renames it to the real title shortly.
       title: optimisticTitle(title),
@@ -1483,6 +1493,7 @@ export function TeamBoard({
       start: startDate,
       assigneeLogin: engineer || null,
       team,
+      customers: born ?? null,
       noSprint: noSprint || undefined,
       after: anchor && "after" in anchor ? anchor.after : null,
       before: anchor && "before" in anchor ? anchor.before : null,
@@ -1500,6 +1511,9 @@ export function TeamBoard({
           return;
         }
         // Swap in place: append-on-ack would reshuffle a quick burst of adds.
+        if (customerFilter.length > 1) {
+          keep(card.itemId);
+        }
         replaceCard(tempId, card);
         migrateCardId(tempId, card.itemId);
         if (firstSprint) {
@@ -1632,22 +1646,22 @@ export function TeamBoard({
           (DayNav): it is the app's state, and one control for it keeps the
           boards from disagreeing about the same day. */}
       <div className="board-toolbar">
-        <TeamChips
+        <FilterSelect
           label="Team"
-          teams={roster}
-          selectedKeys={teamFilter}
-          onSelect={onSetFilter}
-          domains={board.domains}
-          onAdd={onAddTeam}
-          onRemove={onRemoveTeam}
-          onRename={onRenameTeam}
-          // Always, as on the Me board: the no-team group is a team like any
-          // other here — it has a backlog of its own and cards are assigned to
-          // it — and a chip that appears only when such a card happens to be
-          // loaded is one nobody can reach to filter BY.
-          noneChip="No team"
-          canManage={false}
-          onManage={() => setTeamsModalOpen(true)}
+          anyLabel="all"
+          options={teamOptions(roster)}
+          selected={teamFilter ?? []}
+          onChange={(next) => onSetFilter(next.length ? next : null)}
+          manage={onManageTeams ? { label: "Manage teams", onClick: onManageTeams } : undefined}
+          title="Show only these teams' work"
+        />
+        <FilterSelect
+          label="Customer"
+          options={customerOptions(board.customers)}
+          selected={customerFilter}
+          onChange={(next) => onSetCustomerFilter?.(next)}
+          manage={onManageCustomers ? { label: "Manage customers", onClick: onManageCustomers } : undefined}
+          title="Show only the work for these customers"
         />
 
         <button
@@ -1875,21 +1889,6 @@ export function TeamBoard({
             </div>
           )}
         />
-      {teamsModalOpen && (
-        <TeamsModal
-          teams={roster}
-          domains={board.domains}
-          onAdd={onAddTeam}
-          onRename={onRenameTeam}
-          onRemove={onRemoveTeam}
-          onReorder={onReorderTeams}
-          capacities={Object.fromEntries(
-            Object.entries(board.sprintStates).map(([t, st]) => [t, st.capacity?.points ?? 0]),
-          )}
-          onSetCapacity={setTeamCapacity}
-          onClose={() => setTeamsModalOpen(false)}
-        />
-      )}
       {sprintChoice && (
         <SprintChoiceDialog
           title={sprintChoice.title}

@@ -670,6 +670,10 @@ select {
 .board-toolbar {
   display: flex;
   align-items: center;
+  /* The filters wrap onto a second line on a narrow screen rather than
+     scroll the toolbar sideways. */
+  flex-wrap: wrap;
+  row-gap: 6px;
   gap: 12px;
   padding: 6px 14px;
   border-bottom: 1px solid var(--line-soft);
@@ -1114,75 +1118,7 @@ select {
   color: var(--accent);
 }
 
-/* team selector chips in the toolbar */
-.team-select {
-  align-items: center;
-}
-
-.team-chips {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 5px;
-  max-width: 60vw;
-}
-
-.team-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 4px 2px 2px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--bg);
-  font-size: 12px;
-}
-
-.team-chip-name {
-  color: var(--fg);
-}
-
-.team-chip-x {
-  border: none;
-  background: transparent;
-  color: var(--faint);
-  cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
-  padding: 0 2px;
-}
-
-.team-chip-x:hover {
-  color: var(--danger);
-}
-
-/* filter chips: a toggle button + a remove × per roster team */
-.team-filter-chip {
-  cursor: pointer;
-  user-select: none;
-}
-
-.team-chip-toggle {
-  border: none;
-  background: transparent;
-  padding: 0;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  font: inherit;
-  color: inherit;
-}
-
-.team-filter-chip-off {
-  opacity: 0.45;
-}
-
-.team-filter-chip:not(.team-filter-chip-off) {
-  border-color: var(--accent);
-  background: var(--bg-soft);
-}
-
-/* eye toggle by the team chips (Me board): focus on the selected teams */
+/* the eye-shaped toggle of a toolbar (ViewToggle) */
 .team-eye {
   border: 1px solid transparent;
   background: transparent;
@@ -1203,12 +1139,6 @@ select {
   color: var(--accent);
   border-color: var(--accent);
   background: var(--bg-soft);
-}
-
-.team-chips .team-add-input {
-  width: 110px;
-  flex: none;
-  margin-top: 0;
 }
 
 /* compact circular team avatar on the right edge of a card */
@@ -2761,10 +2691,6 @@ button.card-age {
     flex-wrap: wrap;
     gap: 8px;
     align-items: center;
-  }
-
-  .team-chips {
-    flex-wrap: wrap;
   }
 
   .me-left {
@@ -4532,6 +4458,9 @@ button.card-age {
 
 .roadmap-table {
   flex: none;
+  /* As wide as its columns add up (roadmapcolumns.ts): the last column's
+     handle is the split between the table and the timeline. */
+  width: var(--rm-table, 680px);
   border-right: 1px solid var(--line);
   position: sticky;
   left: 0;
@@ -4542,7 +4471,9 @@ button.card-age {
 .roadmap-head,
 .roadmap-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px 64px 64px 112px;
+  grid-template-columns:
+    var(--rm-title, 290px) var(--rm-owner, 150px) var(--rm-start, 64px)
+    var(--rm-end, 64px) var(--rm-status, 112px);
   align-items: center;
   border-bottom: 1px solid var(--line-soft);
   font-size: 12.5px;
@@ -4562,6 +4493,33 @@ button.card-age {
 
 .roadmap-row {
   cursor: pointer;
+}
+
+/* A boundary of the header the reader drags to size the column on its left
+   (roadmapcolumns.ts); focusable, the arrow keys step it. */
+.roadmap-head-cell {
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.roadmap-col-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 1;
+}
+
+.roadmap-col-handle:hover,
+.roadmap-col-handle:focus-visible {
+  background: var(--accent);
+  opacity: 0.5;
+  outline: none;
 }
 
 .roadmap-row:hover {
@@ -6059,10 +6017,34 @@ button.card-age {
   font-style: italic;
 }
 
-/* The Roadmap's Team, Customer and Owner filters. */
+/* A team the Roadmap's Owner cell takes from above (O3): greyed, as the
+   drawer's inherited value is. */
+.roadmap-owner-inherited .owner-badge-team {
+  opacity: 0.45;
+}
+
+/* The label is the team's name only when nobody is named; a plan item's
+   own owner stays as it is. */
+.roadmap-owner-inherited:not(:has(.owner-badge-person)) .owner-badge-label {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* The one filter dropdown of every board: Team, Customer, Owner, Project. */
 .filter-select-btn {
   font-size: 12px;
   white-space: nowrap;
+  /* A long choice ("Team: portal, cozystack, ops…") is cut, never widens
+     the toolbar; the button's title names it in full. */
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 640px) {
+  .filter-select-btn {
+    max-width: 150px;
+  }
 }
 
 .filter-select-on {
@@ -6075,4 +6057,43 @@ button.card-age {
   align-items: center;
   gap: 6px;
   cursor: pointer;
+}
+
+.filter-select-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 1;
+  flex: none;
+}
+
+.filter-select-check-on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.filter-select-none {
+  font-style: italic;
+}
+
+/* The roster's own dialog, opened from the bottom of its filter. */
+.filter-select-manage {
+  color: var(--muted);
+  border-top: 1px solid var(--line-soft);
+  margin-top: 1px;
+}
+
+/* The Me board's "N more tasks": what the filters hide, and the way back. */
+.filter-hidden-btn {
+  font-size: 12px;
+  white-space: nowrap;
+  background: var(--zone-yellow-bg);
+  border-color: var(--zone-yellow-accent);
+  color: var(--fg);
 }

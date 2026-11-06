@@ -1085,7 +1085,7 @@ type ListSprintsParams struct {
 
 // ListCardsParams defines parameters for ListCards.
 type ListCardsParams struct {
-	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors.
+	// Team A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1115,7 +1115,7 @@ type ListCardsParams struct {
 	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
 	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
-	// Customer On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND.
+	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
 
 	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
@@ -1130,7 +1130,7 @@ type ListCardsParams struct {
 
 // FinishedEarlierParams defines parameters for FinishedEarlier.
 type FinishedEarlierParams struct {
-	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors.
+	// Team A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1160,7 +1160,7 @@ type FinishedEarlierParams struct {
 	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
 	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
-	// Customer On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND.
+	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
 
 	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
@@ -1175,7 +1175,7 @@ type FinishedEarlierParams struct {
 
 // OwnCardParams defines parameters for OwnCard.
 type OwnCardParams struct {
-	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors.
+	// Team A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1205,7 +1205,7 @@ type OwnCardParams struct {
 	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
 	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
-	// Customer On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND.
+	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
 
 	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
@@ -1220,7 +1220,7 @@ type OwnCardParams struct {
 
 // RemoveCardParams defines parameters for RemoveCard.
 type RemoveCardParams struct {
-	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors.
+	// Team A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1250,7 +1250,7 @@ type RemoveCardParams struct {
 	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
 	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
-	// Customer On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND.
+	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
 
 	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
@@ -1265,7 +1265,7 @@ type RemoveCardParams struct {
 
 // TakeCardParams defines parameters for TakeCard.
 type TakeCardParams struct {
-	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors.
+	// Team A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1295,7 +1295,7 @@ type TakeCardParams struct {
 	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
 	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
-	// Customer On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND.
+	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
 
 	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.

@@ -101,6 +101,50 @@ export function effectiveCustomersOf(c: Card, cards: Held): string[] {
   return out;
 }
 
+/** roadmapOwnerCell is what the Roadmap's Owner column shows for a card:
+ *  its own team and person (a plan item's owner, a task's first assignee),
+ *  and — when it has no team of its own — the team it takes from above, with
+ *  the title it comes from (`from`, "" when only the server knows), to be
+ *  drawn greyed (O3). A task somebody holds shows them as it is; a plan
+ *  item's owner is its own only, never inherited (O2). */
+export function roadmapOwnerCell(
+  c: Card,
+  cards: Held,
+  planning: boolean,
+): { owner: { team: string; person: string }; from?: string } {
+  const own = { team: c.team ?? "", person: planning ? (c.owner ?? "") : (c.assignees?.[0] ?? "") };
+  if (own.team || (!planning && own.person)) {
+    return { owner: own };
+  }
+  const up = inheritedTeamOf(c, cards);
+  return up ? { owner: { ...own, team: up.team }, from: up.from } : { owner: own };
+}
+
+/** bornCustomers is what a card typed into a day board is born for while
+ *  its Customer filter stands: the one customer chosen, so it stays on the
+ *  board it was typed into; with none or several chosen, nobody. */
+export function bornCustomers(chosen: readonly string[]): string[] | undefined {
+  return chosen.length === 1 ? [chosen[0]] : undefined;
+}
+
+/** customerPasses is the day boards' Customer filter on one card (O11): it
+ *  passes when nothing is chosen, or when one of its effective customers is
+ *  — the server's rule for the listing and the watch, mirrored for the cards
+ *  a board holds. `kept` are the cards the board itself made under the
+ *  filter with several customers chosen (bornCustomers): shown until the
+ *  filter changes, rather than gone the moment they are typed in. */
+export function customerPasses(
+  c: Card,
+  cards: Held,
+  chosen: readonly string[] | null,
+  kept?: ReadonlySet<string>,
+): boolean {
+  if (!chosen || chosen.length === 0 || kept?.has(c.itemId)) {
+    return true;
+  }
+  return effectiveCustomersOf(c, cards).some((id) => chosen.includes(id));
+}
+
 /** CustomerChip is one customer in the drawer's Customers field: the card's
  *  own (removable there), or inherited from an ancestor (`from`, grey, not
  *  removable there). */

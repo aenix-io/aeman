@@ -32,7 +32,7 @@ import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, localDateIso } from "../date";
 import { isSubtask, subtaskParent, subtaskShows } from "../subtasks";
 import { currentSprint, previousSprint } from "../sprint";
-import { onMyDay } from "../meview";
+import { hiddenByFilters, meFilterPasses, moreTasksLabel, onMyDay } from "../meview";
 import {
   asksFirst,
   deleteWarning,
@@ -58,7 +58,10 @@ import { cellGaps, gapAnchor, gapsInZone } from "../insertgap";
 import { insertedOrder, type Anchor } from "../backlogboard";
 import { mayRefuse, mayRemove, sortableWithin } from "../meboard";
 import { Dropdown } from "./Dropdown";
-import { TeamChips } from "./TeamChips";
+import { FilterSelect } from "./FilterSelect";
+import { ViewToggle } from "./ViewToggle";
+import { teamOptions } from "../filteroptions";
+import { useKeptCreated } from "../keptcreated";
 import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
 import { ConnectDialog } from "./ConnectDialog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
@@ -93,12 +96,11 @@ interface MeBoardProps {
   subscribeCardFrames?: (fn: (uid: string, deleted: boolean) => void) => () => void;
   /** Known teams to offer in the team selector. */
   teams: string[];
-  /** Shared single-select team (also the team for new cards); null = none. */
+  /** The Team filter, shared with the Team board and the Backlog: null =
+   *  all, else the chosen teams ("" the no-team group); one chosen is also
+   *  the team a new card is made on. */
   teamFilter: string[] | null;
   onSetFilter: (keys: string[] | null) => void;
-  onAddTeam: (team: string, domain?: string) => void;
-  onRemoveTeam: (team: string) => void;
-  onRenameTeam: (from: string, to: string) => void;
   patchCard: (
     itemId: string,
     patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
@@ -164,9 +166,6 @@ export function MeBoard({
   teams,
   teamFilter,
   onSetFilter,
-  onAddTeam,
-  onRemoveTeam,
-  onRenameTeam,
   patchCard,
   addCard,
   replaceCard,
@@ -188,12 +187,9 @@ export function MeBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCardId]);
   useEffect(() => () => onPresence?.(null), []); // eslint-disable-line react-hooks/exhaustive-deps
-  // Eye toggle by the team chips: when on, show only the selected teams' cards.
-  // Deliberately not persisted — resets to off (show all) on reload.
-  const [teamFocus, setTeamFocus] = useState(false);
   // Focus toggle (the meditation glyph by the View-as picker): show only cards
   // that can be worked on right now — drops locked/review/done. Ephemeral,
-  // resets to off on reload, like the team-focus eye.
+  // resets to off on reload.
   const [focus, setFocus] = useState(false);
   // Subtask UI state: manually expanded parents, the card a drag would group
   // under (its middle band is hovered — the card highlights), and the parent
@@ -289,19 +285,19 @@ export function MeBoard({
   // In Me a card shows by the day rule of board.MeView, mirrored card by card
   // in meview.onMyDay (with its own tests). What stays here is the board's
   // own: whose cards these are (mine, above) and the two toggles.
-  const myCards = useMemo(
-    () =>
-      mine.filter((c) => {
-        if (focus && !isWorkable(c)) {
-          return false;
-        }
-        if (teamFocus && teamFilter && !teamFilter.includes(c.team ?? "")) {
-          return false;
-        }
-        return onMyDay(c, board, selectedDate, todayIso());
-      }),
-    [mine, board, selectedDate, teamFocus, teamFilter, focus],
+  // What the day draws with no Team filter — what the "N more tasks" button
+  // counts against — and what it draws with it (O12).
+  const dayCards = useMemo(
+    () => mine.filter((c) => (!focus || isWorkable(c)) && onMyDay(c, board, selectedDate, todayIso())),
+    [mine, board, selectedDate, focus],
   );
+  const filtering = (teamFilter?.length ?? 0) > 0;
+  const { kept, keep } = useKeptCreated((teamFilter ?? []).join(","));
+  const filterPasses = useCallback(
+    (c: CardModel) => kept.has(c.itemId) || meFilterPasses(c, teamFilter),
+    [teamFilter, kept],
+  );
+  const myCards = useMemo(() => dayCards.filter(filterPasses), [dayCards, filterPasses]);
 
   const byZone = useMemo(() => {
     const buckets: Record<ZoneKey, CardModel[]> = {
@@ -432,22 +428,21 @@ export function MeBoard({
   const loadCardLinks = (card: CardModel) =>
     provider.listLinks(card.itemId);
 
-  // Subtasks grouped by parent. The Me board's team-focus filter applies to
+  // Subtasks grouped by parent. The Me board's Team filter applies to
   // subtask rows the same way it applies to cards.
   // The shared rule (subtasks.ts): a subtask keeps its own day visibility
   // even though it rides its parent.
   const subtaskOnDay = (c: CardModel): boolean =>
     subtaskShows(c, { today: todayIso(), day: selectedDate });
 
-  const childrenOf = useMemo(() => {
+  // Every subtask the day would nest with no filter, by parent — what the
+  // "N more tasks" button counts against — and the ones the filter keeps.
+  const dayChildren = useMemo(() => {
     const m = new Map<string, CardModel[]>();
     for (const c of mine) {
       // Under a TASK only: a task under an epic is a row of its own.
       const under = subtaskParent(c);
       if (!under || !subtaskOnDay(c)) {
-        continue;
-      }
-      if (teamFocus && teamFilter && !teamFilter.includes(c.team ?? "")) {
         continue;
       }
       const list = m.get(under) ?? [];
@@ -456,7 +451,20 @@ export function MeBoard({
     }
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mine, teamFocus, teamFilter, selectedDate, board]);
+  }, [mine, selectedDate, board]);
+  const childrenOf = useMemo(() => {
+    const m = new Map<string, CardModel[]>();
+    for (const [under, kids] of dayChildren) {
+      const kept = kids.filter(filterPasses);
+      if (kept.length > 0) {
+        m.set(under, kept);
+      }
+    }
+    return m;
+  }, [dayChildren, filterPasses]);
+  // Rows and nested subtasks alike: what the board would draw unfiltered
+  // that the Team filter hides (meview.hiddenByFilters).
+  const hiddenCount = hiddenByFilters(dayCards, (id) => dayChildren.get(id) ?? [], filterPasses);
 
   // The notes machinery sees subtasks too: they never render as zone rows,
   // but their notes and events belong to the day's feed — and their logs must
@@ -1529,6 +1537,11 @@ export function MeBoard({
       description: "",
       notes: [],
     };
+    // Typed in under the Team filter with a team picked outside it: kept
+    // shown until the filter changes, rather than gone the moment it is made.
+    if (filtering) {
+      keep(tempId);
+    }
     addCard(optimistic);
     // Typed into a gap: shown there at once, and the create names the place
     // (after / before) so the server puts it there in the same request.
@@ -1558,6 +1571,9 @@ export function MeBoard({
           return;
         }
         // Swap in place: append-on-ack would reshuffle a quick burst of adds.
+        if (filtering) {
+          keep(card.itemId);
+        }
         replaceCard(tempId, card);
         migrateCardId(tempId, card.itemId);
         if (firstSprint) {
@@ -1753,7 +1769,6 @@ export function MeBoard({
       counterpartAssignees={counterpartAssigneesFor(card)}
       onSetReviewAssignee={handleSetReviewAssignee}
       asOf={selectedDate}
-      dimAvatar={teamFilter === null || !teamFilter.includes(card.team ?? "")}
       subCount={(childrenOf.get(card.itemId) ?? []).length}
       expanded={subsOpen(card.itemId)}
       onToggleExpand={(c) => toggleSubs(c.itemId)}
@@ -1821,20 +1836,41 @@ export function MeBoard({
           (DayNav): it is the app's state, and one control for it keeps the
           boards from disagreeing about the same day. */}
       <div className="board-toolbar">
-        <TeamChips
+        {/* The Me board manages no roster (no Manage here) and has no
+            Customer filter: a customer chosen on the Team board or the
+            Backlog hides nothing here (O12). */}
+        <FilterSelect
           label="Team"
-          teams={teams}
-          selectedKeys={teamFilter}
-          onSelect={onSetFilter}
-          domains={board.domains}
-          onAdd={onAddTeam}
-          onRemove={onRemoveTeam}
-          onRename={onRenameTeam}
-          canManage={false}
-          noneChip="No team"
-          filterToggle={{ on: teamFocus, onToggle: () => setTeamFocus((v) => !v) }}
-          focusToggle={{ on: focus, onToggle: () => setFocus((v) => !v) }}
+          anyLabel="all"
+          options={teamOptions(teams)}
+          selected={teamFilter ?? []}
+          onChange={(next) => onSetFilter(next.length ? next : null)}
+          title="Show only these teams' work"
         />
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            className="btn filter-hidden-btn"
+            title="The Team filter hides these of your cards for this day — show everything"
+            onClick={() => onSetFilter(null)}
+          >
+            {moreTasksLabel(hiddenCount)}
+          </button>
+        )}
+        <ViewToggle
+          on={focus}
+          onToggle={() => setFocus((v) => !v)}
+          title={
+            focus
+              ? "Showing only cards you can work on now — click to show all"
+              : "Show only cards you can work on now (hide locked / on-review / done)"
+          }
+        >
+          <svg width="15" height="15" viewBox="-351 153 256 256" fill="currentColor" aria-hidden="true">
+            <circle cx="-222.3" cy="188.5" r="31.1" />
+            <path d="M-106.6,332.4c-0.4-0.6-0.9-1.1-1.4-1.6l-35.3-32.8l-22.8-49c-6.2-12.5-15.2-20.3-28.6-20.3h-57.5c-13.5,0-22.4,7.8-28.6,20.3l-22.8,49l-35.3,32.8c-0.5,0.5-1,1.1-1.4,1.6c-3.6,3.1-5.9,7.7-5.9,12.8c0,9.3,7.6,16.9,16.9,16.9c5.5,0,10.3-2.6,13.4-6.7c0.3-0.2,0.6-0.5,0.8-0.7l37.4-34.8c1.4-1.4,2.5-3,3.3-4.8l11.9-25.5l-0.6,45l-52.2,28.4c-9.5,5.2-14,16.4-10.6,26.7c3.4,10.3,13.6,16.7,24.3,15.2l78.1-20.2l78.1,20.2c10.7,1.5,21-4.9,24.3-15.2c3.4-10.3-1.1-21.5-10.6-26.7l-52.2-28.5l-0.6-45l11.9,25.5c0.8,1.8,2,3.4,3.3,4.8l37.4,34.8c0.3,0.3,0.5,0.5,0.8,0.7c3.1,4,7.9,6.7,13.4,6.7c9.3,0,16.9-7.6,16.9-16.9C-100.7,340-103,335.5-106.6,332.4z" />
+          </svg>
+        </ViewToggle>
 
         <div className="field field-inline impersonate" ref={impRef}>
           <button

@@ -59,7 +59,10 @@ import { OwnerBadge } from "./OwnerBadge";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { SizeChip } from "./SizeChip";
-import { TeamChips } from "./TeamChips";
+import { FilterSelect } from "./FilterSelect";
+import { customerOptions, teamOptions } from "../filteroptions";
+import { bornCustomers, customerPasses } from "../ownership";
+import { useKeptCreated } from "../keptcreated";
 
 /** How far the pointer must travel before a press on a card becomes a drag;
  *  a press that stays put opens the card. */
@@ -71,6 +74,13 @@ interface BacklogBoardProps {
   roster: string[];
   teamFilter: string[] | null;
   onSetFilter: (keys: string[] | null) => void;
+  /** The day boards' Customer filter (O11): [] = none, else ids (OR). */
+  customerFilter?: string[];
+  onSetCustomerFilter?: (next: string[]) => void;
+  /** Open the team and customer rosters' dialogs, from the bottom of the
+   *  Team and Customer filters. */
+  onManageTeams?: () => void;
+  onManageCustomers?: () => void;
   avatars: Avatars;
   names: Names;
   patchCard: (
@@ -120,6 +130,10 @@ export function BacklogBoard({
   provider,
   roster,
   teamFilter,
+  customerFilter = [],
+  onSetCustomerFilter,
+  onManageTeams,
+  onManageCustomers,
   onSetFilter,
   avatars,
   names,
@@ -136,7 +150,13 @@ export function BacklogBoard({
 }: BacklogBoardProps) {
   const today = todayIso();
   const teams = useMemo(() => shownTeams(teamFilter, roster), [teamFilter, roster]);
-  const list = useMemo(() => backlogList(board.cards, teams), [board.cards, teams]);
+  // The Customer filter by effective customers — the server's rule for the
+  // listing and the watch (O11), applied to what the board holds.
+  const { kept, keep } = useKeptCreated(customerFilter.join(","));
+  const list = useMemo(
+    () => backlogList(board.cards, teams).filter((c) => customerPasses(c, board.cards, customerFilter, kept)),
+    [board.cards, teams, customerFilter, kept],
+  );
   const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
 
   // ---- writing a place: a move by its neighbour ----
@@ -336,22 +356,30 @@ export function BacklogBoard({
   const insertAt = useCallback(
     (at: number, team: string, title: string) => {
       const { anchor } = insertSpot(list, at, teams);
+      // Typed in under the Customer filter: born for its one customer, or —
+      // with several chosen — kept shown until the filter changes, so it
+      // does not vanish the moment it is made (O11).
+      const born = bornCustomers(customerFilter);
       void provider
         .createCard({
           title,
           team: team || null,
           parked: true,
+          customers: born ?? null,
           after: anchor && "after" in anchor ? anchor.after : null,
           before: anchor && "before" in anchor ? anchor.before : null,
         })
         .then((card) => {
           noteMade(card.itemId);
+          if (customerFilter.length > 1) {
+            keep(card.itemId);
+          }
           addCard(card);
           reorderCards((cur) => insertedOrder(cur, card.itemId, anchor));
         })
         .catch((err: unknown) => onError(errText(err)));
     },
-    [list, teams, provider, addCard, reorderCards, onError],
+    [list, teams, provider, addCard, reorderCards, onError, customerFilter, keep],
   );
   const gap = (at: number, empty = false) => {
     const { box } = insertSpot(list, at, teams);
@@ -496,18 +524,22 @@ export function BacklogBoard({
   return (
     <div className="backlog-board">
       <div className="board-toolbar">
-        <TeamChips
+        <FilterSelect
           label="Team"
-          teams={roster}
-          selectedKeys={teamFilter}
-          onSelect={onSetFilter}
-          domains={board.domains}
-          // The no-team group has a backlog like any team's, so its chip is
-          // always there to select it by.
-          noneChip="No team"
-          canManage={false}
-          onAdd={() => {}}
-          onRemove={() => {}}
+          anyLabel="all"
+          options={teamOptions(roster)}
+          selected={teamFilter ?? []}
+          onChange={(next) => onSetFilter(next.length ? next : null)}
+          manage={onManageTeams ? { label: "Manage teams", onClick: onManageTeams } : undefined}
+          title="Show only these teams' backlogs"
+        />
+        <FilterSelect
+          label="Customer"
+          options={customerOptions(board.customers)}
+          selected={customerFilter}
+          onChange={(next) => onSetCustomerFilter?.(next)}
+          manage={onManageCustomers ? { label: "Manage customers", onClick: onManageCustomers } : undefined}
+          title="Show only the work for these customers"
         />
       </div>
       <section className="backlog-list" aria-label="Backlog">

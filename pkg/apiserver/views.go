@@ -73,8 +73,11 @@ type Selector struct {
 	// Customer and Owner narrow the roadmap view (docs/design/ownership.md,
 	// O7, O8), each a comma-separated set: Customer by effective customers
 	// (customer ids), Owner by a planning card's own owner. On the roadmap
-	// Team narrows by EFFECTIVE team the same way. Several values in one are
-	// OR, different ones AND; every match comes with its ancestors.
+	// Team narrows by EFFECTIVE team the same way, the no-team group being
+	// its empty member (alone, the set ","). Several values in one are OR,
+	// different ones AND; every match comes with its ancestors. Customer
+	// narrows the day boards' lists too — team, backlog, all, me — by
+	// effective customers (O11).
 	Customer string
 	Owner    string
 }
@@ -206,7 +209,7 @@ func (sel Selector) Mirrored() bool {
 	if sel.View != "roadmap" {
 		return true
 	}
-	return setOf(sel.Team) == nil && setOf(sel.Customer) == nil && setOf(sel.Owner) == nil
+	return teamSetOf(sel.Team) == nil && setOf(sel.Customer) == nil && setOf(sel.Owner) == nil
 }
 
 // roadmapNarrowed applies the Roadmap's team, customer and owner filters
@@ -221,22 +224,12 @@ func (sel Selector) Mirrored() bool {
 // and every card listed comes with its ancestors. With no filter the
 // listing is as it was.
 func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.Card {
-	teams, customers, owners := setOf(sel.Team), setOf(sel.Customer), setOf(sel.Owner)
+	teams, customers, owners := teamSetOf(sel.Team), setOf(sel.Customer), setOf(sel.Owner)
 	if teams == nil && customers == nil && owners == nil {
 		return cards
 	}
 	teamOK := func(c board.Card) bool { return teams == nil || teams[ix.EffectiveTeam(c)] }
-	customerOK := func(c board.Card) bool {
-		if customers == nil {
-			return true
-		}
-		for _, id := range ix.EffectiveCustomers(c) {
-			if customers[id] {
-				return true
-			}
-		}
-		return false
-	}
+	customerOK := func(c board.Card) bool { return customerOK(ix, c, customers) }
 	// A person matches a plan item they OWN (never inherited) and a task or
 	// subtask they are ASSIGNED to (O8).
 	ownerOK := func(c board.Card) bool {
@@ -327,6 +320,35 @@ func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.
 }
 
 // setOf reads a comma-separated selector value as a set; nil when empty.
+// teamSetOf is a team selector's set, the no-team group being its empty
+// member: "portal," is portal and the no-team group, "," the no-team group
+// alone — as teamInSet reads it on every other board. An empty selector is
+// no filter (nil).
+func teamSetOf(v string) map[string]bool {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, x := range strings.Split(v, ",") {
+		out[strings.TrimSpace(x)] = true
+	}
+	return out
+}
+
+// customerOK reports whether a card's effective customers (O4) include one
+// of the set; a nil set passes everything.
+func customerOK(ix *board.Index, c board.Card, set map[string]bool) bool {
+	if set == nil {
+		return true
+	}
+	for _, id := range ix.EffectiveCustomers(c) {
+		if set[id] {
+			return true
+		}
+	}
+	return false
+}
+
 func setOf(v string) map[string]bool {
 	var out map[string]bool
 	for _, x := range strings.Split(v, ",") {
@@ -388,7 +410,19 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		base = b.Cards
 	}
 	out := make([]board.Card, 0, len(base))
+	// The day boards' Customer filter (O11): the roadmap applies its own
+	// (roadmapNarrowed), and the Project board's cards carry none (H4).
+	var dayCustomers map[string]bool
+	var dayIx *board.Index
+	if sel.View != "roadmap" && sel.View != "project" {
+		if dayCustomers = setOf(sel.Customer); dayCustomers != nil {
+			dayIx = board.NewIndex(b)
+		}
+	}
 	for _, c := range base {
+		if dayCustomers != nil && !customerOK(dayIx, c, dayCustomers) {
+			continue
+		}
 		// "done" is not a stored stage — it is DERIVED from progress, so a
 		// card that is finished has no stage at all — and comparing it
 		// against the stored one asked for a file that says `stage: done`,
@@ -411,8 +445,9 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		}
 		// team filters the views that are not already scoped by it (the me, all
 		// and default lists). It accepts a comma-separated set, so
-		// ?view=me&team=marketing,portal narrows the Me board to those
-		// teams — the Me view's team-focus toggle over the selected chips.
+		// ?view=me&team=marketing,portal narrows a Me list to those teams; the
+		// Me board itself filters what it holds by its Team filter, to count
+		// what the filter hides.
 		if offTheTeamList(c, sel) {
 			continue
 		}
@@ -560,8 +595,16 @@ func leftBehindOn(b board.Board, sel Selector, have []board.Card) []board.Card {
 		seen[c.ItemID] = true
 	}
 	var out []board.Card
+	customers := setOf(sel.Customer)
+	var ix *board.Index
+	if customers != nil {
+		ix = board.NewIndex(b)
+	}
 	for _, c := range b.Cards {
 		if c.LeftAt != sel.LeftOn || seen[c.ItemID] {
+			continue
+		}
+		if !customerOK(ix, c, customers) {
 			continue
 		}
 		// Only what this listing is a record OF: elsewhere the day is still

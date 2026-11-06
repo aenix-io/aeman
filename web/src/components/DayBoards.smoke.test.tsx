@@ -74,7 +74,6 @@ describe("the Team grid's insert +", () => {
         onSelectDate={vi.fn()}
         liveSprints={{ alpha: { current: today } } as never}
         roster={["alpha"]}
-        onReorderTeams={vi.fn()}
         track={(p) => p}
       />,
     );
@@ -138,7 +137,6 @@ describe("a band's label", () => {
         onSelectDate={vi.fn()}
         liveSprints={{ alpha: { current: today } } as never}
         roster={["alpha"]}
-        onReorderTeams={vi.fn()}
         track={(p) => p}
       />,
     );
@@ -215,5 +213,112 @@ describe("the Me board's presence marks", () => {
     );
     expect(html).toContain("card-peer-selected");
     expect(html).toContain('title="Selected by lead"');
+  });
+});
+
+// O11 — the Team board's toolbar wears the boards' one filter dropdown: a
+// Team filter (No team among the teams, Manage teams at its foot) and a
+// Customer filter, in place of the chip row. The customer choice narrows
+// the grid by effective customers, as the server narrows the listing.
+describe("the Team board's filters", () => {
+  const draw = (cards: Card[], extra: Record<string, unknown> = {}) =>
+    renderToStaticMarkup(
+      <TeamBoard
+        {...common}
+        board={{ ...board(cards), customers: [{ id: "cu1", name: "Hidora" }] } as Board}
+        onSelectDate={vi.fn()}
+        liveSprints={{ alpha: { current: today } } as never}
+        roster={["alpha"]}
+        track={(p) => p}
+        {...extra}
+      />,
+    );
+
+  it("are the Team and Customer dropdowns, not chips", () => {
+    const html = draw([], { teamFilter: [""] });
+    expect(html).not.toContain("team-filter-chip");
+    expect(html).toMatch(/aria-label="Team filter"[^>]*>Team: No team</);
+    expect(html).toMatch(/aria-label="Customer filter"[^>]*>Customer: anyone</);
+  });
+
+  it("narrow the grid by effective customers", () => {
+    const cards = [
+      card({ itemId: "a", title: "For Hidora", zone: "gray", customers: ["cu1"], effectiveCustomers: ["cu1"] }),
+      card({ itemId: "b", title: "For nobody", zone: "gray" }),
+    ];
+    const html = draw(cards, { customerFilter: ["cu1"] });
+    expect(html).toContain("For Hidora");
+    expect(html).not.toContain("For nobody");
+    expect(draw(cards)).toContain("For nobody");
+  });
+});
+
+// O12 — the Me board's Team filter is the boards' one dropdown, with no
+// Manage entry: the Me board manages no roster. It hides the viewer's cards
+// of other teams, and a yellow button right of it says how many of the
+// day's cards it hides; pressing it clears it. The eye toggle that used to
+// decide whether the team chips hid anything is gone. The Me board has no
+// Customer filter, and a customer chosen elsewhere hides nothing here.
+describe("the Me board's filter", () => {
+  const draw = (cards: Card[], extra: Record<string, unknown> = {}) =>
+    renderToStaticMarkup(
+      <MeBoard
+        {...common}
+        board={{ ...board(cards), teams: ["alpha", "beta"], customers: [{ id: "cu1", name: "Hidora" }] } as Board}
+        viewAs={null}
+        onViewAs={vi.fn()}
+        connectHint=""
+        teams={["alpha", "beta"]}
+        {...extra}
+      />,
+    );
+  const cards = [
+    card({ itemId: "a", title: "Alpha work", zone: "gray" }),
+    card({ itemId: "b", title: "Beta work", zone: "gray", team: "beta" }),
+    card({ itemId: "c", title: "More beta work", zone: "gray", team: "beta" }),
+  ];
+
+  it("is the Team dropdown alone, with no chips, no eye, no Manage and no Customer", () => {
+    const html = draw(cards);
+    expect(html).not.toContain("team-filter-chip");
+    expect(html).toMatch(/aria-label="Team filter"[^>]*>Team: all</);
+    expect(html).not.toContain('aria-label="Customer filter"');
+    expect(html).not.toContain("Show only the selected teams");
+    expect(html).not.toContain("filter-hidden-btn");
+  });
+
+  it("hides what it leaves out, and says how many of the day's cards that is", () => {
+    const html = draw(cards, { teamFilter: ["alpha"] });
+    expect(html).toContain("Alpha work");
+    expect(html).not.toContain("Beta work");
+    expect(html).toMatch(/<button[^>]*class="btn filter-hidden-btn"[^>]*>2 more tasks<\/button>/);
+  });
+
+  it("ignores a customer chosen on the Team board or the Backlog", () => {
+    const html = draw(cards, { customerFilter: ["cu1"] });
+    expect(html).toContain("Beta work");
+    expect(html).not.toContain("filter-hidden-btn");
+  });
+});
+
+// The count is of what the board draws: rows and the subtasks nested under
+// them. A shown row's subtask of another team is hidden, and counted.
+describe("the Me board's N more tasks", () => {
+  it("counts a subtask the Team filter hides under a shown row", () => {
+    const html = renderToStaticMarkup(
+      <MeBoard
+        {...common}
+        board={{ ...board([
+          card({ itemId: "p", title: "Parent", zone: "gray" }),
+          card({ itemId: "k", title: "Beta kid", zone: "gray", team: "beta", parent: "p" }),
+        ]), teams: ["alpha", "beta"] } as Board}
+        teamFilter={["alpha"]}
+        viewAs={null}
+        onViewAs={vi.fn()}
+        connectHint=""
+        teams={["alpha", "beta"]}
+      />,
+    );
+    expect(html).toMatch(/>1 more task</);
   });
 });

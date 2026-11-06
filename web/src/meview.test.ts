@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { onMyDay } from "./meview";
+import { hiddenByFilters, meFilterPasses, moreTasksLabel, onMyDay } from "./meview";
 import type { Board, Card } from "./providers/types";
 
 const card = (over: Partial<Card>): Card =>
@@ -106,5 +106,47 @@ describe("a project card is on nobody's Me board", () => {
 
   it("leaves a card that merely names a project as an ordinary task", () => {
     expect(onMyDay(card({ project: "P", startDate: TODAY, day: TODAY }), board, TODAY, TODAY)).toBe(true);
+  });
+});
+
+// The Me board's Team filter (O12) hides the viewer's own cards of other
+// teams — and says how many it hides: the "N more tasks" button, counted
+// over exactly what the board would draw on the day with no filter, which
+// clears it. The Me board has no Customer filter: a customer chosen on the
+// Team board or the Backlog hides nothing here.
+describe("the Me board's filter", () => {
+  const cards = [
+    card({ itemId: "a", team: "alpha" }),
+    card({ itemId: "b", team: "beta" }),
+    card({ itemId: "n", team: "" }),
+  ];
+
+  it("passes everything while no team is chosen", () => {
+    expect(cards.every((c) => meFilterPasses(c, null))).toBe(true);
+    expect(cards.every((c) => meFilterPasses(c, []))).toBe(true);
+  });
+
+  it("keeps the chosen teams, the no-team group being a team", () => {
+    expect(cards.filter((c) => meFilterPasses(c, ["alpha", ""])).map((c) => c.itemId)).toEqual(["a", "n"]);
+  });
+
+  it("counts what it hides of what the day would draw", () => {
+    expect(hiddenByFilters(cards, () => [], (c) => meFilterPasses(c, ["alpha"]))).toBe(2);
+    expect(hiddenByFilters(cards, () => [], () => true)).toBe(0);
+    expect(moreTasksLabel(1)).toBe("1 more task");
+    expect(moreTasksLabel(3)).toBe("3 more tasks");
+  });
+
+  // What the board draws is rows AND the subtasks nested under them, so the
+  // count is of both: a hidden row takes its subtasks with it, and a shown
+  // row's subtask of another team is hidden on its own.
+  it("counts the subtasks it hides, under a hidden row and a shown one", () => {
+    const kids: Record<string, ReturnType<typeof card>[]> = {
+      a: [card({ itemId: "a1", team: "alpha" }), card({ itemId: "a2", team: "beta" })],
+      b: [card({ itemId: "b1", team: "beta" }), card({ itemId: "b2", team: "alpha" })],
+    };
+    const passes = (c: ReturnType<typeof card>) => meFilterPasses(c, ["alpha"]);
+    // b and both its subtasks; n; a's beta subtask.
+    expect(hiddenByFilters(cards, (id) => kids[id] ?? [], passes)).toBe(5);
   });
 });

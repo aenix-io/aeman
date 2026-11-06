@@ -1326,11 +1326,14 @@ components:
       in: query
       required: false
       description: >-
-        A comma-separated set of team keys; the listings union them. Empty is
-        every team, and the no-team group is the empty key. On the roadmap
+        A comma-separated set of team keys; the listings union them. The
+        no-team group is the empty member — `alpha,` is alpha and the no-team
+        group, `,` the no-team group alone. Left empty it means, per view: on
+        `team`, the no-team group's grid; on `backlog`, `me`, `all` and
+        `roadmap`, no team filter (every team's). On the roadmap
         view it narrows by EFFECTIVE team: a task whose own or inherited team
-        is among them, a planning card that is or has such a task under it,
-        each with its ancestors.
+        is among them (the no-team group: none at all), a planning card that
+        is or has such a task under it, each with its ancestors.
       schema:
         type: string
     Day:
@@ -1409,10 +1412,13 @@ components:
       in: query
       required: false
       description: >-
-        On the roadmap view, a comma-separated set of customer ids: a task is
-        listed when one of its effective customers is among them, a planning
+        A comma-separated set of customer ids, matched against a card's
+        EFFECTIVE customers (its own plus every ancestor's). On the roadmap
+        view a task is listed when one of them is among the set, a planning
         card when it is itself or any task under it is, each with its
-        ancestors. Several values are OR; with `team` and `owner`, AND.
+        ancestors; with `team` and `owner`, AND. On the team, backlog, all
+        and me views the cards listed are narrowed the same way, with the
+        team set AND. Several values are OR.
       schema:
         type: string
     Owner:

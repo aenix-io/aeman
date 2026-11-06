@@ -56,7 +56,9 @@ already write.
 `view=backlog` is a board of its own — it was a pane of Triage — and the
 SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
 
-- **Teams.** The team chips are the Team board's. The board is ONE list:
+- **Teams.** The Team filter is the Team board's (the boards' one filter
+  dropdown, No team among the teams, `ownership.md` O11), and so is the
+  Customer filter beside it. The board is ONE list:
   the backlogs of every selected team MIXED in one order, each card
   wearing a chip of its team; a team that works from several backlogs
   (features reads portal's and cozystack's) selects them all.

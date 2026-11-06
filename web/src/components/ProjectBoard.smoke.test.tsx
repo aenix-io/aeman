@@ -102,7 +102,9 @@ describe("the Project board's grid", () => {
     const html = draw(board());
     expect(html).not.toContain("project-slot-menu");
     expect(html).not.toContain("Actions on");
-    expect(html).not.toContain('aria-haspopup="menu"');
+    // The one menu button is the toolbar's Project filter.
+    expect(html.match(/aria-haspopup="menu"/g)?.length).toBe(1);
+    expect(html).toContain('aria-label="Project filter"');
     expect(html).not.toContain("project-slot-team");
     expect(html).not.toContain("border-left-color");
   });
@@ -176,5 +178,18 @@ describe("the Project board's grid", () => {
     const html = draw(board({ deadlines: [{ project: "cozy", week }] }));
     expect(html).toContain("project-deadline-head");
     expect(html).toContain("project-deadline-body");
+  });
+});
+
+// O12 — the Project board's filter is the boards' one dropdown: Project,
+// with Manage projects at its foot (the roster's dialog), in place of the
+// chip row and its "manage" link.
+describe("the Project board's filter", () => {
+  it("is the Project dropdown, not chips", () => {
+    const html = draw(board(), ["cozy"]);
+    expect(html).not.toContain("team-filter-chip");
+    expect(html).not.toMatch(/>manage</);
+    expect(html).toMatch(/aria-label="Project filter"[^>]*>Project: cozy</);
+    expect(draw(board(), null)).toMatch(/>Project: all</);
   });
 });

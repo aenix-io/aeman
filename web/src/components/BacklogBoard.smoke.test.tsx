@@ -348,3 +348,49 @@ describe("the take dialog", () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 });
+
+// O11 — the Backlog wears the boards' one filter dropdown: Team (No team
+// among the teams, Manage teams at its foot) and Customer, in place of the
+// chips; the customer choice narrows the list by effective customers.
+describe("the Backlog's filters", () => {
+  const drawWith = (cards: Card[], customerFilter: string[]) =>
+    renderToStaticMarkup(
+      <BacklogBoard
+        board={{ ...board(cards), customers: [{ id: "cu1", name: "Hidora" }] } as Board}
+        provider={{} as Provider}
+        roster={["portal", "cozystack"]}
+        teamFilter={["portal", ""]}
+        onSetFilter={vi.fn()}
+        customerFilter={customerFilter}
+        onSetCustomerFilter={vi.fn()}
+        onManageTeams={vi.fn()}
+        avatars={{}}
+        names={{}}
+        patchCard={vi.fn()}
+        addCard={vi.fn()}
+        removeCard={vi.fn()}
+        reorderCards={vi.fn()}
+        reload={vi.fn()}
+        onOpen={vi.fn()}
+        onError={vi.fn()}
+        me="kvaps"
+      />,
+    );
+  const cards = [
+    card({ itemId: "a", title: "For Hidora", team: "portal", effectiveCustomers: ["cu1"], customers: ["cu1"] }),
+    card({ itemId: "b", title: "For nobody", team: "portal" }),
+  ];
+
+  it("are the Team and Customer dropdowns, not chips", () => {
+    const html = drawWith(cards, []);
+    expect(html).not.toContain("team-filter-chip");
+    expect(html).toMatch(/aria-label="Team filter"[^>]*>Team: portal, No team</);
+    expect(html).toMatch(/aria-label="Customer filter"[^>]*>Customer: anyone</);
+  });
+
+  it("narrow the list by effective customers", () => {
+    const html = drawWith(cards, ["cu1"]);
+    expect(html).toContain("For Hidora");
+    expect(html).not.toContain("For nobody");
+  });
+});

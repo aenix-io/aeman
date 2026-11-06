@@ -80,3 +80,33 @@ export function onMyDay(
   // still appears on the previous sprint's days it came from.
   return as !== "" && ss !== undefined && as <= ss && (!c.startDate || c.startDate <= day);
 }
+
+/** meFilterPasses is the Me board's Team filter on one of the viewer's
+ *  cards (O12): its team is among the chosen ones (the no-team group being
+ *  ""), none chosen passing every card. The Me board has no Customer filter. */
+export function meFilterPasses(c: Card, teams: readonly string[] | null): boolean {
+  return !teams || teams.length === 0 || teams.includes(c.team ?? "");
+}
+
+/** hiddenByFilters is how many of the cards the board would draw on the
+ *  day with no filter the filter hides — the "N more tasks" button. The
+ *  board draws rows and, nested under each, its subtasks on the day
+ *  (`kidsOf`, unfiltered): a hidden row hides its subtasks with it, and a
+ *  shown row's subtask the filter leaves out is hidden on its own. */
+export function hiddenByFilters(
+  rows: readonly Card[],
+  kidsOf: (id: string) => readonly Card[],
+  passes: (c: Card) => boolean,
+): number {
+  let n = 0;
+  for (const r of rows) {
+    const kids = kidsOf(r.itemId);
+    n += passes(r) ? kids.filter((k) => !passes(k)).length : 1 + kids.length;
+  }
+  return n;
+}
+
+/** moreTasksLabel is the button's words. */
+export function moreTasksLabel(n: number): string {
+  return `${n} more ${n === 1 ? "task" : "tasks"}`;
+}
