@@ -54,6 +54,13 @@ describe("the effective customers (O4, O6)", () => {
   it("fall back to the server's when the ancestors are not on the board", () => {
     expect(effectiveCustomersOf(card({ itemId: "l", parent: "gone", effectiveCustomers: ["x"] }), cards)).toEqual(["x"]);
   });
+
+  it("are the server's for a review card whose task the board does not hold", () => {
+    // The Team board holds a review card without its task (another team's):
+    // the task's customers are the server's to say, not "none".
+    const review = card({ itemId: "r2", reviewOf: "elsewhere", team: "portal", effectiveCustomers: ["hidora"] });
+    expect(effectiveCustomersOf(review, cards)).toEqual(["hidora"]);
+  });
 });
 
 // The drawer's Customers field: the card's own are chips it can remove; the

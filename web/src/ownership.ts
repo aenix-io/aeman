@@ -83,7 +83,11 @@ export function effectiveCustomersOf(c: Card, cards: Held): string[] {
   };
   if (c.reviewOf) {
     const task = cards.find((x) => x.itemId === c.reviewOf);
-    if (task && !task.reviewOf) {
+    if (!task) {
+      // A task the board does not hold (another team's): the server's word.
+      return c.effectiveCustomers ?? [];
+    }
+    if (!task.reviewOf) {
       add(effectiveCustomersOf(task as Card, cards));
     }
   }
