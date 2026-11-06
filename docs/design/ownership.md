@@ -118,6 +118,14 @@ where it sits. The choice is remembered per viewer in the browser.
 - No migration: existing planning cards simply have no team, owner or
   customers. The schema stays at 3; readers that do not know the keys keep
   them as unknown keys (the codec round-trips them).
+- One existing state changes meaning: a `team:` a planning card's file
+  already carries — written by a direct writer, or left from before H3
+  read it off — was ignored and now takes effect. That planning card shows
+  the team, passes the Roadmap's team filter, and the tasks under it with
+  no team of their own take it as their effective team. Nothing moves on a
+  day board, since a planning card's team places nothing. A board with
+  such files should be checked before the release; this change does not
+  rewrite them.
 - `git-backend.md` and `plugin-impact.md` describe the new keys and the
   roster for external writers.
 
