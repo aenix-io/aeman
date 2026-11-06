@@ -307,6 +307,18 @@ describe("ownership on the Roadmap", () => {
     expect(row).toContain('title="Team core"');
   });
 
+  // O3 — a card with no team of its own shows the team it takes from
+  // above, greyed, saying where from; one with its own team does not.
+  it("shows an inherited team greyed, with where it comes from", () => {
+    const task = card({ itemId: "ot", title: "Receipts", parent: "oe", lineage: [{ uid: "oe", type: "epic", title: "Billing" }] });
+    const html = draw(board([owned, task]));
+    const row = html.slice(html.indexOf(">Receipts<"));
+    expect(row).toMatch(/class="roadmap-owner roadmap-owner-inherited" title="core — from «Billing»"/);
+    expect(row).toContain('title="Team core"');
+    const own = html.slice(html.indexOf(">Billing<"), html.indexOf(">Receipts<"));
+    expect(own).not.toContain("roadmap-owner-inherited");
+  });
+
   it("offers the three filters and says what is chosen", () => {
     const b = { ...board([owned]), customers: [{ id: "cu1", name: "Hidora" }] } as unknown as Board;
     const html = draw(b, null, false, vi.fn(), { teams: ["core"], customers: ["cu1"], owners: [] });

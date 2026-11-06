@@ -57,7 +57,7 @@ import { barColor } from "../stages";
 import { ViewToggle } from "./ViewToggle";
 import { FilterSelect } from "./FilterSelect";
 import { customerOptions, teamOptions } from "../filteroptions";
-import { NO_ROADMAP_FILTERS, ownerFilterOptions, peopleOf, type RoadmapFilters } from "../ownership";
+import { NO_ROADMAP_FILTERS, ownerFilterOptions, peopleOf, roadmapOwnerCell, type RoadmapFilters } from "../ownership";
 import { isPlanning } from "../subtasks";
 import { ownerLabel, ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
 import { displayName, type Avatars, type Names } from "../users";
@@ -360,10 +360,17 @@ function RoadmapRow({ row, section, today, open, focus, ghost, forbid, dragging,
 /** OwnerCell is what a task row shows in its Owner column: the owner badge
  *  (the team's avatar, the person's over it, one label) — and the picker
  *  behind it. */
-function OwnerCell({ owner, avatars, names }: { owner: Owner; avatars?: Avatars; names?: Names }) {
+function OwnerCell({ owner, avatars, names, from }: { owner: Owner; avatars?: Avatars; names?: Names; from?: string }) {
   const label = ownerLabel(owner, (l) => displayName(l, names));
+  // A team taken from above (O3) is drawn greyed and says where from; the
+  // picker still sets the card's OWN value.
+  const inherited = from !== undefined;
+  const title = inherited ? `${label} — ${from ? `from «${from}»` : "inherited"}` : label;
   return (
-    <span className={`roadmap-owner${owner.team || owner.person ? "" : " roadmap-owner-none"}`} title={label}>
+    <span
+      className={`roadmap-owner${owner.team || owner.person ? "" : " roadmap-owner-none"}${inherited ? " roadmap-owner-inherited" : ""}`}
+      title={title}
+    >
       <OwnerBadge owner={owner} avatars={avatars} names={names} />
     </span>
   );
@@ -697,6 +704,7 @@ export function RoadmapBoard({
   const ownerCell = (card: CardModel, kind: RoadmapKind) => {
     if (kind === "goal" || kind === "initiative" || kind === "epic") {
       const owner = planOwnerOf(card);
+      const shown = roadmapOwnerCell(card, board.cards, true);
       return (
         <OwnerPicker
           planning
@@ -709,7 +717,7 @@ export function RoadmapBoard({
           onPick={(o) => ownPlan(card, o)}
           title={`Who carries «${card.title}» out, and who answers for it`}
         >
-          <OwnerCell owner={owner} avatars={avatars} names={names} />
+          <OwnerCell owner={shown.owner} from={shown.from} avatars={avatars} names={names} />
         </OwnerPicker>
       );
     }
@@ -717,7 +725,8 @@ export function RoadmapBoard({
       return null;
     }
     const owner = ownerOf(card);
-    const cell = <OwnerCell owner={owner} avatars={avatars} names={names} />;
+    const shown = roadmapOwnerCell(card, board.cards, false);
+    const cell = <OwnerCell owner={shown.owner} from={shown.from} avatars={avatars} names={names} />;
     // A subtask's owner is its task's (the server cascades it); the cell
     // reads and does not offer the menu.
     if (kind === "subtask") {

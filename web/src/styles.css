@@ -6059,6 +6059,19 @@ button.card-age {
   font-style: italic;
 }
 
+/* A team the Roadmap's Owner cell takes from above (O3): greyed, as the
+   drawer's inherited value is. */
+.roadmap-owner-inherited .owner-badge-team {
+  opacity: 0.45;
+}
+
+/* The label is the team's name only when nobody is named; a plan item's
+   own owner stays as it is. */
+.roadmap-owner-inherited:not(:has(.owner-badge-person)) .owner-badge-label {
+  color: var(--muted);
+  font-style: italic;
+}
+
 /* The one filter dropdown of every board: Team, Customer, Owner, Project. */
 .filter-select-btn {
   font-size: 12px;
