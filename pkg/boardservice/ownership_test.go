@@ -106,6 +106,34 @@ func TestACardNamesCustomersFromTheRoster(t *testing.T) {
 	}
 }
 
+// O5 — an id the roster no longer holds does not lock the card: a delete
+// that raced an edit, or a replayed write, can leave one behind. Only an id
+// NEW to the card is checked against the roster; a dangling one already on
+// it is dropped when the card is written, and the edit goes through.
+// Duplicates are named once.
+func TestADanglingCustomerDoesNotLockTheCard(t *testing.T) {
+	f := ownershipSeed()
+	f.get("task").Customers = []string{"hidora", "gone"}
+	svc := New(f)
+	if err := svc.SetCustomers(ctx, "acme", "task", []string{"hidora", "gone", "acme", "acme"}); err != nil {
+		t.Fatalf("an edit that keeps the dangling id = %v, want it taken", err)
+	}
+	if got := f.get("task").Customers; !reflect.DeepEqual(got, []string{"hidora", "acme"}) {
+		t.Fatalf("the task's customers = %v, want the dangling id dropped and acme once", got)
+	}
+	f.get("task").Customers = []string{"gone"}
+	if err := svc.SetCustomers(ctx, "acme", "task", []string{"gone"}); err != nil {
+		t.Fatalf("re-sending the card's own dangling id = %v", err)
+	}
+	if got := f.get("task").Customers; len(got) != 0 {
+		t.Fatalf("the task's customers = %v, want the dangling id cleaned away", got)
+	}
+	// A NEW id the roster lacks is still refused.
+	if err := svc.SetCustomers(ctx, "acme", "task", []string{"hidora", "nobody"}); !errors.Is(err, ErrCustomerNotFound) {
+		t.Fatalf("a new id the roster lacks = %v, want ErrCustomerNotFound", err)
+	}
+}
+
 // O5 — the roster: add, rename, reorder, delete. A name is said once
 // (case aside); a delete reaches every card that names the customer.
 func TestTheCustomerRosterActions(t *testing.T) {

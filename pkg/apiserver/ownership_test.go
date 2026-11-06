@@ -48,6 +48,26 @@ func TestTheResourceCarriesOwnershipAsWrittenAndAsComputed(t *testing.T) {
 	}
 }
 
+// O5 — an id the roster no longer holds reaches no reader: not in the
+// card's own customers, not in its effective ones, and the customer filter
+// cannot match it.
+func TestADanglingCustomerReachesNoReader(t *testing.T) {
+	b := ownershipBoard()
+	for i := range b.Cards {
+		if b.Cards[i].ItemID == "t2" {
+			b.Cards[i].Customers = []string{"gone", "acme"}
+		}
+	}
+	c, _ := board.Find(b, "t2")
+	res := CardResource(b, c)
+	if !reflect.DeepEqual(res.Spec.Customers, []string{"acme"}) || !reflect.DeepEqual(res.Status.EffectiveCustomers, []string{"hidora", "acme"}) {
+		t.Fatalf("t2 = customers %v effective %v, want the dangling id nowhere", res.Spec.Customers, res.Status.EffectiveCustomers)
+	}
+	if got := roadmapIDs(b, Selector{Customer: "gone"}); len(got) != 0 {
+		t.Fatalf("customer=gone = %v, want nothing", got)
+	}
+}
+
 func roadmapIDs(b board.Board, sel Selector) []string {
 	sel.View = "roadmap"
 	var out []string

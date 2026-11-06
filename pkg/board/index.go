@@ -17,6 +17,10 @@ type Index struct {
 	// the original's id: the first such card in board order, as the
 	// resource's own walk found it.
 	reviewedBy map[string]string
+	// customers is the board's customer roster by id: a card may name an id
+	// the roster no longer holds (a delete that raced an edit, a replayed
+	// write), and such an id is nobody's (EffectiveCustomers).
+	customers map[string]bool
 }
 
 // NewIndex reads the board once.
@@ -27,6 +31,10 @@ func NewIndex(b Board) *Index {
 		children:   map[string][]Card{},
 		planning:   map[string]bool{},
 		reviewedBy: map[string]string{},
+		customers:  make(map[string]bool, len(b.Customers)),
+	}
+	for _, cu := range b.Customers {
+		ix.customers[cu.ID] = true
 	}
 	for _, c := range b.Cards {
 		ix.byID[c.ItemID] = c
@@ -101,7 +109,8 @@ func (ix *Index) EffectiveTeam(c Card) string {
 // EffectiveCustomers is the customers a card is for (O4): every ancestor's
 // and its own, the ancestors' first, each once — a lower card adds to them
 // and never overwrites them. A review card is for its task's (O6), and a
-// project card for none (H4).
+// project card for none (H4). An id the board's roster does not hold is left
+// out: it names nobody (O5).
 func (ix *Index) EffectiveCustomers(c Card) []string {
 	if c.Scope != "" {
 		return nil
@@ -110,7 +119,7 @@ func (ix *Index) EffectiveCustomers(c Card) []string {
 	seen := map[string]bool{}
 	add := func(ids []string) {
 		for _, id := range ids {
-			if id != "" && !seen[id] {
+			if id != "" && !seen[id] && ix.customers[id] {
 				seen[id] = true
 				out = append(out, id)
 			}
@@ -125,6 +134,18 @@ func (ix *Index) EffectiveCustomers(c Card) []string {
 		add(a.Customers)
 	}
 	add(c.Customers)
+	return out
+}
+
+// OnRoster is the ids of the given ones the board's customer roster holds,
+// in order: what a card's own customers read as (O5).
+func (ix *Index) OnRoster(ids []string) []string {
+	var out []string
+	for _, id := range ids {
+		if ix.customers[id] {
+			out = append(out, id)
+		}
+	}
 	return out
 }
 

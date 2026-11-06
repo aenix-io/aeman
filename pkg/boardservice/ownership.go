@@ -119,8 +119,10 @@ func (s *Service) setPlanTeam(ctx context.Context, b board.Board, card board.Car
 
 // SetCustomers names the customers a card is for (ids from the roster; nil
 // takes them all off). Any card but a project card (H4, O6); each id once,
-// in the order given; an id the roster lacks is refused before anything is
-// written. The cards below inherit them (O4) without a write.
+// in the order given; an id new to the card that the roster lacks is
+// refused before anything is written, and one the card already names that
+// the roster no longer holds is dropped (O5). The cards below inherit them
+// (O4) without a write.
 func (s *Service) SetCustomers(ctx context.Context, boardID string, itemID string, ids []string) error {
 	ob, err := s.ownership()
 	if err != nil {
@@ -147,6 +149,13 @@ func (s *Service) setCustomers(ctx context.Context, ob OwnershipBackend, b board
 			continue
 		}
 		if b.CustomerName(id) == "" {
+			// One the card already names is a customer deleted since — a
+			// delete that raced this edit, or a write replayed after the
+			// other side's delete — and it names nobody: dropped, never a
+			// reason to refuse the edit. Only a NEW id must be on the roster.
+			if slices.Contains(card.Customers, id) {
+				continue
+			}
 			return fmt.Errorf("%w: %q", ErrCustomerNotFound, id)
 		}
 		clean = append(clean, id)

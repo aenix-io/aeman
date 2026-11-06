@@ -110,6 +110,13 @@ func (b *storeBackend) MoveCustomer(ctx context.Context, bd board.Board, id, aft
 
 // DeleteCustomer deletes a customer and takes it off every cached card that
 // names it, announcing each card that changed.
+//
+// It does not wait for the card writes queued before it: a SetCustomers
+// still in the queue may write the id back onto a card after the delete
+// landed. That leaves a dangling id, which is inert by design — no read
+// serves it (board.Index.OnRoster, EffectiveCustomers) and the next edit of
+// the card's customers drops it (boardservice.setCustomers) — the same state
+// a rebase replaying an edit over the other side's delete leaves behind.
 func (b *storeBackend) DeleteCustomer(ctx context.Context, bd board.Board, id string) error {
 	ob, err := b.ownership()
 	if err != nil {

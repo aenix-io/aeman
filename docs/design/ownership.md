@@ -65,6 +65,14 @@ may name **several customers**.
 - Deleting a customer from the roster removes it from every card that names
   it; renaming changes the name everywhere at once (cards refer to the
   customer by id, not by name).
+- A card can still come to name an id the roster no longer holds: an edit
+  queued before a delete lands after it, or a rebase replays a write the
+  other side's delete came before. Such an id names nobody: it is left out
+  of the card's customers and effective customers on every read, no filter
+  matches it, and the next edit of the card's customers drops it. Only an
+  id NEW to a card must be on the roster, so a dangling one never locks the
+  card. This is why a delete does not have to wait for the card writes
+  queued before it.
 
 ## Roadmap filters
 

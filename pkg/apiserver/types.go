@@ -449,7 +449,7 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 		Description: &description,
 		Team:        c.Team,
 		Owner:       c.Owner,
-		Customers:   append([]string(nil), c.Customers...),
+		Customers:   ix.OnRoster(c.Customers),
 		Zone:        SemanticZone(board.ZoneOf(c)),
 		Size:        sizeOut(c.Size),
 		Assignees:   append([]string{}, c.Assignees...),

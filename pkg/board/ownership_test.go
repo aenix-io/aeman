@@ -31,7 +31,7 @@ func TestAPlanningCardKeepsItsOwnerAndTeam(t *testing.T) {
 }
 
 func ownershipBoard() *Index {
-	return NewIndex(NewBoard([]Card{
+	b := NewBoard([]Card{
 		{ItemID: "g", Type: TypeGoal, Team: "portal", Owner: "gwen", Customers: []string{"hidora"}},
 		{ItemID: "i", Type: TypeInitiative, Parent: "g"},
 		{ItemID: "e", Type: TypeEpic, Parent: "i", Customers: []string{"acme"}},
@@ -40,7 +40,9 @@ func ownershipBoard() *Index {
 		{ItemID: "sub", Parent: "own"},
 		{ItemID: "r", ReviewOf: "t", Team: "portal", Parked: true},
 		{ItemID: "loose", Team: "ops"},
-	}))
+	})
+	b.Customers = []Customer{{ID: "hidora", Name: "Hidora"}, {ID: "acme", Name: "Acme"}, {ID: "zeta", Name: "Zeta"}}
+	return NewIndex(b)
 }
 
 // O3 — the effective team is the card's own, else the nearest ancestor's
@@ -92,5 +94,31 @@ func TestAnOwnerIsNotInherited(t *testing.T) {
 	b := NewBoard(ix.cards)
 	for _, c := range MeView(b, "gwen", TodayIso()) {
 		t.Fatalf("gwen's Me board holds %s: an owner puts nothing on a day board", c.ItemID)
+	}
+}
+
+// O5 — a customer id the roster no longer holds is nobody's: a delete that
+// raced an edit, or a replayed write the other side's delete came before,
+// can leave a card naming one, and it must not lock the card nor reach a
+// reader. The effective customers skip it, at every level.
+func TestADanglingCustomerIsNoOnesEffective(t *testing.T) {
+	b := NewBoard([]Card{
+		{ItemID: "e", Type: TypeEpic, Customers: []string{"gone", "acme"}},
+		{ItemID: "t", Parent: "e", Customers: []string{"gone"}},
+		{ItemID: "r", ReviewOf: "t", Team: "portal", Parked: true},
+	})
+	b.Customers = []Customer{{ID: "acme", Name: "Acme"}}
+	ix := NewIndex(b)
+	for _, id := range []string{"e", "t", "r"} {
+		c, _ := ix.Find(id)
+		if got := ix.EffectiveCustomers(c); !reflect.DeepEqual(got, []string{"acme"}) {
+			t.Errorf("%s effective customers = %v, want only Acme", id, got)
+		}
+	}
+	// And a board with no roster at all names nobody.
+	b.Customers = nil
+	ix = NewIndex(b)
+	if c, _ := ix.Find("t"); ix.EffectiveCustomers(c) != nil {
+		t.Errorf("with no roster the task's customers = %v, want none", ix.EffectiveCustomers(c))
 	}
 }
