@@ -33,18 +33,20 @@ import "slices"
 // from the board's history, as it was (the snapshot path). Looking forward
 // works here, because every gate it applies is relative to the day asked
 // about — a card deferred to Thursday is in hand on Thursday.
-func TeamGrid(b Board, team, day string) []Card {
+func TeamGrid(b Board, team, day string) []Card { return TeamGridIn(b, NewIndex(b), team, day) }
+
+// TeamGridIn is TeamGrid over an index built once for a listing.
+func TeamGridIn(b Board, ix *Index, team, day string) []Card {
 	today := TodayIso()
 	out := []Card{}
-	planning := PlanningIDs(b)
-	// A task stands under its EFFECTIVE team (O13): its own, else the plan
-	// item's above it.
-	teams := PlacedTeams(b)
+	planning := ix.planning
 	for _, c := range b.Cards {
 		// The day boards draw TASKS: a goal, an initiative or an epic is the
 		// Roadmap's (H3), and a subtask rides its parent. A task under an
 		// epic is neither — it stands here like any task (H1).
-		if IsPlanning(c) || IsSubtaskIn(c, planning) || teams[c.ItemID] != team || InBacklog(c) {
+		// A task stands under its EFFECTIVE team (O13): its own, else the
+		// plan item's above it.
+		if IsPlanning(c) || IsSubtaskIn(c, planning) || ix.PlacedTeam(c) != team || InBacklog(c) {
 			continue
 		}
 		// A card in a Scope column is a PROJECT CARD: the Project board's
@@ -202,12 +204,13 @@ func inClosedSprint(b Board, c Card, team string) bool {
 // sprint; rolling back into the previous sprint's days shows that sprint's cards.
 // A card whose team had no active sprint on the day, or that is deferred to the
 // future, never shows. It mirrors myCards in MeBoard.tsx.
-func MeView(b Board, user, day string) []Card {
+func MeView(b Board, user, day string) []Card { return MeViewIn(b, NewIndex(b), user, day) }
+
+// MeViewIn is MeView over an index built once for a listing.
+func MeViewIn(b Board, ix *Index, user, day string) []Card {
 	today := TodayIso()
 	out := []Card{}
-	planning := PlanningIDs(b)
-	// A task reads its EFFECTIVE team's sprint (O13).
-	teams := PlacedTeams(b)
+	planning := ix.planning
 	for _, c := range b.Cards {
 		// A planning card is the Roadmap's, not a person's day (H3).
 		if IsPlanning(c) {
@@ -264,7 +267,8 @@ func MeView(b Board, user, day string) []Card {
 			out = append(out, c)
 			continue
 		}
-		as := ActiveSprint(b, teams[c.ItemID], day)
+		// A task reads its EFFECTIVE team's sprint (O13).
+		as := ActiveSprint(b, ix.PlacedTeam(c), day)
 		// A sprint-less day card (a "next sprint" create) stays visible from its
 		// scheduled day on — the sprint gate below would otherwise hide it right
 		// when its day arrives, until a carry-over adopts it into a sprint. Only
