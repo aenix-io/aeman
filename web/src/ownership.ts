@@ -5,7 +5,7 @@
 // and falls back to the server's where the ancestors are not on the board.
 import type { Card } from "./providers/types";
 
-type Held = readonly Pick<Card, "itemId" | "title" | "parent" | "team" | "customers" | "reviewOf">[];
+type Held = readonly Pick<Card, "itemId" | "title" | "parent" | "team" | "customers" | "reviewOf" | "effectiveTeam" | "scope" | "type">[];
 
 function ancestorsOf(c: Pick<Card, "itemId" | "parent">, cards: Held): Held[number][] | null {
   const byId = new Map(cards.map((x) => [x.itemId, x]));
@@ -28,12 +28,17 @@ function ancestorsOf(c: Pick<Card, "itemId" | "parent">, cards: Held): Held[numb
 
 /** effectiveTeamOf is the team a card counts under (O3): its own, else the
  *  nearest ancestor's that has one. A project card has none (H4). */
-export function effectiveTeamOf(c: Card, cards: Held): string {
+export function effectiveTeamOf(c: Held[number], cards: Held): string {
   if (c.scope) {
     return "";
   }
   if (c.team) {
     return c.team;
+  }
+  // A review card counts under its task's (O13).
+  if (c.reviewOf) {
+    const task = cards.find((x) => x.itemId === c.reviewOf);
+    return task && !task.reviewOf ? effectiveTeamOf(task, cards) : (c.effectiveTeam ?? "");
   }
   const up = ancestorsOf(c, cards);
   if (!up) {
@@ -45,6 +50,16 @@ export function effectiveTeamOf(c: Card, cards: Held): string {
     }
   }
   return "";
+}
+
+/** placedTeamOf is the team a card STANDS UNDER on the day boards and
+ *  backlogs (O13): its effective team — a plan item keeping its own — the
+ *  server's board.PlacedTeam mirrored for what a board holds. */
+export function placedTeamOf(c: Held[number], cards: Held): string {
+  if (c.type) {
+    return c.team ?? "";
+  }
+  return effectiveTeamOf(c, cards);
 }
 
 /** inheritedTeamOf is the team a card takes from an ancestor, and which one

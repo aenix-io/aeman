@@ -25,6 +25,7 @@ import { gapAnchor } from "./insertgap";
 import { isPlanning, isSubtask } from "./subtasks";
 import { isComplete } from "./stages";
 import type { Owner } from "./owner";
+import { placedTeamOf } from "./ownership";
 import type { Card, LineageRef, Provider } from "./providers/types";
 
 /** onBacklog reports whether a card is listed in its team's backlog (K2): a
@@ -74,7 +75,9 @@ export function shownTeams(filter: readonly string[] | null, roster: readonly st
  *  be a rule with nothing to run on. */
 export function backlogList(cards: readonly Card[], teams: readonly string[]): Card[] {
   const shown = new Set(teams);
-  return cards.filter((c) => onBacklog(c) && shown.has(c.team ?? ""));
+  // A backlog holds the tasks STANDING UNDER its team (O13): its own, else
+  // the plan item's above it.
+  return cards.filter((c) => onBacklog(c) && shown.has(placedTeamOf(c, cards)));
 }
 
 /** takeOwner is what TAKE leaves on the card, the server's `take` (K11)
@@ -169,7 +172,7 @@ export interface InsertSpot {
 
 /** insertSpot reads the gap `at` of the list as drawn: 0 is above the
  *  first card, list.length below the last. */
-export function insertSpot(list: readonly Pick<Card, "itemId" | "team">[], at: number, teams: readonly string[]): InsertSpot {
+export function insertSpot(list: readonly Card[], at: number, teams: readonly string[]): InsertSpot {
   const above = at > 0 ? list[at - 1] : undefined;
   const anchor = gapAnchor(
     list.map((c) => c.itemId),
@@ -178,7 +181,9 @@ export function insertSpot(list: readonly Pick<Card, "itemId" | "team">[], at: n
   if (teams.length === 1) {
     return { anchor, box: { forcedTeam: teams[0] || null } };
   }
-  const aboveTeam = above?.team ?? "";
+  // The team the card above STANDS UNDER (O13); the new card is made with
+  // it as its own.
+  const aboveTeam = above ? placedTeamOf(above, list) : "";
   const start = above && teams.includes(aboveTeam) ? aboveTeam : (teams[0] ?? "");
   return {
     anchor,

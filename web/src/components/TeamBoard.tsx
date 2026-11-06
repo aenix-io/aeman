@@ -25,7 +25,7 @@ import { cellGaps, gapAnchor, gapsInZone } from "../insertgap";
 import { insertedOrder, type Anchor } from "../backlogboard";
 import { FilterSelect } from "./FilterSelect";
 import { customerOptions, teamOptions } from "../filteroptions";
-import { bornCustomers, customerPasses } from "../ownership";
+import { bornCustomers, customerPasses, placedTeamOf } from "../ownership";
 import { useKeptCreated } from "../keptcreated";
 import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
@@ -205,8 +205,10 @@ export function TeamBoard({
   // Customer filter by effective customers — the server's rule for the
   // listing and the watch (O11), applied to what the board holds.
   const { kept, keep } = useKeptCreated(customerFilter.join(","));
+  // A card is judged by the team it STANDS UNDER (O13): its own, else the
+  // plan item's above it.
   const passesFilter = (card: CardModel): boolean =>
-    (teamFilter === null || teamFilter.includes(card.team ?? "")) &&
+    (teamFilter === null || teamFilter.includes(placedTeamOf(card, board.cards))) &&
     customerPasses(card, board.cards, customerFilter, kept);
 
   const inFilter = useMemo(
@@ -225,7 +227,7 @@ export function TeamBoard({
           c,
           selectedDate,
           todayIso(),
-          currentSprint(board, c.team ?? null) ?? "",
+          currentSprint(board, placedTeamOf(c, board.cards) || null) ?? "",
         ),
       ),
     [inFilter, selectedDate, board],

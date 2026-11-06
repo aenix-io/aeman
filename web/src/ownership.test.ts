@@ -4,6 +4,7 @@ import {
   customerChips,
   bornCustomers,
   customerPasses,
+  placedTeamOf,
   roadmapOwnerCell,
   effectiveCustomersOf,
   effectiveTeamOf,
@@ -182,5 +183,32 @@ describe("a card typed in under the Customer filter", () => {
     const made = card({ itemId: "new", title: "New" });
     expect(customerPasses(made, [made], ["cu1", "cu2"])).toBe(false);
     expect(customerPasses(made, [made], ["cu1", "cu2"], new Set(["new"]))).toBe(true);
+  });
+});
+
+// O13 — the team a card STANDS UNDER on the day boards and backlogs: its
+// effective team (its own, else the nearest ancestor's; a review card's, its
+// task's; a project card's, none; a plan item's, its own). The server's
+// board.PlacedTeam, mirrored for what a board holds; the server's word where
+// the chain is not on the board.
+describe("the team a card stands under", () => {
+  it("is its own, else the plan item's above it", () => {
+    expect(placedTeamOf(cards[2], cards)).toBe("portal");
+    expect(placedTeamOf(cards[3], cards)).toBe("cozystack");
+  });
+
+  it("is a review card's task's when it has none of its own", () => {
+    const review = card({ itemId: "rv", reviewOf: "t" });
+    expect(placedTeamOf(review, [...cards, review])).toBe("portal");
+  });
+
+  it("is none for a project card, and a plan item's own", () => {
+    expect(placedTeamOf(card({ itemId: "s", scope: "S", project: "P", team: "ops" }), cards)).toBe("");
+    expect(placedTeamOf(cards[1], cards)).toBe("");
+  });
+
+  it("is the server's when the chain is not held", () => {
+    expect(placedTeamOf(card({ itemId: "x", parent: "gone", effectiveTeam: "ops" }), cards)).toBe("ops");
+    expect(placedTeamOf(card({ itemId: "rx", reviewOf: "gone", effectiveTeam: "ops" }), cards)).toBe("ops");
   });
 });

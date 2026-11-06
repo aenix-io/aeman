@@ -294,8 +294,8 @@ export function MeBoard({
   const filtering = (teamFilter?.length ?? 0) > 0;
   const { kept, keep } = useKeptCreated((teamFilter ?? []).join(","));
   const filterPasses = useCallback(
-    (c: CardModel) => kept.has(c.itemId) || meFilterPasses(c, teamFilter),
-    [teamFilter, kept],
+    (c: CardModel) => kept.has(c.itemId) || meFilterPasses(c, board.cards, teamFilter),
+    [board.cards, teamFilter, kept],
   );
   const myCards = useMemo(() => dayCards.filter(filterPasses), [dayCards, filterPasses]);
 
