@@ -25,7 +25,8 @@ import { nearestPlanning, openPlanning } from "../backlogboard";
 import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
 import { isSubtask } from "../subtasks";
-import { TeamChips } from "./TeamChips";
+import { FilterSelect } from "./FilterSelect";
+import { projectOptions } from "../filteroptions";
 import { ZoomControl } from "./ZoomControl";
 import {
   type Laned,
@@ -1000,17 +1001,14 @@ export function ProjectBoard({
       {/* The same toolbar row the other boards wear — the chips are a shared
           control and must not look like a stray line of text here. */}
       <div className="board-toolbar">
-        <TeamChips
+        <FilterSelect
           label="Project"
-          entity="project"
-          teams={board.projects}
-          selectedKeys={filter}
-          onSelect={selectFilter}
-          onAdd={() => undefined}
-          onRemove={() => undefined}
-          canManage={false}
-          onManage={onManageProjects}
-          noneChip={looseScopes ? "No project" : undefined}
+          anyLabel="all"
+          options={projectOptions(board.projects, !!looseScopes)}
+          selected={filter ?? []}
+          onChange={(next) => selectFilter(next.length ? next : null)}
+          manage={{ label: "Manage projects", onClick: onManageProjects }}
+          title="Show only these projects' columns"
         />
         {!empty && (
           <ZoomControl zoom={zoom} onChange={grid.setZoom} />
