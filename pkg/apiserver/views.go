@@ -198,56 +198,107 @@ func roadmapCards(b board.Board, ix *board.Index, projectCards bool) []board.Car
 }
 
 // roadmapNarrowed applies the Roadmap's team, customer and owner filters
-// (O7, O8) to its listing. A task matches by its effective team and
-// customers — and never by an owner, which only a planning card has; a
-// planning card matches by its own owner and its effective team and
-// customers, or because any task under it matches. Every match is listed
-// with its ancestors, so it is clear where it sits. With no filter the
+// (O7, O8) to its listing, each judged on its own and AND across them:
+//
+//   - a PLANNING card passes team (customer) when its own effective team
+//     (customers) or any task's under it does, and owner by its OWN owner;
+//   - a TASK passes team and customer by its effective values — no task has
+//     an owner, so under an owner filter a task is listed when it passes the
+//     other two and sits under a planning card that passed;
+//
+// and every card listed comes with its ancestors. With no filter the
 // listing is as it was.
 func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.Card {
 	teams, customers, owners := setOf(sel.Team), setOf(sel.Customer), setOf(sel.Owner)
 	if teams == nil && customers == nil && owners == nil {
 		return cards
 	}
-	self := func(c board.Card) bool {
-		if teams != nil && !teams[ix.EffectiveTeam(c)] {
-			return false
+	teamOK := func(c board.Card) bool { return teams == nil || teams[ix.EffectiveTeam(c)] }
+	customerOK := func(c board.Card) bool {
+		if customers == nil {
+			return true
 		}
-		if customers != nil {
-			hit := false
-			for _, id := range ix.EffectiveCustomers(c) {
-				hit = hit || customers[id]
-			}
-			if !hit {
-				return false
+		for _, id := range ix.EffectiveCustomers(c) {
+			if customers[id] {
+				return true
 			}
 		}
-		if owners != nil && (!board.IsPlanning(c) || !owners[c.Owner]) {
-			return false
-		}
-		return true
+		return false
 	}
 	listed := map[string]bool{}
 	for _, c := range cards {
 		listed[c.ItemID] = true
 	}
-	keep := map[string]bool{}
-	for _, c := range cards {
-		if board.IsPlanning(c) || !self(c) {
-			continue
+	// The tasks under each planning card, through every level, as listed.
+	tasksUnder := func(p board.Card) []board.Card {
+		var out []board.Card
+		seen := map[string]bool{p.ItemID: true}
+		for frontier := []string{p.ItemID}; len(frontier) > 0; {
+			var next []string
+			for _, id := range frontier {
+				for _, c := range ix.ChildrenOf(id) {
+					if seen[c.ItemID] || !listed[c.ItemID] {
+						continue
+					}
+					seen[c.ItemID] = true
+					next = append(next, c.ItemID)
+					if !board.IsPlanning(c) {
+						out = append(out, c)
+					}
+				}
+			}
+			frontier = next
 		}
+		return out
+	}
+	planPasses := func(p board.Card) bool {
+		if owners != nil && !owners[p.Owner] {
+			return false
+		}
+		under := tasksUnder(p)
+		anyUnder := func(ok func(board.Card) bool) bool {
+			for _, t := range under {
+				if ok(t) {
+					return true
+				}
+			}
+			return false
+		}
+		return (teamOK(p) || anyUnder(teamOK)) && (customerOK(p) || anyUnder(customerOK))
+	}
+	passedPlans := map[string]bool{}
+	for _, c := range cards {
+		if board.IsPlanning(c) && planPasses(c) {
+			passedPlans[c.ItemID] = true
+		}
+	}
+	keep := map[string]bool{}
+	include := func(c board.Card) {
 		keep[c.ItemID] = true
 		for _, a := range ix.Lineage(c) {
 			keep[a.ItemID] = true
 		}
 	}
 	for _, c := range cards {
-		if board.IsPlanning(c) && self(c) {
-			keep[c.ItemID] = true
+		if board.IsPlanning(c) {
+			if passedPlans[c.ItemID] {
+				include(c)
+			}
+			continue
+		}
+		if !teamOK(c) || !customerOK(c) {
+			continue
+		}
+		if owners != nil {
+			under := false
 			for _, a := range ix.Lineage(c) {
-				keep[a.ItemID] = true
+				under = under || passedPlans[a.ItemID]
+			}
+			if !under {
+				continue
 			}
 		}
+		include(c)
 	}
 	var out []board.Card
 	for _, c := range cards {
