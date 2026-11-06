@@ -4550,6 +4550,14 @@ button.card-age {
   overflow: visible;
 }
 
+/* The picker fills the cell: shrink-wrapped, it measured the trigger
+   without the trigger's -6px pull and cut every name 6px short however wide
+   the column was. Filling the cell, a name is cut only when the column is
+   narrower than it. */
+.roadmap-cell-owner .owner-picker {
+  display: flex;
+}
+
 .owner-picker {
   display: inline-flex;
   max-width: 100%;
