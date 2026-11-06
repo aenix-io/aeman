@@ -1576,9 +1576,8 @@ export function App() {
             teams={roster}
             teamFilter={teamFilter}
             onSetFilter={setTeamFilter}
-            onAddTeam={addTeam}
-            onRemoveTeam={removeTeam}
-            onRenameTeam={renameTeam}
+            customerFilter={customerFilter}
+            onSetCustomerFilter={setCustomerFilter}
             patchCard={patchCard}
             addCard={addCard}
             replaceCard={replaceCard}

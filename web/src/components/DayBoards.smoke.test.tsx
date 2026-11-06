@@ -252,3 +252,52 @@ describe("the Team board's filters", () => {
     expect(draw(cards)).toContain("For nobody");
   });
 });
+
+// O11 — the Me board's Team and Customer filters are the boards' one
+// dropdown, with no Manage entry: the Me board manages no roster. They hide
+// the viewer's cards of other teams or customers, and a yellow button right
+// of them says how many of the day's cards they hide; pressing it clears
+// them. The eye toggle that used to decide whether the team chips hid
+// anything is gone: a chosen team hides, and the button says so.
+describe("the Me board's filters", () => {
+  const draw = (cards: Card[], extra: Record<string, unknown> = {}) =>
+    renderToStaticMarkup(
+      <MeBoard
+        {...common}
+        board={{ ...board(cards), teams: ["alpha", "beta"], customers: [{ id: "cu1", name: "Hidora" }] } as Board}
+        viewAs={null}
+        onViewAs={vi.fn()}
+        connectHint=""
+        teams={["alpha", "beta"]}
+        {...extra}
+      />,
+    );
+  const cards = [
+    card({ itemId: "a", title: "Alpha work", zone: "gray" }),
+    card({ itemId: "b", title: "Beta work", zone: "gray", team: "beta" }),
+    card({ itemId: "c", title: "More beta work", zone: "gray", team: "beta" }),
+  ];
+
+  it("are the Team and Customer dropdowns, with no chips, no eye and no Manage", () => {
+    const html = draw(cards);
+    expect(html).not.toContain("team-filter-chip");
+    expect(html).toMatch(/aria-label="Team filter"[^>]*>Team: all</);
+    expect(html).toMatch(/aria-label="Customer filter"[^>]*>Customer: anyone</);
+    expect(html).not.toContain("Show only the selected teams");
+    expect(html).not.toContain("filter-hidden-btn");
+  });
+
+  it("hide what they leave out, and say how many of the day's cards that is", () => {
+    const html = draw(cards, { teamFilter: ["alpha"] });
+    expect(html).toContain("Alpha work");
+    expect(html).not.toContain("Beta work");
+    expect(html).toMatch(/<button[^>]*class="btn filter-hidden-btn"[^>]*>2 more tasks<\/button>/);
+  });
+
+  it("count a customer filter too", () => {
+    const withCustomer = [card({ itemId: "h", title: "For Hidora", zone: "gray", customers: ["cu1"], effectiveCustomers: ["cu1"] }), ...cards];
+    const html = draw(withCustomer, { customerFilter: ["cu1"] });
+    expect(html).toContain("For Hidora");
+    expect(html).toMatch(/>3 more tasks</);
+  });
+});

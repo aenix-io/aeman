@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { onMyDay } from "./meview";
+import { hiddenByFilters, meFilterPasses, moreTasksLabel, onMyDay } from "./meview";
 import type { Board, Card } from "./providers/types";
 
 const card = (over: Partial<Card>): Card =>
@@ -106,5 +106,37 @@ describe("a project card is on nobody's Me board", () => {
 
   it("leaves a card that merely names a project as an ordinary task", () => {
     expect(onMyDay(card({ project: "P", startDate: TODAY, day: TODAY }), board, TODAY, TODAY)).toBe(true);
+  });
+});
+
+// The Me board's Team and Customer filters (O11) hide the viewer's own cards
+// of other teams or other customers — and say how many they hide: the "N
+// more tasks" button, counted over exactly what the board would draw on the
+// day with no filter, which clears them.
+describe("the Me board's filters", () => {
+  const cards = [
+    card({ itemId: "a", team: "alpha", effectiveCustomers: ["cu1"], customers: ["cu1"] }),
+    card({ itemId: "b", team: "beta" }),
+    card({ itemId: "n", team: "" }),
+  ];
+
+  it("pass everything while nothing is chosen", () => {
+    expect(cards.every((c) => meFilterPasses(c, cards, null, []))).toBe(true);
+  });
+
+  it("keep the chosen teams, the no-team group being a team", () => {
+    expect(cards.filter((c) => meFilterPasses(c, cards, ["alpha", ""], [])).map((c) => c.itemId)).toEqual(["a", "n"]);
+  });
+
+  it("keep the chosen customers, by effective customers, AND the teams", () => {
+    expect(cards.filter((c) => meFilterPasses(c, cards, null, ["cu1"])).map((c) => c.itemId)).toEqual(["a"]);
+    expect(cards.filter((c) => meFilterPasses(c, cards, ["beta"], ["cu1"])).map((c) => c.itemId)).toEqual([]);
+  });
+
+  it("count what they hide of what the day would draw", () => {
+    expect(hiddenByFilters(cards, (c) => meFilterPasses(c, cards, ["alpha"], []))).toBe(2);
+    expect(hiddenByFilters(cards, () => true)).toBe(0);
+    expect(moreTasksLabel(1)).toBe("1 more task");
+    expect(moreTasksLabel(3)).toBe("3 more tasks");
   });
 });

@@ -7,6 +7,7 @@ import { parked } from "./backlog";
 import { activeSprint } from "./sprint";
 import { isComplete } from "./stages";
 import { isPlanning, isSubtask } from "./subtasks";
+import { customerPasses } from "./ownership";
 import type { Board, Card } from "./providers/types";
 
 /** onMyDay reports whether a card of the viewer's is on their board on a day.
@@ -79,4 +80,31 @@ export function onMyDay(
   // started in up to the sprint it now belongs to — so a carried-over card
   // still appears on the previous sprint's days it came from.
   return as !== "" && ss !== undefined && as <= ss && (!c.startDate || c.startDate <= day);
+}
+
+/** meFilterPasses is the Me board's Team and Customer filters on one of the
+ *  viewer's cards (O11): its team is among the chosen ones (the no-team
+ *  group being ""), with none chosen passing every team, AND one of its
+ *  effective customers is chosen, with none chosen passing every card. */
+export function meFilterPasses(
+  c: Card,
+  cards: readonly Card[],
+  teams: readonly string[] | null,
+  customers: readonly string[],
+): boolean {
+  if (teams && teams.length > 0 && !teams.includes(c.team ?? "")) {
+    return false;
+  }
+  return customerPasses(c, cards, customers);
+}
+
+/** hiddenByFilters is how many of the cards the board would draw on the
+ *  day with no filter the filters hide — the "N more tasks" button. */
+export function hiddenByFilters(drawn: readonly Card[], passes: (c: Card) => boolean): number {
+  return drawn.filter((c) => !passes(c)).length;
+}
+
+/** moreTasksLabel is the button's words. */
+export function moreTasksLabel(n: number): string {
+  return `${n} more ${n === 1 ? "task" : "tasks"}`;
 }
