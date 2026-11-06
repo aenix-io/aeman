@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
+import { closesOn } from "./Dropdown";
 import { FilterSelect, FilterSelectMenu, filterLabel, toggled } from "./FilterSelect";
 
 // THE ONE FILTER DROPDOWN every board's toolbar wears (Team, Customer,
@@ -42,8 +45,11 @@ describe("the filter dropdown", () => {
         onClose={vi.fn()}
       />,
     );
-    expect(html.match(/type="checkbox"/g)?.length).toBe(2);
-    expect(html).toMatch(/checked=""[^>]*\/>portal|portal/);
+    // A menu of checkable items, as the button's aria-haspopup="menu" says.
+    expect(html.match(/role="menuitemcheckbox"/g)?.length).toBe(2);
+    expect(html).toMatch(/role="menuitemcheckbox" aria-checked="true"[^>]*>.*portal/);
+    expect(html).toMatch(/role="menuitemcheckbox" aria-checked="false"[^>]*>.*No team/);
+    expect(html).toMatch(/<button[^>]*role="menuitem"[^>]*>Manage teams</);
     expect(html).toContain("No team");
     expect(html.indexOf("Manage teams")).toBeGreaterThan(html.indexOf("No team"));
     expect(html).toMatch(/<button[^>]*>All<\/button>/);
@@ -55,5 +61,29 @@ describe("the filter dropdown", () => {
     );
     expect(html).not.toContain("Manage");
     expect(html).not.toContain("card-stage-clear");
+  });
+});
+
+// Escape closes an open menu and gives the focus back to what opened it.
+describe("a dropdown and the keyboard", () => {
+  it("closes on Escape and on nothing else", () => {
+    expect(closesOn("Escape")).toBe(true);
+    expect(closesOn("Enter")).toBe(false);
+  });
+});
+
+// On a narrow screen a long choice is cut with an ellipsis, the button's
+// title naming it in full, and the toolbar wraps instead of scrolling.
+describe("the filter dropdown on a narrow screen", () => {
+  it("cuts a long choice and names it in the title", () => {
+    const opts = ["portal", "cozystack", "ops"].map((t) => ({ value: t, label: t }));
+    const html = renderToStaticMarkup(<FilterSelect label="Team" options={opts} selected={["portal", "cozystack", "ops"]} onChange={vi.fn()} />);
+    expect(html).toMatch(/title="Team: portal, cozystack, ops"/);
+    const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
+    const btn = css.match(/\.filter-select-btn \{[^}]*\}/)?.[0] ?? "";
+    expect(btn).toMatch(/max-width:/);
+    expect(btn).toMatch(/text-overflow: ellipsis/);
+    const bar = css.match(/\.board-toolbar \{[^}]*\}/)?.[0] ?? "";
+    expect(bar).toMatch(/flex-wrap: wrap/);
   });
 });

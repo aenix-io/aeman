@@ -16,7 +16,15 @@ interface DropdownProps {
   anchorRef: RefObject<HTMLElement | null>;
   onClose: () => void;
   className?: string;
+  /** The menu's role, matching the trigger's aria-haspopup. */
+  role?: string;
   children: ReactNode;
+}
+
+/** closesOn reports whether a key pressed while a menu is open dismisses
+ *  it: Escape, which also gives the focus back to the trigger. */
+export function closesOn(key: string): boolean {
+  return key === "Escape";
 }
 
 /**
@@ -24,7 +32,7 @@ interface DropdownProps {
  * scrolling/overflow ancestor. It positions the menu under the anchor and
  * flips it above when it would overflow the bottom of the viewport.
  */
-export function Dropdown({ open, anchorRef, onClose, className, children }: DropdownProps) {
+export function Dropdown({ open, anchorRef, onClose, className, role, children }: DropdownProps) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [style, setStyle] = useState<CSSProperties>({
     position: "fixed",
@@ -98,13 +106,27 @@ export function Dropdown({ open, anchorRef, onClose, className, children }: Drop
       }
       onClose();
     };
+    // Escape dismisses, and the focus goes back to the trigger — the menu
+    // lives in a portal, so leaving it there would drop the focus on <body>.
+    const onKey = (e: KeyboardEvent) => {
+      if (!closesOn(e.key)) {
+        return;
+      }
+      e.stopPropagation();
+      onClose();
+      const anchor = anchorRef.current;
+      const trigger = anchor?.matches("button, [tabindex]") ? anchor : anchor?.querySelector<HTMLElement>("button, [tabindex]");
+      trigger?.focus();
+    };
     window.addEventListener("scroll", reposition, true);
     window.addEventListener("resize", reposition);
     document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("scroll", reposition, true);
       window.removeEventListener("resize", reposition);
       document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("keydown", onKey, true);
     };
   }, [open, place, onClose, anchorRef]);
 
@@ -112,7 +134,7 @@ export function Dropdown({ open, anchorRef, onClose, className, children }: Drop
     return null;
   }
   return createPortal(
-    <div ref={menuRef} className={className} style={style}>
+    <div ref={menuRef} className={className} style={style} role={role}>
       {children}
     </div>,
     document.body,

@@ -39,20 +39,33 @@ export function FilterSelectMenu({
   return (
     <>
       {options.length === 0 && <span className="card-stage-item project-menu-hint">Nothing to choose yet</span>}
-      {options.map((o) => (
-        <label key={o.value} className={`card-stage-item filter-select-item${o.value === "" ? " filter-select-none" : ""}`}>
-          <input type="checkbox" checked={selected.includes(o.value)} onChange={() => onChange(toggled(selected, o.value))} />
-          {o.label}
-        </label>
-      ))}
+      {options.map((o) => {
+        const on = selected.includes(o.value);
+        return (
+          <button
+            type="button"
+            key={o.value}
+            role="menuitemcheckbox"
+            aria-checked={on}
+            className={`card-stage-item filter-select-item${o.value === "" ? " filter-select-none" : ""}`}
+            onClick={() => onChange(toggled(selected, o.value))}
+          >
+            <span className={`filter-select-check${on ? " filter-select-check-on" : ""}`} aria-hidden="true">
+              {on ? "✓" : ""}
+            </span>
+            {o.label}
+          </button>
+        );
+      })}
       {selected.length > 0 && (
-        <button type="button" className="card-stage-item card-stage-clear" onClick={() => onChange([])}>
+        <button type="button" role="menuitem" className="card-stage-item card-stage-clear" onClick={() => onChange([])}>
           {anyLabel.charAt(0).toUpperCase() + anyLabel.slice(1)}
         </button>
       )}
       {manage && (
         <button
           type="button"
+          role="menuitem"
           className="card-stage-item filter-select-manage"
           onClick={() => {
             onClose();
@@ -99,12 +112,13 @@ export function FilterSelect({
         aria-label={`${label} filter`}
         aria-haspopup="menu"
         aria-expanded={open}
-        title={title ?? `Show only what these ${label.toLowerCase()}s answer for or carry`}
+        // What is chosen, in full, once something is — the button may cut it.
+        title={selected.length ? filterLabel(label, options, selected, anyLabel) : (title ?? `Show only what these ${label.toLowerCase()}s answer for or carry`)}
         onClick={() => setOpen((o) => !o)}
       >
         {filterLabel(label, options, selected, anyLabel)}
       </button>
-      <Dropdown open={open} anchorRef={anchor} onClose={() => setOpen(false)} className="card-stage-menu filter-select-menu">
+      <Dropdown open={open} anchorRef={anchor} onClose={() => setOpen(false)} className="card-stage-menu filter-select-menu" role="menu">
         <FilterSelectMenu
           options={options}
           selected={selected}

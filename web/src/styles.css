@@ -670,6 +670,10 @@ select {
 .board-toolbar {
   display: flex;
   align-items: center;
+  /* The filters wrap onto a second line on a narrow screen rather than
+     scroll the toolbar sideways. */
+  flex-wrap: wrap;
+  row-gap: 6px;
   gap: 12px;
   padding: 6px 14px;
   border-bottom: 1px solid var(--line-soft);
@@ -6108,6 +6112,17 @@ button.card-age {
 .filter-select-btn {
   font-size: 12px;
   white-space: nowrap;
+  /* A long choice ("Team: portal, cozystack, ops…") is cut, never widens
+     the toolbar; the button's title names it in full. */
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 640px) {
+  .filter-select-btn {
+    max-width: 150px;
+  }
 }
 
 .filter-select-on {
@@ -6120,6 +6135,25 @@ button.card-age {
   align-items: center;
   gap: 6px;
   cursor: pointer;
+}
+
+.filter-select-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 1;
+  flex: none;
+}
+
+.filter-select-check-on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
 }
 
 .filter-select-none {
