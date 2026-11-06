@@ -38,17 +38,26 @@ export interface OwnerStep {
   refused?: string;
 }
 
-export function ownerStep(team: string, pick: OwnerPick): OwnerStep {
+/** planOwnerOf reads a PLANNING card's owner: its team (the team that
+ *  carries it out) and its owner (the one person who answers for it). */
+export function planOwnerOf(c: Pick<Card, "team" | "owner" | "assignees">): Owner {
+  return { team: c.team ?? "", person: c.owner ?? "" };
+}
+
+/** ownerStep reads one press. On a PLANNING card ({planning: true}) a person
+ *  needs no team: they answer for the plan item, they do not do it
+ *  (ownership.md, O9). */
+export function ownerStep(team: string, pick: OwnerPick, opts: { planning?: boolean } = {}): OwnerStep {
   switch (pick.kind) {
     case "team":
       return { team: pick.team, answer: null };
     case "person":
-      if (!team) {
+      if (!team && !opts.planning) {
         return { team, answer: null, refused: "Pick a team first: a person is somebody on a team." };
       }
       return { team, answer: { team, person: pick.person } };
     case "no-person":
-      if (!team) {
+      if (!team && !opts.planning) {
         return { team, answer: null, refused: "Pick a team first." };
       }
       return { team, answer: { team, person: "" } };

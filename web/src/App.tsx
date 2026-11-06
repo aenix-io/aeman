@@ -14,6 +14,7 @@ import { followFrame, followPatch } from "./detail";
 import { applyOrder, type OrderArg } from "./cardorder";
 import { presenceAfter, type PresenceMap } from "./presence";
 import { PROJECT_CARDS_KEY, storedProjectCards } from "./roadmap";
+import { ROADMAP_FILTERS_KEY, storedRoadmapFilters, type RoadmapFilters } from "./ownership";
 import { TeamsModal } from "./components/TeamsModal";
 import { readProjectFilter, writeProjectFilter } from "./projectFilter";
 import {
@@ -355,6 +356,23 @@ export function App() {
       return storedProjectCards(null);
     }
   });
+  // The Roadmap's Team, Customer and Owner filters (ownership.md, O7, O8):
+  // the listing's selectors, like the toggle above; remembered per viewer.
+  const [roadmapFilters, setRoadmapFiltersState] = useState<RoadmapFilters>(() => {
+    try {
+      return storedRoadmapFilters(localStorage.getItem(ROADMAP_FILTERS_KEY));
+    } catch {
+      return storedRoadmapFilters(null);
+    }
+  });
+  const setRoadmapFilters = useCallback((next: RoadmapFilters) => {
+    setRoadmapFiltersState(next);
+    try {
+      localStorage.setItem(ROADMAP_FILTERS_KEY, JSON.stringify(next));
+    } catch {
+      // a preference, not state
+    }
+  }, []);
   const setProjectCards = useCallback((next: boolean) => {
     setProjectCardsState(next);
     try {
@@ -671,9 +689,9 @@ export function App() {
         teamFilter ?? [...new Set([...roster, ""])],
         viewAs ?? undefined,
         undefined,
-        { projectCards },
+        { projectCards, filters: roadmapFilters },
       ),
-    [view, selectedDate, teamFilter, roster, viewAs, projectCards],
+    [view, selectedDate, teamFilter, roster, viewAs, projectCards, roadmapFilters],
   );
   const activeKey = activeQueries.map(queryString).join("|");
   // Which BOARD the reader is standing on, for the gestures made on it: the ×,
@@ -715,9 +733,9 @@ export function App() {
         selectedDate,
         teamFilter ?? [...new Set([...roster, ""])],
         viewAs ?? undefined,
-        { projectCards },
+        { projectCards, filters: roadmapFilters },
       ).map(queryString),
-    [view, selectedDate, teamFilter, roster, viewAs, projectCards],
+    [view, selectedDate, teamFilter, roster, viewAs, projectCards, roadmapFilters],
   );
   // One string for the watch effect's dep: the sockets are rebuilt only when
   // the selections actually change.
@@ -1605,6 +1623,8 @@ export function App() {
             onFocused={() => setRoadmapFocus(null)}
             showProjects={projectCards}
             onShowProjects={setProjectCards}
+            filters={roadmapFilters}
+            onFilters={setRoadmapFilters}
           />
         )}
         {board && view === "backlog" && (
@@ -1689,6 +1709,13 @@ export function App() {
           onOpenCard={openWithin}
           onBack={detailStack.length > 0 ? backInDetail : undefined}
           onError={onError}
+          onCustomerAdded={(cu) =>
+            setBoard((cur) =>
+              cur && !(cur.customers ?? []).some((c) => c.id === cu.id)
+                ? { ...cur, customers: [...(cur.customers ?? []), cu] }
+                : cur,
+            )
+          }
         />
       )}
 

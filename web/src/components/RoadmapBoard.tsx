@@ -55,8 +55,11 @@ import {
 } from "../roadmap";
 import { barColor } from "../stages";
 import { ViewToggle } from "./ViewToggle";
+import { FilterSelect } from "./FilterSelect";
+import { CustomersModal } from "./CustomersModal";
+import type { RoadmapFilters } from "../ownership";
 import { isPlanning } from "../subtasks";
-import { ownerLabel, ownerOf, type Owner } from "../owner";
+import { ownerLabel, ownerOf, planOwnerOf, type Owner } from "../owner";
 import { displayName, type Avatars, type Names } from "../users";
 import { AddCard } from "./AddCard";
 import { KindIcon } from "./KindIcon";
@@ -96,6 +99,10 @@ interface RoadmapBoardProps {
    *  and remembered by the app, which refetches and re-subscribes on it. */
   showProjects: boolean;
   onShowProjects: (next: boolean) => void;
+  /** The Team, Customer and Owner filters (ownership.md, O7, O8): the
+   *  listing's selectors, held and remembered by the app. */
+  filters: RoadmapFilters;
+  onFilters: (next: RoadmapFilters) => void;
 }
 
 const LS_DEPTH = "aeman.roadmap.depth";
@@ -376,12 +383,15 @@ export function RoadmapBoard({
   onFocused,
   showProjects,
   onShowProjects,
+  filters,
+  onFilters,
 }: RoadmapBoardProps) {
   const today = todayIso();
   const [depth, setDepthState] = useState<DepthRange>(readDepth);
   const [zoom, setZoomState] = useState<Zoom>(readZoom);
   const [folded, setFoldedState] = useState<Set<string>>(readFolded);
   const [whoFilter, setWhoFilter] = useState<string | null>(null);
+  const [managingCustomers, setManagingCustomers] = useState(false);
   // The planning row the + was pressed on, whose create form is open.
   const [addingUnder, setAddingUnder] = useState<string | null>(null);
   const [focusRow, setFocusRow] = useState<string | null>(null);
@@ -433,6 +443,21 @@ export function RoadmapBoard({
     }
     return [...out].sort();
   }, [board.cards]);
+
+  // Whom the Owner filter offers: the board's people and every plan item's
+  // owner, so one somebody owns is always choosable.
+  const owners = useMemo(() => {
+    const out = new Set<string>(board.members.map((m) => m.login));
+    for (const c of board.cards) {
+      if (c.owner) {
+        out.add(c.owner);
+      }
+    }
+    for (const o of filters.owners) {
+      out.add(o);
+    }
+    return [...out].sort();
+  }, [board.members, board.cards, filters.owners]);
 
   // A filter keeps the cards that match and every card ABOVE one (the
   // lineage names them), so a matching task still stands under its epic
@@ -679,7 +704,42 @@ export function RoadmapBoard({
         onError(errText(err));
       });
   };
+  // A plan item's team and owner (ownership.md, O1, O9): the same gesture,
+  // where a person needs no team and nothing reaches a day board.
+  const ownPlan = (card: CardModel, next: Owner) => {
+    const current = planOwnerOf(card);
+    if (current.team === next.team && current.person === next.person) {
+      return;
+    }
+    const before: Partial<CardModel> = { team: card.team, owner: card.owner };
+    patchCard(card.itemId, { team: next.team || undefined, owner: next.person || undefined });
+    void provider
+      .ownCard(card.itemId, next.team, next.person)
+      .then((updated) => patchCard(card.itemId, { team: updated.team, owner: updated.owner }))
+      .catch((err: unknown) => {
+        patchCard(card.itemId, before);
+        onError(errText(err));
+      });
+  };
   const ownerCell = (card: CardModel, kind: RoadmapKind) => {
+    if (kind === "goal" || kind === "initiative" || kind === "epic") {
+      const owner = planOwnerOf(card);
+      return (
+        <OwnerPicker
+          planning
+          current={owner}
+          teams={roster}
+          people={members}
+          cards={board.cards}
+          avatars={avatars}
+          names={names}
+          onPick={(o) => ownPlan(card, o)}
+          title={`Who carries «${card.title}» out, and who answers for it`}
+        >
+          <OwnerCell owner={owner} avatars={avatars} names={names} />
+        </OwnerPicker>
+      );
+    }
     if (kind !== "task" && kind !== "subtask") {
       return null;
     }
@@ -833,6 +893,29 @@ export function RoadmapBoard({
         <span className="roadmap-range" title="The window the timeline shows">
           {shortDate(range.from, today)} – {shortDate(range.to, today)}
         </span>
+        {/* What the plan is for, who carries it out, who answers for it
+            (ownership.md, O7, O8): the server's filters, remembered. */}
+        <FilterSelect
+          label="Team"
+          options={roster.map((t) => ({ value: t, label: t }))}
+          selected={filters.teams}
+          onChange={(teams) => onFilters({ ...filters, teams })}
+        />
+        <FilterSelect
+          label="Customer"
+          options={(board.customers ?? []).map((c) => ({ value: c.id, label: c.name }))}
+          selected={filters.customers}
+          onChange={(customers) => onFilters({ ...filters, customers })}
+        />
+        <FilterSelect
+          label="Owner"
+          options={owners.map((p) => ({ value: p, label: p }))}
+          selected={filters.owners}
+          onChange={(owners) => onFilters({ ...filters, owners })}
+        />
+        <button type="button" className="btn roadmap-customers-btn" title="Manage the customers" onClick={() => setManagingCustomers(true)}>
+          Customers
+        </button>
         {people.length > 0 && (
           <select
             className="roadmap-who"
@@ -984,6 +1067,15 @@ export function RoadmapBoard({
           note={childrenNote(board.cards, removeChoice.itemId)}
           onClose={() => setRemoveChoice(null)}
           onSubmit={(choice) => answerRemoval(removeChoice, choice as HierarchyChoice)}
+        />
+      )}
+      {managingCustomers && (
+        <CustomersModal
+          customers={board.customers ?? []}
+          provider={provider}
+          onChanged={reload}
+          onError={onError}
+          onClose={() => setManagingCustomers(false)}
         />
       )}
     </div>

@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RoadmapBoard } from "./RoadmapBoard";
+import type { RoadmapFilters } from "../ownership";
 import type { Board, Card, Provider } from "../providers/types";
 import { addDays, todayIso } from "../date";
 
@@ -79,10 +80,18 @@ const board = (cards: Card[]): Board =>
 
 const provider = {} as Provider;
 
-function draw(b: Board, focusId: string | null = null, showProjects = false, onShowProjects = vi.fn()) {
+function draw(
+  b: Board,
+  focusId: string | null = null,
+  showProjects = false,
+  onShowProjects = vi.fn(),
+  filters: RoadmapFilters = { teams: [], customers: [], owners: [] },
+) {
   return renderToStaticMarkup(
     <RoadmapBoard
       board={b}
+      filters={filters}
+      onFilters={vi.fn()}
       showProjects={showProjects}
       onShowProjects={onShowProjects}
       provider={provider}
@@ -186,15 +195,17 @@ describe("the Roadmap's two panes", () => {
     expect(html).not.toContain("roadmap-toggle-none");
   });
 
-  it("shows whose a task is in an Owner column, and offers the menu on a task alone", () => {
+  // Every row offers the picker now: a task's whose-is-this, and a plan
+  // item's team and owner (ownership.md, O9) — the initiative and the epic
+  // here, owned by nobody yet.
+  it("shows whose a task is in an Owner column, and a plan item's owner too", () => {
     const html = draw(board([goal, ini, epic, done, open]));
     expect(html).toContain(">Owner<");
     // The done task: core · ann; the open one: the team alone.
     expect(html).toContain('title="core · ann"');
     expect(html).toContain('title="core"');
-    // Two tasks, two pickers; a planning row has an empty owner cell.
-    expect(html.match(/class="owner-picker"/g)?.length).toBe(2);
-    expect(html).toContain('class="roadmap-cell roadmap-cell-owner"></span>');
+    expect(html.match(/class="owner-picker"/g)?.length).toBe(4);
+    expect(html).not.toContain('class="roadmap-cell roadmap-cell-owner"></span>');
   });
 
   it("draws a drag's landing place as the moved rows alone: no outline, no line", () => {
@@ -276,5 +287,33 @@ describe("the Project cards toggle", () => {
 
   it("filters nothing itself: what it was sent, it draws", () => {
     expect(draw(board([ep, task, slot]), null, false)).toContain("Q1 payments slot");
+  });
+});
+
+
+// docs/design/ownership.md on the Roadmap: the Owner column names a plan
+// item's owner (and its team), and the toolbar's Team, Customer and Owner
+// filters — the server's selectors — say what is chosen; the customer
+// roster is managed from the toolbar too.
+describe("ownership on the Roadmap", () => {
+  const owned = card({ itemId: "oe", title: "Billing", type: "epic", team: "core", owner: "ann", lineage: [] });
+
+  it("names a plan item's owner and team in the Owner column", () => {
+    const html = draw(board([owned]));
+    const row = html.slice(html.indexOf(">Billing<"));
+    expect(row).toMatch(/roadmap-cell-owner[^>]*>.*owner-badge/s);
+    expect(row).toContain('title="Team core"');
+  });
+
+  it("offers the three filters and says what is chosen", () => {
+    const b = { ...board([owned]), customers: [{ id: "cu1", name: "Hidora" }] } as unknown as Board;
+    const html = draw(b, null, false, vi.fn(), { teams: ["core"], customers: ["cu1"], owners: [] });
+    expect(html).toMatch(/<button[^>]*aria-label="Team filter"[^>]*>[^<]*Team: core/);
+    expect(html).toMatch(/<button[^>]*aria-label="Customer filter"[^>]*>[^<]*Customer: Hidora/);
+    expect(html).toMatch(/<button[^>]*aria-label="Owner filter"[^>]*>[^<]*Owner: anyone/);
+  });
+
+  it("opens the customer roster from the toolbar", () => {
+    expect(draw(board([owned]))).toMatch(/<button[^>]*title="Manage the customers"/);
   });
 });

@@ -5,7 +5,7 @@
 // form says so before anything is sent.
 
 /** RosterKind names what is being created or renamed, for the message. */
-export type RosterKind = "team" | "project" | "scope";
+export type RosterKind = "team" | "project" | "scope" | "customer";
 
 /** nameConflict is why `name` cannot be used for a new or renamed entry, or
  *  null when it can: another entry already carries it, compared trimmed and
