@@ -52,6 +52,13 @@ func MergeAsOf(live, then Board, past map[string]bool) (Board, map[string]bool) 
 	out.Cards = make([]Card, 0, len(live.Cards))
 	record := make(map[string]bool, len(live.Cards))
 	seen := make(map[string]bool, len(live.Cards))
+	// Which copy a card is drawn from is decided by the team it stands under
+	// TODAY (O13) — the same answer the write guard gives (IsRecord), so a
+	// card is never live on screen and refused, or the other way round. The
+	// copy taken is then drawn as it stood: a record is placed by the
+	// evening's own chain, which is what that day showed even if a plan
+	// item's team has changed since. A card the live board no longer holds
+	// is judged by the evening's copy, the only one there is.
 	liveTeams, thenTeams := PlacedTeams(live), PlacedTeams(then)
 	for _, c := range live.Cards {
 		if past[liveTeams[c.ItemID]] {
