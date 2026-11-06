@@ -499,6 +499,7 @@ func detached(b board.Board) board.Board {
 	b.ProjectStates = maps.Clone(b.ProjectStates)
 	b.Domains = maps.Clone(b.Domains)
 	b.DroppedParents = maps.Clone(b.DroppedParents)
+	b.Customers = slices.Clone(b.Customers)
 	return b
 }
 
@@ -510,6 +511,7 @@ func detachedCards(cards []board.Card) []board.Card {
 	for i := range out {
 		out[i].Assignees = slices.Clone(out[i].Assignees)
 		out[i].Notes = slices.Clone(out[i].Notes)
+		out[i].Customers = slices.Clone(out[i].Customers)
 	}
 	return out
 }

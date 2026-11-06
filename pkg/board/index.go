@@ -82,6 +82,52 @@ func (ix *Index) Lineage(c Card) []Card {
 	return up
 }
 
+// EffectiveTeam is the team a card counts under (O3): its own, else the
+// nearest ancestor's that has one. A task's own team always wins over an
+// inherited one; nothing is written down the tree.
+func (ix *Index) EffectiveTeam(c Card) string {
+	if c.Team != "" {
+		return c.Team
+	}
+	up := ix.Lineage(c)
+	for i := len(up) - 1; i >= 0; i-- {
+		if up[i].Team != "" {
+			return up[i].Team
+		}
+	}
+	return ""
+}
+
+// EffectiveCustomers is the customers a card is for (O4): every ancestor's
+// and its own, the ancestors' first, each once — a lower card adds to them
+// and never overwrites them. A review card is for its task's (O6), and a
+// project card for none (H4).
+func (ix *Index) EffectiveCustomers(c Card) []string {
+	if c.Scope != "" {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	add := func(ids []string) {
+		for _, id := range ids {
+			if id != "" && !seen[id] {
+				seen[id] = true
+				out = append(out, id)
+			}
+		}
+	}
+	if c.ReviewOf != "" {
+		if task, ok := ix.Find(c.ReviewOf); ok && task.ReviewOf == "" {
+			add(ix.EffectiveCustomers(task))
+		}
+	}
+	for _, a := range ix.Lineage(c) {
+		add(a.Customers)
+	}
+	add(c.Customers)
+	return out
+}
+
 // HasPlanningAncestor is board.HasPlanningAncestor.
 func (ix *Index) HasPlanningAncestor(c Card) bool {
 	for _, a := range ix.Lineage(c) {

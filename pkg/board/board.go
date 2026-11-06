@@ -85,9 +85,20 @@ type Card struct {
 	// Assignees are logins; Author is the login that created the card.
 	Assignees []string `json:"assignees"`
 	Author    string   `json:"author,omitempty"`
-	// Team is the card's team label ("" = the no-team group).
-	Team string  `json:"team,omitempty"`
-	Zone ZoneKey `json:"zone,omitempty"`
+	// Team is the card's team label ("" = the no-team group). On a planning
+	// card it is the team that carries the plan item out (O1): it places
+	// nothing — the card lives in the primary (H3) — and the cards below
+	// inherit it as their effective team when they have none (O3).
+	Team string `json:"team,omitempty"`
+	// Owner is the one person who answers for a PLANNING card — breaks it
+	// down, keeps its status honest (O1). Never inherited, and it puts
+	// nothing on any day board (O2); "" on every other card.
+	Owner string `json:"owner,omitempty"`
+	// Customers are the ids of the board's customers (Board.Customers) the
+	// card is for. Any card but a project card may name several; the cards
+	// below add to them (O4).
+	Customers []string `json:"customers,omitempty"`
+	Zone      ZoneKey  `json:"zone,omitempty"`
 	// Size is what somebody said the card weighs — S, M, L or XL — set on a
 	// daily sync or by a sizing tool; "" is unsized. The points a board sums
 	// are derived from it (Points, PointsOf), never stored.
@@ -295,11 +306,32 @@ type Board struct {
 	// (repository) it was declared in; cards carry their own Domain. Nil on
 	// a single-domain board, where nothing records one.
 	Domains map[string]string `json:"domains,omitempty"`
+	// Customers is the board's customer roster in board order (O5): cards
+	// name a customer by its id, so a rename reaches every card at once.
+	Customers []Customer `json:"customers,omitempty"`
 	// DroppedParents names the parents the reading dropped, by the card
 	// that named them: a parent the board does not hold is read as no
 	// parent (NewBoardIn), and a tool that must REPORT such links — the
 	// importer's dangling references, M4 — reads them here.
 	DroppedParents map[string]string `json:"-"`
+}
+
+// Customer is one entry of the board's customer roster: who the work is for.
+type Customer struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Rank string `json:"rank,omitempty"`
+}
+
+// CustomerName is the roster name of a customer id, or "" for one the
+// roster does not hold.
+func (b Board) CustomerName(id string) string {
+	for _, c := range b.Customers {
+		if c.ID == id {
+			return c.Name
+		}
+	}
+	return ""
 }
 
 // NewBoard builds a Board snapshot from the full card list, splitting the hidden sprint-state cards out of Cards into SprintStates (keyed
@@ -433,8 +465,9 @@ func NewBoardIn(primary string, cards []Card) Board {
 // before the rule) is a sprint a carry-over would move for nothing — and a
 // column card whose week was its only date takes that week as its dates
 // before the week goes, or it would have no row on the Project board and
-// stand on no board at all. A planning card is nobody's and no team's
-// besides (H3): the people and the teams are on the tasks under it.
+// stand on no board at all. A planning card is nobody's work besides (H3):
+// the people are on the tasks under it, and its owner and team (O1) answer
+// for the plan item without putting it on any day board.
 //
 // And no card but a deadline stub has a week (K7): the week of a task is
 // gone, so one a file written before schema 3 still carries is read as
@@ -449,8 +482,17 @@ func SettleCard(c Card) Card {
 		c.Zone, c.Size = ZoneNone, ""
 		c.SprintStart, c.Week = "", ""
 	}
+	// A planning card is nobody's WORK (H3): no assignee is read on it. It
+	// may carry an owner and a team (O1), which answer for the plan item and
+	// place nothing. Only a planning card has an owner; a project card has
+	// no customers either (H4, O6).
 	if IsPlanning(c) {
-		c.Team, c.Assignees = "", nil
+		c.Assignees = nil
+	} else {
+		c.Owner = ""
+	}
+	if c.Scope != "" {
+		c.Customers = nil
 	}
 	if c.Title != DeadlineStateTitle {
 		c.Week = ""
