@@ -1085,7 +1085,7 @@ type ListSprintsParams struct {
 
 // ListCardsParams defines parameters for ListCards.
 type ListCardsParams struct {
-	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key — `alpha,` is alpha and the no-team group, `,` the no-team group alone. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
+	// Team A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1130,7 +1130,7 @@ type ListCardsParams struct {
 
 // FinishedEarlierParams defines parameters for FinishedEarlier.
 type FinishedEarlierParams struct {
-	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key — `alpha,` is alpha and the no-team group, `,` the no-team group alone. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
+	// Team A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1175,7 +1175,7 @@ type FinishedEarlierParams struct {
 
 // OwnCardParams defines parameters for OwnCard.
 type OwnCardParams struct {
-	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key — `alpha,` is alpha and the no-team group, `,` the no-team group alone. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
+	// Team A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1220,7 +1220,7 @@ type OwnCardParams struct {
 
 // RemoveCardParams defines parameters for RemoveCard.
 type RemoveCardParams struct {
-	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key — `alpha,` is alpha and the no-team group, `,` the no-team group alone. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
+	// Team A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1265,7 +1265,7 @@ type RemoveCardParams struct {
 
 // TakeCardParams defines parameters for TakeCard.
 type TakeCardParams struct {
-	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key — `alpha,` is alpha and the no-team group, `,` the no-team group alone. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
+	// Team A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.

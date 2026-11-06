@@ -1578,7 +1578,7 @@ export interface components {
         NoteId: string;
         /** @description The person's forge login. */
         Login: string;
-        /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key — `alpha,` is alpha and the no-team group, `,` the no-team group alone. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors. */
+        /** @description A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors. */
         Team: string;
         /** @description The day a day board is read for, yyyy-mm-dd. Empty or absent is today. */
         Day: string;
@@ -1667,7 +1667,7 @@ export interface operations {
     listCards: {
         parameters: {
             query?: {
-                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key — `alpha,` is alpha and the no-team group, `,` the no-team group alone. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors. */
+                /** @description A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors. */
                 team?: components["parameters"]["Team"];
                 /** @description The day a day board is read for, yyyy-mm-dd. Empty or absent is today. */
                 day?: components["parameters"]["Day"];
@@ -1748,7 +1748,7 @@ export interface operations {
     watchView: {
         parameters: {
             query?: {
-                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key — `alpha,` is alpha and the no-team group, `,` the no-team group alone. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors. */
+                /** @description A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors. */
                 team?: components["parameters"]["Team"];
                 /** @description The day a day board is read for, yyyy-mm-dd. Empty or absent is today. */
                 day?: components["parameters"]["Day"];
@@ -1802,7 +1802,7 @@ export interface operations {
     removeCard: {
         parameters: {
             query?: {
-                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key — `alpha,` is alpha and the no-team group, `,` the no-team group alone. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors. */
+                /** @description A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors. */
                 team?: components["parameters"]["Team"];
                 /** @description The day a day board is read for, yyyy-mm-dd. Empty or absent is today. */
                 day?: components["parameters"]["Day"];
@@ -1859,7 +1859,7 @@ export interface operations {
     ownCard: {
         parameters: {
             query?: {
-                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key — `alpha,` is alpha and the no-team group, `,` the no-team group alone. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors. */
+                /** @description A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors. */
                 team?: components["parameters"]["Team"];
                 /** @description The day a day board is read for, yyyy-mm-dd. Empty or absent is today. */
                 day?: components["parameters"]["Day"];
@@ -1918,7 +1918,7 @@ export interface operations {
     takeCard: {
         parameters: {
             query?: {
-                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key — `alpha,` is alpha and the no-team group, `,` the no-team group alone. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors. */
+                /** @description A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors. */
                 team?: components["parameters"]["Team"];
                 /** @description The day a day board is read for, yyyy-mm-dd. Empty or absent is today. */
                 day?: components["parameters"]["Day"];
@@ -1973,7 +1973,7 @@ export interface operations {
     finishedEarlier: {
         parameters: {
             query?: {
-                /** @description A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key — `alpha,` is alpha and the no-team group, `,` the no-team group alone. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors. */
+                /** @description A comma-separated set of team keys; the listings union them. The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors. */
                 team?: components["parameters"]["Team"];
                 /** @description The day a day board is read for, yyyy-mm-dd. Empty or absent is today. */
                 day?: components["parameters"]["Day"];
