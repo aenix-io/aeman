@@ -38,6 +38,15 @@ type Snapshot struct {
 	// Users are the primary's users/<login>.yaml files: each person's roster
 	// entry. Only the primary's count.
 	Users []User
+	// Customers are the primary's customers/<id>.yaml files: the board's
+	// customer roster (docs/design/ownership.md). Only the primary's count.
+	Customers []Customer
+}
+
+// Customer is one customers/<id>.yaml.
+type Customer struct {
+	ID string
+	CustomerFile
 }
 
 // User is one users/<login>.yaml: a person and what the roster records about
@@ -291,6 +300,11 @@ func (l *loader) file(p string, data []byte) error {
 		if f, err = DecodeDeadline(data); err == nil {
 			pr := l.project(ids[0])
 			pr.Deadlines = append(pr.Deadlines, Deadline{ID: ids[1], DeadlineFile: f})
+		}
+	case PathCustomer:
+		var f CustomerFile
+		if f, err = DecodeCustomer(data); err == nil {
+			l.s.Customers = append(l.s.Customers, Customer{ID: ids[0], CustomerFile: f})
 		}
 	case PathUser:
 		var f UserFile

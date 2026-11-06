@@ -59,7 +59,40 @@ const (
 	PathScope
 	PathDeadline
 	PathUser
+	PathCustomer
 )
+
+// CustomerPath is customers/<id>.yaml — one entry of the board's customer
+// roster, in the primary repository (docs/design/ownership.md).
+func CustomerPath(id string) string { return "customers/" + id + ".yaml" }
+
+// CustomerFile is customers/<id>.yaml: the customer's name and its place in
+// the roster. Cards name it by id, so a rename is this file alone.
+type CustomerFile struct {
+	Name    string
+	Rank    string
+	Created string
+	Extra   []ExtraField
+}
+
+// EncodeCustomer renders a customer file.
+func EncodeCustomer(f CustomerFile) ([]byte, error) {
+	var w yamlWriter
+	w.str("name", f.Name)
+	w.str("rank", f.Rank)
+	w.str("created", f.Created)
+	return w.finish(f.Extra)
+}
+
+// DecodeCustomer parses a customer file; unknown keys are kept.
+func DecodeCustomer(data []byte) (CustomerFile, error) {
+	var f CustomerFile
+	extra, err := each(data, func(key string, val *yaml.Node) bool {
+		return setNamed(&f.Name, &f.Rank, &f.Created, key, val)
+	})
+	f.Extra = extra
+	return f, err
+}
 
 // UserPath is users/<login>.yaml — a person's roster entry (their capacity),
 // read from the primary only.
@@ -111,6 +144,10 @@ func ParsePath(p string) (PathKind, []string) {
 	case len(parts) == 4 && parts[0] == "projects" && parts[2] == "deadlines":
 		if id, ok := strip(parts[3], ".yaml"); ok {
 			return PathDeadline, []string{parts[1], id}
+		}
+	case len(parts) == 2 && parts[0] == "customers":
+		if id, ok := strip(parts[1], ".yaml"); ok {
+			return PathCustomer, []string{id}
 		}
 	case len(parts) == 2 && parts[0] == "users":
 		if login, ok := strip(parts[1], ".yaml"); ok {
