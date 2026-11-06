@@ -219,3 +219,24 @@ func TestAPlanningCardIsBornWithItsOwnership(t *testing.T) {
 		t.Fatalf("the goal = %+v", got)
 	}
 }
+
+// O11 — a card typed into a day board while its Customer filter names one
+// customer is born for that customer, so it stays on the board it was typed
+// into: the create on the Team board, the Backlog and the Me board takes
+// `customers` as the Roadmap's does.
+func TestADayBoardCreateIsBornForItsCustomer(t *testing.T) {
+	for _, view := range []board.View{board.ViewTeam, board.ViewBacklog, board.ViewMe} {
+		f := ownershipSeed()
+		args := CreateCardArgs{Title: "For Acme", Team: "alpha", Customers: []string{"acme"}}
+		if view == board.ViewMe {
+			args.Assignee = "ann"
+		}
+		c, err := f2svc(f).CreateInView(ctx, "acme", view, args)
+		if err != nil {
+			t.Fatalf("%s: %v", view, err)
+		}
+		if got := f.get(c.ItemID).Customers; !reflect.DeepEqual(got, []string{"acme"}) {
+			t.Fatalf("%s: the card's customers = %v, want Acme", view, got)
+		}
+	}
+}

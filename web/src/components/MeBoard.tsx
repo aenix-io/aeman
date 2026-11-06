@@ -61,6 +61,8 @@ import { Dropdown } from "./Dropdown";
 import { FilterSelect } from "./FilterSelect";
 import { ViewToggle } from "./ViewToggle";
 import { customerOptions, teamOptions } from "../filteroptions";
+import { bornCustomers } from "../ownership";
+import { useKeptCreated } from "../keptcreated";
 import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
 import { ConnectDialog } from "./ConnectDialog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
@@ -293,9 +295,12 @@ export function MeBoard({
     () => mine.filter((c) => (!focus || isWorkable(c)) && onMyDay(c, board, selectedDate, todayIso())),
     [mine, board, selectedDate, focus],
   );
+  const filtering = (teamFilter?.length ?? 0) > 0 || customerFilter.length > 0;
+  const born = bornCustomers(customerFilter);
+  const { kept, keep } = useKeptCreated(`${(teamFilter ?? []).join(",")}|${customerFilter.join(",")}`);
   const filterPasses = useCallback(
-    (c: CardModel) => meFilterPasses(c, board.cards, teamFilter, customerFilter),
-    [board.cards, teamFilter, customerFilter],
+    (c: CardModel) => kept.has(c.itemId) || meFilterPasses(c, board.cards, teamFilter, customerFilter),
+    [board.cards, teamFilter, customerFilter, kept],
   );
   const myCards = useMemo(() => dayCards.filter(filterPasses), [dayCards, filterPasses]);
   const hiddenCount = hiddenByFilters(dayCards, filterPasses);
@@ -1522,10 +1527,18 @@ export function MeBoard({
       sprintStart:
         selectedDate > todayIso() ? undefined : (sprint ?? selectedDate),
       team: team ?? undefined,
+      customers: born,
       createdAt: new Date().toISOString(),
       description: "",
       notes: [],
     };
+    // Typed in under the Team or Customer filter: born for the one customer
+    // chosen, and kept shown until the filters change — a team picked
+    // outside them, or several customers chosen, would otherwise hide it the
+    // moment it is made (O11).
+    if (filtering) {
+      keep(tempId);
+    }
     addCard(optimistic);
     // Typed into a gap: shown there at once, and the create names the place
     // (after / before) so the server puts it there in the same request.
@@ -1539,6 +1552,7 @@ export function MeBoard({
       start: selectedDate,
       assigneeLogin: viewMe || null,
       team: team ?? null,
+      customers: born ?? null,
       after: anchor && "after" in anchor ? anchor.after : null,
       before: anchor && "before" in anchor ? anchor.before : null,
     });
@@ -1555,6 +1569,9 @@ export function MeBoard({
           return;
         }
         // Swap in place: append-on-ack would reshuffle a quick burst of adds.
+        if (filtering) {
+          keep(card.itemId);
+        }
         replaceCard(tempId, card);
         migrateCardId(tempId, card.itemId);
         if (firstSprint) {

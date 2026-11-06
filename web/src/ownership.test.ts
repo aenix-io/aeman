@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   customerChips,
+  bornCustomers,
   customerPasses,
   roadmapOwnerCell,
   effectiveCustomersOf,
@@ -163,5 +164,23 @@ describe("the Roadmap's Owner cell", () => {
   it("falls back to the server's effective team when the ancestors are not held", () => {
     const lonely = card({ itemId: "l", parent: "gone", effectiveTeam: "ops" });
     expect(roadmapOwnerCell(lonely, cards, false)).toEqual({ owner: { team: "ops", person: "" }, from: "" });
+  });
+});
+
+// A card typed in while the Customer filter is on must not vanish at once:
+// with ONE customer chosen it is born for that customer (the create carries
+// it, as forcedTeam carries the team); with several there is no one to pick,
+// so the board keeps the cards it made shown until the filter changes.
+describe("a card typed in under the Customer filter", () => {
+  it("is born for the one chosen customer, and for none otherwise", () => {
+    expect(bornCustomers(["cu1"])).toEqual(["cu1"]);
+    expect(bornCustomers([])).toBeUndefined();
+    expect(bornCustomers(["cu1", "cu2"])).toBeUndefined();
+  });
+
+  it("stays shown while the filter stands, when the board keeps it", () => {
+    const made = card({ itemId: "new", title: "New" });
+    expect(customerPasses(made, [made], ["cu1", "cu2"])).toBe(false);
+    expect(customerPasses(made, [made], ["cu1", "cu2"], new Set(["new"]))).toBe(true);
   });
 });

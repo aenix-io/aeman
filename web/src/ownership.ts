@@ -120,12 +120,26 @@ export function roadmapOwnerCell(
   return up ? { owner: { ...own, team: up.team }, from: up.from } : { owner: own };
 }
 
+/** bornCustomers is what a card typed into a day board is born for while
+ *  its Customer filter stands: the one customer chosen, so it stays on the
+ *  board it was typed into; with none or several chosen, nobody. */
+export function bornCustomers(chosen: readonly string[]): string[] | undefined {
+  return chosen.length === 1 ? [chosen[0]] : undefined;
+}
+
 /** customerPasses is the day boards' Customer filter on one card (O11): it
  *  passes when nothing is chosen, or when one of its effective customers is
  *  — the server's rule for the listing and the watch, mirrored for the cards
- *  a board holds. */
-export function customerPasses(c: Card, cards: Held, chosen: readonly string[] | null): boolean {
-  if (!chosen || chosen.length === 0) {
+ *  a board holds. `kept` are the cards the board itself made under the
+ *  filter with several customers chosen (bornCustomers): shown until the
+ *  filter changes, rather than gone the moment they are typed in. */
+export function customerPasses(
+  c: Card,
+  cards: Held,
+  chosen: readonly string[] | null,
+  kept?: ReadonlySet<string>,
+): boolean {
+  if (!chosen || chosen.length === 0 || kept?.has(c.itemId)) {
     return true;
   }
   return effectiveCustomersOf(c, cards).some((id) => chosen.includes(id));
