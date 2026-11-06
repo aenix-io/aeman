@@ -1,0 +1,125 @@
+# Owner, team and customers on the plan
+
+Who is answerable for a goal, an initiative or an epic, which team carries
+it out, and which customers the work is for. Decided 2026-11-06 with Andrei
+Kvapil; this document is the source of truth for the change and the rules
+are pinned in [behavior-matrix.md](behavior-matrix.md) rows O1–O9. It
+amends H3 of [hierarchy.md](hierarchy.md) (a planning card had no team and
+no owner) and leaves H4 (a project card has neither) as it is.
+
+## Why
+
+The Roadmap shows what the company plans, but not who is answerable for each
+part of the plan, which team is doing it, or which customer it is for. Leads
+want to see "the epics I own and have to break down", "what cozystack is
+doing", "everything for Hidora" — and the planning cards cannot say any of it.
+
+Two different kinds of answerability are involved, and mixing them is what
+makes a single "assignee" on a planning card wrong:
+
+- **Who carries it out** is a TEAM. A goal does not get done by one person,
+  and an epic's executors are the people on its tasks.
+- **Who answers for the plan item itself** — breaks it down, triages what
+  lands under it, keeps its status honest — is ONE PERSON. That person is not
+  doing every task under it, so the item must not land on their day boards.
+
+## Model
+
+### Owner (planning cards only)
+
+A goal, an initiative or an epic has an optional **owner**: one person.
+
+- The owner answers for the card itself. It is **not inherited**: each level
+  has its own, and an initiative with no owner has none. (The Roadmap may
+  hint "goal owner: X" in grey on a card with none; that hint is not the
+  card's owner and no filter matches it.)
+- An owner puts nothing on any day board: planning cards stay off Me, Team
+  and Backlog (H3), and an owner does not inherit the tasks below.
+- Tasks keep their **assignees** as today; "owner" on a planning card and
+  "assignee" on a task are different fields with different meanings.
+
+### Team (planning cards and tasks)
+
+A planning card has an optional **team**: the team that carries it out.
+
+- The card's **effective team** is its own team, or else the nearest
+  ancestor's that has one. It is computed, never written down the tree.
+- A task's own team always wins over an inherited one. An epic of `portal`
+  can hold tasks of `cozystack`: those tasks simply carry their own team.
+- A task with no team of its own (one born on the Roadmap, say) takes the
+  effective team of its planning ancestors for filtering and display; it
+  stays in its own team group on the day boards as today.
+- A planning card still lives in the primary repository (H3): its team
+  places nothing.
+
+### Customers (planning cards and tasks)
+
+The board has a **customer roster**, like its teams and projects: add,
+rename, reorder, delete. A goal, an initiative, an epic, a task or a subtask
+may name **several customers**.
+
+- A card's **effective customers** are its own plus every ancestor's (the
+  union): a lower card is added to, never overwritten.
+- A review card shows the customers of the task it reviews.
+- Project cards have no customers (H4 unchanged).
+- Deleting a customer from the roster removes it from every card that names
+  it; renaming changes the name everywhere at once (cards refer to the
+  customer by id, not by name).
+
+## Roadmap filters
+
+The Roadmap gains three filters, applied by the server (`view=roadmap`
+selectors `team`, `customer`, `owner`; the same in MCP `list_cards`):
+
+- **Team** — a task matches when its effective team is one of those chosen; a
+  planning card matches when it does itself or any task under it does. So an
+  epic of `portal` with some `cozystack` tasks shows under the `cozystack`
+  filter, with those tasks only.
+- **Customer** — the same rule over effective customers.
+- **Owner** — a planning card matches by its own owner only (no inheritance,
+  no hint).
+
+Several values within one filter are OR; different filters are AND. Every
+matching card is drawn with its chain of ancestors above it, so it is clear
+where it sits. The choice is remembered per viewer in the browser.
+
+## Setting them
+
+- **The drawer.** A planning card's drawer has an Owner / Team picker (a
+  person needs no team here, unlike on a task) and a Customers chip field.
+  A task's drawer has the Customers chip field; inherited customers and an
+  inherited team are shown in grey with where they come from, and cannot be
+  removed there.
+- **`own`** (H10) on a planning card sets its owner and/or team instead of
+  being refused; on a task it is unchanged.
+- **API / MCP.** `CardSpec` gains `owner` (planning cards) and `customers`
+  (ids); `status` gains the computed `effectiveTeam` and
+  `effectiveCustomers`. The customer roster has its own routes and MCP tools
+  (`add_customer`, `rename_customer`, `delete_customer`,
+  `reorder_customers`), the way teams and projects do (ADR 0002).
+
+## Storage
+
+- A planning card's file may carry `team:` and `owner:` (a login); any card
+  but a project card may carry `customers:` (a list of customer ids).
+- The roster: `customers/<ulid>.yaml` with `name:` and `rank:`, in the
+  primary repository.
+- No migration: existing planning cards simply have no team, owner or
+  customers. The schema stays at 3; readers that do not know the keys keep
+  them as unknown keys (the codec round-trips them).
+- `git-backend.md` and `plugin-impact.md` describe the new keys and the
+  roster for external writers.
+
+## Rules to pin
+
+| Row | Rule |
+| --- | --- |
+| O1 | A planning card may have one owner (a person) and one team; a project card has neither (H4). |
+| O2 | An owner is never inherited and puts nothing on any day board. |
+| O3 | A card's effective team is its own, else the nearest ancestor's; a task's own team always wins. |
+| O4 | A card's effective customers are its own plus all its ancestors'; a lower card is added to, never overwritten. |
+| O5 | Customers come from the board's roster, are referred to by id, and a rename or a delete reaches every card. |
+| O6 | Project cards carry no customers; a review card shows its task's. |
+| O7 | Roadmap team/customer filters match a task by its effective value and a planning card by itself or any task under it; matches are drawn with their ancestors. |
+| O8 | The Roadmap owner filter matches a planning card by its own owner only. |
+| O9 | `own` on a planning card sets its owner and/or team; the same fields and the customer roster are in the API and MCP. |
