@@ -56,6 +56,11 @@ A planning card has an optional **team**: the team that carries it out.
   sprint. It is still inherited, not written: change the plan item's team
   and the task moves with it. A review card stands under its task's team.
   The no-team group is the cards whose effective team is empty.
+  When the task's placed team changes without a write to it — its plan
+  item takes another team, it is filed under another plan item, or out
+  from under one — a task in work moves into the new team's current
+  sprint in the same action. "No owner" on a task under an epic takes its
+  own team off and leaves it under the epic's team.
 - What stays the card's OWN team: storage (the file's `team:`), the domain
   rule (which repository a card lives in, `DomainOf`), and every write —
   PATCH, `own`, the owner picker, the "+" of a team's row or backlog. The

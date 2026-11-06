@@ -1002,6 +1002,9 @@ func (s *Service) CarryOver(ctx context.Context, boardID string, team string, dr
 			Start:       today,
 			SprintStart: today,
 			Team:        c.Team,
+			// Under the same plan item, so the copy stands under the same
+			// team the way the card did — inherited, not written (O13).
+			Parent: c.Parent,
 		}); err != nil {
 			failed++
 			if firstErr == nil {
@@ -1026,6 +1029,12 @@ func (s *Service) reseedRecurrent(ctx context.Context, b board.Board, c board.Ca
 	created, err := s.backend.CreateCard(ctx, b, in)
 	if err != nil {
 		return err
+	}
+	// A backend that cannot write the link at create gets it written now.
+	if in.Parent != "" && created.Parent != in.Parent {
+		if err := s.backend.SetParent(ctx, b, created, in.Parent); err != nil {
+			return err
+		}
 	}
 	s.logEvent(ctx, b, created, board.EventCreated, "", "")
 	if err := s.backend.SetStage(ctx, b, created, board.StageRecurrent); err != nil {
