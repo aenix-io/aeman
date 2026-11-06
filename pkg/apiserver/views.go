@@ -70,6 +70,13 @@ type Selector struct {
 	// for (the Roadmap toolbar's "Project cards" toggle). It means nothing on
 	// any other view.
 	ProjectCards bool
+	// Customer and Owner narrow the roadmap view (docs/design/ownership.md,
+	// O7, O8), each a comma-separated set: Customer by effective customers
+	// (customer ids), Owner by a planning card's own owner. On the roadmap
+	// Team narrows by EFFECTIVE team the same way. Several values in one are
+	// OR, different ones AND; every match comes with its ancestors.
+	Customer string
+	Owner    string
 }
 
 // ParseSelector reads a selector from query parameters. Unknown views error.
@@ -85,6 +92,8 @@ func ParseSelector(q url.Values) (Selector, error) {
 		Snapshot:       q.Get("snapshot") == "true" || q.Get("snapshot") == "1",
 		IncludeReviews: q.Get("reviews") == "true" || q.Get("reviews") == "1",
 		ProjectCards:   q.Get("projectCards") == "true" || q.Get("projectCards") == "1",
+		Customer:       q.Get("customer"),
+		Owner:          q.Get("owner"),
 		Fields:         q.Get("fields"),
 	}
 	switch sel.Fields {
@@ -188,6 +197,83 @@ func roadmapCards(b board.Board, ix *board.Index, projectCards bool) []board.Car
 	return out
 }
 
+// roadmapNarrowed applies the Roadmap's team, customer and owner filters
+// (O7, O8) to its listing. A task matches by its effective team and
+// customers — and never by an owner, which only a planning card has; a
+// planning card matches by its own owner and its effective team and
+// customers, or because any task under it matches. Every match is listed
+// with its ancestors, so it is clear where it sits. With no filter the
+// listing is as it was.
+func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.Card {
+	teams, customers, owners := setOf(sel.Team), setOf(sel.Customer), setOf(sel.Owner)
+	if teams == nil && customers == nil && owners == nil {
+		return cards
+	}
+	self := func(c board.Card) bool {
+		if teams != nil && !teams[ix.EffectiveTeam(c)] {
+			return false
+		}
+		if customers != nil {
+			hit := false
+			for _, id := range ix.EffectiveCustomers(c) {
+				hit = hit || customers[id]
+			}
+			if !hit {
+				return false
+			}
+		}
+		if owners != nil && (!board.IsPlanning(c) || !owners[c.Owner]) {
+			return false
+		}
+		return true
+	}
+	listed := map[string]bool{}
+	for _, c := range cards {
+		listed[c.ItemID] = true
+	}
+	keep := map[string]bool{}
+	for _, c := range cards {
+		if board.IsPlanning(c) || !self(c) {
+			continue
+		}
+		keep[c.ItemID] = true
+		for _, a := range ix.Lineage(c) {
+			keep[a.ItemID] = true
+		}
+	}
+	for _, c := range cards {
+		if board.IsPlanning(c) && self(c) {
+			keep[c.ItemID] = true
+			for _, a := range ix.Lineage(c) {
+				keep[a.ItemID] = true
+			}
+		}
+	}
+	var out []board.Card
+	for _, c := range cards {
+		if keep[c.ItemID] && listed[c.ItemID] {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// setOf reads a comma-separated selector value as a set; nil when empty.
+func setOf(v string) map[string]bool {
+	var out map[string]bool
+	for _, x := range strings.Split(v, ",") {
+		x = strings.TrimSpace(x)
+		if x == "" {
+			continue
+		}
+		if out == nil {
+			out = map[string]bool{}
+		}
+		out[x] = true
+	}
+	return out
+}
+
 // FilterCards returns the cards matching the selector, in board order. The
 // view rules delegate to the same domain filters the views always used.
 func FilterCards(b board.Board, sel Selector) []board.Card {
@@ -228,7 +314,8 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	case "backlog":
 		base = backlogCards(b, board.NewIndex(b), sel)
 	case "roadmap":
-		base = roadmapCards(b, board.NewIndex(b), sel.ProjectCards)
+		ix := board.NewIndex(b)
+		base = roadmapNarrowed(ix, roadmapCards(b, ix, sel.ProjectCards), sel)
 	default:
 		base = b.Cards
 	}
@@ -317,12 +404,22 @@ func projectViewCards(_ board.Board, out []board.Card, project string) []board.C
 // server's and the parent's bar jumps on every reload.
 func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
 	present := make(map[string]bool, len(out))
+	planning := map[string]bool{}
 	for _, c := range out {
 		present[c.ItemID] = true
+		if board.IsPlanning(c) {
+			planning[c.ItemID] = true
+		}
 	}
 	extra := map[string][]board.Card{}
 	for _, c := range b.Cards {
 		if c.Parent == "" || !present[c.Parent] || present[c.ItemID] {
+			continue
+		}
+		// Only a SUBTASK rides its parent: what stands under a planning card
+		// is that card's child, listed — or left out by a filter — on its
+		// own merit (O7).
+		if planning[c.Parent] {
 			continue
 		}
 		// The rider does not bring back a project card the roadmap left out

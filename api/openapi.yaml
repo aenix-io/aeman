@@ -111,6 +111,8 @@ paths:
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/ProjectCards'
+        - $ref: '#/components/parameters/Customer'
+        - $ref: '#/components/parameters/Owner'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       responses:
@@ -181,6 +183,8 @@ paths:
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/ProjectCards'
+        - $ref: '#/components/parameters/Customer'
+        - $ref: '#/components/parameters/Owner'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
         - name: resources
@@ -269,6 +273,8 @@ paths:
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/ProjectCards'
+        - $ref: '#/components/parameters/Customer'
+        - $ref: '#/components/parameters/Owner'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       requestBody:
@@ -321,6 +327,8 @@ paths:
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/ProjectCards'
+        - $ref: '#/components/parameters/Customer'
+        - $ref: '#/components/parameters/Owner'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       requestBody:
@@ -369,6 +377,8 @@ paths:
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/ProjectCards'
+        - $ref: '#/components/parameters/Customer'
+        - $ref: '#/components/parameters/Owner'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       responses:
@@ -402,6 +412,8 @@ paths:
         - $ref: '#/components/parameters/Focus'
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/ProjectCards'
+        - $ref: '#/components/parameters/Customer'
+        - $ref: '#/components/parameters/Owner'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       responses:
@@ -1232,7 +1244,10 @@ components:
       required: false
       description: >-
         A comma-separated set of team keys; the listings union them. Empty is
-        every team, and the no-team group is the empty key.
+        every team, and the no-team group is the empty key. On the roadmap
+        view it narrows by EFFECTIVE team: a task whose own or inherited team
+        is among them, a planning card that is or has such a task under it,
+        each with its ancestors.
       schema:
         type: string
     Day:
@@ -1304,6 +1319,28 @@ components:
       description: >-
         "true" or "1" brings review cards into the view: on me and team each
         card's linked review is APPENDED. Off by default.
+      schema:
+        type: string
+    Customer:
+      name: customer
+      in: query
+      required: false
+      description: >-
+        On the roadmap view, a comma-separated set of customer ids: a task is
+        listed when one of its effective customers is among them, a planning
+        card when it is itself or any task under it is, each with its
+        ancestors. Several values are OR; with `team` and `owner`, AND.
+      schema:
+        type: string
+    Owner:
+      name: owner
+      in: query
+      required: false
+      description: >-
+        On the roadmap view, a comma-separated set of logins: a goal, an
+        initiative or an epic is listed when its OWN owner is among them
+        (never inherited), with its ancestors; no task matches. Several values
+        are OR; with `team` and `customer`, AND.
       schema:
         type: string
     ProjectCards:
@@ -1530,6 +1567,26 @@ components:
             an empty body never reads as a missing one.
         team:
           type: string
+          description: >-
+            The card's own team. On a goal, an initiative or an epic it is the
+            team that carries the plan item out: it places nothing, and the
+            cards below take it as their effective team when they have none
+            (status.effectiveTeam).
+        owner:
+          type: string
+          description: >-
+            The one person who answers for a goal, an initiative or an epic —
+            breaks it down, keeps its status honest. Never inherited, and it
+            puts nothing on any day board. Absent on every other card (a
+            task's people are its assignees).
+        customers:
+          type: array
+          description: >-
+            Ids from the board's customer roster (`metadata.customers`) that
+            this card itself names. The cards below add to them
+            (status.effectiveCustomers). A project card names none.
+          items:
+            type: string
         zone:
           type: string
           description: >-
@@ -1713,6 +1770,19 @@ components:
             — so a client can name it, open it and draw whose it is without
             looking it up. Absent on
             every other card, and when the reviewed card is gone.
+        effectiveTeam:
+          type: string
+          description: >-
+            The team the card counts under: its own, else the nearest
+            ancestor's that has one. Computed, never written.
+        effectiveCustomers:
+          type: array
+          description: >-
+            The customers the card is for: every ancestor's and its own, the
+            ancestors' first; a review card's are the task's it reviews.
+            Computed, never written.
+          items:
+            type: string
         dueDate:
           type: string
           description: >-
@@ -1963,6 +2033,18 @@ components:
           enum: [Board]
         metadata:
           $ref: '#/components/schemas/BoardMetadata'
+    CustomerRef:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.CustomerRef
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
     BoardMetadata:
       type: object
       additionalProperties: false
@@ -1984,6 +2066,13 @@ components:
           type: array
           items:
             type: string
+        customers:
+          type: array
+          description: >-
+            The board's customer roster in board order: what a card's
+            `customers` ids name.
+          items:
+            $ref: '#/components/schemas/CustomerRef'
         deadlines:
           type: array
           items:
@@ -2415,6 +2504,23 @@ components:
           type: string
         team:
           type: string
+          description: >-
+            A task's team; on a goal, an initiative or an epic the team that
+            carries it out (it places nothing and joins no sprint).
+        owner:
+          type: string
+          description: >-
+            The person who answers for a goal, an initiative or an epic; empty
+            takes them off. On any other card 422 `ownerIsThePlans`.
+        customers:
+          type: array
+          description: >-
+            Ids from the board's customer roster this card names, replacing
+            those it named; empty takes them all off. An id the roster lacks is
+            422 `customerNotFound`; a project card names none (422
+            `projectCard`).
+          items:
+            type: string
         zone:
           type: string
           enum: ["", urgent, unplanned, planned, niceToHave]

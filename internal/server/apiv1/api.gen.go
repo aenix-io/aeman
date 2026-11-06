@@ -556,9 +556,15 @@ type CardMetadata = apiserver.CardMetadata
 
 // CardPatch Only present fields are applied, so absent and empty are different things: empty clears.
 type CardPatch struct {
-	Assignees   *[]string       `json:"assignees,omitempty"`
+	Assignees *[]string `json:"assignees,omitempty"`
+
+	// Customers Ids from the board's customer roster this card names, replacing those it named; empty takes them all off. An id the roster lacks is 422 `customerNotFound`; a project card names none (422 `projectCard`).
+	Customers   *[]string       `json:"customers,omitempty"`
 	Dates       *CardDatesPatch `json:"dates,omitempty"`
 	Description *string         `json:"description,omitempty"`
+
+	// Owner The person who answers for a goal, an initiative or an epic; empty takes them off. On any other card 422 `ownerIsThePlans`.
+	Owner *string `json:"owner,omitempty"`
 
 	// Parent Puts the card under another one; empty takes it out. Under a TASK the card becomes a subtask (its team, person and sprint follow); under a goal, an initiative or an epic it is filed in the hierarchy and nothing else changes. The level rule and the repository rule hold (422 `parentLevel`, `crossDomain`).
 	Parent *string `json:"parent,omitempty"`
@@ -580,9 +586,11 @@ type CardPatch struct {
 
 	// Stage A name the board does not have is refused rather than stored. "done" clears the stage and fills 100; review and locked clamp the progress into [10, 90]. Setting `review` on a task with no review card makes one — «review: <title>», of the task's team, with nobody on it, parked in that team's backlog (the "needs a reviewer" item); name a reviewer with send-to-review, or with `own` on that card.
 	Stage *CardPatchStage `json:"stage,omitempty"`
-	Team  *string         `json:"team,omitempty"`
-	Title *string         `json:"title,omitempty"`
-	Zone  *CardPatchZone  `json:"zone,omitempty"`
+
+	// Team A task's team; on a goal, an initiative or an epic the team that carries it out (it places nothing and joins no sprint).
+	Team  *string        `json:"team,omitempty"`
+	Title *string        `json:"title,omitempty"`
+	Zone  *CardPatchZone `json:"zone,omitempty"`
 }
 
 // CardPatchStage A name the board does not have is refused rather than stored. "done" clears the stage and fills 100; review and locked clamp the progress into [10, 90]. Setting `review` on a task with no review card makes one — «review: <title>», of the task's team, with nobody on it, parked in that team's backlog (the "needs a reviewer" item); name a reviewer with send-to-review, or with `own` on that card.
@@ -649,6 +657,9 @@ type CreateCardRequestType string
 
 // CreateCardRequestZone defines model for CreateCardRequest.Zone.
 type CreateCardRequestZone string
+
+// CustomerRef defines model for CustomerRef.
+type CustomerRef = apiserver.CustomerRef
 
 // DayLogList defines model for DayLogList.
 type DayLogList = apiserver.DayLogList
@@ -959,6 +970,9 @@ type Assignee = string
 // BoardOfView defines model for BoardOfView.
 type BoardOfView = string
 
+// Customer defines model for Customer.
+type Customer = string
+
 // Day defines model for Day.
 type Day = string
 
@@ -973,6 +987,9 @@ type Login = string
 
 // NoteID defines model for NoteId.
 type NoteID = string
+
+// Owner defines model for Owner.
+type Owner = string
 
 // Project defines model for Project.
 type Project = string
@@ -1039,7 +1056,7 @@ type ListSprintsParams struct {
 
 // ListCardsParams defines parameters for ListCards.
 type ListCardsParams struct {
-	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key.
+	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1068,6 +1085,12 @@ type ListCardsParams struct {
 
 	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
 	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
+
+	// Customer On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND.
+	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
+
+	// Owner On the roadmap view, a comma-separated set of logins: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), with its ancestors; no task matches. Several values are OR; with `team` and `customer`, AND.
+	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
@@ -1078,7 +1101,7 @@ type ListCardsParams struct {
 
 // FinishedEarlierParams defines parameters for FinishedEarlier.
 type FinishedEarlierParams struct {
-	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key.
+	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1107,6 +1130,12 @@ type FinishedEarlierParams struct {
 
 	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
 	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
+
+	// Customer On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND.
+	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
+
+	// Owner On the roadmap view, a comma-separated set of logins: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), with its ancestors; no task matches. Several values are OR; with `team` and `customer`, AND.
+	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
@@ -1117,7 +1146,7 @@ type FinishedEarlierParams struct {
 
 // OwnCardParams defines parameters for OwnCard.
 type OwnCardParams struct {
-	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key.
+	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1146,6 +1175,12 @@ type OwnCardParams struct {
 
 	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
 	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
+
+	// Customer On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND.
+	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
+
+	// Owner On the roadmap view, a comma-separated set of logins: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), with its ancestors; no task matches. Several values are OR; with `team` and `customer`, AND.
+	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
@@ -1156,7 +1191,7 @@ type OwnCardParams struct {
 
 // RemoveCardParams defines parameters for RemoveCard.
 type RemoveCardParams struct {
-	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key.
+	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1185,6 +1220,12 @@ type RemoveCardParams struct {
 
 	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
 	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
+
+	// Customer On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND.
+	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
+
+	// Owner On the roadmap view, a comma-separated set of logins: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), with its ancestors; no task matches. Several values are OR; with `team` and `customer`, AND.
+	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
@@ -1195,7 +1236,7 @@ type RemoveCardParams struct {
 
 // TakeCardParams defines parameters for TakeCard.
 type TakeCardParams struct {
-	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key.
+	// Team A comma-separated set of team keys; the listings union them. Empty is every team, and the no-team group is the empty key. On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them, a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1224,6 +1265,12 @@ type TakeCardParams struct {
 
 	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
 	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
+
+	// Customer On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND.
+	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
+
+	// Owner On the roadmap view, a comma-separated set of logins: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), with its ancestors; no task matches. Several values are OR; with `team` and `customer`, AND.
+	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
@@ -2510,6 +2557,32 @@ func (siw *ServerInterfaceWrapper) ListCards(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// ------------- Optional query parameter "customer" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "customer", r.URL.Query(), &params.Customer, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "customer"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "customer", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "owner" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "owner", r.URL.Query(), &params.Owner, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "owner"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "fields" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "fields", r.URL.Query(), &params.Fields, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -2730,6 +2803,32 @@ func (siw *ServerInterfaceWrapper) FinishedEarlier(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// ------------- Optional query parameter "customer" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "customer", r.URL.Query(), &params.Customer, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "customer"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "customer", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "owner" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "owner", r.URL.Query(), &params.Owner, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "owner"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "fields" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "fields", r.URL.Query(), &params.Fields, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -2920,6 +3019,32 @@ func (siw *ServerInterfaceWrapper) OwnCard(w http.ResponseWriter, r *http.Reques
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "customer" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "customer", r.URL.Query(), &params.Customer, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "customer"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "customer", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "owner" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "owner", r.URL.Query(), &params.Owner, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "owner"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner", Err: err})
 		}
 		return
 	}
@@ -3118,6 +3243,32 @@ func (siw *ServerInterfaceWrapper) RemoveCard(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// ------------- Optional query parameter "customer" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "customer", r.URL.Query(), &params.Customer, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "customer"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "customer", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "owner" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "owner", r.URL.Query(), &params.Owner, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "owner"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "fields" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "fields", r.URL.Query(), &params.Fields, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -3308,6 +3459,32 @@ func (siw *ServerInterfaceWrapper) TakeCard(w http.ResponseWriter, r *http.Reque
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "customer" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "customer", r.URL.Query(), &params.Customer, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "customer"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "customer", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "owner" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "owner", r.URL.Query(), &params.Owner, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "owner"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner", Err: err})
 		}
 		return
 	}
