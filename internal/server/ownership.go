@@ -4,6 +4,8 @@ import (
 	"context"
 	"slices"
 
+	"github.com/aenix-io/aeman/internal/server/apiv1"
+	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
 )
@@ -225,4 +227,49 @@ func (v *visibleBackend) DeleteCustomer(ctx context.Context, bd board.Board, id 
 		return err
 	}
 	return ob.DeleteCustomer(ctx, bd, id)
+}
+
+// ---- the customer roster's routes (ADR 0002) ----
+
+// AddCustomer adds a customer to the board's roster.
+func (a surface) AddCustomer(ctx context.Context, req apiv1.AddCustomerRequestObject) (apiv1.AddCustomerResponseObject, error) {
+	var cu board.Customer
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		var err error
+		cu, err = svc.AddCustomer(ctx, boardID, strOf(req.Body.Name))
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return apiv1.AddCustomer201JSONResponse(apiserver.CustomerRef{ID: cu.ID, Name: cu.Name}), nil
+}
+
+// RenameCustomer renames a customer; cards hold its id and follow.
+func (a surface) RenameCustomer(ctx context.Context, req apiv1.RenameCustomerRequestObject) (apiv1.RenameCustomerResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.RenameCustomer(ctx, boardID, strOf(req.Body.Customer), strOf(req.Body.To))
+	}); err != nil {
+		return nil, err
+	}
+	return apiv1.RenameCustomer204Response{}, nil
+}
+
+// ReorderCustomers applies the roster's order.
+func (a surface) ReorderCustomers(ctx context.Context, req apiv1.ReorderCustomersRequestObject) (apiv1.ReorderCustomersResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.ReorderCustomers(ctx, boardID, listOf(req.Body.Customers))
+	}); err != nil {
+		return nil, err
+	}
+	return apiv1.ReorderCustomers204Response{}, nil
+}
+
+// DeleteCustomer deletes a customer and takes it off every card.
+func (a surface) DeleteCustomer(ctx context.Context, req apiv1.DeleteCustomerRequestObject) (apiv1.DeleteCustomerResponseObject, error) {
+	if err := a.rosterWrite(ctx, func(ctx context.Context, svc *boardservice.Service, boardID string) error {
+		return svc.DeleteCustomer(ctx, boardID, strOf(req.Body.Customer))
+	}); err != nil {
+		return nil, err
+	}
+	return apiv1.DeleteCustomer204Response{}, nil
 }

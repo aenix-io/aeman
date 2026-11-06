@@ -506,6 +506,11 @@ func (e ViewListKind) Valid() bool {
 	}
 }
 
+// AddCustomerBody defines model for AddCustomerBody.
+type AddCustomerBody struct {
+	Name *string `json:"name,omitempty"`
+}
+
 // AddProjectBody defines model for AddProjectBody.
 type AddProjectBody struct {
 	// Domain The repository to declare the project in; empty is the primary.
@@ -624,11 +629,17 @@ type CreateCardRequest struct {
 	Assignees *[]string `json:"assignees,omitempty"`
 
 	// Before As `after`, the uid of the card the new one is placed right BEFORE — the "+" above the first card of a list.
-	Before *string         `json:"before,omitempty"`
-	Dates  *CardDatesInput `json:"dates,omitempty"`
+	Before *string `json:"before,omitempty"`
+
+	// Customers Ids from the board's customer roster the new card is for; refused on a project card.
+	Customers *[]string       `json:"customers,omitempty"`
+	Dates     *CardDatesInput `json:"dates,omitempty"`
 
 	// NoSprint Schedules the card for its day without joining any sprint — a "next sprint" create; the next carry-over to reach its day adopts it.
 	NoSprint *bool `json:"noSprint,omitempty"`
+
+	// Owner On the roadmap view, the person who answers for the goal, the initiative or the epic being made; refused on a task (422 `ownerIsThePlans`).
+	Owner *string `json:"owner,omitempty"`
 
 	// Parent The card this one sits under. A TASK parent groups the card as a subtask. A goal, an initiative or an epic as parent files the card in the hierarchy; the parent must be of a higher level than the card (422 `parentLevel`) and in the card's own repository (422 `crossDomain`). A review card follows the card it reviews and sits under nothing of its own (422 `reviewCardLink`).
 	Parent *string `json:"parent,omitempty"`
@@ -657,6 +668,12 @@ type CreateCardRequestType string
 
 // CreateCardRequestZone defines model for CreateCardRequest.Zone.
 type CreateCardRequestZone string
+
+// CustomerBody defines model for CustomerBody.
+type CustomerBody struct {
+	// Customer The customer's id.
+	Customer *string `json:"customer,omitempty"`
+}
 
 // CustomerRef defines model for CustomerRef.
 type CustomerRef = apiserver.CustomerRef
@@ -832,6 +849,13 @@ type RemoveCardBody struct {
 	Intent *string `json:"intent,omitempty"`
 }
 
+// RenameCustomerBody defines model for RenameCustomerBody.
+type RenameCustomerBody struct {
+	// Customer The customer's id.
+	Customer *string `json:"customer,omitempty"`
+	To       *string `json:"to,omitempty"`
+}
+
 // RenameProjectBody defines model for RenameProjectBody.
 type RenameProjectBody struct {
 	Project *string `json:"project,omitempty"`
@@ -849,6 +873,11 @@ type RenameScopeBody struct {
 type RenameTeamBody struct {
 	Team *string `json:"team,omitempty"`
 	To   *string `json:"to,omitempty"`
+}
+
+// ReorderCustomersBody defines model for ReorderCustomersBody.
+type ReorderCustomersBody struct {
+	Customers *[]string `json:"customers,omitempty"`
 }
 
 // ReorderProjectsBody defines model for ReorderProjectsBody.
@@ -1297,6 +1326,18 @@ type AddNoteJSONRequestBody = NoteBody
 // EditNoteJSONRequestBody defines body for EditNote for application/json ContentType.
 type EditNoteJSONRequestBody = NoteBody
 
+// AddCustomerJSONRequestBody defines body for AddCustomer for application/json ContentType.
+type AddCustomerJSONRequestBody = AddCustomerBody
+
+// DeleteCustomerJSONRequestBody defines body for DeleteCustomer for application/json ContentType.
+type DeleteCustomerJSONRequestBody = CustomerBody
+
+// RenameCustomerJSONRequestBody defines body for RenameCustomer for application/json ContentType.
+type RenameCustomerJSONRequestBody = RenameCustomerBody
+
+// ReorderCustomersJSONRequestBody defines body for ReorderCustomers for application/json ContentType.
+type ReorderCustomersJSONRequestBody = ReorderCustomersBody
+
 // AddDeadlineJSONRequestBody defines body for AddDeadline for application/json ContentType.
 type AddDeadlineJSONRequestBody = DeadlineBody
 
@@ -1416,6 +1457,18 @@ type ServerInterface interface {
 	// EditNote Edit a work note.
 	// (PATCH /cards/{uid}/notes/{noteId})
 	EditNote(w http.ResponseWriter, r *http.Request, uid UID, noteID NoteID)
+	// AddCustomer Add a customer to the board's roster, last.
+	// (POST /customers)
+	AddCustomer(w http.ResponseWriter, r *http.Request)
+	// DeleteCustomer Delete a customer and take it off every card that names it.
+	// (POST /customers/actions/delete)
+	DeleteCustomer(w http.ResponseWriter, r *http.Request)
+	// RenameCustomer Rename a customer; every card that names it reads the new name.
+	// (POST /customers/actions/rename)
+	RenameCustomer(w http.ResponseWriter, r *http.Request)
+	// ReorderCustomers Apply the roster's order — the ids named first, in that order.
+	// (POST /customers/actions/reorder)
+	ReorderCustomers(w http.ResponseWriter, r *http.Request)
 	// AddDeadline Mark a week with a project's deadline line.
 	// (POST /deadlines)
 	AddDeadline(w http.ResponseWriter, r *http.Request)
@@ -1975,6 +2028,62 @@ func (siw *ServerInterfaceWrapper) EditNote(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.EditNote(w, r, uid, noteID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddCustomer operation middleware
+func (siw *ServerInterfaceWrapper) AddCustomer(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddCustomer(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteCustomer operation middleware
+func (siw *ServerInterfaceWrapper) DeleteCustomer(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteCustomer(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RenameCustomer operation middleware
+func (siw *ServerInterfaceWrapper) RenameCustomer(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RenameCustomer(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReorderCustomers operation middleware
+func (siw *ServerInterfaceWrapper) ReorderCustomers(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReorderCustomers(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3688,6 +3797,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/actions/delete-project", wrapper.DeleteProject)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/actions/reorder-projects", wrapper.ReorderProjects)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/actions/rename", wrapper.RenameProject)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/customers", wrapper.AddCustomer)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/customers/actions/rename", wrapper.RenameCustomer)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/customers/actions/reorder", wrapper.ReorderCustomers)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/customers/actions/delete", wrapper.DeleteCustomer)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/teams/actions/rename", wrapper.RenameTeam)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/teams/actions/capacity", wrapper.SetTeamCapacity)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/presence", wrapper.SetPresence)
@@ -4307,6 +4420,144 @@ type EditNotedefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response EditNotedefaultApplicationProblemPlusJSONResponse) VisitEditNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddCustomerRequestObject struct {
+	Body *AddCustomerJSONRequestBody
+}
+
+type AddCustomerResponseObject interface {
+	VisitAddCustomerResponse(w http.ResponseWriter) error
+}
+
+type AddCustomer201JSONResponse CustomerRef
+
+func (response AddCustomer201JSONResponse) VisitAddCustomerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddCustomerdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response AddCustomerdefaultApplicationProblemPlusJSONResponse) VisitAddCustomerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCustomerRequestObject struct {
+	Body *DeleteCustomerJSONRequestBody
+}
+
+type DeleteCustomerResponseObject interface {
+	VisitDeleteCustomerResponse(w http.ResponseWriter) error
+}
+
+type DeleteCustomer204Response struct {
+}
+
+func (response DeleteCustomer204Response) VisitDeleteCustomerResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteCustomerdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response DeleteCustomerdefaultApplicationProblemPlusJSONResponse) VisitDeleteCustomerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameCustomerRequestObject struct {
+	Body *RenameCustomerJSONRequestBody
+}
+
+type RenameCustomerResponseObject interface {
+	VisitRenameCustomerResponse(w http.ResponseWriter) error
+}
+
+type RenameCustomer204Response struct {
+}
+
+func (response RenameCustomer204Response) VisitRenameCustomerResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RenameCustomerdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response RenameCustomerdefaultApplicationProblemPlusJSONResponse) VisitRenameCustomerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReorderCustomersRequestObject struct {
+	Body *ReorderCustomersJSONRequestBody
+}
+
+type ReorderCustomersResponseObject interface {
+	VisitReorderCustomersResponse(w http.ResponseWriter) error
+}
+
+type ReorderCustomers204Response struct {
+}
+
+func (response ReorderCustomers204Response) VisitReorderCustomersResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ReorderCustomersdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ReorderCustomersdefaultApplicationProblemPlusJSONResponse) VisitReorderCustomersResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -5441,6 +5692,18 @@ type StrictServerInterface interface {
 	// EditNote Edit a work note.
 	// (PATCH /cards/{uid}/notes/{noteId})
 	EditNote(ctx context.Context, request EditNoteRequestObject) (EditNoteResponseObject, error)
+	// AddCustomer Add a customer to the board's roster, last.
+	// (POST /customers)
+	AddCustomer(ctx context.Context, request AddCustomerRequestObject) (AddCustomerResponseObject, error)
+	// DeleteCustomer Delete a customer and take it off every card that names it.
+	// (POST /customers/actions/delete)
+	DeleteCustomer(ctx context.Context, request DeleteCustomerRequestObject) (DeleteCustomerResponseObject, error)
+	// RenameCustomer Rename a customer; every card that names it reads the new name.
+	// (POST /customers/actions/rename)
+	RenameCustomer(ctx context.Context, request RenameCustomerRequestObject) (RenameCustomerResponseObject, error)
+	// ReorderCustomers Apply the roster's order — the ids named first, in that order.
+	// (POST /customers/actions/reorder)
+	ReorderCustomers(ctx context.Context, request ReorderCustomersRequestObject) (ReorderCustomersResponseObject, error)
 	// AddDeadline Mark a week with a project's deadline line.
 	// (POST /deadlines)
 	AddDeadline(ctx context.Context, request AddDeadlineRequestObject) (AddDeadlineResponseObject, error)
@@ -6025,6 +6288,130 @@ func (sh *strictHandler) EditNote(w http.ResponseWriter, r *http.Request, uid UI
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(EditNoteResponseObject); ok {
 		if err := validResponse.VisitEditNoteResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddCustomer operation middleware
+func (sh *strictHandler) AddCustomer(w http.ResponseWriter, r *http.Request) {
+	var request AddCustomerRequestObject
+
+	var body AddCustomerJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddCustomer(ctx, request.(AddCustomerRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddCustomer")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddCustomerResponseObject); ok {
+		if err := validResponse.VisitAddCustomerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteCustomer operation middleware
+func (sh *strictHandler) DeleteCustomer(w http.ResponseWriter, r *http.Request) {
+	var request DeleteCustomerRequestObject
+
+	var body DeleteCustomerJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteCustomer(ctx, request.(DeleteCustomerRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteCustomer")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteCustomerResponseObject); ok {
+		if err := validResponse.VisitDeleteCustomerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RenameCustomer operation middleware
+func (sh *strictHandler) RenameCustomer(w http.ResponseWriter, r *http.Request) {
+	var request RenameCustomerRequestObject
+
+	var body RenameCustomerJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RenameCustomer(ctx, request.(RenameCustomerRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RenameCustomer")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RenameCustomerResponseObject); ok {
+		if err := validResponse.VisitRenameCustomerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReorderCustomers operation middleware
+func (sh *strictHandler) ReorderCustomers(w http.ResponseWriter, r *http.Request) {
+	var request ReorderCustomersRequestObject
+
+	var body ReorderCustomersJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReorderCustomers(ctx, request.(ReorderCustomersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReorderCustomers")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReorderCustomersResponseObject); ok {
+		if err := validResponse.VisitReorderCustomersResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

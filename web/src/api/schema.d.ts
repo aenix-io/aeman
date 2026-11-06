@@ -124,7 +124,7 @@ export interface paths {
         put?: never;
         /**
          * Whose is this — a team and a person on it, a team alone, or nobody.
-         * @description The Roadmap's answer for the loose work listed below its tree, offered by every board that draws a task (not the Project board). What the answer DOES depends on whether the card is in work — a date or a sprint. A `person` (with their `team`) takes an UNPLANNED card into work the way typing it into their Me board would: on the team, today, in the unplanned band, in the team's sprint, out of its backlog — so it stands on their Team and Me boards at once; a planned card changes hands and keeps its plan. A `team` alone parks an unplanned card in that team's backlog with nobody on it (a parked card handed to another team stays parked); a planned card moves team, keeps its plan and loses its person. Neither takes the team and the person off: a planned card keeps its plan in the no-team group, an unplanned one is parked in the no-team group's backlog. A person without a team is refused (422 `ownerNeedsTeam`); a subtask and a review card have no owner of their own (422 `ownerFollowsLink` — the parent's, the reviewer) — except a review NOBODY HAS TAKEN, where a person is its reviewer and takes it into work like a task (today, the task's sprint, out of the backlog); a planning card and a project card carry none (422 `planningCard`, `projectCard`). Subtasks follow the card's team and person, as they do everywhere.
+         * @description The Roadmap's answer for the loose work listed below its tree, offered by every board that draws a task (not the Project board). What the answer DOES depends on whether the card is in work — a date or a sprint. A `person` (with their `team`) takes an UNPLANNED card into work the way typing it into their Me board would: on the team, today, in the unplanned band, in the team's sprint, out of its backlog — so it stands on their Team and Me boards at once; a planned card changes hands and keeps its plan. A `team` alone parks an unplanned card in that team's backlog with nobody on it (a parked card handed to another team stays parked); a planned card moves team, keeps its plan and loses its person. Neither takes the team and the person off: a planned card keeps its plan in the no-team group, an unplanned one is parked in the no-team group's backlog. A person without a team is refused (422 `ownerNeedsTeam`); a subtask and a review card have no owner of their own (422 `ownerFollowsLink` — the parent's, the reviewer) — except a review NOBODY HAS TAKEN, where a person is its reviewer and takes it into work like a task (today, the task's sprint, out of the backlog); a project card carries none (422 `projectCard`). On a goal, an initiative or an epic the answer is the card's TEAM (the team that carries it out) and its OWNER (the one person who answers for it), each set as given — a person needs no team there — and nothing about it reaches a day board. Subtasks follow the card's team and person, as they do everywhere.
          */
         post: operations["ownCard"];
         delete?: never;
@@ -737,6 +737,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/customers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a customer to the board's roster, last.
+         * @description Cards name a customer by its id (spec.customers), so the name can be changed later and every card follows. A name the roster already has, case aside, is 422 `customerExists`; an empty one 422 `customerName`.
+         */
+        post: operations["addCustomer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/customers/actions/rename": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rename a customer; every card that names it reads the new name. */
+        post: operations["renameCustomer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/customers/actions/reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply the roster's order — the ids named first, in that order. */
+        post: operations["reorderCustomers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/customers/actions/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Delete a customer and take it off every card that names it. */
+        post: operations["deleteCustomer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams/actions/rename": {
         parameters: {
             query?: never;
@@ -1169,6 +1240,10 @@ export interface components {
         CreateCardRequest: {
             title?: string;
             team?: string;
+            /** @description On the roadmap view, the person who answers for the goal, the initiative or the epic being made; refused on a task (422 `ownerIsThePlans`). */
+            owner?: string;
+            /** @description Ids from the board's customer roster the new card is for; refused on a project card. */
+            customers?: string[];
             /** @enum {string} */
             zone?: "" | "urgent" | "unplanned" | "planned" | "niceToHave";
             /** @description S, M, L or XL in any case; empty leaves the card unsized. */
@@ -1326,6 +1401,21 @@ export interface components {
             project?: string;
             from?: string;
             to?: string;
+        };
+        AddCustomerBody: {
+            name?: string;
+        };
+        CustomerBody: {
+            /** @description The customer's id. */
+            customer?: string;
+        };
+        RenameCustomerBody: {
+            /** @description The customer's id. */
+            customer?: string;
+            to?: string;
+        };
+        ReorderCustomersBody: {
+            customers?: string[];
         };
         AddProjectBody: {
             name?: string;
@@ -2743,6 +2833,100 @@ export interface operations {
         };
         responses: {
             /** @description The project is renamed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    addCustomer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddCustomerBody"];
+            };
+        };
+        responses: {
+            /** @description The customer as it was added. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerRef"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    renameCustomer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameCustomerBody"];
+            };
+        };
+        responses: {
+            /** @description The customer is renamed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    reorderCustomers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReorderCustomersBody"];
+            };
+        };
+        responses: {
+            /** @description The order is applied. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteCustomer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomerBody"];
+            };
+        };
+        responses: {
+            /** @description The customer is gone, from the roster and from every card. */
             204: {
                 headers: {
                     [name: string]: unknown;

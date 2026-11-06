@@ -41,6 +41,8 @@ tags:
     description: The deadline lines a project draws across the weeks.
   - name: Projects
     description: The Project board's top grouping.
+  - name: Customers
+    description: Who the work is for — the board's customer roster.
   - name: Teams
     description: Team names and what a team gets through in a week.
   - name: Presence
@@ -311,9 +313,12 @@ paths:
         no owner of their own (422 `ownerFollowsLink` — the parent's, the
         reviewer) — except a review NOBODY HAS TAKEN, where a person is its
         reviewer and takes it into work like a task (today, the task's sprint,
-        out of the backlog); a planning card and a project card carry none (422
-        `planningCard`, `projectCard`). Subtasks follow the card's team and
-        person, as they do everywhere.
+        out of the backlog); a project card carries none (422 `projectCard`).
+        On a goal, an initiative or an epic the answer is the card's TEAM (the
+        team that carries it out) and its OWNER (the one person who answers
+        for it), each set as given — a person needs no team there — and
+        nothing about it reaches a day board. Subtasks follow the card's team
+        and person, as they do everywhere.
       parameters:
         - $ref: '#/components/parameters/View'
         - $ref: '#/components/parameters/Uid'
@@ -1120,6 +1125,78 @@ paths:
       responses:
         '204':
           description: The project is renamed.
+        default:
+          $ref: '#/components/responses/Problem'
+  /customers:
+    post:
+      operationId: addCustomer
+      tags: [Customers]
+      summary: Add a customer to the board's roster, last.
+      description: >-
+        Cards name a customer by its id (spec.customers), so the name can be
+        changed later and every card follows. A name the roster already has,
+        case aside, is 422 `customerExists`; an empty one 422 `customerName`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCustomerBody'
+      responses:
+        '201':
+          description: The customer as it was added.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerRef'
+        default:
+          $ref: '#/components/responses/Problem'
+  /customers/actions/rename:
+    post:
+      operationId: renameCustomer
+      tags: [Customers]
+      summary: Rename a customer; every card that names it reads the new name.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameCustomerBody'
+      responses:
+        '204':
+          description: The customer is renamed.
+        default:
+          $ref: '#/components/responses/Problem'
+  /customers/actions/reorder:
+    post:
+      operationId: reorderCustomers
+      tags: [Customers]
+      summary: Apply the roster's order — the ids named first, in that order.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReorderCustomersBody'
+      responses:
+        '204':
+          description: The order is applied.
+        default:
+          $ref: '#/components/responses/Problem'
+  /customers/actions/delete:
+    post:
+      operationId: deleteCustomer
+      tags: [Customers]
+      summary: Delete a customer and take it off every card that names it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerBody'
+      responses:
+        '204':
+          description: The customer is gone, from the roster and from every card.
         default:
           $ref: '#/components/responses/Problem'
   /teams/actions/rename:
@@ -2414,6 +2491,19 @@ components:
           type: string
         team:
           type: string
+        owner:
+          type: string
+          description: >-
+            On the roadmap view, the person who answers for the goal, the
+            initiative or the epic being made; refused on a task (422
+            `ownerIsThePlans`).
+        customers:
+          type: array
+          description: >-
+            Ids from the board's customer roster the new card is for; refused
+            on a project card.
+          items:
+            type: string
         zone:
           type: string
           enum: ["", urgent, unplanned, planned, niceToHave]
@@ -2738,6 +2828,32 @@ components:
           type: string
         to:
           type: string
+    AddCustomerBody:
+      type: object
+      properties:
+        name:
+          type: string
+    CustomerBody:
+      type: object
+      properties:
+        customer:
+          type: string
+          description: The customer's id.
+    RenameCustomerBody:
+      type: object
+      properties:
+        customer:
+          type: string
+          description: The customer's id.
+        to:
+          type: string
+    ReorderCustomersBody:
+      type: object
+      properties:
+        customers:
+          type: array
+          items:
+            type: string
     AddProjectBody:
       type: object
       properties:

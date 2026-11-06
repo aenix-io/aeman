@@ -140,6 +140,8 @@ func TestMCPListsTools(t *testing.T) {
 		"set_sprint_state",
 		// The Roadmap's "whose is this" (H10), and the Backlog's take (K11).
 		"own_card", "take_card",
+		// The customer roster (docs/design/ownership.md, O9).
+		"add_customer", "rename_customer", "reorder_customers", "delete_customer",
 	}
 	for _, w := range want {
 		if !names[w] {
@@ -1059,5 +1061,42 @@ func TestAnAgentTakesABacklogCardAsItsPerson(t *testing.T) {
 	}
 	if msg := callErr(t, cs, "take_card", map[string]any{"uid": "w"}); !strings.Contains(msg, "already in work") {
 		t.Fatalf("take on work in hand = %q", msg)
+	}
+}
+
+// docs/design/ownership.md through MCP (O9, ADR 0002): an agent keeps the
+// customer roster, names a plan item's owner and team, a card's customers,
+// and filters the Roadmap the way a person does.
+func TestMCPOwnership(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
+		{ItemID: "task1", Title: "Receipts", Parent: "epic", Team: "alpha", Parked: true},
+		{ItemID: "other", Title: "Docs", Type: board.TypeEpic},
+	}, nil)
+	cs := connect(t, Config{Board: "acme"}, fake)
+	var cu struct{ ID, Name string }
+	if err := json.Unmarshal([]byte(textOf(call(t, cs, "add_customer", map[string]any{"name": "Hidora"}))), &cu); err != nil || cu.ID == "" {
+		t.Fatalf("add_customer = %+v %v", cu, err)
+	}
+	call(t, cs, "update_card", map[string]any{"uid": "epic", "owner": "ann", "customers": []string{cu.ID}})
+	if e := fake.Card("epic"); e.Owner != "ann" || len(e.Customers) != 1 {
+		t.Fatalf("the epic = %+v", e)
+	}
+	call(t, cs, "own_card", map[string]any{"uid": "other", "view": "roadmap", "person": "bob"})
+	if o := fake.Card("other"); o.Owner != "bob" {
+		t.Fatalf("own_card on an epic = %+v", o)
+	}
+	out := textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap", "customer": cu.ID}))
+	if !strings.Contains(out, "task1") || strings.Contains(out, `"other"`) {
+		t.Fatalf("the roadmap for Hidora: %s", out)
+	}
+	out = textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap", "owner": "bob"}))
+	if !strings.Contains(out, `"other"`) || strings.Contains(out, "task1") {
+		t.Fatalf("the roadmap of bob's plan items: %s", out)
+	}
+	call(t, cs, "rename_customer", map[string]any{"customer": cu.ID, "name": "Hidora SA"})
+	call(t, cs, "delete_customer", map[string]any{"customer": cu.ID})
+	if e := fake.Card("epic"); len(e.Customers) != 0 {
+		t.Fatalf("delete_customer did not reach the epic: %v", e.Customers)
 	}
 }

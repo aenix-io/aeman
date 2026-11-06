@@ -468,6 +468,8 @@ func (a surface) CreateCard(ctx context.Context, req apiv1.CreateCardRequestObje
 		Parked:         boolOf(in.Parked),
 		After:          strOf(in.After),
 		Before:         strOf(in.Before),
+		Owner:          strOf(in.Owner),
+		Customers:      listOf(in.Customers),
 	}
 	if in.Dates != nil {
 		args.Day, args.Start, args.SprintStart = strOf(in.Dates.End), strOf(in.Dates.Start), strOf(in.Dates.Sprint)
@@ -522,6 +524,16 @@ func (a surface) PatchCard(ctx context.Context, req apiv1.PatchCardRequestObject
 	}
 	if p.Team != nil {
 		if err := svc.SetTeam(ctx, boardID, uid, *p.Team, ""); err != nil {
+			return nil, err
+		}
+	}
+	if p.Owner != nil {
+		if err := svc.SetOwner(ctx, boardID, uid, *p.Owner); err != nil {
+			return nil, err
+		}
+	}
+	if p.Customers != nil {
+		if err := svc.SetCustomers(ctx, boardID, uid, *p.Customers); err != nil {
 			return nil, err
 		}
 	}
