@@ -103,24 +103,42 @@ func (sub *subscription) seen(res apiserver.Card, find func(string) (board.Card,
 			}
 		}
 	}
-	out.Status.EffectiveTeam, out.Status.EffectiveCustomers = inheritedFromReadable(res, out.Status, find)
+	out.Status.EffectiveTeam, out.Status.EffectiveCustomers = inheritedFromReadable(res, find, func(c board.Card) bool { return sub.rights.canRead(c.Domain) })
 	return out
 }
 
-// inheritedFromReadable is a card's effective team and customers counted
-// over what is left readable of the status: its own team, else the nearest
-// readable ancestor's; the readable ancestors' customers, a readable
-// reviewed task's and its own, each once, and only ids the full answer held
-// (the roster's).
-func inheritedFromReadable(res apiserver.Card, st apiserver.CardStatus, find func(string) (board.Card, bool)) (string, []string) {
-	lineage := st.Lineage
-	team := ""
-	if res.Spec.Scope == "" {
-		team = res.Spec.Team
-		for i := len(lineage) - 1; i >= 0 && team == ""; i-- {
-			if a, ok := find(lineage[i].UID); ok {
-				team = a.Team
+// inheritedFromReadable is a card's effective team and customers as the
+// LISTING on this subscriber's visible board computes them (board.Visible,
+// Index.EffectiveTeam / EffectiveCustomers): the chain above a card ends at
+// the first ancestor the subscriber cannot read — a readable one above it
+// gives nothing — and a review card takes its task's customers only when the
+// task is readable. Ids the full answer did not hold (off the roster) stay
+// out.
+func inheritedFromReadable(res apiserver.Card, find func(string) (board.Card, bool), can func(board.Card) bool) (string, []string) {
+	c, ok := find(res.Metadata.UID)
+	if !ok || c.Scope != "" {
+		return "", nil
+	}
+	chain := func(c board.Card) []board.Card {
+		const maxHops = 6
+		var up []board.Card
+		seen := map[string]bool{c.ItemID: true}
+		for cur := c; cur.Parent != "" && len(up) < maxHops; {
+			p, ok := find(cur.Parent)
+			if !ok || !can(p) || seen[p.ItemID] {
+				break
 			}
+			seen[p.ItemID] = true
+			up = append([]board.Card{p}, up...)
+			cur = p
+		}
+		return up
+	}
+	team := c.Team
+	if team == "" {
+		up := chain(c)
+		for i := len(up) - 1; i >= 0 && team == ""; i-- {
+			team = up[i].Team
 		}
 	}
 	known := map[string]bool{}
@@ -135,17 +153,19 @@ func inheritedFromReadable(res apiserver.Card, st apiserver.CardStatus, find fun
 			}
 		}
 	}
-	for _, l := range lineage {
-		if a, ok := find(l.UID); ok {
+	var of func(c board.Card, depth int)
+	of = func(c board.Card, depth int) {
+		if c.ReviewOf != "" && depth == 0 {
+			if task, ok := find(c.ReviewOf); ok && can(task) && task.ReviewOf == "" {
+				of(task, depth+1)
+			}
+		}
+		for _, a := range chain(c) {
 			add(a.Customers)
 		}
+		add(c.Customers)
 	}
-	if st.Reviewed != nil {
-		if task, ok := find(st.Reviewed.UID); ok {
-			add(task.Customers)
-		}
-	}
-	add(res.Spec.Customers)
+	of(c, 0)
 	return team, customers
 }
 
@@ -157,8 +177,8 @@ func (sub *subscription) view(b board.Board) board.Board {
 	return board.Visible(b, sub.rights.primary, sub.rights.readable)
 }
 
-// send marshals and delivers one frame; a slow subscriber drops it and
-// reconciles on its next re-list.
+// send marshals and delivers one frame. A subscriber too slow to take it is
+// ended with a 410 and re-lists (sendRaw, G84).
 func (sub *subscription) send(frame watchFrame) {
 	data, err := json.Marshal(frame)
 	if err != nil {
@@ -1353,8 +1373,9 @@ func unionIDs(a, b []string) []string {
 // customers are the effective ones of everything under it (O3, O4) — the
 // planning cards, the tasks and their subtasks, at any depth — and no write
 // touches those. Their review cards follow through reviewsShowingIt. A goal
-// with many tasks names many cards here, more than a watcher's buffer of 64
-// frames may hold at once; the order puts the levels a board draws first
+// with many tasks names many cards here, possibly more than a watcher's
+// buffer (watchBuffer) holds; a watcher that cannot keep up is ended with a
+// 410 and re-lists (G84). The order puts the levels a board draws first
 // ahead of the deep ones, and a scoped watcher is sent only the ones its
 // view holds (flushMembers). It records what was shown for next time; the
 // caller holds e.mu with the cache already updated.

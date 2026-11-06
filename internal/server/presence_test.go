@@ -204,3 +204,48 @@ func cardFrames(sub *subscription) map[string]apiserver.Card {
 		}
 	}
 }
+
+// And the frame agrees with the LISTING the same watcher would get, which is
+// built on their visible board: there a card's chain ends at the first
+// ancestor they cannot read (board.Visible drops it, Index.Lineage stops),
+// so a readable goal ABOVE an unreadable epic gives the task below nothing.
+// The frame used to skip the unreadable epic and inherit from the goal. A
+// review card with no team of its own reads the same way.
+func TestAReadableAncestorAboveAnUnreadableOneGivesNothing(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("shared", []board.Card{
+		{ItemID: "goal", Title: "Grow", Type: board.TypeGoal, Team: "portal", Customers: []string{"cu1"}},
+		{ItemID: "epic", Title: "Secret epic", Type: board.TypeEpic, Parent: "goal", Domain: "closed"},
+		{ItemID: "t", Title: "Open task", Parent: "epic", Parked: true},
+		{ItemID: "r", Title: "review: Open task", ReviewOf: "t", Parked: true},
+	})
+	b.Customers = []board.Customer{{ID: "cu1", Name: "Hidora"}}
+	e := seedEntry(store, "k", b)
+	rights := rightsOn([]string{"shared"}, nil)
+	narrow, cancel := store.subscribeAs("k", "bob", nil, map[string]bool{"cards": true}, rights)
+	defer cancel()
+	for _, id := range []string{"t", "r"} {
+		e.mu.Lock()
+		c, _ := board.Find(e.board, id)
+		c.Title += "!"
+		e.upsertCard(c)
+		e.cardChanged("", c, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+	got := cardFrames(narrow)
+	e.mu.Lock()
+	visible := board.Visible(e.board, rights.primary, rights.readable)
+	e.mu.Unlock()
+	for _, id := range []string{"t", "r"} {
+		c, _ := board.Find(visible, id)
+		listed := apiserver.CardResource(visible, c).Status
+		st := got[id].Status
+		if st.EffectiveTeam != "" || len(st.EffectiveCustomers) != 0 {
+			t.Errorf("%s's frame inherits past the unreadable epic: team %q customers %v", id, st.EffectiveTeam, st.EffectiveCustomers)
+		}
+		if st.EffectiveTeam != listed.EffectiveTeam || !reflect.DeepEqual(st.EffectiveCustomers, listed.EffectiveCustomers) {
+			t.Errorf("%s: the frame says %q %v, the listing %q %v", id, st.EffectiveTeam, st.EffectiveCustomers, listed.EffectiveTeam, listed.EffectiveCustomers)
+		}
+	}
+}
