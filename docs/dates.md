@@ -148,12 +148,13 @@ The rules above place TODAY's cards on a day. That is what a day-lens is: dates 
   scheduled into the sprint active on the viewed day or later
   (`startDate >= activeSprint(team, day)`) qualify: an old sprint-less stray
   stays on its own past days instead of resurfacing on current boards.
-- The board's Team and Customer filters (the dropdowns the Team board, the
-  Backlog and the Me board share, `ownership.md` O11) narrow it to the
-  chosen teams — the no-team group being one — and to the cards whose
-  effective customers include a chosen one. When they hide any of the day's
-  cards, a yellow "N more tasks" button beside them says how many, counted
-  over what the day would draw with no filter, and clears them.
+- The board's Team filter (the dropdown the Team board, the Backlog and the
+  Me board share, `ownership.md` O12) narrows it to the chosen teams — the
+  no-team group being one. When it hides any of the day's cards, a yellow
+  "N more tasks" button beside it says how many, counted over what the day
+  would draw with no filter, and clears it. The Me board has no Customer
+  filter: a customer chosen on the Team board or the Backlog hides nothing
+  here.
 
 ### Carry Over
 - No-op if the team's sprint is already today.
@@ -240,7 +241,7 @@ that is everywhere says nothing where it matters.
 - A task whose **parent is a task** (the `parent` field, one level deep) is a
   **subtask**: it never appears as a row of its own in Team/Me — the views
   deliver it alongside its parent and the UI nests it under the parent's
-  expandable list. The Me board's Team and Customer filters apply to subtask rows too.
+  expandable list. The Me board's Team filter applies to subtask rows too.
   `parent` is also the hierarchy's link (`docs/design/hierarchy.md`): a task
   whose parent is a goal, an initiative or an epic is NOT a subtask — it is
   on the day boards like any task, inherits nothing and rides nowhere; the

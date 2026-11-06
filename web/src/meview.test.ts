@@ -109,32 +109,29 @@ describe("a project card is on nobody's Me board", () => {
   });
 });
 
-// The Me board's Team and Customer filters (O11) hide the viewer's own cards
-// of other teams or other customers — and say how many they hide: the "N
-// more tasks" button, counted over exactly what the board would draw on the
-// day with no filter, which clears them.
-describe("the Me board's filters", () => {
+// The Me board's Team filter (O12) hides the viewer's own cards of other
+// teams — and says how many it hides: the "N more tasks" button, counted
+// over exactly what the board would draw on the day with no filter, which
+// clears it. The Me board has no Customer filter: a customer chosen on the
+// Team board or the Backlog hides nothing here.
+describe("the Me board's filter", () => {
   const cards = [
-    card({ itemId: "a", team: "alpha", effectiveCustomers: ["cu1"], customers: ["cu1"] }),
+    card({ itemId: "a", team: "alpha" }),
     card({ itemId: "b", team: "beta" }),
     card({ itemId: "n", team: "" }),
   ];
 
-  it("pass everything while nothing is chosen", () => {
-    expect(cards.every((c) => meFilterPasses(c, cards, null, []))).toBe(true);
+  it("passes everything while no team is chosen", () => {
+    expect(cards.every((c) => meFilterPasses(c, null))).toBe(true);
+    expect(cards.every((c) => meFilterPasses(c, []))).toBe(true);
   });
 
-  it("keep the chosen teams, the no-team group being a team", () => {
-    expect(cards.filter((c) => meFilterPasses(c, cards, ["alpha", ""], [])).map((c) => c.itemId)).toEqual(["a", "n"]);
+  it("keeps the chosen teams, the no-team group being a team", () => {
+    expect(cards.filter((c) => meFilterPasses(c, ["alpha", ""])).map((c) => c.itemId)).toEqual(["a", "n"]);
   });
 
-  it("keep the chosen customers, by effective customers, AND the teams", () => {
-    expect(cards.filter((c) => meFilterPasses(c, cards, null, ["cu1"])).map((c) => c.itemId)).toEqual(["a"]);
-    expect(cards.filter((c) => meFilterPasses(c, cards, ["beta"], ["cu1"])).map((c) => c.itemId)).toEqual([]);
-  });
-
-  it("count what they hide of what the day would draw", () => {
-    expect(hiddenByFilters(cards, (c) => meFilterPasses(c, cards, ["alpha"], []))).toBe(2);
+  it("counts what it hides of what the day would draw", () => {
+    expect(hiddenByFilters(cards, (c) => meFilterPasses(c, ["alpha"]))).toBe(2);
     expect(hiddenByFilters(cards, () => true)).toBe(0);
     expect(moreTasksLabel(1)).toBe("1 more task");
     expect(moreTasksLabel(3)).toBe("3 more tasks");

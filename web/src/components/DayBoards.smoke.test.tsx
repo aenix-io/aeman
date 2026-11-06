@@ -253,13 +253,13 @@ describe("the Team board's filters", () => {
   });
 });
 
-// O11 — the Me board's Team and Customer filters are the boards' one
-// dropdown, with no Manage entry: the Me board manages no roster. They hide
-// the viewer's cards of other teams or customers, and a yellow button right
-// of them says how many of the day's cards they hide; pressing it clears
-// them. The eye toggle that used to decide whether the team chips hid
-// anything is gone: a chosen team hides, and the button says so.
-describe("the Me board's filters", () => {
+// O12 — the Me board's Team filter is the boards' one dropdown, with no
+// Manage entry: the Me board manages no roster. It hides the viewer's cards
+// of other teams, and a yellow button right of it says how many of the
+// day's cards it hides; pressing it clears it. The eye toggle that used to
+// decide whether the team chips hid anything is gone. The Me board has no
+// Customer filter, and a customer chosen elsewhere hides nothing here.
+describe("the Me board's filter", () => {
   const draw = (cards: Card[], extra: Record<string, unknown> = {}) =>
     renderToStaticMarkup(
       <MeBoard
@@ -278,26 +278,25 @@ describe("the Me board's filters", () => {
     card({ itemId: "c", title: "More beta work", zone: "gray", team: "beta" }),
   ];
 
-  it("are the Team and Customer dropdowns, with no chips, no eye and no Manage", () => {
+  it("is the Team dropdown alone, with no chips, no eye, no Manage and no Customer", () => {
     const html = draw(cards);
     expect(html).not.toContain("team-filter-chip");
     expect(html).toMatch(/aria-label="Team filter"[^>]*>Team: all</);
-    expect(html).toMatch(/aria-label="Customer filter"[^>]*>Customer: anyone</);
+    expect(html).not.toContain('aria-label="Customer filter"');
     expect(html).not.toContain("Show only the selected teams");
     expect(html).not.toContain("filter-hidden-btn");
   });
 
-  it("hide what they leave out, and say how many of the day's cards that is", () => {
+  it("hides what it leaves out, and says how many of the day's cards that is", () => {
     const html = draw(cards, { teamFilter: ["alpha"] });
     expect(html).toContain("Alpha work");
     expect(html).not.toContain("Beta work");
     expect(html).toMatch(/<button[^>]*class="btn filter-hidden-btn"[^>]*>2 more tasks<\/button>/);
   });
 
-  it("count a customer filter too", () => {
-    const withCustomer = [card({ itemId: "h", title: "For Hidora", zone: "gray", customers: ["cu1"], effectiveCustomers: ["cu1"] }), ...cards];
-    const html = draw(withCustomer, { customerFilter: ["cu1"] });
-    expect(html).toContain("For Hidora");
-    expect(html).toMatch(/>3 more tasks</);
+  it("ignores a customer chosen on the Team board or the Backlog", () => {
+    const html = draw(cards, { customerFilter: ["cu1"] });
+    expect(html).toContain("Beta work");
+    expect(html).not.toContain("filter-hidden-btn");
   });
 });

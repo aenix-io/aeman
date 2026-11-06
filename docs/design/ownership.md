@@ -93,9 +93,9 @@ selectors `team`, `customer`, `owner`; the same in MCP `list_cards`):
   toolbar asks "whose" once. Its options are the board's members, the plan
   items' owners, the tasks' assignees and whoever is already selected.
 
-The Team board, the Backlog and the Me board have the same Team and
-Customer filters (O11); there they narrow the day board's cards, a
-customer matching by effective customers as here.
+The Team board and the Backlog have the same Team and Customer filters
+(O11); there they narrow the day board's cards, a customer matching by
+effective customers as here. The Me board has the Team filter alone (O12).
 
 Several values within one filter are OR; different filters are AND. Every
 matching card is drawn with its chain of ancestors above it, so it is clear

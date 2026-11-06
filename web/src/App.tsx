@@ -66,9 +66,9 @@ const waitingAfterMs = 300;
 
 const LS_VIEW = "aeman.view";
 const LS_TEAM_FILTER = "aeman.teamFilter";
-// The Team board's, the Backlog's and the Me board's Customer filter (O11):
-// one selection the three share, as they share the team one. The Roadmap
-// keeps its own (ROADMAP_FILTERS_KEY).
+// The Team board's and the Backlog's Customer filter (O11): one selection the
+// two share, as they share the team one with the Me board, which has no
+// Customer filter. The Roadmap keeps its own (ROADMAP_FILTERS_KEY).
 const LS_CUSTOMER_FILTER = "aeman.customerFilter";
 const LS_VIEW_AS = "aeman.viewAs";
 
@@ -1576,8 +1576,6 @@ export function App() {
             teams={roster}
             teamFilter={teamFilter}
             onSetFilter={setTeamFilter}
-            customerFilter={customerFilter}
-            onSetCustomerFilter={setCustomerFilter}
             patchCard={patchCard}
             addCard={addCard}
             replaceCard={replaceCard}

@@ -60,8 +60,7 @@ import { mayRefuse, mayRemove, sortableWithin } from "../meboard";
 import { Dropdown } from "./Dropdown";
 import { FilterSelect } from "./FilterSelect";
 import { ViewToggle } from "./ViewToggle";
-import { customerOptions, teamOptions } from "../filteroptions";
-import { bornCustomers } from "../ownership";
+import { teamOptions } from "../filteroptions";
 import { useKeptCreated } from "../keptcreated";
 import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
 import { ConnectDialog } from "./ConnectDialog";
@@ -100,9 +99,6 @@ interface MeBoardProps {
   /** Shared single-select team (also the team for new cards); null = none. */
   teamFilter: string[] | null;
   onSetFilter: (keys: string[] | null) => void;
-  /** The day boards' Customer filter (O11): [] = none, else ids (OR). */
-  customerFilter?: string[];
-  onSetCustomerFilter?: (next: string[]) => void;
   patchCard: (
     itemId: string,
     patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
@@ -168,8 +164,6 @@ export function MeBoard({
   teams,
   teamFilter,
   onSetFilter,
-  customerFilter = [],
-  onSetCustomerFilter,
   patchCard,
   addCard,
   replaceCard,
@@ -289,18 +283,17 @@ export function MeBoard({
   // In Me a card shows by the day rule of board.MeView, mirrored card by card
   // in meview.onMyDay (with its own tests). What stays here is the board's
   // own: whose cards these are (mine, above) and the two toggles.
-  // What the day draws with no Team or Customer filter — what the "N more
-  // tasks" button counts against — and what it draws with them (O11).
+  // What the day draws with no Team filter — what the "N more tasks" button
+  // counts against — and what it draws with it (O12).
   const dayCards = useMemo(
     () => mine.filter((c) => (!focus || isWorkable(c)) && onMyDay(c, board, selectedDate, todayIso())),
     [mine, board, selectedDate, focus],
   );
-  const filtering = (teamFilter?.length ?? 0) > 0 || customerFilter.length > 0;
-  const born = bornCustomers(customerFilter);
-  const { kept, keep } = useKeptCreated(`${(teamFilter ?? []).join(",")}|${customerFilter.join(",")}`);
+  const filtering = (teamFilter?.length ?? 0) > 0;
+  const { kept, keep } = useKeptCreated((teamFilter ?? []).join(","));
   const filterPasses = useCallback(
-    (c: CardModel) => kept.has(c.itemId) || meFilterPasses(c, board.cards, teamFilter, customerFilter),
-    [board.cards, teamFilter, customerFilter, kept],
+    (c: CardModel) => kept.has(c.itemId) || meFilterPasses(c, teamFilter),
+    [teamFilter, kept],
   );
   const myCards = useMemo(() => dayCards.filter(filterPasses), [dayCards, filterPasses]);
   const hiddenCount = hiddenByFilters(dayCards, filterPasses);
@@ -1527,15 +1520,12 @@ export function MeBoard({
       sprintStart:
         selectedDate > todayIso() ? undefined : (sprint ?? selectedDate),
       team: team ?? undefined,
-      customers: born,
       createdAt: new Date().toISOString(),
       description: "",
       notes: [],
     };
-    // Typed in under the Team or Customer filter: born for the one customer
-    // chosen, and kept shown until the filters change — a team picked
-    // outside them, or several customers chosen, would otherwise hide it the
-    // moment it is made (O11).
+    // Typed in under the Team filter with a team picked outside it: kept
+    // shown until the filter changes, rather than gone the moment it is made.
     if (filtering) {
       keep(tempId);
     }
@@ -1552,7 +1542,6 @@ export function MeBoard({
       start: selectedDate,
       assigneeLogin: viewMe || null,
       team: team ?? null,
-      customers: born ?? null,
       after: anchor && "after" in anchor ? anchor.after : null,
       before: anchor && "before" in anchor ? anchor.before : null,
     });
@@ -1834,7 +1823,9 @@ export function MeBoard({
           (DayNav): it is the app's state, and one control for it keeps the
           boards from disagreeing about the same day. */}
       <div className="board-toolbar">
-        {/* The Me board manages no roster: no Manage in these (O11). */}
+        {/* The Me board manages no roster (no Manage here) and has no
+            Customer filter: a customer chosen on the Team board or the
+            Backlog hides nothing here (O12). */}
         <FilterSelect
           label="Team"
           anyLabel="all"
@@ -1843,22 +1834,12 @@ export function MeBoard({
           onChange={(next) => onSetFilter(next.length ? next : null)}
           title="Show only these teams' work"
         />
-        <FilterSelect
-          label="Customer"
-          options={customerOptions(board.customers)}
-          selected={customerFilter}
-          onChange={(next) => onSetCustomerFilter?.(next)}
-          title="Show only the work for these customers"
-        />
         {hiddenCount > 0 && (
           <button
             type="button"
             className="btn filter-hidden-btn"
-            title="The filters hide these of your cards for this day — show everything"
-            onClick={() => {
-              onSetFilter(null);
-              onSetCustomerFilter?.([]);
-            }}
+            title="The Team filter hides these of your cards for this day — show everything"
+            onClick={() => onSetFilter(null)}
           >
             {moreTasksLabel(hiddenCount)}
           </button>
