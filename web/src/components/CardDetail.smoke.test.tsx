@@ -242,11 +242,27 @@ describe("ownership in the drawer", () => {
     expect(html).toContain('aria-label="Add a customer"');
   });
 
-  it("shows a task's inherited team grey, with where it comes from", () => {
+  it("shows a task's inherited team inside its Owner, greyed, with where it comes from", () => {
     const goal = card({ itemId: "g", title: "Grow", type: "goal", team: "portal" });
     const task = card({ itemId: "t", title: "Receipts", parent: "g", lineage: [{ uid: "g", type: "goal", title: "Grow" }] });
     const html = drawOn(task, withRoster([goal, task]));
-    expect(html).toMatch(/class="drawer-inherited"[^>]*title="From «Grow»"[^>]*>portal/);
+    expect(html).toMatch(/class="drawer-owner drawer-owner-inherited"[^>]*title="portal — from «Grow»"/);
+    expect(html).toMatch(/drawer-owner-inherited[\s\S]*?<span class="drawer-owner-text">portal<\/span>/);
+    // Said once, in the Owner: no second Team row beside it.
+    expect(html).not.toContain("drawer-row-quiet");
+  });
+
+  it("shows a plan item's inherited team inside its Owner too, beside its own owner", () => {
+    const goal = card({ itemId: "g", title: "Grow", type: "goal", team: "portal" });
+    const epic = card({ itemId: "e", title: "Ship", type: "epic", parent: "g", owner: "ann", lineage: [{ uid: "g", type: "goal", title: "Grow" }] });
+    const html = drawOn(epic, withRoster([goal, epic]));
+    expect(html).toMatch(/class="drawer-owner drawer-owner-inherited"[^>]*title="portal · ann — from «Grow»"/);
+  });
+
+  it("does not grey a team the card has of its own", () => {
+    const goal = card({ itemId: "g", title: "Grow", type: "goal", team: "portal" });
+    const task = card({ itemId: "t", title: "Receipts", parent: "g", team: "core", lineage: [{ uid: "g", type: "goal", title: "Grow" }] });
+    expect(drawOn(task, withRoster([goal, task]))).not.toContain("drawer-owner-inherited");
   });
 
   it("gives a project card no customers", () => {

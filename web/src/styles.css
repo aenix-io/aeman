@@ -6010,17 +6010,13 @@ button.card-age {
   margin: 0;
 }
 
-/* A task's team taken from its plan: grey, saying where it comes from. */
-.drawer-row-quiet {
-  padding-top: 0;
+/* A team the drawer's Owner takes from above (O3): translucent, as the
+   Roadmap's Owner cell draws it; a person of the card's own stays as is. */
+.drawer-owner-inherited .drawer-owner-team {
+  opacity: 0.45;
 }
 
-.drawer-label-quiet {
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.drawer-inherited {
+.drawer-owner-inherited:not(:has(.avatar-img)) .drawer-owner-text {
   color: var(--muted);
   font-style: italic;
 }
