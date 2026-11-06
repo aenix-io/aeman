@@ -553,12 +553,12 @@ func TestAnUnfilteredRoadmapSparesItsAuthor(t *testing.T) {
 	}
 }
 
-// O4, O11 — the Me board filters by effective customers on what it holds, so
-// a change to an ancestor's customers must reach the tasks on it: the subtree
-// re-send (subtreeOwning) reaches a scoped watch as MODIFIED frames for the
-// descendants its view holds — Me included — carrying the new effective
-// customers. Not only the unscoped stream.
-func TestAnAncestorsCustomersReachTheMeBoard(t *testing.T) {
+// O4, O11 — the Team board and the Backlog filter by effective customers on
+// what they hold, so a change to an ancestor's customers must reach the
+// tasks on them: the subtree re-send (subtreeOwning) reaches a scoped watch
+// as MODIFIED frames for the descendants its view holds, carrying the new
+// effective customers. Not only the unscoped stream.
+func TestAnAncestorsCustomersReachAScopedWatch(t *testing.T) {
 	today := board.TodayIso()
 	store := newBoardStore()
 	b := board.NewBoardIn("acme", []board.Card{
@@ -569,7 +569,7 @@ func TestAnAncestorsCustomersReachTheMeBoard(t *testing.T) {
 	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}}
 	b.Customers = []board.Customer{{ID: "cu1", Name: "Hidora"}}
 	e := seedEntry(store, "k", b)
-	me, cancel := store.subscribe("k", "", &apiserver.Selector{View: "me", User: "ann", Day: today}, map[string]bool{"cards": true})
+	me, cancel := store.subscribe("k", "", &apiserver.Selector{View: "all", Team: "alpha"}, map[string]bool{"cards": true})
 	defer cancel()
 	e.mu.Lock()
 	c, _ := board.Find(e.board, "epic")
@@ -580,7 +580,7 @@ func TestAnAncestorsCustomersReachTheMeBoard(t *testing.T) {
 	settled(t, e)
 	got := took(t, me, 1)
 	if got["t"].Type != "MODIFIED" || len(got["t"].Card.Status.EffectiveCustomers) != 0 {
-		t.Fatalf("the Me board heard %+v, want the task MODIFIED with no customer", got)
+		t.Fatalf("the Team board's watch heard %+v, want the task MODIFIED with no customer", got)
 	}
 }
 
