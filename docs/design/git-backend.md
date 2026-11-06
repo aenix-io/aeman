@@ -82,8 +82,9 @@ card. A card's domain is decided by one rule, evaluated in this order —
 goal, an initiative or an epic carries one too, and rule 2 does NOT apply
 to it — a hierarchy link places nothing, so the card lives where its own
 project or team puts it, and nothing under a planning card follows it
-between repositories. A planning card itself has no team and no project,
-so nothing places it: it lives in the PRIMARY repository, always — said
+between repositories. A planning card itself has no project and its team
+(the team that carries it out, `ownership.md`) places nothing, so nothing
+places it: it lives in the PRIMARY repository, always — said
 outright in `DomainOf` rather than left to fall through, so a stray
 value a direct writer put on a goal cannot move a tree's root into a
 closed repository. The rule tells the two parents apart through the resolver's
@@ -199,6 +200,11 @@ users/<login>.yaml                 primary domain only, one person: the
                                    points a week somebody set for them
                                    (`capacity`; absent = no number, and the
                                    board derives none — B19); other keys kept
+customers/<id>.yaml                primary domain only, one customer of the
+                                   board's roster: name, rank, created; cards
+                                   name it by id (`customers: [<id>, …]`),
+                                   and a delete takes the id off every card
+                                   in the same commit (`ownership.md`)
 projects/<id>/project.yaml         one project: name, rank; a file with no
                                    `name` is the NO-PROJECT bucket, written
                                    on demand (`projects/_/project.yaml`)
@@ -340,7 +346,10 @@ Rules:
   and the API (a column is `(project, scope)`). Renaming an scope rewrites
   every card that names it plus the scope file — in **one commit**, which
   is what today's `RenameScope` does across N GraphQL calls.
-- `parent`, `reviewOf` are **ids**.
+- `parent`, `reviewOf` are **ids**, and so are the entries of
+  `customers:` (the roster's, `customers/<id>.yaml`); `owner:` is a login
+  and is read on a goal, an initiative or an epic only
+  (`ownership.md`).
 - `link` is the only trace of the 7 issue-backed cards: a URL in the
   card, nothing else. There is no issue/PR integration.
 - `github` is the Projects v2 item id the card was migrated from, kept

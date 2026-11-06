@@ -199,7 +199,7 @@ The inheritance rule loses one clause and keeps its order:
 4. any other card lives where its **team** lives (the no-team group
    lives in the primary domain).
 
-A planning card has no team and no project, so nothing places it: it
+A planning card has no project and its team places nothing, so nothing places it: it
 lives in the **primary** repository, always — the one repository every
 reader of the board can read (without it there is no board at all,
 403). A hierarchy link does **not** move the child — a task under an
@@ -558,7 +558,7 @@ task.
 - H3 — a planning card is drawn on the Roadmap and on no day board, is
   never carried, weighed or overdue, and has no stage, progress, band,
   backlog, sprint, column or review of its own (`ErrPlanningCard`,
-  422 `planningCard`); its dates are its own, and it has no owner and no team — those are on the tasks under it — so it lives in the primary repository. Pinned by
+  422 `planningCard`); its dates are its own, and it has no assignee — the people doing the work are on the tasks under it; it may carry a team and an owner (who carries it out, who answers for it, `ownership.md`), which place nothing — so it lives in the primary repository. Pinned by
   board `TestPlanningCardsAreOnNoDayBoardAndTasksUnderThemAre`; service
   `TestAPlanningCardHasNoDayBoardState`,
   `TestDeletingAPlanningCardReparentsItsChildren`; apiserver
