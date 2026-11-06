@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   customerChips,
+  customerPasses,
   effectiveCustomersOf,
   effectiveTeamOf,
   inheritedTeamOf,
@@ -115,5 +116,23 @@ describe("the owner filter's options", () => {
   it("keep the people the board has shown before, though the filtered listing no longer holds them", () => {
     const filtered = [card({ itemId: "t", assignees: ["ann"] })];
     expect(ownerFilterOptions([], filtered, ["ann"], ["bob", "gwen"])).toEqual(["ann", "bob", "gwen"]);
+  });
+});
+
+// O11 — the day boards' Customer filter, mirrored for what a board holds: a
+// card passes when one of its EFFECTIVE customers (its own plus every
+// ancestor's, a review card's its task's) is chosen; nothing chosen passes
+// everything. The server applies the same rule to the listing and the watch.
+describe("the day boards' customer filter", () => {
+  it("passes everything while nothing is chosen", () => {
+    expect(customerPasses(cards[3], cards, null)).toBe(true);
+    expect(customerPasses(cards[3], cards, [])).toBe(true);
+  });
+
+  it("matches by effective customers, an ancestor's included", () => {
+    expect(customerPasses(cards[3], cards, ["hidora"])).toBe(true); // the goal's
+    expect(customerPasses(cards[3], cards, ["zeta"])).toBe(false); // t's own, not own's
+    expect(customerPasses(cards[2], cards, ["zeta", "nobody"])).toBe(true);
+    expect(customerPasses(cards[4], cards, ["zeta"])).toBe(true); // the review card: its task's
   });
 });

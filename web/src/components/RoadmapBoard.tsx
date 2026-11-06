@@ -56,7 +56,7 @@ import {
 import { barColor } from "../stages";
 import { ViewToggle } from "./ViewToggle";
 import { FilterSelect } from "./FilterSelect";
-import { CustomersModal } from "./CustomersModal";
+import { customerOptions, teamOptions } from "../filteroptions";
 import { NO_ROADMAP_FILTERS, ownerFilterOptions, peopleOf, type RoadmapFilters } from "../ownership";
 import { isPlanning } from "../subtasks";
 import { ownerLabel, ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
@@ -103,6 +103,10 @@ interface RoadmapBoardProps {
    *  listing's selectors, held and remembered by the app. */
   filters: RoadmapFilters;
   onFilters: (next: RoadmapFilters) => void;
+  /** Open the team and customer rosters' dialogs, from the bottom of the
+   *  Team and Customer filters. */
+  onManageTeams?: () => void;
+  onManageCustomers?: () => void;
 }
 
 const LS_DEPTH = "aeman.roadmap.depth";
@@ -385,12 +389,13 @@ export function RoadmapBoard({
   onShowProjects,
   filters,
   onFilters,
+  onManageTeams,
+  onManageCustomers,
 }: RoadmapBoardProps) {
   const today = todayIso();
   const [depth, setDepthState] = useState<DepthRange>(readDepth);
   const [zoom, setZoomState] = useState<Zoom>(readZoom);
   const [folded, setFoldedState] = useState<Set<string>>(readFolded);
-  const [managingCustomers, setManagingCustomers] = useState(false);
   // The planning row the + was pressed on, whose create form is open.
   const [addingUnder, setAddingUnder] = useState<string | null>(null);
   const [focusRow, setFocusRow] = useState<string | null>(null);
@@ -865,15 +870,17 @@ export function RoadmapBoard({
             (ownership.md, O7, O8): the server's filters, remembered. */}
         <FilterSelect
           label="Team"
-          options={roster.map((t) => ({ value: t, label: t }))}
+          options={teamOptions(roster)}
           selected={filters.teams}
           onChange={(teams) => onFilters({ ...filters, teams })}
+          manage={onManageTeams ? { label: "Manage teams", onClick: onManageTeams } : undefined}
         />
         <FilterSelect
           label="Customer"
-          options={(board.customers ?? []).map((c) => ({ value: c.id, label: c.name }))}
+          options={customerOptions(board.customers)}
           selected={filters.customers}
           onChange={(customers) => onFilters({ ...filters, customers })}
+          manage={onManageCustomers ? { label: "Manage customers", onClick: onManageCustomers } : undefined}
         />
         <FilterSelect
           label="Owner"
@@ -881,9 +888,6 @@ export function RoadmapBoard({
           selected={filters.owners}
           onChange={(owners) => onFilters({ ...filters, owners })}
         />
-        <button type="button" className="btn roadmap-customers-btn" title="Manage the customers" onClick={() => setManagingCustomers(true)}>
-          Customers
-        </button>
       </div>
 
       {shownLines.length === 0 ? (
@@ -1029,15 +1033,6 @@ export function RoadmapBoard({
           note={childrenNote(board.cards, removeChoice.itemId)}
           onClose={() => setRemoveChoice(null)}
           onSubmit={(choice) => answerRemoval(removeChoice, choice as HierarchyChoice)}
-        />
-      )}
-      {managingCustomers && (
-        <CustomersModal
-          customers={board.customers ?? []}
-          provider={provider}
-          onChanged={reload}
-          onError={onError}
-          onClose={() => setManagingCustomers(false)}
         />
       )}
     </div>

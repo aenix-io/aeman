@@ -15,13 +15,29 @@ export interface ViewOptions {
   /** The Roadmap's team, customer and owner filters (ownership.md, O7,
    *  O8): selectors the server applies, each a comma-separated set. */
   filters?: RoadmapFilters;
+  /** The Team board's and the Backlog's Customer filter (O11): customer
+   *  ids, matched by the server against effective customers. The Me board
+   *  filters what it holds itself — it counts what its filters hide. */
+  customers?: string[];
+}
+
+/** teamSet writes a team selection as the selector's set. The no-team group
+ *  is its empty member, so the group ALONE is "," — an empty `team=` would
+ *  ask for every team (O11). */
+export function teamSet(teams: readonly string[]): string {
+  const s = teams.join(",");
+  return teams.length > 0 && s === "" ? "," : s;
+}
+
+function withCustomers(q: Record<string, string>, opts: ViewOptions): Record<string, string> {
+  return opts.customers?.length ? { ...q, customer: opts.customers.join(",") } : q;
 }
 
 function roadmapQuery(opts: ViewOptions): Record<string, string> {
   const q: Record<string, string> = opts.projectCards ? { view: "roadmap", projectCards: "true" } : { view: "roadmap" };
   const f = opts.filters;
   if (f?.teams.length) {
-    q.team = f.teams.join(",");
+    q.team = teamSet(f.teams);
   }
   if (f?.customers.length) {
     q.customer = f.customers.join(",");
@@ -73,14 +89,14 @@ export function viewQueries(
     // project cards are the server's to leave out unless asked for.
     return [roadmapQuery(opts)];
   }
-  const team = teams.join(",");
+  const team = teamSet(teams);
   if (view === "backlog") {
     // Each shown team's parked open tasks, in the server's BacklogOrder
     // (K2, docs/design/backlog.md). Not a day board: no day, never a
     // snapshot. The no-team group is the empty member of the set.
-    return [{ view: "backlog", team }];
+    return [withCustomers({ view: "backlog", team }, opts)];
   }
-  return [{ view: "team", team, day, reviews: "true", ...snap }];
+  return [withCustomers({ view: "team", team, day, reviews: "true", ...snap }, opts)];
 }
 
 // snapshotDay reports that a day is one the board can be shown AS IT WAS: a
@@ -116,7 +132,7 @@ export function watchQuery(
     }
     return q;
   }
-  return { view: "all", team: teams.join(",") };
+  return withCustomers({ view: "all", team: teamSet(teams) }, opts);
 }
 
 // watchQueries lists the selectors the active view keeps a watch on — one

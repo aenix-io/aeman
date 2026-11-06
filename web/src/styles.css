@@ -6059,7 +6059,7 @@ button.card-age {
   font-style: italic;
 }
 
-/* The Roadmap's Team, Customer and Owner filters. */
+/* The one filter dropdown of every board: Team, Customer, Owner, Project. */
 .filter-select-btn {
   font-size: 12px;
   white-space: nowrap;
@@ -6075,4 +6075,24 @@ button.card-age {
   align-items: center;
   gap: 6px;
   cursor: pointer;
+}
+
+.filter-select-none {
+  font-style: italic;
+}
+
+/* The roster's own dialog, opened from the bottom of its filter. */
+.filter-select-manage {
+  color: var(--muted);
+  border-top: 1px solid var(--line-soft);
+  margin-top: 1px;
+}
+
+/* The Me board's "N more tasks": what the filters hide, and the way back. */
+.filter-hidden-btn {
+  font-size: 12px;
+  white-space: nowrap;
+  background: var(--zone-yellow-bg);
+  border-color: var(--zone-yellow-accent);
+  color: var(--fg);
 }

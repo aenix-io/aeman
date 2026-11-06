@@ -16,6 +16,7 @@ import { presenceAfter, type PresenceMap } from "./presence";
 import { PROJECT_CARDS_KEY, storedProjectCards } from "./roadmap";
 import { ROADMAP_FILTERS_KEY, storedRoadmapFilters, type RoadmapFilters } from "./ownership";
 import { TeamsModal } from "./components/TeamsModal";
+import { CustomersModal } from "./components/CustomersModal";
 import { readProjectFilter, writeProjectFilter } from "./projectFilter";
 import {
   boardMetadata,
@@ -65,6 +66,10 @@ const waitingAfterMs = 300;
 
 const LS_VIEW = "aeman.view";
 const LS_TEAM_FILTER = "aeman.teamFilter";
+// The Team board's, the Backlog's and the Me board's Customer filter (O11):
+// one selection the three share, as they share the team one. The Roadmap
+// keeps its own (ROADMAP_FILTERS_KEY).
+const LS_CUSTOMER_FILTER = "aeman.customerFilter";
 const LS_VIEW_AS = "aeman.viewAs";
 
 function readView(): ViewMode {
@@ -127,6 +132,10 @@ export function App() {
   // row. Its writes return as soon as the server's cache has them; the Board
   // watch frame repaints — nothing reloads.
   const [managingProjects, setManagingProjects] = useState(false);
+  // The team and customer rosters' dialogs, opened from the bottom of the
+  // Team and Customer filters on any board that offers them.
+  const [managingTeams, setManagingTeams] = useState(false);
+  const [managingCustomers, setManagingCustomers] = useState(false);
   // `domain` is the repository the project is declared in (multi-domain
   // boards offer the choice; otherwise the server picks the primary).
   const addProject = (name: string, domain?: string) => {
@@ -346,6 +355,20 @@ export function App() {
   // — Shift-click a chip to add/remove it. Persisted, and pruned to the teams
   // the board has once it is loaded.
   const [teamFilter, setTeamFilter] = useState<string[] | null>(readFilter);
+  // Customer filter of the day boards: [] = none, else customer ids (OR).
+  const [customerFilter, setCustomerFilterState] = useState<string[]>(() => readStringList(LS_CUSTOMER_FILTER) ?? []);
+  const setCustomerFilter = useCallback((next: string[]) => {
+    setCustomerFilterState(next);
+    try {
+      if (next.length === 0) {
+        localStorage.removeItem(LS_CUSTOMER_FILTER);
+      } else {
+        localStorage.setItem(LS_CUSTOMER_FILTER, JSON.stringify(next));
+      }
+    } catch {
+      // a preference, not state
+    }
+  }, []);
   // The Roadmap's "Project cards" toggle is the listing's selector, not a
   // filter of what was sent: it rides the roadmap's queries and watch
   // (viewquery, projectCards), so turning it refetches and re-subscribes.
@@ -672,6 +695,18 @@ export function App() {
     }
     setTeamFilter((cur) => pruneTeamFilter(cur, roster));
   }, [boardLoaded, roster]);
+  // A customer deleted since is no filter: an id nobody backs would blank
+  // the day boards.
+  const customerIds = (board?.customers ?? []).map((c) => c.id).join("\u0000");
+  useEffect(() => {
+    if (!boardLoaded) {
+      return;
+    }
+    const known = new Set(customerIds.split("\u0000"));
+    if (customerFilter.some((id) => !known.has(id))) {
+      setCustomerFilter(customerFilter.filter((id) => known.has(id)));
+    }
+  }, [boardLoaded, customerIds, customerFilter, setCustomerFilter]);
 
   // What the active board loads and watches: Me is the reader's own (the
   // server fills in "who am I" unless view-as impersonates someone), Team
@@ -690,9 +725,9 @@ export function App() {
         teamFilter ?? [...new Set([...roster, ""])],
         viewAs ?? undefined,
         undefined,
-        { projectCards, filters: roadmapFilters },
+        { projectCards, filters: roadmapFilters, customers: customerFilter },
       ),
-    [view, selectedDate, teamFilter, roster, viewAs, projectCards, roadmapFilters],
+    [view, selectedDate, teamFilter, roster, viewAs, projectCards, roadmapFilters, customerFilter],
   );
   const activeKey = activeQueries.map(queryString).join("|");
   // Which BOARD the reader is standing on, for the gestures made on it: the ×,
@@ -734,9 +769,9 @@ export function App() {
         selectedDate,
         teamFilter ?? [...new Set([...roster, ""])],
         viewAs ?? undefined,
-        { projectCards, filters: roadmapFilters },
+        { projectCards, filters: roadmapFilters, customers: customerFilter },
       ).map(queryString),
-    [view, selectedDate, teamFilter, roster, viewAs, projectCards, roadmapFilters],
+    [view, selectedDate, teamFilter, roster, viewAs, projectCards, roadmapFilters, customerFilter],
   );
   // One string for the watch effect's dep: the sockets are rebuilt only when
   // the selections actually change.
@@ -1593,6 +1628,8 @@ export function App() {
             onShowProjects={setProjectCards}
             filters={roadmapFilters}
             onFilters={setRoadmapFilters}
+            onManageTeams={() => setManagingTeams(true)}
+            onManageCustomers={() => setManagingCustomers(true)}
           />
         )}
         {board && view === "backlog" && (
@@ -1648,6 +1685,37 @@ export function App() {
           />
         )}
       </main>
+
+      {board && managingTeams && (
+        <TeamsModal
+          teams={roster}
+          domains={board.domains}
+          onAdd={addTeam}
+          onRename={renameTeam}
+          onRemove={removeTeam}
+          onReorder={reorderTeams}
+          capacities={Object.fromEntries(
+            Object.entries(board.sprintStates).map(([t, st]) => [t, st.capacity?.points ?? 0]),
+          )}
+          onSetCapacity={(team, points) => {
+            void provider
+              .setTeamCapacity(team, points)
+              .then(() => reload())
+              .catch((err: unknown) => setError(errMessage(err)));
+          }}
+          onClose={() => setManagingTeams(false)}
+        />
+      )}
+
+      {board && managingCustomers && (
+        <CustomersModal
+          customers={board.customers ?? []}
+          provider={provider}
+          onChanged={reload}
+          onError={(m) => setError(m)}
+          onClose={() => setManagingCustomers(false)}
+        />
+      )}
 
       {board && managingProjects && (
         <TeamsModal

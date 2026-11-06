@@ -101,6 +101,17 @@ export function effectiveCustomersOf(c: Card, cards: Held): string[] {
   return out;
 }
 
+/** customerPasses is the day boards' Customer filter on one card (O11): it
+ *  passes when nothing is chosen, or when one of its effective customers is
+ *  — the server's rule for the listing and the watch, mirrored for the cards
+ *  a board holds. */
+export function customerPasses(c: Card, cards: Held, chosen: readonly string[] | null): boolean {
+  if (!chosen || chosen.length === 0) {
+    return true;
+  }
+  return effectiveCustomersOf(c, cards).some((id) => chosen.includes(id));
+}
+
 /** CustomerChip is one customer in the drawer's Customers field: the card's
  *  own (removable there), or inherited from an ancestor (`from`, grey, not
  *  removable there). */

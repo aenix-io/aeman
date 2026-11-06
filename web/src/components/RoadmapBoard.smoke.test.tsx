@@ -325,7 +325,12 @@ describe("ownership on the Roadmap", () => {
     expect(draw(board([]))).toContain("Nothing on the roadmap yet");
   });
 
-  it("opens the customer roster from the toolbar", () => {
-    expect(draw(board([owned]))).toMatch(/<button[^>]*title="Manage the customers"/);
+  // The rosters are managed from the bottom of their filters (FilterSelect's
+  // Manage entry), not from buttons of their own; and No team is a team.
+  it("keeps no roster button of its own, and names No team as a team", () => {
+    const html = draw(board([owned]), null, false, vi.fn(), { teams: [""], customers: [], owners: [] });
+    expect(html).not.toContain("Manage the customers");
+    expect(html).not.toContain("roadmap-customers-btn");
+    expect(html).toMatch(/aria-label="Team filter"[^>]*>Team: No team</);
   });
 });
