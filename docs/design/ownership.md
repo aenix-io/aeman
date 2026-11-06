@@ -3,7 +3,7 @@
 Who is answerable for a goal, an initiative or an epic, which team carries
 it out, and which customers the work is for. Decided 2026-11-06 with Andrei
 Kvapil; this document is the source of truth for the change and the rules
-are pinned in [behavior-matrix.md](behavior-matrix.md) rows O1–O9. It
+are pinned in [behavior-matrix.md](behavior-matrix.md) rows O1–O10. It
 amends H3 of [hierarchy.md](hierarchy.md) (a planning card had no team and
 no owner) and leaves H4 (a project card has neither) as it is.
 
@@ -134,3 +134,4 @@ where it sits. The choice is remembered per viewer in the browser.
 | O7 | Roadmap team/customer filters match a task by its effective value and a planning card by itself or any task under it; matches are drawn with their ancestors. |
 | O8 | The Roadmap owner filter matches a planning card by its own owner only. |
 | O9 | `own` on a planning card sets its owner and/or team; the same fields and the customer roster are in the API and MCP. |
+| O10 | Deleting a customer needs the right to write every repository it reaches. |

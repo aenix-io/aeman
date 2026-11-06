@@ -800,7 +800,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Delete a customer and take it off every card that names it. */
+        /**
+         * Delete a customer and take it off every card that names it.
+         * @description Needs the right to write the roster (the primary repository) and every repository holding a card that names the customer; otherwise 403 and nothing changes.
+         */
         post: operations["deleteCustomer"];
         delete?: never;
         options?: never;

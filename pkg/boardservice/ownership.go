@@ -10,7 +10,7 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// Ownership — docs/design/ownership.md, rows O1–O9: who answers for a plan
+// Ownership — docs/design/ownership.md, rows O1–O10: who answers for a plan
 // item (its OWNER, one person, a planning card's alone), which team carries
 // it out (its TEAM), and which customers the work is for (CUSTOMERS, from
 // the board's roster, named by id).

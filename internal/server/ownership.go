@@ -223,8 +223,12 @@ func (v *visibleBackend) MoveCustomer(ctx context.Context, bd board.Board, id, a
 	return ob.MoveCustomer(ctx, bd, id, afterID)
 }
 
-// DeleteCustomer needs the right to write the primary. It reaches cards of
-// every domain, as a team's deletion does.
+// DeleteCustomer needs the right to write the primary, and every
+// repository holding a card that names the customer: the delete takes the
+// id off those cards in the same stroke, with the server's credential, so a
+// visitor who may not write one of them is refused (403) rather than
+// writing there through the roster (O5). Read off the whole board, not the
+// visitor's projection: a card they cannot read is still written.
 func (v *visibleBackend) DeleteCustomer(ctx context.Context, bd board.Board, id string) error {
 	ob, err := v.ownership()
 	if err != nil {
@@ -232,6 +236,20 @@ func (v *visibleBackend) DeleteCustomer(ctx context.Context, bd board.Board, id 
 	}
 	if err := v.rosterRight(ctx); err != nil {
 		return err
+	}
+	if rightsFrom(ctx) != nil {
+		whole, err := v.full(ctx, bd)
+		if err != nil {
+			return err
+		}
+		for _, c := range whole.Cards {
+			if !slices.Contains(c.Customers, id) {
+				continue
+			}
+			if err := v.write(ctx, whole, c); err != nil {
+				return err
+			}
+		}
 	}
 	return ob.DeleteCustomer(ctx, bd, id)
 }

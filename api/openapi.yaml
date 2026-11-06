@@ -1190,6 +1190,10 @@ paths:
       operationId: deleteCustomer
       tags: [Customers]
       summary: Delete a customer and take it off every card that names it.
+      description: >-
+        Needs the right to write the roster (the primary repository) and
+        every repository holding a card that names the customer; otherwise
+        403 and nothing changes.
       requestBody:
         required: true
         content:

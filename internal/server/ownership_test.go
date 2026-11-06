@@ -1,12 +1,15 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/boardservice"
 	"github.com/aenix-io/aeman/pkg/boardservice/boardservicetest"
 )
 
@@ -85,5 +88,37 @@ func TestOwnershipOverHTTP(t *testing.T) {
 	}
 	if e := fake.Card("epic"); len(e.Customers) != 0 {
 		t.Fatalf("the delete did not reach the epic: %v", e.Customers)
+	}
+}
+
+// O5 — a customer's delete takes it off every card that names it, in every
+// repository, with the server's credential. So a visitor who may write the
+// roster (the primary) but not every repository holding such a card would
+// be writing where they may not: the delete is refused (403), the roster
+// and the cards untouched. Where they may write every one, it goes through.
+func TestDeletingACustomerNeedsEveryRepositoryItReaches(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "x", Domain: "closed", Title: "in closed"},
+		{ItemID: "y", Domain: "shared", Title: "in shared"},
+	}, nil)
+	hidora, _ := fake.AddCustomer(context.Background(), board.Board{}, "Hidora")
+	acme, _ := fake.AddCustomer(context.Background(), board.Board{}, "Acme")
+	fake.Card("x").Customers = []string{hidora.ID}
+	fake.Card("y").Customers = []string{acme.ID}
+	v := &visibleBackend{Backend: fake, primary: "shared", domains: []string{"shared", "closed"}}
+	// Reads the closed repository, writes the shared one only.
+	ctx := withRights(context.Background(), rightsOn([]string{"shared", "closed"}, []string{"shared"}))
+	bd, err := v.LoadBoard(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := v.DeleteCustomer(ctx, bd, hidora.ID); !errors.Is(err, boardservice.ErrForbidden) {
+		t.Fatalf("deleting a customer a closed card names = %v, want ErrForbidden", err)
+	}
+	if c := fake.Card("x"); len(c.Customers) != 1 {
+		t.Fatalf("a refused delete reached the card: %v", c.Customers)
+	}
+	if err := v.DeleteCustomer(ctx, bd, acme.ID); err != nil {
+		t.Fatalf("deleting a customer only writable cards name = %v", err)
 	}
 }
