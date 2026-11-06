@@ -3,7 +3,7 @@
 Who is answerable for a goal, an initiative or an epic, which team carries
 it out, and which customers the work is for. Decided 2026-11-06 with Andrei
 Kvapil; this document is the source of truth for the change and the rules
-are pinned in [behavior-matrix.md](behavior-matrix.md) rows O1–O10. It
+are pinned in [behavior-matrix.md](behavior-matrix.md) rows O1–O11. It
 amends H3 of [hierarchy.md](hierarchy.md) (a planning card had no team and
 no owner) and leaves H4 (a project card has neither) as it is.
 
@@ -82,7 +82,9 @@ selectors `team`, `customer`, `owner`; the same in MCP `list_cards`):
 - **Team** — a task matches when its effective team is one of those chosen; a
   planning card matches when it does itself or any task under it does. So an
   epic of `portal` with some `cozystack` tasks shows under the `cozystack`
-  filter, with those tasks only.
+  filter, with those tasks only. **No team** is an option like any team: it
+  matches what has no effective team, and choosing only real teams leaves
+  that work out (O11).
 - **Customer** — the same rule over effective customers.
 - **Owner** — the Roadmap's one person filter: a planning card matches by
   its own owner (no inheritance, no hint), and a task or a subtask by its
@@ -90,6 +92,10 @@ selectors `team`, `customer`, `owner`; the same in MCP `list_cards`):
   It replaced the Roadmap's earlier client-side assignee filter, so the
   toolbar asks "whose" once. Its options are the board's members, the plan
   items' owners, the tasks' assignees and whoever is already selected.
+
+The Team board, the Backlog and the Me board have the same Team and
+Customer filters (O11); there they narrow the day board's cards, a
+customer matching by effective customers as here.
 
 Several values within one filter are OR; different filters are AND. Every
 matching card is drawn with its chain of ancestors above it, so it is clear
@@ -147,3 +153,4 @@ where it sits. The choice is remembered per viewer in the browser.
 | O8 | The Roadmap owner filter is its one person filter: a planning card by its own owner, a task or subtask by its assignees. |
 | O9 | `own` on a planning card sets its owner and/or team; the same fields and the customer roster are in the API and MCP. |
 | O10 | Deleting a customer needs the right to write every repository it reaches. |
+| O11 | The no-team group is a team in every team filter, and the day boards filter by customer too. |

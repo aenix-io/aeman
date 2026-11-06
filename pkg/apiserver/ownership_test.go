@@ -199,3 +199,79 @@ func TestATeamListingHoldsNoPlanningCard(t *testing.T) {
 		t.Fatalf("view=all with no team = %v, want the planning cards too", ids)
 	}
 }
+
+// O7 — the no-team group is a team like any other in the Roadmap's Team
+// filter: the empty member of the set, written alone as "," (a set holding
+// only the empty key, as on every other board). Choosing real teams leaves
+// the no-team work out; choosing No team keeps what has no effective team.
+func TestTheRoadmapTeamFilterHasNoTeamAsATeam(t *testing.T) {
+	b := board.NewBoard([]board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Team: "portal"},
+		{ItemID: "t1", Title: "Receipts", Parent: "epic", Parked: true},
+		{ItemID: "plan", Title: "Docs", Type: board.TypeEpic},
+		{ItemID: "t2", Title: "Guides", Parent: "plan", Parked: true},
+		{ItemID: "loose", Title: "Loose", Parked: true},
+	})
+	if got := roadmapIDs(b, Selector{Team: "portal"}); !reflect.DeepEqual(got, []string{"epic", "t1"}) {
+		t.Fatalf("team=portal = %v, want no no-team work", got)
+	}
+	if got := roadmapIDs(b, Selector{Team: ","}); !reflect.DeepEqual(got, []string{"plan", "t2", "loose"}) {
+		t.Fatalf("team=, (No team) = %v", got)
+	}
+	if got := roadmapIDs(b, Selector{Team: "portal,"}); !reflect.DeepEqual(got, []string{"epic", "t1", "plan", "t2", "loose"}) {
+		t.Fatalf("team=portal, = %v", got)
+	}
+	if got := roadmapIDs(b, Selector{Team: ""}); len(got) != 5 {
+		t.Fatalf("no team filter = %v, want everything", got)
+	}
+}
+
+// O11 — the day boards' Customer filter: the Team board's and the Backlog's
+// listing and watch (view=team, backlog, all) and the Me list keep a task
+// whose EFFECTIVE customers (its own plus every ancestor's, O4) include one
+// of those chosen. Several are OR; with the team set, AND.
+func TestTheDayBoardsFilterByEffectiveCustomer(t *testing.T) {
+	b := board.NewBoard([]board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Customers: []string{"cu1"}},
+		{ItemID: "t1", Title: "Receipts", Parent: "epic", Team: "alpha", Parked: true},
+		{ItemID: "t2", Title: "Invoices", Team: "alpha", Customers: []string{"cu2"}, Parked: true},
+		{ItemID: "t3", Title: "Docs", Team: "alpha", Parked: true},
+		{ItemID: "t4", Title: "Ops", Team: "beta", Customers: []string{"cu1"}, Parked: true},
+	})
+	b.Customers = []board.Customer{{ID: "cu1", Name: "Hidora"}, {ID: "cu2", Name: "Acme"}}
+	ids := func(sel Selector) []string {
+		var out []string
+		for _, c := range FilterCards(b, sel) {
+			out = append(out, c.ItemID)
+		}
+		return out
+	}
+	if got := ids(Selector{View: "backlog", Team: "alpha", Customer: "cu1"}); !reflect.DeepEqual(got, []string{"t1"}) {
+		t.Fatalf("backlog alpha for Hidora = %v", got)
+	}
+	if got := ids(Selector{View: "backlog", Team: "alpha,beta", Customer: "cu1,cu2"}); !reflect.DeepEqual(got, []string{"t1", "t2", "t4"}) {
+		t.Fatalf("backlog alpha,beta for Hidora or Acme = %v", got)
+	}
+	if got := ids(Selector{View: "all", Team: "alpha", Customer: "cu2"}); !reflect.DeepEqual(got, []string{"t2"}) {
+		t.Fatalf("all alpha for Acme = %v", got)
+	}
+	if got := ids(Selector{View: "backlog", Team: "alpha"}); !reflect.DeepEqual(got, []string{"t1", "t2", "t3"}) {
+		t.Fatalf("backlog alpha with no customer filter = %v", got)
+	}
+}
+
+// And the no-team group alone is the set ",": on the Backlog it is the
+// no-team group's backlog, not every team's.
+func TestABacklogOfTheNoTeamGroupAloneIsItsOwn(t *testing.T) {
+	b := board.NewBoard([]board.Card{
+		{ItemID: "a", Title: "A", Team: "alpha", Parked: true},
+		{ItemID: "n", Title: "N", Parked: true},
+	})
+	var got []string
+	for _, c := range FilterCards(b, Selector{View: "backlog", Team: ","}) {
+		got = append(got, c.ItemID)
+	}
+	if !reflect.DeepEqual(got, []string{"n"}) {
+		t.Fatalf("backlog team=, = %v, want the no-team group's alone", got)
+	}
+}
