@@ -201,10 +201,10 @@ func roadmapCards(b board.Board, ix *board.Index, projectCards bool) []board.Car
 // (O7, O8) to its listing, each judged on its own and AND across them:
 //
 //   - a PLANNING card passes team (customer) when its own effective team
-//     (customers) or any task's under it does, and owner by its OWN owner;
-//   - a TASK passes team and customer by its effective values — no task has
-//     an owner, so under an owner filter a task is listed when it passes the
-//     other two and sits under a planning card that passed;
+//     (customers) or any task's under it does, and owner when its OWN owner
+//     (never inherited) or a task's under it assignee is one of them;
+//   - a TASK or subtask passes team and customer by its effective values,
+//     and owner when one of its assignees is one of them;
 //
 // and every card listed comes with its ancestors. With no filter the
 // listing is as it was.
@@ -220,6 +220,22 @@ func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.
 		}
 		for _, id := range ix.EffectiveCustomers(c) {
 			if customers[id] {
+				return true
+			}
+		}
+		return false
+	}
+	// A person matches a plan item they OWN (never inherited) and a task or
+	// subtask they are ASSIGNED to (O8).
+	ownerOK := func(c board.Card) bool {
+		if owners == nil {
+			return true
+		}
+		if board.IsPlanning(c) {
+			return owners[c.Owner]
+		}
+		for _, a := range c.Assignees {
+			if owners[a] {
 				return true
 			}
 		}
@@ -252,9 +268,6 @@ func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.
 		return out
 	}
 	planPasses := func(p board.Card) bool {
-		if owners != nil && !owners[p.Owner] {
-			return false
-		}
 		under := tasksUnder(p)
 		anyUnder := func(ok func(board.Card) bool) bool {
 			for _, t := range under {
@@ -264,7 +277,8 @@ func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.
 			}
 			return false
 		}
-		return (teamOK(p) || anyUnder(teamOK)) && (customerOK(p) || anyUnder(customerOK))
+		return (teamOK(p) || anyUnder(teamOK)) && (customerOK(p) || anyUnder(customerOK)) &&
+			(ownerOK(p) || anyUnder(ownerOK))
 	}
 	passedPlans := map[string]bool{}
 	for _, c := range cards {
@@ -286,17 +300,8 @@ func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.
 			}
 			continue
 		}
-		if !teamOK(c) || !customerOK(c) {
+		if !teamOK(c) || !customerOK(c) || !ownerOK(c) {
 			continue
-		}
-		if owners != nil {
-			under := false
-			for _, a := range ix.Lineage(c) {
-				under = under || passedPlans[a.ItemID]
-			}
-			if !under {
-				continue
-			}
 		}
 		include(c)
 	}

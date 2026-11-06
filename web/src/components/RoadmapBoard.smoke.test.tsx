@@ -229,10 +229,12 @@ describe("the Roadmap's two panes", () => {
     expect(html.match(/class="roadmap-lane roadmap-lane-section"/g)?.length).toBe(2);
   });
 
-  it("filters by nobody's team: a planning card has none", () => {
+  it("asks whose once: the Owner filter is the one person filter (O8)", () => {
     const html = draw(board([goal, ini, epic, done, open]));
     expect(html).not.toContain("team-filter-chip");
-    expect(html).toContain('aria-label="Assignee filter"');
+    expect(html).not.toContain('aria-label="Assignee filter"');
+    expect(html).not.toContain("roadmap-who");
+    expect(html.match(/aria-label="Owner filter"/g)?.length).toBe(1);
   });
 
   it("keeps the + button's hover-only class off every row: a form that shared it was invisible", () => {

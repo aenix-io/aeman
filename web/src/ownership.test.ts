@@ -5,6 +5,7 @@ import {
   effectiveCustomersOf,
   effectiveTeamOf,
   inheritedTeamOf,
+  ownerFilterOptions,
   storedRoadmapFilters,
 } from "./ownership";
 import type { Card } from "./providers/types";
@@ -92,5 +93,19 @@ describe("the remembered Roadmap filters", () => {
     });
     expect(storedRoadmapFilters(null)).toEqual({ teams: [], customers: [], owners: [] });
     expect(storedRoadmapFilters("not json")).toEqual({ teams: [], customers: [], owners: [] });
+  });
+});
+
+// O8 — the Owner filter is the Roadmap's one person filter: it offers the
+// board's people, every plan item's owner, every task's assignee and
+// whoever is already chosen (a person who left the board stays choosable to
+// be taken off), once each, sorted.
+describe("the owner filter's options", () => {
+  it("are the members, the plan owners, the assignees and the selection", () => {
+    const held = [
+      card({ itemId: "g", type: "goal", owner: "gwen" }),
+      card({ itemId: "t", parent: "g", assignees: ["bob", "ann"] }),
+    ];
+    expect(ownerFilterOptions(["ann", "carl"], held, ["zed"])).toEqual(["ann", "bob", "carl", "gwen", "zed"]);
   });
 });

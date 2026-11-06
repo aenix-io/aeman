@@ -336,10 +336,11 @@ subtask" — a level above the range is skipped and its rows stand in its
 place, a level below is cut with its subtree; initiative to task by
 default), a zoom (3 months, a year, fit — three months and a year open
 two weeks before this Monday, fit spans every bar with a week of margin),
-the window's dates, a person filter, and the team, customer and owner
-filters ([ownership.md](ownership.md), O7, O8: team and customer match a
-task by its effective value and a planning card by itself or any task
-under it; owner matches a planning card by its own owner only) — a filter
+the window's dates, and the team, customer and owner filters
+([ownership.md](ownership.md), O7, O8: team and customer match a task by
+its effective value and a planning card by itself or any task under it;
+owner — the one person filter — matches a planning card by its own owner
+and a task or subtask by its assignees), applied by the server — a filter
 keeps the matching cards and every card above them, so the tree keeps its
 shape. The depth, the zoom, the filters and which rows are folded are the
 reader's own, kept in the browser.
@@ -354,7 +355,7 @@ panes so the lanes stay in step; its rows show the task's owner and
 subtasks like the tree's, and a row there **drags into the tree** under
 a planning card by the same rule and with the same preview — dragging
 within the sections does nothing, and nothing is dropped onto a section
-row. The person filter applies to them too. (`sectionOf` / `sectionsOf`
+row. The filters apply to them too. (`sectionOf` / `sectionsOf`
 in `roadmap.ts`: a root with a planning crumb in its lineage stays in the
 tree even when its parent is not in the listing — a hole is worse than a
 flat row.)

@@ -57,7 +57,7 @@ import { barColor } from "../stages";
 import { ViewToggle } from "./ViewToggle";
 import { FilterSelect } from "./FilterSelect";
 import { CustomersModal } from "./CustomersModal";
-import type { RoadmapFilters } from "../ownership";
+import { ownerFilterOptions, type RoadmapFilters } from "../ownership";
 import { isPlanning } from "../subtasks";
 import { ownerLabel, ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
 import { displayName, type Avatars, type Names } from "../users";
@@ -390,7 +390,6 @@ export function RoadmapBoard({
   const [depth, setDepthState] = useState<DepthRange>(readDepth);
   const [zoom, setZoomState] = useState<Zoom>(readZoom);
   const [folded, setFoldedState] = useState<Set<string>>(readFolded);
-  const [whoFilter, setWhoFilter] = useState<string | null>(null);
   const [managingCustomers, setManagingCustomers] = useState(false);
   // The planning row the + was pressed on, whose create form is open.
   const [addingUnder, setAddingUnder] = useState<string | null>(null);
@@ -431,52 +430,15 @@ export function RoadmapBoard({
     setFolded(next);
   };
 
-  // The people on the Roadmap, for the person filter: every assignee a task
-  // carries. The team, customer and owner filters are the server's
-  // (ownership.md, O7, O8).
-  const people = useMemo(() => {
-    const out = new Set<string>();
-    for (const c of board.cards) {
-      for (const a of c.assignees) {
-        out.add(a);
-      }
-    }
-    return [...out].sort();
-  }, [board.cards]);
-
-  // Whom the Owner filter offers: the board's people and every plan item's
-  // owner, so one somebody owns is always choosable.
-  const owners = useMemo(() => {
-    const out = new Set<string>(board.members.map((m) => m.login));
-    for (const c of board.cards) {
-      if (c.owner) {
-        out.add(c.owner);
-      }
-    }
-    for (const o of filters.owners) {
-      out.add(o);
-    }
-    return [...out].sort();
-  }, [board.members, board.cards, filters.owners]);
-
-  // A filter keeps the cards that match and every card ABOVE one (the
-  // lineage names them), so a matching task still stands under its epic
-  // and the epic under its goal — a tree with holes is no tree.
-  const shown = useMemo(() => {
-    if (!whoFilter) {
-      return board.cards;
-    }
-    const keep = new Set<string>();
-    for (const c of board.cards) {
-      if (c.assignees.includes(whoFilter)) {
-        keep.add(c.itemId);
-        for (const up of c.lineage ?? []) {
-          keep.add(up.uid);
-        }
-      }
-    }
-    return board.cards.filter((c) => keep.has(c.itemId));
-  }, [board.cards, whoFilter]);
+  // Whom the Owner filter offers — the Roadmap's one person filter (O8):
+  // the board's people, the plan items' owners, the tasks' assignees and
+  // whoever is chosen. The filters are the server's (O7, O8), so what was
+  // sent is what is drawn.
+  const owners = useMemo(
+    () => ownerFilterOptions(board.members.map((m) => m.login), board.cards, filters.owners),
+    [board.members, board.cards, filters.owners],
+  );
+  const shown = board.cards;
 
   // ---- the drag: where it stands, and the preview of where it would land ----
   const [dragging, setDragging] = useState<string | null>(null);
@@ -579,7 +541,7 @@ export function RoadmapBoard({
     }
     // The listing order is the board's; with a filter on, the order of what
     // is shown says nothing about the rest, so it is left to the response.
-    if (shown === board.cards) {
+    if (!filters.teams.length && !filters.customers.length && !filters.owners.length) {
       reorderCards?.(commit.order);
     }
     // A parent the server took stays: only a refused parent is rolled
@@ -916,21 +878,6 @@ export function RoadmapBoard({
         <button type="button" className="btn roadmap-customers-btn" title="Manage the customers" onClick={() => setManagingCustomers(true)}>
           Customers
         </button>
-        {people.length > 0 && (
-          <select
-            className="roadmap-who"
-            value={whoFilter ?? ""}
-            onChange={(e) => setWhoFilter(e.target.value || null)}
-            aria-label="Assignee filter"
-          >
-            <option value="">Anyone</option>
-            {people.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-        )}
       </div>
 
       {shownLines.length === 0 ? (

@@ -13,10 +13,10 @@ func ownershipBoard() board.Board {
 	b := board.NewBoard([]board.Card{
 		{ItemID: "goal", Title: "Grow", Type: board.TypeGoal, Owner: "gwen", Customers: []string{"hidora"}},
 		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "goal", Team: "portal", Owner: "ann"},
-		{ItemID: "t1", Title: "Receipts", Parent: "epic", Parked: true},
+		{ItemID: "t1", Title: "Receipts", Parent: "epic", Assignees: []string{"bob"}},
 		{ItemID: "t2", Title: "Invoices", Parent: "epic", Team: "cozystack", Customers: []string{"acme"}, Parked: true},
 		{ItemID: "other", Title: "Docs", Type: board.TypeEpic, Team: "docs"},
-		{ItemID: "loose", Title: "Loose", Team: "ops", Parked: true},
+		{ItemID: "loose", Title: "Loose", Team: "ops", Assignees: []string{"ann"}},
 	})
 	b.Customers = []board.Customer{{ID: "hidora", Name: "Hidora"}, {ID: "acme", Name: "Acme"}}
 	return b
@@ -110,20 +110,27 @@ func TestTheRoadmapCustomerFilter(t *testing.T) {
 	}
 }
 
-// O8 — the owner filter matches a planning card by its OWN owner only (never
-// inherited, and no task has one); the work under a matching plan item is
-// listed with it as far as the other filters let it — here there are none.
-// Each filter is judged on its own and they are AND: a planning card passes
-// team or customer by itself or any task under it, and owner by its own.
+// O8 — the Owner filter is the Roadmap's one person filter: a person in it
+// matches a plan item whose OWN owner they are (never inherited) and a task
+// or subtask they are assigned to, each drawn with its ancestors. Several
+// people are OR.
 func TestTheRoadmapOwnerFilter(t *testing.T) {
 	b := ownershipBoard()
-	if got := roadmapIDs(b, Selector{Owner: "ann"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t1", "t2"}) {
+	// ann owns the epic and is on the loose task; the tasks under her epic
+	// are not hers, so they are not drawn.
+	if got := roadmapIDs(b, Selector{Owner: "ann"}); !reflect.DeepEqual(got, []string{"goal", "epic", "loose"}) {
 		t.Fatalf("owner=ann = %v", got)
 	}
-	// gwen owns the goal: the goal and the work under it; the epic comes as
-	// the ancestor of that work, not because gwen owns it.
-	if got := roadmapIDs(b, Selector{Owner: "gwen"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t1", "t2"}) {
+	// gwen owns the goal alone: the epic below is not hers by inheritance.
+	if got := roadmapIDs(b, Selector{Owner: "gwen"}); !reflect.DeepEqual(got, []string{"goal"}) {
 		t.Fatalf("owner=gwen = %v", got)
+	}
+	// bob is on t1: the task, with the epic and the goal above it.
+	if got := roadmapIDs(b, Selector{Owner: "bob"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t1"}) {
+		t.Fatalf("owner=bob = %v", got)
+	}
+	if got := roadmapIDs(b, Selector{Owner: "ann,bob"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t1", "loose"}) {
+		t.Fatalf("owner=ann,bob = %v", got)
 	}
 	if got := roadmapIDs(b, Selector{Owner: "nobody"}); len(got) != 0 {
 		t.Fatalf("owner=nobody = %v", got)
@@ -137,16 +144,24 @@ func TestTheRoadmapOwnerFilter(t *testing.T) {
 	}
 }
 
-// The combination: ann owns the epic, whose own team is portal; only a task
-// under it is cozystack's (or Acme's). The epic passes team (by that task)
-// and owner (by itself), so it is listed — with that task alone.
+// The combination, each filter judged on its own and AND across them. ann
+// owns the epic, whose own team is portal; only t2 under it is cozystack's
+// (and Acme's). The epic passes team (by t2) and owner (by itself), so it is
+// listed; t2 is not ann's, so it is not. bob's t1 is portal's: under
+// owner=bob AND team=portal it is drawn with its chain.
 func TestTheRoadmapFiltersCombineOwnerWithTheWorkBelow(t *testing.T) {
 	b := ownershipBoard()
-	if got := roadmapIDs(b, Selector{Owner: "ann", Team: "cozystack"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t2"}) {
+	if got := roadmapIDs(b, Selector{Owner: "ann", Team: "cozystack"}); !reflect.DeepEqual(got, []string{"goal", "epic"}) {
 		t.Fatalf("owner=ann AND team=cozystack = %v", got)
 	}
-	if got := roadmapIDs(b, Selector{Owner: "ann", Customer: "acme"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t2"}) {
+	if got := roadmapIDs(b, Selector{Owner: "ann", Customer: "acme"}); !reflect.DeepEqual(got, []string{"goal", "epic"}) {
 		t.Fatalf("owner=ann AND customer=acme = %v", got)
+	}
+	if got := roadmapIDs(b, Selector{Owner: "bob", Team: "portal"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t1"}) {
+		t.Fatalf("owner=bob AND team=portal = %v", got)
+	}
+	if got := roadmapIDs(b, Selector{Owner: "bob", Customer: "acme"}); !reflect.DeepEqual(got, []string{"goal", "epic"}) {
+		t.Fatalf("owner=bob AND customer=acme = %v", got)
 	}
 	if got := roadmapIDs(b, Selector{Team: "cozystack", Customer: "hidora"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t2"}) {
 		t.Fatalf("team=cozystack AND customer=hidora = %v", got)

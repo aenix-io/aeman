@@ -84,8 +84,12 @@ selectors `team`, `customer`, `owner`; the same in MCP `list_cards`):
   epic of `portal` with some `cozystack` tasks shows under the `cozystack`
   filter, with those tasks only.
 - **Customer** — the same rule over effective customers.
-- **Owner** — a planning card matches by its own owner only (no inheritance,
-  no hint).
+- **Owner** — the Roadmap's one person filter: a planning card matches by
+  its own owner (no inheritance, no hint), and a task or a subtask by its
+  assignees; a planning card also passes by a task under it that matches.
+  It replaced the Roadmap's earlier client-side assignee filter, so the
+  toolbar asks "whose" once. Its options are the board's members, the plan
+  items' owners, the tasks' assignees and whoever is already selected.
 
 Several values within one filter are OR; different filters are AND. Every
 matching card is drawn with its chain of ancestors above it, so it is clear
@@ -140,6 +144,6 @@ where it sits. The choice is remembered per viewer in the browser.
 | O5 | Customers come from the board's roster, are referred to by id, and a rename or a delete reaches every card. |
 | O6 | Project cards carry no customers; a review card shows its task's. |
 | O7 | Roadmap team/customer filters match a task by its effective value and a planning card by itself or any task under it; matches are drawn with their ancestors. |
-| O8 | The Roadmap owner filter matches a planning card by its own owner only. |
+| O8 | The Roadmap owner filter is its one person filter: a planning card by its own owner, a task or subtask by its assignees. |
 | O9 | `own` on a planning card sets its owner and/or team; the same fields and the customer roster are in the API and MCP. |
 | O10 | Deleting a customer needs the right to write every repository it reaches. |

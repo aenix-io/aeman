@@ -1420,10 +1420,12 @@ components:
       in: query
       required: false
       description: >-
-        On the roadmap view, a comma-separated set of logins: a goal, an
-        initiative or an epic is listed when its OWN owner is among them
-        (never inherited), with its ancestors; no task matches. Several values
-        are OR; with `team` and `customer`, AND.
+        On the roadmap view, a comma-separated set of logins — the Roadmap's
+        one person filter: a goal, an initiative or an epic is listed when its
+        OWN owner is among them (never inherited), and a task or a subtask
+        when one of its assignees is; each with its ancestors. A planning card
+        also passes this filter by a task under it assigned to one of them.
+        Several values are OR; with `team` and `customer`, AND.
       schema:
         type: string
     ProjectCards:

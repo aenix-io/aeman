@@ -1118,7 +1118,7 @@ type ListCardsParams struct {
 	// Customer On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
 
-	// Owner On the roadmap view, a comma-separated set of logins: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), with its ancestors; no task matches. Several values are OR; with `team` and `customer`, AND.
+	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
 	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
@@ -1163,7 +1163,7 @@ type FinishedEarlierParams struct {
 	// Customer On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
 
-	// Owner On the roadmap view, a comma-separated set of logins: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), with its ancestors; no task matches. Several values are OR; with `team` and `customer`, AND.
+	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
 	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
@@ -1208,7 +1208,7 @@ type OwnCardParams struct {
 	// Customer On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
 
-	// Owner On the roadmap view, a comma-separated set of logins: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), with its ancestors; no task matches. Several values are OR; with `team` and `customer`, AND.
+	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
 	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
@@ -1253,7 +1253,7 @@ type RemoveCardParams struct {
 	// Customer On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
 
-	// Owner On the roadmap view, a comma-separated set of logins: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), with its ancestors; no task matches. Several values are OR; with `team` and `customer`, AND.
+	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
 	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
@@ -1298,7 +1298,7 @@ type TakeCardParams struct {
 	// Customer On the roadmap view, a comma-separated set of customer ids: a task is listed when one of its effective customers is among them, a planning card when it is itself or any task under it is, each with its ancestors. Several values are OR; with `team` and `owner`, AND.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
 
-	// Owner On the roadmap view, a comma-separated set of logins: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), with its ancestors; no task matches. Several values are OR; with `team` and `customer`, AND.
+	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
 	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).

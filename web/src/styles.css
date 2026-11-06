@@ -4496,8 +4496,7 @@ button.card-age {
   color: var(--muted);
 }
 
-.roadmap-depth select,
-.roadmap-who {
+.roadmap-depth select {
   font: inherit;
   font-size: 12px;
   color: var(--fg);
