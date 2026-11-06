@@ -416,3 +416,59 @@ func TestAPlanItemsCustomersReachTheTasksUnderIt(t *testing.T) {
 		t.Fatalf("the task under the epic = %+v, want MODIFIED with Hidora and its own team", task.Status)
 	}
 }
+
+// AND THE WHOLE SUBTREE, WHEN IT IS THE TEAM OR THE CUSTOMERS. A goal's
+// customers are every card's below it, through every level (O4), so naming
+// one re-sends the initiative, the epic, the task, its subtask and the task's
+// review card — each carries the new effective customers. A task's own
+// customers reach its subtask and its review card the same way. A title
+// change still reaches the direct tasks alone (their lineage), as before.
+func TestAnOwnershipChangeReachesTheWholeSubtree(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "goal", Title: "Grow", Type: board.TypeGoal},
+		{ItemID: "init", Title: "Portugal", Type: board.TypeInitiative, Parent: "goal"},
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "init"},
+		{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha", Parked: true},
+		{ItemID: "sub", Title: "Receipt PDF", Parent: "t", Team: "alpha"},
+		{ItemID: "r", Title: "review: Receipts", ReviewOf: "t", Team: "alpha", Parked: true},
+	})
+	b.Customers = []board.Customer{{ID: "cu1", Name: "Hidora"}, {ID: "cu2", Name: "Acme"}}
+	e := seedEntry(store, "k", b)
+	raw, cancel := store.subscribe("k", "", nil, map[string]bool{"cards": true})
+	defer cancel()
+	change := func(id string, edit func(*board.Card)) {
+		e.mu.Lock()
+		c, _ := board.Find(e.board, id)
+		edit(&c)
+		e.upsertCard(c)
+		e.cardChanged("", c, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+
+	change("goal", func(c *board.Card) { c.Customers = []string{"cu1"} })
+	got := took(t, raw, 6)
+	for _, id := range []string{"init", "epic", "t", "sub", "r"} {
+		if cs := got[id].Card.Status.EffectiveCustomers; len(cs) != 1 || cs[0] != "cu1" {
+			t.Fatalf("%s after the goal's customer = %+v, want Hidora", id, got[id])
+		}
+	}
+
+	// The task, the three plan items above it (their standing), its subtask
+	// and its review card.
+	change("t", func(c *board.Card) { c.Customers = []string{"cu2"} })
+	got = took(t, raw, 6)
+	for _, id := range []string{"sub", "r"} {
+		if cs := got[id].Card.Status.EffectiveCustomers; len(cs) != 2 {
+			t.Fatalf("%s after the task's customer = %v, want Hidora and Acme", id, cs)
+		}
+	}
+
+	// A title is shown by the direct tasks' lineage alone.
+	change("goal", func(c *board.Card) { c.Title = "Grow more" })
+	got = took(t, raw, 1)
+	if _, ok := got["goal"]; !ok || len(got) != 1 {
+		t.Fatalf("a goal's rename re-sent %v", got)
+	}
+}

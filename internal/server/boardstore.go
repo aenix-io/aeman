@@ -249,6 +249,11 @@ type boardEntry struct {
 	// the part of it its descendants carry in their lineage (the Backlog's
 	// tag and due date), so a change to it can be sent down to them.
 	shownOf map[string]string
+	// ownedOf is every card's team and customers as last announced: the
+	// cards below it take them as their effective team and customers
+	// (ownership.md, O3, O4), through every level, so a change to them is
+	// sent down the whole subtree (subtreeOwning).
+	ownedOf map[string]string
 	// reviewShown is each reviewed card's part its REVIEW card carries
 	// (status.reviewed: title, type, people; and the parent its chain hangs
 	// from), and reviewsOf the review cards linked to it: a change to that
@@ -538,10 +543,14 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	// And the tasks under a planning card whose title or dates moved: they
 	// carry both in their lineage (descendantsShowingIt).
 	descendants := e.descendantsShowingIt(c, verb)
+	// And every card below one whose team or customers moved: they take both
+	// as their effective team and customers, at any depth (O3, O4).
+	descendants = unionIDs(descendants, e.subtreeOwning(c, verb))
 	ancestors = append(ancestors, descendants...)
-	// And the review cards of a card whose title, type, people or chain moved
-	// (status.reviewed, status.lineage): no write touches them either.
-	ancestors = append(ancestors, e.reviewsShowingIt(c, verb, descendants)...)
+	// And the review cards of a card whose title, type, people, customers or
+	// chain moved (status.reviewed, status.lineage, effectiveCustomers), and
+	// of every card re-sent above: no write touches them either.
+	ancestors = unionIDs(ancestors, e.reviewsShowingIt(c, verb, descendants))
 	// Built on demand: on a board whose tabs are all scoped — the ordinary
 	// case — a burst of changes must not pay for a resource nobody is sent.
 	// And built ONCE each: the card's resource and every ancestor's are the
@@ -1178,6 +1187,7 @@ func (e *boardEntry) rememberParents() {
 	e.parentOf = make(map[string]string, len(e.board.Cards))
 	e.planning = map[string]bool{}
 	e.shownOf = map[string]string{}
+	e.ownedOf = make(map[string]string, len(e.board.Cards))
 	e.reviewShown = map[string]string{}
 	e.reviewsOf = map[string][]string{}
 	for _, c := range e.board.Cards {
@@ -1190,6 +1200,7 @@ func (e *boardEntry) rememberParents() {
 			e.reviewShown[c.ItemID] = shownInReview(c)
 		}
 		e.parentOf[c.ItemID] = c.Parent
+		e.ownedOf[c.ItemID] = shownOwning(c)
 		if board.IsPlanning(c) {
 			e.planning[c.ItemID] = true
 			e.shownOf[c.ItemID] = shownInLineage(c)
@@ -1197,20 +1208,91 @@ func (e *boardEntry) rememberParents() {
 	}
 }
 
-// shownInLineage is what a descendant carries of a planning card: its title
-// and its dates (status.lineage[].title/end), and its team and customers
-// (status.effectiveTeam/effectiveCustomers).
+// shownInLineage is what a descendant carries of a planning card in its
+// lineage: its title and its dates (status.lineage[].title/end).
 func shownInLineage(c board.Card) string {
-	// And its team and customers: the cards below take them as their
-	// effective team and customers (ownership.md, O3, O4).
-	return c.Title + "\x00" + c.StartDate + "\x00" + c.Day + "\x00" + c.Team + "\x00" + strings.Join(c.Customers, ",")
+	return c.Title + "\x00" + c.StartDate + "\x00" + c.Day
+}
+
+// shownOwning is what every card below a card takes from it: its team and
+// its customers (status.effectiveTeam/effectiveCustomers; O3, O4).
+func shownOwning(c board.Card) string {
+	return c.Team + "\x00" + strings.Join(c.Customers, ",")
 }
 
 // shownInReview is what a review card carries of the card it reviews: its
-// title, type and people (status.reviewed) and the parent its planning
-// chain hangs from (status.lineage).
+// title, type and people (status.reviewed), the parent its planning chain
+// hangs from (status.lineage) and its customers, which are the review
+// card's own (status.effectiveCustomers, O6).
 func shownInReview(c board.Card) string {
-	return c.Title + "\x00" + c.Type + "\x00" + strings.Join(c.Assignees, ",") + "\x00" + c.Parent
+	return c.Title + "\x00" + c.Type + "\x00" + strings.Join(c.Assignees, ",") + "\x00" + c.Parent + "\x00" + strings.Join(c.Customers, ",")
+}
+
+// unionIDs is a followed by the ids of b it does not hold yet, in order.
+func unionIDs(a, b []string) []string {
+	if len(b) == 0 {
+		return a
+	}
+	seen := make(map[string]bool, len(a)+len(b))
+	for _, id := range a {
+		seen[id] = true
+	}
+	for _, id := range b {
+		if !seen[id] {
+			seen[id] = true
+			a = append(a, id)
+		}
+	}
+	return a
+}
+
+// subtreeOwning is every card below one whose team or customers this change
+// moved, by id, nearest first: a planning card's or a task's team and
+// customers are the effective ones of everything under it (O3, O4) — the
+// planning cards, the tasks and their subtasks, at any depth — and no write
+// touches those. Their review cards follow through reviewsShowingIt. A goal
+// with many tasks names many cards here, more than a watcher's buffer of 64
+// frames may hold at once; the order puts the levels a board draws first
+// ahead of the deep ones, and a scoped watcher is sent only the ones its
+// view holds (flushMembers). It records what was shown for next time; the
+// caller holds e.mu with the cache already updated.
+func (e *boardEntry) subtreeOwning(c board.Card, verb string) []string {
+	if e.ownedOf == nil {
+		return nil
+	}
+	if verb == "DELETED" {
+		delete(e.ownedOf, c.ItemID)
+		return nil
+	}
+	now := shownOwning(c)
+	was, known := e.ownedOf[c.ItemID]
+	e.ownedOf[c.ItemID] = now
+	if !known || was == now || c.ReviewOf != "" {
+		return nil
+	}
+	children := map[string][]string{}
+	for id, parent := range e.parentOf {
+		if parent != "" {
+			children[parent] = append(children[parent], id)
+		}
+	}
+	var out []string
+	seen := map[string]bool{c.ItemID: true}
+	for level := []string{c.ItemID}; len(level) > 0; {
+		var next []string
+		for _, id := range level {
+			for _, kid := range children[id] {
+				if !seen[kid] {
+					seen[kid] = true
+					next = append(next, kid)
+				}
+			}
+		}
+		sort.Strings(next)
+		out = append(out, next...)
+		level = next
+	}
+	return out
 }
 
 // reviewsShowingIt is the REVIEW cards of a card whose shown part this
@@ -1248,7 +1330,8 @@ func (e *boardEntry) reviewsShowingIt(c board.Card, verb string, alsoFor []strin
 }
 
 // descendantsShowingIt is the TASKS directly under a planning card whose
-// title or dates this change moved, by id. A task's lineage carries both, and
+// title or dates this change moved, by id (its team and customers reach the
+// whole subtree instead: subtreeOwning). A task's lineage carries both, and
 // the Backlog shows the NEAREST planning card's — its tag and due date (K2) —
 // so a board that holds the tasks and not the planning card (the Backlog's
 // `view=all&team=<set>`) would otherwise keep showing the old ones (K6). Only
