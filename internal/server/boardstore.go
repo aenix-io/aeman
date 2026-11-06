@@ -47,8 +47,10 @@ type subscription struct {
 // status.reviewed and status.dueDate name OTHER cards, and one in a
 // repository the subscriber cannot read is left out — the crumb dropped,
 // the reviewed card unnamed, the due date taken from the nearest planning
-// card the subscriber can read. A subscriber who reads everything is sent
-// the resource as built.
+// card the subscriber can read. status.effectiveTeam and effectiveCustomers
+// are inherited from those cards too (O3, O4, O6), so they are worked out
+// again from the card's own and its readable ancestors'. A subscriber who
+// reads everything is sent the resource as built.
 func (sub *subscription) seen(res apiserver.Card, find func(string) (board.Card, bool)) apiserver.Card {
 	if sub.rights == nil {
 		return res
@@ -89,7 +91,50 @@ func (sub *subscription) seen(res apiserver.Card, find func(string) (board.Card,
 			}
 		}
 	}
+	out.Status.EffectiveTeam, out.Status.EffectiveCustomers = inheritedFromReadable(res, out.Status, find)
 	return out
+}
+
+// inheritedFromReadable is a card's effective team and customers counted
+// over what is left readable of the status: its own team, else the nearest
+// readable ancestor's; the readable ancestors' customers, a readable
+// reviewed task's and its own, each once, and only ids the full answer held
+// (the roster's).
+func inheritedFromReadable(res apiserver.Card, st apiserver.CardStatus, find func(string) (board.Card, bool)) (string, []string) {
+	lineage := st.Lineage
+	team := ""
+	if res.Spec.Scope == "" {
+		team = res.Spec.Team
+		for i := len(lineage) - 1; i >= 0 && team == ""; i-- {
+			if a, ok := find(lineage[i].UID); ok {
+				team = a.Team
+			}
+		}
+	}
+	known := map[string]bool{}
+	for _, id := range res.Status.EffectiveCustomers {
+		known[id] = true
+	}
+	var customers []string
+	add := func(ids []string) {
+		for _, id := range ids {
+			if known[id] && !slices.Contains(customers, id) {
+				customers = append(customers, id)
+			}
+		}
+	}
+	for _, l := range lineage {
+		if a, ok := find(l.UID); ok {
+			add(a.Customers)
+		}
+	}
+	if st.Reviewed != nil {
+		if task, ok := find(st.Reviewed.UID); ok {
+			add(task.Customers)
+		}
+	}
+	add(res.Spec.Customers)
+	return team, customers
 }
 
 // view is the board as this subscriber sees it.
