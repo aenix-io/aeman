@@ -161,3 +161,26 @@ func TestTheUnfilteredRoadmapIsUnchanged(t *testing.T) {
 		t.Fatalf("the unfiltered roadmap = %v, want %v", got, want)
 	}
 }
+
+// H3, O1 — a planning card keeps a team now, and that team must not put it
+// on a listing the team selector narrows: the Team and Backlog watches
+// (view=all&team=…) and MCP list_cards view=all team=… held tasks before,
+// and still hold tasks only. Without a team the all view lists every card,
+// as before.
+func TestATeamListingHoldsNoPlanningCard(t *testing.T) {
+	b := ownershipBoard()
+	for _, view := range []string{"all", "", "me"} {
+		for _, c := range FilterCards(b, Selector{View: view, Team: "portal,docs", User: "ann", Day: board.TodayIso()}) {
+			if board.IsPlanning(c) {
+				t.Errorf("view=%q team=portal,docs lists the %s %s", view, c.Type, c.ItemID)
+			}
+		}
+	}
+	ids := map[string]bool{}
+	for _, c := range FilterCards(b, Selector{View: "all"}) {
+		ids[c.ItemID] = true
+	}
+	if !ids["epic"] || !ids["goal"] {
+		t.Fatalf("view=all with no team = %v, want the planning cards too", ids)
+	}
+}

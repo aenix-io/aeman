@@ -396,7 +396,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		// and default lists). It accepts a comma-separated set, so
 		// ?view=me&team=marketing,portal narrows the Me board to those
 		// teams — the Me view's team-focus toggle over the selected chips.
-		if (sel.View == "me" || sel.View == "" || sel.View == "all") && !teamInSet(c.Team, sel.Team) {
+		if offTheTeamList(c, sel) {
 			continue
 		}
 		if sel.Focus && !board.Workable(c) {
@@ -479,7 +479,7 @@ func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
 		if sel.View == "roadmap" && c.Scope != "" && !sel.ProjectCards {
 			continue
 		}
-		if (sel.View == "me" || sel.View == "" || sel.View == "all") && !teamInSet(c.Team, sel.Team) {
+		if offTheTeamList(c, sel) {
 			continue
 		}
 		if sel.Focus && !board.Workable(c) {
@@ -633,6 +633,21 @@ func ListCards(b board.Board, sel Selector) CardList {
 
 // teamInSet reports whether a card's team is in a comma-separated selector
 // set. An empty set matches every team (no team filter).
+// offTheTeamList is a card the team selector leaves off the views it
+// narrows (me, all and the default list). A planning card is never on one
+// narrowed by a team: its team says who carries it out (O1) and puts it on
+// no day board (H3), so these lists hold tasks under a team, as they did
+// before planning cards had one.
+func offTheTeamList(c board.Card, sel Selector) bool {
+	if sel.View != "me" && sel.View != "" && sel.View != "all" {
+		return false
+	}
+	if strings.TrimSpace(sel.Team) == "" {
+		return false
+	}
+	return board.IsPlanning(c) || !teamInSet(c.Team, sel.Team)
+}
+
 func teamInSet(team, set string) bool {
 	set = strings.TrimSpace(set)
 	if set == "" {
