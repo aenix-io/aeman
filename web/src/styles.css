@@ -5516,3 +5516,70 @@ button.card-age {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
+
+/* ---- Roadmap: the status menu (K15, K16) ----
+   The badge of a task or a plan item is a button opening TO DO and
+   UNASSIGNED. A parked task marked TO DO wears a filled badge of its own:
+   "To do" (nothing started yet) is drawn in the same capitals, so the colour
+   is what tells "ready to be taken next" from "not started". */
+.roadmap-status-button {
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.roadmap-status-button:hover {
+  outline: 1px solid var(--line);
+}
+
+.roadmap-status-ready {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.roadmap-status-unassigned {
+  background: var(--bg-soft);
+  color: var(--fg);
+}
+
+.roadmap-status-menu {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px var(--elev-2);
+  padding: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.roadmap-status-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 140px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.roadmap-status-item:hover:not(:disabled) {
+  background: var(--bg-soft);
+}
+
+.roadmap-status-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.roadmap-status-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}

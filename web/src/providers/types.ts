@@ -397,6 +397,15 @@ export interface Provider {
    *  today, out of the backlog; a review nobody has taken makes the caller
    *  its reviewer. A task already in work is 422 alreadyInWork. */
   takeCard(uid: string): Promise<Card>;
+  /** The Roadmap's TO DO (K15): mark the parked work of a task — or every
+   *  parked task under a plan item — ready to be taken next, or clear the
+   *  mark. Answers how many tasks changed; 422 notParkedWork on a task not
+   *  waiting in a backlog. */
+  setTodo(uid: string, todo: boolean): Promise<number>;
+  /** The Roadmap's UNASSIGNED (K16): take a task in work — or every open
+   *  task in work under a plan item — back to its team's backlog. Answers
+   *  how many moved; 422 notInWork on a task not in work. */
+  unassignWork(uid: string): Promise<number>;
   /** Advance a team's sprint to today and carry its unfinished cards forward.
    * dryRun reports the would-be counts without writing. team = null is the
    * no-team group. */

@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { COLUMN_DEFAULTS, COLUMN_MAX, COLUMN_MINS } from "../roadmapcolumns";
-import { RoadmapBoard } from "./RoadmapBoard";
+import { RoadmapBoard, UnassignDialog } from "./RoadmapBoard";
 import type { RoadmapFilters } from "../ownership";
 import type { Board, Card, Provider } from "../providers/types";
 import { addDays, todayIso } from "../date";
@@ -351,5 +351,27 @@ describe("the Roadmap's column handles", () => {
   it("set the widths as CSS variables on the board, the defaults first", () => {
     const html = draw(board([goal, ini, epic, done, open]));
     expect(html).toMatch(/class="roadmap"[^>]*style="[^"]*--rm-title:290px[^"]*--rm-table:680px/);
+  });
+});
+
+// The status badge is the row's menu (K15, K16): a button on a task and on
+// a plan item, which opens TO DO and UNASSIGNED; UNASSIGNED asks first, by
+// count. A parked task marked TO DO wears its own badge.
+describe("the status menu", () => {
+  it("draws the badge of a task and of a plan item as a button", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    expect(html.match(/class="roadmap-status roadmap-status-[a-z-]+ roadmap-status-button"/g)?.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("wears TO DO, filled, on a parked task marked ready", () => {
+    const ready = { ...open, itemId: "ready", title: "Ready one", parked: true, todo: true, startDate: undefined, day: undefined, sprintStart: undefined };
+    const html = draw(board([goal, ini, epic, ready]));
+    expect(html).toMatch(/roadmap-status-ready roadmap-status-button"[^>]*>TO DO</);
+  });
+
+  it("asks how many tasks leave Team and Me before taking them out of work", () => {
+    const html = renderToStaticMarkup(<UnassignDialog count={3} onClose={() => {}} onConfirm={() => {}} />);
+    expect(html).toContain("Take 3 tasks out of work? They leave Team and Me and go back to their team&#x27;s backlog.");
+    expect(html).toContain("Take out of work");
   });
 });

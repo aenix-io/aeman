@@ -110,6 +110,16 @@ describe("the board in the address", () => {
     expect(calls[0].body).toBeUndefined();
   });
 
+  // The Roadmap's status menu (K15, K16): card actions that answer how many
+  // tasks they changed.
+  it("marks work TO DO and takes work out of work through the card's actions", async () => {
+    await apiProvider.setTodo("c1", true);
+    expect(calls[0].url).toBe("/api/v1/cards/c1/actions/todo");
+    expect(calls[0].body).toEqual({ todo: true });
+    await apiProvider.unassignWork("c1");
+    expect(calls[1].url).toBe("/api/v1/cards/c1/actions/unassign-work");
+  });
+
   // A create belongs to the board it was typed into: the open one, unless
   // what the add box filled in names another.
   it("creates into the board that is open", async () => {

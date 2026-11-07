@@ -335,7 +335,7 @@ export function pickerMatches(c: Card, cards: readonly Card[], query: string): b
  *  standing (no items, to do, in progress, done — H5), or a task's own:
  *  done, a stage that holds it (review, locked, refused), to do before its
  *  bar has moved, in progress otherwise. */
-export type RoadmapStatus = "no-items" | "todo" | "in-progress" | "done" | "review" | "locked" | "refused";
+export type RoadmapStatus = "no-items" | "todo" | "ready" | "in-progress" | "done" | "review" | "locked" | "refused";
 
 /** statusOf is a row's status: for a planning card the server's derived one
  *  (`hierarchy.status`, H5 — no items until something is filed under it,
@@ -344,12 +344,16 @@ export type RoadmapStatus = "no-items" | "todo" | "in-progress" | "done" | "revi
  *  review, locked, refused — which says who it waits on; else to do while
  *  its bar has not moved (nothing started); else in progress. The drawer
  *  and the Roadmap column read the same answer. */
-export function statusOf(c: Pick<Card, "type" | "hierarchy" | "stage" | "progress">): RoadmapStatus {
+export function statusOf(c: Pick<Card, "type" | "hierarchy" | "stage" | "progress"> & Partial<Pick<Card, "parked" | "todo">>): RoadmapStatus {
   if (isPlanning(c)) {
     return c.hierarchy?.status ?? "no-items";
   }
   if (isComplete(c)) {
     return "done";
+  }
+  // A parked task marked TO DO (K15): ready to be taken next.
+  if (c.parked && c.todo) {
+    return "ready";
   }
   if (c.stage === "review") {
     return "review";
@@ -369,6 +373,7 @@ export function statusOf(c: Pick<Card, "type" | "hierarchy" | "stage" | "progres
 export const STATUS_LABEL: Record<RoadmapStatus, string> = {
   "no-items": "No items",
   todo: "To do",
+  ready: "TO DO",
   "in-progress": "In progress",
   done: "Done",
   review: "Review",
@@ -1094,3 +1099,97 @@ export function roadmapLines(
   }
   return out;
 }
+
+// ---- the status menu: TO DO and UNASSIGNED (K15, K16) ----
+//
+// The status badge of a row is a menu. TO DO marks the parked work under the
+// row ready to be taken next; UNASSIGNED takes the work in hand under it back
+// to its team's backlog. On a task each answers for the task itself, on a
+// plan item for every task under it at any depth (its leaf tasks: the tasks
+// whose parent is a plan item in its subtree). Mirrors board.ToDoTargets and
+// board.UnassignTargets.
+
+/** leafTasks is the tasks under a plan item through every level — a subtask
+ *  (its parent is a task) and a review card not among them — in board order. */
+function leafTasks(cards: readonly Card[], id: string): Card[] {
+  const subtree = new Set([id]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const c of cards) {
+      if (isPlanning(c) && c.parent && subtree.has(c.parent) && !subtree.has(c.itemId)) {
+        subtree.add(c.itemId);
+        grew = true;
+      }
+    }
+  }
+  return cards.filter((c) => !isPlanning(c) && !c.reviewOf && !!c.parent && subtree.has(c.parent));
+}
+
+/** ridesATask reports a subtask, read off the listing the Roadmap holds: its
+ *  parent is a task here. */
+function ridesATask(cards: readonly Card[], t: Card): boolean {
+  const up = t.parent ? cards.find((c) => c.itemId === t.parent) : undefined;
+  return !!up && !isPlanning(up);
+}
+
+/** todoTargets is what TO DO marks: parked open tasks waiting in a backlog
+ *  (board.OnBacklog), never a review or a subtask. */
+export function todoTargets(cards: readonly Card[], c: Card): Card[] {
+  const ready = (t: Card) => !isPlanning(t) && !t.reviewOf && !!t.parked && !isComplete(t) && !ridesATask(cards, t);
+  if (!isPlanning(c)) {
+    return ready(c) ? [c] : [];
+  }
+  return leafTasks(cards, c.itemId).filter(ready);
+}
+
+/** unassignTargets is what UNASSIGNED takes out of work: open tasks in hand —
+ *  a date or a sprint, not parked — that answer for their own place (no
+ *  review card or subtask). Finished work never. */
+export function unassignTargets(cards: readonly Card[], c: Card): Card[] {
+  const inHand = (t: Card) =>
+    !isPlanning(t) &&
+    !t.reviewOf &&
+    !ridesATask(cards, t) &&
+    !t.parked &&
+    !!(t.startDate || t.day || t.sprintStart) &&
+    !isComplete(t);
+  if (!isPlanning(c)) {
+    return inHand(c) ? [c] : [];
+  }
+  return leafTasks(cards, c.itemId).filter(inHand);
+}
+
+/** StatusMenu is what a row's status menu offers: TO DO with how many tasks
+ *  it reaches and whether it CLEARS them (every one is marked already) —
+ *  null where it reaches none — and how many tasks UNASSIGNED would take. */
+export interface StatusMenu {
+  todo: { count: number; clears: boolean } | null;
+  unassign: number;
+}
+
+export function statusMenu(cards: readonly Card[], c: Card): StatusMenu {
+  const todo = todoTargets(cards, c);
+  return {
+    todo: todo.length > 0 ? { count: todo.length, clears: todo.every((t) => t.todo) } : null,
+    unassign: unassignTargets(cards, c).length,
+  };
+}
+
+/** unassignQuestion is what the confirm asks before UNASSIGNED. */
+export function unassignQuestion(n: number): string {
+  return n === 1
+    ? "Take 1 task out of work? It leaves Team and Me and goes back to its team's backlog."
+    : `Take ${n} tasks out of work? They leave Team and Me and go back to their team's backlog.`;
+}
+
+/** unassignedLocally is what UNASSIGNED leaves on a task until the server's
+ *  answer: back in its backlog, nobody's, undated, out of the sprint. */
+export const UNASSIGNED_LOCALLY: Partial<Card> = {
+  parked: true,
+  todo: undefined,
+  assignees: [],
+  startDate: undefined,
+  day: undefined,
+  sprintStart: undefined,
+};
+

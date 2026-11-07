@@ -25,6 +25,11 @@ import {
   DropWriteError,
   dropCommit,
   dropShown,
+  statusMenu,
+  todoTargets,
+  unassignTargets,
+  unassignQuestion,
+  UNASSIGNED_LOCALLY,
   droppable,
   fractionOf,
   hierarchyChoices,
@@ -78,6 +83,7 @@ import { INDENT_PX, OwnerCell, ROW_PX, StatusPill, TreeTitle } from "./PlanTree"
 import { KindIcon } from "./KindIcon";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
+import { Dropdown } from "./Dropdown";
 
 // The Roadmap: the hierarchy as a tree of rows on the left and a timeline
 // of bars on the right, one row per card from a goal down to a subtask
@@ -226,6 +232,9 @@ interface RowProps {
   /** The Owner cell's content, for a task-kind row; nothing on a planning
    *  card, which has none of a task's. */
   owner: ReactNode;
+  /** The status badge's menu (TO DO, UNASSIGNED; K15, K16), opened from the
+   *  badge; null on a row that offers none (a project card). */
+  onStatus: ((badge: HTMLElement) => void) | null;
   rowRef: (el: HTMLDivElement | null) => void;
 }
 
@@ -234,7 +243,7 @@ interface RowProps {
  *  worth of hit area, the kind by its pictogram. While a drag runs the rows
  *  stay where they are — the dragged rows dimmed in place — and where it
  *  would land is a mark over the row (roadmap.dropMark). */
-function RoadmapRow({ row, today, open, focus, ghost, forbid, mark, dragging, onToggle, onOpen, onAdd, onRemove, owner, rowRef }: RowProps) {
+function RoadmapRow({ row, today, open, focus, ghost, forbid, mark, dragging, onToggle, onOpen, onAdd, onRemove, owner, onStatus, rowRef }: RowProps) {
   const card = row.node.card;
   const id = card.itemId;
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id });
@@ -265,7 +274,7 @@ function RoadmapRow({ row, today, open, focus, ghost, forbid, mark, dragging, on
       <span className="roadmap-cell roadmap-cell-date">{shortDate(card.startDate, today)}</span>
       <span className="roadmap-cell roadmap-cell-date">{shortDate(card.day, today)}</span>
       <span className="roadmap-cell roadmap-cell-status">
-        <StatusPill card={card} />
+        <StatusPill card={card} onMenu={onStatus ?? undefined} />
       </span>
     </div>
   );
@@ -797,6 +806,36 @@ export function RoadmapBoard({
 
   // ---- the ×: the Team board's own question — delete it, or only unlink it ----
   const [removeChoice, setRemoveChoice] = useState<CardModel | null>(null);
+
+  // ---- the status menu: TO DO and UNASSIGNED (K15, K16) ----
+  // The badge of a task or a plan item opens it; what each answer reaches is
+  // roadmap.statusMenu's, applied at once and settled by the server's answer.
+  const [statusFor, setStatusFor] = useState<CardModel | null>(null);
+  const statusAnchor = useRef<HTMLElement | null>(null);
+  const [unassigning, setUnassigning] = useState<{ card: CardModel; count: number } | null>(null);
+  const menu = statusFor ? statusMenu(board.cards, statusFor) : null;
+  const answerTodo = (card: CardModel, todo: boolean) => {
+    const targets = todoTargets(board.cards, card);
+    for (const t of targets) {
+      patchCard(t.itemId, { todo: todo || undefined });
+    }
+    void provider.setTodo(card.itemId, todo).catch((err: unknown) => {
+      for (const t of targets) {
+        patchCard(t.itemId, { todo: t.todo });
+      }
+      onError(errText(err));
+      reload();
+    });
+  };
+  const answerUnassign = (card: CardModel) => {
+    for (const t of unassignTargets(board.cards, card)) {
+      patchCard(t.itemId, UNASSIGNED_LOCALLY);
+    }
+    void provider.unassignWork(card.itemId).catch((err: unknown) => {
+      onError(errText(err));
+      reload();
+    });
+  };
   const answerRemoval = (card: CardModel, choice: HierarchyChoice) => {
     const plan = planningRemovalPlan(board.cards, card.itemId, choice);
     const before = { parent: card.parent, lineage: card.lineage };
@@ -1036,6 +1075,10 @@ export function RoadmapBoard({
                       onAdd={planning && kids.length > 0 ? () => setAddingUnder(addingUnder === card.itemId ? null : card.itemId) : null}
                       onRemove={planning ? () => setRemoveChoice(card) : null}
                       owner={ownerCell(card, r.node.kind)}
+                      onStatus={(badge) => {
+                        statusAnchor.current = badge;
+                        setStatusFor(card);
+                      }}
                       rowRef={(el) => {
                         if (el) {
                           rowRefs.current.set(card.itemId, el);
@@ -1109,6 +1152,57 @@ export function RoadmapBoard({
           </DragOverlay>
         </DndContext>
       )}
+      <Dropdown open={!!statusFor} anchorRef={statusAnchor} onClose={() => setStatusFor(null)} className="roadmap-status-menu" role="menu">
+        {statusFor && menu && (
+          <>
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={!!menu.todo?.clears}
+              className="roadmap-status-item"
+              disabled={!menu.todo}
+              title={
+                menu.todo
+                  ? menu.todo.clears
+                    ? "Clear TO DO: not ready to be taken next"
+                    : "Ready to be taken next: first in the backlog"
+                  : "Nothing waiting in a backlog here"
+              }
+              onClick={() => {
+                if (menu.todo) {
+                  answerTodo(statusFor, !menu.todo.clears);
+                }
+                setStatusFor(null);
+              }}
+            >
+              <span className="roadmap-status roadmap-status-ready">TO DO</span>
+              {menu.todo?.clears && <span aria-hidden="true">✓</span>}
+              {isPlanning(statusFor) && menu.todo && <span className="roadmap-status-count">{menu.todo.count}</span>}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="roadmap-status-item"
+              disabled={menu.unassign === 0}
+              title={menu.unassign > 0 ? "Take out of work, back to the backlog" : "Nothing in work here"}
+              onClick={() => {
+                setUnassigning({ card: statusFor, count: menu.unassign });
+                setStatusFor(null);
+              }}
+            >
+              <span className="roadmap-status roadmap-status-unassigned">UNASSIGNED</span>
+              {isPlanning(statusFor) && menu.unassign > 0 && <span className="roadmap-status-count">{menu.unassign}</span>}
+            </button>
+          </>
+        )}
+      </Dropdown>
+      {unassigning && (
+        <UnassignDialog
+          count={unassigning.count}
+          onClose={() => setUnassigning(null)}
+          onConfirm={() => answerUnassign(unassigning.card)}
+        />
+      )}
       {removeChoice && (
         <RemoveChoiceDialog
           title={removeChoice.title}
@@ -1123,3 +1217,50 @@ export function RoadmapBoard({
     </div>
   );
 }
+
+/** UnassignDialog asks before UNASSIGNED takes work out of hand (K16): how
+ *  many tasks leave Team and Me for their team's backlog. */
+export function UnassignDialog({ count, onClose, onConfirm }: { count: number; onClose: () => void; onConfirm: () => void }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal modal-narrow"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Take out of work?"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            onClose();
+          }
+        }}
+      >
+        <div className="modal-header">
+          <h2 className="modal-title">Take out of work?</h2>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <div className="modal-body">
+          <p className="take-dialog-text">{unassignQuestion(count)}</p>
+          <div className="take-dialog-actions">
+            <button type="button" className="btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                onConfirm();
+                onClose();
+              }}
+            >
+              Take out of work
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+

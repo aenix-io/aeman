@@ -44,6 +44,11 @@ import {
   pickerMatches,
   cardsAfterDelete,
   parentOptions,
+  todoTargets,
+  unassignTargets,
+  statusMenu,
+  unassignQuestion,
+  STATUS_LABEL,
 } from "./roadmap";
 import type { Card } from "./providers/types";
 import { resourceToCard, type CardResource } from "./api/resources";
@@ -875,5 +880,61 @@ describe("what a drop shows at once", () => {
       ],
     });
     expect(drawnAfter(apply(listed, "e1", { parent: "i2", index: 0 }))).toEqual(["g2", "i2", "e1", "g1", "i1", "e2", "g3", "i3"]);
+  });
+});
+
+// The status badge is a menu (K15, K16): TO DO marks the parked work under a
+// row ready, UNASSIGNED takes the work in hand under it back to its backlog.
+// Mirrors board.ToDoTargets / board.UnassignTargets, case for case with
+// boardservice's TestToDoOnAPlanItem… and TestUnassignedOnAPlanItem…
+describe("the status menu on the Roadmap (K15, K16)", () => {
+  const today = "2026-11-09";
+  const g = card({ itemId: "g", type: "goal", team: "alpha" });
+  const e = card({ itemId: "e", type: "epic", parent: "g" });
+  const p1 = card({ itemId: "p1", parent: "e", parked: true });
+  const p2 = card({ itemId: "p2", parent: "g", parked: true });
+  const w1 = card({ itemId: "w1", parent: "e", team: "alpha", assignees: ["kvaps"], sprintStart: today, startDate: today, day: today });
+  const w2 = card({ itemId: "w2", parent: "g", team: "alpha", assignees: ["bob"], sprintStart: today, day: today });
+  const doneParked = card({ itemId: "done-parked", parent: "e", parked: true, progress: 100 });
+  const doneWork = card({ itemId: "done-work", parent: "e", sprintStart: today, day: today, progress: 100 });
+  const sub = card({ itemId: "sub", parent: "w1", sprintStart: today });
+  const other = card({ itemId: "other", parked: true });
+  const all = [g, e, p1, p2, w1, w2, doneParked, doneWork, sub, other];
+  const ids = (cs: Card[]) => cs.map((c) => c.itemId);
+
+  it("TO DO reaches every open parked task under a plan item, at any depth, and nothing else", () => {
+    expect(ids(todoTargets(all, g))).toEqual(["p1", "p2"]);
+    expect(ids(todoTargets(all, e))).toEqual(["p1"]);
+    expect(ids(todoTargets(all, p1))).toEqual(["p1"]);
+    expect(todoTargets(all, w1)).toEqual([]);
+    expect(todoTargets(all, doneParked)).toEqual([]);
+    expect(todoTargets(all, sub)).toEqual([]);
+  });
+
+  it("UNASSIGNED reaches every open task in work under a plan item; finished work and subtasks never", () => {
+    expect(ids(unassignTargets(all, g))).toEqual(["w1", "w2"]);
+    expect(ids(unassignTargets(all, w2))).toEqual(["w2"]);
+    expect(unassignTargets(all, p1)).toEqual([]);
+    expect(unassignTargets(all, doneWork)).toEqual([]);
+    expect(unassignTargets(all, sub)).toEqual([]);
+  });
+
+  it("offers each answer only where it means something, TO DO clearing once all are marked", () => {
+    expect(statusMenu(all, g)).toEqual({ todo: { count: 2, clears: false }, unassign: 2 });
+    const marked = all.map((c) => (c.itemId === "p1" || c.itemId === "p2" ? { ...c, todo: true } : c));
+    expect(statusMenu(marked, g).todo).toEqual({ count: 2, clears: true });
+    expect(statusMenu(all, doneWork)).toEqual({ todo: null, unassign: 0 });
+  });
+
+  it("asks how many tasks leave Team and Me before UNASSIGNED takes them", () => {
+    expect(unassignQuestion(2)).toBe("Take 2 tasks out of work? They leave Team and Me and go back to their team's backlog.");
+    expect(unassignQuestion(1)).toBe("Take 1 task out of work? It leaves Team and Me and goes back to its team's backlog.");
+  });
+
+  it("wears TO DO on a flagged parked task, and today's status otherwise", () => {
+    expect(statusOf(card({ parked: true, todo: true }))).toBe("ready");
+    expect(STATUS_LABEL.ready).toBe("TO DO");
+    expect(statusOf(card({ parked: true }))).toBe("todo");
+    expect(statusOf(card({ parked: true, todo: true, progress: 100 }))).toBe("done");
   });
 });

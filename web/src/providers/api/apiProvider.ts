@@ -515,6 +515,18 @@ export const apiProvider: Provider = {
     );
   },
 
+  async setTodo(uid: string, todo: boolean): Promise<number> {
+    uid = await resolveCardId(uid);
+    const res = await answered(client.POST("/cards/{uid}/actions/todo", { params: { path: { uid } }, body: { todo } }));
+    return res.changed;
+  },
+
+  async unassignWork(uid: string): Promise<number> {
+    uid = await resolveCardId(uid);
+    const res = await answered(client.POST("/cards/{uid}/actions/unassign-work", { params: { path: { uid } } }));
+    return res.changed;
+  },
+
   async ownCard(uid: string, team: string, person: string): Promise<Card> {
     uid = await resolveCardId(uid);
     return cardFrom(

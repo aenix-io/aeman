@@ -100,10 +100,28 @@ export function TreeTitle({
 }
 
 /** StatusPill is a row's status: a plan item's derived standing, a task's
- *  own (roadmap.statusOf). */
-export function StatusPill({ card }: { card: CardModel }) {
+ *  own (roadmap.statusOf). Given onMenu it is the button that opens the
+ *  row's status menu (TO DO, UNASSIGNED; K15, K16). */
+export function StatusPill({ card, onMenu }: { card: CardModel; onMenu?: (badge: HTMLElement) => void }) {
   const status = statusOf(card);
-  return <span className={`roadmap-status roadmap-status-${status}`}>{STATUS_LABEL[status]}</span>;
+  if (!onMenu) {
+    return <span className={`roadmap-status roadmap-status-${status}`}>{STATUS_LABEL[status]}</span>;
+  }
+  return (
+    <button
+      type="button"
+      className={`roadmap-status roadmap-status-${status} roadmap-status-button`}
+      title="TO DO or UNASSIGNED"
+      aria-haspopup="menu"
+      onClick={(e) => {
+        e.stopPropagation();
+        onMenu(e.currentTarget);
+      }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      {STATUS_LABEL[status]}
+    </button>
+  );
 }
 
 /** OwnerCell is what a row's Owner column shows: the owner badge (the
