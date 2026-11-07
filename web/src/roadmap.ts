@@ -624,6 +624,38 @@ export function dropTargetAt(
   return same && same.zone === zone ? same : { overId: box.id, zone };
 }
 
+/** boxesInContent puts rows measured in the viewport (getBoundingClientRect)
+ *  into the list's content frame: their top plus how far the board and the
+ *  page are scrolled (scroll, the sum of the two) at the moment of
+ *  measuring. A row keeps its box however either scrolls after, so a
+ *  snapshot re-taken mid-drag is in the same frame as the first. */
+export function boxesInContent(measured: readonly RowBox[], scroll: number): RowBox[] {
+  return measured.map((b) => ({ id: b.id, top: b.top + scroll, height: b.height }));
+}
+
+/** pointerContentY is the pointer in the same content frame: its viewport y
+ *  plus the scroll now. Null without a pointer position (a keyboard drag
+ *  has no clientY) and over the board's sticky header (above headBottom, in
+ *  the viewport), where a row scrolled under the header is hidden and no
+ *  target. */
+export function pointerContentY(clientY: number | null, scroll: number, headBottom: number): number | null {
+  if (clientY === null || !Number.isFinite(clientY) || clientY < headBottom) {
+    return null;
+  }
+  return clientY + scroll;
+}
+
+/** revealStep is one pass of bringing a row followed to the Roadmap (a
+ *  breadcrumb) into view: pending is the row still owed a scroll. It is
+ *  scrolled to once it is drawn and no drag runs, and then nothing is owed
+ *  — later re-renders do not pull the list back to it. */
+export function revealStep(pending: string | null, dragging: boolean, drawn: boolean): { scroll: boolean; pending: string | null } {
+  if (!pending || dragging || !drawn) {
+    return { scroll: false, pending };
+  }
+  return { scroll: true, pending: null };
+}
+
 /** DropMark is where the landing place is drawn: the row it is drawn on,
  *  on which edge of it ("inside" marks the row itself — the card goes under
  *  it), and the depth the line is indented to. */

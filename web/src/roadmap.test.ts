@@ -25,6 +25,9 @@ import {
   zoneOf,
   dropTargetAt,
   dropMark,
+  pointerContentY,
+  boxesInContent,
+  revealStep,
   AIM_SLACK,
   type DropTarget,
   type RowBox,
@@ -644,5 +647,62 @@ describe("aiming a drag on the Roadmap", () => {
     // After an unfolded row is the first place under it: the line steps in.
     expect(dropMark(drawn, { overId: "e2", zone: "after" }, { parent: "e2", index: 0 })).toEqual({ row: "e2", edge: "bottom", depth: 3 });
     expect(dropMark(drawn, { overId: "zz", zone: "after" }, { parent: "e2", index: 0 })).toBeNull();
+  });
+});
+
+// The frame a drag is read in: the list's own content, so a row keeps its
+// place however the board or the page scrolls, and a snapshot re-taken in
+// the middle of a drag (a watch frame changed the rows) lands in the same
+// frame as the one it replaces.
+describe("the frame a Roadmap drag is read in", () => {
+  it("shifts the reading by N px when the container is scrolled N px", () => {
+    const still = pointerContentY(300, 0, 40)!;
+    expect(pointerContentY(300, 120, 40)).toBe(still + 120);
+    // The board and the page scroll alike: what counts is the sum.
+    expect(pointerContentY(300, 90 + 30, 40)).toBe(still + 120);
+  });
+
+  it("puts a row measured at any scroll in the same place", () => {
+    // A row 200px down the content, measured unscrolled and after a 120px
+    // scroll (where the viewport shows it 120px higher), is one box.
+    const a = boxesInContent([{ id: "r", top: 200, height: 30 }], 0);
+    const b = boxesInContent([{ id: "r", top: 80, height: 30 }], 120);
+    expect(a).toEqual(b);
+    expect(a).toEqual([{ id: "r", top: 200, height: 30 }]);
+  });
+
+  it("reads the same row after a scroll, pointer and snapshot moving together", () => {
+    const boxes = boxesInContent([{ id: "x", top: 100, height: 30 }, { id: "y", top: 130, height: 30 }], 0);
+    // Unscrolled, viewport 145 is the middle of y; scrolled 30px, y is at
+    // viewport 115 and the same reading comes from there.
+    expect(dropTargetAt(boxes, pointerContentY(145, 0, 40)!, null, new Set())).toEqual({ overId: "y", zone: "into" });
+    expect(dropTargetAt(boxes, pointerContentY(115, 30, 40)!, null, new Set())).toEqual({ overId: "y", zone: "into" });
+  });
+
+  it("reads nothing over the sticky header: a row scrolled under it is not a target", () => {
+    expect(pointerContentY(39, 500, 40)).toBeNull();
+    expect(pointerContentY(40, 500, 40)).toBe(540);
+  });
+
+  it("reads nothing without a pointer position (a keyboard drag has none)", () => {
+    expect(pointerContentY(null, 0, 40)).toBeNull();
+  });
+});
+
+// A breadcrumb followed to the Roadmap scrolls its row into view ONCE: the
+// row stays marked, but later re-renders (a watch frame, a drag) do not pull
+// the list back to it, and nothing scrolls while a drag runs.
+describe("revealing a row followed to the Roadmap", () => {
+  it("scrolls once the row is drawn, then is done", () => {
+    expect(revealStep("t", false, true)).toEqual({ scroll: true, pending: null });
+    expect(revealStep(null, false, true)).toEqual({ scroll: false, pending: null });
+  });
+
+  it("waits for a row not drawn yet (its parents still unfolding)", () => {
+    expect(revealStep("t", false, false)).toEqual({ scroll: false, pending: "t" });
+  });
+
+  it("never scrolls while a drag runs, and still owes the scroll after it", () => {
+    expect(revealStep("t", true, true)).toEqual({ scroll: false, pending: "t" });
   });
 });
