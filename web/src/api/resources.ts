@@ -113,6 +113,8 @@ export function resourceToCard(res: CardResource): Card {
       // The ancestor's end: the Backlog board's due date for a task under it.
       ...(l.end ? { end: l.end } : {}),
     })),
+    // The server's subtask answer, read for a review card only (isSubtask).
+    ...(spec.reviewOf ? { subtask: res.status?.subtask ?? false } : {}),
     dueDate: res.status?.dueDate || undefined,
     reviewed: res.status?.reviewed
       ? {

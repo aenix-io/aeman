@@ -23,21 +23,23 @@ func TestTheBacklogFixtureWireIsTheServersAnswer(t *testing.T) {
 	}
 	var fx struct {
 		Cards []struct {
-			ItemID      string `json:"itemId"`
-			Type        string `json:"type"`
-			Parent      string `json:"parent"`
-			Team        string `json:"team"`
-			Parked      bool   `json:"parked"`
-			Priority    string `json:"priority"`
-			ReviewOf    string `json:"reviewOf"`
-			SprintStart string `json:"sprintStart"`
-			StartDate   string `json:"startDate"`
-			Stage       string `json:"stage"`
-			Progress    int    `json:"progress"`
+			ItemID      string   `json:"itemId"`
+			Type        string   `json:"type"`
+			Parent      string   `json:"parent"`
+			Team        string   `json:"team"`
+			Parked      bool     `json:"parked"`
+			Priority    string   `json:"priority"`
+			ReviewOf    string   `json:"reviewOf"`
+			SprintStart string   `json:"sprintStart"`
+			StartDate   string   `json:"startDate"`
+			Stage       string   `json:"stage"`
+			Progress    int      `json:"progress"`
+			Assignees   []string `json:"assignees"`
 		} `json:"cards"`
 		Wire map[string]struct {
 			Lineage           []string `json:"lineage"`
 			EffectivePriority string   `json:"effectivePriority"`
+			Subtask           bool     `json:"subtask"`
 		} `json:"wire"`
 	}
 	if err := json.Unmarshal(raw, &fx); err != nil {
@@ -47,7 +49,8 @@ func TestTheBacklogFixtureWireIsTheServersAnswer(t *testing.T) {
 	for _, c := range fx.Cards {
 		cards = append(cards, board.Card{ItemID: c.ItemID, Type: c.Type, Parent: c.Parent, Team: c.Team,
 			Parked: c.Parked, Priority: board.PriorityKey(c.Priority), ReviewOf: c.ReviewOf,
-			SprintStart: c.SprintStart, StartDate: c.StartDate, Stage: board.StageKey(c.Stage), Progress: c.Progress})
+			SprintStart: c.SprintStart, StartDate: c.StartDate, Stage: board.StageKey(c.Stage), Progress: c.Progress,
+			Assignees: c.Assignees})
 	}
 	b := board.NewBoard(cards)
 	for id, want := range fx.Wire {
@@ -63,9 +66,9 @@ func TestTheBacklogFixtureWireIsTheServersAnswer(t *testing.T) {
 		if want.Lineage == nil {
 			want.Lineage = []string{}
 		}
-		if !reflect.DeepEqual(got, want.Lineage) || st.EffectivePriority != want.EffectivePriority {
-			t.Errorf("%s on the wire: lineage %v priority %q, the fixture says %v %q",
-				id, got, st.EffectivePriority, want.Lineage, want.EffectivePriority)
+		if !reflect.DeepEqual(got, want.Lineage) || st.EffectivePriority != want.EffectivePriority || st.Subtask != want.Subtask {
+			t.Errorf("%s on the wire: lineage %v priority %q subtask %v, the fixture says %v %q %v",
+				id, got, st.EffectivePriority, st.Subtask, want.Lineage, want.EffectivePriority, want.Subtask)
 		}
 	}
 }

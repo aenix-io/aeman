@@ -16,9 +16,14 @@ export function isPlanning(c: Pick<Card, "type">): boolean {
  *  reads as a subtask, which is what every card with a parent read as
  *  before. A parent the board does not hold never reaches the client: the
  *  server drops it when it reads the board (board.dropDanglingParents). */
-export function isSubtask(c: Pick<Card, "parent" | "lineage">): boolean {
+export function isSubtask(c: Pick<Card, "parent" | "lineage" | "reviewOf" | "subtask">): boolean {
   if (!c.parent) {
     return false;
+  }
+  // A REVIEW card's lineage is the reviewed task's chain, not its own
+  // parent's: the server answers for its stray parent (status.subtask).
+  if (c.reviewOf && c.subtask !== undefined) {
+    return c.subtask;
   }
   const up = c.lineage;
   if (!up || up.length === 0) {
@@ -34,7 +39,7 @@ export function isSubtask(c: Pick<Card, "parent" | "lineage">): boolean {
  *  under nothing, offered it the subtask ×, and unlinked it from its epic on
  *  the first drag. Every component that needs the parent AS A TASK asks
  *  this, not `card.parent`. */
-export function subtaskParent(c: Pick<Card, "parent" | "lineage">): string | undefined {
+export function subtaskParent(c: Pick<Card, "parent" | "lineage" | "reviewOf" | "subtask">): string | undefined {
   return isSubtask(c) ? c.parent : undefined;
 }
 

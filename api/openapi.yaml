@@ -1644,6 +1644,13 @@ components:
             planning chain of the task it reviews.
           items:
             $ref: '#/components/schemas/LineageRef'
+        subtask:
+          type: boolean
+          description: >-
+            The card rides a parent TASK — hidden from the day boards, drawn
+            under its parent. A review card's lineage is the reviewed task's
+            chain, so a stray parent of its own cannot be read off it; this
+            is the server's answer.
         reviewed:
           allOf:
             - $ref: '#/components/schemas/ReviewedRef'

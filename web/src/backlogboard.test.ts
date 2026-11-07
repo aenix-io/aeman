@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { isSubtask } from "./subtasks";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -643,8 +644,9 @@ describe("the backlog's order, shared with the server", () => {
     readFileSync(fileURLToPath(new URL("../../pkg/board/testdata/backlog_order.json", import.meta.url)), "utf8"),
   ) as {
     cards: Raw[];
-    wire: Record<string, { lineage?: string[]; effectivePriority?: Card["effectivePriority"] }>;
+    wire: Record<string, { lineage?: string[]; effectivePriority?: Card["effectivePriority"]; subtask?: boolean }>;
     order: string[];
+    subtask: Record<string, boolean>;
   };
   const cards = fx.cards.map((c) => {
     const w = fx.wire[c.itemId];
@@ -652,10 +654,24 @@ describe("the backlog's order, shared with the server", () => {
       const [type, uid] = s.split(":");
       return { uid, type, title: uid } as LineageRef;
     });
-    return card({ parked: false, ...c, ...(lineage?.length ? { lineage } : {}), ...(w?.effectivePriority ? { effectivePriority: w.effectivePriority } : {}) });
+    return card({
+      parked: false,
+      ...c,
+      ...(lineage?.length ? { lineage } : {}),
+      ...(w?.effectivePriority ? { effectivePriority: w.effectivePriority } : {}),
+      ...(w ? { subtask: w.subtask ?? false } : {}),
+    });
   });
 
   it("reads the cards in the same order as board.BacklogOrder", () => {
     expect(backlogList(cards, ["alpha"], fx.cards.map((c) => c.itemId)).map((c) => c.itemId)).toEqual(fx.order);
+  });
+
+  // board's TestWhoRidesAParentTaskMatchesTheSharedFixture: a taken review
+  // whose stray parent names a plan item is no subtask, and so stays on the
+  // day boards that hide subtasks (teamgrid, meboard).
+  it("reads who rides a parent task as board.IsSubtask does", () => {
+    const got = Object.fromEntries(Object.keys(fx.subtask).map((id) => [id, isSubtask(cards.find((c) => c.itemId === id)!)]));
+    expect(got).toEqual(fx.subtask);
   });
 });

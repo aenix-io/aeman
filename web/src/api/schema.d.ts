@@ -812,6 +812,8 @@ export interface components {
             links?: components["schemas"]["CardLinkRef"][];
             /** @description Every ancestor of the card, ROOT FIRST — the breadcrumb a detail pane draws above it, a task parent included. Absent on a root. A review card, which hangs under nothing of its own, carries the planning chain of the task it reviews. */
             lineage?: components["schemas"]["LineageRef"][];
+            /** @description The card rides a parent TASK — hidden from the day boards, drawn under its parent. A review card's lineage is the reviewed task's chain, so a stray parent of its own cannot be read off it; this is the server's answer. */
+            subtask?: boolean;
             /** @description On a REVIEW card, the card it reviews — its uid, title and people — so a client can name it, open it and draw whose it is without looking it up. Absent on every other card, and when the reviewed card is gone. */
             reviewed?: components["schemas"]["ReviewedRef"];
             /** @description The team the card counts under: its own, else the nearest ancestor's that has one. Computed, never written. */
