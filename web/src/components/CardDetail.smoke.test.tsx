@@ -311,3 +311,19 @@ describe("the drawer's card identity line", () => {
     expect(head).toMatch(/aria-label="Copy the link to this card" title="https:\/\/b.example\/\?view=me&amp;card=/);
   });
 });
+
+// A plan item's "Under it" is the Roadmap's tree rooted one level below it,
+// with the counts header kept.
+describe("a plan item's drawer", () => {
+  it("draws what is under it as the Roadmap's tree", () => {
+    const epic = card({ itemId: "e", title: "Invoices", type: "epic", hierarchy: { status: "todo", done: 1, total: 3 } } as Partial<Card>);
+    const t = card({ itemId: "t", title: "Render PDF", parent: "e", lineage: [{ uid: "e", type: "epic", title: "Invoices" }] });
+    const b = { ...board, cards: [epic, t] } as Board;
+    const html = renderToStaticMarkup(
+      <CardDetail card={epic} board={b} provider={{} as Provider} onClose={vi.fn()} reload={vi.fn()} patchCard={vi.fn()} />,
+    );
+    expect(html).toContain("1/3 tasks done");
+    expect(html).toMatch(/class="plan-tree"[^>]*>.*Render PDF/s);
+    expect(html).toMatch(/>\+ Add task<\/button>/);
+  });
+});

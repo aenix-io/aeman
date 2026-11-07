@@ -42,6 +42,7 @@ import { isPlanning, isSubtask, subtaskParent } from "../subtasks";
 import { Avatar } from "./Avatar";
 import { DescriptionEditor } from "./DescriptionEditor";
 import { KindIcon } from "./KindIcon";
+import { PlanTree } from "./PlanTree";
 import { CardIdentity } from "./CardIdentity";
 import { placementAnswer } from "../detail";
 import { OwnerPicker } from "./OwnerPicker";
@@ -82,22 +83,6 @@ interface CardDetailProps {
 
 const errMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-/** childLevels is what a planning card's pane may make under it: the levels
- *  below its own, and under an epic a TASK — born here with no team and no
- *  day, it is parked in the no-team backlog until somebody takes it into
- *  work (H7, K3). */
-function childLevels(kind: RoadmapKind): (CardType | "task")[] {
-  if (kind === "goal") {
-    return ["initiative", "epic"];
-  }
-  if (kind === "initiative") {
-    return ["epic"];
-  }
-  if (kind === "epic") {
-    return ["task"];
-  }
-  return [];
-}
 
 /** CardDetail is the card's pane: a drawer that slides in from the right and
  *  stands over whichever board the card was met on, laid out like an issue
@@ -154,7 +139,9 @@ export function CardDetail({
     }
     let dropped = false;
     void provider
-      .listCards({ view: "roadmap" })
+      // With the project cards: a plan item's "Under it" shows the ones filed
+      // under it, marked by their kind, whatever the Roadmap's toggle says.
+      .listCards({ view: "roadmap", projectCards: "true" })
       .then((l) => {
         if (!dropped) {
           setHierarchy({ forCard: card.itemId, cards: l.cards });
@@ -393,45 +380,28 @@ export function CardDetail({
       });
   };
 
-  // What sits under a planning card, grouped as the pane lists it.
-  const children = useMemo(() => {
-    const under = known.filter((c) => c.parent === card.itemId);
-    const groups: { label: string; kinds: RoadmapKind[]; cards: CardModel[] }[] = [
-      { label: "Planning", kinds: ["goal", "initiative", "epic"], cards: [] },
-      { label: "Tasks", kinds: ["task", "subtask"], cards: [] },
-      { label: "Project cards", kinds: ["project"], cards: [] },
-    ];
-    for (const c of under) {
-      const k = kindOf(c);
-      groups.find((g) => g.kinds.includes(k))?.cards.push(c);
-    }
-    return groups.filter((g) => g.cards.length > 0);
-  }, [known, card.itemId]);
+  // What sits under a planning card: the Roadmap's tree, rooted one level
+  // below this card (PlanTree), over the hierarchy the pane holds.
+  const hasChildren = useMemo(() => known.some((c) => c.parent === card.itemId), [known, card.itemId]);
 
-  // ---- making something under a planning card ----
-  const levels = childLevels(kind);
-  const [adding, setAdding] = useState(false);
-  const [addTitle, setAddTitle] = useState("");
-  const [addLevel, setAddLevel] = useState<CardType | "task">(levels[0] ?? "task");
+  // ---- making something under a planning card, at any level of its tree ----
   const [pendingAdds, setPendingAdds] = useState<string[]>([]);
-  const addChild = () => {
-    const t = addTitle.trim();
-    if (!t) {
-      setAdding(false);
+  const addChild = (t: string, level: CardType | "task", parent: string) => {
+    const title = t.trim();
+    if (!title) {
       return;
     }
-    setAddTitle("");
-    setPendingAdds((p) => [...p, t]);
-    const type = addLevel === "task" ? undefined : addLevel;
+    setPendingAdds((p) => [...p, title]);
+    const type = level === "task" ? undefined : level;
     void provider
-      .createCard({ title: t, type, parent: card.itemId, underPlanning: addLevel === "task" })
+      .createCard({ title, type, parent, underPlanning: level === "task" })
       .then((made) => {
-        setPendingAdds((p) => p.filter((x) => x !== t));
+        setPendingAdds((p) => p.filter((x) => x !== title));
         setHierarchy((h) => (h && h.forCard === card.itemId ? { ...h, cards: [...h.cards, made] } : h));
         addCard?.(made);
       })
       .catch((err: unknown) => {
-        setPendingAdds((p) => p.filter((x) => x !== t));
+        setPendingAdds((p) => p.filter((x) => x !== title));
         onError?.(errMessage(err));
       });
   };
@@ -630,9 +600,6 @@ export function CardDetail({
     setEditingTitle(false);
     setTab("details");
     setLog(null);
-    setAdding(false);
-    setAddTitle("");
-    setAddLevel(childLevels(kindOf(card))[0] ?? "task");
     setWantsOptions(false);
     setAddingSub(false);
     setSubTitle("");
@@ -1089,100 +1056,25 @@ export function CardDetail({
                       )}
                     </div>
                     {around === null && !temp && <p className="drawer-hint">Loading what sits under it…</p>}
-                    {around !== null && children.length === 0 && pendingAdds.length === 0 && (
+                    {around !== null && !hasChildren && pendingAdds.length === 0 && (
                       <p className="drawer-hint">Nothing under it yet.</p>
                     )}
-                    {children.map((g) => (
-                      <div key={g.label} className="drawer-children-group">
-                        <div className="drawer-children-label">
-                          {g.label} <span className="modal-level-count">{g.cards.length}</span>
-                        </div>
-                        {g.cards.map((c) => (
-                          <div key={c.itemId} className="drawer-child">
-                            <button
-                              type="button"
-                              className="drawer-child-open"
-                              onClick={() => onOpenCard?.(c)}
-                              disabled={!onOpenCard}
-                              title={c.title}
-                            >
-                              <KindIcon kind={kindOf(c)} />
-                              <span className="drawer-child-title">{c.title}</span>
-                              <span className={`roadmap-status roadmap-status-${statusOf(c)}`}>{STATUS_LABEL[statusOf(c)]}</span>
-                            </button>
-                            {!isRecord && (
-                              <button
-                                type="button"
-                                className="drawer-child-x"
-                                title={`Delete «${c.title}», or take it out from under here`}
-                                aria-label={`Remove ${c.title}`}
-                                onClick={() => setChoosing({ card: c, choices: hierarchyChoices(c) })}
-                              >
-                                ×
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ))}
+                    <PlanTree
+                      cards={known}
+                      root={card}
+                      onOpen={(c) => onOpenCard?.(c)}
+                      onCreate={addChild}
+                      onRemove={(c) => setChoosing({ card: c, choices: hierarchyChoices(c) })}
+                      avatars={avatars}
+                      names={names}
+                      readOnly={isRecord || temp}
+                    />
                     {pendingAdds.map((t) => (
                       <div key={`pending-${t}`} className="drawer-child drawer-child-pending">
                         <span className="drawer-child-title">{t}</span>
                         <span className="drawer-hint">adding…</span>
                       </div>
                     ))}
-                    {!isRecord && !temp && levels.length > 0 && (
-                      adding ? (
-                        <form
-                          className="drawer-add"
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            addChild();
-                          }}
-                        >
-                          {levels.length > 1 && (
-                            <select
-                              className="drawer-add-level"
-                              value={addLevel}
-                              onChange={(e) => setAddLevel(e.target.value as CardType | "task")}
-                              aria-label="Level"
-                            >
-                              {levels.map((l) => (
-                                <option key={l} value={l}>
-                                  {KIND_LABEL[l]}
-                                </option>
-                              ))}
-                            </select>
-                          )}
-                          <input
-                            type="text"
-                            className="drawer-add-input"
-                            autoFocus
-                            value={addTitle}
-                            placeholder={`New ${KIND_LABEL[addLevel].toLowerCase()} under «${card.title}»…`}
-                            onChange={(e) => setAddTitle(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Escape") {
-                                setAdding(false);
-                                setAddTitle("");
-                              }
-                            }}
-                          />
-                          <button type="submit" className="btn btn-primary" disabled={!addTitle.trim()}>
-                            Add
-                          </button>
-                          {addLevel === "task" && (
-                            <span className="drawer-hint drawer-add-hint">
-                              A task made here has no team and no day: it waits in the no-team backlog until somebody takes it into work.
-                            </span>
-                          )}
-                        </form>
-                      ) : (
-                        <button type="button" className="drawer-add-open" onClick={() => setAdding(true)}>
-                          + Add {levels.map((l) => KIND_LABEL[l].toLowerCase()).join(" or ")}
-                        </button>
-                      )
-                    )}
                   </section>
                 )}
               </>

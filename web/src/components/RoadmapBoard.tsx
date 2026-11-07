@@ -17,8 +17,8 @@ import {
   DELETE_INTENT,
   KIND_LABEL,
   LEVELS,
-  STATUS_LABEL,
   barOf,
+  childLevels,
   buildTree,
   childrenNote,
   daysBetween,
@@ -71,11 +71,11 @@ import {
 } from "../roadmapcolumns";
 import { NO_ROADMAP_FILTERS, ownerFilterOptions, peopleOf, roadmapOwnerCell, type RoadmapFilters } from "../ownership";
 import { isPlanning } from "../subtasks";
-import { ownerLabel, ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
-import { displayName, type Avatars, type Names } from "../users";
+import { ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
+import { type Avatars, type Names } from "../users";
 import { AddCard } from "./AddCard";
+import { INDENT_PX, OwnerCell, ROW_PX, StatusPill, TreeTitle } from "./PlanTree";
 import { KindIcon } from "./KindIcon";
-import { OwnerBadge } from "./OwnerBadge";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
@@ -127,10 +127,8 @@ const LS_FOLDED = "aeman.roadmap.folded";
 
 /** ROW_PX is the height of one row, on both sides, so the table and the
  *  timeline stay aligned without ever measuring each other. */
-const ROW_PX = 30;
 const HEAD_PX = 26;
 /** INDENT_PX is one level of the tree. */
-const INDENT_PX = 18;
 
 /** pxPerDay is how wide a day is drawn at a zoom: three months read a week
  *  at a glance, a year reads a month, and Fit stretches its span to about
@@ -197,23 +195,6 @@ function readFolded(): Set<string> {
 
 const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-/** childLevels is what the + on a planning row may make under it: the
- *  levels below its own, and under an epic a TASK — born with no team and
- *  no day, it is parked in the no-team backlog until somebody takes it into
- *  work (H7, K3). */
-function childLevels(kind: RoadmapKind): (CardType | "task")[] {
-  if (kind === "goal") {
-    return ["initiative", "epic"];
-  }
-  if (kind === "initiative") {
-    return ["epic"];
-  }
-  if (kind === "epic") {
-    return ["task"];
-  }
-  return [];
-}
-
 /** A row line of the table: a row of the tree or of a section (the other
  *  line is a section's header). The timeline draws a lane per line, so the
  *  two panes stay in step whatever stands between the rows. */
@@ -259,12 +240,9 @@ interface RowProps {
  *  stay where they are — the dragged rows dimmed in place — and where it
  *  would land is a mark over the row (roadmap.dropMark). */
 function RoadmapRow({ row, today, open, focus, ghost, forbid, mark, dragging, onToggle, onOpen, onAdd, onRemove, owner, rowRef }: RowProps) {
-  const { node, depth, foldable } = row;
-  const card = node.card;
+  const card = row.node.card;
   const id = card.itemId;
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id });
-  const planning = isPlanning(card);
-  const status = statusOf(card);
   const cls = [
     "roadmap-row",
     focus ? "roadmap-row-focus" : "",
@@ -287,76 +265,12 @@ function RoadmapRow({ row, today, open, focus, ghost, forbid, mark, dragging, on
       {...attributes}
       {...listeners}
     >
-      <span className="roadmap-cell roadmap-cell-title" style={{ paddingLeft: 6 + depth * INDENT_PX }}>
-        {Array.from({ length: depth }, (_, i) => (
-          <span key={i} className="roadmap-guide" style={{ left: 6 + i * INDENT_PX + 10 }} aria-hidden="true" />
-        ))}
-        {foldable > 0 ? (
-          <button
-            type="button"
-            className={`roadmap-toggle${open ? " roadmap-toggle-open" : ""}`}
-            aria-label={open ? "Fold" : `Unfold ${foldable}`}
-            aria-expanded={open}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggle();
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-              <path d="M5.5 3.5 10 8l-4.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-        ) : (
-          // A leaf keeps the chevron's width so the indent lines up, and
-          // nothing else: not a button, nothing to hover or focus.
-          <span className="roadmap-toggle-spacer" aria-hidden="true" />
-        )}
-        <KindIcon kind={node.kind} size={15} />
-        <span className="roadmap-title" title={card.title}>
-          {card.title}
-        </span>
-        {planning && card.hierarchy && card.hierarchy.total > 0 && (
-          <span className="roadmap-count" title={`${card.hierarchy.done} of ${card.hierarchy.total} tasks done`}>
-            {card.hierarchy.done}/{card.hierarchy.total}
-          </span>
-        )}
-        {onAdd && (
-          <button
-            type="button"
-            className="roadmap-row-add"
-            title={`Add under «${card.title}»`}
-            aria-label={`Add under ${card.title}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onAdd();
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            +
-          </button>
-        )}
-        {onRemove && (
-          <button
-            type="button"
-            className="roadmap-row-x"
-            title={`Delete «${card.title}», or take it out from under its parent`}
-            aria-label={`Delete ${card.title}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove();
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            ×
-          </button>
-        )}
-      </span>
+      <TreeTitle row={row} open={open} onToggle={onToggle} onAdd={onAdd} onRemove={onRemove} />
       <span className="roadmap-cell roadmap-cell-owner">{owner}</span>
       <span className="roadmap-cell roadmap-cell-date">{shortDate(card.startDate, today)}</span>
       <span className="roadmap-cell roadmap-cell-date">{shortDate(card.day, today)}</span>
       <span className="roadmap-cell roadmap-cell-status">
-        <span className={`roadmap-status roadmap-status-${status}`}>{STATUS_LABEL[status]}</span>
+        <StatusPill card={card} />
       </span>
     </div>
   );
@@ -446,22 +360,6 @@ function ColumnHandle({
         }
       }}
     />
-  );
-}
-
-function OwnerCell({ owner, avatars, names, from }: { owner: Owner; avatars?: Avatars; names?: Names; from?: string }) {
-  const label = ownerLabel(owner, (l) => displayName(l, names));
-  // A team taken from above (O3) is drawn greyed and says where from; the
-  // picker still sets the card's OWN value.
-  const inherited = from !== undefined;
-  const title = inherited ? `${label} — ${from ? `from «${from}»` : "inherited"}` : label;
-  return (
-    <span
-      className={`roadmap-owner${owner.team || owner.person ? "" : " roadmap-owner-none"}${inherited ? " roadmap-owner-inherited" : ""}`}
-      title={title}
-    >
-      <OwnerBadge owner={owner} avatars={avatars} names={names} />
-    </span>
   );
 }
 

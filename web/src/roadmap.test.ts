@@ -39,6 +39,10 @@ import {
   writeDrop,
   PROJECT_CARDS_DEFAULT,
   storedProjectCards,
+  childLevels,
+  subtreeRows,
+  parentChainOf,
+  pickerMatches,
 } from "./roadmap";
 import type { Card } from "./providers/types";
 import { resourceToCard, type CardResource } from "./api/resources";
@@ -704,5 +708,60 @@ describe("revealing a row followed to the Roadmap", () => {
 
   it("never scrolls while a drag runs, and still owes the scroll after it", () => {
     expect(revealStep("t", true, true)).toEqual({ scroll: false, pending: "t" });
+  });
+});
+
+// The drawer's "Under it" is the Roadmap's tree rooted one level below the
+// card the drawer shows: every level under it — plan items, tasks, subtasks,
+// and the project cards filed there — folded as the reader folds it, with
+// no depth range (the drawer shows all there is under the card).
+describe("the tree under a card", () => {
+  const all = [goal, ini, epic, task, sub, slot];
+
+  it("starts one level below the card, with every level under it", () => {
+    const open = () => true;
+    const got = subtreeRows(all, "g", open).map((r) => [r.node.card.itemId, r.depth]);
+    expect(got).toEqual([
+      ["i", 0],
+      ["e", 1],
+      ["t", 2],
+      ["s", 3],
+      ["p", 1],
+    ]);
+    expect(subtreeRows(all, "e", open).map((r) => r.node.card.itemId)).toEqual(["t", "s"]);
+  });
+
+  it("folds what the reader folds, and is empty for a card with nothing under it", () => {
+    expect(subtreeRows(all, "g", (id) => id !== "i").map((r) => r.node.card.itemId)).toEqual(["i"]);
+    expect(subtreeRows(all, "t", () => true).map((r) => r.node.card.itemId)).toEqual(["s"]);
+    expect(subtreeRows(all, "s", () => true)).toEqual([]);
+    expect(subtreeRows(all, "missing", () => true)).toEqual([]);
+  });
+
+  it("offers the levels below a card to add, the next one first", () => {
+    expect(childLevels("goal")).toEqual(["initiative", "epic"]);
+    expect(childLevels("initiative")).toEqual(["epic"]);
+    expect(childLevels("epic")).toEqual(["task"]);
+    expect(childLevels("task")).toEqual([]);
+  });
+});
+
+// The Under picker names each option's place: its ancestors, root first, so
+// two epics of one name under two goals are told apart; and a search finds a
+// plan item by its ancestors' titles too.
+describe("a plan item's place in a picker", () => {
+  const all = [goal, ini, epic];
+
+  it("is its ancestors, root first", () => {
+    expect(parentChainOf(epic, all).map((c) => c.title)).toEqual(["Grow", "Billing v2"]);
+    expect(parentChainOf(goal, all)).toEqual([]);
+  });
+
+  it("is searched with its own title and its ancestors'", () => {
+    expect(pickerMatches(epic, all, "invo")).toBe(true);
+    expect(pickerMatches(epic, all, "billing")).toBe(true);
+    expect(pickerMatches(epic, all, "grow")).toBe(true);
+    expect(pickerMatches(epic, all, "nothing")).toBe(false);
+    expect(pickerMatches(epic, all, "")).toBe(true);
   });
 });

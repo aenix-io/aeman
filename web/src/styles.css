@@ -6235,3 +6235,24 @@ button.card-age {
   white-space: nowrap;
   border: 0;
 }
+
+/* The card drawer's "Under it": the Roadmap's rows (PlanTree) without the
+   date columns — title, owner, status. */
+.plan-tree {
+  margin-top: 4px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.plan-tree .roadmap-row.plan-tree-row {
+  grid-template-columns: minmax(0, 1fr) 140px 112px;
+}
+
+.plan-tree .plan-tree-form {
+  display: block;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.plan-tree-add {
+  margin-top: 6px;
+}

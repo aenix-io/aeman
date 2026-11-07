@@ -8,7 +8,7 @@ import { keepPlaced, type PlaceFields } from "./backlog";
 import { addDays, mondayOf } from "./date";
 import { isComplete, isInProgress } from "./stages";
 import { isPlanning, isSubtask } from "./subtasks";
-import type { Card, CardPatch } from "./providers/types";
+import type { Card, CardPatch, CardType } from "./providers/types";
 
 /** RoadmapKind is what a row IS: the three planning levels, a task, a subtask
  *  (a task under a task), or a project card (a task in a Scope column). The
@@ -222,6 +222,78 @@ export function rows(
   };
   walk(tree, 0);
   return out;
+}
+
+/** ALL_LEVELS is every level, for a tree that shows everything under a card. */
+const ALL_LEVELS: DepthRange = { from: "goal", to: "subtask" };
+
+/** subtreeRows is the Roadmap's tree rooted ONE LEVEL BELOW a card — the
+ *  drawer's "Under it": every level under the card (plan items, tasks,
+ *  subtasks, the project cards filed there), at depth 0 for its children,
+ *  folded as `expanded` says. Empty for a card with nothing under it, or
+ *  one the cards do not hold. */
+export function subtreeRows(cards: readonly Card[], rootId: string, expanded: (id: string) => boolean): Row[] {
+  const find = (nodes: readonly RoadmapNode[]): RoadmapNode | null => {
+    for (const n of nodes) {
+      if (n.card.itemId === rootId) {
+        return n;
+      }
+      const deeper = find(n.children);
+      if (deeper) {
+        return deeper;
+      }
+    }
+    return null;
+  };
+  const root = find(buildTree(cards));
+  return root ? rows(root.children, ALL_LEVELS, expanded) : [];
+}
+
+/** childLevels is what may be made under a card of a kind, the next level
+ *  first — what the Roadmap's per-row "+" and the drawer's add row offer:
+ *  the levels below a plan item's own, and under an epic a TASK (born with
+ *  no team and no day, parked in the no-team backlog until somebody takes
+ *  it into work, H7, K3). */
+export function childLevels(kind: RoadmapKind): (CardType | "task")[] {
+  if (kind === "goal") {
+    return ["initiative", "epic"];
+  }
+  if (kind === "initiative") {
+    return ["epic"];
+  }
+  if (kind === "epic") {
+    return ["task"];
+  }
+  return [];
+}
+
+/** parentChainOf is a card's ancestors among the cards held, root first —
+ *  what a picker shows beside a plan item so two of one name under
+ *  different parents are told apart. */
+export function parentChainOf(c: Pick<Card, "itemId" | "parent">, cards: readonly Card[]): Card[] {
+  const byId = new Map(cards.map((x) => [x.itemId, x]));
+  const out: Card[] = [];
+  const seen = new Set([c.itemId]);
+  for (let id = c.parent; id; ) {
+    const p = byId.get(id);
+    if (!p || seen.has(p.itemId) || out.length > 6) {
+      break;
+    }
+    seen.add(p.itemId);
+    out.unshift(p);
+    id = p.parent;
+  }
+  return out;
+}
+
+/** pickerMatches is a picker's search over a plan item: its own title or
+ *  any of its ancestors', case aside; an empty query matches all. */
+export function pickerMatches(c: Card, cards: readonly Card[], query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return true;
+  }
+  return [c, ...parentChainOf(c, cards)].some((x) => x.title.toLowerCase().includes(q));
 }
 
 /** RoadmapStatus is the pill a row wears: a planning card's derived
