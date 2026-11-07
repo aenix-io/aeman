@@ -962,6 +962,31 @@ export interface DropCommit {
   order: string[];
 }
 
+/** DropShown is what the board changes the moment a drop is let go: the
+ *  dragged card's parent and lineage when its parent changed (null when it
+ *  did not), and the listing's order. */
+export interface DropShown {
+  patch: { parent: string | undefined; lineage: Card["lineage"] } | null;
+  order: string[];
+}
+
+/** dropShown is the optimistic answer to a drop, applied at once whatever
+ *  filter is on. The listing is what the server sent for the chosen
+ *  filters, the drop is anchored on the cards shown, and the watch never
+ *  echoes a tab's own writes back to it — so an order left out here is not
+ *  shown until a reload (a reordered goal stood still with a team filter
+ *  on). */
+export function dropShown(cards: readonly Card[], draggedId: string, placement: Placement): DropShown {
+  const after = previewCards(cards, draggedId, placement);
+  const dragged = cards.find((c) => c.itemId === draggedId);
+  const moved = after.find((c) => c.itemId === draggedId);
+  const changed = !!dragged && !!moved && parentOf(dragged) !== placement.parent;
+  return {
+    patch: changed && moved ? { parent: moved.parent, lineage: moved.lineage } : null,
+    order: after.map((c) => c.itemId),
+  };
+}
+
 export function dropCommit(cards: readonly Card[], draggedId: string, placement: Placement): DropCommit {
   const dragged = cards.find((c) => c.itemId === draggedId);
   const after = previewCards(cards, draggedId, placement);

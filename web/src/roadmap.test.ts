@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_DEPTH,
   roadmapLines,
+  dropShown,
   DELETE_INTENT,
   allowedParentKinds,
   barOf,
@@ -804,5 +805,75 @@ describe("the Under picker's options", () => {
     expect(ids).toEqual(["i", "e", "u"]);
     const e = got.flatMap((g) => g.options).find((o) => o.card.itemId === "e")!;
     expect(e.chain.map((c) => c.title)).toEqual(["Grow", "Billing v2"]);
+  });
+});
+
+// What a drop changes on the board the moment it is let go: the dragged
+// card's parent (and the lineage its breadcrumb reads) when that changed,
+// and the listing's order — always, filter or no filter. The board's
+// listing is what the server sent for the filters chosen, the drop is
+// anchored on the cards shown, and the watch never echoes a tab's own
+// writes back to it: an order not applied here is not shown until a reload.
+describe("what a drop shows at once", () => {
+  const g1 = card({ itemId: "g1", title: "One", type: "goal", team: "core" });
+  const i1 = card({ itemId: "i1", title: "One-a", type: "initiative", parent: "g1", team: "core" });
+  const g2 = card({ itemId: "g2", title: "Two", type: "goal", team: "core" });
+  const i2 = card({ itemId: "i2", title: "Two-a", type: "initiative", parent: "g2", team: "core" });
+  const g3 = card({ itemId: "g3", title: "Three", type: "goal", team: "core" });
+  const i3 = card({ itemId: "i3", title: "Three-a", type: "initiative", parent: "g3", team: "core" });
+  const e1 = card({ itemId: "e1", title: "E1", type: "epic", parent: "i1" });
+  const e2 = card({ itemId: "e2", title: "E2", type: "epic", parent: "i1" });
+  // The listing as the server sends it: board order, children interleaved.
+  const listed = [i1, g2, g1, i2, g3, i3, e1, e2];
+  const drawnAfter = (cards: Card[], from: "goal" | "initiative" = "goal") =>
+    roadmapLines(cards, { depth: { from, to: "task" }, expanded: () => true })
+      .filter((l) => l.kind === "row")
+      .map((l) => (l.kind === "row" ? l.row.node.card.itemId : ""));
+  const apply = (cards: Card[], id: string, placement: { parent: string | null; index: number }) => {
+    const shown = dropShown(cards, id, placement);
+    const order = new Map(shown.order.map((u, k) => [u, k]));
+    return cards
+      .map((c) => (c.itemId === id && shown.patch ? { ...c, ...shown.patch } : c))
+      .sort((a, b) => order.get(a.itemId)! - order.get(b.itemId)!);
+  };
+
+  it("reorders two goals at the top of the tree, with no parent written", () => {
+    expect(drawnAfter(listed)).toEqual(["g2", "i2", "g1", "i1", "e1", "e2", "g3", "i3"]);
+    // Two goes between One and Three: index 1 among the parentless cards.
+    const shown = dropShown(listed, "g2", { parent: null, index: 1 });
+    expect(shown.patch).toBeNull();
+    expect(drawnAfter(apply(listed, "g2", { parent: null, index: 1 }))).toEqual(["g1", "i1", "e1", "e2", "g2", "i2", "g3", "i3"]);
+  });
+
+  it("reorders the goals of a filtered listing the same way: the order is never left out", () => {
+    // A team filter: only these cards were sent.
+    const filtered = [g2, i2, g1, i1, g3, i3];
+    const after = apply(filtered, "g2", { parent: null, index: 2 });
+    expect(drawnAfter(after)).toEqual(["g1", "i1", "g3", "i3", "g2", "i2"]);
+    expect(dropShown(filtered, "g2", { parent: null, index: 2 }).order).toEqual(after.map((c) => c.itemId));
+  });
+
+  it("moves initiatives that stand at the top of the drawn tree when the goals are not drawn", () => {
+    // Depth from initiative: the initiatives are the drawn roots, each under
+    // its own hidden goal; Two-a dropped before Three-a joins Three, first.
+    expect(drawnAfter(listed, "initiative")).toEqual(["i2", "i1", "e1", "e2", "i3"]);
+    const moved = apply(listed, "i2", { parent: "g3", index: 0 });
+    expect(drawnAfter(moved, "initiative")).toEqual(["i1", "e1", "e2", "i2", "i3"]);
+  });
+
+  it("reorders epics under one initiative at once", () => {
+    expect(drawnAfter(apply(listed, "e1", { parent: "i1", index: 1 }))).toEqual(["g2", "i2", "g1", "i1", "e2", "e1", "g3", "i3"]);
+  });
+
+  it("writes the new parent and its lineage when the card changes parent", () => {
+    const shown = dropShown(listed, "e1", { parent: "i2", index: 0 });
+    expect(shown.patch).toEqual({
+      parent: "i2",
+      lineage: [
+        { uid: "g2", type: "goal", title: "Two" },
+        { uid: "i2", type: "initiative", title: "Two-a" },
+      ],
+    });
+    expect(drawnAfter(apply(listed, "e1", { parent: "i2", index: 0 }))).toEqual(["g2", "i2", "e1", "g1", "i1", "e2", "g3", "i3"]);
   });
 });
