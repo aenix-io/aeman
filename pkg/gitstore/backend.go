@@ -609,7 +609,29 @@ func (b *Backend) DeleteCard(ctx context.Context, _ board.Board, card board.Card
 	if err != nil {
 		return err
 	}
+	// A roster entry carries no card id to name, so its commit names the
+	// entry itself — "delete team «features»", not a bare "delete".
+	if name := stubName(card); name != "" && scopeOf(ctx) == nil {
+		_, err := b.repo.Commit(Action{Name: "delete", Actor: actorOf(ctx), At: b.now(), Summary: "delete " + name}, []FileWrite{{Path: p}})
+		return err
+	}
 	return b.write(ctx, "delete", cardIDs(card), p, nil)
+}
+
+// stubName is how a roster entry is named in a commit subject, or "" for a
+// card.
+func stubName(c board.Card) string {
+	switch c.Title {
+	case board.SprintStateTitle:
+		return "team «" + c.Team + "»"
+	case board.ProjectStateTitle:
+		return "project «" + c.Project + "»"
+	case board.ScopeStateTitle:
+		return "scope «" + c.Project + " / " + c.Scope + "»"
+	case board.DeadlineStateTitle:
+		return "deadline «" + c.Project + " " + c.Week + "»"
+	}
+	return ""
 }
 
 func cardIDs(c board.Card) []string {

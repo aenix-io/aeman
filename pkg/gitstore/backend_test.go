@@ -610,3 +610,26 @@ func findByID(b board.Board, id string) (board.Card, bool) {
 	}
 	return board.Card{}, false
 }
+
+// A deleted roster entry's commit says what went: a team file deleted read
+// just "delete" in the history (prod, the team «features»), where a card's
+// delete names its id and every other roster commit names its entry.
+func TestDeletingARosterEntryNamesItInTheCommit(t *testing.T) {
+	be, r := newBackend(t)
+	ctx := ctxAs("kvaps")
+	b, _ := be.LoadBoard(ctx, "acme")
+	team := board.Card{ItemID: b.SprintStates["portal"].ItemID, Title: board.SprintStateTitle, Team: "portal"}
+	if err := be.DeleteCard(ctx, b, team); err != nil {
+		t.Fatal(err)
+	}
+	head, err := r.CommitObject(r.Head())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subject := strings.SplitN(head.Message, "\n", 2)[0]; subject != "delete team «portal»" {
+		t.Fatalf("the commit subject = %q, want delete team «portal»", subject)
+	}
+	if tr := ParseTrailers(head.Message); tr.Action != "delete" {
+		t.Fatalf("the action trailer = %q, want delete", tr.Action)
+	}
+}
