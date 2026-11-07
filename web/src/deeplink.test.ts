@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildLink, cardLink, linkChange, parseLink, saveReturnTo, takeReturnTo } from "./deeplink";
+import { buildLink, cardLink, cardUnreadable, linkChange, parseLink, saveReturnTo, startDay, takeReturnTo } from "./deeplink";
 
 // THE BOARD'S ADDRESS IS ITS STATE. The view and the open card live in the
 // query of the root document — /?view=roadmap&card=<uid> — and a day board
@@ -28,6 +28,18 @@ describe("reading the board's address", () => {
     expect(parseLink("?card=" + encodeURIComponent("<script>")).card).toBeNull();
     expect(parseLink("?card=" + "x".repeat(200)).card).toBeNull();
     expect(parseLink("?day=yesterday").day).toBeNull();
+    // A day is a real calendar day, not four, two and two digits.
+    expect(parseLink("?day=2026-02-31").day).toBeNull();
+    expect(parseLink("?day=2026-99-99").day).toBeNull();
+    expect(parseLink("?day=2028-02-29").day).toBe("2028-02-29");
+  });
+
+  // The linked day outlives the board's start: the config that sets the
+  // board's zone puts the board on the linked day, and on today only when the
+  // link named none.
+  it("starts the board on the linked day", () => {
+    expect(startDay({ view: "team", card: null, day: "2026-11-03" }, TODAY)).toBe("2026-11-03");
+    expect(startDay({ view: "team", card: null, day: null }, TODAY)).toBe(TODAY);
   });
 });
 
@@ -47,8 +59,14 @@ describe("writing the board's address", () => {
     expect(parseLink(buildLink(s, TODAY))).toEqual(s);
   });
 
-  it("makes a card's link on this board, for sharing", () => {
-    expect(cardLink("https://board.example", "backlog", "01JABC")).toBe("https://board.example/?view=backlog&card=01JABC");
+  it("makes a card's link on this board, for sharing — the day a day board shows included", () => {
+    expect(cardLink("https://board.example", "/", "backlog", "01JABC", "2026-11-03", TODAY)).toBe(
+      "https://board.example/?view=backlog&card=01JABC",
+    );
+    expect(cardLink("https://board.example", "/", "team", "01JABC", "2026-11-03", TODAY)).toBe(
+      "https://board.example/?view=team&day=2026-11-03&card=01JABC",
+    );
+    expect(cardLink("https://board.example", "/", "me", "01JABC", TODAY, TODAY)).toBe("https://board.example/?view=me&card=01JABC");
   });
 });
 
@@ -81,18 +99,43 @@ describe("the address kept across signing in", () => {
 
   it("is given back once", () => {
     const s = storage();
-    saveReturnTo(s, "/?view=roadmap&card=01JABC");
-    expect(takeReturnTo(s)).toBe("/?view=roadmap&card=01JABC");
-    expect(takeReturnTo(s)).toBeNull();
+    saveReturnTo(s, "/?view=roadmap&card=01JABC", 1000);
+    expect(takeReturnTo(s, 2000)).toBe("/?view=roadmap&card=01JABC");
+    expect(takeReturnTo(s, 2000)).toBeNull();
+  });
+
+  // A sign-in abandoned and the board opened again much later must not
+  // send the visitor to an address they left long ago: it is kept for the
+  // sign-in's own span (the forge's state lives ten minutes), and taken off
+  // on the next load whatever happens to it.
+  it("is not given back after the sign-in's span", () => {
+    const s = storage();
+    saveReturnTo(s, "/?view=roadmap&card=01JABC", 0);
+    expect(takeReturnTo(s, 11 * 60 * 1000)).toBeNull();
+    expect(s.getItem("aeman.returnTo")).toBeNull();
   });
 
   it("is only ever an address on this board", () => {
     const s = storage();
-    for (const evil of ["//evil.example/", "https://evil.example/", "/\\evil", "javascript:alert(1)"]) {
-      s.setItem("aeman.returnTo", evil);
-      expect(takeReturnTo(s)).toBeNull();
+    for (const evil of ["//evil.example/", "https://evil.example/", "/\\evil", "javascript:alert(1)", "/\t/evil.example", "/\u0000x"]) {
+      s.setItem("aeman.returnTo", JSON.stringify({ path: evil, at: 0 }));
+      expect(takeReturnTo(s, 1)).toBeNull();
+      saveReturnTo(s, evil, 0);
+      expect(takeReturnTo(s, 1)).toBeNull();
     }
-    saveReturnTo(s, "https://evil.example/");
-    expect(takeReturnTo(s)).toBeNull();
+    s.setItem("aeman.returnTo", "not json");
+    expect(takeReturnTo(s, 1)).toBeNull();
+  });
+});
+
+// A card the address names that the visitor may not read, or that is gone,
+// is a notice and leaves the address; anything else (the network, the
+// server) is an error to show, and the address keeps the card.
+describe("a linked card that cannot be opened", () => {
+  it("is unreadable on 403 and 404 alone", () => {
+    expect(cardUnreadable({ status: 404 })).toBe(true);
+    expect(cardUnreadable({ status: 403 })).toBe(true);
+    expect(cardUnreadable({ status: 502 })).toBe(false);
+    expect(cardUnreadable(new Error("network"))).toBe(false);
   });
 });
