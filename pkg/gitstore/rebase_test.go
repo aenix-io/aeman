@@ -1,6 +1,7 @@
 package gitstore
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
@@ -378,5 +379,38 @@ func TestRebaseCanReplayACustomerTheOtherSideDeleted(t *testing.T) {
 	}
 	if got := mustRead(t, a, "cards/a/1/A1.md"); !strings.Contains(got, "01CU_HIDORA") {
 		t.Fatalf("the replayed customers field was lost:\n%s", got)
+	}
+}
+
+// H15 — a replay never writes or deletes a file the tip holds as a project
+// card or under projects/: another replica (an older server, a direct
+// writer) may have turned the card into one, and the board does not read it
+// any more, so neither our field edits nor our delete may land on it. Left
+// exactly as the tip has it.
+func TestRebaseLeavesATipProjectCardAsItIs(t *testing.T) {
+	const p = "cards/k/s/01TASK.md"
+	base := []byte("---\ntitle: a task\nteam: portal\n---\n")
+	ours := []byte("---\ntitle: a task, renamed\nteam: portal\n---\n")
+	for name, theirs := range map[string][]byte{
+		"scope": []byte("---\ntitle: a task\nscope: Bugs\nproject: portal\n---\n"),
+		"epic":  []byte("---\ntitle: a task\nepic: Bugs\n---\n"),
+	} {
+		if out, ok := mergeFile(p, base, ours, theirs); ok {
+			t.Errorf("%s: our edit rewrote a project card: %q", name, out)
+		}
+		if out, ok := mergeFile(p, base, nil, theirs); ok {
+			t.Errorf("%s: our delete removed a project card: %q", name, out)
+		}
+	}
+	roster := "projects/01P/project.yaml"
+	if _, ok := mergeFile(roster, []byte("name: a\n"), nil, []byte("name: b\n")); ok {
+		t.Error("our delete removed a projects/ file")
+	}
+	if _, ok := mergeFile(roster, []byte("name: a\n"), []byte("name: c\n"), []byte("name: b\n")); ok {
+		t.Error("our edit rewrote a projects/ file")
+	}
+	// An ordinary card still merges as before.
+	if out, ok := mergeFile(p, base, ours, base); !ok || !bytes.Contains(out, []byte("renamed")) {
+		t.Fatalf("an ordinary edit stopped replaying: %q %v", out, ok)
 	}
 }
