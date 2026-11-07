@@ -177,6 +177,15 @@ The status badge on the Roadmap is a menu, on a task and on a plan item.
   subtasks are untouched. `POST /cards/{uid}/actions/unassign-work`, MCP
   `unassign_work`.
 
+The plan item above shows both: its roll-up is read off where its open
+tasks stand (H5) — IN PROGRESS while any is in work, TO DO when none is and
+all are marked, BACKLOG otherwise — so UNASSIGNED on an epic's last task in
+work turns the epic to BACKLOG, and TO DO on it turns it to TO DO, exactly
+when the menu item would unmark them. Each gesture answers with the tasks
+it changed as they now stand, which the acting tab applies (the watch does
+not echo a tab's own write); the plan items above re-derive on every
+watcher.
+
 Both gestures name the tasks they act on: the client sends the uids it
 counted (`uids`), because with a Roadmap filter on the reader sees fewer
 tasks than the board holds, and the server acts on exactly those — each

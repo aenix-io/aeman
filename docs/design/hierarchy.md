@@ -317,8 +317,11 @@ subtask — the same mark wherever the
 hierarchy is drawn), the card's title, its **owner** (a task's team and
 the person on it — the cell opens the owner picker, below; a planning
 card has none and an empty cell), its start, its end
-(`day`) and its status — derived for a planning card (`hierarchy.status`:
-no items, to do, in progress, done, with `done/total` beside it), and for
+(`day`) and its status — derived for a planning card (`hierarchy.status`,
+with `done/total` beside it: no items with nothing under it, done when all
+is done, else read off where the open tasks stand — in progress when any is
+in work, TO DO when none is and all are marked TO DO, BACKLOG otherwise;
+progress alone does not count, a parked task is waiting), and for
 a task its own, in this order: done when complete; else the stage that
 holds it — review, locked, refused — which says who it waits on; else
 BACKLOG on a parked task (waiting in its backlog, in nobody's hands); else
@@ -602,7 +605,7 @@ task.
   the counts, over the leaf tasks (a task whose parent is a planning
   card; a subtask counts through its parent). Pinned by board
   `TestHierarchyStatusIsDerivedFromTheLeafTasks`,
-  `TestAnAssignedLeafTaskPutsItsPlanningCardInProgress`; service
+  `TestALeafTaskInWorkPutsItsPlanningCardInProgress`; service
   `TestTheLevelRuleGovernsTheParent` (a task's progress writes nothing on
   the epic); apiserver `TestACardResourceCarriesItsLineageAndHierarchy`.
 - H6 — `parent` never shows a reader of the child a hole: it may point up
