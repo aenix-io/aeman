@@ -1374,7 +1374,10 @@ func (b *storeBackend) installAndTake(e *boardEntry, fresh board.Board) board.Bo
 // installLocked is the body the two share. The caller holds e.mu.
 func (b *storeBackend) installLocked(e *boardEntry, fresh board.Board) {
 	old := e.board
-	hadOld := e.loaded
+	// A board installed before — even one a failed write just marked stale
+	// (loaded=false) — is what watchers hold, so the reload is told to them
+	// as a diff: a refused write rolls back on every open board at once.
+	hadOld := e.loaded || !e.loadedAt.IsZero()
 	fresh = e.applyRecent(fresh)
 	e.board = fresh
 	// Replay the write-behind queue on top (the in-flight op first): these

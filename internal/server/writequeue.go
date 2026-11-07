@@ -249,7 +249,7 @@ func (b *storeBackend) drain(ctx context.Context, e *boardEntry) {
 		e.inflight = &op
 		e.mu.Unlock()
 
-		err := b.execGroup(ctx, e, op)
+		taken, err := b.execGroup(ctx, e, op)
 
 		e.mu.Lock()
 		e.inflight = nil
@@ -258,10 +258,15 @@ func (b *storeBackend) drain(ctx context.Context, e *boardEntry) {
 		if err != nil {
 			e.syncError(fmt.Sprintf("%s failed: %v", op.desc, err))
 			e.loaded = false
-			// The failed write's card must NOT keep outweighing the reload:
-			// the backend refused the value, so its truth wins for it.
-			if op.itemID != "" {
-				delete(e.recentCards, op.itemID)
+			// The failed writes' cards must NOT keep outweighing the reload:
+			// the backend refused them, so its truth wins for every card the
+			// group touched — a refused delete included, whose card the
+			// reload brings back at once instead of after the grace window.
+			for _, t := range taken {
+				if t.itemID != "" {
+					delete(e.recentCards, t.itemID)
+					delete(e.recentGone, t.itemID)
+				}
 			}
 			e.recentMove = time.Time{}
 		}

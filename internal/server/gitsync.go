@@ -165,12 +165,14 @@ func sameAction(a, b pendingOp) bool {
 // recorded for the push; the in-flight marker covers the whole group. An op
 // runs once: a write into the staged tree has no transient failure mode
 // worth a retry, and a create retried after an ambiguous failure would
-// duplicate the card.
-func (b *storeBackend) execGroup(ctx context.Context, e *boardEntry, first pendingOp) error {
+// duplicate the card. It returns every op it took off the queue, the first
+// included, so a failure can undo the optimistic guards of all of them.
+func (b *storeBackend) execGroup(ctx context.Context, e *boardEntry, first pendingOp) ([]pendingOp, error) {
+	taken := []pendingOp{first}
 	if b.git == nil {
 		// No repository behind the store (the queue's own tests run over a
 		// fake backend): the op runs, nothing commits.
-		return first.exec(ctx)
+		return taken, first.exec(ctx)
 	}
 	b.git.applyMu.Lock()
 	defer b.git.applyMu.Unlock()
@@ -180,7 +182,7 @@ func (b *storeBackend) execGroup(ctx context.Context, e *boardEntry, first pendi
 	}
 	sctx, flush, _ := b.git.scopeFor(ctx, named)
 	if err := first.exec(sctx); err != nil {
-		return err
+		return taken, err
 	}
 	for {
 		e.mu.Lock()
@@ -191,19 +193,20 @@ func (b *storeBackend) execGroup(ctx context.Context, e *boardEntry, first pendi
 		next := e.pending[0]
 		e.pending = e.pending[1:]
 		e.mu.Unlock()
+		taken = append(taken, next)
 		if err := next.exec(sctx); err != nil {
-			return err
+			return taken, err
 		}
 	}
 	hash, err := flush()
 	if err != nil {
-		return err
+		return taken, err
 	}
 	if !hash.IsZero() {
 		b.refreshCards(sctx, e, gitstore.ScopeCards(sctx))
 		b.committed(e)
 	}
-	return nil
+	return taken, nil
 }
 
 // refreshCards brings the cards a commit named up to date from the tree —
