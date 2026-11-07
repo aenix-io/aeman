@@ -1444,8 +1444,16 @@ func (s *Service) logReviewCancelled(ctx context.Context, b board.Board, origina
 // SetStage moves a card to a stage (stage = "" clears it). It mirrors handleStage
 // in TeamBoard.tsx: board.ApplyStage computes the resulting (stage, progress) and
 // both are persisted (done fills 100%, review/locked knock a full card to 90%).
-// Taking a card off review cancels its unfinished linked review card.
+// Taking a card off review cancels its unfinished linked review card. A
+// task it finishes loses its TO DO (K15).
 func (s *Service) SetStage(ctx context.Context, boardID string, itemID string, stage board.StageKey) error {
+	if err := s.setStage(ctx, boardID, itemID, stage); err != nil {
+		return err
+	}
+	return s.clearTodoOnceFinished(ctx, boardID, itemID)
+}
+
+func (s *Service) setStage(ctx context.Context, boardID string, itemID string, stage board.StageKey) error {
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -1669,7 +1677,15 @@ func (s *Service) Reopen(ctx context.Context, boardID string, itemID string) err
 // SetProgress sets a card's progress. It mirrors handleProgress in TeamBoard.tsx:
 // board.ApplyProgress clamps the value and runs the done auto-link, both are
 // persisted, and a review card's progress drives its original's review stage.
+// A task it finishes loses its TO DO (K15).
 func (s *Service) SetProgress(ctx context.Context, boardID string, itemID string, raw int) error {
+	if err := s.setProgress(ctx, boardID, itemID, raw); err != nil {
+		return err
+	}
+	return s.clearTodoOnceFinished(ctx, boardID, itemID)
+}
+
+func (s *Service) setProgress(ctx context.Context, boardID string, itemID string, raw int) error {
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -2105,6 +2121,10 @@ func (s *Service) takenIntoWork(ctx context.Context, b board.Board, card board.C
 		return err
 	}
 	s.logEvent(ctx, b, card, board.EventBacklog, backlogLabel(card), "")
+	// TO DO said "take this next" (K15); it has been taken.
+	if card.Todo {
+		return s.backend.SetTodo(ctx, b, card, false)
+	}
 	return nil
 }
 

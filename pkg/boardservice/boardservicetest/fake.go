@@ -572,6 +572,17 @@ func (f *Backend) SetBacklog(
 	return nil
 }
 
+// SetTodo marks a parked task ready, or clears the mark.
+func (f *Backend) SetTodo(_ context.Context, _ board.Board, card board.Card, todo bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetTodo %s %t", card.ItemID, todo)
+	if c := f.card(card.ItemID); c != nil {
+		c.Todo = todo
+	}
+	return nil
+}
+
 // SetTeam sets a card's team.
 func (f *Backend) SetTeam(_ context.Context, _ board.Board, card board.Card, team string) error {
 	f.mu.Lock()

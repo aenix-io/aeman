@@ -160,3 +160,50 @@ func BacklogOrder(ix *Index, cards []Card) []Card {
 	sort.SliceStable(out, func(i, j int) bool { return keys[out[i].ItemID].Less(keys[out[j].ItemID]) })
 	return out
 }
+
+// ToDoTargets is what the Roadmap's TO DO means on a card (K15): on a task,
+// the task itself when it is parked open work in its backlog; on a plan
+// item, every such task under it at any depth (its leaf tasks), in board
+// order. A review, a subtask, work in hand and finished work are never
+// among them: the flag orders a backlog, and they are in none.
+func (ix *Index) ToDoTargets(c Card) []Card {
+	ready := func(t Card) bool { return t.ReviewOf == "" && ix.OnBacklog(t) }
+	if !IsPlanning(c) {
+		if ready(c) {
+			return []Card{c}
+		}
+		return nil
+	}
+	var out []Card
+	for _, t := range ix.LeafTasks(c.ItemID) {
+		if ready(t) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// UnassignTargets is what the Roadmap's UNASSIGNED means on a card (K16): on
+// a task, the task itself when it is open work in hand; on a plan item, every
+// such task under it at any depth, in board order. Work in hand is a task
+// with a date or a sprint that is not parked; finished work, a review card
+// (it follows the card it reviews) and a subtask (it rides its parent) are
+// never among them.
+func (ix *Index) UnassignTargets(c Card) []Card {
+	inHand := func(t Card) bool {
+		return isTaskOwnPlace(t, ix.IsSubtask(t)) && InWork(t) && !InBacklog(t) && !Complete(t.Stage, t.Progress)
+	}
+	if !IsPlanning(c) {
+		if inHand(c) {
+			return []Card{c}
+		}
+		return nil
+	}
+	var out []Card
+	for _, t := range ix.LeafTasks(c.ItemID) {
+		if inHand(t) {
+			out = append(out, t)
+		}
+	}
+	return out
+}

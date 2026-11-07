@@ -952,6 +952,11 @@ func (b *Backend) SetBacklog(
 	return b.editCard(ctx, "backlog", card, func(f *CardFile) { f.Card.Parked = parked })
 }
 
+// SetTodo marks a parked task ready to be taken next, or clears the mark.
+func (b *Backend) SetTodo(ctx context.Context, _ board.Board, card board.Card, todo bool) error {
+	return b.editCard(ctx, "todo", card, func(f *CardFile) { f.Card.Todo = todo })
+}
+
 // SetRecurrence sets a recurrent card's cycle.
 func (b *Backend) SetRecurrence(ctx context.Context, _ board.Board, card board.Card, cycle string) error {
 	return b.editCard(ctx, "recurrence", card, func(f *CardFile) { f.Card.Recurrence = cycle })

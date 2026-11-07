@@ -790,6 +790,15 @@ func (mb *MultiBackend) SetBacklog(
 	return be.SetBacklog(ctx, bd, card, parked)
 }
 
+// SetTodo writes in the card's own domain, as SetBacklog does.
+func (mb *MultiBackend) SetTodo(ctx context.Context, bd board.Board, card board.Card, todo bool) error {
+	be, err := mb.route(ctx, card)
+	if err != nil {
+		return err
+	}
+	return be.SetTodo(ctx, bd, card, todo)
+}
+
 // SetTeam may move a team card to another domain.
 func (mb *MultiBackend) SetTeam(ctx context.Context, bd board.Board, card board.Card, team string) error {
 	if card.Title == board.SprintStateTitle && team != card.Team {

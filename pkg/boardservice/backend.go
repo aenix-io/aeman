@@ -84,6 +84,8 @@ type Backend interface {
 	SetSprintStart(ctx context.Context, b board.Board, card board.Card, date string) error
 	// SetBacklog puts the card on its team's shelf, or takes it off.
 	SetBacklog(ctx context.Context, b board.Board, card board.Card, parked bool) error
+	// SetTodo marks a parked task ready to be taken next, or clears it (K15).
+	SetTodo(ctx context.Context, b board.Board, card board.Card, todo bool) error
 	SetTeam(ctx context.Context, b board.Board, card board.Card, team string) error
 	// SetRecurrence sets a recurrent card's reseed cycle ("" = every sprint).
 	SetRecurrence(ctx context.Context, b board.Board, card board.Card, cycle string) error

@@ -2370,6 +2370,20 @@ func (b *storeBackend) SetBacklog(
 	return nil
 }
 
+// SetTodo marks a parked task ready to be taken next, or clears the mark.
+func (b *storeBackend) SetTodo(ctx context.Context, bd board.Board, card board.Card, todo bool) error {
+	what := "clear the TO DO on " + cardRef(card)
+	if todo {
+		what = "mark " + cardRef(card) + " TO DO"
+	}
+	b.mutateCard(ctx, bd, card.ItemID, "todo", what, func(c *board.Card) {
+		c.Todo = todo
+	}, func(ctx context.Context) error {
+		return b.inner.SetTodo(ctx, bd, card, todo)
+	})
+	return nil
+}
+
 func (b *storeBackend) SetTeam(ctx context.Context, bd board.Board, card board.Card, team string) error {
 	if card.Title == board.SprintStateTitle {
 		// The team's own stub is not a card the cache holds: its name is the

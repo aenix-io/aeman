@@ -412,6 +412,14 @@ func (v *visibleBackend) SetBacklog(ctx context.Context, bd board.Board, card bo
 	return v.Backend.SetBacklog(ctx, bd, card, parked)
 }
 
+// SetTodo writes the card's own domain, and takes the card's write check.
+func (v *visibleBackend) SetTodo(ctx context.Context, bd board.Board, card board.Card, todo bool) error {
+	if err := v.write(ctx, bd, card); err != nil {
+		return err
+	}
+	return v.Backend.SetTodo(ctx, bd, card, todo)
+}
+
 func (v *visibleBackend) SetDoneAt(ctx context.Context, bd board.Board, card board.Card, day string) error {
 	if err := v.write(ctx, bd, card); err != nil {
 		return err

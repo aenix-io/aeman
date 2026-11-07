@@ -444,6 +444,16 @@ func (f *fakeBackend) SetBacklog(
 	return nil
 }
 
+func (f *fakeBackend) SetTodo(_ context.Context, _ board.Board, card board.Card, todo bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetTodo %s %t", card.ItemID, todo)
+	if c := f.get(card.ItemID); c != nil {
+		c.Todo = todo
+	}
+	return nil
+}
+
 func (f *fakeBackend) SetTeam(_ context.Context, _ board.Board, card board.Card, team string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
