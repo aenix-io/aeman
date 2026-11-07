@@ -1161,14 +1161,19 @@ export const PRIORITY_CHOICES: readonly { value: Priority | ""; label: string }[
 
 /** StatusMenu is what a row's badge menu offers: the card's OWN priority
  *  (checked in the menu; "" when it has none of its own, even when it
- *  inherits one) and how many tasks UNASSIGNED would take (0: disabled). */
+ *  inherits one) and whether UNASSIGNED has anything to take. A plan item
+ *  says so by its SERVER roll-up — IN PROGRESS is work in hand under it —
+ *  because a filtered Roadmap holds fewer of its tasks than the board does;
+ *  a task by its own place. How many it would take is the server's answer
+ *  too (a dry run), asked as the confirm opens. */
 export interface StatusMenu {
   own: Priority | "";
-  unassign: number;
+  unassign: boolean;
 }
 
 export function statusMenu(cards: readonly Card[], c: Card): StatusMenu {
-  return { own: c.priority ?? "", unassign: unassignTargets(cards, c).length };
+  const unassign = isPlanning(c) ? c.hierarchy?.status === "in-progress" : unassignTargets(cards, c).length > 0;
+  return { own: c.priority ?? "", unassign };
 }
 
 /** effectivePriorityIn is the priority a card counts under — mirrors

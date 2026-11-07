@@ -2472,6 +2472,12 @@ components:
     UnassignWorkBody:
       type: object
       properties:
+        dryRun:
+          type: boolean
+          description: >-
+            Name what the gesture would take — in `items`, as they stand —
+            and write nothing: what a confirm counts. The reader's Roadmap
+            may be filtered; this answers for the whole board.
         uids:
           type: array
           description: >-

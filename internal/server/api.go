@@ -780,7 +780,12 @@ func (a surface) UnassignWork(ctx context.Context, req apiv1.UnassignWorkRequest
 	if req.Body != nil && req.Body.Uids != nil {
 		uids = *req.Body.Uids
 	}
-	changed, err := svc.UnassignWork(ctx, boardID, req.UID, uids)
+	var changed []string
+	if req.Body != nil && req.Body.DryRun != nil && *req.Body.DryRun {
+		changed, err = svc.UnassignPreview(ctx, boardID, req.UID)
+	} else {
+		changed, err = svc.UnassignWork(ctx, boardID, req.UID, uids)
+	}
 	if err != nil {
 		return nil, err
 	}

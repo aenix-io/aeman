@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -900,8 +902,9 @@ describe("what a drop shows at once", () => {
 // TestUnassignedOnAPlanItem…
 describe("the badge menu on the Roadmap (K15, K16)", () => {
   const today = "2026-11-09";
-  const g = card({ itemId: "g", type: "goal", team: "alpha", priority: "P2" });
-  const e = card({ itemId: "e", type: "epic", parent: "g" });
+  const ip = { status: "in-progress" as const, done: 0, total: 3 };
+  const g = card({ itemId: "g", type: "goal", team: "alpha", priority: "P2", hierarchy: ip });
+  const e = card({ itemId: "e", type: "epic", parent: "g", hierarchy: ip });
   const p1 = card({ itemId: "p1", parent: "e", parked: true });
   const p2 = card({ itemId: "p2", parent: "g", parked: true });
   const w1 = card({ itemId: "w1", parent: "e", team: "alpha", assignees: ["kvaps"], sprintStart: today, startDate: today, day: today });
@@ -920,10 +923,10 @@ describe("the badge menu on the Roadmap (K15, K16)", () => {
   });
 
   it("offers the four priorities with the card's OWN one checked, and UNASSIGNED where work is in hand", () => {
-    expect(statusMenu(all, g)).toEqual({ own: "P2", unassign: 2 });
+    expect(statusMenu(all, g)).toEqual({ own: "P2", unassign: true });
     // e has none of its own (it counts under g's P2): "No priority" is checked.
-    expect(statusMenu(all, e)).toEqual({ own: "", unassign: 1 });
-    expect(statusMenu(all, doneWork)).toEqual({ own: "", unassign: 0 });
+    expect(statusMenu(all, e)).toEqual({ own: "", unassign: true });
+    expect(statusMenu(all, doneWork)).toEqual({ own: "", unassign: false });
     expect(PRIORITY_CHOICES.map((c) => c.label)).toEqual(["P0", "P1", "P2", "P3", "P4", "No priority"]);
     expect(PRIORITY_CHOICES.map((c) => c.value)).toEqual(["P0", "P1", "P2", "P3", "P4", ""]);
   });
@@ -1053,6 +1056,43 @@ describe("patching what a status gesture changed", () => {
       day: undefined,
       sprintStart: undefined,
     });
+  });
+});
+
+
+// UNASSIGNED reaches exactly the open tasks in work under a row (K16) — the
+// same fixture as board's TestUnassignTargetsMatchTheSharedFixture, read from
+// the Go package's testdata: the same cards give the same tasks on both
+// sides.
+describe("UNASSIGNED's reach, shared with the server", () => {
+  const fx = JSON.parse(
+    readFileSync(fileURLToPath(new URL("../../pkg/board/testdata/unassign_targets.json", import.meta.url)), "utf8"),
+  ) as { cards: Partial<Card>[]; targets: Record<string, string[]> };
+  const cards = fx.cards.map((c) => card(c));
+
+  it("names the same tasks as board.UnassignTargets, for every row of the fixture", () => {
+    for (const [root, want] of Object.entries(fx.targets)) {
+      const c = cards.find((x) => x.itemId === root)!;
+      expect([root, unassignTargets(cards, c).map((t) => t.itemId)]).toEqual([root, want]);
+    }
+  });
+});
+
+// The Roadmap may be filtered: the cards it holds are fewer than the board's,
+// and only the server knows every task in work under a plan item. So a plan
+// item offers UNASSIGNED by its server roll-up — IN PROGRESS means there is
+// work in hand under it — and the confirm asks the server (a dry run) what it
+// would take; a task offers it by its own place.
+describe("UNASSIGNED under a filter", () => {
+  it("is offered on a plan item the server rolls up IN PROGRESS, whatever the listing holds", () => {
+    const epic = card({ itemId: "e", type: "epic", hierarchy: { status: "in-progress", done: 0, total: 3 } });
+    // The filter left none of its tasks in the listing.
+    expect(statusMenu([epic], epic).unassign).toBe(true);
+    const waiting = { ...epic, hierarchy: { status: "backlog" as const, done: 0, total: 3 } };
+    expect(statusMenu([waiting], waiting).unassign).toBe(false);
+    const task = card({ itemId: "t", sprintStart: "2026-11-09" });
+    expect(statusMenu([task], task).unassign).toBe(true);
+    expect(statusMenu([{ ...task, parked: true, sprintStart: undefined }], { ...task, parked: true, sprintStart: undefined }).unassign).toBe(false);
   });
 });
 

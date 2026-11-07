@@ -104,6 +104,26 @@ func (s *Service) SetPriority(ctx context.Context, boardID string, itemID string
 	return s.backend.SetPriority(ctx, b, card, board.PriorityKey(priority))
 }
 
+// UnassignPreview names the tasks UnassignWork would take from the card,
+// writing nothing — what the confirm counts. The reader's Roadmap may be
+// filtered and hold fewer of them; only the whole board says what makes the
+// plan item IN PROGRESS. Refused like UnassignWork on a task not in work.
+func (s *Service) UnassignPreview(ctx context.Context, boardID string, itemID string) ([]string, error) {
+	b, card, err := s.loadCard(ctx, boardID, itemID)
+	if err != nil {
+		return nil, err
+	}
+	reach := board.NewIndex(b).UnassignTargets(card)
+	if !board.IsPlanning(card) && len(reach) == 0 {
+		return nil, fmt.Errorf("%w: %q", ErrNotInWork, card.Title)
+	}
+	out := make([]string, 0, len(reach))
+	for _, t := range reach {
+		out = append(out, t.ItemID)
+	}
+	return out, nil
+}
+
 // UnassignWork takes the card's work in hand back to its team's backlog and
 // names the tasks it moved (their uids, in board order). Each goes the ×'s unassign way (SetBacklog):
 // nobody on it, no day, no sprint, the review it asked for withdrawn, parked

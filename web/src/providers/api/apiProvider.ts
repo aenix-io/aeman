@@ -521,6 +521,12 @@ export const apiProvider: Provider = {
     return cardFrom(client.POST("/cards/{uid}/actions/priority", { params: { path: { uid } }, body: { priority } }));
   },
 
+  async previewUnassign(uid: string): Promise<Card[]> {
+    uid = await resolveCardId(uid);
+    const res = await answered(client.POST("/cards/{uid}/actions/unassign-work", { params: { path: { uid } }, body: { dryRun: true } }));
+    return (res.items ?? []).map(resourceToCard);
+  },
+
   async unassignWork(uid: string, uids?: string[]): Promise<Card[]> {
     uid = await resolveCardId(uid);
     const body = uids ? { uids: await Promise.all(uids.map(resolveCardId)) } : undefined;

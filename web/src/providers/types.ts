@@ -415,6 +415,10 @@ export interface Provider {
    *  the confirm counted;
    *  422 notInWork on a task not in work, 403 when any is not the caller's. */
   unassignWork(uid: string, uids?: string[]): Promise<Card[]>;
+  /** What UNASSIGNED would take from the card, as they stand, writing
+   *  nothing (a dry run) — for the whole board, whatever the Roadmap's
+   *  filter holds: what the confirm counts. */
+  previewUnassign(uid: string): Promise<Card[]>;
   /** Advance a team's sprint to today and carry its unfinished cards forward.
    * dryRun reports the would-be counts without writing. team = null is the
    * no-team group. */

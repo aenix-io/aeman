@@ -119,6 +119,9 @@ describe("the board in the address", () => {
     await apiProvider.unassignWork("c1", ["t3"]);
     expect(calls[1].url).toBe("/api/v1/cards/c1/actions/unassign-work");
     expect(calls[1].body).toEqual({ uids: ["t3"] });
+    await apiProvider.previewUnassign("c1");
+    expect(calls[2].url).toBe("/api/v1/cards/c1/actions/unassign-work");
+    expect(calls[2].body).toEqual({ dryRun: true });
   });
 
   // A create belongs to the board it was typed into: the open one, unless

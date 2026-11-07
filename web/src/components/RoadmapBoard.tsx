@@ -30,7 +30,6 @@ import {
   workPatchOf,
   statusUids,
   priorityAfter,
-  unassignTargets,
   unassignQuestion,
   UNASSIGNED_LOCALLY,
   droppable,
@@ -1212,15 +1211,21 @@ export function RoadmapBoard({
               type="button"
               role="menuitem"
               className="roadmap-status-item"
-              disabled={menu.unassign === 0}
-              title={menu.unassign > 0 ? "Take out of work, back to the backlog" : "Nothing in work here"}
+              disabled={!menu.unassign}
+              title={menu.unassign ? "Take out of work, back to the backlog" : "Nothing in work here"}
               onClick={() => {
-                setUnassigning({ card: statusFor, uids: statusUids(unassignTargets(board.cards, statusFor)) });
+                // The confirm counts what the SERVER would take: the
+                // Roadmap may be filtered, and only the whole board knows
+                // every task in work under the row.
+                const card = statusFor;
                 setStatusFor(null);
+                void provider
+                  .previewUnassign(card.itemId)
+                  .then((would) => setUnassigning({ card, uids: statusUids(would) }))
+                  .catch((err: unknown) => onError(errText(err)));
               }}
             >
               <span className="roadmap-status roadmap-status-unassigned">Unassign</span>
-              {isPlanning(statusFor) && menu.unassign > 0 && <span className="roadmap-status-count">{menu.unassign}</span>}
             </button>
           </>
         )}

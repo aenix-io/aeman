@@ -541,6 +541,12 @@ func TestTheStatusMenuActsOnTheTasksTheReaderCountedOverHTTP(t *testing.T) {
 	if !fake.Card("shown").Parked || fake.Card("hidden").Parked {
 		t.Fatalf("only the counted task leaves work: shown %+v, hidden %+v", fake.Card("shown"), fake.Card("hidden"))
 	}
+	// A dry run names what the gesture would take on the whole board —
+	// whatever the reader's filter showed — and writes nothing.
+	rec = do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/unassign-work", `{"dryRun":true}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"changed":1`) || !strings.Contains(rec.Body.String(), `"uid":"hidden"`) || fake.Card("hidden").Parked {
+		t.Fatalf("a dry run = %d %s; hidden parked=%v", rec.Code, rec.Body.String(), fake.Card("hidden").Parked)
+	}
 	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/unassign-work", `{"uids":["hidden","p"]}`); rec.Code != http.StatusUnprocessableEntity ||
 		!strings.Contains(rec.Body.String(), "notATarget") || fake.Card("hidden").Parked {
 		t.Fatalf("a uid the gesture cannot reach = %d %s, want 422 notATarget and nothing changed", rec.Code, rec.Body.String())

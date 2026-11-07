@@ -204,10 +204,14 @@ BACKLOG. UNASSIGNED answers with the tasks it changed as they now stand,
 which the acting tab applies (the watch does not echo a tab's own write);
 the plan items above re-derive on every watcher.
 
-UNASSIGNED names the tasks it acts on: the client sends the uids it
-counted (`uids`), because with a Roadmap filter on the reader sees fewer
-tasks than the board holds, and the server acts on exactly those — each
-must be one the gesture reaches from the row (422 `notATarget`). Without
+UNASSIGNED reaches exactly the open tasks in work under the row — what
+makes the plan item IN PROGRESS. A filtered Roadmap holds fewer of them
+than the board does, so the confirm asks the server first (a dry run,
+`dryRun: true`, which names them and writes nothing) and counts its
+answer; the menu offers Unassign on a plan item the server rolls up IN
+PROGRESS. The gesture then sends those uids (`uids`) and the server acts
+on exactly them — each must be one the gesture reaches from the row (422
+`notATarget`). Without
 `uids` (an agent asking for everything) every task the gesture reaches is
 taken. Every task is checked first — reachable, and the caller's to write
 — so a gesture is applied whole or not at all (403 naming how many and

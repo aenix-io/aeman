@@ -192,3 +192,21 @@ func TestUnassignedMovesNoTaskAndReadsTheBoardOnce(t *testing.T) {
 		t.Fatalf("the board was read %d times, want once", got)
 	}
 }
+
+// The confirm asks the SERVER what UNASSIGNED would take (a dry run): the
+// reader's Roadmap may be filtered, and only the whole board says what makes
+// the plan item IN PROGRESS. The dry run names those tasks and writes
+// nothing; the gesture then takes exactly them.
+func TestUnassignedDryRunNamesTheTasksAndWritesNothing(t *testing.T) {
+	f := roadmapWorkBoard()
+	got, err := New(f).UnassignPreview(ctx, "acme", "g")
+	if err != nil || !slices.Equal(got, []string{"w1", "w2"}) {
+		t.Fatalf("UnassignPreview(g) = %v, %v; want w1, w2", got, err)
+	}
+	if f.count("SetBacklog") != 0 || f.get("w1").Parked {
+		t.Fatalf("a dry run writes nothing: %v", f.log)
+	}
+	if _, err := New(f).UnassignPreview(ctx, "acme", "p1"); !errors.Is(err, ErrNotInWork) {
+		t.Fatalf("a dry run on parked work = %v, want ErrNotInWork", err)
+	}
+}

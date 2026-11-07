@@ -160,7 +160,8 @@ type setPriorityInput struct {
 
 type unassignWorkInput struct {
 	cardRef
-	UIDs []string `json:"uids,omitempty" jsonschema:"exactly the tasks to take out of work, each one the gesture reaches from the card; leave out for every task it reaches"`
+	DryRun bool     `json:"dry_run,omitempty" jsonschema:"name the tasks it would take and change nothing — ask this before doing it to somebody else's work"`
+	UIDs   []string `json:"uids,omitempty" jsonschema:"exactly the tasks to take out of work, each one the gesture reaches from the card; leave out for every task it reaches"`
 }
 
 // workChange answers a status gesture: how many tasks it changed, and which.
@@ -185,7 +186,12 @@ func (h *server) unassignWork(ctx context.Context, _ *mcp.CallToolRequest, in un
 	if err != nil {
 		return nil, workChange{}, err
 	}
-	changed, err := svc.UnassignWork(ctx, boardID, in.UID, in.UIDs)
+	var changed []string
+	if in.DryRun {
+		changed, err = svc.UnassignPreview(ctx, boardID, in.UID)
+	} else {
+		changed, err = svc.UnassignWork(ctx, boardID, in.UID, in.UIDs)
+	}
 	if err != nil {
 		return nil, workChange{}, err
 	}

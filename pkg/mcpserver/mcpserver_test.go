@@ -1106,6 +1106,10 @@ func TestAnAgentSetsAPriorityAndTakesWorkOutOfHand(t *testing.T) {
 	if msg := callErr(t, cs, "set_priority", map[string]any{"uid": "w", "priority": "urgent"}); !strings.Contains(msg, "P0, P1, P2, P3, P4 or none") {
 		t.Fatalf("set_priority with an unknown value = %q", msg)
 	}
+	call(t, cs, "unassign_work", map[string]any{"uid": "e", "dry_run": true})
+	if fake.Card("w").Parked {
+		t.Fatal("a dry run takes nothing out of work")
+	}
 	call(t, cs, "unassign_work", map[string]any{"uid": "e"})
 	if got := fake.Card("w"); !got.Parked || len(got.Assignees) != 0 {
 		t.Fatalf("unassign_work on the epic parks its work in hand: %+v", got)

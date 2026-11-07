@@ -910,6 +910,9 @@ type TeamCapacityBody struct {
 
 // UnassignWorkBody defines model for UnassignWorkBody.
 type UnassignWorkBody struct {
+	// DryRun Name what the gesture would take — in `items`, as they stand — and write nothing: what a confirm counts. The reader's Roadmap may be filtered; this answers for the whole board.
+	DryRun *bool `json:"dryRun,omitempty"`
+
 	// Uids Exactly the tasks to take out of work, when given — the ones the confirm counted. Each must be one the gesture reaches from the card (422 `notATarget` otherwise). Absent: every task it reaches.
 	Uids *[]string `json:"uids,omitempty"`
 }
