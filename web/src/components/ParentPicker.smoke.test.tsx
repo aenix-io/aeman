@@ -18,6 +18,9 @@ describe("the Under picker's options", () => {
     const billing = html.slice(html.indexOf("drawer-pick-group\" role=\"group\" aria-label=\"Epic\""));
     expect(billing).toMatch(/class="drawer-pick-chain" title="Завершение проекта Freedom › ТС-2"/);
     expect(billing.indexOf("ТС-2")).toBeLessThan(billing.indexOf(">Billing<"));
+    // The option's name says where it stands, for a screen reader too.
+    expect(html).toContain('aria-label="Billing, under Завершение проекта Freedom › ТС-2"');
+    expect(html).toContain('aria-label="Завершение проекта Freedom"');
     // A root has no chain to show.
     expect(html.match(/class="drawer-pick-chain"/g)?.length).toBe(2);
   });

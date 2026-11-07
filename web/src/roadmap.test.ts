@@ -43,6 +43,8 @@ import {
   subtreeRows,
   parentChainOf,
   pickerMatches,
+  cardsAfterDelete,
+  parentOptions,
 } from "./roadmap";
 import type { Card } from "./providers/types";
 import { resourceToCard, type CardResource } from "./api/resources";
@@ -771,5 +773,61 @@ describe("a plan item's place in a picker", () => {
     expect(pickerMatches(epic, all, "grow")).toBe(true);
     expect(pickerMatches(epic, all, "nothing")).toBe(false);
     expect(pickerMatches(epic, all, "")).toBe(true);
+  });
+});
+
+// Deleting a plan item from the drawer moves what was under it up to its
+// own parent — the same moves the server makes (reparentChildren) — in the
+// drawer's own copy of the hierarchy too, or a child would keep a dead
+// parent and fall out of the tree.
+describe("the hierarchy after a delete", () => {
+  it("moves the card's children up, with its lineage, and drops it", () => {
+    const iniL = { ...ini, lineage: [{ uid: "g", type: "goal" as const, title: "Grow" }] };
+    const got = cardsAfterDelete([goal, iniL, epic, task], "i");
+    expect(got.map((c) => c.itemId)).toEqual(["g", "e", "t"]);
+    const e = got.find((c) => c.itemId === "e")!;
+    expect(e.parent).toBe("g");
+    expect(e.lineage).toEqual([{ uid: "g", type: "goal", title: "Grow" }]);
+    expect(got.find((c) => c.itemId === "t")!.parent).toBe("e");
+  });
+
+  it("makes roots of a root's children", () => {
+    const got = cardsAfterDelete([goal, ini], "g");
+    expect(got.find((c) => c.itemId === "i")!.parent).toBeUndefined();
+  });
+});
+
+describe("a chain that is not whole", () => {
+  it("stops at a cycle", () => {
+    const a = card({ itemId: "a", title: "A", type: "epic", parent: "b" });
+    const b = card({ itemId: "b", title: "B", type: "initiative", parent: "a" });
+    expect(parentChainOf(a, [a, b]).map((c) => c.itemId)).toEqual(["b"]);
+  });
+
+  it("is what is held when an ancestor is missing and no lineage says more", () => {
+    const e2 = card({ itemId: "e2", title: "E", type: "epic", parent: "i" });
+    const i2 = card({ itemId: "i", title: "I", type: "initiative", parent: "gone" });
+    expect(parentChainOf(e2, [e2, i2]).map((c) => c.title)).toEqual(["I"]);
+  });
+});
+
+// The Under picker's list: the levels a card may sit under, never itself or
+// a card under it — whatever the search — each option with its chain, found
+// by its own title or an ancestor's.
+describe("the Under picker's options", () => {
+  const under = card({ itemId: "u", title: "Billing child", type: "epic", parent: "e", lineage: [{ uid: "e", type: "epic", title: "Invoices" }] });
+  const all = [goal, ini, epic, under];
+
+  it("leaves out the card and what stands under it, even when the search names their ancestor", () => {
+    const got = parentOptions("epic", all, "i", "grow");
+    expect(got.flatMap((g) => g.options.map((o) => o.card.itemId))).toEqual(["g"]);
+  });
+
+  it("finds an option by an ancestor's title, and carries its chain", () => {
+    const got = parentOptions("task", all, "x", "billing");
+    const ids = got.flatMap((g) => g.options.map((o) => o.card.itemId));
+    expect(ids).toEqual(["i", "e", "u"]);
+    const e = got.flatMap((g) => g.options).find((o) => o.card.itemId === "e")!;
+    expect(e.chain.map((c) => c.title)).toEqual(["Grow", "Billing v2"]);
   });
 });

@@ -295,6 +295,60 @@ export function parentChainOf(c: Pick<Card, "itemId" | "parent" | "lineage">, ca
   return out;
 }
 
+/** ParentOption is one entry of the Under picker: a card and its chain of
+ *  ancestors, root first. */
+export interface ParentOption {
+  card: Card;
+  chain: Pick<Card, "itemId" | "title" | "type">[];
+}
+
+const PICK_ORDER: RoadmapKind[] = ["goal", "initiative", "epic"];
+
+/** parentOptions is the Under picker's list for a card of `kind` (`self`):
+ *  the levels it may sit under (allowedParentKinds), grouped highest first,
+ *  never the card itself or a card under it — whatever the search says —
+ *  each with its chain, and found by its own title or an ancestor's. The
+ *  cards are read once (one map, one chain per card), and the list and its
+ *  labels share it. */
+export function parentOptions(
+  kind: RoadmapKind,
+  cards: readonly Card[],
+  self: string,
+  query: string,
+): { kind: RoadmapKind; options: ParentOption[] }[] {
+  const allowed = allowedParentKinds(kind);
+  const q = query.trim().toLowerCase();
+  const offered: ParentOption[] = [];
+  for (const c of cards) {
+    const k = kindOf(c);
+    if (!allowed.includes(k) || c.itemId === self) {
+      continue;
+    }
+    const chain = parentChainOf(c, cards);
+    if (chain.some((up) => up.itemId === self) || (c.lineage ?? []).some((up) => up.uid === self)) {
+      continue; // a card under this one cannot also be above it
+    }
+    if (q && ![c, ...chain].some((x) => x.title.toLowerCase().includes(q))) {
+      continue;
+    }
+    offered.push({ card: c, chain });
+  }
+  return PICK_ORDER.filter((k) => allowed.includes(k))
+    .map((k) => ({ kind: k, options: offered.filter((o) => kindOf(o.card) === k) }))
+    .filter((g) => g.options.length > 0);
+}
+
+/** cardsAfterDelete is the hierarchy once a card is deleted: what was under
+ *  it moves up to its own parent — its lineage the deleted card's own — as
+ *  the server moves it (reparentChildren); the card itself is gone. */
+export function cardsAfterDelete(cards: readonly Card[], id: string): Card[] {
+  const gone = cards.find((c) => c.itemId === id);
+  const up = gone?.parent || undefined;
+  return cards
+    .filter((c) => c.itemId !== id)
+    .map((c) => (c.parent === id ? { ...c, parent: up, lineage: up ? gone?.lineage : undefined } : c));
+}
+
 /** pickerMatches is a picker's search over a plan item: its own title or
  *  any of its ancestors', case aside; an empty query matches all. */
 export function pickerMatches(c: Card, cards: readonly Card[], query: string): boolean {
