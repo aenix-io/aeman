@@ -290,3 +290,24 @@ describe("ownership in the drawer", () => {
     expect(rows(drawOn(card({ project: "cozy", scope: "Storage" }), withRoster([])))).not.toContain("Customers");
   });
 });
+
+// The drawer names its card under the title: the id to copy and the link to
+// copy — the board's address with the view and this card (deeplink.ts).
+describe("the drawer's card identity line", () => {
+  it("shows the id and the link of the card it shows", () => {
+    const html = renderToStaticMarkup(
+      <CardDetail
+        card={card()}
+        board={board}
+        provider={{} as Provider}
+        onClose={vi.fn()}
+        reload={vi.fn()}
+        patchCard={vi.fn()}
+        cardLinkFor={(uid) => `https://b.example/?view=me&card=${uid}`}
+      />,
+    );
+    const head = html.slice(0, html.indexOf("drawer-body"));
+    expect(head).toContain('class="drawer-identity"');
+    expect(head).toMatch(/aria-label="Copy the link to this card" title="https:\/\/b.example\/\?view=me&amp;card=/);
+  });
+});

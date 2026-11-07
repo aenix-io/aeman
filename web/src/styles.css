@@ -6133,3 +6133,45 @@ button.card-age {
   border-color: var(--zone-yellow-accent);
   color: var(--fg);
 }
+
+/* The drawer's identity line: the card's id to copy, and its link. */
+.drawer-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.drawer-uid-btn,
+.drawer-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font: inherit;
+}
+
+.drawer-uid-btn:hover,
+.drawer-link-btn:hover,
+.drawer-uid-btn:focus-visible,
+.drawer-link-btn:focus-visible {
+  color: var(--fg);
+  background: var(--hover-overlay-soft);
+}
+
+.drawer-uid {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.drawer-copy-mark {
+  font-size: 10.5px;
+  opacity: 0.8;
+}

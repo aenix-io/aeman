@@ -46,6 +46,7 @@ import { frozenProvider } from "./providers/frozen";
 import { todayIso, setBoardTimezone } from "./date";
 import { doneAtAfter } from "./stages";
 import { mergeNotes } from "./notes";
+import { buildLink, cardLink, linkChange, parseLink, saveReturnTo, takeReturnTo, type LinkState } from "./deeplink";
 import { openWatches } from "./watch";
 import { nameConflict } from "./names";
 import { AppearanceMenu } from "./components/AppearanceMenu";
@@ -74,6 +75,23 @@ const LS_VIEW_AS = "aeman.viewAs";
 
 function readView(): ViewMode {
   return storedView(localStorage.getItem(LS_VIEW));
+}
+
+// The board's address at load (deeplink.ts): a deep link wins over the
+// remembered tab. An address with nothing in it takes the one a sign-in
+// began on, kept across the round trip through the forge.
+function initialLink(): LinkState {
+  if (!window.location.search) {
+    try {
+      const back = takeReturnTo(sessionStorage);
+      if (back) {
+        window.history.replaceState(null, "", back);
+      }
+    } catch {
+      // no session storage: nothing was kept
+    }
+  }
+  return parseLink(window.location.search);
 }
 
 function readStringList(key: string): string[] | null {
@@ -121,7 +139,8 @@ export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [tokenWarningDismissed, setTokenWarningDismissed] = useState(false);
 
-  const [view, setView] = useState<ViewMode>(readView);
+  const [link] = useState<LinkState>(initialLink);
+  const [view, setView] = useState<ViewMode>(() => link.view ?? readView());
   // The Project filter's selection on the Project tab.
   const [projectFilter, setProjectFilterState] = useState<string[] | null>(readProjectFilter);
   const setProjectFilter = (keys: string[] | null) => {
@@ -208,7 +227,7 @@ export function App() {
   const [board, setBoard] = useState<Board | null>(null);
   // The viewed day, shared by both boards and driving the lazy view fetch and
   // the scoped watch. Lifted out of the boards so the App owns what to load.
-  const [selectedDate, setSelectedDate] = useState<string>(todayIso());
+  const [selectedDate, setSelectedDate] = useState<string>(() => link.day ?? todayIso());
   // "View as" impersonation on the Me board — lifted here because the Me fetch
   // must carry the impersonated user explicitly (the server otherwise resolves
   // the caller's own login).
@@ -691,6 +710,89 @@ export function App() {
   // Only once the board is loaded: before that there is nothing to prune
   // against.
   const boardLoaded = board !== null;
+
+  // ---- the board's address (deeplink.ts) ----
+  // The view, the day of a day board and the open card live in the address.
+  // Opening, switching or closing a card is a step Back undoes (pushState);
+  // a tab or a day only rewrites the address (replaceState). A card the
+  // address names is fetched by uid — it may stand on another board, day or
+  // team than the one on screen — and while it is being fetched the address
+  // is left alone, or the first render would take the card off it.
+  const pendingCard = useRef<string | null>(link.card);
+  const replaceNext = useRef(false);
+  const detailRef = useRef(detailCard);
+  detailRef.current = detailCard;
+  const openByLink = useCallback(
+    (uid: string) => {
+      pendingCard.current = uid;
+      void provider
+        .getCard(uid)
+        .then((c) => {
+          if (pendingCard.current !== uid) {
+            return;
+          }
+          pendingCard.current = null;
+          replaceNext.current = true;
+          setDetailStack([]);
+          setDetailCard(c);
+        })
+        .catch(() => {
+          if (pendingCard.current !== uid) {
+            return;
+          }
+          pendingCard.current = null;
+          // Not this visitor's to read, or gone: say so, and take it off the
+          // address without a step in the history.
+          const q = parseLink(window.location.search);
+          window.history.replaceState(null, "", window.location.pathname + buildLink({ ...q, card: null }, todayIso()));
+          setError("That card is not on this board, or it is not one you can read.");
+        });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [provider],
+  );
+  useEffect(() => {
+    if (boardLoaded && pendingCard.current) {
+      openByLink(pendingCard.current);
+    }
+    // Once, when the board first arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardLoaded]);
+  useEffect(() => {
+    if (pendingCard.current) {
+      return;
+    }
+    const uid = detailCard && !detailCard.itemId.startsWith("tmp-") ? detailCard.itemId : null;
+    const next = buildLink({ view, card: uid, day: selectedDate }, todayIso());
+    const change = linkChange(window.location.search, next);
+    const url = window.location.pathname + next;
+    if (change === "push" && !replaceNext.current) {
+      window.history.pushState(null, "", url);
+    } else if (change !== "none") {
+      window.history.replaceState(null, "", url);
+    }
+    replaceNext.current = false;
+  }, [view, detailCard, selectedDate]);
+  // Back and Forward: the address says what to show.
+  useEffect(() => {
+    const onPop = () => {
+      const s = parseLink(window.location.search);
+      replaceNext.current = true;
+      if (s.view) {
+        setView(s.view);
+      }
+      setSelectedDate(s.day ?? todayIso());
+      if (!s.card) {
+        pendingCard.current = null;
+        setDetailStack([]);
+        setDetailCard(null);
+      } else if (s.card !== detailRef.current?.itemId) {
+        openByLink(s.card);
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [openByLink]);
   useEffect(() => {
     if (!boardLoaded) {
       return;
@@ -1368,7 +1470,18 @@ export function App() {
         <div className="signin">
           <h2>{forge.signInTitle}</h2>
           <p>{forge.signInLead}</p>
-          <a className="btn btn-primary signin-btn" href={config.authUrl ?? "/auth/login"}>
+          <a
+            className="btn btn-primary signin-btn"
+            href={config.authUrl ?? "/auth/login"}
+            // A deep link followed before signing in is given back after it.
+            onClick={() => {
+              try {
+                saveReturnTo(sessionStorage, window.location.pathname + window.location.search);
+              } catch {
+                // no session storage: the front page it is
+              }
+            }}
+          >
             {forge.signInButton}
           </a>
         </div>
@@ -1747,6 +1860,7 @@ export function App() {
           onReveal={revealOnRoadmap}
           onOpenCard={openWithin}
           onBack={detailStack.length > 0 ? backInDetail : undefined}
+          cardLinkFor={(uid) => cardLink(window.location.origin, view, uid)}
           onError={onError}
           onCustomerAdded={(cu) =>
             setBoard((cur) =>

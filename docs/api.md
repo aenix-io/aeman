@@ -18,6 +18,10 @@ The local MCP server (`aeman mcp`) runs on stdio, or as a loopback HTTP daemon s
 
 A server serves **one board**: the repositories it was started with (`--repo name=url`, repeatable, the primary first). There is no board addressing on the API — `owner`/`board` query parameters from earlier versions are ignored — and MCP tools take no board argument. The board's name is its primary repository's name.
 
+### Deep links
+
+The board in the browser keeps its state in its address, so any view and any open card can be linked to: `/?view=<me|team|backlog|roadmap|project>&card=<uid>`, plus `&day=YYYY-MM-DD` on the Me and Team boards when the day looked at is not today. Opening, switching or closing a card is a step Back undoes; switching a tab or a day only rewrites the address. Loading such an address opens that view and fetches that card by its uid — it may stand on another board, day or team than the one opened — and a card the visitor cannot read, or one that is gone, is answered with a short notice instead. The address is the query of the root document, which the server always answers with the app; a link followed before signing in is given back after the forge's round trip. The card drawer shows the card's id to copy and a "Copy link" for its address.
+
 **"Project" means aeman's own planning entity** — a group of scope columns on the Project board — never a repository or a GitHub board. `project` is a card filter (`/views/project/cards?project=cozystack`) and the subject of its own endpoints.
 
 ### Domains
