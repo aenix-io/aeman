@@ -58,3 +58,40 @@ func TestAPlanItemsFrameCountsOnlyTheTasksItsWatcherMayRead(t *testing.T) {
 		t.Fatalf("the full frame counts %+v, want %+v", w, all)
 	}
 }
+
+// A REVIEW card's priority comes from its task, and the task's from its
+// own ancestors (K15). When the task is readable but its PARENT TASK is
+// not, the review's frame must not inherit through that parent — the
+// listing on the watcher's visible board ends the chain there — nor name
+// it in effectivePriorityFrom.
+func TestAReviewsFrameDoesNotInheritThroughItsTasksUnreadableParent(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("shared", []board.Card{
+		{ItemID: "secret", Title: "Secret parent", Team: "alpha", Priority: board.PriorityP0, Domain: "closed", Parked: true},
+		{ItemID: "t", Title: "Open piece", Parent: "secret", Team: "alpha", Stage: board.StageReview, SprintStart: "2026-11-02"},
+		{ItemID: "r", Title: "review: Open piece", Team: "alpha", ReviewOf: "t", Parked: true},
+	})
+	e := seedEntry(store, "k", b)
+	rights := rightsOn([]string{"shared"}, nil)
+	narrow, cancel := store.subscribeAs("k", "bob", nil, map[string]bool{"cards": true}, rights)
+	defer cancel()
+	e.mu.Lock()
+	c, _ := board.Find(e.board, "r")
+	c.Title += "!"
+	e.upsertCard(c)
+	e.cardChanged("", c, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+
+	st := cardFrames(narrow)["r"].Status
+	if st.EffectivePriority != "" || st.EffectivePriorityFrom != nil {
+		t.Fatalf("the review inherits %q from %+v through a parent its watcher cannot read", st.EffectivePriority, st.EffectivePriorityFrom)
+	}
+	e.mu.Lock()
+	visible := board.Visible(e.board, rights.primary, rights.readable)
+	e.mu.Unlock()
+	rv, _ := board.Find(visible, "r")
+	if listed := apiserver.CardResource(visible, rv).Status; listed.EffectivePriority != st.EffectivePriority || listed.EffectiveTeam != st.EffectiveTeam {
+		t.Fatalf("the frame says %q/%q, the listing %q/%q", st.EffectivePriority, st.EffectiveTeam, listed.EffectivePriority, listed.EffectiveTeam)
+	}
+}

@@ -95,6 +95,24 @@ func (sub *subscription) seen(res apiserver.Card, ix *board.Index) apiserver.Car
 	if res.Status.Reviewed != nil && !can(res.Status.Reviewed.UID) {
 		hidden = true
 	}
+	// A review card inherits through its TASK's ancestors too (O13, K15),
+	// which are on no crumb of its own: one the subscriber cannot read cuts
+	// the chain as it does on their listing.
+	if c, ok := find(res.Metadata.UID); ok && !hidden && c.ReviewOf != "" {
+		if task, ok := find(c.ReviewOf); ok {
+			for cur, hops := task, 0; cur.Parent != "" && hops < 6; hops++ {
+				p, ok := find(cur.Parent)
+				if !ok {
+					break
+				}
+				if !readable(p) {
+					hidden = true
+					break
+				}
+				cur = p
+			}
+		}
+	}
 	if !hidden {
 		return res
 	}
