@@ -425,10 +425,21 @@ convert them into tasks — and to leave the files in the repositories:
   project card's id answers card-not-found and leaves the file byte for
   byte; maintenance (the ghost sweep, the stranded-card cleanup), the
   rebase replay, cross-domain moves and the `Aeman-Cards` trailers only
-  ever see the cards the board loaded, so they never touch one either.
+  ever see the cards the board loaded, so they never touch one either. A
+  replay whose tip holds a project card (or a `projects/` file) at a path
+  it touched leaves that file exactly as the tip has it, edit or delete
+  alike.
 - A `parent` naming a project card is a dangling link: it is dropped on
-  read like any other (H1), and a planning card's counts do not include
-  project cards.
+  read like any other (H1) — on a reload of one card too — and a planning
+  card's counts do not include project cards.
+- A `reviewOf` naming a project card stays dangling: the review card's
+  original is unknown to the board. Such a review card is kept and stays
+  on its team's day boards, but it is no review still asked for, so a
+  carry-over does not carry it; deleting it (or the × on it) is a plain
+  delete — there is no task to put back In progress, and the project card
+  is neither read nor written.
+- A past day is not slowed by them: a card still in the day's last tree
+  is not taken for one the day removed.
 - The importer (`aeman migrate`) leaves a Projects v2 board's column
   entries (a Scope/Epic value) and its `aeman:project-state`,
   `aeman:scope-state` and `aeman:deadline-state` stubs out, and reports
