@@ -451,3 +451,47 @@ func TestABacklogCreateTakesItsPlaceOverHTTP(t *testing.T) {
 		t.Fatalf("a place on the Roadmap = %d %s, want 422 notOnThisBoard", rec.Code, rec.Body.String())
 	}
 }
+
+// The Roadmap's status menu over HTTP (K15, K16): TO DO and UNASSIGNED are
+// card actions answering how many tasks they changed — on a plan item, every
+// task under it they reach — and each refuses by name a task it means
+// nothing for.
+func TestToDoAndUnassignedOverHTTP(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "e", Title: "epic", Type: board.TypeEpic, Team: "alpha"},
+		{ItemID: "p1", Title: "parked one", Parent: "e", Parked: true},
+		{ItemID: "p2", Title: "parked two", Parent: "e", Parked: true},
+		{ItemID: "w", Title: "in work", Parent: "e", Team: "alpha", Assignees: []string{"ann"}, StartDate: today, Day: today, SprintStart: today},
+		{ItemID: "done", Title: "finished", Parent: "e", Team: "alpha", SprintStart: today, Day: today, Progress: 100},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/todo", `{"todo":true}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"changed":2`) {
+		t.Fatalf("TO DO on the epic = %d %s, want 200 with 2 changed", rec.Code, rec.Body.String())
+	}
+	if !fake.Card("p1").Todo || !fake.Card("p2").Todo || fake.Card("w").Todo {
+		t.Fatal("the parked tasks are TO DO, the work in hand is not")
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/w/actions/todo", `{"todo":true}`); rec.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rec.Body.String(), "notParkedWork") {
+		t.Fatalf("TO DO on work in hand = %d %s, want 422 notParkedWork", rec.Code, rec.Body.String())
+	}
+
+	rec = do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/unassign-work", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"changed":1`) {
+		t.Fatalf("UNASSIGNED on the epic = %d %s, want 200 with 1 changed", rec.Code, rec.Body.String())
+	}
+	if got := fake.Card("w"); !got.Parked || len(got.Assignees) != 0 {
+		t.Fatalf("the work in hand is back in its backlog: %+v", got)
+	}
+	if got := fake.Card("done"); got.Parked {
+		t.Fatalf("finished work is untouched: %+v", got)
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/p1/actions/unassign-work", ""); rec.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rec.Body.String(), "notInWork") {
+		t.Fatalf("UNASSIGNED on parked work = %d %s, want 422 notInWork", rec.Code, rec.Body.String())
+	}
+}

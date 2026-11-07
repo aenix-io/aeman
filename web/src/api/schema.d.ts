@@ -315,6 +315,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cards/{uid}/actions/todo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark parked work TO DO — ready to be taken next — or clear the mark.
+         * @description The Roadmap's status menu, TO DO. On a TASK it marks the task itself, which must be waiting in its team's backlog — parked, open, not a review or a subtask (422 `notParkedWork` otherwise). On a PLAN ITEM (goal, initiative, epic) it marks every such task under it, at any depth; with none there is nothing to change. A TO DO task stands at the top of its backlog, in the Roadmap's order among the other TO DO tasks, and loses the mark when it is taken into work or finished. One commit for the whole request.
+         */
+        post: operations["setTodo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cards/{uid}/actions/unassign-work": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Take work in hand out of work, back to its team's backlog.
+         * @description The Roadmap's status menu, UNASSIGNED. On a TASK it takes the task itself, which must be open work in hand — a date or a sprint, not parked, not finished (422 `notInWork` otherwise). On a PLAN ITEM it takes every such task under it, at any depth. Each goes the way the ×'s unassign sends a card (K3): nobody on it, no day, no sprint, its unfinished review withdrawn, parked in the backlog of the team it stands under; they keep their order among themselves. Finished work, project cards, review cards and subtasks are never touched. One commit for the whole request.
+         */
+        post: operations["unassignWork"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cards/{uid}/links": {
         parameters: {
             query?: never;
@@ -684,7 +724,7 @@ export interface components {
              * @description The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
              * @enum {string}
              */
-            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "customerExists" | "customerName" | "customerNotFound" | "dayIsARecord" | "descriptionTooLong" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAuthenticated" | "notFinished" | "notOnThisBoard" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "ownerIsThePlans" | "ownershipUnsupported" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "reviewCardLink" | "setupRequired" | "somebodysCard" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "twoPlaces" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField";
+            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "customerExists" | "customerName" | "customerNotFound" | "dayIsARecord" | "descriptionTooLong" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAuthenticated" | "notFinished" | "notInWork" | "notOnThisBoard" | "notParkedWork" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "ownerIsThePlans" | "ownershipUnsupported" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "reviewCardLink" | "setupRequired" | "somebodysCard" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "twoPlaces" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField";
             /** @description Where the person can go to fix the refusal — installing the board's app — for a client to offer as a button. */
             actionUrl?: string;
         };
@@ -733,6 +773,8 @@ export interface components {
             dates: components["schemas"]["CardDates"];
             /** @description The task is in its team's BACKLOG rather than in work. A task is in work (a date or a sprint) or parked, never both and never neither: parking empties the working area — person, sprint, dates — takes the card's subtasks off the board with it, withdraws any unfinished review of it, and puts it at the top of the backlog; giving a parked task a date or a sprint (or `own` with a person) takes it out of the backlog. `false` alone on a parked task with no date and no sprint is refused (422 `takeIntoWork`): a task leaves its backlog by being taken into work. Every team has a backlog and nothing declares it. A review card and a subtask are refused (422): neither has a place of its own to be parked in. A task has no week. */
             parked?: boolean;
+            /** @description A parked task marked READY to be taken next — the Roadmap's TO DO (`POST /cards/{uid}/actions/todo`). It stands at the top of its backlog, in the Roadmap's order among the other TO DO tasks. Cleared when the task is taken into work or finished. */
+            todo?: boolean;
             reviewOf?: string;
             /** @description The uid of the card this one sits under — the one link of the hierarchy. Its meaning is the parent's `type`: under a task this card is a subtask; under a goal, an initiative or an epic it is filed in the hierarchy and nothing else about it changes. */
             parent?: string;
@@ -818,6 +860,8 @@ export interface components {
             items: components["schemas"]["Card"][];
             /** @description The moment a snapshot listing reflects (RFC3339) — the end of the day it was asked for. Absent on a live listing. */
             asOf?: string;
+            /** @description On a `backlog` listing only: the board's order of every card the listing's order is read from — the listed cards and every plan item above them. A backlog reads in the Roadmap's order (the path of places in this order from the root plan item down to the task), TO DO tasks first and a review nobody has taken above them all; a client that places a card the watch brings in, or re-sorts on an `Ordering` frame (which carries the whole board's order), reads the same key from it. */
+            boardOrder?: string[];
         };
         /** @description A team's sprint pointer; the empty team is the no-team group. */
         Sprint: {
@@ -1087,6 +1131,15 @@ export interface components {
         DeferCardBody: {
             /** @description How many days ahead of today the card is pushed; must be positive. */
             days?: number;
+        };
+        SetTodoBody: {
+            /** @description `true` marks the work TO DO, `false` clears the mark. */
+            todo: boolean;
+        };
+        /** @description How many tasks a status gesture on the Roadmap changed. */
+        WorkChange: {
+            /** @description The tasks changed — on a plan item, every task under it the gesture reached; a task already as asked is not counted. */
+            changed: number;
         };
         SendToReviewBody: {
             reviewer?: string;
@@ -1922,6 +1975,58 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Card"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    setTodo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card's own address, a ULID assigned at creation. */
+                uid: components["parameters"]["Uid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetTodoBody"];
+            };
+        };
+        responses: {
+            /** @description How many tasks changed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkChange"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    unassignWork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card's own address, a ULID assigned at creation. */
+                uid: components["parameters"]["Uid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many tasks went back to their backlog. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkChange"];
                 };
             };
             default: components["responses"]["Problem"];

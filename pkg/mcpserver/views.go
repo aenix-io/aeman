@@ -151,6 +151,42 @@ func (h *server) takeCard(ctx context.Context, _ *mcp.CallToolRequest, in standO
 	return h.cardResource(ctx, svc, boardID, in.UID)
 }
 
+// --- The Roadmap's status menu (K15, K16) --------------------------------------
+
+type setTodoInput struct {
+	cardRef
+	Todo bool `json:"todo" jsonschema:"true marks the work TO DO, false clears the mark"`
+}
+
+// workChange answers a status gesture: how many tasks it changed.
+type workChange struct {
+	Changed int `json:"changed"`
+}
+
+func (h *server) setTodo(ctx context.Context, _ *mcp.CallToolRequest, in setTodoInput) (*mcp.CallToolResult, workChange, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, workChange{}, err
+	}
+	n, err := svc.SetTodo(ctx, boardID, in.UID, in.Todo)
+	if err != nil {
+		return nil, workChange{}, err
+	}
+	return nil, workChange{Changed: n}, nil
+}
+
+func (h *server) unassignWork(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, workChange, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, workChange{}, err
+	}
+	n, err := svc.UnassignWork(ctx, boardID, in.UID)
+	if err != nil {
+		return nil, workChange{}, err
+	}
+	return nil, workChange{Changed: n}, nil
+}
+
 // --- The roster gestures the manage dialogs make -------------------------------
 
 type reorderTeamsInput struct {

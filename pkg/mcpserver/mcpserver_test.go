@@ -138,6 +138,8 @@ func TestMCPListsTools(t *testing.T) {
 		"set_sprint_state",
 		// The Roadmap's "whose is this" (H10), and the Backlog's take (K11).
 		"own_card", "take_card",
+		// The Roadmap's status menu (K15, K16).
+		"set_todo", "unassign_work",
 		// The customer roster (docs/design/ownership.md, O9).
 		"add_customer", "rename_customer", "reorder_customers", "delete_customer",
 	}
@@ -1082,5 +1084,33 @@ func TestMCPOwnership(t *testing.T) {
 	call(t, cs, "delete_customer", map[string]any{"customer": cu.ID})
 	if e := fake.Card("epic"); len(e.Customers) != 0 {
 		t.Fatalf("delete_customer did not reach the epic: %v", e.Customers)
+	}
+}
+
+// The Roadmap's status menu over MCP (K15, K16, ADR 0002): set_todo marks
+// parked work ready and unassign_work takes work in hand back to its
+// backlog — on a task, or on every task under a plan item — and each refuses
+// a task it means nothing for.
+func TestAnAgentMarksWorkToDoAndTakesItOutOfWork(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "e", Title: "epic", Type: board.TypeEpic, Team: "alpha"},
+		{ItemID: "p", Title: "parked", Parent: "e", Parked: true},
+		{ItemID: "w", Title: "in work", Parent: "e", Team: "alpha", Assignees: []string{"ann"}, StartDate: today, Day: today, SprintStart: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	cs := connect(t, Config{Board: "acme"}, fake)
+	call(t, cs, "set_todo", map[string]any{"uid": "e", "todo": true})
+	if !fake.Card("p").Todo {
+		t.Fatal("set_todo on the epic marks its parked task")
+	}
+	if msg := callErr(t, cs, "set_todo", map[string]any{"uid": "w", "todo": true}); !strings.Contains(msg, "TO DO") {
+		t.Fatalf("set_todo on work in hand = %q", msg)
+	}
+	call(t, cs, "unassign_work", map[string]any{"uid": "e"})
+	if got := fake.Card("w"); !got.Parked || len(got.Assignees) != 0 {
+		t.Fatalf("unassign_work on the epic parks its work in hand: %+v", got)
+	}
+	if msg := callErr(t, cs, "unassign_work", map[string]any{"uid": "p"}); !strings.Contains(msg, "not in work") {
+		t.Fatalf("unassign_work on parked work = %q", msg)
 	}
 }

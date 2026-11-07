@@ -603,6 +603,63 @@ paths:
                 $ref: '#/components/schemas/Card'
         default:
           $ref: '#/components/responses/Problem'
+  /cards/{uid}/actions/todo:
+    post:
+      operationId: setTodo
+      tags: [Cards]
+      summary: Mark parked work TO DO — ready to be taken next — or clear the mark.
+      description: >-
+        The Roadmap's status menu, TO DO. On a TASK it marks the task itself,
+        which must be waiting in its team's backlog — parked, open, not a
+        review or a subtask (422 `notParkedWork` otherwise). On a PLAN ITEM
+        (goal, initiative, epic) it marks every such task under it, at any
+        depth; with none there is nothing to change. A TO DO task stands at
+        the top of its backlog, in the Roadmap's order among the other TO DO
+        tasks, and loses the mark when it is taken into work or finished.
+        One commit for the whole request.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetTodoBody'
+      responses:
+        '200':
+          description: How many tasks changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkChange'
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}/actions/unassign-work:
+    post:
+      operationId: unassignWork
+      tags: [Cards]
+      summary: Take work in hand out of work, back to its team's backlog.
+      description: >-
+        The Roadmap's status menu, UNASSIGNED. On a TASK it takes the task
+        itself, which must be open work in hand — a date or a sprint, not
+        parked, not finished (422 `notInWork` otherwise). On a PLAN ITEM it
+        takes every such task under it, at any depth. Each goes the way the
+        ×'s unassign sends a card (K3): nobody on it, no day, no sprint, its
+        unfinished review withdrawn, parked in the backlog of the team it
+        stands under; they keep their order among themselves. Finished work,
+        project cards, review cards and subtasks are never touched. One
+        commit for the whole request.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      responses:
+        '200':
+          description: How many tasks went back to their backlog.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkChange'
+        default:
+          $ref: '#/components/responses/Problem'
   /cards/{uid}/links:
     get:
       operationId: listLinks
@@ -1290,7 +1347,9 @@ components:
             - noSuchView
             - notAuthenticated
             - notFinished
+            - notInWork
             - notOnThisBoard
+            - notParkedWork
             - notYoursToRefuse
             - notYoursToRemove
             - noteNotFound
@@ -1472,6 +1531,13 @@ components:
             taken into work. Every team has a backlog and nothing declares it. A
             review card and a subtask are refused (422): neither has a place of
             its own to be parked in. A task has no week.
+        todo:
+          type: boolean
+          description: >-
+            A parked task marked READY to be taken next — the Roadmap's TO DO
+            (`POST /cards/{uid}/actions/todo`). It stands at the top of its
+            backlog, in the Roadmap's order among the other TO DO tasks.
+            Cleared when the task is taken into work or finished.
         reviewOf:
           type: string
         parent:
@@ -1700,6 +1766,19 @@ components:
           description: >-
             The moment a snapshot listing reflects (RFC3339) — the end of the
             day it was asked for. Absent on a live listing.
+        boardOrder:
+          type: array
+          description: >-
+            On a `backlog` listing only: the board's order of every card the
+            listing's order is read from — the listed cards and every plan
+            item above them. A backlog reads in the Roadmap's order (the path
+            of places in this order from the root plan item down to the
+            task), TO DO tasks first and a review nobody has taken above them
+            all; a client that places a card the watch brings in, or re-sorts
+            on an `Ordering` frame (which carries the whole board's order),
+            reads the same key from it.
+          items:
+            type: string
     Sprint:
       type: object
       additionalProperties: false
@@ -2357,6 +2436,24 @@ components:
         days:
           type: integer
           description: How many days ahead of today the card is pushed; must be positive.
+    SetTodoBody:
+      type: object
+      required: [todo]
+      properties:
+        todo:
+          type: boolean
+          description: "`true` marks the work TO DO, `false` clears the mark."
+    WorkChange:
+      type: object
+      additionalProperties: false
+      required: [changed]
+      description: How many tasks a status gesture on the Roadmap changed.
+      properties:
+        changed:
+          type: integer
+          description: >-
+            The tasks changed — on a plan item, every task under it the
+            gesture reached; a task already as asked is not counted.
     SendToReviewBody:
       type: object
       properties:

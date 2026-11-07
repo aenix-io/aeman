@@ -758,6 +758,34 @@ func zoneOf[T ~string](z *T) string {
 	return string(*z)
 }
 
+// SetTodo is the Roadmap's TO DO (K15): on a task or every parked task
+// under a plan item.
+func (a surface) SetTodo(ctx context.Context, req apiv1.SetTodoRequestObject) (apiv1.SetTodoResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, err
+	}
+	n, err := svc.SetTodo(ctx, boardID, req.UID, req.Body.Todo)
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.SetTodo200JSONResponse{Changed: n}, nil
+}
+
+// UnassignWork is the Roadmap's UNASSIGNED (K16): on a task or every task in
+// work under a plan item.
+func (a surface) UnassignWork(ctx context.Context, req apiv1.UnassignWorkRequestObject) (apiv1.UnassignWorkResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, err
+	}
+	n, err := svc.UnassignWork(ctx, boardID, req.UID)
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.UnassignWork200JSONResponse{Changed: n}, nil
+}
+
 // RemoveReviewer deletes the linked review card.
 func (a surface) RemoveReviewer(ctx context.Context, req apiv1.RemoveReviewerRequestObject) (apiv1.RemoveReviewerResponseObject, error) {
 	card, err := a.cardAfter(ctx, req.UID, func(svc *boardservice.Service, boardID string) error {

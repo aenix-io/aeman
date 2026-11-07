@@ -226,7 +226,9 @@ const (
 	NobodyToTake         ProblemCode = "nobodyToTake"
 	NotAuthenticated     ProblemCode = "notAuthenticated"
 	NotFinished          ProblemCode = "notFinished"
+	NotInWork            ProblemCode = "notInWork"
 	NotOnThisBoard       ProblemCode = "notOnThisBoard"
+	NotParkedWork        ProblemCode = "notParkedWork"
 	NotYoursToRefuse     ProblemCode = "notYoursToRefuse"
 	NotYoursToRemove     ProblemCode = "notYoursToRemove"
 	NoteNotFound         ProblemCode = "noteNotFound"
@@ -343,7 +345,11 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case NotFinished:
 		return true
+	case NotInWork:
+		return true
 	case NotOnThisBoard:
+		return true
+	case NotParkedWork:
 		return true
 	case NotYoursToRefuse:
 		return true
@@ -817,6 +823,12 @@ type SendToReviewBody struct {
 // SendToReviewBodyZone Where the review card stands; empty is the unplanned band, which is where the asking belongs.
 type SendToReviewBodyZone string
 
+// SetTodoBody defines model for SetTodoBody.
+type SetTodoBody struct {
+	// Todo `true` marks the work TO DO, `false` clears the mark.
+	Todo bool `json:"todo"`
+}
+
 // Sprint A team's sprint pointer; the empty team is the no-team group.
 type Sprint = apiserver.Sprint
 
@@ -874,6 +886,12 @@ type ViewList struct {
 
 // ViewListKind defines model for ViewList.Kind.
 type ViewListKind string
+
+// WorkChange How many tasks a status gesture on the Roadmap changed.
+type WorkChange struct {
+	// Changed The tasks changed — on a plan item, every task under it the gesture reached; a task already as asked is not counted.
+	Changed int `json:"changed"`
+}
 
 // Assignee defines model for Assignee.
 type Assignee = string
@@ -1166,6 +1184,9 @@ type MoveCardJSONRequestBody = MoveCardBody
 // SendToReviewJSONRequestBody defines body for SendToReview for application/json ContentType.
 type SendToReviewJSONRequestBody = SendToReviewBody
 
+// SetTodoJSONRequestBody defines body for SetTodo for application/json ContentType.
+type SetTodoJSONRequestBody = SetTodoBody
+
 // AddNoteJSONRequestBody defines body for AddNote for application/json ContentType.
 type AddNoteJSONRequestBody = NoteBody
 
@@ -1249,6 +1270,12 @@ type ServerInterface interface {
 	// SendToReview Send the card to a reviewer, or reassign the review that exists.
 	// (POST /cards/{uid}/actions/send-to-review)
 	SendToReview(w http.ResponseWriter, r *http.Request, uid UID)
+	// SetTodo Mark parked work TO DO — ready to be taken next — or clear the mark.
+	// (POST /cards/{uid}/actions/todo)
+	SetTodo(w http.ResponseWriter, r *http.Request, uid UID)
+	// UnassignWork Take work in hand out of work, back to its team's backlog.
+	// (POST /cards/{uid}/actions/unassign-work)
+	UnassignWork(w http.ResponseWriter, r *http.Request, uid UID)
 	// ListLinks The URLs found in the card's description, GitHub refs resolved and listed first.
 	// (GET /cards/{uid}/links)
 	ListLinks(w http.ResponseWriter, r *http.Request, uid UID)
@@ -1628,6 +1655,58 @@ func (siw *ServerInterfaceWrapper) SendToReview(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendToReview(w, r, uid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetTodo operation middleware
+func (siw *ServerInterfaceWrapper) SetTodo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "uid" -------------
+	var uid UID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "uid", r.PathValue("uid"), &uid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uid", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetTodo(w, r, uid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnassignWork operation middleware
+func (siw *ServerInterfaceWrapper) UnassignWork(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "uid" -------------
+	var uid UID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "uid", r.PathValue("uid"), &uid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uid", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnassignWork(w, r, uid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3248,6 +3327,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/reopen", wrapper.ReopenCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/send-to-review", wrapper.SendToReview)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/remove-reviewer", wrapper.RemoveReviewer)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/todo", wrapper.SetTodo)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/unassign-work", wrapper.UnassignWork)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cards/{uid}/links", wrapper.ListLinks)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cards/{uid}/log", wrapper.GetCardLog)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/logs", wrapper.GetDayLogs)
@@ -3646,6 +3727,85 @@ type SendToReviewdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response SendToReviewdefaultApplicationProblemPlusJSONResponse) VisitSendToReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTodoRequestObject struct {
+	UID  UID `json:"uid"`
+	Body *SetTodoJSONRequestBody
+}
+
+type SetTodoResponseObject interface {
+	VisitSetTodoResponse(w http.ResponseWriter) error
+}
+
+type SetTodo200JSONResponse WorkChange
+
+func (response SetTodo200JSONResponse) VisitSetTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTododefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response SetTododefaultApplicationProblemPlusJSONResponse) VisitSetTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnassignWorkRequestObject struct {
+	UID UID `json:"uid"`
+}
+
+type UnassignWorkResponseObject interface {
+	VisitUnassignWorkResponse(w http.ResponseWriter) error
+}
+
+type UnassignWork200JSONResponse WorkChange
+
+func (response UnassignWork200JSONResponse) VisitUnassignWorkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnassignWorkdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response UnassignWorkdefaultApplicationProblemPlusJSONResponse) VisitUnassignWorkResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -4742,6 +4902,12 @@ type StrictServerInterface interface {
 	// SendToReview Send the card to a reviewer, or reassign the review that exists.
 	// (POST /cards/{uid}/actions/send-to-review)
 	SendToReview(ctx context.Context, request SendToReviewRequestObject) (SendToReviewResponseObject, error)
+	// SetTodo Mark parked work TO DO — ready to be taken next — or clear the mark.
+	// (POST /cards/{uid}/actions/todo)
+	SetTodo(ctx context.Context, request SetTodoRequestObject) (SetTodoResponseObject, error)
+	// UnassignWork Take work in hand out of work, back to its team's backlog.
+	// (POST /cards/{uid}/actions/unassign-work)
+	UnassignWork(ctx context.Context, request UnassignWorkRequestObject) (UnassignWorkResponseObject, error)
 	// ListLinks The URLs found in the card's description, GitHub refs resolved and listed first.
 	// (GET /cards/{uid}/links)
 	ListLinks(ctx context.Context, request ListLinksRequestObject) (ListLinksResponseObject, error)
@@ -5148,6 +5314,65 @@ func (sh *strictHandler) SendToReview(w http.ResponseWriter, r *http.Request, ui
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SendToReviewResponseObject); ok {
 		if err := validResponse.VisitSendToReviewResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetTodo operation middleware
+func (sh *strictHandler) SetTodo(w http.ResponseWriter, r *http.Request, uid UID) {
+	var request SetTodoRequestObject
+
+	request.UID = uid
+
+	var body SetTodoJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetTodo(ctx, request.(SetTodoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetTodo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetTodoResponseObject); ok {
+		if err := validResponse.VisitSetTodoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UnassignWork operation middleware
+func (sh *strictHandler) UnassignWork(w http.ResponseWriter, r *http.Request, uid UID) {
+	var request UnassignWorkRequestObject
+
+	request.UID = uid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UnassignWork(ctx, request.(UnassignWorkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UnassignWork")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UnassignWorkResponseObject); ok {
+		if err := validResponse.VisitUnassignWorkResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

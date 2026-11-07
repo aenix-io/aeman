@@ -87,7 +87,11 @@ type CardSpec struct {
 	// Every team has one and nothing declares it. A task is in work (a date
 	// or a sprint) or parked, never both and never neither
 	// (docs/design/backlog.md, K1). A task has no week (K7).
-	Parked   bool   `json:"parked,omitempty"`
+	Parked bool `json:"parked,omitempty"`
+	// Todo marks a parked task ready to be taken next — the Roadmap's TO DO
+	// (K15): it stands at the top of its backlog. Cleared when the task is
+	// taken into work or finished.
+	Todo     bool   `json:"todo,omitempty"`
 	ReviewOf string `json:"reviewOf,omitempty"`
 	// Parent is the uid of the card this one sits under — the ONE link of
 	// the hierarchy. What it means is the parent's type: under a task this
@@ -336,6 +340,12 @@ type CardList struct {
 	// the day it was asked for. Empty on a live listing; a day the history
 	// no longer reaches is refused (410) rather than answered.
 	AsOf string `json:"asOf,omitempty"`
+	// BoardOrder is, on a backlog listing, the board's order of every card
+	// the listing's order is read from (K14): the listed cards and every
+	// plan item above them. A client places a card the watch brings in, and
+	// re-sorts on an Ordering frame, by the same key (board.BacklogKey).
+	// Absent on every other listing.
+	BoardOrder []string `json:"boardOrder,omitempty"`
 }
 
 // CardResource maps a domain card onto the API resource, deriving status from
@@ -383,6 +393,7 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 		Recurrence:  c.Recurrence,
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
 		Parked:      c.Parked,
+		Todo:        c.Todo,
 		ReviewOf:    c.ReviewOf,
 		Parent:      c.Parent,
 		Type:        c.Type,
