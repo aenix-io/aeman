@@ -133,7 +133,9 @@ the Roadmap moves every task under it in the backlog, live — the backlog
 listing carries `boardOrder` (the board's order of its cards and the plan
 items above them), every `Ordering` frame carries the whole board's, and
 the client sorts by the same key the server does (`board.BacklogKey`,
-mirrored in `backlogboard.ts`).
+mirrored in `backlogboard.ts`). The listing's `boardOrder` is the whole
+board's order — the same list an `Ordering` frame carries — so a card the
+watch brings in under a plan item no listed card stands under lands right.
 
 This replaces "hand-placed rank first, then oldest first": an unranked
 card (one migrated in schema 3 and never placed) now stands where the
@@ -168,12 +170,23 @@ The status badge on the Roadmap is a menu, on a task and on a plan item.
   work? They leave Team and Me and go back to their team's backlog." every
   open task in work — the task itself, or every open task in work under
   the plan item — goes the way the ×'s unassign sends a card (K3): nobody
-  on it, no day, no sprint, its unfinished review withdrawn, parked at the
-  top of its run in the backlog of the team it stands under. They are
-  moved last to first, so they keep their order among themselves. Finished
-  work, review cards and subtasks are untouched. One
-  request, one commit. `POST /cards/{uid}/actions/unassign-work`, MCP
+  on it, no day, no sprint, its unfinished review withdrawn, parked in the
+  backlog of the team it stands under, **where it stands in the board's
+  order** — taking work out of hand does not rearrange the plan (the ×'s
+  park keeps its place too since K14). Finished work, review cards and
+  subtasks are untouched. `POST /cards/{uid}/actions/unassign-work`, MCP
   `unassign_work`.
+
+Both gestures name the tasks they act on: the client sends the uids it
+counted (`uids`), because with a Roadmap filter on the reader sees fewer
+tasks than the board holds, and the server acts on exactly those — each
+must be one the gesture reaches from the row (422 `notATarget`). Without
+`uids` (an agent asking for everything) every task the gesture reaches is
+taken. Every task is checked first — reachable, and the caller's to write
+— so a gesture is applied whole or not at all (403 naming how many and
+which), and it lands in one commit per repository it touches. The status
+badge offers the menu only where an answer reaches something: finished
+work and subtasks wear a plain badge.
 
 ## What is removed
 
@@ -245,7 +258,10 @@ Decided 2026-11-03 with the owner (K10).
 On a day board the unassign answer of the × used to put a card "back in
 its week" and refused (`nowhereToLeaveIt`) when it had none. It now puts
 the card back in its team's **backlog**: parked, no person, no day, no
-sprint. A card can always go there, so the refusal is gone.
+sprint. A card can always go there, so the refusal is gone. It keeps its
+place in the board's order (since K14: it used to be moved to the top, and
+the backlog reads in the Roadmap's order, so the move rearranged the
+plan).
 
 ## Migration: schema 2 → 3
 
