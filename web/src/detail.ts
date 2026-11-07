@@ -70,3 +70,30 @@ export function placementAnswer(u: Card): Partial<Card> {
 export function drawerEscapes(e: { key: string; defaultPrevented: boolean }, busy: boolean): boolean {
   return e.key === "Escape" && !e.defaultPrevented && !busy;
 }
+
+/** joinsTree reports a card made elsewhere — an ADDED frame — that belongs
+ *  in the drawer's tree: its parent chain, through the cards the tree holds,
+ *  reaches the card the drawer shows. One already there is not new, and a
+ *  hand-written cycle ends the walk. */
+export function joinsTree(tree: readonly Card[], framed: Card, rootId: string): boolean {
+  const byId = new Map(tree.map((c) => [c.itemId, c]));
+  if (byId.has(framed.itemId)) {
+    return false;
+  }
+  const seen = new Set<string>();
+  let up = framed.parent;
+  while (up && !seen.has(up)) {
+    if (up === rootId) {
+      return true;
+    }
+    seen.add(up);
+    up = byId.get(up)?.parent;
+  }
+  return false;
+}
+
+/** withoutDeleted takes a card deleted outright out of the drawer's
+ *  history, so Back never lands on it; the same array when it was not in it. */
+export function withoutDeleted(stack: Card[], uid: string): Card[] {
+  return stack.some((c) => c.itemId === uid) ? stack.filter((c) => c.itemId !== uid) : stack;
+}

@@ -9,7 +9,7 @@ import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { BacklogBoard } from "./components/BacklogBoard";
 import { RoadmapBoard } from "./components/RoadmapBoard";
-import { cardIsGone, followFrame, followPatch } from "./detail";
+import { cardIsGone, followFrame, followPatch, withoutDeleted } from "./detail";
 import { applyOrder, type OrderArg } from "./cardorder";
 import { insertedOrder, type Anchor } from "./backlogboard";
 import { presenceAfter, type PresenceMap } from "./presence";
@@ -1314,6 +1314,10 @@ export function App() {
           return next;
         });
         if (frame.type === "DELETED") {
+          // Back must never land on a card deleted outright.
+          if (cardIsGone(frame)) {
+            setDetailStack((s) => withoutDeleted(s, card.itemId));
+          }
           removeCard(card.itemId);
           notifyCardFrame(true);
           return;

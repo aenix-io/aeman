@@ -45,7 +45,7 @@ import { DescriptionEditor } from "./DescriptionEditor";
 import { KindIcon } from "./KindIcon";
 import { PlanTree, type PendingAdd } from "./PlanTree";
 import { CardIdentity } from "./CardIdentity";
-import { placementAnswer, drawerEscapes } from "../detail";
+import { placementAnswer, drawerEscapes, joinsTree } from "../detail";
 import { OwnerPicker } from "./OwnerPicker";
 import { ParentPicker } from "./ParentPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
@@ -205,9 +205,12 @@ export function CardDetail({
         if (deleted) {
           return framed && !framed.title ? { ...h, cards: h.cards.filter((c) => c.itemId !== uid) } : h;
         }
-        return framed && h.cards.some((c) => c.itemId === uid)
-          ? { ...h, cards: h.cards.map((c) => (c.itemId === uid ? { ...c, ...framed, description: c.description, notes: c.notes } : c)) }
-          : h;
+        if (framed && h.cards.some((c) => c.itemId === uid)) {
+          return { ...h, cards: h.cards.map((c) => (c.itemId === uid ? { ...c, ...framed, description: c.description, notes: c.notes } : c)) };
+        }
+        // A card made elsewhere — another tab, an agent — under the card
+        // the drawer shows joins its tree (detail.joinsTree).
+        return framed && joinsTree(h.cards, framed, h.forCard) ? { ...h, cards: [...h.cards, framed] } : h;
       });
     });
   }, [subscribeCardFrames]);
