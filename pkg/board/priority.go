@@ -1,7 +1,8 @@
 package board
 
-// PriorityKey is how much a card matters now, said by a person — P1, P2, P3
-// or nothing (docs/design/backlog.md, K15). Any card carries one: a task, a
+// PriorityKey is how much a card matters now, said by a person — P0 (the
+// highest) to P4, or nothing (docs/design/backlog.md, K15), the scale Jira
+// uses. Any card carries one: a task, a
 // goal, an initiative, an epic. What a card counts under is its EFFECTIVE
 // priority — its own, else the nearest ancestor's (EffectivePriority) — the
 // way a card counts under its effective team (O3). Nothing clears it on its
@@ -10,31 +11,37 @@ type PriorityKey string
 
 const (
 	PriorityNone PriorityKey = ""
+	PriorityP0   PriorityKey = "P0"
 	PriorityP1   PriorityKey = "P1"
 	PriorityP2   PriorityKey = "P2"
 	PriorityP3   PriorityKey = "P3"
+	PriorityP4   PriorityKey = "P4"
 )
 
-// ValidPriority reports a value a card may carry: P1, P2, P3, or none.
+// ValidPriority reports a value a card may carry: P0 to P4, or none.
 func ValidPriority(p string) bool {
 	switch PriorityKey(p) {
-	case PriorityNone, PriorityP1, PriorityP2, PriorityP3:
+	case PriorityNone, PriorityP0, PriorityP1, PriorityP2, PriorityP3, PriorityP4:
 		return true
 	}
 	return false
 }
 
-// priorityRank orders the priorities for a backlog: P1 first, none last.
+// priorityRank orders the priorities for a backlog: P0 first, none last.
 func priorityRank(p PriorityKey) int {
 	switch p {
-	case PriorityP1:
+	case PriorityP0:
 		return 1
-	case PriorityP2:
+	case PriorityP1:
 		return 2
-	case PriorityP3:
+	case PriorityP2:
 		return 3
+	case PriorityP3:
+		return 4
+	case PriorityP4:
+		return 5
 	}
-	return 4
+	return 6
 }
 
 // EffectivePriority is the priority a card counts under (K15): its own when

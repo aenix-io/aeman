@@ -179,7 +179,7 @@ func TestABacklogReadsInTheRoadmapsOrder(t *testing.T) {
 }
 
 // A backlog reads by PRIORITY first (K15): the EFFECTIVE priority — a
-// card's own, else the nearest ancestor's — P1, then P2, then P3, then none;
+// card's own, else the nearest ancestor's — P0, then P1 … P4, then none;
 // within each group the Roadmap's order. A task with no plan item above it
 // takes its place in its group after the planned ones.
 func TestABacklogReadsByPriorityThenInTheRoadmapsOrder(t *testing.T) {
@@ -192,6 +192,8 @@ func TestABacklogReadsByPriorityThenInTheRoadmapsOrder(t *testing.T) {
 		{ItemID: "d", Parent: "g2", Parked: true, Priority: PriorityP3},
 		{ItemID: "loose", Parked: true, Priority: PriorityP1},
 		{ItemID: "e", Parent: "g1", Parked: true, Priority: PriorityP1},
+		{ItemID: "y", Parent: "g2", Parked: true, Priority: PriorityP4},
+		{ItemID: "z", Parent: "g2", Parked: true, Priority: PriorityP0},
 	})
 	ix := NewIndex(b)
 	var listed []Card
@@ -200,8 +202,9 @@ func TestABacklogReadsByPriorityThenInTheRoadmapsOrder(t *testing.T) {
 			listed = append(listed, c)
 		}
 	}
-	// P1: b, e (planned, Roadmap order), then loose; P2: a; P3: d; none: c.
-	if got, want := ids(BacklogOrder(ix, listed)), []string{"b", "e", "loose", "a", "d", "c"}; !reflect.DeepEqual(got, want) {
+	// P0: z; P1: b, e (planned, Roadmap order), then loose; P2: a; P3: d;
+	// P4: y; none: c.
+	if got, want := ids(BacklogOrder(ix, listed)), []string{"z", "b", "e", "loose", "a", "d", "y", "c"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("BacklogOrder = %v, want %v", got, want)
 	}
 }
@@ -240,8 +243,15 @@ func TestTheEffectivePriorityIsOwnElseTheNearestAncestors(t *testing.T) {
 			t.Errorf("%s: %q from %q, want %q from %q", tc.id, got, from.ItemID, tc.want, tc.from)
 		}
 	}
-	if !ValidPriority("P1") || !ValidPriority("") || ValidPriority("P0") || ValidPriority("p1") {
-		t.Fatal("a priority is P1, P2, P3 or none")
+	for _, ok := range []string{"P0", "P1", "P2", "P3", "P4", ""} {
+		if !ValidPriority(ok) {
+			t.Errorf("%q is a priority", ok)
+		}
+	}
+	for _, bad := range []string{"P5", "p1", "P-1", "high"} {
+		if ValidPriority(bad) {
+			t.Errorf("%q is not a priority", bad)
+		}
 	}
 }
 

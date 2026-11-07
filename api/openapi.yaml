@@ -607,18 +607,18 @@ paths:
     post:
       operationId: setPriority
       tags: [Cards]
-      summary: Set the card's own priority — P1, P2, P3, or none.
+      summary: Set the card's own priority — P0 to P4, or none.
       description: >-
         The Roadmap's badge menu. Any card carries a priority: a task, a goal,
         an initiative, an epic. What a card counts under is its EFFECTIVE
         priority (`status.effectivePriority`): its own, else the nearest
         ancestor's that has one — so a plan item's priority reaches every
         card under it with none of its own, without being written on them.
-        A backlog reads P1 first, then P2, then P3, then none, each in the
+        A backlog reads P0 first, then P1, P2, P3, P4, then none, each in the
         Roadmap's order. An empty value clears the card's own. Nothing
         clears it on its own: taking the card into work, finishing it and
-        reopening it keep it. Anything but P1, P2, P3 or empty is 422
-        `badPriority`.
+        reopening it keep it. Anything but P0, P1, P2, P3, P4 or empty is
+        422 `badPriority`.
       parameters:
         - $ref: '#/components/parameters/Uid'
       requestBody:
@@ -1544,7 +1544,7 @@ components:
             its own to be parked in. A task has no week.
         priority:
           type: string
-          enum: ["", P1, P2, P3]
+          enum: ["", P0, P1, P2, P3, P4]
           description: >-
             The card's OWN priority (`POST /cards/{uid}/actions/priority`);
             what it counts under is `status.effectivePriority`.
@@ -1654,7 +1654,7 @@ components:
             ancestor's that has one. Computed, never written.
         effectivePriority:
           type: string
-          enum: ["", P1, P2, P3]
+          enum: ["", P0, P1, P2, P3, P4]
           description: >-
             The priority the card counts under: its own, else the nearest
             ancestor's that has one (a review card's is its task's). Computed,
@@ -1797,7 +1797,7 @@ components:
           description: >-
             On a `backlog` listing only: the whole board's order, as every
             `Ordering` frame carries it. A backlog reads by effective
-            priority (P1, P2, P3, then none), each in the Roadmap's order (the
+            priority (P0 to P4, then none), each in the Roadmap's order (the
             path of places in this order from the root plan item down to the
             task), a review nobody has taken above them all; a client that
             places a card the watch brings in, or re-sorts on an `Ordering`
@@ -2467,7 +2467,7 @@ components:
       properties:
         priority:
           type: string
-          enum: ["", P1, P2, P3]
+          enum: ["", P0, P1, P2, P3, P4]
           description: The card's own priority; empty clears it.
     UnassignWorkBody:
       type: object

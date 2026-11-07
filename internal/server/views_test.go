@@ -482,7 +482,7 @@ func TestPriorityAndUnassignedOverHTTP(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"effectivePriority":"P1"`) || !strings.Contains(rec.Body.String(), `"effectivePriorityFrom":{"uid":"e"`) {
 		t.Fatalf("the task's effective priority: %s", rec.Body.String())
 	}
-	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/w/actions/priority", `{"priority":"P0"}`); rec.Code != http.StatusUnprocessableEntity ||
+	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/w/actions/priority", `{"priority":"P5"}`); rec.Code != http.StatusUnprocessableEntity ||
 		!strings.Contains(rec.Body.String(), "badPriority") {
 		t.Fatalf("an unknown priority = %d %s, want 422 badPriority", rec.Code, rec.Body.String())
 	}

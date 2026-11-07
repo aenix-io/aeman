@@ -88,7 +88,7 @@ type CardSpec struct {
 	// or a sprint) or parked, never both and never neither
 	// (docs/design/backlog.md, K1). A task has no week (K7).
 	Parked bool `json:"parked,omitempty"`
-	// Priority is the card's OWN priority — P1, P2, P3 or none (K15); what
+	// Priority is the card's OWN priority — P0 to P4, or none (K15); what
 	// it counts under is status.effectivePriority.
 	Priority string `json:"priority,omitempty"`
 	ReviewOf string `json:"reviewOf,omitempty"`

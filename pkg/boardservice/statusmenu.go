@@ -12,7 +12,7 @@ import (
 // The Roadmap's badge menu (docs/design/backlog.md, "Priorities and
 // UNASSIGNED"): two answers a person gives about a row.
 //
-//   - PRIORITY (K15) — P1, P2, P3 or none — set on the card itself; what a
+//   - PRIORITY (K15) — P0 (the highest) to P4, or none — set on the card itself; what a
 //     card counts under is its effective priority, its own else the nearest
 //     ancestor's (board.Index.EffectivePriority), so a plan item's reaches
 //     every card under it without being written on them.
@@ -27,7 +27,7 @@ import (
 //     board.
 
 // ErrBadPriority is a priority the board has no such thing as.
-var ErrBadPriority = errors.New("a priority is P1, P2, P3 or none")
+var ErrBadPriority = errors.New("a priority is P0, P1, P2, P3, P4 or none")
 
 // ErrNotInWork is UNASSIGNED on a task that is not work in hand: there is
 // nothing to take out of work.
@@ -85,7 +85,7 @@ func (s *Service) checkWrites(ctx context.Context, b board.Board, targets []boar
 	return nil
 }
 
-// SetPriority sets the card's OWN priority — P1, P2, P3, or "" for none —
+// SetPriority sets the card's OWN priority — P0 to P4, or "" for none —
 // on any card: a task, a goal, an initiative, an epic (K15). Only the card
 // itself is written; the cards under it with none of their own count under
 // it from now on (their effective priority), which the watch carries to them.

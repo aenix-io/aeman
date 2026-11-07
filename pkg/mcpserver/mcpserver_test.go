@@ -1103,7 +1103,7 @@ func TestAnAgentSetsAPriorityAndTakesWorkOutOfHand(t *testing.T) {
 	if fake.Card("e").Priority != board.PriorityP2 || fake.Card("p").Priority != board.PriorityNone {
 		t.Fatal("set_priority sets the epic's own priority, and nothing under it")
 	}
-	if msg := callErr(t, cs, "set_priority", map[string]any{"uid": "w", "priority": "urgent"}); !strings.Contains(msg, "P1, P2, P3 or none") {
+	if msg := callErr(t, cs, "set_priority", map[string]any{"uid": "w", "priority": "urgent"}); !strings.Contains(msg, "P0, P1, P2, P3, P4 or none") {
 		t.Fatalf("set_priority with an unknown value = %q", msg)
 	}
 	call(t, cs, "unassign_work", map[string]any{"uid": "e"})

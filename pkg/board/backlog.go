@@ -83,7 +83,7 @@ func Unplaced(c Card, subtask bool) bool {
 //
 //   - Group: 0 for a review nobody has taken (K10: the "needs a reviewer"
 //     items stand above every task); then the EFFECTIVE priority (K15) —
-//     1 for P1, 2 for P2, 3 for P3, 4 for none.
+//     1 for P0 … 5 for P4, 6 for none.
 //   - Loose: the card has no plan item above it; within a group the loose
 //     cards come after every planned one.
 //   - Path: the places in the board's order from the root of the card's tree
@@ -142,7 +142,7 @@ func (ix *Index) BacklogKey(c Card) BacklogKey {
 }
 
 // BacklogOrder sorts a backlog's cards the way it is read: by EFFECTIVE
-// priority (K15) — P1, P2, P3, then none — and within each priority in the
+// priority (K15) — P0, P1, P2, P3, P4, then none — and within each priority in the
 // ROADMAP's order (K14), the reviews nobody has taken above them all (K10) —
 // see BacklogKey.
 //

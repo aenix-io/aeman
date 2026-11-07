@@ -455,9 +455,11 @@ func (e SendToReviewBodyZone) Valid() bool {
 // Defines values for SetPriorityBodyPriority.
 const (
 	SetPriorityBodyPriorityEmpty SetPriorityBodyPriority = ""
+	SetPriorityBodyPriorityP0    SetPriorityBodyPriority = "P0"
 	SetPriorityBodyPriorityP1    SetPriorityBodyPriority = "P1"
 	SetPriorityBodyPriorityP2    SetPriorityBodyPriority = "P2"
 	SetPriorityBodyPriorityP3    SetPriorityBodyPriority = "P3"
+	SetPriorityBodyPriorityP4    SetPriorityBodyPriority = "P4"
 )
 
 // Valid indicates whether the value is a known member of the SetPriorityBodyPriority enum.
@@ -465,11 +467,15 @@ func (e SetPriorityBodyPriority) Valid() bool {
 	switch e {
 	case SetPriorityBodyPriorityEmpty:
 		return true
+	case SetPriorityBodyPriorityP0:
+		return true
 	case SetPriorityBodyPriorityP1:
 		return true
 	case SetPriorityBodyPriorityP2:
 		return true
 	case SetPriorityBodyPriorityP3:
+		return true
+	case SetPriorityBodyPriorityP4:
 		return true
 	default:
 		return false
@@ -1303,7 +1309,7 @@ type ServerInterface interface {
 	// MoveCard Reorder the card after (or before) another one.
 	// (POST /cards/{uid}/actions/move)
 	MoveCard(w http.ResponseWriter, r *http.Request, uid UID)
-	// SetPriority Set the card's own priority — P1, P2, P3, or none.
+	// SetPriority Set the card's own priority — P0 to P4, or none.
 	// (POST /cards/{uid}/actions/priority)
 	SetPriority(w http.ResponseWriter, r *http.Request, uid UID)
 	// RemoveReviewer Take the reviewer off the card.
@@ -4936,7 +4942,7 @@ type StrictServerInterface interface {
 	// MoveCard Reorder the card after (or before) another one.
 	// (POST /cards/{uid}/actions/move)
 	MoveCard(ctx context.Context, request MoveCardRequestObject) (MoveCardResponseObject, error)
-	// SetPriority Set the card's own priority — P1, P2, P3, or none.
+	// SetPriority Set the card's own priority — P0 to P4, or none.
 	// (POST /cards/{uid}/actions/priority)
 	SetPriority(ctx context.Context, request SetPriorityRequestObject) (SetPriorityResponseObject, error)
 	// RemoveReviewer Take the reviewer off the card.

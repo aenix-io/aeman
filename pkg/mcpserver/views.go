@@ -155,7 +155,7 @@ func (h *server) takeCard(ctx context.Context, _ *mcp.CallToolRequest, in standO
 
 type setPriorityInput struct {
 	cardRef
-	Priority string `json:"priority" jsonschema:"P1, P2 or P3 — or empty to clear the card's own priority"`
+	Priority string `json:"priority" jsonschema:"P0 (the highest), P1, P2, P3 or P4 — or empty to clear the card's own priority"`
 }
 
 type unassignWorkInput struct {

@@ -56,7 +56,7 @@ func TestThePriorityIsSetOnTheCardItself(t *testing.T) {
 	if err := svc.SetPriority(ctx, "acme", "e", ""); err != nil || f.get("e").Priority != board.PriorityNone {
 		t.Fatalf("No priority clears it: %v, %q", err, f.get("e").Priority)
 	}
-	for _, bad := range []string{"P0", "p1", "P4", "high"} {
+	for _, bad := range []string{"P5", "p1", "P-1", "high"} {
 		if err := svc.SetPriority(ctx, "acme", "w1", bad); !errors.Is(err, ErrBadPriority) {
 			t.Errorf("SetPriority %q = %v, want ErrBadPriority", bad, err)
 		}
