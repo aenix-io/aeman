@@ -6069,9 +6069,37 @@ button.card-age {
   color: var(--danger);
 }
 
+/* The customer input reads like the drawer's other pickers (.drawer-pick):
+   no box at rest, its prompt in the faint colour of an empty value, the
+   picker's hover, and the input's own accent border only while typing. */
 .customer-input {
-  width: 140px;
-  margin: 0;
+  width: 160px;
+  margin: 0 0 0 -6px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font-size: 12.5px;
+}
+
+.customer-chip ~ .customer-input {
+  margin-left: 0;
+}
+
+.customer-input::placeholder {
+  color: var(--faint);
+}
+
+.customer-input:hover:not(:focus) {
+  border-color: var(--line);
+  background: var(--bg-soft);
+}
+
+.customer-input:focus {
+  border-color: var(--accent);
+  background: var(--bg);
+  outline: none;
 }
 
 /* A team the drawer's Owner takes from above (O3): translucent, as the
