@@ -657,7 +657,9 @@ func detachedCards(cards []board.Card) []board.Card {
 // is; scoped ones get the membership transition (entering the scope is ADDED,
 // leaving it is DELETED, staying is MODIFIED). The originating client's own
 // events are suppressed — it already holds the change optimistically — but its
-// membership is still tracked, or later diffs would mis-fire.
+// membership is still tracked, or later diffs would mis-fire. A DELETED for a
+// card gone from the board is the exception: the author is told it too (G87),
+// since a frame sent mid-action may have told them the card was still there.
 func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	// Every card write can move a number beside a person — its size, who it
 	// is on, whether it is still open, which week it waits in — and the

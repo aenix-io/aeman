@@ -774,8 +774,27 @@ func TestADeletedPlanItemIsToldDeletedToItsAuthorLast(t *testing.T) {
 		if withChildren && last != "DELETED" {
 			t.Fatalf("with children: the author's last frame for the deleted epic = %q, want DELETED", last)
 		}
-		if !withChildren && last != "" && last != "DELETED" {
-			t.Fatalf("no children: the author's last frame for the deleted epic = %q", last)
+		if !withChildren && last != "DELETED" {
+			t.Fatalf("no children: the author's last frame for the deleted epic = %q, want DELETED", last)
 		}
+	}
+}
+
+// And the raw stream (a watch with no selector) tells the author too: a
+// DELETED is never swallowed as an echo, whatever stream carries it.
+func TestTheRawStreamTellsTheAuthorADeletedCard(t *testing.T) {
+	store := newBoardStore()
+	e := seedEntry(store, "k", board.NewBoardIn("acme", []board.Card{
+		{ItemID: "t", Title: "Receipts", Team: "alpha", Parked: true},
+	}))
+	author, cancel := store.subscribe("k", "me", nil, map[string]bool{"cards": true})
+	defer cancel()
+	e.mu.Lock()
+	c, _ := board.Find(e.board, "t")
+	e.removeCard("t")
+	e.cardChanged("me", c, "DELETED")
+	e.mu.Unlock()
+	if got := took(t, author, 1); got["t"].Type != "DELETED" {
+		t.Fatalf("the author's raw stream heard %v, want the card DELETED", got)
 	}
 }

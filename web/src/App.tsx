@@ -1307,8 +1307,10 @@ export function App() {
   boardRef.current = board;
   // The day feed (MeBoard) subscribes here to hear about Card watch frames —
   // a foreign note or move must land in the feed without a reload. Own
-  // mutations never arrive (the watch is keyed by ?client=, and the server
-  // skips this tab's echoes), so every frame relayed is someone else's.
+  // mutations mostly never arrive (the watch is keyed by ?client=, and the
+  // server skips this tab's echoes) — except a DELETED for a card gone from
+  // the board, which the author is told too (G87); relaying it drops an
+  // entry that is already gone, which changes nothing.
   const cardFrameListeners = useRef(new Set<(uid: string, deleted: boolean) => void>());
   const subscribeCardFrames = useCallback(
     (fn: (uid: string, deleted: boolean) => void) => {

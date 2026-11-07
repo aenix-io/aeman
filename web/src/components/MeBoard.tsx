@@ -557,7 +557,9 @@ export function MeBoard({
   }, [feedKey, selectedDate, provider, applyDayFeed]);
 
   // Foreign changes land in the feed live: App relays every Card watch frame
-  // (own echoes never arrive — the watch is keyed by this tab's client id).
+  // (own echoes never arrive — the watch is keyed by this tab's client id —
+  // but a DELETED of a card gone from the board does, G87, and dropping its
+  // entry again is harmless).
   // A burst of frames is coalesced for a beat and the changed cards re-asked
   // in ONE batch; a DELETED card's entry is dropped rather than left stale.
   const feedSet = useMemo(() => new Set(feedKey ? feedKey.split(",") : []), [feedKey]);
