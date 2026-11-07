@@ -42,6 +42,11 @@ var retiredFiles = map[string]string{
 
 func retiredRepo(t *testing.T) *Repo {
 	t.Helper()
+	return retiredRepoWith(t, nil)
+}
+
+func retiredRepoWith(t *testing.T, extra map[string]string) *Repo {
+	t.Helper()
 	files := map[string]string{
 		BoardPath:              "schema: 3\ntitle: b\n",
 		TeamPath("_"):          "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
@@ -51,6 +56,9 @@ func retiredRepo(t *testing.T) *Repo {
 		"cards/k/2/01TASK2.md": "---\ntitle: Invoices\nteam: portal\nparked: true\nrank: e\ncreated: 2026-08-20T09:00:00Z\n---\n",
 	}
 	for p, d := range retiredFiles {
+		files[p] = d
+	}
+	for p, d := range extra {
 		files[p] = d
 	}
 	return repoWith(t, files)
@@ -171,5 +179,33 @@ func TestAProjectCardsIDReachesNoWrite(t *testing.T) {
 		if data, err := r.ReadFile(p); err != nil || string(data) != want {
 			t.Fatalf("%s = %q (%v), want it byte-identical", p, data, err)
 		}
+	}
+}
+
+// A task filed under a project card reads with no parent on a reload of
+// that one card, as it does on a read of the whole board (dropDanglingParents):
+// otherwise every edit of it brought the dead link back and hid the task as
+// the subtask of a card no board draws. Across repositories too — the
+// project card may sit in the other one.
+func TestAReloadedCardDropsAParentThatIsAProjectCard(t *testing.T) {
+	under := "---\ntitle: piece of the plan\nteam: portal\nparent: 01CARDPROJ\nparked: true\nrank: f\ncreated: 2026-08-20T09:00:00Z\n---\n"
+	r := retiredRepoWith(t, map[string]string{"cards/c/e/01PIECE.md": under})
+	got, err := NewBackend(r, BackendOptions{}).LoadCards(context.Background(), board.Board{}, []string{"01PIECE", "01TASK"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Parent != "" || got[1].Parent != "01EPIC" {
+		t.Fatalf("reloaded = %+v, want the project-card parent dropped and the epic kept", got)
+	}
+
+	other := repoWith(t, map[string]string{BoardPath: "schema: 3\ntitle: o\n", "cards/c/e/01PIECE.md": under})
+	shared := retiredRepo(t)
+	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "other", Repo: other}}, BackendOptions{})
+	got, err = mb.LoadCards(context.Background(), board.Board{}, []string{"01PIECE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Parent != "" {
+		t.Fatalf("across repositories = %+v, want the project-card parent dropped", got)
 	}
 }

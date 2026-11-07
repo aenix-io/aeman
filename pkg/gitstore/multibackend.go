@@ -170,9 +170,18 @@ func (mb *MultiBackend) LoadCards(ctx context.Context, bd board.Board, ids []str
 	}
 	ordered := make([]board.Card, 0, len(byID))
 	for _, id := range ids {
-		if c, ok := byID[id]; ok {
-			ordered = append(ordered, c)
+		c, ok := byID[id]
+		if !ok {
+			continue
 		}
+		// Each repository dropped a project-card parent it holds itself;
+		// one kept in ANOTHER repository is dropped here (H15).
+		for _, d := range mb.domainList() {
+			if c.Parent != "" && mb.backends[d.Name].holdsProjectCard(ctx, c.Parent) {
+				c.Parent = ""
+			}
+		}
+		ordered = append(ordered, c)
 	}
 	return ordered, nil
 }

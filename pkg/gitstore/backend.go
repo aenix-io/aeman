@@ -397,9 +397,29 @@ func (b *Backend) LoadCards(ctx context.Context, _ board.Board, ids []string) ([
 		// Read by the same rules a read of the whole board applies to one
 		// card, or the reload of a card a commit wrote would disagree with
 		// the board about the same file.
-		out = append(out, board.SettleCard(f.Card))
+		c := board.SettleCard(f.Card)
+		if c.Parent != "" && b.holdsProjectCard(ctx, c.Parent) {
+			c.Parent = "" // dangling on a whole read too (dropDanglingParents, H15)
+		}
+		out = append(out, c)
 	}
 	return out, nil
+}
+
+// holdsProjectCard reports that this repository keeps id as a project card —
+// a file the board no longer reads (H15). A card it does not hold at all is
+// not this repository's to answer for: the board may hold it in another.
+func (b *Backend) holdsProjectCard(ctx context.Context, id string) bool {
+	p, err := CardPath(id)
+	if err != nil {
+		return false
+	}
+	data, ok, err := b.read(ctx, p)
+	if err != nil || !ok {
+		return false
+	}
+	f, err := DecodeCard(id, data)
+	return err == nil && f.ProjectCard
 }
 
 // ---- creating ------------------------------------------------------------------------
