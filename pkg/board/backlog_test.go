@@ -255,17 +255,27 @@ func TestTheEffectivePriorityIsOwnElseTheNearestAncestors(t *testing.T) {
 	}
 }
 
-// A review NOBODY HAS TAKEN stands above every task (K10): it is the "needs
-// a reviewer" item, and the tree does not order it — among themselves the
-// reviews keep the board's order, newest-made on top.
-func TestAReviewNobodyHasTakenStandsAboveTheTasks(t *testing.T) {
+// A review NOBODY HAS TAKEN (K10, amended 2026-11-07) takes the effective
+// priority of the task it reviews and stands FIRST within that priority —
+// before the tasks of the group — the reviews among themselves in the
+// Roadmap's order of the tasks they review; a review of a task with no
+// priority is first in the "no priority" group.
+func TestAReviewNobodyHasTakenLeadsItsTasksPriority(t *testing.T) {
+	today := "2026-11-02"
 	b := NewBoard([]Card{
-		{ItemID: "r2", ReviewOf: "o2", Parked: true},
-		{ItemID: "g", Type: TypeGoal},
-		{ItemID: "t", Parent: "g", Parked: true, Priority: PriorityP1},
-		{ItemID: "o", Parent: "g", Stage: StageReview, SprintStart: "2026-11-02"},
-		{ItemID: "r1", ReviewOf: "o", Parked: true},
-		{ItemID: "o2", Stage: StageReview, SprintStart: "2026-11-02"},
+		{ItemID: "g1", Type: TypeGoal, Priority: PriorityP1},
+		{ItemID: "g2", Type: TypeGoal},
+		// The reviews first in the board's order: only the reviewed tasks'
+		// places may put them right.
+		{ItemID: "r-late", ReviewOf: "o-late", Parked: true},
+		{ItemID: "r-none", ReviewOf: "o-none", Parked: true},
+		{ItemID: "r-early", ReviewOf: "o-early", Parked: true},
+		{ItemID: "o-early", Parent: "g1", Stage: StageReview, SprintStart: today},
+		{ItemID: "t1", Parent: "g1", Parked: true},
+		{ItemID: "o-late", Parent: "g1", Stage: StageReview, SprintStart: today},
+		{ItemID: "t-none", Parent: "g2", Parked: true},
+		{ItemID: "o-none", Parent: "g2", Stage: StageReview, SprintStart: today},
+		{ItemID: "t0", Parked: true, Priority: PriorityP0},
 	})
 	ix := NewIndex(b)
 	var listed []Card
@@ -274,7 +284,12 @@ func TestAReviewNobodyHasTakenStandsAboveTheTasks(t *testing.T) {
 			listed = append(listed, c)
 		}
 	}
-	if got, want := ids(BacklogOrder(ix, listed)), []string{"r2", "r1", "t"}; !reflect.DeepEqual(got, want) {
+	want := []string{
+		"t0",                      // P0: no review there
+		"r-early", "r-late", "t1", // P1 (from g1): its reviews first, in their tasks' order
+		"r-none", "t-none", // none: its review first
+	}
+	if got := ids(BacklogOrder(ix, listed)); !reflect.DeepEqual(got, want) {
 		t.Fatalf("BacklogOrder = %v, want %v", got, want)
 	}
 }

@@ -167,11 +167,11 @@ func TestTheBacklogViewListsWhatATeamHasParked(t *testing.T) {
 	}
 }
 
-// A review NOBODY HAS TAKEN stands above every task in a backlog listing
-// (K10, BacklogOrder): the tree orders the tasks (K14) and does not order a
-// review, so the "needs a reviewer" items keep the top, among themselves in
-// the board's order — one dragged below a task is still above it.
-func TestAReviewNobodyHasTakenStandsAboveTheTasks(t *testing.T) {
+// A review NOBODY HAS TAKEN leads its priority group in a backlog listing
+// (K10, BacklogOrder): it takes its task's effective priority — none here —
+// and stands before that group's tasks, the reviews in their tasks' Roadmap
+// order — one dragged below a task is still above it.
+func TestAReviewNobodyHasTakenLeadsItsPriorityGroup(t *testing.T) {
 	b := board.NewBoard([]board.Card{
 		{ItemID: "t1", Team: "alpha", Parked: true, Rank: "b", CreatedAt: "2026-01-01T00:00:00Z"},
 		{ItemID: "o", Team: "alpha", Stage: board.StageReview, SprintStart: "2026-11-03"},

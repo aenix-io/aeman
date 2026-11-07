@@ -65,13 +65,15 @@ export function shownTeams(filter: readonly string[] | null, roster: readonly st
 }
 
 /** BacklogKey is a backlog card's place in the list — board.BacklogKey,
- *  mirrored: its group (0 a review nobody has taken, K10; then the
- *  EFFECTIVE priority, K15 — 1 for P0 … 5 for P4, 6 for none), whether it is LOOSE (no plan item above it: after every
+ *  mirrored: its group (the EFFECTIVE priority, K15 — 1 for P0 … 5 for P4,
+ *  6 for none), whether it is a review nobody has taken (K10: first in its
+ *  group, placed by the task it reviews), whether it is LOOSE (no plan item above it: after every
  *  planned card of its group), and its PATH — the places in the board's order
  *  from the root of its tree down to the card (K14), the root's level ahead
  *  of its place, as the Roadmap draws its roots level by level. */
 export interface BacklogKey {
   group: number;
+  review: boolean;
   loose: boolean;
   path: number[];
 }
@@ -96,23 +98,27 @@ export function backlogKey(
   pos: ReadonlyMap<string, number>,
   fallback = UNNAMED,
 ): BacklogKey {
-  const own = pos.get(c.itemId) ?? fallback;
-  if (needsReviewer(c)) {
-    return { group: 0, loose: false, path: [own] };
-  }
   const group = priorityRank(c.effectivePriority);
+  // A review nobody has taken (K10) leads its task's priority group, placed
+  // by the task it reviews: its lineage is the task's planning chain, and the
+  // task's own place ends the path.
+  const review = needsReviewer(c);
+  const own = review ? (pos.get(c.reviewOf ?? "") ?? pos.get(c.itemId) ?? fallback) : (pos.get(c.itemId) ?? fallback);
   const up = c.lineage ?? [];
   if (!up.some((a) => a.type && PLANNING.has(a.type))) {
-    return { group, loose: true, path: [own] };
+    return { group, review, loose: true, path: [own] };
   }
   const root = ROOT_LEVEL[up[0].type ?? ""] ?? 3;
-  return { group, loose: false, path: [root, ...up.map((a) => pos.get(a.uid) ?? UNNAMED), own] };
+  return { group, review, loose: false, path: [root, ...up.map((a) => pos.get(a.uid) ?? UNNAMED), own] };
 }
 
 /** compareBacklogKeys orders two keys: negative when a stands first. */
 export function compareBacklogKeys(a: BacklogKey, b: BacklogKey): number {
   if (a.group !== b.group) {
     return a.group - b.group;
+  }
+  if (a.review !== b.review) {
+    return a.review ? -1 : 1;
   }
   if (a.loose !== b.loose) {
     return a.loose ? 1 : -1;
@@ -152,7 +158,7 @@ export function backlogList(cards: readonly Card[], teams: readonly string[], or
  *  plan item above, being one run. */
 function runOf(c: Pick<Card, "parent" | "lineage" | "effectivePriority" | "reviewOf" | "assignees" | "stage" | "progress">): string {
   if (needsReviewer(c)) {
-    return "review";
+    return `review:${priorityRank(c.effectivePriority)}`;
   }
   const planned = (c.lineage ?? []).some((a) => a.type && PLANNING.has(a.type));
   return `${priorityRank(c.effectivePriority)}:${planned ? (c.parent ?? "") : ""}`;

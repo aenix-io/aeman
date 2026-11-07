@@ -235,6 +235,17 @@ describe("a drop moves a task among its siblings only (K14)", () => {
     expect(dropPlan("u", [t, u, a1], 0)).toEqual({ kind: "reorder", order: ["u", "t", "a1"], anchor: { before: "t" } });
   });
 
+  it("moves a review nobody has taken only among the reviews of its priority group", () => {
+    const rA = card({ itemId: "rA", reviewOf: "x", effectivePriority: "P1" });
+    const rB = card({ itemId: "rB", reviewOf: "y", effectivePriority: "P1" });
+    const rC = card({ itemId: "rC", reviewOf: "z" });
+    const list = [rA, rB, a1, rC];
+    expect(dropPlan("rB", list, 0)).toEqual({ kind: "reorder", order: ["rB", "rA", "a1", "rC"], anchor: { before: "rA" } });
+    // Next to a task, or to a review of another priority: not its place.
+    expect(dropPlan("rC", list, 1)).toEqual({ kind: "forbidden" });
+    expect(dropPlan("rA", list, 2)).toEqual({ kind: "forbidden" });
+  });
+
   it("treats the tasks with no plan item above as one run of siblings", () => {
     const l1 = card({ itemId: "l1" });
     const l2 = card({ itemId: "l2", team: "beta" });
@@ -297,14 +308,24 @@ describe("the Roadmap's order in the backlog (K14, K15)", () => {
     expect(backlogList(list, [""], order).map((c) => c.itemId)).toEqual(["z", "b", "e", "loose", "a", "d", "y", "c"]);
   });
 
-  it("puts a review nobody has taken above every task, the reviews in the board's order", () => {
-    const G = ref("g", "goal");
+  // Mirrors TestAReviewNobodyHasTakenLeadsItsTasksPriority (K10, amended):
+  // a review nobody has taken takes its task's effective priority (the
+  // server's status.effectivePriority on the review) and stands FIRST in that
+  // group, the reviews in their tasks' Roadmap order; a review of a task with
+  // none leads the "no priority" group.
+  it("puts a review nobody has taken first in its task's priority group", () => {
+    const G1 = ref("g1", "goal");
+    const G2 = ref("g2", "goal");
+    const order = ["g1", "g2", "r-late", "r-none", "r-early", "o-early", "t1", "o-late", "t-none", "o-none", "t0"];
     const list = [
-      card({ itemId: "r2", reviewOf: "o2" }),
-      t("t", [G], { effectivePriority: "P1" }),
-      card({ itemId: "r1", reviewOf: "o", lineage: [G] }),
+      card({ itemId: "r-late", reviewOf: "o-late", lineage: [G1], effectivePriority: "P1" }),
+      card({ itemId: "r-none", reviewOf: "o-none", lineage: [G2] }),
+      card({ itemId: "r-early", reviewOf: "o-early", lineage: [G1], effectivePriority: "P1" }),
+      t("t1", [G1], { effectivePriority: "P1" }),
+      t("t-none", [G2]),
+      t("t0", [], { priority: "P0", effectivePriority: "P0" }),
     ];
-    expect(backlogList(list, [""], ["r2", "g", "t", "o", "r1"]).map((c) => c.itemId)).toEqual(["r2", "r1", "t"]);
+    expect(backlogList(list, [""], order).map((c) => c.itemId)).toEqual(["t0", "r-early", "r-late", "t1", "r-none", "t-none"]);
   });
 
   it("re-sorts on a new board order (an Ordering frame): a goal moved up takes its tasks with it", () => {
