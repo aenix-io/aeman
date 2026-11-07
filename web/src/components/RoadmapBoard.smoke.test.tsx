@@ -233,6 +233,24 @@ describe("the Roadmap's two panes", () => {
     expect(html.match(/class="roadmap-lane roadmap-lane-section"/g)?.length).toBe(2);
   });
 
+  it("adds a plan item from a row under the tree, before In work, not from the toolbar", () => {
+    const inWork = card({ itemId: "w", title: "Fix the build", team: "core", startDate: today, day: today });
+    const html = draw(board([goal, ini, epic, done, open, inWork]));
+    const toolbar = html.slice(html.indexOf("roadmap-toolbar"), html.indexOf("roadmap-head"));
+    expect(toolbar).not.toContain("+ add");
+    const at = (s: string) => html.indexOf(s);
+    expect(at("roadmap-row-addroot")).toBeGreaterThan(at("Send by mail"));
+    expect(at("roadmap-row-addroot")).toBeLessThan(at(">In work<"));
+    // A line on both panes: the timeline keeps a lane for it.
+    expect(html.match(/roadmap-lane-addroot/g)?.length).toBe(1);
+  });
+
+  it("offers the add row on an empty roadmap too", () => {
+    const html = draw(board([]));
+    expect(html).toContain("roadmap-row-addroot");
+    expect(html).toContain("+ add");
+  });
+
   it("asks whose once: the Owner filter is the one person filter (O8)", () => {
     const html = draw(board([goal, ini, epic, done, open]));
     expect(html).not.toContain("team-filter-chip");

@@ -987,19 +987,32 @@ export function RoadmapBoard({
   // The create form under a planning row sits right after that row.
   const addingRow = rows.find((r) => r.node.card.itemId === addingUnder);
 
+  // A plan item of the top level is added from a row of its own under the
+  // tree, before the sections of loose work (In work, the backlogs): the
+  // place a new root lands. Its level starts at the highest one shown, so
+  // what it makes appears at this depth.
+  const rootLevels: CardType[] = ["goal", "initiative", "epic"];
+  const rootInitial: CardType = rootLevels.includes(depth.from as CardType) ? (depth.from as CardType) : "goal";
+  const addRoot = (
+    <div className="roadmap-row roadmap-row-form roadmap-row-addroot">
+      <AddCard
+        placeholder="Add a goal, an initiative or an epic…"
+        forcedTeam={null}
+        picker={{
+          title: "Level",
+          options: planningOptions(rootLevels),
+          initial: rootInitial,
+        }}
+        onCreate={(title, _team, picked) => createUnder(title, (picked as CardType) || rootInitial)}
+      />
+    </div>
+  );
+  const firstSection = shownLines.findIndex((l) => l.kind === "header");
+  const addRootAt = firstSection < 0 ? shownLines.length : firstSection;
+
   return (
     <div className="roadmap" ref={rootRef} style={columnVars(widths) as CSSProperties}>
       <div className="board-toolbar roadmap-toolbar">
-        <AddCard
-          placeholder="Add a goal, an initiative or an epic…"
-          forcedTeam={null}
-          picker={{
-            title: "Level",
-            options: planningOptions(["initiative", "epic", "goal"]),
-            initial: "initiative",
-          }}
-          onCreate={(title, _team, picked) => createUnder(title, (picked as CardType) || "initiative")}
-        />
         <label className="roadmap-depth">
           <span className="roadmap-depth-label">Hierarchy</span>
           <select
@@ -1062,6 +1075,7 @@ export function RoadmapBoard({
       </div>
 
       {shownLines.length === 0 ? (
+        <>
         <p className="placeholder roadmap-empty">
           {filtering ? (
             <>
@@ -1076,6 +1090,8 @@ export function RoadmapBoard({
             "Nothing to draw at this depth."
           )}
         </p>
+        {!filtering && addRoot}
+        </>
       ) : (
         <DndContext
           sensors={sensors}
@@ -1103,13 +1119,15 @@ export function RoadmapBoard({
                   Status{handle("status", "Resize the table against the timeline")}
                 </span>
               </div>
-              {shownLines.map((line) => {
+              {shownLines.map((line, i) => {
+                const before = i === addRootAt ? <div key="addroot">{addRoot}</div> : null;
                 if (line.kind === "header") {
-                  return (
+                  return [
+                    before,
                     <div key={line.key} className="roadmap-row roadmap-section" style={{ height: ROW_PX }} aria-hidden="false">
                       <span className="roadmap-cell roadmap-cell-title roadmap-section-label">{line.label}</span>
-                    </div>
-                  );
+                    </div>,
+                  ];
                 }
                 const r = line.row;
                 const card = r.node.card;
@@ -1166,6 +1184,7 @@ export function RoadmapBoard({
                   </div>
                 );
               })}
+              {addRootAt === shownLines.length && addRoot}
             </div>
             <div className="roadmap-timeline">
               <div className="roadmap-track" style={{ width: trackW }}>
@@ -1181,7 +1200,10 @@ export function RoadmapBoard({
                 )}
                 {shownLines.map((line, i) =>
                   line.kind === "header" ? (
-                    <div key={line.key} className="roadmap-lane roadmap-lane-section" style={{ height: ROW_PX }} />
+                    [
+                      i === addRootAt ? <div key="addroot-lane" className="roadmap-lane roadmap-lane-addroot" style={{ height: ROW_PX }} /> : null,
+                      <div key={line.key} className="roadmap-lane roadmap-lane-section" style={{ height: ROW_PX }} />,
+                    ]
                   ) : (
                     <div key={line.row.node.card.itemId} className="roadmap-lanegroup">
                       {lane(line.row, i)}
@@ -1191,6 +1213,7 @@ export function RoadmapBoard({
                     </div>
                   ),
                 )}
+                {addRootAt === shownLines.length && <div className="roadmap-lane roadmap-lane-addroot" style={{ height: ROW_PX }} />}
               </div>
             </div>
           </div>
