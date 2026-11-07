@@ -9,8 +9,9 @@ interface ConnectDialogProps {
 
 /**
  * ConnectDialog shows how to reach aeman programmatically: the MCP endpoint for
- * Claude Code / agents, and the REST API base URL beside the OpenAPI document
- * that describes what it answers.
+ * Claude Code / agents as one command, the same endpoint for ChatGPT to paste
+ * into a custom connector, and the REST API base URL beside the OpenAPI
+ * document that describes what it answers.
  *
  * The "copied" feedback is timer-free: clicking a copy button records which
  * block was copied in local state, and the label reads "copied" until another
@@ -19,7 +20,8 @@ interface ConnectDialogProps {
  */
 export function ConnectDialog({ onClose, connectHint }: ConnectDialogProps) {
   const origin = window.location.origin;
-  const mcpCmd = `claude mcp add --transport http aeman ${origin}/mcp`;
+  const mcpUrl = `${origin}/mcp`;
+  const mcpCmd = `claude mcp add --transport http aeman ${mcpUrl}`;
   const apiUrl = `${origin}/api/v1`;
   const specUrl = `${origin}/api/v1/openapi.json`;
   const [copied, setCopied] = useState<string | null>(null);
@@ -69,6 +71,26 @@ export function ConnectDialog({ onClose, connectHint }: ConnectDialogProps) {
               </button>
             </div>
             <p className="connect-caption">{connectHint}</p>
+          </section>
+
+          <section className="connect-section">
+            <h3 className="connect-heading">MCP — for ChatGPT</h3>
+            <div className="connect-row">
+              <pre className="connect-cmd">
+                <code>{mcpUrl}</code>
+              </pre>
+              <button
+                type="button"
+                className="connect-copy"
+                onClick={() => copy("chatgpt", mcpUrl)}
+              >
+                {copied === "chatgpt" ? "copied" : "copy"}
+              </button>
+            </div>
+            <p className="connect-caption">
+              Add a custom connector in ChatGPT with this URL and OAuth as its
+              authentication. {connectHint}
+            </p>
           </section>
 
           <section className="connect-section">
