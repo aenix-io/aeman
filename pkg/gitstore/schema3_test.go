@@ -15,8 +15,8 @@ import (
 //  3. An open task that would have stood in the strip — no date, no sprint,
 //     no week, not parked — is parked.
 //
-// Nothing else moves: the rank stays (BacklogOrder puts unranked cards after
-// ranked ones, oldest first), a subtask or a review card loses a stray week
+// Nothing else moves: the rank stays (the board order puts unranked cards
+// first, oldest first), a subtask or a review card loses a stray week
 // and is not parked (it rides the card it belongs to), and a finished card,
 // a planning card and a project card are not asked to be placed at all.
 func TestSchema3ParksTheWeeklyPlanAndTheStripAndStripsTaskWeeks(t *testing.T) {

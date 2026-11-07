@@ -647,7 +647,7 @@ paths:
         ×'s unassign sends a card (K3): nobody on it, no day, no sprint, its
         unfinished review withdrawn, parked in the backlog of the team it
         stands under; they keep their order among themselves. Finished work,
-        project cards, review cards and subtasks are never touched. One
+        review cards and subtasks are never touched. One
         commit for the whole request.
       parameters:
         - $ref: '#/components/parameters/Uid'

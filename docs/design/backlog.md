@@ -4,7 +4,7 @@ The Triage board is retired. Each team has a **backlog**: one ranked list
 of the tasks it has accepted and has not taken into work. Decided
 2026-11-03 at the "aeman backlog" meeting (Andrei Kvapil, Vadim
 Pokrovskyi); this document is the source of truth for the change and the
-rules are pinned in [behavior-matrix.md](behavior-matrix.md) rows K1–K9.
+rules are pinned in [behavior-matrix.md](behavior-matrix.md) rows K1–K16.
 [triage.md](triage.md) is kept for history only.
 
 ## Why
@@ -64,9 +64,8 @@ SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
   (features reads portal's and cozystack's) selects them all.
 - **What is listed.** The team's parked tasks: no planning card, no
   subtask, no review card, nothing finished. Order is
-  `BacklogOrder` over the union: hand-placed rank first, then oldest
-  first — rank is board-global, so the merged order is the board order
-  of those cards.
+  `BacklogOrder` over the union — the **Roadmap's order** (K14, below),
+  the TO DO tasks first (K15).
 - **The card.** One wide card per row, a plain card with no coloured
   accent down its edge: the title first; on the RIGHT its parent chain —
   every goal, initiative and epic it sits under, root first (all of
@@ -78,12 +77,15 @@ SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
   person's stacked over it when somebody has it, one label (the shared
   owner badge, the Roadmap's too), with a separate Take button to its
   left while nobody has it.
-- **Order.** Dragging a card reorders it in the list: the move gesture
-  with `after`/`before` anchors of its neighbours in the merged list,
-  whichever team they are (rank is one board-wide list; the anchors keep
-  the move local). A drag does not change the team: the card's team chip
-  is its owner picker, and `own` with a team alone hands it to that team,
-  still parked; the owner badge is that picker.
+- **Order.** Dragging a card reorders it **among its siblings** — the
+  tasks under the same parent, in the same group (TO DO or not; the tasks
+  with no plan item above are one run): the move gesture anchored on the
+  sibling just above it (`after`), else the one just below (`before`). A
+  place next to none of its siblings is shown as forbidden and writes
+  nothing: the order is the tree's (K14), and the move changes the
+  Roadmap's order too. A drag does not change the team: the card's team
+  chip is its owner picker, and `own` with a team alone hands it to that
+  team, still parked; the owner badge is that picker.
 - **Adding.** No add box at the foot of the list: every gap — above the
   first card, between two, below the last — shows a round "+" at its left
   edge on hover, and an empty backlog shows one always. Pressed, it opens
@@ -108,6 +110,68 @@ SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
   unparked, re-teamed, retitled, finished or reordered by anybody shows
   in every open backlog without a reload; a reorder arrives as the
   `Ordering` frame the other boards already apply.
+
+## One order with the Roadmap (K14)
+
+Decided 2026-11-07 with the owner. The backlog reads in the **Roadmap's
+order**, across the whole hierarchy: goal order first, then each
+initiative within its goal, each epic within its initiative, each task
+within its epic. Concretely, a task's place is the PATH of places in the
+board's order (rank, then id — the order every board reads) from the root
+of its tree down to the task, compared step by step; the first step is the
+root's level ahead of its place, because the Roadmap draws its roots level
+by level (goals, then initiatives with no goal, then epics with no
+initiative). Tasks with no plan item above them come after every planned
+one, in their own place in the board's order. A parent's children — tasks
+and plan items alike — are in board order, so a task directly under an
+initiative and the epics beside it interleave as the Roadmap draws them.
+
+There is one order, decided by the tree. Dragging in the backlog moves a
+task among its siblings (see **Order** above), which is a move in the
+board's order and so moves it on the Roadmap too; moving a plan item on
+the Roadmap moves every task under it in the backlog, live — the backlog
+listing carries `boardOrder` (the board's order of its cards and the plan
+items above them), every `Ordering` frame carries the whole board's, and
+the client sorts by the same key the server does (`board.BacklogKey`,
+mirrored in `backlogboard.ts`).
+
+This replaces "hand-placed rank first, then oldest first": an unranked
+card (one migrated in schema 3 and never placed) now stands where the
+board's order puts it — before the ranked ones of its run, oldest first —
+rather than after them.
+
+**Reviews nobody has taken** (K10) stand above every task: the tree orders
+tasks, not a review, so the "needs a reviewer" items keep the top, among
+themselves in the board's order, and are dragged among themselves only.
+K10's "at the top until somebody drags it" becomes "at the top, always".
+
+## TO DO and UNASSIGNED (K15, K16)
+
+The status badge on the Roadmap is a menu, on a task and on a plan item.
+
+- **TO DO** (K15) marks parked work READY to be taken next: a stored flag
+  on the task, `todo: true`. In the backlog the TO DO tasks come first, in
+  the Roadmap's order among themselves, then the rest in the same order.
+  On a task it marks the task itself, which must be waiting in its
+  backlog (parked, open, not a review or a subtask); on a plan item it
+  marks every such task under it at any depth. Chosen again when every
+  one is marked, it clears them. The flag is **cleared when the task is
+  taken into work** (any door that gives it a date, a sprint or a person)
+  **or finished** — a task reopened later is not marked ready by a flag
+  nobody saw. The badge of a flagged parked task reads TO DO, filled; every
+  other badge reads as before (note that a task nothing has started on
+  already read "To do", drawn in the same capitals — the fill is the
+  difference). `POST /cards/{uid}/actions/todo {todo}`, MCP `set_todo`.
+- **UNASSIGNED** (K16) takes work out of hand: after "Take N tasks out of
+  work? They leave Team and Me and go back to their team's backlog." every
+  open task in work — the task itself, or every open task in work under
+  the plan item — goes the way the ×'s unassign sends a card (K3): nobody
+  on it, no day, no sprint, its unfinished review withdrawn, parked at the
+  top of its run in the backlog of the team it stands under. They are
+  moved last to first, so they keep their order among themselves. Finished
+  work, review cards and subtasks are untouched. One
+  request, one commit. `POST /cards/{uid}/actions/unassign-work`, MCP
+  `unassign_work`.
 
 ## What is removed
 
@@ -202,9 +266,10 @@ like schema 2:
    planning cards have none already (schema 2). Since 2026-11-07 the
    bump skips project cards and `projects/` altogether.
 
-The rank of a migrated card is untouched; `BacklogOrder` puts unranked
-cards after ranked ones, oldest first, so the first view of a backlog is
-"what has waited longest" and the lead sorts from there.
+The rank of a migrated card is untouched. At the bump `BacklogOrder` put
+unranked cards after ranked ones, oldest first; since K14 the backlog
+reads in the Roadmap's order, and an unranked card stands where the
+board's order puts it (before the ranked ones of its run, oldest first).
 
 `board.Reachable` (which the importer's cleanup deletes against) keeps
 parked tasks reachable, so nothing the migration parks is lost.
@@ -226,3 +291,6 @@ parked tasks reachable, so nothing the migration parks is lost.
 | K11 | Take is the backlog's gesture: the card becomes the actor's, on its own team, and leaves the backlog; refused where there is nothing to take. |
 | K12 | The × on a review somebody has offers "back to backlog": the reviewer is taken off and the review waits, nobody on it, at the top of the reviewed task's team backlog; the task stays on review. |
 | K13 | The insert "+" in a gap of the list creates a task parked on the chosen team and placed there by the create itself (`after`/`before`), in one request. |
+| K14 | The backlog reads in the Roadmap's order — the path of board-order places from the root plan item down; loose tasks after the planned ones; reviews nobody has taken above all — and a drag moves a task among its siblings only, which moves it on the Roadmap too. |
+| K15 | TO DO marks a parked task (or every one under a plan item) ready: it stands first in its backlog; the flag clears when the task is taken into work or finished. |
+| K16 | UNASSIGNED takes an open task in work (or every one under a plan item) back to its backlog, the ×'s unassign way, after a confirm that counts them; finished work is untouched. |

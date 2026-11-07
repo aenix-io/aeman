@@ -346,7 +346,7 @@ export interface paths {
         put?: never;
         /**
          * Take work in hand out of work, back to its team's backlog.
-         * @description The Roadmap's status menu, UNASSIGNED. On a TASK it takes the task itself, which must be open work in hand — a date or a sprint, not parked, not finished (422 `notInWork` otherwise). On a PLAN ITEM it takes every such task under it, at any depth. Each goes the way the ×'s unassign sends a card (K3): nobody on it, no day, no sprint, its unfinished review withdrawn, parked in the backlog of the team it stands under; they keep their order among themselves. Finished work, project cards, review cards and subtasks are never touched. One commit for the whole request.
+         * @description The Roadmap's status menu, UNASSIGNED. On a TASK it takes the task itself, which must be open work in hand — a date or a sprint, not parked, not finished (422 `notInWork` otherwise). On a PLAN ITEM it takes every such task under it, at any depth. Each goes the way the ×'s unassign sends a card (K3): nobody on it, no day, no sprint, its unfinished review withdrawn, parked in the backlog of the team it stands under; they keep their order among themselves. Finished work, review cards and subtasks are never touched. One commit for the whole request.
          */
         post: operations["unassignWork"];
         delete?: never;
