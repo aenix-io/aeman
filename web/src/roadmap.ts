@@ -1280,11 +1280,6 @@ export function refusalRollback<T>(seq: { isLatest: (id: string, n: number) => b
   return seq.isLatest(id, n) ? before : [];
 }
 
-/** statusUids is the tasks a gesture names to the server. */
-export function statusUids(targets: readonly Card[]): string[] {
-  return targets.map((t) => t.itemId);
-}
-
 /** unassignPreview is the tasks UNASSIGNED will name to the server — the
  *  ones it would take, which the confirm counts — or null when there are
  *  none: the board moved since the menu opened, and "Take 0 tasks out of

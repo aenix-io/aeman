@@ -28,7 +28,7 @@ import {
   statusMenu,
   rolledUpAfter,
   workPatchOf,
-  statusUids,
+  unassignPreview,
   priorityAfter,
   latestWins,
   refusalRollback,
@@ -237,7 +237,7 @@ interface RowProps {
    *  card, which has none of a task's. */
   owner: ReactNode;
   /** The badge's menu (priorities, UNASSIGNED; K15, K16), opened from the
-   *  badge; null on a row that offers none (a project card). */
+   *  badge; null on a row that offers none. */
   onStatus: ((badge: HTMLElement) => void) | null;
   /** The status menu stands open on this row (aria-expanded). */
   menuOpen: boolean;
@@ -1232,7 +1232,13 @@ export function RoadmapBoard({
                 setStatusFor(null);
                 void provider
                   .previewUnassign(card.itemId)
-                  .then((would) => setUnassigning({ card, uids: statusUids(would) }))
+                  .then((would) => {
+                    // Nothing in work under it any more: no confirm to open.
+                    const uids = unassignPreview(would);
+                    if (uids) {
+                      setUnassigning({ card, uids });
+                    }
+                  })
                   .catch((err: unknown) => onError(errText(err)));
               }}
             >
