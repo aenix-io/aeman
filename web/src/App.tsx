@@ -1286,6 +1286,9 @@ export function App() {
       // A write the store finally rejected: the board has been rolled back to
       // the server's reloaded state; surface what was lost.
       if (frame.kind === "SyncError") {
+        // The failed write may be one of this tab's deletes, rolled back on
+        // the server: the card comes again, and no mark may turn it away.
+        tombstones.current.clear();
         setError(frame.object.message || "a change could not be saved");
         return;
       }

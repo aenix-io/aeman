@@ -30,6 +30,13 @@ export class Tombstones {
     return this.at.size;
   }
 
+  /** clear drops every mark: a write the store finally rejected (a
+   *  SyncError) may be any of this tab's deletes, and the cards it rolls back
+   *  must come back at once. */
+  clear(): void {
+    this.at.clear();
+  }
+
   /** lift drops the mark: the delete was refused. */
   lift(uid: string): void {
     this.at.delete(uid);

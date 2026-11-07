@@ -94,3 +94,19 @@ describe("a listing after a delete", () => {
     expect(notTombstoned([{ itemId: "task" }], t, 1_000).map((c) => c.itemId)).toEqual(["task"]);
   });
 });
+
+// A write the store finally rejected (a SyncError frame) may be one of this
+// tab's deletes: the server rolls the card back and sends it again, and the
+// mark must not turn it away or keep it out of the next listing. The tab
+// cannot tell which delete failed, so it forgets them all.
+describe("a sync error clears every mark", () => {
+  it("lets the rolled-back cards back in at once", () => {
+    const t = new Tombstones(60_000);
+    t.mark("a", 1000);
+    t.mark("b", 1000);
+    t.clear();
+    expect(t.size).toBe(0);
+    expect(t.blocks("a", "ADDED", 1001)).toBe(false);
+    expect(notTombstoned([{ itemId: "a" }, { itemId: "b" }], t, 1001)).toHaveLength(2);
+  });
+});
