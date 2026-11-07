@@ -358,9 +358,14 @@ describe("the Roadmap's column handles", () => {
 // a plan item, which opens TO DO and UNASSIGNED; UNASSIGNED asks first, by
 // count. A parked task marked TO DO wears its own badge.
 describe("the status menu", () => {
-  it("draws the badge of a task and of a plan item as a button", () => {
-    const html = draw(board([goal, ini, epic, done, open]));
-    expect(html.match(/class="roadmap-status roadmap-status-[a-z-]+ roadmap-status-button"/g)?.length).toBeGreaterThanOrEqual(4);
+  it("draws the badge as a button where the menu has an answer, and plain where it has none", () => {
+    const inHand = { ...open, itemId: "w", title: "In hand", sprintStart: today, day: today };
+    const html = draw(board([goal, ini, epic, done, inHand]));
+    // The work in hand and the plan items above it: UNASSIGNED reaches it.
+    expect(html).toMatch(/roadmap-status-button"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"/);
+    // Finished work: neither answer reaches it, so no menu is offered.
+    expect(html).toMatch(/<span class="roadmap-status roadmap-status-done">/);
+    expect(html).not.toMatch(/roadmap-status-done roadmap-status-button/);
   });
 
   it("wears TO DO, filled, on a parked task marked ready", () => {

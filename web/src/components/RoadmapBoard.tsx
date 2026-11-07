@@ -26,6 +26,8 @@ import {
   dropCommit,
   dropShown,
   statusMenu,
+  hasStatusMenu,
+  statusUids,
   todoTargets,
   unassignTargets,
   unassignQuestion,
@@ -235,6 +237,8 @@ interface RowProps {
   /** The status badge's menu (TO DO, UNASSIGNED; K15, K16), opened from the
    *  badge; null on a row that offers none (a project card). */
   onStatus: ((badge: HTMLElement) => void) | null;
+  /** The status menu stands open on this row (aria-expanded). */
+  menuOpen: boolean;
   rowRef: (el: HTMLDivElement | null) => void;
 }
 
@@ -243,7 +247,7 @@ interface RowProps {
  *  worth of hit area, the kind by its pictogram. While a drag runs the rows
  *  stay where they are — the dragged rows dimmed in place — and where it
  *  would land is a mark over the row (roadmap.dropMark). */
-function RoadmapRow({ row, today, open, focus, ghost, forbid, mark, dragging, onToggle, onOpen, onAdd, onRemove, owner, onStatus, rowRef }: RowProps) {
+function RoadmapRow({ row, today, open, focus, ghost, forbid, mark, dragging, onToggle, onOpen, onAdd, onRemove, owner, onStatus, menuOpen, rowRef }: RowProps) {
   const card = row.node.card;
   const id = card.itemId;
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id });
@@ -274,7 +278,7 @@ function RoadmapRow({ row, today, open, focus, ghost, forbid, mark, dragging, on
       <span className="roadmap-cell roadmap-cell-date">{shortDate(card.startDate, today)}</span>
       <span className="roadmap-cell roadmap-cell-date">{shortDate(card.day, today)}</span>
       <span className="roadmap-cell roadmap-cell-status">
-        <StatusPill card={card} onMenu={onStatus ?? undefined} />
+        <StatusPill card={card} onMenu={onStatus ?? undefined} expanded={menuOpen} />
       </span>
     </div>
   );
@@ -812,14 +816,16 @@ export function RoadmapBoard({
   // roadmap.statusMenu's, applied at once and settled by the server's answer.
   const [statusFor, setStatusFor] = useState<CardModel | null>(null);
   const statusAnchor = useRef<HTMLElement | null>(null);
-  const [unassigning, setUnassigning] = useState<{ card: CardModel; count: number } | null>(null);
+  const [unassigning, setUnassigning] = useState<{ card: CardModel; uids: string[] } | null>(null);
   const menu = statusFor ? statusMenu(board.cards, statusFor) : null;
   const answerTodo = (card: CardModel, todo: boolean) => {
     const targets = todoTargets(board.cards, card);
     for (const t of targets) {
       patchCard(t.itemId, { todo: todo || undefined });
     }
-    void provider.setTodo(card.itemId, todo).catch((err: unknown) => {
+    // The tasks the reader was shown — a filter shows fewer than the board
+    // holds — are the ones the server changes.
+    void provider.setTodo(card.itemId, todo, statusUids(targets)).catch((err: unknown) => {
       for (const t of targets) {
         patchCard(t.itemId, { todo: t.todo });
       }
@@ -827,11 +833,12 @@ export function RoadmapBoard({
       reload();
     });
   };
-  const answerUnassign = (card: CardModel) => {
-    for (const t of unassignTargets(board.cards, card)) {
-      patchCard(t.itemId, UNASSIGNED_LOCALLY);
+  const answerUnassign = (card: CardModel, uids: string[]) => {
+    for (const id of uids) {
+      patchCard(id, UNASSIGNED_LOCALLY);
     }
-    void provider.unassignWork(card.itemId).catch((err: unknown) => {
+    // Exactly the tasks the confirm counted.
+    void provider.unassignWork(card.itemId, uids).catch((err: unknown) => {
       onError(errText(err));
       reload();
     });
@@ -1075,10 +1082,15 @@ export function RoadmapBoard({
                       onAdd={planning && kids.length > 0 ? () => setAddingUnder(addingUnder === card.itemId ? null : card.itemId) : null}
                       onRemove={planning ? () => setRemoveChoice(card) : null}
                       owner={ownerCell(card, r.node.kind)}
-                      onStatus={(badge) => {
-                        statusAnchor.current = badge;
-                        setStatusFor(card);
-                      }}
+                      onStatus={
+                        hasStatusMenu(statusMenu(board.cards, card))
+                          ? (badge) => {
+                              statusAnchor.current = badge;
+                              setStatusFor(card);
+                            }
+                          : null
+                      }
+                      menuOpen={statusFor?.itemId === card.itemId}
                       rowRef={(el) => {
                         if (el) {
                           rowRefs.current.set(card.itemId, el);
@@ -1186,7 +1198,7 @@ export function RoadmapBoard({
               disabled={menu.unassign === 0}
               title={menu.unassign > 0 ? "Take out of work, back to the backlog" : "Nothing in work here"}
               onClick={() => {
-                setUnassigning({ card: statusFor, count: menu.unassign });
+                setUnassigning({ card: statusFor, uids: statusUids(unassignTargets(board.cards, statusFor)) });
                 setStatusFor(null);
               }}
             >
@@ -1198,9 +1210,9 @@ export function RoadmapBoard({
       </Dropdown>
       {unassigning && (
         <UnassignDialog
-          count={unassigning.count}
+          count={unassigning.uids.length}
           onClose={() => setUnassigning(null)}
-          onConfirm={() => answerUnassign(unassigning.card)}
+          onConfirm={() => answerUnassign(unassigning.card, unassigning.uids)}
         />
       )}
       {removeChoice && (
@@ -1221,9 +1233,16 @@ export function RoadmapBoard({
 /** UnassignDialog asks before UNASSIGNED takes work out of hand (K16): how
  *  many tasks leave Team and Me for their team's backlog. */
 export function UnassignDialog({ count, onClose, onConfirm }: { count: number; onClose: () => void; onConfirm: () => void }) {
+  // The dialog takes the focus as it opens, so Escape reaches its handler.
+  const dialog = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    dialog.current?.focus();
+  }, []);
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
+        ref={dialog}
+        tabIndex={-1}
         className="modal modal-narrow"
         role="dialog"
         aria-modal="true"

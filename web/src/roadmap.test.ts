@@ -47,6 +47,8 @@ import {
   todoTargets,
   unassignTargets,
   statusMenu,
+  hasStatusMenu,
+  statusUids,
   unassignQuestion,
   STATUS_LABEL,
 } from "./roadmap";
@@ -924,6 +926,19 @@ describe("the status menu on the Roadmap (K15, K16)", () => {
     const marked = all.map((c) => (c.itemId === "p1" || c.itemId === "p2" ? { ...c, todo: true } : c));
     expect(statusMenu(marked, g).todo).toEqual({ count: 2, clears: true });
     expect(statusMenu(all, doneWork)).toEqual({ todo: null, unassign: 0 });
+  });
+
+  it("offers no menu at all where neither answer reaches anything: finished work, a subtask", () => {
+    expect(hasStatusMenu(statusMenu(all, doneWork))).toBe(false);
+    expect(hasStatusMenu(statusMenu(all, sub))).toBe(false);
+    expect(hasStatusMenu(statusMenu(all, p1))).toBe(true);
+    expect(hasStatusMenu(statusMenu(all, w1))).toBe(true);
+    expect(hasStatusMenu(statusMenu([g], g))).toBe(false);
+  });
+
+  it("names the tasks it counted, so the server acts on exactly those", () => {
+    expect(statusUids(todoTargets(all, g))).toEqual(["p1", "p2"]);
+    expect(statusUids(unassignTargets(all, g))).toEqual(["w1", "w2"]);
   });
 
   it("asks how many tasks leave Team and Me before UNASSIGNED takes them", () => {

@@ -515,15 +515,17 @@ export const apiProvider: Provider = {
     );
   },
 
-  async setTodo(uid: string, todo: boolean): Promise<number> {
+  async setTodo(uid: string, todo: boolean, uids?: string[]): Promise<number> {
     uid = await resolveCardId(uid);
-    const res = await answered(client.POST("/cards/{uid}/actions/todo", { params: { path: { uid } }, body: { todo } }));
+    const body = uids ? { todo, uids: await Promise.all(uids.map(resolveCardId)) } : { todo };
+    const res = await answered(client.POST("/cards/{uid}/actions/todo", { params: { path: { uid } }, body }));
     return res.changed;
   },
 
-  async unassignWork(uid: string): Promise<number> {
+  async unassignWork(uid: string, uids?: string[]): Promise<number> {
     uid = await resolveCardId(uid);
-    const res = await answered(client.POST("/cards/{uid}/actions/unassign-work", { params: { path: { uid } } }));
+    const body = uids ? { uids: await Promise.all(uids.map(resolveCardId)) } : undefined;
+    const res = await answered(client.POST("/cards/{uid}/actions/unassign-work", { params: { path: { uid } }, body }));
     return res.changed;
   },
 

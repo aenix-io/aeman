@@ -1184,6 +1184,20 @@ export function statusMenu(cards: readonly Card[], c: Card): StatusMenu {
   };
 }
 
+/** hasStatusMenu says whether a row offers the menu at all: where neither
+ *  answer reaches a task (finished work, a subtask, a plan item with nothing
+ *  under it) the badge is a plain badge, not a button that opens nothing. */
+export function hasStatusMenu(menu: StatusMenu): boolean {
+  return menu.todo !== null || menu.unassign > 0;
+}
+
+/** statusUids is the tasks a gesture names to the server: the ones the
+ *  reader was shown and counted — with a Roadmap filter on, fewer than the
+ *  board holds — so the server acts on exactly those. */
+export function statusUids(targets: readonly Card[]): string[] {
+  return targets.map((t) => t.itemId);
+}
+
 /** unassignQuestion is what the confirm asks before UNASSIGNED. */
 export function unassignQuestion(n: number): string {
   return n === 1

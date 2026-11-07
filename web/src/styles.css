@@ -5583,3 +5583,12 @@ button.card-age {
   color: var(--muted);
   font-size: 11px;
 }
+
+/* A parked task nobody marked ready: BACKLOG, an outlined badge — waiting,
+   in nobody's hands — set apart from TO DO (filled) and from "To do" (work
+   in hand not started). Theme variables only, so both themes draw it. */
+.roadmap-status-backlog {
+  background: transparent;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--line);
+}

@@ -102,7 +102,7 @@ export function TreeTitle({
 /** StatusPill is a row's status: a plan item's derived standing, a task's
  *  own (roadmap.statusOf). Given onMenu it is the button that opens the
  *  row's status menu (TO DO, UNASSIGNED; K15, K16). */
-export function StatusPill({ card, onMenu }: { card: CardModel; onMenu?: (badge: HTMLElement) => void }) {
+export function StatusPill({ card, onMenu, expanded = false }: { card: CardModel; onMenu?: (badge: HTMLElement) => void; expanded?: boolean }) {
   const status = statusOf(card);
   if (!onMenu) {
     return <span className={`roadmap-status roadmap-status-${status}`}>{STATUS_LABEL[status]}</span>;
@@ -113,6 +113,7 @@ export function StatusPill({ card, onMenu }: { card: CardModel; onMenu?: (badge:
       className={`roadmap-status roadmap-status-${status} roadmap-status-button`}
       title="TO DO or UNASSIGNED"
       aria-haspopup="menu"
+      aria-expanded={expanded}
       onClick={(e) => {
         e.stopPropagation();
         onMenu(e.currentTarget);
