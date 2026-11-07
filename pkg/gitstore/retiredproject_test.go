@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/boardservice"
 )
 
 // THE PROJECT BOARD IS GONE, ITS FILES STAY. Project cards (a card file
@@ -207,5 +208,59 @@ func TestAReloadedCardDropsAParentThatIsAProjectCard(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Parent != "" {
 		t.Fatalf("across repositories = %+v, want the project-card parent dropped", got)
+	}
+}
+
+// A REVIEW of a project card (production has one open) outlives the card's
+// removal with a reviewOf that names nothing the board reads. It is kept —
+// nothing destroys work by itself at a carry-over — but it is no review
+// still asked for, so the carry-over leaves it where it stands, open on the
+// team's day boards until somebody takes it off. Taking it off is a plain
+// delete: withdrawing a review puts its task back In progress, and there is
+// no task to put back — the project card is neither read nor written.
+func TestAReviewOfAProjectCardIsKeptNotCarriedAndDeletesPlainly(t *testing.T) {
+	const old = "2026-08-24"
+	review := "---\ntitle: \"review: Q2 plan\"\nassignees: [timur]\nteam: portal\nzone: gray\nstage: \"\"\nreviewOf: 01CARDPROJ\nstart: " + old + "\nday: " + old + "\nsprint: " + old + "\nrank: g\ncreated: 2026-08-24T09:00:00Z\n---\n"
+	for _, gesture := range []string{"carry then delete", "remove"} {
+		t.Run(gesture, func(t *testing.T) {
+			r := retiredRepoWith(t, map[string]string{"cards/e/w/01REVIEW.md": review})
+			svc := boardservice.New(NewBackend(r, BackendOptions{}))
+			ctx := ctxAs("kvaps")
+			switch gesture {
+			case "carry then delete":
+				if _, err := svc.CarryOver(ctx, "acme", "portal", false); err != nil {
+					t.Fatalf("carry-over over a review of a project card: %v", err)
+				}
+				s, err := Load(r)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var kept *board.Card
+				for i := range s.Cards {
+					if s.Cards[i].ItemID == "01REVIEW" {
+						kept = &s.Cards[i]
+					}
+				}
+				if kept == nil || kept.SprintStart != old {
+					t.Fatalf("the review = %+v, want it kept where it stood, not carried", kept)
+				}
+				if err := svc.DeleteCard(ctx, "acme", "01REVIEW"); err != nil {
+					t.Fatalf("delete: %v", err)
+				}
+			case "remove":
+				if err := svc.Remove(ctx, "acme", "01REVIEW", board.ViewAll, boardservice.RemoveAuto); err != nil {
+					t.Fatalf("the × on it: %v", err)
+				}
+			}
+			if _, err := r.ReadFile("cards/e/w/01REVIEW.md"); err == nil {
+				t.Fatal("the review card is still there")
+			}
+			for p, want := range retiredFiles {
+				got, err := r.ReadFile(p)
+				if err != nil || string(got) != want {
+					t.Fatalf("%s changed: %v\n%s", p, err, got)
+				}
+			}
+		})
 	}
 }
