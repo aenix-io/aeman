@@ -2,7 +2,7 @@ import type { CustomerRef, Provider } from "../providers/types";
 import { TeamsModal } from "./TeamsModal";
 
 /** CustomersModal manages the board's customer roster (ownership.md, O5)
- *  with the dialog the teams and the projects use: add, rename, reorder,
+ *  with the dialog the teams use: add, rename, reorder,
  *  delete. Cards name a customer by id, so a rename reaches every card at
  *  once and a delete takes it off every card that names it. */
 export function CustomersModal({

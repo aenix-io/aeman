@@ -51,9 +51,8 @@ describe("what a backlog lists (K2)", () => {
     expect(onBacklog(card({ startDate: "2026-11-03", day: "2026-11-03" }))).toBe(true);
   });
 
-  it("lists no planning card, no project card, no review card a reviewer has", () => {
+  it("lists no planning card, no review card a reviewer has", () => {
     expect(onBacklog(card({ type: "epic" }))).toBe(false);
-    expect(onBacklog(card({ scope: "Storage", project: "P" }))).toBe(false);
     expect(onBacklog(card({ reviewOf: "c9", assignees: ["bob"] }))).toBe(false);
   });
 

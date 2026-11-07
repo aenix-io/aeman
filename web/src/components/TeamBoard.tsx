@@ -41,7 +41,6 @@ import {
   unaskedRemoval,
   type RemoveChoice,
   deleteWarning,
-  hasColumn,
   subtaskRemovalPatch,
   subtaskRemovalUndo,
 } from "../removal";
@@ -720,9 +719,7 @@ export function TeamBoard({
       // is about to do (RemoveChoiceDialog), so the card's own anonymous
       // "Delete?" never stands in front of one.
       boardAsks
-      // A project card already out of the working area has nowhere further
-      // to go: the × would write nothing, and one that does nothing reads as
-      // a delete that failed.
+      // The × is drawn only where it has something it could do.
       deletable={offersRemoval(card, gridCtx(card))}
       onStage={handleStage}
       onInProgress={handleInProgress}
@@ -1001,12 +998,10 @@ export function TeamBoard({
   const reviewOf = (card: CardModel) =>
     board.cards.find((c) => c.reviewOf === card.itemId)?.title ?? null;
 
-  // placementsFor: the assign menu's attach section — one shared
+  // placementsFor: the assign menu's placement section — one shared
   // factory (makeCardPlacements), so the boards cannot drift apart.
   const placementsFor = (card: CardModel): CardPlacements | undefined => {
-    // A subtask needs no check here: placementTargets refuses one for
-    // every board, so the rule cannot drift between the three.
-    return makeCardPlacements(card, board, {
+    return makeCardPlacements(card, {
       provider,
       patchCard,
       reload,
@@ -1024,7 +1019,7 @@ export function TeamBoard({
       return;
     }
     // The × asks BEFORE it acts, whatever it is about to do — the dialog
-    // names the act, so a card handed back to Unassigned and a card taken
+    // names the act, so a card sent back to its backlog and a card taken
     // off the board are told apart before either happens. The one card it
     // does not ask about is one made today that nobody has touched
     // (asksFirst), which the branch above has already answered for a card
@@ -1083,12 +1078,8 @@ export function TeamBoard({
       });
       return;
     }
-    // A subtask with nowhere else to be has no sprint history of its own:
-    // the × deletes it outright, gone from under its parent immediately.
-    // One standing in a COLUMN is a different card (G57): the server
-    // ungroups it and leaves it there, so this board asks gridRemoval like
-    // it does for everything else instead of sending a DELETE past the
-    // rule — which destroyed work the Me board would have kept.
+    // A subtask has no sprint history of its own: the × deletes it
+    // outright, gone from under its parent immediately.
     if (isSubtask(card) && choice === "off-board") {
       // The board took the question on (boardAsks), so the board must put
       // it: the card's own prompt has stood down, and deleting in silence
@@ -1107,8 +1098,7 @@ export function TeamBoard({
       return;
     }
     if (isSubtask(card)) {
-      // Out of the group and into its column (the server's answer,
-      // gridRemoval). The row must stop being drawn under its parent at
+      // Out of the group (the server's answer). The row must stop being drawn under its parent at
       // once, or the × looks inert; and it must show the SAME optimistic
       // state the Me board shows, or one gesture reads two ways on two
       // boards.
@@ -1126,13 +1116,11 @@ export function TeamBoard({
         });
       return;
     }
-    let rollback: () => void;
     // This × empties the working area (mirrors boardservice.Remove). Taken
     // off the board, the card is deleted — after a question when it carries
     // work or a review card, which the delete takes with it — and its
     // subtasks go with it: they are pieces of the same work, and the dialog
-    // says how many. A PROJECT card's Unassigned answer (below) leaves it in
-    // its column.
+    // says how many.
     if (choice === "off-board") {
       const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
       const warning = deleteWarning(card, linkedReview?.title ?? null);
@@ -1160,30 +1148,6 @@ export function TeamBoard({
         });
       return;
     }
-    const prev: Partial<CardModel> = {
-      assignees: card.assignees,
-      sprintStart: card.sprintStart,
-      startDate: card.startDate,
-      day: card.day,
-    };
-    patchCard(card.itemId, {
-      assignees: [],
-      sprintStart: undefined,
-      // A slot keeps its dates: they are its row on the Project board.
-      // Only the scope side makes one — a bare project name is a label.
-      ...(hasColumn(card) ? {} : { startDate: undefined, day: undefined }),
-    });
-    rollback = () => patchCard(card.itemId, prev);
-    void provider
-      .removeCard(card.itemId, "unassign")
-      .then(() => reload())
-      .catch((err: unknown) => {
-        if (isGone(err)) {
-          return;
-        }
-        rollback();
-        onError(errMessage(err));
-      });
   };
 
   // Moving a card between teams also joins the new team's current sprint

@@ -45,8 +45,7 @@ interface ParentOptionListProps {
 }
 
 /** ParentOptionList is the body of the drawer's Under picker — the one
- *  "file it under" control; a project card is attached from its drawer too:
- *  a search box, "None", and the goals, initiatives and epics the card may
+ *  "file it under" control: a search box, "None", and the goals, initiatives and epics the card may
  *  sit under, grouped by level, highest first, each with its chain. */
 export function ParentOptionList({ kind, current, options, self, onPick }: ParentOptionListProps) {
   const [query, setQuery] = useState("");

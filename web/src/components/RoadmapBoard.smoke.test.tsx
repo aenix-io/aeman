@@ -71,9 +71,6 @@ const board = (cards: Card[]): Board =>
     url: "",
     cards,
     teams: ["core"],
-    projects: [],
-    scopes: [],
-    deadlines: [],
     members: [],
     domains: [],
     sprintStates: {},
@@ -84,8 +81,6 @@ const provider = {} as Provider;
 function draw(
   b: Board,
   focusId: string | null = null,
-  showProjects = false,
-  onShowProjects = vi.fn(),
   filters: RoadmapFilters = { teams: [], customers: [], owners: [] },
 ) {
   return renderToStaticMarkup(
@@ -93,8 +88,6 @@ function draw(
       board={b}
       filters={filters}
       onFilters={vi.fn()}
-      showProjects={showProjects}
-      onShowProjects={onShowProjects}
       provider={provider}
       roster={["core"]}
       patchCard={vi.fn()}
@@ -269,51 +262,16 @@ describe("the Roadmap's two panes", () => {
   });
 });
 
-// The toolbar's "Project cards" toggle: OFF by default, so a project card
-// under an epic is not listed and the button says so; pressed (remembered in
-// the viewer's localStorage by the app), the listing carries it under its
-// epic.
-describe("the Project cards toggle", () => {
-  const ep = card({ itemId: "pe", title: "Billing v2", type: "epic", parent: undefined, lineage: [] });
-  const task = card({ itemId: "pt", title: "Render PDF", parent: "pe", lineage: [{ uid: "pe", type: "epic", title: "Billing v2" }] });
-  const slot = card({
-    itemId: "ps",
-    title: "Q1 payments slot",
-    parent: "pe",
-    scope: "Payments",
-    project: "P",
-    lineage: [{ uid: "pe", type: "epic", title: "Billing v2" }],
-  });
-
-  // The toggle is the SERVER's selector (projectCards, viewquery.ts): the
-  // board draws the listing it was sent and filters nothing itself. Off, the
-  // server sends no project card; on, it sends them and they stand under
-  // their epic — the same listing drawn with the toggle in either state draws
-  // the same rows.
-  it("is the app's view toggle, unpressed while off, and the board draws what the server sent", () => {
-    const html = draw(board([ep, task]), null, false);
-    // The app's view toggle — the Me board's eye and focus buttons — not a
-    // segment of its own: an icon button, unpressed, named by its tooltip.
-    expect(html).toMatch(/<button[^>]*class="team-eye"[^>]*aria-pressed="false"[^>]*title="Show project cards"/);
-    expect(html).not.toContain("roadmap-projects");
-    // Its icon is the one a project card's row wears in the tree: the same
-    // KindIcon, not a lookalike.
-    expect(html).toMatch(/<button[^>]*class="team-eye"[^>]*title="Show project cards"[^>]*><svg[^>]*class="kind-icon kind-icon-project"/);
-    expect(html).toContain("Render PDF");
-    expect(html).not.toContain("Q1 payments slot");
-  });
-
-  it("is pressed while on, and draws the project cards the server sent under their epic", () => {
-    const html = draw(board([ep, task, slot]), null, true);
-    expect(html).toMatch(/<button[^>]*class="team-eye team-eye-on"[^>]*aria-pressed="true"[^>]*title="Show project cards"/);
-    expect(html).toContain("Q1 payments slot");
-  });
-
-  it("filters nothing itself: what it was sent, it draws", () => {
-    expect(draw(board([ep, task, slot]), null, false)).toContain("Q1 payments slot");
+// The Project cards toggle went with the Project board (H15): the toolbar
+// offers no such button.
+describe("the toolbar", () => {
+  it("has no Project cards toggle", () => {
+    const ep = card({ itemId: "pe", title: "Billing v2", type: "epic", parent: undefined, lineage: [] });
+    const html = draw(board([ep]));
+    expect(html).not.toContain("Show project cards");
+    expect(html).not.toContain("kind-icon-project");
   });
 });
-
 
 // docs/design/ownership.md on the Roadmap: the Owner column names a plan
 // item's owner (and its team), and the toolbar's Team, Customer and Owner
@@ -343,7 +301,7 @@ describe("ownership on the Roadmap", () => {
 
   it("offers the three filters and says what is chosen", () => {
     const b = { ...board([owned]), customers: [{ id: "cu1", name: "Hidora" }] } as unknown as Board;
-    const html = draw(b, null, false, vi.fn(), { teams: ["core"], customers: ["cu1"], owners: [] });
+    const html = draw(b, null, { teams: ["core"], customers: ["cu1"], owners: [] });
     expect(html).toMatch(/<button[^>]*aria-label="Team filter"[^>]*>[^<]*Team: core/);
     expect(html).toMatch(/<button[^>]*aria-label="Customer filter"[^>]*>[^<]*Customer: Hidora/);
     expect(html).toMatch(/<button[^>]*aria-label="Owner filter"[^>]*>[^<]*Owner: anyone/);
@@ -352,7 +310,7 @@ describe("ownership on the Roadmap", () => {
   // A filter that matches nothing is not an empty roadmap: say so, and offer
   // the way out.
   it("says nothing matches the filters, and offers to clear them", () => {
-    const html = draw(board([]), null, false, vi.fn(), { teams: [], customers: [], owners: ["nobody"] });
+    const html = draw(board([]), null, { teams: [], customers: [], owners: ["nobody"] });
     expect(html).toContain("Nothing matches the filters");
     expect(html).not.toContain("Nothing on the roadmap yet");
     expect(html).toMatch(/<button[^>]*>Clear the filters<\/button>/);
@@ -362,7 +320,7 @@ describe("ownership on the Roadmap", () => {
   // The rosters are managed from the bottom of their filters (FilterSelect's
   // Manage entry), not from buttons of their own; and No team is a team.
   it("keeps no roster button of its own, and names No team as a team", () => {
-    const html = draw(board([owned]), null, false, vi.fn(), { teams: [""], customers: [], owners: [] });
+    const html = draw(board([owned]), null, { teams: [""], customers: [], owners: [] });
     expect(html).not.toContain("Manage the customers");
     expect(html).not.toContain("roadmap-customers-btn");
     expect(html).toMatch(/aria-label="Team filter"[^>]*>Team: No team</);

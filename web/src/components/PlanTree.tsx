@@ -125,12 +125,9 @@ export function OwnerCell({ owner, avatars, names, from }: { owner: Owner; avata
 
 /** ownerOfRow is a row's owner as the Owner column reads it: a plan item's
  *  team and owner, a task's team and person, a team taken from above greyed
- *  (roadmapOwnerCell); a project card has none. */
+ *  (roadmapOwnerCell). */
 export function ownerOfRow(card: CardModel, cards: readonly CardModel[]): { owner: Owner; from?: string } | null {
   const kind = kindOf(card);
-  if (kind === "project") {
-    return null;
-  }
   const planning = kind === "goal" || kind === "initiative" || kind === "epic";
   const shown = roadmapOwnerCell(card, cards, planning);
   return { owner: shown.owner, from: shown.from };

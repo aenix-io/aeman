@@ -80,16 +80,6 @@
   --hover-overlay: rgba(27, 31, 36, 0.08);
   --hover-overlay-soft: rgba(27, 31, 36, 0.05);
 
-  /* How a Project-board slot is doing, at a glance. Built from the zone tints
-     rather than from colours of my own: those are already defined for the dark
-     theme AND for both colour-blind palettes, so a slot follows every one of
-     them for free — and stays opaque, which a hand-mixed rgba() did not.
-     Late-and-taken sits between the two states it combines. */
-  --slot-done-bg: var(--zone-green-bg);
-  --slot-taken-bg: var(--zone-yellow-bg);
-  --slot-late-bg: var(--zone-red-bg);
-  --slot-late-taken-bg: color-mix(in srgb, var(--zone-red-bg) 55%, var(--zone-yellow-bg));
-
   /* Zone palette (accent = spine/border, bg = area tint). */
   --zone-red-accent: #f85149;
   --zone-red-bg: #fdecea;
@@ -941,8 +931,7 @@ select {
 }
 
 /* The left stripe says where a card came FROM, wherever the card is met: a
-   PROJECT card is a commitment made on the Project board, and a REVIEW card
-   is somebody else's work waiting on this person. Work the day board made
+   REVIEW card is somebody else's work waiting on this person. Work the day board made
    itself wears none — the stripe marks what came from elsewhere, which is
    why it is worth a glance. */
 .card-review::before {
@@ -2234,29 +2223,13 @@ button.card-age {
   overflow: auto;
 }
 
-.project-footer-toggle {
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg);
-  cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
-  padding: 4px 12px;
-  color: var(--fg);
-  min-width: 36px;
-}
-
-.me-day-progress,
-.project-progress,
-.project-footer-bar {
+.me-day-progress {
   height: 3px;
   width: 100%;
   background: var(--line-soft);
 }
 
-.me-day-progress-fill,
-.project-progress-fill,
-.project-footer-bar-fill {
+.me-day-progress-fill {
   height: 100%;
   background: var(--bar-default);
   transition: width 0.2s;
@@ -3028,296 +3001,6 @@ button.card-age {
   right: 100%;
 }
 
-/* ---- Project board: weeks × scopes -------------------------------------- */
-.project {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  /* The containing block for the deadline handle layer. */
-  position: relative;
-}
-
-.project-board {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  /* Room for the deadline handles to hang half outside the table. A scroller
-     clips at its PADDING box, so what sits in this strip is visible — and the
-     handles must be inside the grid, because the overscroll bounce is done by
-     the compositor: it moves the picture without moving the layout, so no
-     layer above the board can be made to follow it. The negative margin gives
-     the strip back to the frame, leaving the table where it always sat. */
-  padding-left: 4px;
-
-  /* 10px on the left, not 14: the 4px of padding above makes up the rest, so
-     the table starts where it always did and the handles have their strip. */
-  margin: 10px 14px 14px 10px;
-  border: 1px solid var(--card-border);
-  border-radius: 8px;
-  background: var(--bg);
-}
-
-.project-grid {
-  display: grid;
-  min-width: min-content;
-  position: relative;
-}
-
-.project-corner,
-.project-scope-head {
-  position: relative;
-  position: sticky;
-  top: 0;
-  /* Above the deadline lines (6), so a line scrolls under the header. */
-  z-index: 8;
-  background: var(--bg);
-  border-bottom: 1px solid var(--line-soft);
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  padding: 0 6px;
-  font-size: 11.5px;
-  font-weight: 600;
-}
-
-.project-corner {
-  left: 0;
-  z-index: 9;
-  background: var(--bg);
-  box-shadow: -40px 0 0 var(--bg);
-}
-
-/* A header can be dragged sideways to reorder the columns (inside one
-   project). The grip on its right edge still resizes, and the × still
-   deletes — both stop the press before it becomes a drag. */
-.project-scope-head-movable {
-  cursor: grab;
-}
-
-.project-scope-head-dragging {
-  cursor: grabbing;
-  background: var(--hover-overlay);
-  opacity: 0.85;
-}
-
-.project-scope-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-
-/* The owning project, shown only in the all-projects view — the column name
-   alone is ambiguous there. It wears the same round badge a team does on a
-   card, so one glance groups the columns without reading anything. */
-.project-scope-avatar {
-  flex: none;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.project-scope-avatar-none {
-  background: var(--hover-overlay);
-  color: var(--muted);
-}
-
-/* The window of weeks is not a fixed horizon: these grow it at either end.
-   Full-width so they read as the edge of the table, not as floating buttons. */
-.project-more {
-  /* Sticky, so both ends of the window stay reachable at the left edge
-     instead of scrolling away with the columns. */
-  position: sticky;
-  left: 0;
-  display: block;
-  width: 100%;
-  padding: 4px 0;
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.project-more:hover {
-  background: var(--hover-overlay);
-  color: var(--fg);
-}
-
-/* A deadline is a line across the whole grid at the END of its week — the
-   week it is due by. It must not swallow clicks meant for the cells under it,
-   so only its handle takes the pointer. */
-.project-deadline {
-  position: relative;
-  align-self: end;
-  height: 0;
-  border-top: 2px solid var(--danger);
-  pointer-events: none;
-}
-
-/* The head owns the dates column and the handle. Sticky at the same offset as
-   the week column so it holds still while the plan scrolls under it, and above
-   that column (5) so both the line and the handle stay visible there. Still
-   below the sticky header (8/9), so it scrolls under that. */
-.project-deadline-head {
-  position: sticky;
-  left: 0;
-  z-index: 7;
-}
-
-/* The body crosses the columns BEHIND their cards: above the cells, below the
-   slots (2), so a line never cuts a card in half. */
-.project-deadline-body {
-  z-index: 1;
-}
-
-.project-deadline-dragging {
-  opacity: 0.7;
-}
-
-/* Several projects on screen means several plans at once: their lines step
-   back so the grid stays readable and each one is told apart by colour. */
-.project-deadline-muted {
-  opacity: 0.55;
-}
-
-.project-deadline-dot {
-  /* Centred on the table's left edge: half of it inside, half in the
-     scroller's left padding. Absolute inside the line's head, so it rides
-     the line — and the table — wherever they go. */
-  position: absolute;
-  left: 0;
-  top: 0;
-  transform: translate(-50%, -50%);
-  pointer-events: auto;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--danger);
-  cursor: ns-resize;
-  box-shadow: 0 0 0 2px var(--bg);
-}
-
-.project-deadline-dot-dragging {
-  opacity: 0.7;
-}
-
-/* How far along the columns are: a percentage beside each header, and one
-   wide bar under the table for the whole view. */
-.project-scope-pct {
-  flex: none;
-  font-size: 9.5px;
-  font-weight: 600;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-/* A bar across the top of a status row, the same strip the day boards wear,
-   so they all read alike. */
-.project-footer {
-  flex: none;
-  border-top: 1px solid var(--line);
-}
-
-.project-footer-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 14px;
-  background: var(--bg);
-}
-
-.project-progress-label {
-  font-size: 11.5px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Opened, the status line lists every project — including the ones the
-   filter is currently hiding, which is the reason to open it. */
-.project-footer-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 2px 14px 8px;
-  max-height: 30vh;
-  overflow: auto;
-}
-
-.project-footer-row {
-  display: grid;
-  grid-template-columns: minmax(90px, 160px) 1fr auto;
-  align-items: center;
-  gap: 10px;
-  padding: 3px 6px;
-  border: none;
-  border-radius: 5px;
-  background: none;
-  color: var(--fg);
-  font-size: 11.5px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.project-footer-row:hover {
-  background: var(--hover-overlay-soft);
-}
-
-.project-footer-row-on {
-  background: var(--hover-overlay);
-}
-
-.project-footer-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-footer-bar {
-  display: block;
-}
-
-.project-footer-bar-fill {
-  display: block;
-}
-
-.project-footer-stat {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-/* The grip along a column header's right edge. It sits INSIDE its own header
-   rather than straddling the border: headers are siblings in one stacking
-   context, so a grip hanging over the next one would be buried under it and
-   would never receive the press. */
-.project-col-resize {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 6px;
-  height: 100%;
-  z-index: 2;
-  cursor: col-resize;
-  touch-action: none;
-}
-
-.project-col-resize:hover {
-  background: var(--accent);
-  opacity: 0.4;
-}
-
 /* The reload button inside a banner: compact, and never stretched. */
 .banner-action {
   flex: none;
@@ -3327,183 +3010,9 @@ button.card-age {
 }
 
 /* A menu row that only explains why there is nothing to pick. */
-.project-menu-hint {
+.filter-menu-hint {
   color: var(--muted);
   cursor: default;
-}
-
-/* Naming the first column: a plain field in the middle of the empty board. */
-.project-empty-input {
-  width: 260px;
-  max-width: 70vw;
-  font-size: 13px;
-  padding: 6px 10px;
-  text-align: center;
-}
-
-.project-empty-hint {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.project-scope-del {
-  opacity: 0;
-}
-
-.project-scope-head:hover .project-scope-del {
-  opacity: 1;
-}
-
-/* The "add a column" gutter is 34px — far too narrow to type a name in, so
-   its field breaks out of it and opens leftward over the last column. */
-.project-scope-add .project-scope-input {
-  position: absolute;
-  right: 3px;
-  top: 3px;
-  bottom: 3px;
-  width: 180px;
-  z-index: 3;
-  background: var(--bg);
-}
-
-.project-scope-add {
-  justify-content: center;
-}
-
-/* The rename field in a column header shares that header's width. */
-.project-scope-input {
-  flex: 1;
-  min-width: 0;
-  width: 140px;
-  font-size: 12px;
-  padding: 2px 6px;
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-}
-
-.project-week {
-  position: sticky;
-  /* Parks exactly at the grid's left edge — the table's border — leaving the
-     board's left padding free for the outer half of the deadline handle. A
-     non-zero offset here would shove the column PAST its own cell and over
-     the first column's cards. */
-  left: 0;
-  z-index: 5;
-  background: var(--bg);
-  /* Paint over everything to its left as well: without this the columns
-     scrolling past show through the board's padding, beside the dates. The
-     deadline handle still shows — it sits in a higher layer. */
-  box-shadow: -40px 0 0 var(--bg);
-  border-right: 1px solid var(--line-soft);
-  border-bottom: 1px solid var(--line-soft);
-  display: flex;
-  align-items: center;
-  padding: 0 6px;
-  font-size: 10.5px;
-  color: var(--muted);
-}
-
-.project-week-no {
-  font-size: 10px;
-  opacity: 0.7;
-}
-
-.project-week-today {
-  color: var(--accent);
-  font-weight: 700;
-}
-
-.project-cell {
-  border-bottom: 1px solid var(--line-soft);
-  border-right: 1px solid var(--line-soft);
-  touch-action: none;
-}
-
-.project-cell-today {
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
-}
-
-.project-cell-drag {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-}
-
-.project-slot {
-  position: relative;
-  z-index: 2;
-  margin: 2px 3px;
-  padding: 2px 5px;
-  border-radius: 5px;
-  border: 1px solid var(--card-border);
-  border-left-width: 3px;
-  background: var(--bg);
-  box-shadow: 0 1px 2px var(--elev-1);
-  font-size: 11px;
-  line-height: 1.25;
-  /* NOT hidden: the team menu drops out of the slot, and clipping it made
-     the badge look dead — you could click it and nothing appeared. */
-  overflow: visible;
-  display: flex;
-  align-items: flex-start;
-  gap: 3px;
-}
-
-/* A slot says how it is doing by its background: finished, taken into work,
-   past its end date, or both taken and past it. Done keeps a little dimming
-   too — it is behind you — but not so much that the green disappears. */
-.project-slot-done {
-  background: var(--slot-done-bg);
-}
-
-.project-slot-taken {
-  background: var(--slot-taken-bg);
-}
-
-.project-slot-late {
-  background: var(--slot-late-bg);
-}
-
-.project-slot-late-taken {
-  background: var(--slot-late-taken-bg);
-}
-
-.project-slot-done .project-slot-title {
-  text-decoration: line-through;
-}
-
-.project-slot-title {
-  flex: 1;
-  min-width: 0;
-  /* Three lines at most, but never more than the slot is tall: a one-week
-     slot is short, and the clamp alone would let the text run out below it. */
-  max-height: 100%;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  /* Long words (a branch name, an id) must break rather than force the box
-     wider than its lane and clip to two characters. */
-  overflow-wrap: anywhere;
-}
-
-/* Delete only appears on hover, so it must not RESERVE the width it would
-   need: in a column split between two slots that space is most of the title.
-   Out of the flow entirely, over the slot's bottom-right corner when shown —
-   above the badge's grown hit area so it stays reachable. */
-.project-slot-actions {
-  position: absolute;
-  /* Beside the owner badge, on the slot's top row. The badge is 15px wide
-     inside 5px of padding, so anything left of 20px overlaps it — and a badge
-     under the delete button cannot be pressed. */
-  right: 23px;
-  top: 2px;
-  z-index: 3;
-  display: flex;
-  gap: 2px;
-  opacity: 0;
-}
-
-.project-slot:hover .project-slot-actions {
-  opacity: 1;
 }
 
 /* What a card weighs, on its face: on a Backlog card, beside its owner. */
@@ -3594,71 +3103,6 @@ button.card-age {
   font-variant-numeric: tabular-nums;
 }
 
-/* The owner badge is always visible once a team is assigned. */
-.project-slot-stage {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  right: 0;
-  height: 3px;
-}
-
-.project-slot-resize {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -2px;
-  height: 8px;
-  cursor: ns-resize;
-  touch-action: none;
-}
-
-/* The same grip on the other edge: a slot stretches from either end. It stops
-   short of the right so it never covers the badge or delete. */
-.project-slot-resize-top {
-  top: -2px;
-  bottom: auto;
-  right: 40px;
-}
-
-.project-slot {
-  cursor: grab;
-}
-
-.project-slot-moving {
-  z-index: 4;
-  cursor: grabbing;
-  box-shadow: 0 4px 12px var(--elev-1);
-  opacity: 0.92;
-}
-
-.project-slot-draft {
-  border-style: dashed;
-  border-color: var(--accent);
-}
-
-.project-slot-input {
-  width: 100%;
-  /* A flex item cannot shrink below an input's intrinsic width unless told
-     to, so the field grew wider than its column and clipped what you typed. */
-  flex: 1;
-  min-width: 0;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 12px;
-  color: var(--fg);
-}
-
-.project-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 64px 0;
-  color: var(--muted);
-}
-
 /* The destructive half of a two-way choice: coloured, but not shouting — it
    is a legitimate answer, not a trap. */
 .sprint-choice-btn-danger strong {
@@ -3669,209 +3113,11 @@ button.card-age {
   border-color: var(--danger);
 }
 
-/* ---- Project board zoom ------------------------------------------------ */
-
-/* The scale sits at the right end of the board's toolbar, beside the project
-   chips: one line, with a handle on either side of it. */
-.zoom-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-
-/* Both sliders ride the SAME line: the track is drawn once, here, and each
-   input contributes only its handle. */
-.zoom-track {
-  position: relative;
-  width: 92px;
-  height: 22px;
-}
-
-.zoom-line {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  margin-top: -1px;
-  border-radius: 1px;
-  background: var(--line);
-}
-
-.zoom-slider {
-  position: absolute;
-  left: 0;
-  width: 100%;
-  height: 11px;
-  margin: 0;
-  padding: 0;
-  -webkit-appearance: none;
-  appearance: none;
-  background: none;
-  cursor: ew-resize;
-}
-
-/* Column width above the line, row height below it. */
-.zoom-slider-x {
-  top: 0;
-}
-
-.zoom-slider-y {
-  bottom: 0;
-}
-
-.zoom-slider::-webkit-slider-runnable-track,
-.zoom-slider::-moz-range-track {
-  height: 11px;
-  background: none;
-  border: 0;
-}
-
-/* A pentagon with its point at the line it belongs to: the top handle points
-   down, the bottom one up, so which slider is which is read from the shape
-   rather than from a label. */
-.zoom-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 11px;
-  height: 11px;
-  background: var(--muted);
-  border: 0;
-  cursor: ew-resize;
-}
-
-.zoom-slider::-moz-range-thumb {
-  width: 11px;
-  height: 11px;
-  background: var(--muted);
-  border: 0;
-  cursor: ew-resize;
-}
-
-.zoom-slider-x::-webkit-slider-thumb {
-  clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%);
-}
-
-.zoom-slider-x::-moz-range-thumb {
-  clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%);
-}
-
-.zoom-slider-y::-webkit-slider-thumb {
-  clip-path: polygon(50% 0, 100% 45%, 100% 100%, 0 100%, 0 45%);
-}
-
-.zoom-slider-y::-moz-range-thumb {
-  clip-path: polygon(50% 0, 100% 45%, 100% 100%, 0 100%, 0 45%);
-}
-
-.zoom-slider:hover::-webkit-slider-thumb,
-.zoom-slider:focus-visible::-webkit-slider-thumb {
-  background: var(--accent);
-}
-
-.zoom-slider:hover::-moz-range-thumb,
-.zoom-slider:focus-visible::-moz-range-thumb {
-  background: var(--accent);
-}
-
-.zoom-reset {
-  min-width: 40px;
-  padding: 2px 4px;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.zoom-reset:hover:not(:disabled) {
-  color: var(--fg);
-  border-color: var(--line);
-}
-
-.zoom-reset:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
-/* The corner above the date column: a quiet way to give every column on the
-   board the same width back. Only there when something has a width of its own. */
-.project-corner {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.project-cols-reset {
-  padding: 0 3px;
-  line-height: 1;
-  color: var(--ink-3, var(--muted));
-  background: none;
-  border: 0;
-  border-radius: 3px;
-  cursor: pointer;
-  opacity: 0.45;
-}
-
-.project-cols-reset:hover {
-  opacity: 1;
-  color: var(--accent);
-}
-
-/* A card hovered near its right edge steps aside, uncovering the strip of
-   cell a new card is pulled out from. Small and quick: it is an invitation,
-   not an animation. */
-.project-slot-nudged {
-  margin-right: 13px;
-  transition: margin-right 90ms ease-out;
-}
-
-/* ---- placements: attach in the assign menu ---- */
-
-.card-placements-head,
-.card-placements-project {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.card-placements-caret {
-  width: 10px;
-  font-size: 10px;
-  opacity: 0.6;
-}
-
-.card-placements-list {
-  /* The accordion can outgrow the screen a flyout would fall off of:
-     it scrolls instead. */
-  max-height: 40vh;
-  overflow-y: auto;
-}
-
-.card-placements-project {
-  font-weight: 600;
-}
-
-.card-placements-leaf {
-  padding-left: 26px;
-}
-
 /* A menu row that states a fact instead of offering a choice — a
    subtask's team, which follows its parent. */
 .card-stage-item-static {
   opacity: 0.7;
   cursor: default;
-}
-
-/* A slot whose card rides a parent: the group is planned here, but the
-   card's other home is the parent — the × only takes the column away. */
-.project-slot-subtask {
-  margin-right: 4px;
-  opacity: 0.6;
-  font-size: 11px;
 }
 
 /* ---- single board, domains, roster avatars ---- */
@@ -3929,19 +3175,7 @@ button.card-age {
   line-height: 14px;
 }
 
-.project-slot-domain {
-  display: inline-block;
-  margin-left: 4px;
-  padding: 0 3px;
-  border-radius: 3px;
-  background: var(--line-soft);
-  color: var(--muted);
-  font-size: 9px;
-  font-weight: 600;
-  vertical-align: middle;
-}
-
-/* Which repository a new team / project is declared in; rendered only when
+/* Which repository a new team is declared in; rendered only when
    the visitor can write to more than one. */
 .domain-select {
   font: inherit;
@@ -4544,8 +3778,7 @@ button.card-age {
 }
 
 /* The Owner column: a task's team and person, and the menu that sets them
-   (OwnerPicker). A planning card and a project card have no owner and an
-   empty cell. */
+   (OwnerPicker). */
 .roadmap-cell-owner {
   overflow: visible;
 }
@@ -4925,11 +4158,6 @@ button.card-age {
   opacity: 0.8;
 }
 
-.roadmap-bar-project {
-  background: var(--slot-taken-bg);
-  border: 1px solid var(--line);
-}
-
 .roadmap-bar-done {
   opacity: 0.55;
 }
@@ -5184,10 +4412,6 @@ button.card-age {
 
 .kind-icon-subtask {
   color: var(--faint);
-}
-
-.kind-icon-project {
-  color: var(--muted);
 }
 
 /* ---- the card drawer ----
@@ -5739,7 +4963,6 @@ button.card-age {
   margin-top: 18px;
 }
 
-
 .drawer-child {
   display: flex;
   align-items: center;
@@ -5830,7 +5053,6 @@ button.card-age {
   flex: 1;
   min-width: 160px;
 }
-
 
 .drawer-add-open {
   margin-top: 8px;
@@ -5967,37 +5189,6 @@ button.card-age {
   margin-top: 0;
 }
 
-/* A project card's Done toggle in the drawer, in place of a bar (#288). */
-.drawer-done {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-}
-
-/* The goal, initiative or epic a project card is attached to, as its kind
-   icon alone in the slot's row, where the "…" menu used to be: its name is
-   the tooltip, and a press opens it. Faint until the slot is pointed at. */
-.project-slot-plan {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 2px;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  line-height: 0;
-  cursor: pointer;
-  opacity: 0.7;
-}
-
-.project-slot:hover .project-slot-plan,
-.project-slot-plan:hover,
-.project-slot-plan:focus-visible {
-  color: var(--fg);
-  opacity: 1;
-}
-
 /* The drawer's progress bar (#289): the full width of its row, taller, with
    a bigger handle always shown and a focus ring for the keyboard. */
 .card-bar.card-bar-large {
@@ -6115,7 +5306,7 @@ button.card-age {
   font-style: italic;
 }
 
-/* The one filter dropdown of every board: Team, Customer, Owner, Project. */
+/* The one filter dropdown of every board: Team, Customer, Owner. */
 .filter-select-btn {
   font-size: 12px;
   white-space: nowrap;

@@ -37,8 +37,6 @@ import {
   sectionOf,
   sectionsOf,
   writeDrop,
-  PROJECT_CARDS_DEFAULT,
-  storedProjectCards,
   childLevels,
   subtreeRows,
   parentChainOf,
@@ -69,17 +67,21 @@ const sub = card({
   itemId: "s", title: "Fonts", parent: "t", startDate: "2026-02-11",
   lineage: [{ uid: "e", type: "epic", title: "Invoices" }, { uid: "t", title: "Render PDF" }],
 });
-const slot = card({ itemId: "p", title: "Q2 plan", scope: "Storage", project: "cozy", parent: "i" });
+// A second task, straight under the initiative.
+const slot = card({
+  itemId: "p", title: "Q2 plan", parent: "i",
+  lineage: [{ uid: "g", type: "goal", title: "Grow" }, { uid: "i", type: "initiative", title: "Billing v2" }],
+});
 const loose = card({ itemId: "x", title: "Stray", parent: "nowhere" });
 
 describe("kindOf", () => {
-  it("is the planning type, a project card by its column, a subtask by the parent as a task, else a task", () => {
+  it("is the planning type, a subtask by the parent as a task, else a task", () => {
     expect(kindOf(goal)).toBe("goal");
     expect(kindOf(ini)).toBe("initiative");
     expect(kindOf(epic)).toBe("epic");
     expect(kindOf(task)).toBe("task");
     expect(kindOf(sub)).toBe("subtask");
-    expect(kindOf(slot)).toBe("project");
+    expect(kindOf(slot)).toBe("task");
   });
 });
 
@@ -107,7 +109,7 @@ describe("rows and the depth range", () => {
   const tree = buildTree([goal, ini, epic, task, sub, slot]);
   const all = () => true;
 
-  it("draws initiative to task by default: no goals, no subtasks, project cards with the tasks", () => {
+  it("draws initiative to task by default: no goals, no subtasks", () => {
     const ids = rows(tree, { from: "initiative", to: "task" }, all).map((r) => `${r.node.card.itemId}@${r.depth}`);
     expect(ids).toEqual(["i@0", "e@1", "t@2", "p@1"]);
   });
@@ -126,7 +128,7 @@ describe("rows and the depth range", () => {
   it("draws a collapsed row and nothing under it, and says how many it folds", () => {
     const out = rows(tree, { from: "goal", to: "task" }, (id) => id !== "i");
     expect(out.map((r) => r.node.card.itemId)).toEqual(["g", "i"]);
-    expect(out[1].foldable).toBe(2); // the epic and the project card
+    expect(out[1].foldable).toBe(2); // the epic and the task under it
   });
 });
 
@@ -219,7 +221,6 @@ describe("the rest of the Roadmap's rules", () => {
     expect(allowedParentKinds("initiative")).toEqual(["goal"]);
     expect(allowedParentKinds("epic")).toEqual(["initiative", "goal"]);
     expect(allowedParentKinds("task")).toEqual(["epic", "initiative", "goal"]);
-    expect(allowedParentKinds("project")).toEqual(["epic", "initiative", "goal"]);
   });
 });
 
@@ -330,7 +331,7 @@ describe("dragging a row on the Roadmap", () => {
     expect(droppable(wide, "t2", "g2")).toBe(true);
     expect(droppable(wide, "t2", null)).toBe(false); // a task at the top would leave the Roadmap
     expect(droppable(wide, "p", "e")).toBe(true);
-    expect(droppable(wide, "p", "t")).toBe(false); // a project card is nobody's subtask
+    expect(droppable(wide, "p", "s")).toBe(false); // s is a subtask: one level deep
   });
 
   it("makes a subtask of a task dropped on a task, one level deep", () => {
@@ -482,28 +483,11 @@ describe("writeDrop", () => {
 });
 
 
-// The Roadmap hides PROJECT cards (cards in a Scope column) unless the
-// toolbar's "Project cards" toggle is on: OFF by default. Hiding only takes
-// rows out of the drawing — the planning rows' counts and status come from
-// the server and do not change — and every other card under the same epic
-// stays where it is.
-// The toggle's memory: OFF until the viewer turns it on, and a stored value
-// read back as it was written.
-describe("the project cards toggle", () => {
-  it("is off by default and reads back what was stored", () => {
-    expect(PROJECT_CARDS_DEFAULT).toBe(false);
-    expect(storedProjectCards(null)).toBe(false);
-    expect(storedProjectCards("1")).toBe(true);
-    expect(storedProjectCards("0")).toBe(false);
-  });
-});
-
-// The toggle on a REAL listing: the roadmap's wire cards, mapped the way the
-// board maps them — an epic, a task under it and a project card under it
-// (spec.scope, spec.parent the epic). The lines the table draws are one pure
-// function of the listing, the depth and the folds (roadmapLines); the
-// toggle is the listing's selector (viewquery, projectCards).
-describe("the lines the Roadmap draws, with the project cards toggle", () => {
+// The lines the Roadmap draws from a REAL listing: the roadmap's wire cards,
+// mapped the way the board maps them — an epic and a task under it. The
+// lines are one pure function of the listing, the depth and the folds
+// (roadmapLines), and they draw what the listing holds.
+describe("the lines the Roadmap draws", () => {
   const wire = (uid: string, spec: Partial<CardResource["spec"]>, lineage?: { uid: string; type: string; title: string }[]): CardResource =>
     ({
       kind: "Card",
@@ -512,25 +496,16 @@ describe("the lines the Roadmap draws, with the project cards toggle", () => {
       status: { complete: false, inProgress: false, ...(lineage ? { lineage } : {}) },
     }) as CardResource;
   const up = [{ uid: "e", type: "epic", title: "Billing v2" }];
-  const listing = [
+  const listing: Card[] = [
     wire("e", { title: "Billing v2", type: "epic" }),
     wire("t", { title: "Render PDF", parent: "e", team: "portal" }, up),
-    wire("s", { title: "Q1 payments slot", parent: "e", scope: "Payments", project: "Core", team: "portal" }, up),
   ].map(resourceToCard);
-  const titles = (cards: readonly Card[]) =>
-    roadmapLines(cards, { depth: DEFAULT_DEPTH, expanded: () => true })
+
+  it("draws the task under its epic", () => {
+    const titles = roadmapLines(listing, { depth: DEFAULT_DEPTH, expanded: () => true })
       .filter((l) => l.kind === "row")
       .map((l) => (l.kind === "row" ? `${l.row.depth}:${l.row.node.card.title}` : ""));
-
-  // The toggle is the server's selector: off, the listing carries no
-  // project card; on, it does, and it is drawn under its epic. The lines
-  // draw what the listing holds and filter nothing.
-  it("draws no project card when the listing has none", () => {
-    expect(titles(listing.filter((c) => !c.scope))).toEqual(["0:Billing v2", "1:Render PDF"]);
-  });
-
-  it("draws a listed project card under its epic", () => {
-    expect(titles(listing)).toEqual(["0:Billing v2", "1:Render PDF", "1:Q1 payments slot"]);
+    expect(titles).toEqual(["0:Billing v2", "1:Render PDF"]);
   });
 });
 
@@ -714,8 +689,8 @@ describe("revealing a row followed to the Roadmap", () => {
 });
 
 // The drawer's "Under it" is the Roadmap's tree rooted one level below the
-// card the drawer shows: every level under it — plan items, tasks, subtasks,
-// and the project cards filed there — folded as the reader folds it, with
+// card the drawer shows: every level under it — plan items, tasks,
+// subtasks — folded as the reader folds it, with
 // no depth range (the drawer shows all there is under the card).
 describe("the tree under a card", () => {
   const all = [goal, ini, epic, task, sub, slot];

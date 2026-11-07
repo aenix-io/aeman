@@ -7,10 +7,6 @@ export interface RemovableCard {
   sprintStart?: string;
   startDate?: string;
   progress?: number;
-  /** A Project-board column is the PAIR (project, scope); either side filed
-   *  means the card belongs to one. */
-  scope?: string;
-  project?: string;
   /** The card this one sits under. Under a TASK it is a subtask and rides
    *  its parent, with no history of its own; under a planning card it is a
    *  task like any other (subtasks.ts isSubtask reads the lineage). */
@@ -28,8 +24,6 @@ export interface RemovalContext {
 /** HomesOf is what the grid × needs to know about a card: where else it is,
  *  and what a delete would take with it. */
 export interface HomesOf {
-  scope?: string;
-  project?: string;
   progress?: number;
   title: string;
 }
@@ -94,10 +88,6 @@ export interface RemovalHomes {
   /** Who is carrying the card. Empty means it stands in Unassigned, which is
    *  where the × would otherwise offer to put it. */
   assignees?: string[];
-  scope?: string;
-  /** Read by nothing here on purpose: a bare project name is a label, not a
-   *  home. It is in the shape so a card can be passed whole. */
-  project?: string;
   sprintStart?: string;
   startDate?: string;
   day?: string;
@@ -106,45 +96,6 @@ export interface RemovalHomes {
 /** inWorkingArea: the card is on a day grid — in a sprint, or by its dates. */
 export function inWorkingArea(c: RemovalHomes): boolean {
   return !!c.sprintStart || !!c.startDate || !!c.day;
-}
-
-/** hasColumn: the card sits in a Project-board column, which the board
- *  renders by its scope — a PROJECT card, drawn there and nowhere else (H4). */
-export function hasColumn(c: RemovalHomes): boolean {
-  return !!c.scope;
-}
-
-/** Outcome is what an × does to a card: leave it in a home it still has,
- *  or — its last home emptied — delete it. (It used to take a subtask out
- *  of its group as well, when a subtask could carry a column of its own; a
- *  card in a column is nobody's subtask now, H4.) */
-export type Outcome = "leave" | "delete";
-
-/** gridRemoval mirrors boardservice.Remove with no intent, in its order: a
- *  subtask is deleted; a project card's column keeps it; anything else had
- *  nowhere else to be and is deleted. One function so every board asks the
- *  same question — the Me board used to answer it differently and
- *  hard-deleted what the Team board kept.
- *
- *  A task has no week to be sent back to (K7). Keeping the work is the
- *  BACKLOG answer, which the dialog offers (removeChoices) and the board
- *  sends as the unassign intent — never something this × does unasked. */
-export function gridRemoval(
-  c: RemovalHomes & Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent" | "lineage">,
-  _ctx: RemovalContext,
-): Outcome {
-  // A subtask has no sprint history of its own: it rides its parent, and
-  // demoting it alone would split the family across two sprints — which is
-  // what syncChildrenSprint exists to prevent. The × deletes it, and it is
-  // gone from under its parent at once. (It used to be released into a
-  // column it carried; a subtask carries none now — a card in a column is
-  // nobody's subtask, H4.) A task under an epic is not a subtask: the × on
-  // it is the grid's ordinary ×, and the hierarchy is not where it is being
-  // taken off (H1).
-  if (isSubtask(c)) {
-    return "delete";
-  }
-  return hasColumn(c) ? "leave" : "delete";
 }
 
 /** asksFirst reports that the × must put its question before it acts.
@@ -175,7 +126,7 @@ export function asksFirst(
  *  card's own list of them (removeChoices). "backlog" is a TASK's answer that
  *  destroys nothing: the work goes back to its team's backlog — parked,
  *  nobody, no day, no sprint (K3); the board sends it as the unassign
- *  intent. "unassign" is a PROJECT card's: its column keeps it.
+ *  intent.
  *
  *  The hierarchy's × has two answers of its own (roadmap.hierarchyChoices):
  *  "detach" takes the card out from under its parent and changes nothing
@@ -183,7 +134,6 @@ export function asksFirst(
  *  (roadmap.planningRemoval), as the server does (reparentChildren). */
 export type RemoveChoice =
   | "off-board"
-  | "unassign"
   | "ungroup"
   | "backlog"
   | "finished-earlier"
@@ -201,10 +151,6 @@ export type RemoveChoice =
  *    used to be "move it to Unassigned, back in its week", offered only to
  *    a card with a week; a task has no week now (K7), and the two answers
  *    that kept the work are one.
- *  - A PROJECT card can only be unassigned: it is the Project board's
- *    commitment and not this board's to destroy, and its column keeps it.
- *    Once already unassigned it has no × at all — an × that does nothing
- *    reads as a delete that failed.
  *  - A SUBTASK goes off the board: standing under its parent is not a place
  *    of its own to be kept in.
  *
@@ -234,8 +180,7 @@ export function removeChoices(
     },
   ctx: RemovalContext,
 ): RemoveChoice[] {
-  // A subtask carries no column (a card in a column is nobody's subtask,
-  // H4), so the grid × has one answer for it: off the board. The pull-out
+  // The grid × has one answer for a subtask: off the board. The pull-out
   // of the group is the drawer's own choice, not the ×'s.
   if (isSubtask(c)) {
     return ["off-board"];
@@ -250,30 +195,22 @@ export function removeChoices(
   // A review somebody HAS is withdrawn the same way, never taken off the
   // board by itself — that would leave its task on review with no review
   // card (K10) — or goes back to the backlog with nobody on it (K12).
-  if (c.reviewOf && !hasColumn(c)) {
+  if (c.reviewOf) {
     return c.parked ? ["withdraw"] : ["backlog", "withdraw"];
   }
   // A REVIEW somebody has is offered it too (K10): back to the backlog takes
   // the reviewer off, and it waits for one again in the reviewed task's team
   // backlog (boardservice.returnReview).
-  const shelve: RemoveChoice[] = !c.parked && !hasColumn(c) ? ["backlog"] : [];
+  const shelve: RemoveChoice[] = !c.parked ? ["backlog"] : [];
   // Only where it would MOVE the card: finished work, standing in the current
-  // sprint, with an earlier sprint to send it to. Never for work another board
-  // owns — a slot carries its own dates, and the sprint is not what places it.
+  // sprint, with an earlier sprint to send it to.
   const finishedEarlier: RemoveChoice[] =
     (c.progress ?? 0) >= 100 &&
     !!ctx.previous &&
     !!ctx.current &&
-    c.sprintStart === ctx.current &&
-    !hasColumn(c)
+    c.sprintStart === ctx.current
       ? ["finished-earlier"]
       : [];
-  // A PROJECT card's answer is its column. Unassigned is where one with
-  // NOBODY on it stands, and that — not its dates — is what the option would
-  // change, so one already there is offered nothing.
-  if (hasColumn(c)) {
-    return (c.assignees?.length ?? 0) > 0 ? ["unassign"] : [];
-  }
   return [...shelve, "off-board", ...finishedEarlier];
 }
 
@@ -319,8 +256,6 @@ export function offersRemoval(
 export interface SubtaskPatch {
   parent: undefined;
   assignees?: string[];
-  scope?: undefined;
-  project?: undefined;
   sprintStart?: string;
   startDate?: string;
   day?: string;
@@ -331,10 +266,8 @@ export interface SubtaskPatch {
  *  (which is how a row jumped to Unassigned on one of them and jumped back
  *  on the next reload).
  *
- *  RELEASED into its column: the person goes and the sprint with it
- *  (releaseToColumn → leaveWorkingArea), and the dates stay — they are the
- *  slot's row. A subtask the × DELETES is not patched at all: the board
- *  drops the row. */
+ *  The person goes and the sprint with it, and the group is left. A subtask
+ *  the × DELETES is not patched at all: the board drops the row. */
 export function subtaskRemovalPatch(
   _c: RemovalHomes & Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent">,
   _ctx: RemovalContext,
@@ -345,13 +278,11 @@ export function subtaskRemovalPatch(
 /** subtaskRemovalUndo is the state to put back when the request fails: the
  *  card's own value for every field subtaskRemovalPatch can write. One
  *  shape for the gesture and one for its inverse, or a board rolls back
- *  less than it patched — which left a card visibly ungrouped and stripped
- *  of its column while the server still held it as a subtask in it. */
+ *  less than it patched — which left a card visibly ungrouped while the
+ *  server still held it as a subtask. */
 export interface SubtaskUndo {
   assignees?: string[];
   parent?: string;
-  scope?: string;
-  project?: string;
   sprintStart?: string;
   startDate?: string;
   day?: string;
@@ -361,8 +292,6 @@ export function subtaskRemovalUndo(c: SubtaskUndo): SubtaskUndo {
   return {
     assignees: c.assignees,
     parent: c.parent,
-    scope: c.scope,
-    project: c.project,
     sprintStart: c.sprintStart,
     startDate: c.startDate,
     day: c.day,
@@ -389,13 +318,11 @@ export function withdrawPatch(task: { stage?: string; progress?: number }): {
 
 /** removeIntent is the intent an × answer is sent to the remove action as,
  *  or null for an answer that is a gesture of its own (finished-earlier, the
- *  hierarchy's two). Both KEEPING answers are the server's unassign: it parks
- *  a task in its team's backlog — nobody, no day, no sprint (K3) — and leaves
- *  a project card in its column. */
+ *  hierarchy's two). The KEEPING answer is the server's unassign: it parks
+ *  a task in its team's backlog — nobody, no day, no sprint (K3). */
 export function removeIntent(choice: RemoveChoice): "unassign" | "off-board" | null {
   switch (choice) {
     case "backlog":
-    case "unassign":
       return "unassign";
     case "off-board":
     case "withdraw":

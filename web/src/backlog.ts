@@ -20,15 +20,14 @@ import { isPlanning, isSubtask } from "./subtasks";
 /** PlaceFields is what decides a task's place. */
 export type PlaceFields = Pick<
   Card,
-  "startDate" | "day" | "sprintStart" | "parked" | "type" | "scope" | "reviewOf" | "stage" | "progress"
+  "startDate" | "day" | "sprintStart" | "parked" | "type" | "reviewOf" | "stage" | "progress"
 >;
 
 /** unplaced mirrors board.Unplaced: an OPEN task in neither place — no date,
- *  no sprint, not parked. A planning card, a project card, a review card and
- *  a subtask (subtask: it rides a TASK parent) are not asked; nor is finished
+ *  no sprint, not parked. A planning card, a review card and a subtask (subtask: it rides a TASK parent) are not asked; nor is finished
  *  work. */
 export function unplaced(c: Partial<PlaceFields>, subtask: boolean): boolean {
-  if (subtask || c.type || c.scope || c.reviewOf) {
+  if (subtask || c.type || c.reviewOf) {
     return false;
   }
   if (c.startDate || c.day || c.sprintStart || c.parked) {
@@ -53,22 +52,17 @@ export function parked(c: Pick<Card, "parked">): boolean {
 
 /** parkable reports whether this card may be parked at all.
  *
- *  A PROJECT card is refused: it is the Project board's plan and stands in
- *  its column alone (H4), so parking it here would edit a plan this board
- *  does not own. The server refuses it too (ErrNotYoursToPark); this is so
- *  the board never offers what would come back as an error.
- *
- *  A REVIEW card and a SUBTASK are refused for the other reason: neither has
+ *  A REVIEW card and a SUBTASK are refused: neither has
  *  a place of its own to be parked out of. One follows the card it reviews,
  *  the other stands inside its parent, so a shelf takes it out of the only
  *  place it is drawn. The × already withheld the answer for both
  *  (removal.ts) while the drawer went on accepting the drop, which made the
  *  same card parkable or not depending on which gesture was used;
  *  ErrNoPlaceOfItsOwn is the server's side of it. */
-export function parkable(c: Pick<Card, "scope" | "reviewOf" | "parent" | "lineage" | "type">): boolean {
+export function parkable(c: Pick<Card, "reviewOf" | "parent" | "lineage" | "type">): boolean {
   // A planning card has no shelf (H3); a task under an epic has a place of
   // its own and may be parked like any task (H1).
-  return !c.scope && !c.reviewOf && !isSubtask(c) && !isPlanning(c);
+  return !c.reviewOf && !isSubtask(c) && !isPlanning(c);
 }
 
 /** ShelfDrop is what a drop on a team's shelf writes.

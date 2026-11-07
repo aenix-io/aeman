@@ -51,11 +51,11 @@ describe("the drawer's tree", () => {
 });
 
 // Every row of the drawer's tree has its × — a plan item's, a task's, a
-// project card's, a subtask's — answered by the dialog with that card's
+// subtask's — answered by the dialog with that card's
 // choices; a record has none.
 describe("the × on the drawer's rows", () => {
   it("is on every row", () => {
-    const slot = card({ itemId: "p", title: "Q2 plan", scope: "S", project: "P", parent: "i" });
+    const slot = card({ itemId: "p", title: "Q2 plan", parent: "i" });
     const sub = card({ itemId: "s", title: "Fonts", parent: "t", lineage: [{ uid: "t", title: "Render PDF" }] });
     const html = renderToStaticMarkup(
       <PlanTree cards={[goal, ini, epic, task, sub, slot]} root={goal} onOpen={vi.fn()} onCreate={vi.fn()} onRemove={vi.fn()} />,

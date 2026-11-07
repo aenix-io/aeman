@@ -2,7 +2,7 @@
 //
 // Mirrors pkg/board/views.go and boardservice.createArgsFor: a card typed into
 // the Me board is mine and today's, one typed into a Backlog column is parked
-// on that team, last (K3), one typed into a Project column is a slot. The server now takes the BOARD rather
+// on that team, last (K3). The server now takes the BOARD rather
 // than the fields that used to encode it, so the client has to say which board
 // each create was made on — and that is a property of the add-box, not a guess.
 
@@ -11,13 +11,11 @@ export type ViewName =
   | "team"
   | "backlog"
   | "roadmap"
-  | "project"
   | "all";
 
 /** createView is the board a create belongs to: the one the reader is STANDING
  *  on, unless what the add-box filled in names another. A parked card comes
- *  from a Backlog column, a column card from the Project grid — those say
- *  their own
+ *  from a Backlog column — it says its own
  *  board whatever is open behind them. Everything else is a day card, and
  *  which day board it was typed into is the thing only the open view knows:
  *  the Me board and the Team grid send the same shape, and they do not mean
@@ -29,7 +27,6 @@ export type ViewName =
  *  separates them held for agents and not for the board it was written on. */
 export function createView(input: {
   parked?: boolean | null;
-  scope?: string | null;
   start?: string | null;
   day?: string | null;
   type?: string | null;
@@ -43,9 +40,6 @@ export function createView(input: {
   // and a parent of that kind.
   if (input.type || input.underPlanning) {
     return "roadmap";
-  }
-  if (input.scope) {
-    return "project";
   }
   // Typed into a Backlog column, or born parked wherever it was typed: the
   // Backlog board's create — parked on its team, last.

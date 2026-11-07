@@ -3,8 +3,7 @@ import { describe, expect, it } from "vitest";
 import { parkable } from "./backlog";
 import { onBacklog } from "./backlogboard";
 import { onMyDay } from "./meview";
-import { canBeFiledIntoAColumn } from "./placements";
-import { gridRemoval, removeChoices } from "./removal";
+import { removeChoices } from "./removal";
 import { mayRemove } from "./meboard";
 import { pointsOf } from "./size";
 import { isPlanning, isSubtask } from "./subtasks";
@@ -79,15 +78,11 @@ describe("what a task under an epic may do, that a subtask may not", () => {
     expect(parkable(underEpic)).toBe(true);
     expect(parkable(subtask)).toBe(false);
     expect(parkable(epic)).toBe(false);
-    expect(canBeFiledIntoAColumn({ parent: "epic", lineage: underEpic.lineage, assignees: [] })).toBe(true);
-    expect(canBeFiledIntoAColumn({ parent: "t1", assignees: [] })).toBe(false);
-    expect(canBeFiledIntoAColumn({ type: "epic", assignees: [] })).toBe(false);
     const ctx = { current: TODAY, today: TODAY };
     // The × offers a task under an epic its team's backlog, as it does any
     // task (K3); a subtask has the board alone and is deleted.
     expect(removeChoices(underEpic, ctx)).toContain("backlog");
     expect(removeChoices(subtask, ctx)).toEqual(["off-board"]);
-    expect(gridRemoval(subtask, ctx)).toBe("delete");
     expect(mayRemove(subtask, "u")).toBe(true);
     expect(mayRemove({ ...underEpic, author: "x", zone: "red" }, "u")).toBe(false);
   });
@@ -105,7 +100,6 @@ describe("what a task under an epic may do, that a subtask may not", () => {
 describe("the Roadmap is a board", () => {
   it("a create with a type belongs to it", () => {
     expect(createView({ type: "epic" })).toBe("roadmap");
-    expect(createView({ type: "goal", scope: "S" })).toBe("roadmap");
     expect(createView({}, "team")).toBe("team");
   });
   it("lists the hierarchy board-wide, and watches it, never as a snapshot", () => {

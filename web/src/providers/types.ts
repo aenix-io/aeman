@@ -140,13 +140,6 @@ export interface Card {
    *  and a parked card is on no day board. Every team has a backlog and
    *  nothing declares it (docs/design/backlog.md). */
   parked?: boolean;
-  /** The column this card is filed under: scope + project TOGETHER, since scope
-   *  names repeat across projects. Its start date's week is the row. */
-  scope?: string;
-  project?: string;
-  /** A card scheduled ahead — a slot — still open past the day it was owed
-   *  by. Derived by the server from its dates. */
-  overdue?: boolean;
   /** The moment this card is FROM, when it is a record rather than the live
    *  card: its team's sprint has moved on past the day being looked at. The
    *  board shows it as it was and refuses to change it (G60). */
@@ -178,8 +171,6 @@ export interface NewCardInput {
   start?: string | null;
   /** Start the card in its team's backlog: no dates, no sprint (K3). */
   parked?: boolean | null;
-  scope?: string | null;
-  project?: string | null;
   assigneeLogin?: string | null;
   team?: string | null;
   /** On a review card, the itemId of the original card it reviews. */
@@ -225,27 +216,6 @@ export interface SprintState {
   };
 }
 
-/** DeadlineRef is one deadline line: the week it sits on and whose it is. */
-export interface DeadlineRef {
-  week: string;
-  project: string;
-}
-
-/** ScopeRef is one Project-board column: its name and the project that owns
- *  it. The pair travels together — a column is meaningless without knowing
- *  which project's grid it belongs in. */
-export interface ScopeRef {
-  name: string;
-  project: string;
-  /** The repository the column was declared in — a NAME, compared against
-   *  the board's own primary (domains[0]), never tested for emptiness; an
-   *  absent stamp means the primary too. It cannot be computed from the
-   *  project: one project NAME may be declared in two repositories with
-   *  its columns merged under one entry, and it is the column that decides
-   *  whether a card may stand in it. */
-  domain?: string;
-}
-
 /** Board is the one board the server serves: its identity and structure from
  *  GET /board, plus the cards of the active view. */
 export interface Board {
@@ -255,26 +225,15 @@ export interface Board {
   /** The board's team roster (teams that have a sprint pointer), from GET
    *  /board — the source of truth now that cards load one view at a time. */
   teams: string[];
-  /** The Project board's projects, in board order — the top grouping: a
-   *  project owns scope columns. */
-  projects: string[];
-  /** The Project board's scope columns, in board order, each naming the project
-   *  that owns it. An empty project means the column belongs to none. */
-  scopes: ScopeRef[];
-  /** The deadline lines: the week (a Monday) each sits on and the project it
-   *  belongs to. A project holds at most one per week. */
-  deadlines: DeadlineRef[];
   /** The people roster from GET /board (login + avatar) for pickers (assign,
    *  review, view-as) and for every avatar the boards draw. */
   members: Member[];
   /** The repositories the board spans, primary first; a single entry on a
    *  one-repository board, none from an older server. */
   domains: DomainInfo[];
-  /** Which repository each team and project was declared in, for the entries
-   *  outside the primary. A card's team and project must live in the same
-   *  one, so the pickers narrow themselves by these. */
+  /** Which repository each team was declared in, for the teams outside the
+   *  primary. */
   teamDomains?: Record<string, string>;
-  projectDomains?: Record<string, string>;
   /** Per-team sprint pointers, keyed by team name ("" = the no-team group). */
   sprintStates: Record<string, SprintState>;
   /** The customer roster in board order (ownership.md, O5): cards name
@@ -309,10 +268,6 @@ export interface CardPatch {
    *  (422 takeIntoWork): giving it a date, a sprint or a person is what takes
    *  it into work (K4). */
   parked?: boolean;
-  /** Re-file under a column ("" clears). Naming only the scope keeps the card
-   *  inside its project; crossing projects names both halves. */
-  scope?: string;
-  project?: string;
   reviewOf?: string;
   /** Group under another card as a subtask ("" ungroups back to standalone). */
   parent?: string;
@@ -379,14 +334,14 @@ export interface Provider {
   /** Hard delete; the server cascades to the linked review card. */
   deleteCard(uid: string): Promise<void>;
   /** The ×, carrying which of its two meanings was chosen: "unassign" empties
-   *  the working area and leaves the card in its week or its column,
+   *  the working area and puts the card back in its team's backlog,
    *  "off-board" takes it away with the subtasks that were pieces of it.
    *  Omitted, the gesture decides for itself as it always did. */
   /** `deletes` says the caller knows the remove deletes the card (a plan
    *  item's ×): the board then turns away stale frames for it
    *  (tombstones.ts). The server is not told. */
   removeCard(uid: string, intent?: "unassign" | "off-board", opts?: { deletes?: boolean }): Promise<void>;
-  /** Reposition card after afterId in the project order (null = top). */
+  /** Reposition card after afterId in the board order (null = top). */
   moveCard(uid: string, afterId: string | null): Promise<void>;
   /** Reorder to sit right before another card: the server resolves the true
    *  global anchor, so callers rendering a filtered slice don't need to know
@@ -425,7 +380,7 @@ export interface Provider {
    *  a parked card handed to another team stays parked (K5); nobody parks it
    *  in the no-team backlog (K3); a planned card only changes hands (docs/design/hierarchy.md "Owner", H10). A person needs a
    *  team (422 ownerNeedsTeam); a subtask and a review card are refused
-   *  (ownerFollowsLink); so are planning and project cards. */
+   *  (ownerFollowsLink); so are planning cards. */
   ownCard(uid: string, team: string, person: string): Promise<Card>;
   /** The Backlog's "I take this into work" (K11): the card becomes the
    *  CALLER's — the server's identity of the request — on its own team,
@@ -442,27 +397,6 @@ export interface Provider {
   /** Apply a shared team order (moves the hidden sprint-state cards). */
   reorderTeams(teams: string[]): Promise<void>;
 
-  /** Declare a new scope column inside a project (which is required). */
-  addScope(name: string, project: string): Promise<void>;
-  /** Delete an EMPTY scope column (422 while cards still sit under it). */
-  deleteScope(name: string, project: string): Promise<void>;
-  /** Rename a column in place; its cards follow. */
-  renameScope(
-    project: string,
-    scope: string,
-    to: string,
-  ): Promise<void>;
-  /** Apply one project's column order (moves the hidden scope-state cards). */
-  reorderScopes(
-    project: string,
-    scopes: string[],
-  ): Promise<void>;
-  /** Move a column between projects ("" detaches it from every project). */
-  setScopeProject(
-    from: string,
-    scope: string,
-    project: string,
-  ): Promise<void>;
   /** The customer roster (ownership.md, O5): add one (its id comes back),
    *  rename it (cards hold the id), set the order, delete it (it comes off
    *  every card that names it). */
@@ -470,31 +404,9 @@ export interface Provider {
   renameCustomer(id: string, to: string): Promise<void>;
   reorderCustomers(ids: string[]): Promise<void>;
   deleteCustomer(id: string): Promise<void>;
-  /** Declare a project — the Project board's top grouping. `domain` picks the
-   *  repository it is declared in (default: the primary). */
-  addProject(name: string, domain?: string): Promise<void>;
-  /** Delete an EMPTY project (422 while it still owns scope columns). */
-  deleteProject(name: string): Promise<void>;
-  /** Apply the shared project order (moves the hidden project-state cards). */
-  reorderProjects(names: string[]): Promise<void>;
-  /** Rename a project in place; its columns and their cards follow. */
-  renameProject(from: string, to: string): Promise<void>;
   /** Rename a declared team where it lives; its cards follow. A name another
    *  team has is refused by the server. */
   renameTeam(from: string, to: string): Promise<void>;
-  /** Mark a week with a project's deadline (one per project and week). */
-  addDeadline(week: string, project: string): Promise<void>;
-  /** Clear a project's deadline on a week. */
-  deleteDeadline(
-    week: string,
-    project: string,
-  ): Promise<void>;
-  /** Drag a project's deadline to another week; two of its own become one. */
-  moveDeadline(
-    project: string,
-    from: string,
-    to: string,
-  ): Promise<void>;
   /** Delete a team's sprint pointer; rejects while cards still use the team. */
   deleteTeam(team: string): Promise<void>;
   /** Set a team's sprint pointer directly (current/previous start dates). With

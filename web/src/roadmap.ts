@@ -10,32 +10,25 @@ import { isComplete, isInProgress } from "./stages";
 import { isPlanning, isSubtask } from "./subtasks";
 import type { Card, CardPatch, CardType } from "./providers/types";
 
-/** RoadmapKind is what a row IS: the three planning levels, a task, a subtask
- *  (a task under a task), or a project card (a task in a Scope column). The
- *  last three are one level — the tree's leaves — told apart for the glyph. */
-export type RoadmapKind = "goal" | "initiative" | "epic" | "task" | "subtask" | "project";
+/** RoadmapKind is what a row IS: the three planning levels, a task, or a
+ *  subtask (a task under a task). */
+export type RoadmapKind = "goal" | "initiative" | "epic" | "task" | "subtask";
 
 /** LEVELS orders the kinds top-down; the depth selector picks a range of
- *  them. A project card is a task's level, a subtask one below. */
+ *  them. */
 export const LEVELS: readonly RoadmapKind[] = ["goal", "initiative", "epic", "task", "subtask"];
 
-/** levelOf is a kind's rank in LEVELS: 0 for a goal, 4 for a subtask. A
- *  project card sits at the task level. Mirrors board.Level, inverted. */
+/** levelOf is a kind's rank in LEVELS: 0 for a goal, 4 for a subtask.
+ *  Mirrors board.Level, inverted. */
 export function levelOf(kind: RoadmapKind): number {
-  if (kind === "project") {
-    return LEVELS.indexOf("task");
-  }
   return LEVELS.indexOf(kind);
 }
 
-/** kindOf is a card's kind on the Roadmap: its planning type, else a project
- *  card by its column, a subtask by the parent AS A TASK, else a task. */
-export function kindOf(c: Pick<Card, "type" | "scope" | "parent" | "lineage">): RoadmapKind {
+/** kindOf is a card's kind on the Roadmap: its planning type, else a
+ *  subtask by the parent AS A TASK, else a task. */
+export function kindOf(c: Pick<Card, "type" | "parent" | "lineage">): RoadmapKind {
   if (isPlanning(c)) {
     return c.type as RoadmapKind;
-  }
-  if (c.scope) {
-    return "project";
   }
   return isSubtask(c) ? "subtask" : "task";
 }
@@ -71,23 +64,6 @@ export function buildTree(cards: readonly Card[]): RoadmapNode[] {
     }
   }
   return roots.sort((a, b) => levelOf(a.kind) - levelOf(b.kind) || 0);
-}
-
-/** PROJECT_CARDS_DEFAULT is the toolbar's "Project cards" toggle as a viewer
- *  first meets it: OFF — the Roadmap is the plan of goals, initiatives,
- *  epics and the work under them, and the Project board's cards stay there
- *  unless asked for. */
-export const PROJECT_CARDS_DEFAULT = false;
-
-/** PROJECT_CARDS_KEY is where the viewer's toggle is remembered. */
-export const PROJECT_CARDS_KEY = "aeman.roadmap.projectCards";
-
-/** storedProjectCards reads the remembered toggle: the default until the
- *  viewer has said otherwise. The toggle itself is the listing's selector
- *  (viewquery.ts, projectCards): the server leaves the project cards out
- *  unless asked, and the board filters nothing. */
-export function storedProjectCards(raw: string | null): boolean {
-  return raw === null ? PROJECT_CARDS_DEFAULT : raw === "1";
 }
 
 /** RoadmapSection is where a root of the forest is drawn. The TREE is the
@@ -163,8 +139,7 @@ export interface DepthRange {
 
 export const DEFAULT_DEPTH: DepthRange = { from: "initiative", to: "task" };
 
-/** visibleLevels is the set of kinds a depth range draws. A project card is
- *  drawn whenever tasks are. */
+/** visibleLevels is the set of kinds a depth range draws. */
 export function visibleLevels(range: DepthRange): Set<RoadmapKind> {
   const lo = Math.min(levelOf(range.from), levelOf(range.to));
   const hi = Math.max(levelOf(range.from), levelOf(range.to));
@@ -174,9 +149,6 @@ export function visibleLevels(range: DepthRange): Set<RoadmapKind> {
     if (l >= lo && l <= hi) {
       out.add(k);
     }
-  }
-  if (out.has("task")) {
-    out.add("project");
   }
   return out;
 }
@@ -229,7 +201,7 @@ const ALL_LEVELS: DepthRange = { from: "goal", to: "subtask" };
 
 /** subtreeRows is the Roadmap's tree rooted ONE LEVEL BELOW a card — the
  *  drawer's "Under it": every level under the card (plan items, tasks,
- *  subtasks, the project cards filed there), at depth 0 for its children,
+ *  subtasks), at depth 0 for its children,
  *  folded as `expanded` says. Empty for a card with nothing under it, or
  *  one the cards do not hold. */
 export function subtreeRows(cards: readonly Card[], rootId: string, expanded: (id: string) => boolean): Row[] {
@@ -635,8 +607,7 @@ export function childrenNote(
 /** allowedParentKinds is what a card of a kind may sit under (H2): a level
  *  strictly above it, with a task's one exception — another task, which
  *  makes it a subtask (that flow is the group gesture's, not the picker's).
- *  A project card may sit under a planning card only (H4). A goal under
- *  nothing. */
+ *  A goal under nothing. */
 export function allowedParentKinds(kind: RoadmapKind): RoadmapKind[] {
   switch (kind) {
     case "goal":
@@ -914,13 +885,12 @@ export function isUnder(
  *  for the top of the tree): the level rule (H2) — a parent of a higher
  *  level, a task's one exception being another task, which makes it a
  *  subtask (one level deep: not under a subtask, not with subtasks of its
- *  own) — never itself or anything under it, a project card under planning
- *  cards only (H4), and the top of the tree for planning cards only: a task
+ *  own) — never itself or anything under it, and the top of the tree for planning cards only: a task
  *  dropped there would leave the Roadmap altogether, which is not a drop
  *  but a detach, and the × asks for that. A card never changes its type by
  *  being dragged. */
 export function droppable(
-  cards: readonly Pick<Card, "itemId" | "parent" | "type" | "scope" | "lineage">[],
+  cards: readonly Pick<Card, "itemId" | "parent" | "type" | "lineage">[],
   draggedId: string,
   parent: string | null,
 ): boolean {
@@ -1057,7 +1027,6 @@ export const KIND_LABEL: Record<RoadmapKind, string> = {
   epic: "Epic",
   task: "Task",
   subtask: "Subtask",
-  project: "Project card",
 };
 
 /** RoadmapLine is one line of the Roadmap's table: a row, in the section it
@@ -1068,8 +1037,7 @@ export type RoadmapLine =
 
 /** roadmapLines is the table's lines, ONE function of what decides them —
  *  the listing, the depth range and the folds — so the board's memo of it is
- *  keyed on exactly these. The listing is what the server sent: the Project
- *  cards toggle is its selector (projectCards), not a filter here. The tree's
+ *  keyed on exactly these. The listing is what the server sent. The tree's
  *  rows come first, then each section
  *  below it: a header line and its rows. The sections draw tasks and their
  *  subtasks (when the depth range reaches them); the range's upper levels

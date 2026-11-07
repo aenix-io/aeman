@@ -1059,13 +1059,11 @@ export function MeBoard({
   // it leaves today's board and is found by stepping back; the server records
   // the move and the re-list converges its outcome.
   // releaseCard hands the card to the server's smart × and takes what it
-  // decides: a card with a Project-board column is released to it, never
-  // destroyed. The re-list brings back whatever the
-  // rule did.
+  // decides. The re-list brings back whatever the rule did.
   const releaseCard = (card: CardModel) => {
     // Show the outcome at once, as every other × on this board does: the
-    // card leaves the working area (the server clears assignee, sprint and,
-    // for anything but a slot, the dates) and stays in the home it has.
+    // card leaves the working area (the server clears assignee, sprint and
+    // the dates).
     const prev: Partial<CardModel> = subtaskRemovalUndo(card) as Partial<CardModel>;
     // A subtask leaves the GROUP here (G57), and what else goes with it is
     // the same answer the Team board gets — the server's fields, from one
@@ -1077,7 +1075,8 @@ export function MeBoard({
         : {
             assignees: [],
             sprintStart: undefined,
-            ...(card.scope ? {} : { startDate: undefined, day: undefined }),
+            startDate: undefined,
+            day: undefined,
           },
     );
     void provider
@@ -1094,16 +1093,16 @@ export function MeBoard({
 
   // The ×. As on the Team board, a worked-on card is not taken off the board
   // silently: the person is asked which answer they mean. What the × then DOES is decided in one place for every
-  // board (gridRemoval): the card goes back to the home it still has, or,
-  // with none left, it is deleted. removalOf answers only the narrower
+  // board (removeChoices): the card goes back to its backlog, or it is
+  // deleted. removalOf answers only the narrower
   // question of who asks: "ask" puts the two-way question to the person (the
   // Card shows no "Delete?" of its own in front of it — see boardAsks), and
   // a subtask, having no history of its own, never opens it.
 
-  // placementsFor: the assign menu's attach section — one shared
+  // placementsFor: the assign menu's placement section — one shared
   // factory (makeCardPlacements), so the boards cannot drift apart.
   const placementsFor = (card: CardModel): CardPlacements | undefined => {
-    return makeCardPlacements(card, board, {
+    return makeCardPlacements(card, {
       provider,
       patchCard,
       reload,
@@ -1119,7 +1118,7 @@ export function MeBoard({
     today: todayIso(),
   });
   // What the × actually does to a team card here — the same answer the Team
-  // board gets, from the same place (gridRemoval, mirroring
+  // board gets, from the same place (removeChoices, mirroring
   // boardservice.Remove). This board used to decide on its own and sent
   // everything that was not demotable to DELETE /cards/{uid}, destroying a
   // card the other board would have kept: one gesture, two boards, opposite
@@ -1192,8 +1191,8 @@ export function MeBoard({
     if (!choice) {
       return;
     }
-    // Anything but destroying it is the release: a project card handed back
-    // to its column, a subtask taken out of its group.
+    // Anything but destroying it is the release: a subtask taken out of its
+    // group.
     if (choice !== "off-board") {
       releaseCard(card);
       return;

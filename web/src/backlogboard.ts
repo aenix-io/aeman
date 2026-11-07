@@ -30,8 +30,7 @@ import type { Card, LineageRef, Provider } from "./providers/types";
 
 /** onBacklog reports whether a card is listed in its team's backlog (K2): a
  *  PARKED task that answers for its own place — not a planning card (the
- *  Roadmap's), not a project card (the Project board's), not a review card
- *  (it follows the card it reviews), not a subtask (it rides its parent) —
+ *  Roadmap's), not a review card (it follows the card it reviews), not a subtask (it rides its parent) —
  *  and not finished: the backlog never shows work that is over. Mirrors
  *  board.OnBacklog.
  *
@@ -40,7 +39,7 @@ import type { Card, LineageRef, Provider } from "./providers/types";
  *  and a parked card a direct writer left dates on is in one — drawn once,
  *  where it can be dealt with. */
 export function onBacklog(
-  c: Pick<Card, "parked" | "type" | "scope" | "reviewOf" | "parent" | "lineage" | "stage" | "progress" | "assignees">,
+  c: Pick<Card, "parked" | "type" | "reviewOf" | "parent" | "lineage" | "stage" | "progress" | "assignees">,
 ): boolean {
   if (!c.parked || isComplete(c)) {
     return false;
@@ -48,7 +47,7 @@ export function onBacklog(
   if (needsReviewer(c)) {
     return true;
   }
-  return !isPlanning(c) && !c.scope && !c.reviewOf && !isSubtask(c);
+  return !isPlanning(c) && !c.reviewOf && !isSubtask(c);
 }
 
 /** needsReviewer mirrors board.NeedsReviewer (K10): an open review card

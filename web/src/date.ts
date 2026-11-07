@@ -100,13 +100,3 @@ export function addDays(iso: string, delta: number): string {
   return `${dt.getFullYear()}-${mm}-${dd}`;
 }
 
-/** weeksBetween counts whole weeks from Monday a to Monday b (0 = same week).
- *  Both boards measure a slot's span with it: the Project board to place a
- *  row it stands in on the boards that lay their weeks out. */
-export function weeksBetween(a: string, b: string): number {
-  const [ay, am, ad] = a.split("-").map(Number);
-  const [by, bm, bd] = b.split("-").map(Number);
-  return Math.round(
-    (Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / (7 * 86400000),
-  );
-}

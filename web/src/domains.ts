@@ -1,7 +1,7 @@
 // The board's domains — the repositories its cards live in. The first one is
 // the primary; a board with a single domain shows nothing of this at all.
 // Pure helpers shared by the card badge, the create flows (which repository a
-// new team/project is declared in) and the reviewer picker.
+// new team is declared in) and the reviewer picker.
 
 /** DomainInfo is one repository of the board as GET /board reports it. The
  *  board lists them whatever it spans — one entry for a single-repository
@@ -89,66 +89,6 @@ export function reviewerCandidates(
   }
   const readers = new Set(domain.members);
   return members.filter((m) => readers.has(m));
-}
-
-/** RosterDomains names the repository a team or project was declared in.
- *  A served board names every entry, the primary's own included, so these
- *  are NAMES to compare against the primary's — never a presence test. An
- *  entry with no row means the primary as well (a hand-built board, an
- *  older server), which is what inPrimary reads it as. */
-export type RosterDomains = Record<string, string> | undefined;
-
-/** rosterDomain is the repository an entry was declared in, as the roster
- *  gives it: a NAME on a served board, "" for an entry no map carries —
- *  which means the primary too, and is what inPrimary reads it as. Compare
- *  through inPrimary (or placements.sameRepository), never raw. */
-export function rosterDomain(domains: RosterDomains, name: string): string {
-  if (!name || !domains) {
-    return "";
-  }
-  return domains[name] ?? "";
-}
-
-/** offerableTeams keeps the teams a card filed under `project` may be handed
- *  to: those declared in the same repository. The project decides where the
- *  card lives, so a team from another repository would put the card out of
- *  reach of the very people it names — the server refuses that pair, and the
- *  menu must not offer it. A card under no project is constrained by
- *  nothing, and `current` — what the card already carries — always stays in
- *  the list, so a pair written before this rule can still be seen and
- *  fixed. */
-export function offerableTeams(
-  teams: readonly string[],
-  teamDomains: RosterDomains,
-  projectDomains: RosterDomains,
-  project: string,
-  current = "",
-): string[] {
-  if (!project) {
-    return [...teams];
-  }
-  const home = rosterDomain(projectDomains, project);
-  return teams.filter(
-    (t) => t === "" || t === current || rosterDomain(teamDomains, t) === home,
-  );
-}
-
-/** offerableProjects is the same rule from the other side: a card carrying a
- *  team may only be filed under a project of that team's repository. */
-export function offerableProjects(
-  projects: readonly string[],
-  projectDomains: RosterDomains,
-  teamDomains: RosterDomains,
-  team: string,
-  current = "",
-): string[] {
-  if (!team) {
-    return [...projects];
-  }
-  const home = rosterDomain(teamDomains, team);
-  return projects.filter(
-    (p) => p === current || rosterDomain(projectDomains, p) === home,
-  );
 }
 
 /** inPrimary reads an entry's stamp in that one namespace: no stamp means

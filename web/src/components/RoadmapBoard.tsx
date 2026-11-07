@@ -53,7 +53,6 @@ import {
   type RoadmapLine,
 } from "../roadmap";
 import { barColor } from "../stages";
-import { ViewToggle } from "./ViewToggle";
 import { FilterSelect } from "./FilterSelect";
 import { customerOptions, teamOptions } from "../filteroptions";
 import {
@@ -107,10 +106,6 @@ interface RoadmapBoardProps {
    *  and its row is marked; onFocused says it has been. */
   focusId?: string | null;
   onFocused?: () => void;
-  /** The "Project cards" toggle: the listing's selector (projectCards), held
-   *  and remembered by the app, which refetches and re-subscribes on it. */
-  showProjects: boolean;
-  onShowProjects: (next: boolean) => void;
   /** The Team, Customer and Owner filters (ownership.md, O7, O8): the
    *  listing's selectors, held and remembered by the app. */
   filters: RoadmapFilters;
@@ -228,7 +223,7 @@ interface RowProps {
   onAdd: (() => void) | null;
   onRemove: (() => void) | null;
   /** The Owner cell's content, for a task-kind row; nothing on a planning
-   *  card or a project card, which have no owner. */
+   *  card, which has none of a task's. */
   owner: ReactNode;
   rowRef: (el: HTMLDivElement | null) => void;
 }
@@ -378,8 +373,6 @@ export function RoadmapBoard({
   onOpen,
   focusId,
   onFocused,
-  showProjects,
-  onShowProjects,
   filters,
   onFilters,
   onManageTeams,
@@ -500,8 +493,7 @@ export function RoadmapBoard({
 
   const expanded = (id: string) => !folded.has(id);
   // The lines of the table (roadmap.roadmapLines), keyed on everything that
-  // decides them. The Project cards toggle is the listing's own selector:
-  // the app refetches on it, and what arrives is what is drawn.
+  // decides them. What arrives is what is drawn.
   const shownLines = useMemo(() => roadmapLines(shown, { depth, expanded }), [shown, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
   // The tree's rows alone, which is what a drop is read against: a section
   // row is dropped on by nothing.
@@ -929,10 +921,6 @@ export function RoadmapBoard({
             {levelOptions()}
           </select>
         </label>
-        <ViewToggle on={showProjects} onToggle={() => onShowProjects(!showProjects)} title="Show project cards">
-          {/* The icon a project card's row wears in the tree. */}
-          <KindIcon kind="project" size={15} />
-        </ViewToggle>
         <div className="segmented roadmap-zoom" role="group" aria-label="Zoom">
           {(["3m", "1y", "fit"] as Zoom[]).map((z) => (
             <button

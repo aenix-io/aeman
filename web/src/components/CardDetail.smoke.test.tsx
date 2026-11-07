@@ -85,8 +85,8 @@ describe("the card drawer", () => {
   });
 
   it("gives a task every row: its owner, zone, size, and what it sits under", () => {
-    const html = draw(card({ zone: "red", team: "core", assignees: ["ann"], project: "cozy" }));
-    expect(rows(html)).toEqual(["Status", "Progress", "Owner", "Zone", "Size", "Under", "Customers", "Project"]);
+    const html = draw(card({ zone: "red", team: "core", assignees: ["ann"] }));
+    expect(rows(html)).toEqual(["Status", "Progress", "Owner", "Zone", "Size", "Under", "Customers"]);
     expect(html).toContain(">urgent<");
     // The owner is the team and the person, in one menu (OwnerPicker).
     expect(html).toContain("core · ann");
@@ -135,22 +135,6 @@ describe("the card drawer", () => {
   it("gives a goal no Under row, and an initiative or an epic one", () => {
     expect(rows(draw(card({ type: "goal" })))).toEqual(["Level", "Status", "Owner", "Dates", "Customers"]);
     expect(rows(draw(card({ type: "initiative" })))).toEqual(["Level", "Status", "Owner", "Dates", "Under", "Customers"]);
-  });
-
-  it("gives a project card its column and its dates, and a way under a planning card — no band, no size, no people", () => {
-    const html = draw(card({ project: "cozy", scope: "Storage", startDate: "2026-03-02", day: "2026-03-13" }));
-    // #288: done or not done — a Done toggle, no progress bar.
-    expect(rows(html)).toEqual(["Status", "Done", "Dates", "Under", "Project", "Scope"]);
-    expect(html).toMatch(/<input[^>]*type="checkbox"[^>]*aria-label="Done"/);
-    expect(html).not.toContain("drawer-progress");
-    expect(html).not.toContain("modal-size-chip");
-    expect(html).not.toContain("modal-zone-btn");
-    expect(html).not.toContain("owner-picker");
-    // A project card lives and dies in its column: no way out of the
-    // project but Delete.
-    expect(html).not.toContain("Remove from project");
-    expect(html).toContain("Delete…");
-    expect(html).toContain('type="date"');
   });
 
   it("reads only on a record", () => {
@@ -210,7 +194,7 @@ describe("the card drawer and the hierarchy", () => {
 // docs/design/ownership.md in the drawer: a plan item's owner and team in one
 // picker (a person needs no team there), and every card's customers — its
 // own as chips it can remove, the inherited ones grey, saying where they
-// come from, not removable here. A project card has no customers (H4).
+// come from, not removable here.
 describe("ownership in the drawer", () => {
   const withRoster = (cards: Card[]) =>
     ({
@@ -284,10 +268,6 @@ describe("ownership in the drawer", () => {
     const orig = card({ itemId: "t", title: "Receipts", team: "portal", stage: "review" });
     const review = card({ itemId: "r", title: "review: Receipts", team: "portal", assignees: ["ann"], reviewOf: "t" });
     expect(drawOn(review, withRoster([orig, review]))).not.toContain("Unset the owner");
-  });
-
-  it("gives a project card no customers", () => {
-    expect(rows(drawOn(card({ project: "cozy", scope: "Storage" }), withRoster([])))).not.toContain("Customers");
   });
 });
 

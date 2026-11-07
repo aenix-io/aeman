@@ -6,10 +6,6 @@ import { createView } from "./views";
 // fills in what that board means, so a create made from the wrong board is
 // answered with a card that is not the one the person typed.
 describe("which board a create belongs to", () => {
-  it("is the Project grid when it names a column", () => {
-    expect(createView({ scope: "Auth" })).toBe("project");
-  });
-
   it("is the Backlog board when it is parked", () => {
     expect(createView({ parked: true })).toBe("backlog");
   });
@@ -50,7 +46,6 @@ describe("which board a create belongs to", () => {
   // The shape still wins where it names a board of its own.
   it("lets the shape win over the open board", () => {
     expect(createView({ parked: true }, "team")).toBe("backlog");
-    expect(createView({ scope: "Auth" }, "backlog")).toBe("project");
     expect(createView({ type: "epic" }, "backlog")).toBe("roadmap");
   });
 });

@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 
 /** ViewToggle is the app's view toggle: an icon button in a toolbar that is
- *  either pressed or not — the Me board's eye and focus buttons, the
- *  Roadmap's Project cards. One component, so every such toggle reads and
+ *  either pressed or not — the Me board's eye and focus buttons. One
+ *  component, so every such toggle reads and
  *  behaves the same, pressed and unpressed. */
 export function ViewToggle({
   on,

@@ -5,7 +5,7 @@
 // and falls back to the server's where the ancestors are not on the board.
 import type { Card } from "./providers/types";
 
-type Held = readonly Pick<Card, "itemId" | "title" | "parent" | "team" | "customers" | "reviewOf" | "effectiveTeam" | "scope" | "type">[];
+type Held = readonly Pick<Card, "itemId" | "title" | "parent" | "team" | "customers" | "reviewOf" | "effectiveTeam" | "type">[];
 
 function ancestorsOf(c: Pick<Card, "itemId" | "parent">, cards: Held): Held[number][] | null {
   const byId = new Map(cards.map((x) => [x.itemId, x]));
@@ -30,9 +30,6 @@ type HeldCard = Held[number];
 
 /** effectiveIn is effectiveTeamOf over a map of the held cards by id. */
 function effectiveIn(byId: ReadonlyMap<string, HeldCard>, c: HeldCard): string {
-  if (c.scope) {
-    return "";
-  }
   if (c.team) {
     return c.team;
   }
@@ -62,8 +59,7 @@ function effectiveIn(byId: ReadonlyMap<string, HeldCard>, c: HeldCard): string {
 const byIdOf = (cards: Held) => new Map(cards.map((x) => [x.itemId, x]));
 
 /** effectiveTeamOf is the team a card counts under (O3): its own, else the
- *  nearest ancestor's that has one; a review card's, its task's. A project
- *  card has none (H4). */
+ *  nearest ancestor's that has one; a review card's, its task's. */
 export function effectiveTeamOf(c: HeldCard, cards: Held): string {
   return effectiveIn(byIdOf(cards), c);
 }
@@ -99,7 +95,7 @@ export function sprintTeamOf(c: HeldCard, cards: Held, team?: string): string | 
  *  review card, from its task — and which one: null when the card has a
  *  team of its own or inherits none. */
 export function inheritedTeamOf(c: Card, cards: Held): { team: string; from: string } | null {
-  if (c.team || c.scope) {
+  if (c.team) {
     return null;
   }
   // A review card counts under its task's (O13), and says so.
@@ -125,11 +121,8 @@ export function inheritedTeamOf(c: Card, cards: Held): { team: string; from: str
 
 /** effectiveCustomersOf is who a card is for (O4): every ancestor's customers
  *  and its own, the ancestors' first, each once; a review card's are its
- *  task's (O6), a project card's none. */
+ *  task's (O6). */
 export function effectiveCustomersOf(c: Card, cards: Held): string[] {
-  if (c.scope) {
-    return [];
-  }
   const up = ancestorsOf(c, cards);
   if (!up) {
     return c.effectiveCustomers ?? c.customers ?? [];

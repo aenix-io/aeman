@@ -78,7 +78,7 @@ interface CardDetailProps {
    *  identity line: the id and the link to copy. */
   cardLinkFor?: (uid: string) => string;
   /** A write the server refused, in its own words (a parent of the wrong
-   *  level, another repository, a project card). */
+   *  level, another repository). */
   onError?: (message: string) => void;
   /** A customer the drawer added to the roster (ownership.md): the board's
    *  roster takes it at once. */
@@ -110,8 +110,8 @@ function dropListings(): void {
  *  activity down the main column, every field the card has in a sidebar of
  *  labelled rows, and the actions that act on the whole card at the bottom
  *  of it. Which rows there are is the card's KIND's to say: a task has a
- *  band and a size, a planning card a level and a standing, a project card a
- *  column — the server refuses the rest, so the pane does not offer it.
+ *  band and a size, a planning card a level and a standing — the server
+ *  refuses the rest, so the pane does not offer it.
  *
  *  On a RECORD — a card as it stood on a day its team has moved past — it
  *  reads instead: the boxes are disabled and there is nothing to save, since
@@ -141,8 +141,7 @@ export function CardDetail({
   const [title, setTitle] = useState(card.title);
   const planning = isPlanning(card);
   const kind = kindOf(card);
-  const project = kind === "project";
-  const task = !planning && !project;
+  const task = !planning;
   const subtask = isSubtask(card);
 
   // The hierarchy around this card: what it may sit under, and what sits
@@ -158,10 +157,9 @@ export function CardDetail({
     if (!wantsHierarchy || temp || hierarchy?.forCard === card.itemId) {
       return;
     }
-    // A plan item's "Under it" shows the project cards filed under it,
-    // marked by their kind, whatever the Roadmap's toggle says; a task's
-    // parent picker needs none of them.
-    const key = planning ? "with-project-cards" : "plan";
+    // A plan item's "Under it" and a task's parent picker read the same
+    // listing: the Roadmap's.
+    const key = "plan";
     const cached = cachedListing(key, Date.now());
     if (cached) {
       setHierarchy({ forCard: card.itemId, cards: cached });
@@ -169,7 +167,7 @@ export function CardDetail({
     }
     let dropped = false;
     void provider
-      .listCards(planning ? { view: "roadmap", projectCards: "true" } : { view: "roadmap" })
+      .listCards({ view: "roadmap" })
       .then((l) => {
         storeListing(key, l.cards, Date.now());
         if (!dropped) {
@@ -413,8 +411,8 @@ export function CardDetail({
       });
   };
 
-  // A planning card's dates are its bar on the Roadmap, a project card's its
-  // row on the Project board; a task's are its placement on the day boards
+  // A planning card's dates are its bar on the Roadmap; a task's are its
+  // placement on the day boards
   // and are moved there, so here they only read.
   const editsDates = !isRecord && !task;
   const setDates = (start: string, end: string) => {
@@ -502,7 +500,7 @@ export function CardDetail({
     }
   };
 
-  // Done and back, the way the Project board does it: done clears the stage
+  // Done and back: done clears the stage
   // and fills 100; the way back restores what done overwrote — the server
   // reads the pre-done progress from the card's own log.
   const complete = statusOf(card) === "done";
@@ -1104,7 +1102,7 @@ export function CardDetail({
                 )}
 
                 {/* What sits under a planning card, as the Roadmap groups it:
-                    the levels below, the tasks, the project cards. A row opens
+                    the levels below, the tasks. A row opens
                     that card here; its × asks the Team board's question. */}
                 {planning && (
                   <section className="drawer-children" aria-label="Under this card">
@@ -1171,8 +1169,8 @@ export function CardDetail({
 
           <aside className="drawer-side">
             {/* The rows are the card's kind's: a planning card has a level and
-                a standing; a task a band, a size, its people; a project card
-                its column. What the server refuses is not offered. */}
+                a standing; a task a band, a size, its people. What the server
+                refuses is not offered. */}
             {planning &&
               row(
                 "Level",
@@ -1196,25 +1194,7 @@ export function CardDetail({
             {/* The bar a task carries on its board, with its handle: drag it
                 here as there. A planning card's progress is derived and has
                 no bar of its own. */}
-            {/* A PROJECT card is done or not done (#288): a toggle, no bar —
-                the server takes 0 or 100 alone for it. */}
             {!planning &&
-              !!card.scope &&
-              row(
-                "Done",
-                <label className="drawer-done">
-                  <input
-                    type="checkbox"
-                    aria-label="Done"
-                    checked={complete}
-                    disabled={isRecord}
-                    onChange={(e) => setDone(e.target.checked)}
-                  />
-                  {complete ? "Done" : "Not done"}
-                </label>,
-              )}
-            {!planning &&
-              !card.scope &&
               row(
                 "Progress",
                 <div className="drawer-progress">
@@ -1430,9 +1410,8 @@ export function CardDetail({
                 />,
               )}
             {/* Who the work is for: the card's own customers and those it
-                inherits (ownership.md, O4). A project card has none (H4). */}
-            {!project &&
-              row(
+                inherits (ownership.md, O4). */}
+            {row(
                 "Customers",
                 <CustomerField
                   chips={customerChips(card, known)}
@@ -1443,8 +1422,6 @@ export function CardDetail({
                   onCreate={createCustomer}
                 />,
               )}
-            {card.project && row("Project", card.project)}
-            {card.scope && row("Scope", card.scope)}
             {card.domain && board.domains && board.domains.length > 1 && row("Stored in", card.domain)}
 
             {!isRecord && !temp && (
