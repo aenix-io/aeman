@@ -414,8 +414,12 @@ func TestMCPInitializeWithBearer(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("initialize status = %d (auth must pass and MCP must init), body = %s", rec.Code, rec.Body.String())
 	}
-	if rec.Header().Get("Mcp-Session-Id") == "" {
-		t.Fatalf("expected an Mcp-Session-Id header for a fresh session")
+	if !strings.Contains(rec.Body.String(), `"serverInfo"`) {
+		t.Fatalf("initialize answered no serverInfo: %s", rec.Body.String())
+	}
+	// The transport is stateless (G86): no session to name.
+	if sid := rec.Header().Get("Mcp-Session-Id"); sid != "" {
+		t.Fatalf("a stateless transport issued Mcp-Session-Id %q", sid)
 	}
 }
 

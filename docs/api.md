@@ -263,7 +263,7 @@ security delete-generic-password -s aeman-mcp
 
 ## MCP server
 
-`aeman mcp --repo name=url` starts a Model Context Protocol server on **stdio, or on a loopback HTTP daemon shared by every client on the machine** (`--listen 127.0.0.1:8766`), on its own clone of the board. In the self-hosted mode the same tool set is served over HTTP at `/mcp`. The tools are a one-to-one projection of the HTTP API — same resources, same actions, same semantic zone names, item ids called `uid`:
+`aeman mcp --repo name=url` starts a Model Context Protocol server on **stdio, or on a loopback HTTP daemon shared by every client on the machine** (`--listen 127.0.0.1:8766`), on its own clone of the board. In the self-hosted mode the same tool set is served over HTTP at `/mcp`, statelessly: every request stands on its own with no session id, so it answers both the MCP 2025 `initialize` handshake and the 2026-07-28 protocol (`server/discover`, then `tools/list`) that ChatGPT's connector speaks; a `GET` stream is refused with 405, as nothing is pushed to a client. The tools are a one-to-one projection of the HTTP API — same resources, same actions, same semantic zone names, item ids called `uid`:
 
 | Tool | Purpose |
 | --- | --- |

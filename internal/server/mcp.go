@@ -37,9 +37,18 @@ type mcpLoginCtxKey struct{}
 // The guard protects an UNAUTHENTICATED local server from a page that rebinds
 // a hostname to 127.0.0.1; this endpoint answers nothing without a bearer
 // token, which such a page does not have.
+//
+// The transport is stateless (G86): every request stands on its own, with no
+// session id. That is what MCP 2026-07-28 is — server/discover, then
+// tools/list — and a session-keeping transport does not offer that version
+// at all, so ChatGPT's connector signed in and then failed to discover the
+// tools. Clients of the 2025 initialize handshake connect as before; nothing
+// here pushes to a client, so the GET stream a session would keep has
+// nothing to carry.
 func (s *Server) registerMCP(mux *http.ServeMux) {
 	handler := mcp.NewStreamableHTTPHandler(s.mcpServerForRequest, &mcp.StreamableHTTPOptions{
 		DisableLocalhostProtection: true,
+		Stateless:                  true,
 	})
 	protected := auth.RequireBearerToken(s.auth.verifyToken, &auth.RequireBearerTokenOptions{
 		ResourceMetadataURL: s.auth.baseURL() + "/.well-known/oauth-protected-resource",
