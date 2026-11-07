@@ -279,7 +279,7 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Type: in.Type, Domain: in.Domain,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Team: in.Team, ReviewOf: in.ReviewOf,
-		Parked: in.Parked, Size: in.Size,
+		Parked: in.Parked, Size: in.Size, Priority: in.Priority,
 		Recurrence:  in.Recurrence,
 		Description: in.Body,
 		Parent:      in.Parent, Assignees: []string{},

@@ -124,13 +124,34 @@ func (ix *Index) BacklogKey(c Card) BacklogKey {
 	if NeedsReviewer(c) {
 		k := BacklogKey{Loose: true, Path: []int{ix.pos[c.ItemID]}}
 		if task, ok := ix.Find(c.ReviewOf); ok && task.ReviewOf == "" {
-			k = ix.taskKey(task)
+			k = ix.reviewedKey(task)
 		}
 		p, _ := ix.EffectivePriority(c)
 		k.Group, k.Review = priorityRank(p), true
 		return k
 	}
 	return ix.taskKey(c)
+}
+
+// reviewedKey is where the task a review stands by is placed for that
+// review: its PLANNING chain and its own place — a subtask's parent task is
+// not on the path, as the client reads it off the review card's
+// status.lineage, which carries the planning chain alone.
+func (ix *Index) reviewedKey(task Card) BacklogKey {
+	var up []Card
+	for _, a := range ix.Lineage(task) {
+		if IsPlanning(a) {
+			up = append(up, a)
+		}
+	}
+	if len(up) == 0 {
+		return BacklogKey{Loose: true, Path: []int{ix.pos[task.ItemID]}}
+	}
+	path := []int{Level(TypeGoal) - Level(up[0].Type)}
+	for _, a := range up {
+		path = append(path, ix.pos[a.ItemID])
+	}
+	return BacklogKey{Path: append(path, ix.pos[task.ItemID])}
 }
 
 // taskKey is a task's place by its own effective priority and tree.

@@ -387,3 +387,29 @@ func TestAReviewNobodyHasTakenIsInTheBacklog(t *testing.T) {
 		t.Fatal("the review waiting for a reviewer is on a board: its backlog")
 	}
 }
+
+// A review of a SUBTASK is placed by the subtask's PLANNING chain and its own
+// place — not its parent task's — exactly as the client reads it off the
+// review card's status.lineage (the planning chain only). Pinned on both
+// sides (backlogboard.test.ts, "a review of a subtask").
+func TestAReviewOfASubtaskIsPlacedByThePlanningChain(t *testing.T) {
+	today := "2026-11-02"
+	b := NewBoard([]Card{
+		{ItemID: "e", Type: TypeEpic},
+		{ItemID: "t", Parent: "e", SprintStart: today},
+		{ItemID: "t2", Parent: "e", Stage: StageReview, SprintStart: today},
+		{ItemID: "s", Parent: "t", Stage: StageReview, SprintStart: today},
+		{ItemID: "r-sub", ReviewOf: "s", Parked: true},
+		{ItemID: "r-t2", ReviewOf: "t2", Parked: true},
+	})
+	ix := NewIndex(b)
+	var listed []Card
+	for _, c := range b.Cards {
+		if ix.OnBacklog(c) {
+			listed = append(listed, c)
+		}
+	}
+	if got, want := ids(BacklogOrder(ix, listed)), []string{"r-t2", "r-sub"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("BacklogOrder = %v, want %v (s stands after t2 in the board's order)", got, want)
+	}
+}

@@ -383,6 +383,12 @@ func setKnown(f *CardFile, key string, val *yaml.Node) bool {
 	case "parked":
 		c.Parked = val.Value == "true"
 	case "priority":
+		// A value the board has no such thing as is an UNKNOWN key: kept
+		// as it is, and no priority — it neither shadows what the card
+		// inherits nor reaches a status.
+		if !board.ValidPriority(val.Value) {
+			return false
+		}
 		c.Priority = board.PriorityKey(val.Value)
 	default:
 		return false

@@ -451,7 +451,7 @@ func cardFromInput(in board.CreateInput, id, created, author string) board.Card 
 	c := board.Card{
 		ItemID: id, Title: in.Title, Type: in.Type, Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Team: in.Team, ReviewOf: in.ReviewOf, Parent: in.Parent,
-		Parked: in.Parked, Size: in.Size, Recurrence: in.Recurrence,
+		Parked: in.Parked, Size: in.Size, Priority: in.Priority, Recurrence: in.Recurrence,
 		Description: in.Body, CreatedAt: created, Author: author,
 	}
 	if in.Assignee != "" {

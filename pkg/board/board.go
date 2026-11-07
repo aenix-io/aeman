@@ -94,8 +94,8 @@ type Card struct {
 	// task is in work (a date or a sprint) or parked, never both and never
 	// neither (K1). Read it through board.InBacklog.
 	Parked bool `json:"parked,omitempty"`
-	// Priority is how much the card matters now, said by a person: P1, P2,
-	// P3 or none (K15). Any card carries one; what it counts under is its
+	// Priority is how much the card matters now, said by a person: P0 (the
+	// highest) to P4, or none (K15). Any card carries one; what it counts under is its
 	// EFFECTIVE priority — its own, else the nearest ancestor's
 	// (Index.EffectivePriority). Never cleared by taking, finishing or
 	// reopening the card.
@@ -173,16 +173,19 @@ type CreateInput struct {
 	Domain string `json:"domain,omitempty"`
 	Title  string `json:"title"`
 	// Type is the card's level: "" (a task), "goal", "initiative" or "epic".
-	Type        string  `json:"type,omitempty"`
-	Zone        ZoneKey `json:"zone,omitempty"`
-	Size        SizeKey `json:"size,omitempty"`
-	Day         string  `json:"day,omitempty"`
-	Start       string  `json:"start,omitempty"`
-	SprintStart string  `json:"sprintStart,omitempty"`
-	Assignee    string  `json:"assignee,omitempty"`
-	Team        string  `json:"team,omitempty"`
-	ReviewOf    string  `json:"reviewOf,omitempty"`
-	Parent      string  `json:"parent,omitempty"`
+	Type string  `json:"type,omitempty"`
+	Zone ZoneKey `json:"zone,omitempty"`
+	Size SizeKey `json:"size,omitempty"`
+	// Priority is the card's own priority (K15) — a recurrent card's copy
+	// keeps it, as it keeps its size.
+	Priority    PriorityKey `json:"priority,omitempty"`
+	Day         string      `json:"day,omitempty"`
+	Start       string      `json:"start,omitempty"`
+	SprintStart string      `json:"sprintStart,omitempty"`
+	Assignee    string      `json:"assignee,omitempty"`
+	Team        string      `json:"team,omitempty"`
+	ReviewOf    string      `json:"reviewOf,omitempty"`
+	Parent      string      `json:"parent,omitempty"`
 	// Parked puts the card straight on its team's SHELF: born there rather
 	// than born somewhere else and moved, which is one commit instead of two
 	// and spares every reader the instant in between.

@@ -144,9 +144,10 @@ func LeafTasks(b Board, id string) []Card { return NewIndex(b).LeafTasks(id) }
 
 // HierarchyStatus is a planning card's standing, derived from its leaf tasks
 // and never stored (H5): NO ITEMS when nothing is under it; DONE when every
-// leaf task is complete; IN PROGRESS when any of them is somebody's, has
-// started, or is finished — a person named on a task is work being done
-// before the first percent is typed; TO DO otherwise. The counts are what
+// leaf task is complete; IN PROGRESS when any open one is in work (a date or
+// a sprint, not parked); BACKLOG when there are open ones and none is in
+// work (amended with K16: progress, a person or a stage alone do not count).
+// The counts are what
 // the Roadmap shows beside the word. A task answers "" — it has a stage and
 // a progress of its own.
 func HierarchyStatus(b Board, c Card) (status string, done, total int) {

@@ -56,3 +56,27 @@ func TestAStrayTodoKeyIsKeptAndIgnored(t *testing.T) {
 		t.Fatalf("the unknown key is written back:\n%s", out)
 	}
 }
+
+// A `priority:` the board has no such thing as — written by hand, or by a
+// tool on another scale — is read as an UNKNOWN key: kept and written back
+// as it was, and the card has no priority of its own, so it neither shadows
+// what it inherits nor reaches a status or a badge.
+func TestAPriorityTheBoardDoesNotKnowIsAnUnknownKey(t *testing.T) {
+	for _, bad := range []string{"p1", "high", "P5"} {
+		data := []byte("---\ntitle: odd\npriority: " + bad + "\nrank: a\n---\n")
+		f, err := DecodeCard("01JB4ODD", data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.Card.Priority != board.PriorityNone || len(f.Extra) != 1 || f.Extra[0].Key != "priority" {
+			t.Fatalf("%s: priority %q, extra %+v; want none and the key kept", bad, f.Card.Priority, f.Extra)
+		}
+		out, err := EncodeCard(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(out), "priority: "+bad) {
+			t.Fatalf("%s: the key is written back:\n%s", bad, out)
+		}
+	}
+}

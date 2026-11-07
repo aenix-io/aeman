@@ -243,6 +243,7 @@ const (
 	ParentNotFound       ProblemCode = "parentNotFound"
 	PlanningCard         ProblemCode = "planningCard"
 	PointsRequired       ProblemCode = "pointsRequired"
+	PriorityFollowsTask  ProblemCode = "priorityFollowsTask"
 	ReviewCardLink       ProblemCode = "reviewCardLink"
 	SetupRequired        ProblemCode = "setupRequired"
 	SomebodysCard        ProblemCode = "somebodysCard"
@@ -379,6 +380,8 @@ func (e ProblemCode) Valid() bool {
 	case PlanningCard:
 		return true
 	case PointsRequired:
+		return true
+	case PriorityFollowsTask:
 		return true
 	case ReviewCardLink:
 		return true

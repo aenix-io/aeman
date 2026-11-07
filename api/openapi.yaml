@@ -618,7 +618,8 @@ paths:
         Roadmap's order. An empty value clears the card's own. Nothing
         clears it on its own: taking the card into work, finishing it and
         reopening it keep it. Anything but P0, P1, P2, P3, P4 or empty is
-        422 `badPriority`.
+        422 `badPriority`. A review card's priority is its task's: setting
+        one on a review card is 422 `priorityFollowsTask`.
       parameters:
         - $ref: '#/components/parameters/Uid'
       requestBody:
@@ -1374,6 +1375,7 @@ components:
             - parentNotFound
             - planningCard
             - pointsRequired
+            - priorityFollowsTask
             - reviewCardLink
             - setupRequired
             - somebodysCard
@@ -1799,7 +1801,8 @@ components:
             `Ordering` frame carries it. A backlog reads by effective
             priority (P0 to P4, then none), each in the Roadmap's order (the
             path of places in this order from the root plan item down to the
-            task), a review nobody has taken above them all; a client that
+            task), a review nobody has taken first in its task's priority; a
+            client that
             places a card the watch brings in, or re-sorts on an `Ordering`
             frame, reads the same key from it.
           items:

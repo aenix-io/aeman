@@ -210,3 +210,18 @@ func TestUnassignedDryRunNamesTheTasksAndWritesNothing(t *testing.T) {
 		t.Fatalf("a dry run on parked work = %v, want ErrNotInWork", err)
 	}
 }
+
+// A review card's priority is its task's (K15): it is not set on the review
+// card itself — the refusal names that.
+func TestThePriorityOfAReviewIsItsTasks(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "t", Team: "alpha", Stage: board.StageReview, SprintStart: board.TodayIso()},
+		{ItemID: "r", Team: "alpha", ReviewOf: "t", Parked: true},
+	}, nil)
+	if err := New(f).SetPriority(ctx, "acme", "r", "P1"); !errors.Is(err, ErrPriorityFollowsTask) {
+		t.Fatalf("SetPriority on a review card = %v, want ErrPriorityFollowsTask", err)
+	}
+	if f.count("SetPriority") != 0 {
+		t.Fatal("nothing is written")
+	}
+}

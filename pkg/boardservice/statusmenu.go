@@ -26,6 +26,10 @@ import (
 //     write — so it is applied whole or not at all, off one read of the
 //     board.
 
+// ErrPriorityFollowsTask is a priority set on a review card: a review's
+// priority is its task's, set on the task.
+var ErrPriorityFollowsTask = errors.New("a review's priority is its task's: set it on the task")
+
 // ErrBadPriority is a priority the board has no such thing as.
 var ErrBadPriority = errors.New("a priority is P0, P1, P2, P3, P4 or none")
 
@@ -97,6 +101,9 @@ func (s *Service) SetPriority(ctx context.Context, boardID string, itemID string
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
+	}
+	if card.ReviewOf != "" {
+		return fmt.Errorf("%w: %q", ErrPriorityFollowsTask, card.Title)
 	}
 	if card.Priority == board.PriorityKey(priority) {
 		return nil
