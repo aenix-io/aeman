@@ -47,20 +47,29 @@ func priorityRank(p PriorityKey) int {
 // EffectivePriority is the priority a card counts under (K15): its own when
 // it has one, else the nearest ancestor's that has one, else none — and the
 // card it came from (the zero Card when it is the card's own, or nobody's).
-// A review card counts under its task's. Computed on reading, never written
-// down: changing a plan item's priority changes every card under it that has
-// none of its own.
+// A review card counts under its task's, and a review of a review (a direct
+// writer's) under the review it reviews — so beside it in a backlog; a cycle
+// of reviews ends under nobody. Computed on reading, never written down:
+// changing a plan item's priority changes every card under it that has none
+// of its own.
 func (ix *Index) EffectivePriority(c Card) (PriorityKey, Card) {
 	if c.Priority != PriorityNone {
 		return c.Priority, Card{}
 	}
-	if c.ReviewOf != "" {
-		if task, ok := ix.Find(c.ReviewOf); ok && task.ReviewOf == "" {
-			if task.Priority != PriorityNone {
-				return task.Priority, task
-			}
-			return ix.EffectivePriority(task)
+	seen := map[string]bool{c.ItemID: true}
+	for c.ReviewOf != "" {
+		task, ok := ix.Find(c.ReviewOf)
+		if !ok {
+			break
 		}
+		if seen[task.ItemID] {
+			return PriorityNone, Card{}
+		}
+		seen[task.ItemID] = true
+		if task.Priority != PriorityNone {
+			return task.Priority, task
+		}
+		c = task
 	}
 	up := ix.Lineage(c)
 	for i := len(up) - 1; i >= 0; i-- {

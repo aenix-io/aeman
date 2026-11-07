@@ -225,3 +225,33 @@ func TestCardFileDescriptionMayMentionNotes(t *testing.T) {
 		t.Fatalf("notes mis-split: %d", len(out.Card.Notes))
 	}
 }
+
+// A `priority:` the board has no such value for rides through as an unknown
+// key — until a valid one is set. Written then, the file must say priority
+// ONCE: two `priority:` keys are a duplicate YAML key, and every later parse
+// of the card fails, so the card drops into Broken on every replica.
+func TestAValidPriorityReplacesAnInvalidOneInTheFile(t *testing.T) {
+	f, err := DecodeCard("01C", []byte("---\ntitle: t\npriority: high\n---\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Card.Priority != "" {
+		t.Fatalf("an invalid priority read as %q", f.Card.Priority)
+	}
+	// Kept while nothing replaces it.
+	if out, err := EncodeCard(f); err != nil || !strings.Contains(string(out), "priority: high") {
+		t.Fatalf("the unknown value is kept as it is: %v\n%s", err, out)
+	}
+	f.Card.Priority = board.PriorityKey("P1")
+	out, err := EncodeCard(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(out), "priority:"); n != 1 {
+		t.Fatalf("the file says priority %d times:\n%s", n, out)
+	}
+	again, err := DecodeCard("01C", out)
+	if err != nil || again.Card.Priority != "P1" {
+		t.Fatalf("re-read = %q, %v", again.Card.Priority, err)
+	}
+}

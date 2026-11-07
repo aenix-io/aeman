@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Provider } from "./providers/types";
-import { Tombstones, withTombstones } from "./tombstones";
+import { notTombstoned, Tombstones, withTombstones } from "./tombstones";
 
 // A card this tab deleted stays deleted on its board. The delete is several
 // writes on the server (a plan item's children move up first), and a frame
@@ -73,5 +73,40 @@ describe("the writes that mark a card", () => {
     t.mark("old", 0);
     t.mark("new", 100);
     expect(t.size).toBe(1);
+  });
+});
+
+// A LISTING is guarded as the watch is. A list request sent before the
+// delete and answered after the DELETED still carries the card; merged into
+// the board, or cached for the drawer's tree, it would bring the card back
+// until the next reload. The cards this tab deleted are left out of it.
+describe("a listing after a delete", () => {
+  it("leaves out the cards this tab deleted, and only those", () => {
+    const t = new Tombstones(60_000);
+    t.mark("epic", 0);
+    const listed = [{ itemId: "epic" }, { itemId: "task" }];
+    expect(notTombstoned(listed, t, 1_000).map((c) => c.itemId)).toEqual(["task"]);
+    // Once the span is over the listing is the server's word again.
+    expect(notTombstoned(listed, t, 61_001).map((c) => c.itemId)).toEqual(["epic", "task"]);
+    // A refused delete lifts the mark: the card is listed at once.
+    t.mark("task", 0);
+    t.lift("task");
+    expect(notTombstoned([{ itemId: "task" }], t, 1_000).map((c) => c.itemId)).toEqual(["task"]);
+  });
+});
+
+// A write the store finally rejected (a SyncError frame) may be one of this
+// tab's deletes: the server rolls the card back and sends it again, and the
+// mark must not turn it away or keep it out of the next listing. The tab
+// cannot tell which delete failed, so it forgets them all.
+describe("a sync error clears every mark", () => {
+  it("lets the rolled-back cards back in at once", () => {
+    const t = new Tombstones(60_000);
+    t.mark("a", 1000);
+    t.mark("b", 1000);
+    t.clear();
+    expect(t.size).toBe(0);
+    expect(t.blocks("a", "ADDED", 1001)).toBe(false);
+    expect(notTombstoned([{ itemId: "a" }, { itemId: "b" }], t, 1001)).toHaveLength(2);
   });
 });

@@ -1186,11 +1186,18 @@ export function effectivePriorityIn(cards: readonly Card[], c: Card): { priority
     return { priority: c.priority };
   }
   const byId = new Map(cards.map((x) => [x.itemId, x]));
-  if (c.reviewOf) {
-    const task = byId.get(c.reviewOf);
-    if (task && !task.reviewOf) {
-      return task.priority ? { priority: task.priority, from: task } : effectivePriorityIn(cards, task);
+  // A review counts under its task's, a review of a review under the review
+  // it reviews; a cycle of reviews ends under nobody.
+  const reviewed = new Set<string>([c.itemId]);
+  for (let task = byId.get(c.reviewOf ?? ""); task; task = byId.get(c.reviewOf ?? "")) {
+    if (reviewed.has(task.itemId)) {
+      return {};
     }
+    reviewed.add(task.itemId);
+    if (task.priority) {
+      return { priority: task.priority, from: task };
+    }
+    c = task;
   }
   const seen = new Set<string>([c.itemId]);
   for (let up = byId.get(c.parent ?? ""); up && !seen.has(up.itemId); up = byId.get(up.parent ?? "")) {
@@ -1272,11 +1279,31 @@ export function latestWins(): { next: (id: string) => number; isLatest: (id: str
   };
 }
 
-/** statusUids is the tasks a gesture names to the server: the ones the
- *  reader was shown and counted — with a Roadmap filter on, fewer than the
- *  board holds — so the server acts on exactly those. */
-export function statusUids(targets: readonly Card[]): string[] {
-  return targets.map((t) => t.itemId);
+/** refusalRollback is what a refused priority press puts back: the state
+ *  before it — but only when it is still the latest press on the card. An
+ *  older press failing after a newer one was shown must not undo the newer
+ *  choice; the newer press settles it with its own answer. */
+export function refusalRollback<T>(seq: { isLatest: (id: string, n: number) => boolean }, id: string, n: number, before: T[]): T[] {
+  return seq.isLatest(id, n) ? before : [];
+}
+
+/** unassignPreview is the tasks UNASSIGNED will name to the server — the
+ *  ones it would take, which the confirm counts — or null when there are
+ *  none: the board moved since the menu opened, and "Take 0 tasks out of
+ *  work?" is no question to ask. */
+export function unassignPreview(targets: readonly Card[]): string[] | null {
+  return targets.length > 0 ? targets.map((t) => t.itemId) : null;
+}
+
+/** NOTHING_IN_WORK is what UNASSIGNED says of a row with nothing in work
+ *  under it — the disabled menu item's title, and the notice a press gets
+ *  when the server found nothing after the menu opened. */
+export const NOTHING_IN_WORK = "Nothing in work here";
+
+/** unassignNotice is what a press of UNASSIGNED says when there is no
+ *  confirm to open (unassignPreview found nothing), else null. */
+export function unassignNotice(uids: readonly string[] | null): string | null {
+  return uids ? null : NOTHING_IN_WORK;
 }
 
 /** unassignQuestion is what the confirm asks before UNASSIGNED. */

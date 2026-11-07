@@ -1,0 +1,38 @@
+{
+  "comment": "One fixture for board.BacklogOrder (Go) and backlogboard.backlogList (TS): the same cards in the same board order must read in the same backlog order. `cards` is the board in its order; `wire` is what the server sends a client for each backlog card (status.lineage as uid/type pairs, status.effectivePriority) - pkg/apiserver checks it against CardResource, so the client's input is the server's own answer; `order` is the backlog of team alpha as both sides read it; `subtask` is which cards ride a parent TASK (board.IsSubtask / subtasks.isSubtask) - a review card's own stray parent naming a plan item makes it no subtask, so a taken one stays on the day boards.",
+  "cards": [
+    { "itemId": "g1", "type": "goal", "priority": "P1" },
+    { "itemId": "e1", "type": "epic", "parent": "g1" },
+    { "itemId": "g2", "type": "goal" },
+    { "itemId": "e2", "type": "epic", "parent": "g2" },
+    { "itemId": "t-a", "parent": "e1", "team": "alpha", "parked": true },
+    { "itemId": "t-b", "parent": "e1", "team": "alpha", "parked": true, "priority": "P0" },
+    { "itemId": "t-c", "parent": "e2", "team": "alpha", "parked": true },
+    { "itemId": "t-d", "parent": "e2", "team": "alpha", "parked": true, "priority": "P3" },
+    { "itemId": "loose1", "team": "alpha", "parked": true, "priority": "P1" },
+    { "itemId": "t-work", "parent": "e1", "team": "alpha", "sprintStart": "2026-11-02", "startDate": "2026-11-03", "stage": "review", "progress": 50 },
+    { "itemId": "r-a", "team": "alpha", "parked": true, "reviewOf": "t-a" },
+    { "itemId": "loose2", "team": "alpha", "parked": true },
+    { "itemId": "r-work", "team": "alpha", "parked": true, "reviewOf": "t-work" },
+    { "itemId": "r-parent", "team": "alpha", "parked": true, "reviewOf": "loose2", "parent": "e2" },
+    { "itemId": "rr", "team": "alpha", "parked": true, "reviewOf": "r-a" },
+    { "itemId": "r-taken", "team": "alpha", "reviewOf": "t-c", "parent": "e1", "assignees": ["bob"], "sprintStart": "2026-11-02", "startDate": "2026-11-03" },
+    { "itemId": "kid", "parent": "t-a", "team": "alpha" }
+  ],
+  "wire": {
+    "t-a": { "lineage": ["goal:g1", "epic:e1"], "effectivePriority": "P1" },
+    "t-b": { "lineage": ["goal:g1", "epic:e1"], "effectivePriority": "P0" },
+    "t-c": { "lineage": ["goal:g2", "epic:e2"] },
+    "t-d": { "lineage": ["goal:g2", "epic:e2"], "effectivePriority": "P3" },
+    "loose1": { "lineage": [], "effectivePriority": "P1" },
+    "loose2": { "lineage": [] },
+    "r-a": { "lineage": ["goal:g1", "epic:e1"], "effectivePriority": "P1" },
+    "r-work": { "lineage": ["goal:g1", "epic:e1"], "effectivePriority": "P1" },
+    "r-parent": { "lineage": [] },
+    "rr": { "lineage": [], "effectivePriority": "P1" },
+    "r-taken": { "lineage": ["goal:g2", "epic:e2"] },
+    "kid": { "lineage": ["goal:g1", "epic:e1", ":t-a"], "effectivePriority": "P1", "subtask": true }
+  },
+  "subtask": { "t-a": false, "r-a": false, "r-parent": false, "rr": false, "r-taken": false, "kid": true },
+  "order": ["t-b", "r-a", "r-work", "rr", "t-a", "loose1", "t-d", "r-parent", "t-c", "loose2"]
+}

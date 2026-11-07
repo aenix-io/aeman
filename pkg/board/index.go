@@ -202,6 +202,37 @@ func (ix *Index) LeafTasks(id string) []Card {
 	return out
 }
 
+// HierarchyStatusAs is HierarchyStatus as a visitor who reads only some
+// cards would compute it on their visible board (Visible): the walk goes
+// down through the planning cards they can read, and counts the tasks they
+// can read. A watch frame built over the whole board answers with it, so a
+// stream tells a visitor no more than their listing does.
+func (ix *Index) HierarchyStatusAs(c Card, can func(Card) bool) (status string, done, total int) {
+	if !IsPlanning(c) {
+		return "", 0, 0
+	}
+	subtree := map[string]bool{c.ItemID: true}
+	for frontier := []string{c.ItemID}; len(frontier) > 0; {
+		var next []string
+		for _, pid := range frontier {
+			for _, k := range ix.ChildrenOf(pid) {
+				if IsPlanning(k) && !subtree[k.ItemID] && can(k) {
+					subtree[k.ItemID] = true
+					next = append(next, k.ItemID)
+				}
+			}
+		}
+		frontier = next
+	}
+	var leaves []Card
+	for _, k := range ix.cards {
+		if !IsPlanning(k) && k.ReviewOf == "" && subtree[k.Parent] && can(k) {
+			leaves = append(leaves, k)
+		}
+	}
+	return hierarchyStatus(leaves)
+}
+
 // HierarchyStatus is board.HierarchyStatus.
 func (ix *Index) HierarchyStatus(c Card) (status string, done, total int) {
 	if !IsPlanning(c) {

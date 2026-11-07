@@ -117,6 +117,10 @@ export interface Card {
    *  entry is the parent itself, and its type is what tells a subtask from a
    *  task under an epic without a lookup. */
   lineage?: LineageRef[];
+  /** On a REVIEW card, whether it rides a parent TASK (status.subtask): its
+   *  lineage is the reviewed task's chain, so a stray parent of its own
+   *  cannot be read off it. Absent on every other card. */
+  subtask?: boolean;
   /** On a REVIEW card, the card it reviews (status.reviewed): its uid, title
    *  and people, so the drawer and the backlog row can name it, open it and
    *  draw whose it is. */

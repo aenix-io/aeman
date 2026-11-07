@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cardIsGone, drawerEscapes, followFrame, followPatch, placementAnswer } from "./detail";
+import { cardIsGone, drawerEscapes, followFrame, followPatch, joinsTree, placementAnswer, withoutDeleted } from "./detail";
 import type { Card } from "./providers/types";
 
 const card = (over: Partial<Card>): Card => ({ itemId: "t", title: "Invoices", assignees: [], progress: 0, ...over }) as Card;
@@ -86,5 +86,34 @@ describe("Esc in the drawer", () => {
     expect(drawerEscapes({ key: "Escape", defaultPrevented: true }, false)).toBe(false);
     expect(drawerEscapes({ key: "Escape", defaultPrevented: false }, true)).toBe(false);
     expect(drawerEscapes({ key: "Enter", defaultPrevented: false }, false)).toBe(false);
+  });
+});
+
+// THE DRAWER'S TREE takes a card made in another tab: an ADDED frame for a
+// card whose parent chain, through the cards the tree holds, reaches the
+// card the drawer shows. Anything else is another tree's.
+describe("a card made elsewhere under the drawer's card", () => {
+  const tree = [card({ itemId: "e", type: "epic" }), card({ itemId: "t1", parent: "e" })];
+  it("joins when its chain reaches the drawer's card", () => {
+    expect(joinsTree(tree, card({ itemId: "new", parent: "e" }), "e")).toBe(true);
+    expect(joinsTree(tree, card({ itemId: "sub", parent: "t1" }), "e")).toBe(true);
+  });
+  it("does not when its chain ends elsewhere, or it is already there", () => {
+    expect(joinsTree(tree, card({ itemId: "far", parent: "other" }), "e")).toBe(false);
+    expect(joinsTree(tree, card({ itemId: "root" }), "e")).toBe(false);
+    expect(joinsTree(tree, card({ itemId: "t1", parent: "e" }), "e")).toBe(false);
+    // A cycle a direct writer made ends the walk.
+    const loop = [card({ itemId: "a", parent: "b" }), card({ itemId: "b", parent: "a" })];
+    expect(joinsTree(loop, card({ itemId: "n", parent: "a" }), "e")).toBe(false);
+  });
+});
+
+// BACK never lands on a deleted card: a card deleted outright leaves the
+// drawer's history as it leaves the drawer.
+describe("the drawer's history", () => {
+  it("drops a card deleted outright", () => {
+    const stack = [card({ itemId: "a" }), card({ itemId: "b" }), card({ itemId: "a" })];
+    expect(withoutDeleted(stack, "a").map((c) => c.itemId)).toEqual(["b"]);
+    expect(withoutDeleted(stack, "z")).toBe(stack);
   });
 });

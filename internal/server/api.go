@@ -634,10 +634,33 @@ func (a surface) DeleteCard(ctx context.Context, req apiv1.DeleteCardRequestObje
 	if err != nil {
 		return nil, err
 	}
+	named := a.s.nameDeleteOf(ctx, svc, boardID, req.UID)
 	if err := svc.DeleteCard(ctx, boardID, req.UID); err != nil {
 		return nil, err
 	}
+	named()
 	return apiv1.DeleteCard204Response{}, nil
+}
+
+// nameDeleteOf reads the card a request is about to act on and returns
+// what names the request's commit for the delete once it is done — when the
+// card is gone by then. A delete writes other cards first (subtasks freed
+// or taken along, a reviewed task put back In progress), and the commit
+// would otherwise be named for the first of those (G88).
+func (s *Server) nameDeleteOf(ctx context.Context, svc *boardservice.Service, boardID, uid string) func() {
+	if s.gitBE == nil {
+		return func() {}
+	}
+	of, err := s.cardsOf(ctx, svc, boardID, []string{uid})
+	if err != nil || len(of) != 1 {
+		return func() {}
+	}
+	title := of[0].Spec.Title
+	return func() {
+		if still, err := s.cardsOf(ctx, svc, boardID, []string{uid}); err == nil && len(still) == 0 {
+			s.gitBE.nameAction(actionFrom(ctx).ID, "delete «"+title+"»")
+		}
+	}
 }
 
 // RemoveCard is the board's ×: hand the card back to a home it still has, or
@@ -668,9 +691,11 @@ func (a surface) RemoveCard(ctx context.Context, req apiv1.RemoveCardRequestObje
 	if err != nil {
 		return nil, err
 	}
+	named := a.s.nameDeleteOf(ctx, svc, boardID, req.UID)
 	if err := svc.Remove(ctx, boardID, req.UID, view, intent); err != nil {
 		return nil, err
 	}
+	named()
 	return apiv1.RemoveCard204Response{}, nil
 }
 
@@ -785,6 +810,11 @@ func (a surface) UnassignWork(ctx context.Context, req apiv1.UnassignWorkRequest
 		changed, err = svc.UnassignPreview(ctx, boardID, req.UID)
 	} else {
 		changed, err = svc.UnassignWork(ctx, boardID, req.UID, uids)
+		if err == nil && len(changed) > 0 && a.s.gitBE != nil {
+			if of, oerr := a.s.cardsOf(ctx, svc, boardID, []string{req.UID}); oerr == nil && len(of) == 1 {
+				a.s.gitBE.nameAction(actionFrom(ctx).ID, unassignSummary(of[0], len(changed)))
+			}
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -794,6 +824,19 @@ func (a surface) UnassignWork(ctx context.Context, req apiv1.UnassignWorkRequest
 		return nil, err
 	}
 	return apiv1.UnassignWork200JSONResponse{Changed: len(changed), Items: items}, nil
+}
+
+// unassignSummary names UNASSIGNED's commit for what it did: the task, or
+// how many tasks under which plan item.
+func unassignSummary(on apiserver.Card, n int) string {
+	if on.Spec.Type == "" {
+		return "take «" + on.Spec.Title + "» out of work"
+	}
+	tasks := "tasks"
+	if n == 1 {
+		tasks = "task"
+	}
+	return fmt.Sprintf("take %d %s out of work under «%s»", n, tasks, on.Spec.Title)
 }
 
 // RemoveReviewer deletes the linked review card.

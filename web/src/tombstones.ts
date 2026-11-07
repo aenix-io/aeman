@@ -30,6 +30,13 @@ export class Tombstones {
     return this.at.size;
   }
 
+  /** clear drops every mark: a write the store finally rejected (a
+   *  SyncError) may be any of this tab's deletes, and the cards it rolls back
+   *  must come back at once. */
+  clear(): void {
+    this.at.clear();
+  }
+
   /** lift drops the mark: the delete was refused. */
   lift(uid: string): void {
     this.at.delete(uid);
@@ -48,6 +55,14 @@ export class Tombstones {
     }
     return type !== "DELETED";
   }
+}
+
+/** notTombstoned leaves out of a LISTING the cards this tab deleted within
+ *  the span: a list request sent before the delete and answered after the
+ *  DELETED still carries the card, and merged into the board — or cached for
+ *  the drawer's tree — it would bring the card back as a frame would. */
+export function notTombstoned<T extends { itemId: string }>(cards: readonly T[], t: Tombstones, now = Date.now()): T[] {
+  return cards.filter((c) => !t.blocks(c.itemId, "MODIFIED", now));
 }
 
 /** withTombstones marks the cards a delete takes away: every deleteCard, and

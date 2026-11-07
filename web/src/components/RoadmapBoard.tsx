@@ -28,9 +28,12 @@ import {
   statusMenu,
   rolledUpAfter,
   workPatchOf,
-  statusUids,
+  unassignPreview,
+  unassignNotice,
+  NOTHING_IN_WORK,
   priorityAfter,
   latestWins,
+  refusalRollback,
   unassignQuestion,
   UNASSIGNED_LOCALLY,
   droppable,
@@ -236,7 +239,7 @@ interface RowProps {
    *  card, which has none of a task's. */
   owner: ReactNode;
   /** The badge's menu (priorities, UNASSIGNED; K15, K16), opened from the
-   *  badge; null on a row that offers none (a project card). */
+   *  badge; null on a row that offers none. */
   onStatus: ((badge: HTMLElement) => void) | null;
   /** The status menu stands open on this row (aria-expanded). */
   menuOpen: boolean;
@@ -876,7 +879,9 @@ export function RoadmapBoard({
         }
       })
       .catch((err: unknown) => {
-        for (const b of before) {
+        // Put back only what THIS press changed while it is still the
+        // latest: a newer press shown since settles the card itself.
+        for (const b of refusalRollback(prioritySeq.current, card.itemId, n, before)) {
           patchCard(b.id, b.patch);
         }
         onError(errText(err));
@@ -1220,7 +1225,7 @@ export function RoadmapBoard({
               role="menuitem"
               className="roadmap-status-item"
               disabled={!menu.unassign}
-              title={menu.unassign ? "Take out of work, back to the backlog" : "Nothing in work here"}
+              title={menu.unassign ? "Take out of work, back to the backlog" : NOTHING_IN_WORK}
               onClick={() => {
                 // The confirm counts what the SERVER would take: the
                 // Roadmap may be filtered, and only the whole board knows
@@ -1229,7 +1234,17 @@ export function RoadmapBoard({
                 setStatusFor(null);
                 void provider
                   .previewUnassign(card.itemId)
-                  .then((would) => setUnassigning({ card, uids: statusUids(would) }))
+                  .then((would) => {
+                    // Nothing in work under it any more: no confirm to open,
+                    // but the press is answered rather than swallowed.
+                    const uids = unassignPreview(would);
+                    const notice = unassignNotice(uids);
+                    if (notice) {
+                      onError(notice);
+                    } else if (uids) {
+                      setUnassigning({ card, uids });
+                    }
+                  })
                   .catch((err: unknown) => onError(errText(err)));
               }}
             >

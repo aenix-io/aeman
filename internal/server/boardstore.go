@@ -61,11 +61,25 @@ const watchBuffer = 256
 // the reviewed card unnamed, the due date taken from the nearest planning
 // card the subscriber can read. status.effectiveTeam and effectiveCustomers
 // are inherited from those cards too (O3, O4, O6), so they are worked out
-// again from the card's own and its readable ancestors'. A subscriber who
-// reads everything is sent the resource as built.
-func (sub *subscription) seen(res apiserver.Card, find func(string) (board.Card, bool)) apiserver.Card {
+// again from the card's own and its readable ancestors'. A plan item's
+// status.hierarchy counts the tasks under it, and is counted again over the
+// ones the subscriber can read (Index.HierarchyStatusAs) — what their
+// listing, built on their visible board, says. A subscriber who reads
+// everything is sent the resource as built.
+func (sub *subscription) seen(res apiserver.Card, ix *board.Index) apiserver.Card {
 	if sub.rights == nil {
 		return res
+	}
+	find := ix.Find
+	readable := func(c board.Card) bool { return sub.rights.canRead(c.Domain) }
+	if res.Status.Hierarchy != nil {
+		if c, ok := find(res.Metadata.UID); ok {
+			st, done, total := ix.HierarchyStatusAs(c, readable)
+			h := apiserver.Hierarchy{Status: st, Done: done, Total: total}
+			if h != *res.Status.Hierarchy {
+				res.Status.Hierarchy = &h
+			}
+		}
 	}
 	can := func(uid string) bool {
 		c, ok := find(uid)
@@ -80,6 +94,24 @@ func (sub *subscription) seen(res apiserver.Card, find func(string) (board.Card,
 	}
 	if res.Status.Reviewed != nil && !can(res.Status.Reviewed.UID) {
 		hidden = true
+	}
+	// A review card inherits through its TASK's ancestors too (O13, K15),
+	// which are on no crumb of its own: one the subscriber cannot read cuts
+	// the chain as it does on their listing.
+	if c, ok := find(res.Metadata.UID); ok && !hidden && c.ReviewOf != "" {
+		if task, ok := find(c.ReviewOf); ok {
+			for cur, hops := task, 0; cur.Parent != "" && hops < 6; hops++ {
+				p, ok := find(cur.Parent)
+				if !ok {
+					break
+				}
+				if !readable(p) {
+					hidden = true
+					break
+				}
+				cur = p
+			}
+		}
 	}
 	if !hidden {
 		return res
@@ -103,7 +135,6 @@ func (sub *subscription) seen(res apiserver.Card, find func(string) (board.Card,
 			}
 		}
 	}
-	readable := func(c board.Card) bool { return sub.rights.canRead(c.Domain) }
 	out.Status.EffectiveTeam, out.Status.EffectiveCustomers = inheritedFromReadable(res, find, readable)
 	out.Status.EffectivePriority, out.Status.EffectivePriorityFrom = priorityFromReadable(res, find, readable)
 	return out
@@ -766,7 +797,7 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 			if !built {
 				res, built = buildCard(e.board, index(), c), true
 			}
-			sub.send(watchFrame{Type: verb, Kind: "Card", Object: sub.seen(res, index().Find)})
+			sub.send(watchFrame{Type: verb, Kind: "Card", Object: sub.seen(res, index())})
 		}
 		for i := range ancestors {
 			a := ancestorAt(i)
@@ -776,7 +807,7 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 			if !a.built {
 				a.res, a.built = buildCard(e.board, index(), a.card), true
 			}
-			sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: sub.seen(a.res, index().Find)})
+			sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: sub.seen(a.res, index())})
 		}
 	}
 	if !scoped {
@@ -833,9 +864,9 @@ func (e *boardEntry) flushMembers() {
 			}
 			switch {
 			case !sub.members[c.ItemID]:
-				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix.Find)})
+				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix)})
 			case touched:
-				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix.Find)})
+				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix)})
 			}
 		}
 		for id := range sub.members {
@@ -856,7 +887,7 @@ func (e *boardEntry) flushMembers() {
 			}
 			obj := tombstone(id)
 			if onBoard {
-				obj = sub.seen(buildCard(e.board, ix, c), ix.Find)
+				obj = sub.seen(buildCard(e.board, ix, c), ix)
 			}
 			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})
 		}
@@ -887,7 +918,7 @@ func (e *boardEntry) reevaluate(origin string) {
 		for _, c := range apiserver.FilterCards(sub.view(e.board), *sub.sel) {
 			now[c.ItemID] = true
 			if !sub.members[c.ItemID] && !suppressed {
-				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix.Find)})
+				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix)})
 			}
 		}
 		for id := range sub.members {
@@ -896,7 +927,7 @@ func (e *boardEntry) reevaluate(origin string) {
 			}
 			obj := tombstone(id)
 			if c, ok := ix.Find(id); ok {
-				obj = sub.seen(buildCard(e.board, ix, c), ix.Find)
+				obj = sub.seen(buildCard(e.board, ix, c), ix)
 			}
 			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})
 		}
@@ -1205,6 +1236,9 @@ type storeBackend struct {
 	// not get split across two commits (holdAction).
 	heldMu sync.Mutex
 	held   map[string]*heldAction
+	// summaries name a request's commit when its first write would not
+	// (nameAction): one action of many cards is named for the action.
+	summaries map[string]string
 }
 
 // sweeper is the long-lived service the tick's housekeeping runs through.
@@ -1340,7 +1374,10 @@ func (b *storeBackend) installAndTake(e *boardEntry, fresh board.Board) board.Bo
 // installLocked is the body the two share. The caller holds e.mu.
 func (b *storeBackend) installLocked(e *boardEntry, fresh board.Board) {
 	old := e.board
-	hadOld := e.loaded
+	// A board installed before — even one a failed write just marked stale
+	// (loaded=false) — is what watchers hold, so the reload is told to them
+	// as a diff: a refused write rolls back on every open board at once.
+	hadOld := e.loaded || !e.loadedAt.IsZero()
 	fresh = e.applyRecent(fresh)
 	e.board = fresh
 	// Replay the write-behind queue on top (the in-flight op first): these
@@ -1961,6 +1998,14 @@ func (b *storeBackend) createSync(ctx context.Context, bd board.Board, e *boardE
 }
 
 func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card board.Card) error {
+	// A card deleted inside a request is one more write of that request:
+	// it rides the queue with the rest, so the whole request is ONE commit
+	// carrying its action (a review withdrawn by parking its task used to be
+	// a commit of its own, ahead of the request's). The cache and the
+	// watchers are told at once, as for every queued write.
+	if b.git != nil && actionFrom(ctx).ID != "" && !board.IsStateTitle(card.Title) {
+		return b.deleteQueued(ctx, bd, card)
+	}
 	if err := b.inner.DeleteCard(ctx, bd, card); err != nil {
 		return err
 	}
@@ -1982,6 +2027,34 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 	}
 	e.cardChanged(echoOrigin(ctx, card.ItemID), card, "DELETED")
 	e.mu.Unlock()
+	return nil
+}
+
+// deleteQueued takes a card off the cache now and queues the file's delete
+// with the request's other writes.
+func (b *storeBackend) deleteQueued(ctx context.Context, bd board.Board, card board.Card) error {
+	e := b.store.entry(storeKey(bd.Board))
+	e.mu.Lock()
+	e.removeCard(card.ItemID)
+	e.markGone(card.ItemID)
+	e.cardChanged(echoOrigin(ctx, card.ItemID), card, "DELETED")
+	e.mu.Unlock()
+	b.enqueue(ctx, e, pendingOp{
+		itemID: card.ItemID,
+		kind:   "delete",
+		desc:   "delete " + cardRef(card),
+		apply: func(target *board.Board) {
+			for i, c := range target.Cards {
+				if c.ItemID == card.ItemID {
+					target.Cards = append(target.Cards[:i:i], target.Cards[i+1:]...)
+					return
+				}
+			}
+		},
+		exec: func(ctx context.Context) error {
+			return b.inner.DeleteCard(ctx, bd, card)
+		},
+	})
 	return nil
 }
 

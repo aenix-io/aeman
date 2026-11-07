@@ -171,6 +171,11 @@ type CardStatus struct {
 	// Lineage is every ancestor of the card, root first — the breadcrumb a
 	// detail pane draws above it. Absent on a root.
 	Lineage []LineageRef `json:"lineage,omitempty"`
+	// Subtask says the card rides a parent TASK (board.IsSubtask). A client
+	// reads it off the lineage's last entry for a task; a REVIEW card's
+	// lineage is the reviewed task's chain, so a stray parent of its own has
+	// no entry to read, and this is the server's answer for it.
+	Subtask bool `json:"subtask,omitempty"`
 	// Reviewed is, on a REVIEW card, the card it reviews — its uid, title and
 	// people — so a client shows "Reviews: «task»", opens it and draws whose
 	// it is without a lookup.
@@ -425,14 +430,18 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 	// A REVIEW card hangs under nothing of its own; its chain is the
 	// planning chain of the task it reviews (K10: the Backlog draws a review
 	// nobody has taken with it), never the task itself, which would read as
-	// a task parent.
+	// a task parent. A parent of its own — a direct writer's stray, which no
+	// door gives a review card — is not on it either: the backlog places the
+	// review by the task's chain (board.BacklogKey), and the client reads
+	// that place off this lineage.
 	if c.ReviewOf != "" {
 		if original, ok := ix.Find(c.ReviewOf); ok {
 			status.Reviewed = &ReviewedRef{UID: original.ItemID, Type: original.Type, Title: original.Title,
 				Assignees: original.Assignees}
 		}
 	}
-	if c.ReviewOf != "" && c.Parent == "" {
+	if c.ReviewOf != "" {
+		up = nil
 		if original, ok := ix.Find(c.ReviewOf); ok {
 			for _, a := range ix.Lineage(original) {
 				if board.IsPlanning(a) {
@@ -441,6 +450,7 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 			}
 		}
 	}
+	status.Subtask = ix.IsSubtask(c)
 	for _, a := range up {
 		status.Lineage = append(status.Lineage, LineageRef{UID: a.ItemID, Type: a.Type, Title: a.Title, End: a.Day})
 	}

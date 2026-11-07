@@ -9,7 +9,7 @@ import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { BacklogBoard } from "./components/BacklogBoard";
 import { RoadmapBoard } from "./components/RoadmapBoard";
-import { cardIsGone, followFrame, followPatch } from "./detail";
+import { cardIsGone, followFrame, followPatch, withoutDeleted } from "./detail";
 import { applyOrder, type OrderArg } from "./cardorder";
 import { insertedOrder, type Anchor } from "./backlogboard";
 import { presenceAfter, type PresenceMap } from "./presence";
@@ -44,7 +44,7 @@ import { frozenProvider } from "./providers/frozen";
 import { todayIso, setBoardTimezone } from "./date";
 import { doneAtAfter } from "./stages";
 import { mergeNotes } from "./notes";
-import { Tombstones, withTombstones } from "./tombstones";
+import { notTombstoned, Tombstones, withTombstones } from "./tombstones";
 import { buildLink, cardLink, cardUnreadable, linkChange, parseLink, saveReturnTo, startDay, takeReturnTo, type LinkState } from "./deeplink";
 import { openWatches } from "./watch";
 import { AppearanceMenu } from "./components/AppearanceMenu";
@@ -978,7 +978,9 @@ export function App() {
       }
       setBoard((cur) => ({
         ...loaded,
-        cards: mergeCardLists(lists.map((l) => l.cards), cur?.cards, justMade),
+        // A listing answered after a DELETED this tab caused still carries
+        // the card; it stays gone (tombstones.ts), as from a frame.
+        cards: mergeCardLists(lists.map((l) => notTombstoned(l.cards, tombstones.current)), cur?.cards, justMade),
         boardOrder: boardOrderOf(lists),
       }));
     } catch (err: unknown) {
@@ -1033,7 +1035,7 @@ export function App() {
             ? {
                 ...cur,
                 ...(loaded ? { ...loaded, cards: cur.cards } : {}),
-                cards: mergeCardLists(lists.map((l) => l.cards), cur.cards, justMade),
+                cards: mergeCardLists(lists.map((l) => notTombstoned(l.cards, tombstones.current)), cur.cards, justMade),
                 boardOrder: boardOrderOf(lists),
               }
             : cur,
@@ -1284,6 +1286,9 @@ export function App() {
       // A write the store finally rejected: the board has been rolled back to
       // the server's reloaded state; surface what was lost.
       if (frame.kind === "SyncError") {
+        // The failed write may be one of this tab's deletes, rolled back on
+        // the server: the card comes again, and no mark may turn it away.
+        tombstones.current.clear();
         setError(frame.object.message || "a change could not be saved");
         return;
       }
@@ -1312,6 +1317,10 @@ export function App() {
           return next;
         });
         if (frame.type === "DELETED") {
+          // Back must never land on a card deleted outright.
+          if (cardIsGone(frame)) {
+            setDetailStack((s) => withoutDeleted(s, card.itemId));
+          }
           removeCard(card.itemId);
           notifyCardFrame(true);
           return;
@@ -1819,6 +1828,7 @@ export function App() {
           onOpenCard={openWithin}
           onBack={detailStack.length > 0 ? backInDetail : undefined}
           subscribeCardFrames={subscribeCardFrames}
+          tombstones={tombstones.current}
           cardLinkFor={(uid) => cardLink(window.location.origin, window.location.pathname, view, uid, selectedDate, todayIso())}
           onError={onError}
           onCustomerAdded={(cu) =>

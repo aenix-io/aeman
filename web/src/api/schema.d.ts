@@ -812,6 +812,8 @@ export interface components {
             links?: components["schemas"]["CardLinkRef"][];
             /** @description Every ancestor of the card, ROOT FIRST — the breadcrumb a detail pane draws above it, a task parent included. Absent on a root. A review card, which hangs under nothing of its own, carries the planning chain of the task it reviews. */
             lineage?: components["schemas"]["LineageRef"][];
+            /** @description The card rides a parent TASK — hidden from the day boards, drawn under its parent. A review card's lineage is the reviewed task's chain, so a stray parent of its own cannot be read off it; this is the server's answer. */
+            subtask?: boolean;
             /** @description On a REVIEW card, the card it reviews — its uid, title and people — so a client can name it, open it and draw whose it is without looking it up. Absent on every other card, and when the reviewed card is gone. */
             reviewed?: components["schemas"]["ReviewedRef"];
             /** @description The team the card counts under: its own, else the nearest ancestor's that has one. Computed, never written. */
@@ -1348,7 +1350,7 @@ export interface components {
     parameters: {
         /** @description The card's own address, a ULID assigned at creation. */
         Uid: string;
-        /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read (by hand, then oldest first). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+        /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: by effective priority (P0 to P4, then none), each priority led by the reviews nobody has taken, then in the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
         View: string;
         /** @description The note's id inside the card. */
         NoteId: string;
@@ -1466,7 +1468,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read (by hand, then oldest first). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: by effective priority (P0 to P4, then none), each priority led by the reviews nobody has taken, then in the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
             };
             cookie?: never;
@@ -1490,7 +1492,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read (by hand, then oldest first). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: by effective priority (P0 to P4, then none), each priority led by the reviews nobody has taken, then in the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
             };
             cookie?: never;
@@ -1547,7 +1549,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read (by hand, then oldest first). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: by effective priority (P0 to P4, then none), each priority led by the reviews nobody has taken, then in the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
             };
             cookie?: never;
@@ -1593,7 +1595,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read (by hand, then oldest first). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: by effective priority (P0 to P4, then none), each priority led by the reviews nobody has taken, then in the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
                 /** @description The card's own address, a ULID assigned at creation. */
                 uid: components["parameters"]["Uid"];
@@ -1646,7 +1648,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read (by hand, then oldest first). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: by effective priority (P0 to P4, then none), each priority led by the reviews nobody has taken, then in the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
                 /** @description The card's own address, a ULID assigned at creation. */
                 uid: components["parameters"]["Uid"];
@@ -1701,7 +1703,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read (by hand, then oldest first). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: by effective priority (P0 to P4, then none), each priority led by the reviews nobody has taken, then in the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
                 /** @description The card's own address, a ULID assigned at creation. */
                 uid: components["parameters"]["Uid"];
@@ -1752,7 +1754,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read (by hand, then oldest first). The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: by effective priority (P0 to P4, then none), each priority led by the reviews nobody has taken, then in the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
                 /** @description The card's own address, a ULID assigned at creation. */
                 uid: components["parameters"]["Uid"];

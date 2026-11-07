@@ -223,6 +223,12 @@ func TestTheEffectivePriorityIsOwnElseTheNearestAncestors(t *testing.T) {
 		{ItemID: "u", Parent: "bare"},
 		{ItemID: "o", Stage: StageReview, Parent: "e"},
 		{ItemID: "r", ReviewOf: "o"},
+		// A review of a review (a direct writer's) counts under the review
+		// it reviews, and so under the task; two reviews of each other are a
+		// cycle that ends, under nobody.
+		{ItemID: "rr", ReviewOf: "r"},
+		{ItemID: "x", ReviewOf: "y"},
+		{ItemID: "y", ReviewOf: "x"},
 	})
 	ix := NewIndex(b)
 	for _, tc := range []struct {
@@ -236,6 +242,8 @@ func TestTheEffectivePriorityIsOwnElseTheNearestAncestors(t *testing.T) {
 		{"bare", "", ""},
 		{"u", "", ""},    // nobody above has one
 		{"r", "P2", "i"}, // a review card counts under its task's
+		{"rr", "P2", "i"},
+		{"x", "", ""},
 	} {
 		c, _ := ix.Find(tc.id)
 		got, from := ix.EffectivePriority(c)
