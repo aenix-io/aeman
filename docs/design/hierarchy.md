@@ -321,8 +321,11 @@ card has none and an empty cell), its start, its end
 no items, to do, in progress, done, with `done/total` beside it), and for
 a task its own, in this order: done when complete; else the stage that
 holds it — review, locked, refused — which says who it waits on; else
-TO DO, filled, on a parked task marked ready (`todo`, K15); else to
-do while nothing has started (its bar at zero); else in progress. The
+BACKLOG on a parked task (waiting in its backlog, in nobody's hands); else
+to do while nothing has started (its bar at zero); else in progress. A
+parked task marked ready (`todo`, K15) reads TO DO, filled, ahead of the
+stages. A planning card's rolled-up words are the server's and unchanged:
+its "to do" means nothing under it has started, parked work included. The
 drawer's Status row reads the same answer. The status badge of a task or a
 plan item is a menu — TO DO (mark the parked work under the row ready, or
 clear it once all is marked) and UNASSIGNED (take the work in hand under it

@@ -158,10 +158,12 @@ The status badge on the Roadmap is a menu, on a task and on a plan item.
   one is marked, it clears them. The flag is **cleared when the task is
   taken into work** (any door that gives it a date, a sprint or a person)
   **or finished** — a task reopened later is not marked ready by a flag
-  nobody saw. The badge of a flagged parked task reads TO DO, filled; every
-  other badge reads as before (note that a task nothing has started on
-  already read "To do", drawn in the same capitals — the fill is the
-  difference). `POST /cards/{uid}/actions/todo {todo}`, MCP `set_todo`.
+  nobody saw. On the Roadmap a parked task's badge reads **TO DO**
+  (filled) with the flag and **BACKLOG** without it — decided with the
+  owner 2026-11-07: the old "To do" on a parked task said nothing about
+  where it was. Work in hand reads as before (to do until its bar moves,
+  in progress, the stages, done), and so do a plan item's rolled-up words
+  (its "to do" is the server's "nothing under it has started"). `POST /cards/{uid}/actions/todo {todo}`, MCP `set_todo`.
 - **UNASSIGNED** (K16) takes work out of hand: after "Take N tasks out of
   work? They leave Team and Me and go back to their team's backlog." every
   open task in work — the task itself, or every open task in work under
@@ -205,9 +207,11 @@ Decided 2026-11-03 with the owner (K10).
   made with **nobody** on it and **parked in the task's team's backlog**:
   the "needs a reviewer" item. A task that already has a review card gets
   no second one.
-- **Its default place is the top**: it is ranked before the first card of
-  the board's order when it is made, so it shows first in its backlog until
-  somebody drags it. It stands in the same list as the tasks, drawn as a
+- **Its place is the top, always** (amended with K14, 2026-11-07): the
+  reviews nobody has taken are a group of their own above every task —
+  the Roadmap's tree orders tasks, not a review — among themselves in the
+  board's order (a new one is ranked first, so it shows first), and they
+  are dragged among themselves only. It stands in the same list as the tasks, drawn as a
   review card is drawn on the Me and Team boards, with the reviewed task's
   parent chain — goal, initiative and epic only, as a task's; the drawer's breadcrumb, which ends in the task (`status.reviewed`), is the way to it — with the task's owner as the small counterpart avatar over the corner of its own, as on the Team and Me boards, and is dragged like any card.
 - **Taking one** is the card's owner picker with a person — `own` on the
@@ -287,7 +291,7 @@ parked tasks reachable, so nothing the migration parks is lost.
 | K7 | A task has no week: the API, the MCP and the codec refuse or drop `week` on a task; deadline stubs keep theirs. |
 | K8 | Schema 3 parks the tasks planned for a week ahead and the strip, keeps a task whose week has come in work on that week's dates and its team's current sprint, and strips every task week, in one idempotent pass. |
 | K9 | The Triage view, the `place` and `untriage` gestures and the `triage`/`triageWeek`/`due` status fields are gone from the API, the MCP and the SPA. |
-| K10 | Putting a task on review always makes its review card; without a reviewer it is made with nobody on it, parked in the team's backlog at the top of the order, and a person picked there takes it into work. |
+| K10 | Putting a task on review always makes its review card; without a reviewer it is made with nobody on it, parked in the team's backlog — always above every task, a group of its own dragged only among its kind (K14) — and a person picked there takes it into work. |
 | K11 | Take is the backlog's gesture: the card becomes the actor's, on its own team, and leaves the backlog; refused where there is nothing to take. |
 | K12 | The × on a review somebody has offers "back to backlog": the reviewer is taken off and the review waits, nobody on it, at the top of the reviewed task's team backlog; the task stays on review. |
 | K13 | The insert "+" in a gap of the list creates a task parked on the chosen team and placed there by the create itself (`after`/`before`), in one request. |

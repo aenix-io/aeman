@@ -931,10 +931,21 @@ describe("the status menu on the Roadmap (K15, K16)", () => {
     expect(unassignQuestion(1)).toBe("Take 1 task out of work? It leaves Team and Me and goes back to its team's backlog.");
   });
 
-  it("wears TO DO on a flagged parked task, and today's status otherwise", () => {
+  it("wears TO DO on a parked task marked ready, BACKLOG on any other parked task", () => {
     expect(statusOf(card({ parked: true, todo: true }))).toBe("ready");
     expect(STATUS_LABEL.ready).toBe("TO DO");
-    expect(statusOf(card({ parked: true }))).toBe("todo");
+    // Waiting in its backlog, not marked: BACKLOG, whatever its bar says —
+    // "To do" read the same in capitals and said nothing about where it is.
+    expect(statusOf(card({ parked: true }))).toBe("backlog");
+    expect(statusOf(card({ parked: true, progress: 30 }))).toBe("backlog");
+    expect(STATUS_LABEL.backlog).toBe("Backlog");
+    // Finished beats both; a stage that holds the task still says who it
+    // waits on.
     expect(statusOf(card({ parked: true, todo: true, progress: 100 }))).toBe("done");
+    expect(statusOf(card({ parked: true, stage: "locked", progress: 20 }))).toBe("locked");
+    // Work in hand reads as before: to do until its bar moves.
+    expect(statusOf(card({ sprintStart: "2026-11-09", progress: 0 }))).toBe("todo");
+    // A plan item keeps the server's rolled-up words.
+    expect(statusOf(card({ type: "epic", hierarchy: { status: "todo", done: 0, total: 2 } }))).toBe("todo");
   });
 });

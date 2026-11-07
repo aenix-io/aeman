@@ -369,6 +369,12 @@ describe("the status menu", () => {
     expect(html).toMatch(/roadmap-status-ready roadmap-status-button"[^>]*>TO DO</);
   });
 
+  it("wears BACKLOG on a parked task nobody marked ready", () => {
+    const waiting = { ...open, itemId: "waiting", title: "Waiting one", parked: true, startDate: undefined, day: undefined, sprintStart: undefined };
+    const html = draw(board([goal, ini, epic, waiting]));
+    expect(html).toMatch(/roadmap-status-backlog roadmap-status-button"[^>]*>Backlog</);
+  });
+
   it("asks how many tasks leave Team and Me before taking them out of work", () => {
     const html = renderToStaticMarkup(<UnassignDialog count={3} onClose={() => {}} onConfirm={() => {}} />);
     expect(html).toContain("Take 3 tasks out of work? They leave Team and Me and go back to their team&#x27;s backlog.");

@@ -333,17 +333,20 @@ export function pickerMatches(c: Card, cards: readonly Card[], query: string): b
 
 /** RoadmapStatus is the pill a row wears: a planning card's derived
  *  standing (no items, to do, in progress, done — H5), or a task's own:
- *  done, a stage that holds it (review, locked, refused), to do before its
- *  bar has moved, in progress otherwise. */
-export type RoadmapStatus = "no-items" | "todo" | "ready" | "in-progress" | "done" | "review" | "locked" | "refused";
+ *  done, TO DO (parked and marked ready, K15), a stage that holds it
+ *  (review, locked, refused), BACKLOG (parked, not marked), to do before
+ *  its bar has moved, in progress otherwise. */
+export type RoadmapStatus = "no-items" | "todo" | "ready" | "backlog" | "in-progress" | "done" | "review" | "locked" | "refused";
 
 /** statusOf is a row's status: for a planning card the server's derived one
  *  (`hierarchy.status`, H5 — no items until something is filed under it,
  *  in progress once a task under it is somebody's or has moved); for a
- *  task, in this order: done when complete; else the stage it is held in —
- *  review, locked, refused — which says who it waits on; else to do while
- *  its bar has not moved (nothing started); else in progress. The drawer
- *  and the Roadmap column read the same answer. */
+ *  task, in this order: done when complete; else TO DO when it is parked
+ *  and marked ready (K15); else the stage it is held in — review, locked,
+ *  refused — which says who it waits on; else BACKLOG when it is parked
+ *  (waiting in its backlog, in nobody's hands); else to do while its bar
+ *  has not moved (nothing started); else in progress. The drawer and the
+ *  Roadmap column read the same answer. */
 export function statusOf(c: Pick<Card, "type" | "hierarchy" | "stage" | "progress"> & Partial<Pick<Card, "parked" | "todo">>): RoadmapStatus {
   if (isPlanning(c)) {
     return c.hierarchy?.status ?? "no-items";
@@ -364,6 +367,11 @@ export function statusOf(c: Pick<Card, "type" | "hierarchy" | "stage" | "progres
   if (c.stage === "refuse") {
     return "refused";
   }
+  // Waiting in its backlog, not marked ready: BACKLOG, whatever its bar
+  // says — it is not in anybody's hands.
+  if (c.parked) {
+    return "backlog";
+  }
   if (!isInProgress(c) && (c.progress ?? 0) === 0) {
     return "todo";
   }
@@ -374,6 +382,7 @@ export const STATUS_LABEL: Record<RoadmapStatus, string> = {
   "no-items": "No items",
   todo: "To do",
   ready: "TO DO",
+  backlog: "Backlog",
   "in-progress": "In progress",
   done: "Done",
   review: "Review",
