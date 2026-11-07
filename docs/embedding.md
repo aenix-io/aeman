@@ -128,14 +128,11 @@ view-scoped gesture asks before it acts).
 
 **`Service.Remove` takes a `RemoveIntent`.** The × asks which of two things is
 meant and the request carries the answer: `boardservice.Unassign` takes the
-card out of work and puts it back in its team's backlog (a project card is
-left in its column),
+card out of work and puts it back in its team's backlog,
 `boardservice.OffBoard` takes it away with the subtask pieces that went with
 it, and `RemoveAuto` (the empty value) lets the gesture decide as it always
 did — so a call that passes `""` reads exactly as before. Each is taken at its
-word: `OffBoard` on a Project-board slot is refused
-(`ErrNotYoursToDestroy`), and `Unassign` on a review card is "back to
-backlog": the reviewer is taken off and the review waits, parked with nobody
+word: `Unassign` on a review card is "back to backlog": the reviewer is taken off and the review waits, parked with nobody
 on it, at the top of the reviewed task's team backlog. Beware the shape of
 the break: `RemoveIntent` is a string type, so an old call passing an untyped
 string constant — `"grid"`, say — still COMPILES, matches no intent, and
@@ -143,6 +140,8 @@ silently degrades to `RemoveAuto`. Pass one of the three named values.
 
 
 `pkg/board` lost `MirrorAllowed` and gained `ColumnDomain` and `Followers`. The removal is the point of the change, not collateral: `MirrorAllowed` compared two PROJECTS' repositories, and a project name may be declared in two repositories with its columns merged under one entry, so it answered for the wrong thing — and answered "no" for every column of no project. `ColumnDomain(b, project, scope)` asks the column itself, which is what the server asks wherever a placement is judged. `Followers(b, id)` lists the cards whose file moves with one — its subtasks and its review card, transitively — for a caller that needs to know what a re-file drags along.
+
+**The Project board is removed (2026-11-07).** `board.Card` lost `Scope`, `Project` and `Week`; `board.Board` lost `Projects`, `ProjectStates`, `Scopes` and `Deadlines`; `board.CreateInput` lost `Scope`, `Project` and `Week`; `ColumnDomain`, `ProjectDomain`, `RosterConflict`, `FindScope`, `FindDeadline`, `ScopesOf`, `InScope`, `InProject`, `WeekAsDates`, `Overdue`, `DueDate`, the project/scope/deadline state titles and `ViewProject` are gone, and `DomainResolver` no longer has `ProjectDomain`. `boardservice.Backend` lost `SetWeek`, `SetScope` and `SetProject`; the service lost every project, scope and deadline action, `CreateCardArgs.Scope`/`Project`, `ErrProjectCard`, `ErrProjectCardProgress`, `ErrNotYoursToDestroy`, `ErrNotYoursToPark` and `ErrDomainConflict`. `gitstore` no longer reads or writes the `projects/` roster or a card with `scope:`: `Snapshot.Projects`, the project/scope/deadline file codecs and paths are gone, `ParsePath` names anything under `projects/` `PathProjectBoard`, and `CardFile` gained `ProjectCard` (a file the loader skips) and `Week` (a pre-schema-3 week, read for the bump and the importer). `PlaceForSchema3` takes the week as an argument. An embedder that still sees such files in its repositories gets them skipped, never rewritten.
 
 Added in the same line: `board.Board.Primary` (the repository a board's own entries belong to), `board.NewBoardIn` (the assembly, told that name — its own rules ask "the same repository?" while it runs), `board.HomeDomain` (which repository holds a card, in that one namespace), `board.FileDomain` (where a card's FILE is, in the same namespace — the question a rule about the references written IN the file asks), `board.ColumnDomain`, `board.Followers`, `board.InProject` (a card stands in a project through its home pair OR any mirror — what the `/views/project/cards?project=` listing answers by), `boardservice.ErrSubtaskWeek`, `apiserver.ScopeRef.Domain` and `boardservicetest.Backend.InRepository`.
 

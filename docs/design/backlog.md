@@ -24,8 +24,7 @@ pulling from it themselves is a later step.
 
 ## Model
 
-A task — a card with no `type`, not in a Scope column, not a subtask, not
-a review card — is in exactly one of two places:
+A task — a card with no `type`, not a subtask, not a review card — is in exactly one of two places:
 
 - **In work**: it has a date or a sprint. It stands on the Team and Me
   boards by the day rules, unchanged.
@@ -42,8 +41,9 @@ API and the MCP, a date, a sprint or a defer. Each of these clears
 There is **no third place**. The Triage strip — open tasks nobody had
 dated, weeked or parked — is gone: every door that used to leave a task
 there parks it instead (K3). The **week** of a task is gone: nothing
-schedules a task for a week any more, and the `week` field is read and
-written for Project-board deadline stubs only.
+schedules a task for a week any more. (The `week` field lived on for
+Project-board deadline stubs until the Project board was removed,
+2026-11-07, `hierarchy.md`.)
 
 `parked` stays the stored flag rather than being derived from "no date,
 no sprint", because a derived membership would put every undated card of
@@ -63,7 +63,7 @@ SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
   wearing a chip of its team; a team that works from several backlogs
   (features reads portal's and cozystack's) selects them all.
 - **What is listed.** The team's parked tasks: no planning card, no
-  project card, no subtask, no review card, nothing finished. Order is
+  subtask, no review card, nothing finished. Order is
   `BacklogOrder` over the union: hand-placed rank first, then oldest
   first — rank is board-global, so the merged order is the board order
   of those cards.
@@ -125,8 +125,9 @@ SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
   the week gates on Me (MeView / `meview.ts`, D17).
 
 Kept: team **capacity** (points a week) in the team file, the API and the
-MCP — nothing reads it on a board until a backlog shows load again; the
-Project board's deadlines, which are weeks on deadline stubs.
+MCP — nothing reads it on a board until a backlog shows load again. (The
+Project board's deadlines, kept here, went with that board on
+2026-11-07.)
 
 ## Reviews
 
@@ -198,7 +199,8 @@ like schema 2:
 3. A task that would have stood in the Triage strip — open, no date, no
    sprint, no week, not parked — is parked.
 4. Project-board deadline stubs keep their `week`; project cards and
-   planning cards have none already (schema 2).
+   planning cards have none already (schema 2). Since 2026-11-07 the
+   bump skips project cards and `projects/` altogether.
 
 The rank of a migrated card is untouched; `BacklogOrder` puts unranked
 cards after ranked ones, oldest first, so the first view of a backlog is

@@ -5,7 +5,9 @@ it out, and which customers the work is for. Decided 2026-11-06 with Andrei
 Kvapil; this document is the source of truth for the change and the rules
 are pinned in [behavior-matrix.md](behavior-matrix.md) rows O1–O13. It
 amends H3 of [hierarchy.md](hierarchy.md) (a planning card had no team and
-no owner) and leaves H4 (a project card has neither) as it is.
+no owner) and left H4 (a project card has neither) as it was — project
+cards themselves were removed on 2026-11-07 (`hierarchy.md`), and the
+project-card clauses below are kept as history.
 
 ## Why
 
@@ -78,7 +80,7 @@ may name **several customers**.
 - A card's **effective customers** are its own plus every ancestor's (the
   union): a lower card is added to, never overwritten.
 - A review card shows the customers of the task it reviews.
-- Project cards have no customers (H4 unchanged).
+- Project cards had no customers (H4; both removed 2026-11-07).
 - Deleting a customer from the roster removes it from every card that names
   it; renaming changes the name everywhere at once (cards refer to the
   customer by id, not by name).
@@ -139,7 +141,7 @@ where it sits. The choice is remembered per viewer in the browser.
 ## Storage
 
 - A planning card's file may carry `team:` and `owner:` (a login); any card
-  but a project card may carry `customers:` (a list of customer ids).
+  may carry `customers:` (a list of customer ids).
 - The roster: `customers/<ulid>.yaml` with `name:` and `rank:`, in the
   primary repository.
 - No migration: existing planning cards simply have no team, owner or
@@ -160,12 +162,12 @@ where it sits. The choice is remembered per viewer in the browser.
 
 | Row | Rule |
 | --- | --- |
-| O1 | A planning card may have one owner (a person) and one team; a project card has neither (H4). |
+| O1 | A planning card may have one owner (a person) and one team. |
 | O2 | An owner is never inherited and puts nothing on any day board. |
 | O3 | A card's effective team is its own, else the nearest ancestor's (a review card's, its task's); a task's own team always wins. |
 | O4 | A card's effective customers are its own plus all its ancestors'; a lower card is added to, never overwritten. |
 | O5 | Customers come from the board's roster, are referred to by id, and a rename or a delete reaches every card. |
-| O6 | Project cards carry no customers; a review card shows its task's. |
+| O6 | A review card shows its task's customers (project cards, which carried none, were removed 2026-11-07). |
 | O7 | Roadmap team/customer filters match a task by its effective value and a planning card by itself or any task under it; matches are drawn with their ancestors. |
 | O8 | The Roadmap owner filter is its one person filter: a planning card by its own owner, a task or subtask by its assignees. |
 | O9 | `own` on a planning card sets its owner and/or team; the same fields and the customer roster are in the API and MCP. |
