@@ -923,7 +923,8 @@ export function RoadmapBoard({
     }
     if (plan.gone) {
       removeCard(card.itemId);
-      void provider.removeCard(plan.request.uid, DELETE_INTENT).catch((err: unknown) => {
+      // The board knows this remove deletes: the plan item goes (tombstones.ts).
+      void provider.removeCard(plan.request.uid, DELETE_INTENT, { deletes: true }).catch((err: unknown) => {
         onError(errText(err));
         reload();
       });

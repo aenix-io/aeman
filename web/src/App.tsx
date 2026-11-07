@@ -4,8 +4,7 @@ import { ApiError, apiProvider } from "./providers/api/apiProvider";
 import { guardSignedOut } from "./session";
 import { mergeCardLists } from "./cardmerge";
 import { resourceToCard, sprintStateFrom, type WatchFrame } from "./api/resources";
-import type { Board, Card as CardModel, Provider, SprintState } from "./providers/types";
-import { isPlanning } from "./subtasks";
+import type { Board, Card as CardModel, SprintState } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { BacklogBoard } from "./components/BacklogBoard";
@@ -47,7 +46,7 @@ import { frozenProvider } from "./providers/frozen";
 import { todayIso, setBoardTimezone } from "./date";
 import { doneAtAfter } from "./stages";
 import { mergeNotes } from "./notes";
-import { Tombstones } from "./tombstones";
+import { Tombstones, withTombstones } from "./tombstones";
 import { buildLink, cardLink, cardUnreadable, linkChange, parseLink, saveReturnTo, startDay, takeReturnTo, type LinkState } from "./deeplink";
 import { openWatches } from "./watch";
 import { nameConflict } from "./names";
@@ -74,35 +73,6 @@ const LS_TEAM_FILTER = "aeman.teamFilter";
 // Customer filter. The Roadmap keeps its own (ROADMAP_FILTERS_KEY).
 const LS_CUSTOMER_FILTER = "aeman.customerFilter";
 const LS_VIEW_AS = "aeman.viewAs";
-
-// withTombstones marks the cards a delete takes away (tombstones.ts): every
-// deleteCard, and the remove of a plan item, which is its delete (a day
-// board's remove may hand a task back instead, and the server's DELETED
-// says which). A delete refused lifts the mark.
-function withTombstones(p: Provider, t: Tombstones, planning: (uid: string) => boolean): Provider {
-  return {
-    ...p,
-    deleteCard: (uid) => {
-      t.mark(uid);
-      return p.deleteCard(uid).catch((err: unknown) => {
-        t.lift(uid);
-        throw err;
-      });
-    },
-    removeCard: (uid, intent) => {
-      const deletes = intent === "off-board" && planning(uid);
-      if (deletes) {
-        t.mark(uid);
-      }
-      return p.removeCard(uid, intent).catch((err: unknown) => {
-        if (deletes) {
-          t.lift(uid);
-        }
-        throw err;
-      });
-    },
-  };
-}
 
 function readView(): ViewMode {
   return storedView(localStorage.getItem(LS_VIEW));
@@ -734,9 +704,7 @@ export function App() {
   const provider = useMemo(
     () =>
       frozenProvider(
-        withTombstones(guardSignedOut(apiProvider, onSignedOut), tombstones.current, (uid) =>
-          isPlanning(liveBoard.current?.cards.find((c) => c.itemId === uid) ?? {}),
-        ),
+        withTombstones(guardSignedOut(apiProvider, onSignedOut), tombstones.current),
         (uid) => recordsRef.current.has(uid),
         // A write that names no card (a create, a carry-over) is refused
         // whenever the board being read IS a record — the same question the

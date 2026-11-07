@@ -382,7 +382,10 @@ export interface Provider {
    *  the working area and leaves the card in its week or its column,
    *  "off-board" takes it away with the subtasks that were pieces of it.
    *  Omitted, the gesture decides for itself as it always did. */
-  removeCard(uid: string, intent?: "unassign" | "off-board"): Promise<void>;
+  /** `deletes` says the caller knows the remove deletes the card (a plan
+   *  item's ×): the board then turns away stale frames for it
+   *  (tombstones.ts). The server is not told. */
+  removeCard(uid: string, intent?: "unassign" | "off-board", opts?: { deletes?: boolean }): Promise<void>;
   /** Reposition card after afterId in the project order (null = top). */
   moveCard(uid: string, afterId: string | null): Promise<void>;
   /** Reorder to sit right before another card: the server resolves the true
