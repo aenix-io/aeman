@@ -132,6 +132,12 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	w("rank", c.Rank)
 	w("created", c.CreatedAt)
 	for _, x := range f.Extra {
+		// An invalid priority rides as an unknown key only until a valid one
+		// is set: written beside it, the file would carry the key twice — a
+		// duplicate YAML key no later parse survives.
+		if x.Key == "priority" && c.Priority != "" {
+			continue
+		}
 		out, err := yaml.Marshal(&yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
 			{Kind: yaml.ScalarNode, Value: x.Key}, x.Value,
 		}})
