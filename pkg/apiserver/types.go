@@ -425,14 +425,18 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 	// A REVIEW card hangs under nothing of its own; its chain is the
 	// planning chain of the task it reviews (K10: the Backlog draws a review
 	// nobody has taken with it), never the task itself, which would read as
-	// a task parent.
+	// a task parent. A parent of its own — a direct writer's stray, which no
+	// door gives a review card — is not on it either: the backlog places the
+	// review by the task's chain (board.BacklogKey), and the client reads
+	// that place off this lineage.
 	if c.ReviewOf != "" {
 		if original, ok := ix.Find(c.ReviewOf); ok {
 			status.Reviewed = &ReviewedRef{UID: original.ItemID, Type: original.Type, Title: original.Title,
 				Assignees: original.Assignees}
 		}
 	}
-	if c.ReviewOf != "" && c.Parent == "" {
+	if c.ReviewOf != "" {
+		up = nil
 		if original, ok := ix.Find(c.ReviewOf); ok {
 			for _, a := range ix.Lineage(original) {
 				if board.IsPlanning(a) {

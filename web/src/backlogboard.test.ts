@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -623,5 +626,36 @@ describe("a backlog by the team a task stands under", () => {
     const inherited = card({ itemId: "i", parked: true, parent: "e", lineage: [EPIC], effectiveTeam: "portal" });
     const spot = insertSpot([inherited], 1, ["", "portal"]);
     expect("initialTeam" in spot.box && spot.box.initialTeam).toBe("portal");
+  });
+});
+
+// THE BACKLOG'S ORDER IS ONE RULE ON BOTH SIDES — the same fixture as
+// board's TestTheBacklogOrderMatchesTheSharedFixture, read from the Go
+// package's testdata. Each card carries what the server sends for it
+// (status.lineage, status.effectivePriority; apiserver's
+// TestTheBacklogFixtureWireIsTheServersAnswer holds the fixture to that), so
+// the client orders exactly the input it would get: priorities own and
+// inherited, reviews nobody has taken leading their task's group, a review
+// with a stray parent of its own, a review of a review.
+describe("the backlog's order, shared with the server", () => {
+  type Raw = Partial<Card> & { itemId: string };
+  const fx = JSON.parse(
+    readFileSync(fileURLToPath(new URL("../../pkg/board/testdata/backlog_order.json", import.meta.url)), "utf8"),
+  ) as {
+    cards: Raw[];
+    wire: Record<string, { lineage?: string[]; effectivePriority?: Card["effectivePriority"] }>;
+    order: string[];
+  };
+  const cards = fx.cards.map((c) => {
+    const w = fx.wire[c.itemId];
+    const lineage: LineageRef[] | undefined = w?.lineage?.map((s) => {
+      const [type, uid] = s.split(":");
+      return { uid, type, title: uid } as LineageRef;
+    });
+    return card({ parked: false, ...c, ...(lineage?.length ? { lineage } : {}), ...(w?.effectivePriority ? { effectivePriority: w.effectivePriority } : {}) });
+  });
+
+  it("reads the cards in the same order as board.BacklogOrder", () => {
+    expect(backlogList(cards, ["alpha"], fx.cards.map((c) => c.itemId)).map((c) => c.itemId)).toEqual(fx.order);
   });
 });

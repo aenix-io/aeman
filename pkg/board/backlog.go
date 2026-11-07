@@ -123,7 +123,10 @@ func (k BacklogKey) Less(o BacklogKey) bool {
 func (ix *Index) BacklogKey(c Card) BacklogKey {
 	if NeedsReviewer(c) {
 		k := BacklogKey{Loose: true, Path: []int{ix.pos[c.ItemID]}}
-		if task, ok := ix.Find(c.ReviewOf); ok && task.ReviewOf == "" {
+		// Placed by the card it reviews — a review of a review (a direct
+		// writer's) beside the review it reviews, as the client reads it off
+		// status.lineage and the reviewed card's place.
+		if task, ok := ix.Find(c.ReviewOf); ok {
 			k = ix.reviewedKey(task)
 		}
 		p, _ := ix.EffectivePriority(c)
