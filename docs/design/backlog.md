@@ -64,10 +64,12 @@ SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
   (features reads portal's and cozystack's) selects them all.
 - **What is listed.** The team's parked tasks: no planning card, no
   subtask, no review card, nothing finished. Order is
-  `BacklogOrder` over the union — the **Roadmap's order** (K14, below),
-  the TO DO tasks first (K15).
+  `BacklogOrder` over the union — by **effective priority** (K15, below),
+  P0 first and none last, each priority in the **Roadmap's order** (K14).
 - **The card.** One wide card per row, a plain card with no coloured
-  accent down its edge: the title first; on the RIGHT its parent chain —
+  accent down its edge: its priority part first — the effective priority
+  as the Roadmap's badge draws it (inherited lighter), a button opening the
+  priority menu, a muted "P" when it has none — then the title; on the RIGHT its parent chain —
   every goal, initiative and epic it sits under, root first (all of
   `status.lineage`), each with its kind icon as the Roadmap draws it, a
   long name cut short with the whole name in its tooltip, and each
@@ -78,8 +80,8 @@ SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
   owner badge, the Roadmap's too), with a separate Take button to its
   left while nobody has it.
 - **Order.** Dragging a card reorders it **among its siblings** — the
-  tasks under the same parent, in the same group (TO DO or not; the tasks
-  with no plan item above are one run): the move gesture anchored on the
+  tasks under the same parent, in the same effective priority (the tasks
+  with no plan item above are one run per priority): the move gesture anchored on the
   sibling just above it (`after`), else the one just below (`before`). A
   place next to none of its siblings is shown as forbidden and writes
   nothing: the order is the tree's (K14), and the move changes the
@@ -142,30 +144,49 @@ card (one migrated in schema 3 and never placed) now stands where the
 board's order puts it — before the ranked ones of its run, oldest first —
 rather than after them.
 
-**Reviews nobody has taken** (K10) stand above every task: the tree orders
-tasks, not a review, so the "needs a reviewer" items keep the top, among
-themselves in the board's order, and are dragged among themselves only.
-K10's "at the top until somebody drags it" becomes "at the top, always".
+**Reviews nobody has taken** (K10, amended 2026-11-07) take the effective
+priority of the task they review and stand FIRST within that priority
+group, before its tasks; the reviews of a group read in the Roadmap's order
+of the tasks they review, and a review of a task with no priority leads the
+no-priority group. They are dragged only among the reviews of their own
+group. K10's "at the top until somebody drags it" is gone.
 
-## TO DO and UNASSIGNED (K15, K16)
+## Priorities and UNASSIGNED (K15, K16)
 
-The status badge on the Roadmap is a menu, on a task and on a plan item.
+Decided 2026-11-07 with the owner; it replaced a TO DO flag that was never
+released (a stray `todo:` key in a file is an unknown key, kept and
+ignored). The badge on the Roadmap is ONE pill in two parts, and a menu.
 
-- **TO DO** (K15) marks parked work READY to be taken next: a stored flag
-  on the task, `todo: true`. In the backlog the TO DO tasks come first, in
-  the Roadmap's order among themselves, then the rest in the same order.
-  On a task it marks the task itself, which must be waiting in its
-  backlog (parked, open, not a review or a subtask); on a plan item it
-  marks every such task under it at any depth. Chosen again when every
-  one is marked, it clears them. The flag is **cleared when the task is
-  taken into work** (any door that gives it a date, a sprint or a person)
-  **or finished** — a task reopened later is not marked ready by a flag
-  nobody saw. On the Roadmap a parked task's badge reads **TO DO**
-  (filled) with the flag and **BACKLOG** without it — decided with the
-  owner 2026-11-07: the old "To do" on a parked task said nothing about
-  where it was. Work in hand reads as before (to do until its bar moves,
-  in progress, the stages, done), and so do a plan item's rolled-up words
-  (its "to do" is the server's "nothing under it has started"). `POST /cards/{uid}/actions/todo {todo}`, MCP `set_todo`.
+- **Priority** (K15): any card — a task, a goal, an initiative, an epic —
+  carries one of P0 (the highest), P1, P2, P3, P4, or none, the scale Jira
+  uses, stored as `priority: P0` (absent when none). What a card counts
+  under is its **effective priority**: its own when it has one, else the
+  nearest ancestor's that has one (a review card's is its task's) —
+  computed, never written down, the way a card counts under its effective
+  team (O3); the API serves it as `status.effectivePriority` with
+  `status.effectivePriorityFrom` naming the ancestor. The backlog reads
+  P0 first, then P1 … P4, then none, each priority in the Roadmap's order.
+  **Nothing clears a priority on its own**: taking the card into work,
+  finishing it and reopening it keep it. Setting a plan item's priority
+  writes the plan item alone; every card under it with none of its own
+  follows, the watch re-sends them, and every open backlog re-sorts.
+  `POST /cards/{uid}/actions/priority {priority}` (answers the card), MCP
+  `set_priority`.
+- **The badge**: the effective priority on the left when there is one —
+  P0 red, P1 orange, P2 blue, P3 and P4 grey (P4 lighter), theme tokens
+  with legible contrast in both themes; an inherited one keeps its hue,
+  drawn lighter, its tooltip "from «ancestor»" — and the **work status** on
+  the right: BACKLOG, IN PROGRESS, DONE (and NO ITEMS on a plan item;
+  review, locked and refused on a task held in one). A task's is where it
+  stands — in progress while it is in work, started or not, backlog while
+  it waits, whatever its bar says; a plan item's is its roll-up (H5): in
+  progress while any open task under it is in work, backlog when there are
+  open ones and none is, done when all are done, no items with none.
+- **The menu**: P0, P1, P2, P3, P4 and "No priority" — setting the card's
+  OWN value, the current own value checked (a card that only inherits one
+  has "No priority" checked) — a separator, and Unassign, disabled with
+  nothing in work under the row. The Backlog card's priority part opens
+  the same priorities, without Unassign.
 - **UNASSIGNED** (K16) takes work out of hand: after "Take N tasks out of
   work? They leave Team and Me and go back to their team's backlog." every
   open task in work — the task itself, or every open task in work under
@@ -177,25 +198,20 @@ The status badge on the Roadmap is a menu, on a task and on a plan item.
   subtasks are untouched. `POST /cards/{uid}/actions/unassign-work`, MCP
   `unassign_work`.
 
-The plan item above shows both: its roll-up is read off where its open
-tasks stand (H5) — IN PROGRESS while any is in work, TO DO when none is and
-all are marked, BACKLOG otherwise — so UNASSIGNED on an epic's last task in
-work turns the epic to BACKLOG, and TO DO on it turns it to TO DO, exactly
-when the menu item would unmark them. Each gesture answers with the tasks
-it changed as they now stand, which the acting tab applies (the watch does
-not echo a tab's own write); the plan items above re-derive on every
-watcher.
+The plan item above shows it: its roll-up is read off where its open tasks
+stand (H5), so UNASSIGNED on an epic's last task in work turns the epic to
+BACKLOG. UNASSIGNED answers with the tasks it changed as they now stand,
+which the acting tab applies (the watch does not echo a tab's own write);
+the plan items above re-derive on every watcher.
 
-Both gestures name the tasks they act on: the client sends the uids it
+UNASSIGNED names the tasks it acts on: the client sends the uids it
 counted (`uids`), because with a Roadmap filter on the reader sees fewer
 tasks than the board holds, and the server acts on exactly those — each
 must be one the gesture reaches from the row (422 `notATarget`). Without
 `uids` (an agent asking for everything) every task the gesture reaches is
 taken. Every task is checked first — reachable, and the caller's to write
 — so a gesture is applied whole or not at all (403 naming how many and
-which), and it lands in one commit per repository it touches. The status
-badge offers the menu only where an answer reaches something: finished
-work and subtasks wear a plain badge.
+which), and it lands in one commit per repository it touches.
 
 ## What is removed
 
@@ -229,13 +245,13 @@ Decided 2026-11-03 with the owner (K10).
   made with **nobody** on it and **parked in the task's team's backlog**:
   the "needs a reviewer" item. A task that already has a review card gets
   no second one.
-- **Its place is the top, always** (amended with K14, 2026-11-07): the
-  reviews nobody has taken are a group of their own above every task —
-  the Roadmap's tree orders tasks, not a review — among themselves in the
-  board's order (a new one is ranked first, so it shows first), and they
-  are dragged among themselves only. It stands in the same list as the tasks, drawn as a
+- **Its place is first in its task's priority group** (amended with
+  K14/K15, 2026-11-07): it takes the effective priority of the task it
+  reviews and stands before that group's tasks, the reviews of a group in
+  their tasks' Roadmap order; a review of a task with no priority leads the
+  no-priority group. It is dragged only among the reviews of its group. It stands in the same list as the tasks, drawn as a
   review card is drawn on the Me and Team boards, with the reviewed task's
-  parent chain — goal, initiative and epic only, as a task's; the drawer's breadcrumb, which ends in the task (`status.reviewed`), is the way to it — with the task's owner as the small counterpart avatar over the corner of its own, as on the Team and Me boards, and is dragged like any card.
+  parent chain — goal, initiative and epic only, as a task's; the drawer's breadcrumb, which ends in the task (`status.reviewed`), is the way to it — with the task's owner as the small counterpart avatar over the corner of its own, as on the Team and Me boards, and is dragged among the reviews of its group.
 - **Taking one** is the card's owner picker with a person — `own` on the
   review card, the one owner answer a review card takes while nobody has
   it: it gets the reviewer, today, the reviewed task's sprint and the
@@ -316,10 +332,10 @@ parked tasks reachable, so nothing the migration parks is lost.
 | K7 | A task has no week: the API, the MCP and the codec refuse or drop `week` on a task; deadline stubs keep theirs. |
 | K8 | Schema 3 parks the tasks planned for a week ahead and the strip, keeps a task whose week has come in work on that week's dates and its team's current sprint, and strips every task week, in one idempotent pass. |
 | K9 | The Triage view, the `place` and `untriage` gestures and the `triage`/`triageWeek`/`due` status fields are gone from the API, the MCP and the SPA. |
-| K10 | Putting a task on review always makes its review card; without a reviewer it is made with nobody on it, parked in the team's backlog — always above every task, a group of its own dragged only among its kind (K14) — and a person picked there takes it into work. |
+| K10 | Putting a task on review always makes its review card; without a reviewer it is made with nobody on it, parked in the team's backlog — first in its task's priority group (K14, K15), dragged only among the reviews of that group — and a person picked there takes it into work. |
 | K11 | Take is the backlog's gesture: the card becomes the actor's, on its own team, and leaves the backlog; refused where there is nothing to take. |
 | K12 | The × on a review somebody has offers "back to backlog": the reviewer is taken off and the review waits, nobody on it, at the top of the reviewed task's team backlog; the task stays on review. |
 | K13 | The insert "+" in a gap of the list creates a task parked on the chosen team and placed there by the create itself (`after`/`before`), in one request. |
-| K14 | The backlog reads in the Roadmap's order — the path of board-order places from the root plan item down; loose tasks after the planned ones; reviews nobody has taken above all — and a drag moves a task among its siblings only, which moves it on the Roadmap too. |
-| K15 | TO DO marks a parked task (or every one under a plan item) ready: it stands first in its backlog; the flag clears when the task is taken into work or finished. |
+| K14 | Within each priority the backlog reads in the Roadmap's order — the path of board-order places from the root plan item down; loose tasks after the planned ones; reviews nobody has taken above all — and a drag moves a task among its siblings in the same priority only, which moves it on the Roadmap too. |
+| K15 | Any card carries a priority, P0 to P4 or none; it counts under its effective priority (its own, else the nearest ancestor's), and the backlog reads P0 first and none last; nothing clears a priority on its own. |
 | K16 | UNASSIGNED takes an open task in work (or every one under a plan item) back to its backlog, the ×'s unassign way, after a confirm that counts them; finished work is untouched. |

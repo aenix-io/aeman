@@ -243,6 +243,7 @@ assignees: [kitsunoff]
 author: kvaps
 team: portal
 zone: yellow
+priority: P1
 stage: locked
 progress: 40
 doneFrom: 0
@@ -250,7 +251,6 @@ start: 2026-08-26
 day: 2026-08-28
 sprint: 2026-08-24
 parked: false
-todo: false
 parent: 01JB4K2E7QZMX3R8V0N5T9WYC1
 reviewOf: ""
 reviewRound: 0
@@ -293,11 +293,14 @@ Rules:
   sprint clears `parked`. Every team has a backlog and nothing declares it
   anywhere, which is what makes it safe: there is no list to create,
   rename or remove, so nothing can be taken from under a card.
-- `todo: true` marks a PARKED task ready to be taken next — the Roadmap's
-  TO DO (`docs/design/backlog.md`, K15): it stands first in its backlog.
-  Written right after `parked`, omitted when unset, meaningless on a task
-  that is not parked; a writer that takes a task into work (a date, a
-  sprint or a person) or finishes it drops the key.
+- `priority: P0`…`P4` is how much a card matters now, said by a person
+  (`docs/design/backlog.md`, K15) — on any card, a task or a plan item;
+  absent when it has none. Written right after `size`. What a card counts
+  under is its effective priority — its own, else the nearest ancestor's —
+  which is computed and never written down: a writer setting a plan
+  item's priority writes that file alone. Nothing clears it on its own. A
+  `todo:` key (an unreleased flag it replaced) is an unknown key, kept and
+  ignored.
 - A card has NO `week` (schema 3, K7): the key is read on a pre-schema-3
   file into the file's own record (`CardFile.Week`) — for the schema-3
   bump and the importer, which place a task by it — never onto the card,
@@ -501,12 +504,12 @@ neighbour lives in.
 - **K1** — an open task is IN WORK (a `start`/`day` or a `sprint`) or
   `parked: true`, never both and never neither; parking clears
   `assignees`, `start`, `day`, `sprint` and sets `zone: gray`.
-- **K14/K15** — a backlog reads in the Roadmap's order: the path of
-  board-order places (rank, then id) from the root plan item down to the
-  task, so a writer reorders a task in its backlog by moving it among
-  its siblings under the same parent; `todo: true` puts a parked task in
-  the group read first. A writer taking a task into work or finishing it
-  drops `todo`.
+- **K14/K15** — a backlog reads by effective priority (P0 first, none
+  last), each priority in the Roadmap's order: the path of board-order
+  places (rank, then id) from the root plan item down to the task, so a
+  writer reorders a task in its backlog by moving it among its siblings
+  under the same parent, and moves it to another group by its
+  `priority`.
 - **K10** — a task with `stage: review` has a review card (`reviewOf`
   naming it). With a reviewer it is theirs, in work. With nobody it is
   `parked: true`, `assignees` empty, of the reviewed task's `team`,

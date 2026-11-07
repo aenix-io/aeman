@@ -106,12 +106,11 @@ were never a level; they went with the board, 2026-11-07.)
 A planning card records nothing about progress. Its **status** and
 **progress** are derived on every read from the tasks under it, through
 every level — four words: *no items* when nothing is under it; *done*
-when every leaf task is complete; *in progress* when any leaf task is
-somebody's (has an assignee), has started — any progress above 0, or
-held in review or locked, since a held task is not in the band — or is
-finished — a person
-named on a task is work being done before the first percent is typed;
-*to do* otherwise. Progress is the share of leaf tasks complete, served
+when every leaf task is complete; *in progress* when any open leaf task
+is in work (a date or a sprint, not parked); *backlog* when there are open
+ones and none is in work (amended with K16, 2026-11-07: progress, a
+person, a stage or a priority do not count by themselves — a parked task
+at 49% is waiting). Progress is the share of leaf tasks complete, served
 beside the counts (`3/7`). This is the subtask rule (`DerivedProgress`)
 applied up the tree, and like it, it is never stored. It is a walk over the
 board (the leaf tasks), so a listing builds one `board.Index` — the cards
@@ -317,23 +316,18 @@ subtask — the same mark wherever the
 hierarchy is drawn), the card's title, its **owner** (a task's team and
 the person on it — the cell opens the owner picker, below; a planning
 card has none and an empty cell), its start, its end
-(`day`) and its status — derived for a planning card (`hierarchy.status`,
-with `done/total` beside it: no items with nothing under it, done when all
-is done, else read off where the open tasks stand — in progress when any is
-in work, TO DO when none is and all are marked TO DO, BACKLOG otherwise;
-progress alone does not count, a parked task is waiting), and for
-a task its own, in this order: done when complete; else the stage that
-holds it — review, locked, refused — which says who it waits on; else
-BACKLOG on a parked task (waiting in its backlog, in nobody's hands); else
-to do while nothing has started (its bar at zero); else in progress. A
-parked task marked ready (`todo`, K15) reads TO DO, filled, ahead of the
-stages. A planning card's rolled-up words are the server's and unchanged:
-its "to do" means nothing under it has started, parked work included. The
-drawer's Status row reads the same answer. The status badge of a task or a
-plan item is a menu — TO DO (mark the parked work under the row ready, or
-clear it once all is marked) and UNASSIGNED (take the work in hand under it
-back to its backlog, after a confirm that counts the tasks) — whose rules
-are `docs/design/backlog.md`'s (K15, K16). Right, a timeline: one bar per card from
+(`day`) and its badge — ONE pill in two parts (K15): the card's effective
+priority on the left when it has one (P0…P4; inherited drawn lighter,
+naming the ancestor), and its work status on the right — derived for a
+planning card (`hierarchy.status`, with `done/total` beside it: no items,
+backlog, in progress, done), and for a task its own: done when complete;
+else the stage that holds it — review, locked, refused — which says who it
+waits on; else in progress while it is in work, started or not; else
+backlog, whatever its bar says. The drawer's Status row reads the same
+answer. The badge of every row is a menu — the card's own priority (P0…P4,
+No priority) and Unassign (take the work in hand under it back to its
+backlog, after a confirm that counts the tasks) — whose rules are
+`docs/design/backlog.md`'s (K15, K16). Right, a timeline: one bar per card from
 `start` to `day`, every type by the same rule; a card with one date is a
 point, with none a row without a bar; a done bar is drawn distinct, and a
 bar that runs past the window is cut square at its edge. Rows and lanes
@@ -600,8 +594,8 @@ task.
   `TestAProjectCardsIDReachesNoWrite`,
   `TestMigrateSchema2LeavesAProjectCardAsItIs`; mcp
   `TestMCPHasNoProjectBoard`.
-- H5 — derived status and progress, never stored: `no-items`, `todo`,
-  `in-progress` (any leaf task assigned, started or done) or `done` with
+- H5 — derived status and progress, never stored: `no-items`, `backlog`,
+  `in-progress` (any open leaf task in work) or `done` with
   the counts, over the leaf tasks (a task whose parent is a planning
   card; a subtask counts through its parent). Pinned by board
   `TestHierarchyStatusIsDerivedFromTheLeafTasks`,
