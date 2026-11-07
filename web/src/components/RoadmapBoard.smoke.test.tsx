@@ -212,7 +212,7 @@ describe("the Roadmap's two panes", () => {
     expect(html).not.toContain('class="roadmap-cell roadmap-cell-owner"></span>');
   });
 
-  it("draws a drag's landing place as the moved rows alone: no outline, no line", () => {
+  it("draws no landing mark while nothing is dragged", () => {
     const html = draw(board([goal, ini, epic, done, open]));
     expect(html).not.toContain("roadmap-row-drop-");
   });

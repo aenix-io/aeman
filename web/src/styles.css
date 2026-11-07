@@ -5888,10 +5888,11 @@ button.card-age {
 
 /* ---- Roadmap: the drag ----
    A row is dragged onto another (it goes under it) or into the gap before
-   or after it. The rows ARE the preview: while the drag stands over a place
-   it may land, the list reads as it would after the drop, the moved subtree
-   dimmed; over a place it may not, the hovered row says so and nothing
-   moves. */
+   or after it. Nothing moves while it is dragged: the dragged rows are
+   dimmed in place, and where the card would land is a mark drawn over the
+   rows that takes no room — a line in the gap, indented to the depth it
+   would land at, or the row it would go under (roadmap.dropMark). Over a
+   place it may not land, the cursor says so and there is no mark. */
 .roadmap-row {
   position: relative;
   touch-action: none;
@@ -5910,11 +5911,34 @@ button.card-age {
   background: var(--accent-glow);
 }
 
-/* Over a place the card may not land, the cursor says so and nothing else;
-   over a place it may, the moved rows ARE the whole affordance — no outline
-   on the hovered row, no line in the gap. */
 .roadmap-row-forbid {
   cursor: not-allowed;
+}
+
+.roadmap-row-drop-inside {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  background: var(--accent-glow);
+}
+
+.roadmap-row-drop-top::after,
+.roadmap-row-drop-bottom::after {
+  content: "";
+  position: absolute;
+  left: var(--drop-indent, 6px);
+  right: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.roadmap-row-drop-top::after {
+  top: -1px;
+}
+
+.roadmap-row-drop-bottom::after {
+  bottom: -1px;
 }
 
 .roadmap-drag-overlay {

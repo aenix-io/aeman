@@ -1,15 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   DndContext,
   DragOverlay,
   PointerSensor,
-  pointerWithin,
-  rectIntersection,
   useDraggable,
-  useDroppable,
   useSensor,
   useSensors,
-  type CollisionDetection,
   type DragEndEvent,
   type DragMoveEvent,
   type DragStartEvent,
@@ -36,17 +32,18 @@ import {
   place,
   placementFor,
   planningRemovalPlan,
-  previewCards,
   rangeFor,
   statusOf,
   ticks as ticksOf,
-  zoneOf,
+  dropMark,
+  dropTargetAt,
   type DepthRange,
-  type DropZone,
+  type DropMark,
+  type DropTarget,
+  type RowBox,
   type HierarchyChoice,
   type Placement,
   type RoadmapKind,
-  type RoadmapSection,
   type Row,
   type Zoom,
   writeDrop,
@@ -215,39 +212,34 @@ function childLevels(kind: RoadmapKind): (CardType | "task")[] {
   return [];
 }
 
-/** The pointer picks the row under it; when it is over none (the gap at the
- *  bottom), the nearest overlapping one. */
-const detect: CollisionDetection = (args) => {
-  const within = pointerWithin(args);
-  return within.length > 0 ? within : rectIntersection(args);
-};
-
-/** A line of the table: a row of the tree or of a section, or a section's
- *  header. The timeline draws a lane per line, so the two panes stay in
- *  step whatever stands between the rows. */
-type Line = RoadmapLine;
+/** A row line of the table: a row of the tree or of a section (the other
+ *  line is a section's header). The timeline draws a lane per line, so the
+ *  two panes stay in step whatever stands between the rows. */
 type RowLine = Extract<RoadmapLine, { kind: "row" }>;
 
-/** Hover is where the drag stands: the row under it, the zone of that row,
- *  the placement that reads as, and whether the level rule allows it. */
+/** Hover is where the drag stands: the row and zone under the pointer
+ *  (roadmap.dropTargetAt), the placement that reads as, and whether the
+ *  level rule allows it. */
 interface Hover {
-  overId: string;
-  zone: DropZone;
+  target: DropTarget;
   placement: Placement | null;
   valid: boolean;
 }
 
+/** The style a drop mark takes on its row: the line's indent, by depth. */
+const markStyle = (mark: DropMark | null): CSSProperties | undefined =>
+  mark && mark.edge !== "inside" ? ({ "--drop-indent": `${6 + mark.depth * INDENT_PX}px` } as CSSProperties) : undefined;
+
 interface RowProps {
   row: Row;
-  /** Where the row stands: in the tree, or in one of the sections below it.
-   *  A section row drags INTO the tree and is dropped on by nothing —
-   *  dragging within the sections does nothing. */
-  section: RoadmapSection;
   today: string;
   open: boolean;
   focus: boolean;
   ghost: boolean;
   forbid: boolean;
+  /** Where a drag would land, when that is on this row: a line on its top
+   *  or bottom edge, or the row itself — drawn over it, taking no room. */
+  mark: DropMark | null;
   dragging: boolean;
   onToggle: () => void;
   onOpen: () => void;
@@ -259,17 +251,16 @@ interface RowProps {
   rowRef: (el: HTMLDivElement | null) => void;
 }
 
-/** RoadmapRow is one line of the table: draggable, a drop target, and the
- *  row's own controls. The tree is drawn by indent guides and a chevron
- *  with a hand's worth of hit area, the kind by its pictogram. A drag's
- *  preview is the moved rows themselves, dimmed — the row under the pointer
- *  wears no outline and no line of its own. */
-function RoadmapRow({ row, section, today, open, focus, ghost, forbid, dragging, onToggle, onOpen, onAdd, onRemove, owner, rowRef }: RowProps) {
+/** RoadmapRow is one line of the table: draggable, and the row's own
+ *  controls. The tree is drawn by indent guides and a chevron with a hand's
+ *  worth of hit area, the kind by its pictogram. While a drag runs the rows
+ *  stay where they are — the dragged rows dimmed in place — and where it
+ *  would land is a mark over the row (roadmap.dropMark). */
+function RoadmapRow({ row, today, open, focus, ghost, forbid, mark, dragging, onToggle, onOpen, onAdd, onRemove, owner, rowRef }: RowProps) {
   const { node, depth, foldable } = row;
   const card = node.card;
   const id = card.itemId;
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id });
-  const { setNodeRef: setDropRef } = useDroppable({ id, disabled: section !== "tree" });
   const planning = isPlanning(card);
   const status = statusOf(card);
   const cls = [
@@ -277,6 +268,7 @@ function RoadmapRow({ row, section, today, open, focus, ghost, forbid, dragging,
     focus ? "roadmap-row-focus" : "",
     ghost || isDragging ? "roadmap-row-ghost" : "",
     forbid ? "roadmap-row-forbid" : "",
+    mark ? `roadmap-row-drop-${mark.edge}` : "",
     dragging ? "roadmap-row-while-drag" : "",
   ]
     .filter(Boolean)
@@ -285,11 +277,10 @@ function RoadmapRow({ row, section, today, open, focus, ghost, forbid, dragging,
     <div
       ref={(el) => {
         setDragRef(el);
-        setDropRef(el);
         rowRef(el);
       }}
       className={cls}
-      style={{ height: ROW_PX }}
+      style={{ height: ROW_PX, ...markStyle(mark) }}
       onClick={onOpen}
       {...attributes}
       {...listeners}
@@ -586,43 +577,59 @@ export function RoadmapBoard({
   const filtering = filters.teams.length > 0 || filters.customers.length > 0 || filters.owners.length > 0;
   const shown = board.cards;
 
-  // ---- the drag: where it stands, and the preview of where it would land ----
+  // ---- the drag: where it stands, and the mark of where it would land ----
   const [dragging, setDragging] = useState<string | null>(null);
   const [hover, setHover] = useState<Hover | null>(null);
   const justDropped = useRef(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  // The tree's rows as they stood when the drag began, in the viewport frame
+  // of that moment — what every reading of the drag is made against
+  // (roadmap.dropTargetAt). Nothing the drag draws moves a row, so the
+  // snapshot is the list the reader sees; the pointer is brought into the
+  // same frame by dnd-kit's scroll-adjusted delta.
+  const boxes = useRef<RowBox[] | null>(null);
 
   const expanded = (id: string) => !folded.has(id);
   // The lines of the table (roadmap.roadmapLines), keyed on everything that
   // decides them. The Project cards toggle is the listing's own selector:
   // the app refetches on it, and what arrives is what is drawn.
-  const lines = (cards: readonly CardModel[]): Line[] => roadmapLines(cards, { depth, expanded });
-  const baseLines = useMemo(() => lines(shown), [shown, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shownLines = useMemo(() => roadmapLines(shown, { depth, expanded }), [shown, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
   // The tree's rows alone, which is what a drop is read against: a section
   // row is dropped on by nothing.
-  const baseRows = useMemo(() => baseLines.filter((l) => l.kind === "row" && l.section === "tree").map((l) => (l as RowLine).row), [baseLines]);
-  // While a drag stands over a place it may land, the lines are the listing
-  // as it would read after the drop: the subtree is drawn there, dimmed,
-  // before the pointer is released (roadmap.previewCards) — a section row
-  // dragged into the tree leaves its section in the preview too.
-  const previewed = dragging && hover?.valid && hover.placement ? previewCards(shown, dragging, hover.placement) : null;
-  const shownLines = useMemo(
-    () => (previewed ? lines(previewed) : baseLines),
-    [previewed, baseLines, depth, folded], // eslint-disable-line react-hooks/exhaustive-deps
-  );
+  const baseRows = useMemo(() => shownLines.filter((l) => l.kind === "row" && l.section === "tree").map((l) => (l as RowLine).row), [shownLines]);
   const rows = useMemo(() => shownLines.filter((l): l is RowLine => l.kind === "row").map((l) => l.row), [shownLines]);
+  // The rows a drag carries — the dragged card and everything under it —
+  // dimmed in place for as long as it runs, and a target for nothing.
   const ghosts = useMemo(() => {
-    if (!dragging || !previewed) {
+    if (!dragging) {
       return new Set<string>();
     }
     const out = new Set<string>([dragging]);
-    for (const c of previewed) {
-      if (isUnder(previewed, c.itemId, dragging)) {
+    for (const c of shown) {
+      if (isUnder(shown, c.itemId, dragging)) {
         out.add(c.itemId);
       }
     }
     return out;
-  }, [dragging, previewed]);
+  }, [dragging, shown]);
+  const mark = hover?.valid && hover.placement ? dropMark(baseRows, hover.target, hover.placement) : null;
+
+  // The snapshot is taken once the drag's first frame is laid out (an add
+  // form open under a row is closed by the drag's start).
+  useLayoutEffect(() => {
+    if (!dragging) {
+      boxes.current = null;
+      return;
+    }
+    boxes.current = baseRows.flatMap((r) => {
+      const el = rowRefs.current.get(r.node.card.itemId);
+      if (!el) {
+        return [];
+      }
+      const b = el.getBoundingClientRect();
+      return [{ id: r.node.card.itemId, top: b.top, height: b.height }];
+    });
+  }, [dragging]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onDragStart = (e: DragStartEvent) => {
     setDragging(String(e.active.id));
@@ -630,32 +637,22 @@ export function RoadmapBoard({
     setAddingUnder(null);
   };
   const onDragMove = (e: DragMoveEvent) => {
-    if (!dragging) {
+    const start = e.activatorEvent as PointerEvent | null;
+    if (!dragging || !boxes.current || !start || typeof start.clientY !== "number") {
       return;
     }
-    const over = e.over;
-    if (!over) {
+    const y = start.clientY + e.delta.y;
+    const target = dropTargetAt(boxes.current, y, hover?.target ?? null, ghosts);
+    if (!target) {
       setHover(null);
       return;
     }
-    const overId = String(over.id);
-    // The preview puts the dragged rows under the pointer; a reading off
-    // one of them would undo the preview that put them there. Keep what
-    // was read off the row before.
-    if (overId === dragging || (previewed && isUnder(previewed, overId, dragging))) {
+    if (hover && hover.target === target) {
       return;
     }
-    const lifted = e.active.rect.current.translated;
-    if (!lifted) {
-      return;
-    }
-    const fraction = (lifted.top + lifted.height / 2 - over.rect.top) / Math.max(over.rect.height, 1);
-    const zone = zoneOf(fraction);
-    const placement = placementFor(shown, baseRows, dragging, overId, zone);
+    const placement = placementFor(shown, baseRows, dragging, target.overId, target.zone);
     const valid = !!placement && droppable(shown, dragging, placement.parent);
-    setHover((cur) =>
-      cur && cur.overId === overId && cur.zone === zone && cur.valid === valid ? cur : { overId, zone, placement, valid },
-    );
+    setHover({ target, placement, valid });
   };
   const settle = () => {
     setDragging(null);
@@ -1045,7 +1042,6 @@ export function RoadmapBoard({
       ) : (
         <DndContext
           sensors={sensors}
-          collisionDetection={detect}
           onDragStart={onDragStart}
           onDragMove={onDragMove}
           onDragEnd={onDragEnd}
@@ -1082,17 +1078,17 @@ export function RoadmapBoard({
                 const card = r.node.card;
                 const planning = isPlanning(card);
                 const kids = childLevels(r.node.kind);
-                const isOver = !!hover && hover.overId === card.itemId;
+                const isOver = !!hover && hover.target.overId === card.itemId;
                 return (
                   <div key={card.itemId} className="roadmap-rowgroup">
                     <RoadmapRow
                       row={r}
-                      section={line.section}
                       today={today}
                       open={!folded.has(card.itemId)}
                       focus={focusRow === card.itemId}
                       ghost={ghosts.has(card.itemId)}
                       forbid={isOver && !hover.valid}
+                      mark={mark && mark.row === card.itemId ? mark : null}
                       dragging={!!dragging}
                       onToggle={() => toggle(card.itemId)}
                       onOpen={() => {

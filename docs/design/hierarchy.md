@@ -356,7 +356,7 @@ cards with no planning card above them, in sections — **In work**
 door leaves a task with no place any more. A section is a header line and its rows, drawn on both
 panes so the lanes stay in step; its rows show the task's owner and
 subtasks like the tree's, and a row there **drags into the tree** under
-a planning card by the same rule and with the same preview — dragging
+a planning card by the same rule and with the same landing mark — dragging
 within the sections does nothing, and nothing is dropped onto a section
 row. The filters apply to them too. (`sectionOf` / `sectionsOf`
 in `roadmap.ts`: a root with a planning crumb in its lineage stays in the
@@ -378,12 +378,19 @@ goal goes nowhere but the top, an initiative under a goal, an epic under
 either, a task under any of them — or onto a task, which makes it a
 subtask, one level deep — a project card under planning cards only, and
 the top of the tree for planning cards only (a task dropped there would
-leave the Roadmap, which is the ×'s detach, not a drop). The rows are the
-**preview**, and the whole of it: while the drag stands over a place it
-may land, the list reads as it would after the drop, the moved subtree
-dimmed — the hovered row wears no outline and the gap no line, since the
-moved rows already say where the card lands; over a place it may not,
-the cursor says so and nothing moves. A leaf row keeps a spacer the
+leave the Roadmap, which is the ×'s detach, not a drop). **Nothing moves
+while a row is dragged** (H13): the dragged row and its subtree are
+dimmed where they stand, and where the card would land is a **mark drawn
+over the rows** that takes no room — a line in the gap, indented to the
+depth the card would land at, or the row it would go under, outlined;
+over a place it may not land, the cursor says so and there is no mark.
+The target is read off the rows as they stood when the drag began, and
+the pointer has to go a little past a boundary — between two rows, or
+between a row's before / under / after parts — before it changes, so a
+slow aim holds still. (An earlier version previewed the drop by moving
+the rows to where the card would land; that put other rows under the
+pointer, which read as another place, and the list jumped under a slow
+aim.) A leaf row keeps a spacer the
 chevron's width and no button, so nothing lights up where there is
 nothing to unfold. The drop writes
 one parent and one ordering move, applied at once and undone with the
