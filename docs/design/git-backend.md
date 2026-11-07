@@ -299,8 +299,11 @@ Rules:
   under is its effective priority — its own, else the nearest ancestor's —
   which is computed and never written down: a writer setting a plan
   item's priority writes that file alone. Nothing clears it on its own. A
-  `todo:` key (an unreleased flag it replaced) is an unknown key, kept and
-  ignored.
+  value other than P0…P4 (`p1`, `high`) is read as an unknown key — kept,
+  written back as it was, and no priority: it neither shadows what the card
+  inherits nor reaches a status. A review card's priority is its task's and
+  is not written on the review card. A `todo:` key (an unreleased flag it
+  replaced) is an unknown key, kept and ignored.
 - A card has NO `week` (schema 3, K7): the key is read on a pre-schema-3
   file into the file's own record (`CardFile.Week`) — for the schema-3
   bump and the importer, which place a task by it — never onto the card,

@@ -148,8 +148,11 @@ rather than after them.
 priority of the task they review and stand FIRST within that priority
 group, before its tasks; the reviews of a group read in the Roadmap's order
 of the tasks they review, and a review of a task with no priority leads the
-no-priority group. They are dragged only among the reviews of their own
-group. K10's "at the top until somebody drags it" is gone.
+no-priority group. Their place is their tasks': a review is not dragged
+(a drop of it is forbidden and writes nothing). K10's "at the top until
+somebody drags it" is gone. A review's priority is its task's — shown on
+the review card, read only, and refused if set on the review card itself
+(422 `priorityFollowsTask`).
 
 ## Priorities and UNASSIGNED (K15, K16)
 
@@ -253,9 +256,9 @@ Decided 2026-11-03 with the owner (K10).
   K14/K15, 2026-11-07): it takes the effective priority of the task it
   reviews and stands before that group's tasks, the reviews of a group in
   their tasks' Roadmap order; a review of a task with no priority leads the
-  no-priority group. It is dragged only among the reviews of its group. It stands in the same list as the tasks, drawn as a
+  no-priority group. It is not dragged: its place is its task's. It stands in the same list as the tasks, drawn as a
   review card is drawn on the Me and Team boards, with the reviewed task's
-  parent chain — goal, initiative and epic only, as a task's; the drawer's breadcrumb, which ends in the task (`status.reviewed`), is the way to it — with the task's owner as the small counterpart avatar over the corner of its own, as on the Team and Me boards, and is dragged among the reviews of its group.
+  parent chain — goal, initiative and epic only, as a task's; the drawer's breadcrumb, which ends in the task (`status.reviewed`), is the way to it — with the task's owner as the small counterpart avatar over the corner of its own, as on the Team and Me boards, and is not dragged: its place is its task's.
 - **Taking one** is the card's owner picker with a person — `own` on the
   review card, the one owner answer a review card takes while nobody has
   it: it gets the reviewer, today, the reviewed task's sprint and the
@@ -336,10 +339,10 @@ parked tasks reachable, so nothing the migration parks is lost.
 | K7 | A task has no week: the API, the MCP and the codec refuse or drop `week` on a task; deadline stubs keep theirs. |
 | K8 | Schema 3 parks the tasks planned for a week ahead and the strip, keeps a task whose week has come in work on that week's dates and its team's current sprint, and strips every task week, in one idempotent pass. |
 | K9 | The Triage view, the `place` and `untriage` gestures and the `triage`/`triageWeek`/`due` status fields are gone from the API, the MCP and the SPA. |
-| K10 | Putting a task on review always makes its review card; without a reviewer it is made with nobody on it, parked in the team's backlog — first in its task's priority group (K14, K15), dragged only among the reviews of that group — and a person picked there takes it into work. |
+| K10 | Putting a task on review always makes its review card; without a reviewer it is made with nobody on it, parked in the team's backlog — first in its task's priority group (K14, K15), placed by its task and never dragged — and a person picked there takes it into work. |
 | K11 | Take is the backlog's gesture: the card becomes the actor's, on its own team, and leaves the backlog; refused where there is nothing to take. |
 | K12 | The × on a review somebody has offers "back to backlog": the reviewer is taken off and the review waits, nobody on it, at the top of the reviewed task's team backlog; the task stays on review. |
 | K13 | The insert "+" in a gap of the list creates a task parked on the chosen team and placed there by the create itself (`after`/`before`), in one request. |
-| K14 | Within each priority the backlog reads in the Roadmap's order — the path of board-order places from the root plan item down; loose tasks after the planned ones; reviews nobody has taken above all — and a drag moves a task among its siblings in the same priority only, which moves it on the Roadmap too. |
+| K14 | Within each priority the backlog reads in the Roadmap's order — the path of board-order places from the root plan item down; loose tasks after the planned ones; a review nobody has taken first in its task's priority, placed by its task and never dragged — and a drag moves a task among its siblings in the same priority only, which moves it on the Roadmap too. |
 | K15 | Any card carries a priority, P0 to P4 or none; it counts under its effective priority (its own, else the nearest ancestor's), and the backlog reads P0 first and none last; nothing clears a priority on its own. |
 | K16 | UNASSIGNED takes an open task in work (or every one under a plan item) back to its backlog, the ×'s unassign way, after a confirm that counts them; finished work is untouched. |
