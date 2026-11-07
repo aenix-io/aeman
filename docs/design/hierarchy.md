@@ -388,7 +388,8 @@ pointer, which read as another place, and the list jumped under a slow
 aim.) A leaf row keeps a spacer the
 chevron's width and no button, so nothing lights up where there is
 nothing to unfold. The drop writes
-one parent and one ordering move, applied at once and undone with the
+one parent and one ordering move, applied at once — with a filter on as
+without, since the watch does not echo the tab's own move — and undone with the
 server's own words if it refuses. Dates are changed in the card's pane;
 nothing is dragged on the timeline in this version. The Roadmap keeps
 itself current from its watch like every board: a change under a

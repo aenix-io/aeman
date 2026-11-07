@@ -24,6 +24,7 @@ import {
   daysBetween,
   DropWriteError,
   dropCommit,
+  dropShown,
   droppable,
   fractionOf,
   hierarchyChoices,
@@ -593,20 +594,15 @@ export function RoadmapBoard({
     }
     const commit = dropCommit(shown, id, h.placement);
     const before = { parent: card.parent, lineage: card.lineage };
-    const parent = commit.parent ? board.cards.find((c) => c.itemId === commit.parent) : undefined;
-    if (commit.parentChanged) {
-      patchCard(id, {
-        parent: commit.parent ?? undefined,
-        lineage: parent ? [...(parent.lineage ?? []), { uid: parent.itemId, type: parent.type, title: parent.title }] : undefined,
-      });
+    // Shown at once, filter or no filter (roadmap.dropShown): the watch
+    // does not echo this tab's own move, so nothing else would show it.
+    const now = dropShown(shown, id, h.placement);
+    if (now.patch) {
+      patchCard(id, now.patch);
     }
-    // The listing order is the board's; with a filter on, the order of what
-    // is shown says nothing about the rest, so it is left to the response.
-    if (!filtering) {
-      reorderCards?.(commit.order);
-    }
+    reorderCards?.(now.order);
     // A parent the server took stays: only a refused parent is rolled
-    // back, and the reload settles the order either way.
+    // back, and the reload settles the order.
     void writeDrop(id, commit, provider).catch((err: unknown) => {
       const taken = err instanceof DropWriteError && err.parentWritten;
       if (!taken) {
