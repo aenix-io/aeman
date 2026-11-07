@@ -11,6 +11,7 @@ import { BacklogBoard } from "./components/BacklogBoard";
 import { RoadmapBoard } from "./components/RoadmapBoard";
 import { cardIsGone, followFrame, followPatch } from "./detail";
 import { applyOrder, type OrderArg } from "./cardorder";
+import { insertedOrder, type Anchor } from "./backlogboard";
 import { presenceAfter, type PresenceMap } from "./presence";
 import { ROADMAP_FILTERS_KEY, sprintTeamOf, storedRoadmapFilters, type RoadmapFilters } from "./ownership";
 import { TeamsModal } from "./components/TeamsModal";
@@ -129,6 +130,12 @@ function listingMoment(lists: { asOf?: string }[]): string | null {
     }
   }
   return null;
+}
+
+// boardOrderOf is the board order a backlog listing carries (K14) — the
+// Backlog sorts by it — or nothing on the other views.
+function boardOrderOf(lists: { boardOrder?: string[] }[]): string[] | undefined {
+  return lists.find((l) => l.boardOrder)?.boardOrder;
 }
 
 export function App() {
@@ -972,6 +979,7 @@ export function App() {
       setBoard((cur) => ({
         ...loaded,
         cards: mergeCardLists(lists.map((l) => l.cards), cur?.cards, justMade),
+        boardOrder: boardOrderOf(lists),
       }));
     } catch (err: unknown) {
       // A day the history no longer reaches (410) — or storage that keeps
@@ -1026,6 +1034,7 @@ export function App() {
                 ...cur,
                 ...(loaded ? { ...loaded, cards: cur.cards } : {}),
                 cards: mergeCardLists(lists.map((l) => l.cards), cur.cards, justMade),
+                boardOrder: boardOrderOf(lists),
               }
             : cur,
         );
@@ -1176,6 +1185,12 @@ export function App() {
   // their relative order and are appended after the explicitly ordered ones.
   const reorderCards = useCallback((order: OrderArg) => {
     setBoard((cur) => (cur ? { ...cur, cards: applyOrder(cur.cards, order) } : cur));
+  }, []);
+  // The Backlog's own drop moves the card right beside its anchor in the
+  // board's order its list is sorted by (K14), as the server is about to;
+  // the watch does not echo the tab's own move.
+  const moveInBoardOrder = useCallback((id: string, anchor: Anchor) => {
+    setBoard((cur) => (cur?.boardOrder ? { ...cur, boardOrder: insertedOrder(cur.boardOrder, id, anchor) } : cur));
   }, []);
 
   // Live updates: the server pushes resource events over an unscoped WebSocket
@@ -1340,6 +1355,10 @@ export function App() {
       }
       if (frame.kind === "Ordering") {
         reorderCards(frame.object.spec.uids);
+        // The whole board's order: what the Backlog sorts by (K14) — a plan
+        // item moved on the Roadmap takes its tasks with it.
+        const uids = frame.object.spec.uids;
+        setBoard((cur) => (cur?.boardOrder ? { ...cur, boardOrder: uids } : cur));
         return;
       }
       if (frame.kind === "Presence") {
@@ -1713,6 +1732,7 @@ export function App() {
             addCard={addCard}
             removeCard={removeCard}
             reorderCards={reorderCards}
+            moveInBoardOrder={moveInBoardOrder}
             reload={reload}
             onOpen={openCard}
             onError={onError}

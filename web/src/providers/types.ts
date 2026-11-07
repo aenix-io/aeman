@@ -140,6 +140,9 @@ export interface Card {
    *  and a parked card is on no day board. Every team has a backlog and
    *  nothing declares it (docs/design/backlog.md). */
   parked?: boolean;
+  /** TO DO: a parked task marked ready to be taken next (K15) — it stands at
+   *  the top of its backlog. Cleared when it is taken into work or finished. */
+  todo?: boolean;
   /** The moment this card is FROM, when it is a record rather than the live
    *  card: its team's sprint has moved on past the day being looked at. The
    *  board shows it as it was and refuses to change it (G60). */
@@ -222,6 +225,11 @@ export interface Board {
   title: string;
   url: string;
   cards: Card[];
+  /** The board's order of what the Backlog's order is read from (K14): from
+   *  a backlog listing's `boardOrder`, replaced by every Ordering frame (the
+   *  whole board's order) and moved by the Backlog's own drops. Absent on
+   *  the other views. */
+  boardOrder?: string[];
   /** The board's team roster (teams that have a sprint pointer), from GET
    *  /board — the source of truth now that cards load one view at a time. */
   teams: string[];
@@ -311,6 +319,8 @@ export interface CarryReport {
  *  calendar says), so the client reads the answer rather than guessing. */
 export interface CardListing {
   cards: Card[];
+  /** A backlog listing's board order (Board.boardOrder). */
+  boardOrder?: string[];
   asOf?: string;
 }
 

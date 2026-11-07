@@ -335,6 +335,7 @@ export const apiProvider: Provider = {
       // Set when the server answered with a past day's board rather than
       // today's: the client freezes on that, and says which day it shows.
       asOf: list.asOf,
+      boardOrder: list.boardOrder,
     };
   },
 

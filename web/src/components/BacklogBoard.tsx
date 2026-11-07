@@ -92,6 +92,9 @@ interface BacklogBoardProps {
   /** The board's one order, re-sorted locally for a drop until the server's
    *  Ordering frame says the same. */
   reorderCards: (order: OrderArg) => void;
+  /** Move a card right beside its anchor in the board's order the list is
+   *  sorted by (Board.boardOrder), as the server is about to. */
+  moveInBoardOrder?: (id: string, anchor: Anchor) => void;
   reload: () => void;
   onOpen: (card: CardModel) => void;
   onError: (message: string) => void;
@@ -141,6 +144,7 @@ export function BacklogBoard({
   addCard,
   removeCard,
   reorderCards,
+  moveInBoardOrder,
   reload,
   onOpen,
   onError,
@@ -154,8 +158,8 @@ export function BacklogBoard({
   // listing and the watch (O11), applied to what the board holds.
   const { kept, keep } = useKeptCreated(customerFilter.join(","));
   const list = useMemo(
-    () => backlogList(board.cards, teams).filter((c) => customerPasses(c, board.cards, customerFilter, kept)),
-    [board.cards, teams, customerFilter, kept],
+    () => backlogList(board.cards, teams, board.boardOrder).filter((c) => customerPasses(c, board.cards, customerFilter, kept)),
+    [board.cards, board.boardOrder, teams, customerFilter, kept],
   );
   const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
 
@@ -282,21 +286,28 @@ export function BacklogBoard({
       if (at === null) {
         return;
       }
-      const plan = dropPlan(
-        card.itemId,
-        list.map((c) => c.itemId),
-        at,
-      );
-      if (plan.kind === "none") {
+      const plan = dropPlan(card.itemId, list, at);
+      // A place next to none of its siblings is not one it can go (K14):
+      // the drag showed it as forbidden, and nothing moves.
+      if (plan.kind !== "reorder") {
         return;
       }
       reorderCards(spliceOrder(board.cards.map((c) => c.itemId), plan.order));
+      // The board's order the list is sorted by moves the same way the
+      // server will move it: right beside its anchor.
+      moveInBoardOrder?.(card.itemId, plan.anchor);
       void persistAnchor(card.itemId, plan.anchor).catch((err: unknown) => {
         onError(errText(err));
         reload();
       });
     },
-    [list, board.cards, reorderCards, persistAnchor, onError, reload],
+    [list, board.cards, reorderCards, moveInBoardOrder, persistAnchor, onError, reload],
+  );
+  // Where the card in hand would land is not a place it may go: next to
+  // none of its siblings (K14).
+  const forbidden = useMemo(
+    () => !!carried && over !== null && dropPlan(carried.itemId, list, over).kind === "forbidden",
+    [carried, over, list],
   );
 
   const beginDrag = useCallback(
@@ -545,7 +556,7 @@ export function BacklogBoard({
         />
       </div>
       <section className="backlog-list" aria-label="Backlog">
-        <div className={`backlog-list-body${carried ? " backlog-list-over" : ""}`} data-backlog-list="">
+        <div className={`backlog-list-body${carried ? " backlog-list-over" : ""}${forbidden ? " backlog-list-forbid" : ""}`} data-backlog-list="">
           {(() => {
             const held = list.filter((c) => c.itemId !== carried?.itemId);
             const landing = carried && over !== null ? carried : null;
@@ -554,7 +565,7 @@ export function BacklogBoard({
                 {!carried && gap(0, held.length === 0)}
                 {held.map((c, i) => (
                   <div key={c.itemId} className="backlog-slot">
-                    {landing && over === i && <Landing card={landing} />}
+                    {landing && over === i && <Landing card={landing} forbidden={forbidden} />}
                     <BacklogRow
                       card={c}
                       selected={c.itemId === selectedId}
@@ -583,7 +594,7 @@ export function BacklogBoard({
                     {!carried && gap(i + 1)}
                   </div>
                 ))}
-                {landing && (over ?? 0) >= held.length && <Landing card={landing} />}
+                {landing && (over ?? 0) >= held.length && <Landing card={landing} forbidden={forbidden} />}
                 {held.length === 0 && !landing && <p className="backlog-list-empty">Nothing waiting</p>}
               </>
             );
@@ -757,11 +768,15 @@ export function TakeDialog({ title, onClose, onTake }: { title: string; onClose:
 
 /** Landing is the card in hand, drawn where it would come to rest — an
  *  outline, since it is not there yet, but otherwise the card being dragged:
- *  a review keeps its review stripe. */
-export function Landing({ card }: { card: CardModel }) {
+ *  a review keeps its review stripe. Where it may not come to rest (next to
+ *  none of its siblings, K14) the outline says so. */
+export function Landing({ card, forbidden = false }: { card: CardModel; forbidden?: boolean }) {
   const mark = markOf(card);
   return (
-    <div className={`card backlog-card${mark ? ` card-${mark}` : ""} backlog-card-landing`}>
+    <div
+      className={`card backlog-card${mark ? ` card-${mark}` : ""} backlog-card-landing${forbidden ? " backlog-card-landing-forbid" : ""}`}
+      title={forbidden ? "Only among the tasks under the same parent: the Roadmap's tree decides the order" : undefined}
+    >
       <span className="card-title backlog-card-title">{card.title}</span>
     </div>
   );

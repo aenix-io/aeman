@@ -131,6 +131,7 @@ export function resourceToCard(res: CardResource): Card {
     startDate: dates.start || undefined,
     sprintStart: dates.sprint || undefined,
     parked: spec.parked || undefined,
+    todo: spec.todo || undefined,
     size: sizeFromWire(spec.size),
     // A summary listing omits the body: description stays undefined ("not
     // loaded") and the boards fetch it on selection. A full resource with a

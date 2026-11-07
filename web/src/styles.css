@@ -3531,6 +3531,18 @@ button.card-age {
   pointer-events: none;
 }
 
+/* Next to none of its siblings (K14): the tree decides the order, so the
+   card may not come to rest here — the outline and the cursor say so. */
+.backlog-card-landing-forbid {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg));
+}
+
+.backlog-list-forbid,
+.backlog-list-forbid * {
+  cursor: not-allowed !important;
+}
+
 /* Take: a small button of its own, the card's right-most, drawn like the
    app's small buttons (.btn) — a plain border, no offset, no shadow. */
 .backlog-take-btn {
