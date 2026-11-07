@@ -5930,7 +5930,7 @@ button.card-age {
   border-radius: 1px;
   background: var(--accent);
   pointer-events: none;
-  z-index: 2;
+  z-index: 1; /* under the sticky header (z-index 2) */
 }
 
 .roadmap-row-drop-top::after {

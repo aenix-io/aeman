@@ -7,7 +7,6 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
-  type DragMoveEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { registerPendingCard } from "../api/pending";
@@ -37,6 +36,9 @@ import {
   ticks as ticksOf,
   dropMark,
   dropTargetAt,
+  boxesInContent,
+  pointerContentY,
+  revealStep,
   type DepthRange,
   type DropMark,
   type DropTarget,
@@ -582,12 +584,22 @@ export function RoadmapBoard({
   const [hover, setHover] = useState<Hover | null>(null);
   const justDropped = useRef(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-  // The tree's rows as they stood when the drag began, in the viewport frame
-  // of that moment — what every reading of the drag is made against
-  // (roadmap.dropTargetAt). Nothing the drag draws moves a row, so the
-  // snapshot is the list the reader sees; the pointer is brought into the
-  // same frame by dnd-kit's scroll-adjusted delta.
+  // The tree's rows as they stand during the drag, in the list's content
+  // frame (roadmap.boxesInContent) — what every reading of the drag is made
+  // against (roadmap.dropTargetAt). Nothing the drag draws moves a row, so
+  // the snapshot is the list the reader sees; it is re-taken when the rows
+  // themselves change under the drag (a watch frame), in the same frame.
   const boxes = useRef<RowBox[] | null>(null);
+  // The pointer's last viewport y while a drag runs, kept by a window
+  // listener (capture phase, so it is current before dnd-kit's own handler
+  // reports the move). A KeyboardSensor would give none: with no position
+  // there is no target, and a keyboard drag would land nowhere — none is
+  // registered here.
+  const pointerY = useRef<number | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const headRef = useRef<HTMLDivElement | null>(null);
+  // How far the board and the page are scrolled: the content frame's offset.
+  const scrolled = () => (bodyRef.current?.scrollTop ?? 0) + window.scrollY;
 
   const expanded = (id: string) => !folded.has(id);
   // The lines of the table (roadmap.roadmapLines), keyed on everything that
@@ -615,13 +627,14 @@ export function RoadmapBoard({
   const mark = hover?.valid && hover.placement ? dropMark(baseRows, hover.target, hover.placement) : null;
 
   // The snapshot is taken once the drag's first frame is laid out (an add
-  // form open under a row is closed by the drag's start).
+  // form open under a row is closed by the drag's start), and again whenever
+  // the tree's rows change while it runs.
   useLayoutEffect(() => {
     if (!dragging) {
       boxes.current = null;
       return;
     }
-    boxes.current = baseRows.flatMap((r) => {
+    const measured = baseRows.flatMap((r) => {
       const el = rowRefs.current.get(r.node.card.itemId);
       if (!el) {
         return [];
@@ -629,20 +642,36 @@ export function RoadmapBoard({
       const b = el.getBoundingClientRect();
       return [{ id: r.node.card.itemId, top: b.top, height: b.height }];
     });
-  }, [dragging]); // eslint-disable-line react-hooks/exhaustive-deps
+    boxes.current = boxesInContent(measured, scrolled());
+  }, [dragging, baseRows]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!dragging) {
+      pointerY.current = null;
+      return;
+    }
+    const track = (e: PointerEvent) => {
+      pointerY.current = e.clientY;
+    };
+    window.addEventListener("pointermove", track, { capture: true });
+    return () => window.removeEventListener("pointermove", track, { capture: true });
+  }, [dragging]);
 
   const onDragStart = (e: DragStartEvent) => {
+    const start = e.activatorEvent as PointerEvent | null;
+    pointerY.current = start && typeof start.clientY === "number" ? start.clientY : null;
     setDragging(String(e.active.id));
     setHover(null);
     setAddingUnder(null);
   };
-  const onDragMove = (e: DragMoveEvent) => {
-    const start = e.activatorEvent as PointerEvent | null;
-    if (!dragging || !boxes.current || !start || typeof start.clientY !== "number") {
+  // dnd-kit reports a move on a pointer move and on a scroll alike; either
+  // way the reading is the pointer now, in the content frame.
+  const onDragMove = () => {
+    if (!dragging || !boxes.current) {
       return;
     }
-    const y = start.clientY + e.delta.y;
-    const target = dropTargetAt(boxes.current, y, hover?.target ?? null, ghosts);
+    const headBottom = headRef.current?.getBoundingClientRect().bottom ?? -Infinity;
+    const y = pointerContentY(pointerY.current, scrolled(), headBottom);
+    const target = y === null ? null : dropTargetAt(boxes.current, y, hover?.target ?? null, ghosts);
     if (!target) {
       setHover(null);
       return;
@@ -710,6 +739,7 @@ export function RoadmapBoard({
 
   // A breadcrumb followed here: unfold the way down to the card, mark its
   // row and bring it into view. The lineage says which rows to unfold.
+  const revealPending = useRef<string | null>(null);
   useEffect(() => {
     if (!focusId) {
       return;
@@ -725,15 +755,22 @@ export function RoadmapBoard({
       }
     }
     setFocusRow(focusId);
+    revealPending.current = focusId;
     onFocused?.();
     // Unfolding is a preference write, not a dependency of the reveal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusId, board.cards]);
+  // The followed row is scrolled to ONCE (roadmap.revealStep): it stays
+  // marked, but a later change of the rows — a watch frame, a drop — does
+  // not pull the list back to it, and nothing scrolls while a drag runs.
   useEffect(() => {
-    if (focusRow) {
-      rowRefs.current.get(focusRow)?.scrollIntoView({ block: "center" });
+    const pending = revealPending.current;
+    const step = revealStep(pending, !!dragging, !!pending && rowRefs.current.has(pending));
+    if (step.scroll && pending) {
+      rowRefs.current.get(pending)?.scrollIntoView({ block: "center" });
     }
-  }, [focusRow, rows]);
+    revealPending.current = step.pending;
+  }, [focusRow, rows, dragging]);
 
   // ---- the create: a planning card at the top, or anything under a planning row ----
   const createUnder = (title: string, level: CardType | "task", parent?: string) => {
@@ -1047,9 +1084,9 @@ export function RoadmapBoard({
           onDragEnd={onDragEnd}
           onDragCancel={settle}
         >
-          <div className={`roadmap-body${dragging ? " roadmap-body-dragging" : ""}`}>
+          <div ref={bodyRef} className={`roadmap-body${dragging ? " roadmap-body-dragging" : ""}`}>
             <div className="roadmap-table">
-              <div className="roadmap-head" style={{ height: HEAD_PX }}>
+              <div ref={headRef} className="roadmap-head" style={{ height: HEAD_PX }}>
                 <span className="roadmap-cell roadmap-cell-title roadmap-head-cell">
                   Card{handle("title", "Resize the Card column")}
                 </span>
