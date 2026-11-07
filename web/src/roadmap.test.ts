@@ -23,6 +23,14 @@ import {
   rangeFor,
   rows,
   zoneOf,
+  dropTargetAt,
+  dropMark,
+  pointerContentY,
+  boxesInContent,
+  revealStep,
+  AIM_SLACK,
+  type DropTarget,
+  type RowBox,
   statusOf,
   ticks,
   visibleLevels,
@@ -254,8 +262,8 @@ describe("the hierarchy's × and its two answers", () => {
 });
 
 // Drag and drop on the tree: where a drop lands, what may land where, and
-// the preview — the listing as it would read after the drop, which the tree
-// draws before the pointer is released. The level rule holds throughout: a
+// the listing as it would read after the drop (previewCards), which is what
+// the drop commits. The level rule holds throughout: a
 // card never changes its type by being dragged (H2).
 describe("dragging a row on the Roadmap", () => {
   const all = [goal, ini, epic, task, sub, slot];
@@ -269,6 +277,22 @@ describe("dragging a row on the Roadmap", () => {
     expect(zoneOf(0.1)).toBe("before");
     expect(zoneOf(0.5)).toBe("into");
     expect(zoneOf(0.9)).toBe("after");
+  });
+
+  it("holds the zone it stands in a little past the boundary, both ways", () => {
+    // Fresh, the boundaries are at 0.28 and 0.72.
+    expect(zoneOf(0.3)).toBe("into");
+    expect(zoneOf(0.7)).toBe("into");
+    // Standing before, the pointer must go AIM_SLACK past 0.28 to read into…
+    expect(zoneOf(0.28 + AIM_SLACK - 0.01, "before")).toBe("before");
+    expect(zoneOf(0.28 + AIM_SLACK + 0.01, "before")).toBe("into");
+    // …and standing into, as far back the other way to read before again.
+    expect(zoneOf(0.28 - AIM_SLACK + 0.01, "into")).toBe("into");
+    expect(zoneOf(0.28 - AIM_SLACK - 0.01, "into")).toBe("before");
+    expect(zoneOf(0.72 + AIM_SLACK - 0.01, "into")).toBe("into");
+    expect(zoneOf(0.72 + AIM_SLACK + 0.01, "into")).toBe("after");
+    expect(zoneOf(0.72 - AIM_SLACK + 0.01, "after")).toBe("after");
+    expect(zoneOf(0.72 - AIM_SLACK - 0.01, "after")).toBe("into");
   });
 
   it("lands before or after the hovered row among its parent's children, or under it", () => {
@@ -501,5 +525,184 @@ describe("the lines the Roadmap draws, with the project cards toggle", () => {
 
   it("draws a listed project card under its epic", () => {
     expect(titles(listing)).toEqual(["0:Billing v2", "1:Render PDF", "1:Q1 payments slot"]);
+  });
+});
+
+// Aiming a drag. The target is read off the rows as they stood when the drag
+// began — the list does not move under the pointer while it is dragged, the
+// landing place is a mark drawn over it — and the pointer has to go a little
+// past a boundary before the target changes, so a slow aim does not flicker
+// between two readings.
+describe("aiming a drag on the Roadmap", () => {
+  const g = card({ itemId: "g", title: "Grow", type: "goal" });
+  const i = card({ itemId: "i", title: "Billing", type: "initiative", parent: "g" });
+  const e1 = card({ itemId: "e1", title: "Invoices", type: "epic", parent: "i" });
+  const e2 = card({ itemId: "e2", title: "Payments", type: "epic", parent: "i" });
+  const tasks = ["a", "b", "c"].flatMap((n) => [
+    card({ itemId: `${n}1`, title: `${n}1`, parent: "e1" }),
+    card({ itemId: `${n}2`, title: `${n}2`, parent: "e2" }),
+  ]);
+  const cards = [g, i, e1, e2, ...tasks];
+  const drawn = rows(buildTree(cards), { from: "goal", to: "subtask" }, () => true);
+  // The snapshot: one 30px box per row, in the order drawn at drag start.
+  const H = 30;
+  const boxes: RowBox[] = drawn.map((r, k) => ({ id: r.node.card.itemId, top: k * H, height: H }));
+  const at = (id: string, fraction: number) => boxes.find((b) => b.id === id)!.top + fraction * H;
+  const order = drawn.map((r) => r.node.card.itemId);
+  const none = new Set<string>();
+
+  it("draws the tree the cases below aim at", () => {
+    expect(order).toEqual(["g", "i", "e1", "a1", "b1", "c1", "e2", "a2", "b2", "c2"]);
+  });
+
+  it("holds one target while the pointer moves within one zone of one row", () => {
+    const seen = new Set<string>();
+    let prev: DropTarget | null = null;
+    for (let f = 0.35; f <= 0.65; f += 0.01) {
+      prev = dropTargetAt(boxes, at("e2", f), prev, none);
+      seen.add(JSON.stringify(prev));
+    }
+    expect([...seen]).toEqual([JSON.stringify({ overId: "e2", zone: "into" })]);
+  });
+
+  it("does not flip back and forth when the pointer wobbles a few px across a boundary", () => {
+    // Into e2, then the pointer wobbles ±2px around the into/after line.
+    let prev = dropTargetAt(boxes, at("e2", 0.5), null, none);
+    const line = at("e2", 0.72);
+    for (const dy of [-2, 2, -2, 2, -1, 1]) {
+      prev = dropTargetAt(boxes, line + dy, prev, none);
+      expect(prev).toEqual({ overId: "e2", zone: "into" });
+    }
+    // The same wobble around the line between two rows keeps the row.
+    prev = dropTargetAt(boxes, at("b2", 0.9), null, none);
+    const edge = at("c2", 0);
+    for (const dy of [-2, 2, -2, 2]) {
+      prev = dropTargetAt(boxes, edge + dy, prev, none);
+      expect(prev).toEqual({ overId: "b2", zone: "after" });
+    }
+    // Going on past the slack, it does change.
+    expect(dropTargetAt(boxes, edge + AIM_SLACK * H + 1, prev, none)).toEqual({ overId: "c2", zone: "before" });
+  });
+
+  it("reads every row once, top to bottom, under a slow sweep: no reading comes back", () => {
+    // A 1px sweep from the first row to the last against the snapshot. Each
+    // reading is a function of the snapshot and the pointer alone, so the
+    // rows come in the order drawn and each zone of a row comes once.
+    const trail: string[] = [];
+    let prev: DropTarget | null = null;
+    for (let y = 0; y < boxes.length * H; y++) {
+      prev = dropTargetAt(boxes, y, prev, none);
+      const key = prev ? `${prev.overId}:${prev.zone}` : "-";
+      if (trail[trail.length - 1] !== key) {
+        trail.push(key);
+      }
+    }
+    expect(new Set(trail).size).toBe(trail.length);
+    expect(trail.filter((k) => k.endsWith(":into")).map((k) => k.split(":")[0])).toEqual(order);
+  });
+
+  it("gives the same reading for the same pointer whatever was read before it", () => {
+    // Away from any boundary, history does not matter: the snapshot decides.
+    for (const prev of [null, { overId: "g", zone: "before" as const }, { overId: "c2", zone: "after" as const }]) {
+      expect(dropTargetAt(boxes, at("e2", 0.5), prev, none)).toEqual({ overId: "e2", zone: "into" });
+    }
+  });
+
+  it("reads nothing over the dragged row or the rows it carries", () => {
+    const held = new Set(["e1", "a1", "b1", "c1"]);
+    expect(dropTargetAt(boxes, at("e1", 0.5), null, held)).toBeNull();
+    expect(dropTargetAt(boxes, at("b1", 0.5), null, held)).toBeNull();
+    expect(dropTargetAt(boxes, at("e2", 0.5), null, held)).toEqual({ overId: "e2", zone: "into" });
+  });
+
+  it("reads the nearest row just off the ends of the tree, and nothing far from it", () => {
+    expect(dropTargetAt(boxes, -5, null, none)).toEqual({ overId: "g", zone: "before" });
+    expect(dropTargetAt(boxes, boxes.length * H + 5, null, none)).toEqual({ overId: "c2", zone: "after" });
+    expect(dropTargetAt(boxes, -3 * H, null, none)).toBeNull();
+    expect(dropTargetAt(boxes, (boxes.length + 3) * H, null, none)).toBeNull();
+    expect(dropTargetAt([], 10, null, none)).toBeNull();
+  });
+
+  it("dropping a task into the middle of another epic files it under that epic, last", () => {
+    const t = dropTargetAt(boxes, at("e2", 0.5), null, new Set(["b1"]))!;
+    const placement = placementFor(cards, drawn, "b1", t.overId, t.zone)!;
+    expect(placement).toEqual({ parent: "e2", index: 3 });
+    expect(droppable(cards, "b1", placement.parent)).toBe(true);
+    expect(dropCommit(cards, "b1", placement).parentChanged).toBe(true);
+  });
+
+  it("dropping a task between two tasks of another epic files it there", () => {
+    const t = dropTargetAt(boxes, at("b2", 0.1), null, new Set(["a1"]))!;
+    expect(t).toEqual({ overId: "b2", zone: "before" });
+    expect(placementFor(cards, drawn, "a1", t.overId, t.zone)).toEqual({ parent: "e2", index: 1 });
+  });
+
+  it("marks the landing place over the rows, taking no room: a line in the gap or the row itself", () => {
+    // Into a row: the row is marked.
+    expect(dropMark(drawn, { overId: "e2", zone: "into" }, { parent: "e2", index: 3 })).toEqual({ row: "e2", edge: "inside", depth: 2 });
+    // Before a row: a line on its top edge at its depth.
+    expect(dropMark(drawn, { overId: "b2", zone: "before" }, { parent: "e2", index: 1 })).toEqual({ row: "b2", edge: "top", depth: 3 });
+    // After a leaf: a line on its bottom edge at its depth.
+    expect(dropMark(drawn, { overId: "c1", zone: "after" }, { parent: "e1", index: 3 })).toEqual({ row: "c1", edge: "bottom", depth: 3 });
+    // After an unfolded row is the first place under it: the line steps in.
+    expect(dropMark(drawn, { overId: "e2", zone: "after" }, { parent: "e2", index: 0 })).toEqual({ row: "e2", edge: "bottom", depth: 3 });
+    expect(dropMark(drawn, { overId: "zz", zone: "after" }, { parent: "e2", index: 0 })).toBeNull();
+  });
+});
+
+// The frame a drag is read in: the list's own content, so a row keeps its
+// place however the board or the page scrolls, and a snapshot re-taken in
+// the middle of a drag (a watch frame changed the rows) lands in the same
+// frame as the one it replaces.
+describe("the frame a Roadmap drag is read in", () => {
+  it("shifts the reading by N px when the container is scrolled N px", () => {
+    const still = pointerContentY(300, 0, 40)!;
+    expect(pointerContentY(300, 120, 40)).toBe(still + 120);
+    // The board and the page scroll alike: what counts is the sum.
+    expect(pointerContentY(300, 90 + 30, 40)).toBe(still + 120);
+  });
+
+  it("puts a row measured at any scroll in the same place", () => {
+    // A row 200px down the content, measured unscrolled and after a 120px
+    // scroll (where the viewport shows it 120px higher), is one box.
+    const a = boxesInContent([{ id: "r", top: 200, height: 30 }], 0);
+    const b = boxesInContent([{ id: "r", top: 80, height: 30 }], 120);
+    expect(a).toEqual(b);
+    expect(a).toEqual([{ id: "r", top: 200, height: 30 }]);
+  });
+
+  it("reads the same row after a scroll, pointer and snapshot moving together", () => {
+    const boxes = boxesInContent([{ id: "x", top: 100, height: 30 }, { id: "y", top: 130, height: 30 }], 0);
+    // Unscrolled, viewport 145 is the middle of y; scrolled 30px, y is at
+    // viewport 115 and the same reading comes from there.
+    expect(dropTargetAt(boxes, pointerContentY(145, 0, 40)!, null, new Set())).toEqual({ overId: "y", zone: "into" });
+    expect(dropTargetAt(boxes, pointerContentY(115, 30, 40)!, null, new Set())).toEqual({ overId: "y", zone: "into" });
+  });
+
+  it("reads nothing over the sticky header: a row scrolled under it is not a target", () => {
+    expect(pointerContentY(39, 500, 40)).toBeNull();
+    expect(pointerContentY(40, 500, 40)).toBe(540);
+  });
+
+  it("reads nothing without a pointer position (a keyboard drag has none)", () => {
+    expect(pointerContentY(null, 0, 40)).toBeNull();
+  });
+});
+
+// A breadcrumb followed to the Roadmap scrolls its row into view ONCE: the
+// row stays marked, but later re-renders (a watch frame, a drag) do not pull
+// the list back to it, and nothing scrolls while a drag runs.
+describe("revealing a row followed to the Roadmap", () => {
+  it("scrolls once the row is drawn, then is done", () => {
+    expect(revealStep("t", false, true)).toEqual({ scroll: true, pending: null });
+    expect(revealStep(null, false, true)).toEqual({ scroll: false, pending: null });
+  });
+
+  it("waits for a row not drawn yet (its parents still unfolding)", () => {
+    expect(revealStep("t", false, false)).toEqual({ scroll: false, pending: "t" });
+  });
+
+  it("never scrolls while a drag runs, and still owes the scroll after it", () => {
+    expect(revealStep("t", true, true)).toEqual({ scroll: false, pending: "t" });
   });
 });
