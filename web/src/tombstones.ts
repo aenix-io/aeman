@@ -50,6 +50,14 @@ export class Tombstones {
   }
 }
 
+/** notTombstoned leaves out of a LISTING the cards this tab deleted within
+ *  the span: a list request sent before the delete and answered after the
+ *  DELETED still carries the card, and merged into the board — or cached for
+ *  the drawer's tree — it would bring the card back as a frame would. */
+export function notTombstoned<T extends { itemId: string }>(cards: readonly T[], t: Tombstones, now = Date.now()): T[] {
+  return cards.filter((c) => !t.blocks(c.itemId, "MODIFIED", now));
+}
+
 /** withTombstones marks the cards a delete takes away: every deleteCard, and
  *  a remove the board that sent it says deletes ({deletes: true} — a plan
  *  item's ×, where the board knows; a day board's remove may hand a task

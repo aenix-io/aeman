@@ -44,7 +44,7 @@ import { frozenProvider } from "./providers/frozen";
 import { todayIso, setBoardTimezone } from "./date";
 import { doneAtAfter } from "./stages";
 import { mergeNotes } from "./notes";
-import { Tombstones, withTombstones } from "./tombstones";
+import { notTombstoned, Tombstones, withTombstones } from "./tombstones";
 import { buildLink, cardLink, cardUnreadable, linkChange, parseLink, saveReturnTo, startDay, takeReturnTo, type LinkState } from "./deeplink";
 import { openWatches } from "./watch";
 import { AppearanceMenu } from "./components/AppearanceMenu";
@@ -978,7 +978,9 @@ export function App() {
       }
       setBoard((cur) => ({
         ...loaded,
-        cards: mergeCardLists(lists.map((l) => l.cards), cur?.cards, justMade),
+        // A listing answered after a DELETED this tab caused still carries
+        // the card; it stays gone (tombstones.ts), as from a frame.
+        cards: mergeCardLists(lists.map((l) => notTombstoned(l.cards, tombstones.current)), cur?.cards, justMade),
         boardOrder: boardOrderOf(lists),
       }));
     } catch (err: unknown) {
@@ -1033,7 +1035,7 @@ export function App() {
             ? {
                 ...cur,
                 ...(loaded ? { ...loaded, cards: cur.cards } : {}),
-                cards: mergeCardLists(lists.map((l) => l.cards), cur.cards, justMade),
+                cards: mergeCardLists(lists.map((l) => notTombstoned(l.cards, tombstones.current)), cur.cards, justMade),
                 boardOrder: boardOrderOf(lists),
               }
             : cur,
@@ -1819,6 +1821,7 @@ export function App() {
           onOpenCard={openWithin}
           onBack={detailStack.length > 0 ? backInDetail : undefined}
           subscribeCardFrames={subscribeCardFrames}
+          tombstones={tombstones.current}
           cardLinkFor={(uid) => cardLink(window.location.origin, window.location.pathname, view, uid, selectedDate, todayIso())}
           onError={onError}
           onCustomerAdded={(cu) =>

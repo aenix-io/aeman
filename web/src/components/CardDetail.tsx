@@ -49,6 +49,7 @@ import { placementAnswer, drawerEscapes } from "../detail";
 import { OwnerPicker } from "./OwnerPicker";
 import { ParentPicker } from "./ParentPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
+import { notTombstoned, type Tombstones } from "../tombstones";
 
 interface CardDetailProps {
   card: CardModel;
@@ -74,6 +75,9 @@ interface CardDetailProps {
   /** The board's Card watch frames, relayed: the pane keeps its copy of the
    *  hierarchy in step with them. */
   subscribeCardFrames?: (fn: (uid: string, deleted: boolean, card?: CardModel) => void) => () => void;
+  /** The cards this tab deleted (tombstones.ts): a listing answered after the
+   *  DELETED still carries one, and the tree must not draw it again. */
+  tombstones?: Tombstones;
   /** The card's address on this board (deeplink.cardLink), for its
    *  identity line: the id and the link to copy. */
   cardLinkFor?: (uid: string) => string;
@@ -131,6 +135,7 @@ export function CardDetail({
   onBack,
   cardLinkFor,
   subscribeCardFrames,
+  tombstones,
   onError,
   onCustomerAdded,
 }: CardDetailProps) {
@@ -169,9 +174,10 @@ export function CardDetail({
     void provider
       .listCards({ view: "roadmap" })
       .then((l) => {
-        storeListing(key, l.cards, Date.now());
+        const listed = tombstones ? notTombstoned(l.cards, tombstones) : l.cards;
+        storeListing(key, listed, Date.now());
         if (!dropped) {
-          setHierarchy({ forCard: card.itemId, cards: l.cards });
+          setHierarchy({ forCard: card.itemId, cards: listed });
         }
       })
       .catch(() => {
@@ -182,7 +188,7 @@ export function CardDetail({
     return () => {
       dropped = true;
     };
-  }, [wantsHierarchy, card.itemId, provider, hierarchy?.forCard, temp, planning]);
+  }, [wantsHierarchy, card.itemId, provider, hierarchy?.forCard, temp, planning, tombstones]);
   // The board's watch keeps the pane's copy of the hierarchy in step: a card
   // deleted outright leaves it, a card changed is taken as it now is, and
   // any change makes the shared listing stale for the next pane.
