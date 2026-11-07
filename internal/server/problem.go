@@ -104,6 +104,7 @@ var sentinels = []struct {
 	// backlog, UNASSIGNED on one not in work.
 	{boardservice.ErrNotParkedWork, http.StatusUnprocessableEntity, "notParkedWork"},
 	{boardservice.ErrNotInWork, http.StatusUnprocessableEntity, "notInWork"},
+	{boardservice.ErrNotATarget, http.StatusUnprocessableEntity, "notATarget"},
 	// A shelf for a card that has no place of its own, and a process turn
 	// carried out of the occurrence it is a turn of: the board's own
 	// rules, answered as such.

@@ -616,7 +616,10 @@ paths:
         depth; with none there is nothing to change. A TO DO task stands at
         the top of its backlog, in the Roadmap's order among the other TO DO
         tasks, and loses the mark when it is taken into work or finished.
-        One commit for the whole request.
+        Every task is checked first — reachable from the card, and the
+        caller's to write (403 naming how many and which otherwise) — and
+        the request is applied whole or not at all, in one commit per
+        repository it touches.
       parameters:
         - $ref: '#/components/parameters/Uid'
       requestBody:
@@ -646,11 +649,19 @@ paths:
         takes every such task under it, at any depth. Each goes the way the
         ×'s unassign sends a card (K3): nobody on it, no day, no sprint, its
         unfinished review withdrawn, parked in the backlog of the team it
-        stands under; they keep their order among themselves. Finished work,
-        review cards and subtasks are never touched. One
-        commit for the whole request.
+        stands under, where it stands in the board's order. Finished work,
+        review cards and subtasks are never touched. Every task is checked
+        first — reachable from the card, and the caller's to write (403
+        naming how many and which otherwise) — and the request is applied
+        whole or not at all, in one commit per repository it touches.
       parameters:
         - $ref: '#/components/parameters/Uid'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnassignWorkBody'
       responses:
         '200':
           description: How many tasks went back to their backlog.
@@ -1345,6 +1356,7 @@ components:
             - noPlaceOfItsOwn
             - noReviewer
             - noSuchView
+            - notATarget
             - notAuthenticated
             - notFinished
             - notInWork
@@ -2443,6 +2455,26 @@ components:
         todo:
           type: boolean
           description: "`true` marks the work TO DO, `false` clears the mark."
+        uids:
+          type: array
+          description: >-
+            Exactly the tasks to change, when given — the ones the reader was
+            shown and counted (a Roadmap filter shows fewer than the board
+            holds). Each must be one the gesture reaches from the card (422
+            `notATarget` otherwise). Absent: every task it reaches.
+          items:
+            type: string
+    UnassignWorkBody:
+      type: object
+      properties:
+        uids:
+          type: array
+          description: >-
+            Exactly the tasks to take out of work, when given — the ones the
+            confirm counted. Each must be one the gesture reaches from the
+            card (422 `notATarget` otherwise). Absent: every task it reaches.
+          items:
+            type: string
     WorkChange:
       type: object
       additionalProperties: false

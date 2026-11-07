@@ -765,7 +765,11 @@ func (a surface) SetTodo(ctx context.Context, req apiv1.SetTodoRequestObject) (a
 	if err != nil {
 		return nil, err
 	}
-	n, err := svc.SetTodo(ctx, boardID, req.UID, req.Body.Todo)
+	var uids []string
+	if req.Body.Uids != nil {
+		uids = *req.Body.Uids
+	}
+	n, err := svc.SetTodo(ctx, boardID, req.UID, req.Body.Todo, uids)
 	if err != nil {
 		return nil, err
 	}
@@ -779,7 +783,11 @@ func (a surface) UnassignWork(ctx context.Context, req apiv1.UnassignWorkRequest
 	if err != nil {
 		return nil, err
 	}
-	n, err := svc.UnassignWork(ctx, boardID, req.UID)
+	var uids []string
+	if req.Body != nil && req.Body.Uids != nil {
+		uids = *req.Body.Uids
+	}
+	n, err := svc.UnassignWork(ctx, boardID, req.UID, uids)
 	if err != nil {
 		return nil, err
 	}

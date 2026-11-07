@@ -831,7 +831,7 @@ func TestAPIRemoveTakesNoBodyAtAll(t *testing.T) {
 // operation with an empty body, so today that surfaces as a panic, which names
 // the wrong thing. This pins the set instead, so the edit is refused where it
 // is made and the reader is sent to the handler that would break.
-func TestOnlyOneOperationTakesAnOptionalBody(t *testing.T) {
+func TestOnlyTheOperationsThatCheckTheirBodyTakeItOptional(t *testing.T) {
 	doc, _ := loadedSpec(t)
 	var optional []string
 	bodies := 0
@@ -849,11 +849,13 @@ func TestOnlyOneOperationTakesAnOptionalBody(t *testing.T) {
 	if bodies < 20 {
 		t.Fatalf("only %d operations declare a body — has the document moved?", bodies)
 	}
-	// removeCard alone: sending nothing is the intentless ×, and
-	// surface.RemoveCard is the one handler that checks the pointer.
-	want := []string{"POST /views/{view}/cards/{uid}/actions/remove"}
+	// removeCard: sending nothing is the intentless ×; unassignWork: sending
+	// nothing is every task it reaches. surface.RemoveCard and
+	// surface.UnassignWork are the handlers that check the pointer.
+	want := []string{"POST /cards/{uid}/actions/unassign-work", "POST /views/{view}/cards/{uid}/actions/remove"}
+	slices.Sort(optional)
 	if !slices.Equal(optional, want) {
 		t.Errorf("operations with an optional body = %v, want %v — a handler dereferences req.Body for each of the other %d, so widening this set needs a nil check on the other side",
-			optional, want, bodies-1)
+			optional, want, bodies-len(want))
 	}
 }

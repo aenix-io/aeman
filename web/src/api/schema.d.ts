@@ -326,7 +326,7 @@ export interface paths {
         put?: never;
         /**
          * Mark parked work TO DO — ready to be taken next — or clear the mark.
-         * @description The Roadmap's status menu, TO DO. On a TASK it marks the task itself, which must be waiting in its team's backlog — parked, open, not a review or a subtask (422 `notParkedWork` otherwise). On a PLAN ITEM (goal, initiative, epic) it marks every such task under it, at any depth; with none there is nothing to change. A TO DO task stands at the top of its backlog, in the Roadmap's order among the other TO DO tasks, and loses the mark when it is taken into work or finished. One commit for the whole request.
+         * @description The Roadmap's status menu, TO DO. On a TASK it marks the task itself, which must be waiting in its team's backlog — parked, open, not a review or a subtask (422 `notParkedWork` otherwise). On a PLAN ITEM (goal, initiative, epic) it marks every such task under it, at any depth; with none there is nothing to change. A TO DO task stands at the top of its backlog, in the Roadmap's order among the other TO DO tasks, and loses the mark when it is taken into work or finished. Every task is checked first — reachable from the card, and the caller's to write (403 naming how many and which otherwise) — and the request is applied whole or not at all, in one commit per repository it touches.
          */
         post: operations["setTodo"];
         delete?: never;
@@ -346,7 +346,7 @@ export interface paths {
         put?: never;
         /**
          * Take work in hand out of work, back to its team's backlog.
-         * @description The Roadmap's status menu, UNASSIGNED. On a TASK it takes the task itself, which must be open work in hand — a date or a sprint, not parked, not finished (422 `notInWork` otherwise). On a PLAN ITEM it takes every such task under it, at any depth. Each goes the way the ×'s unassign sends a card (K3): nobody on it, no day, no sprint, its unfinished review withdrawn, parked in the backlog of the team it stands under; they keep their order among themselves. Finished work, review cards and subtasks are never touched. One commit for the whole request.
+         * @description The Roadmap's status menu, UNASSIGNED. On a TASK it takes the task itself, which must be open work in hand — a date or a sprint, not parked, not finished (422 `notInWork` otherwise). On a PLAN ITEM it takes every such task under it, at any depth. Each goes the way the ×'s unassign sends a card (K3): nobody on it, no day, no sprint, its unfinished review withdrawn, parked in the backlog of the team it stands under, where it stands in the board's order. Finished work, review cards and subtasks are never touched. Every task is checked first — reachable from the card, and the caller's to write (403 naming how many and which otherwise) — and the request is applied whole or not at all, in one commit per repository it touches.
          */
         post: operations["unassignWork"];
         delete?: never;
@@ -724,7 +724,7 @@ export interface components {
              * @description The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
              * @enum {string}
              */
-            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "customerExists" | "customerName" | "customerNotFound" | "dayIsARecord" | "descriptionTooLong" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notAuthenticated" | "notFinished" | "notInWork" | "notOnThisBoard" | "notParkedWork" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "ownerIsThePlans" | "ownershipUnsupported" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "reviewCardLink" | "setupRequired" | "somebodysCard" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "twoPlaces" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField";
+            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "customerExists" | "customerName" | "customerNotFound" | "dayIsARecord" | "descriptionTooLong" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notATarget" | "notAuthenticated" | "notFinished" | "notInWork" | "notOnThisBoard" | "notParkedWork" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "ownerIsThePlans" | "ownershipUnsupported" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "reviewCardLink" | "setupRequired" | "somebodysCard" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "twoPlaces" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField";
             /** @description Where the person can go to fix the refusal — installing the board's app — for a client to offer as a button. */
             actionUrl?: string;
         };
@@ -1135,6 +1135,12 @@ export interface components {
         SetTodoBody: {
             /** @description `true` marks the work TO DO, `false` clears the mark. */
             todo: boolean;
+            /** @description Exactly the tasks to change, when given — the ones the reader was shown and counted (a Roadmap filter shows fewer than the board holds). Each must be one the gesture reaches from the card (422 `notATarget` otherwise). Absent: every task it reaches. */
+            uids?: string[];
+        };
+        UnassignWorkBody: {
+            /** @description Exactly the tasks to take out of work, when given — the ones the confirm counted. Each must be one the gesture reaches from the card (422 `notATarget` otherwise). Absent: every task it reaches. */
+            uids?: string[];
         };
         /** @description How many tasks a status gesture on the Roadmap changed. */
         WorkChange: {
@@ -2018,7 +2024,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UnassignWorkBody"];
+            };
+        };
         responses: {
             /** @description How many tasks went back to their backlog. */
             200: {

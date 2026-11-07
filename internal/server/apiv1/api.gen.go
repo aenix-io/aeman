@@ -224,6 +224,7 @@ const (
 	NoReviewer           ProblemCode = "noReviewer"
 	NoSuchView           ProblemCode = "noSuchView"
 	NobodyToTake         ProblemCode = "nobodyToTake"
+	NotATarget           ProblemCode = "notATarget"
 	NotAuthenticated     ProblemCode = "notAuthenticated"
 	NotFinished          ProblemCode = "notFinished"
 	NotInWork            ProblemCode = "notInWork"
@@ -340,6 +341,8 @@ func (e ProblemCode) Valid() bool {
 	case NoSuchView:
 		return true
 	case NobodyToTake:
+		return true
+	case NotATarget:
 		return true
 	case NotAuthenticated:
 		return true
@@ -827,6 +830,9 @@ type SendToReviewBodyZone string
 type SetTodoBody struct {
 	// Todo `true` marks the work TO DO, `false` clears the mark.
 	Todo bool `json:"todo"`
+
+	// Uids Exactly the tasks to change, when given — the ones the reader was shown and counted (a Roadmap filter shows fewer than the board holds). Each must be one the gesture reaches from the card (422 `notATarget` otherwise). Absent: every task it reaches.
+	Uids *[]string `json:"uids,omitempty"`
 }
 
 // Sprint A team's sprint pointer; the empty team is the no-team group.
@@ -870,6 +876,12 @@ type TeamCapacityBody struct {
 	// Points The points a week; 0 takes the number back. It is required — a body without it is refused (400) rather than read as zero.
 	Points *int    `json:"points"`
 	Team   *string `json:"team,omitempty"`
+}
+
+// UnassignWorkBody defines model for UnassignWorkBody.
+type UnassignWorkBody struct {
+	// Uids Exactly the tasks to take out of work, when given — the ones the confirm counted. Each must be one the gesture reaches from the card (422 `notATarget` otherwise). Absent: every task it reaches.
+	Uids *[]string `json:"uids,omitempty"`
 }
 
 // ViewResource One board a caller may open and the gestures it draws. It exists so a client can READ the surface instead of being told it in a description, which is how the two drifted apart in the first place.
@@ -1186,6 +1198,9 @@ type SendToReviewJSONRequestBody = SendToReviewBody
 
 // SetTodoJSONRequestBody defines body for SetTodo for application/json ContentType.
 type SetTodoJSONRequestBody = SetTodoBody
+
+// UnassignWorkJSONRequestBody defines body for UnassignWork for application/json ContentType.
+type UnassignWorkJSONRequestBody = UnassignWorkBody
 
 // AddNoteJSONRequestBody defines body for AddNote for application/json ContentType.
 type AddNoteJSONRequestBody = NoteBody
@@ -3779,7 +3794,8 @@ func (response SetTododefaultApplicationProblemPlusJSONResponse) VisitSetTodoRes
 }
 
 type UnassignWorkRequestObject struct {
-	UID UID `json:"uid"`
+	UID  UID `json:"uid"`
+	Body *UnassignWorkJSONRequestBody
 }
 
 type UnassignWorkResponseObject interface {
@@ -5359,6 +5375,16 @@ func (sh *strictHandler) UnassignWork(w http.ResponseWriter, r *http.Request, ui
 	var request UnassignWorkRequestObject
 
 	request.UID = uid
+
+	var body UnassignWorkJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.UnassignWork(ctx, request.(UnassignWorkRequestObject))

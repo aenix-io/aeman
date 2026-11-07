@@ -457,3 +457,10 @@ func (v *visibleBackend) SetTeamPoints(ctx context.Context, bd board.Board, team
 	}
 	return v.Backend.SetTeamPoints(ctx, bd, team, points)
 }
+
+// CheckWrite answers the write check for a card before anything is written
+// (boardservice.WriteChecker): a gesture writing many cards asks it of every
+// one first, and is refused whole rather than half-way.
+func (v *visibleBackend) CheckWrite(ctx context.Context, bd board.Board, card board.Card) error {
+	return v.write(ctx, bd, card)
+}

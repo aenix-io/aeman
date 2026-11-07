@@ -1445,15 +1445,8 @@ func (s *Service) logReviewCancelled(ctx context.Context, b board.Board, origina
 // in TeamBoard.tsx: board.ApplyStage computes the resulting (stage, progress) and
 // both are persisted (done fills 100%, review/locked knock a full card to 90%).
 // Taking a card off review cancels its unfinished linked review card. A
-// task it finishes loses its TO DO (K15).
+// task it finishes loses its TO DO (K15, keepPlaced).
 func (s *Service) SetStage(ctx context.Context, boardID string, itemID string, stage board.StageKey) error {
-	if err := s.setStage(ctx, boardID, itemID, stage); err != nil {
-		return err
-	}
-	return s.clearTodoOnceFinished(ctx, boardID, itemID)
-}
-
-func (s *Service) setStage(ctx context.Context, boardID string, itemID string, stage board.StageKey) error {
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -1677,15 +1670,8 @@ func (s *Service) Reopen(ctx context.Context, boardID string, itemID string) err
 // SetProgress sets a card's progress. It mirrors handleProgress in TeamBoard.tsx:
 // board.ApplyProgress clamps the value and runs the done auto-link, both are
 // persisted, and a review card's progress drives its original's review stage.
-// A task it finishes loses its TO DO (K15).
+// A task it finishes loses its TO DO (K15, keepPlaced).
 func (s *Service) SetProgress(ctx context.Context, boardID string, itemID string, raw int) error {
-	if err := s.setProgress(ctx, boardID, itemID, raw); err != nil {
-		return err
-	}
-	return s.clearTodoOnceFinished(ctx, boardID, itemID)
-}
-
-func (s *Service) setProgress(ctx context.Context, boardID string, itemID string, raw int) error {
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -2013,6 +1999,12 @@ func (s *Service) SetBacklog(ctx context.Context, boardID string, itemID string,
 	if err != nil {
 		return err
 	}
+	return s.setBacklogOn(ctx, b, card, parked)
+}
+
+// setBacklogOn is SetBacklog on a board already read — UNASSIGNED parks
+// every task under a plan item off ONE read of the board.
+func (s *Service) setBacklogOn(ctx context.Context, b board.Board, card board.Card, parked bool) error {
 	if err := notAPlanningCard(card, "shelf"); err != nil {
 		return err
 	}
@@ -2038,16 +2030,10 @@ func (s *Service) SetBacklog(ctx context.Context, boardID string, itemID string,
 		// among the parked work is not the day board's business.
 		return nil
 	}
-	// It lands at the TOP of the shelf. A shelf nobody has sorted reads
-	// oldest-first, which answers "what has been waiting longest" — right for
-	// a shelf being worked through, wrong for the card just put there, which
-	// is the one the person will look for and would go under a hundred older
-	// ones. Placing it by hand is what the ordering rule reads first
-	// (board.BacklogOrder), and the top of the board's order is the top of
-	// every shelf in it, since a shelf is a slice of that one order.
-	if err := s.backend.MoveCard(ctx, b, card, ""); err != nil {
-		return err
-	}
+	// It KEEPS ITS PLACE in the board's order (B11, amended with K14). The
+	// backlog reads in the Roadmap's order — one order, decided by the tree —
+	// so moving it to the top would move it to the top of its siblings on the
+	// Roadmap as well: taking work out of hand does not rearrange the plan.
 	// And it becomes PLANNED work, whatever zone it was in. The other three
 	// are statements about TODAY: critical means today, unplanned means it
 	// turned up today, "if time left" is about a day's spare capacity. None of

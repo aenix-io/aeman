@@ -139,22 +139,18 @@ func TestACardBornOnTheShelfIsPlannedWork(t *testing.T) {
 	}
 }
 
-// A card sent to the backlog lands at the TOP of it.
-//
-// A shelf nobody has sorted reads oldest-first, which answers "what has been
-// waiting longest". That is the right answer for a shelf being worked THROUGH,
-// and the wrong one for a card just put there: the thing somebody has this
-// moment decided to keep is the thing they will look for, and it would go to
-// the bottom of a hundred older ones. So parking places the card by hand — the
-// same rank a card dragged to the top gets — and the ordering rule does the
-// rest (BacklogOrder: by hand first, by age after).
-func TestParkingPutsTheCardAtTheTopOfTheShelf(t *testing.T) {
+// A card sent to the backlog KEEPS ITS PLACE in the board's order (B11,
+// amended with K14). The backlog reads in the Roadmap's order — one order,
+// decided by the tree — so moving a parked card to the top of the board's
+// order would move it to the top of its siblings on the Roadmap too: taking
+// work out of hand must not rearrange the plan.
+func TestParkingKeepsTheCardsPlace(t *testing.T) {
 	f := backlogBoard()
 	if err := New(f).SetBacklog(ctx, "acme", "plain", true); err != nil {
 		t.Fatal(err)
 	}
-	if !logged(f, "MoveCard plain after=") {
-		t.Fatalf("parking asks for the top of the order; calls were: %v", f.log)
+	if logged(f, "MoveCard plain") {
+		t.Fatalf("parking moves nothing; calls were: %v", f.log)
 	}
 	// Taking a card OFF the shelf moves nothing: it is going into work, and
 	// its place among the parked work is not the day board's business.

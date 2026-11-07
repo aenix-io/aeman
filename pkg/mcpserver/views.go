@@ -155,7 +155,13 @@ func (h *server) takeCard(ctx context.Context, _ *mcp.CallToolRequest, in standO
 
 type setTodoInput struct {
 	cardRef
-	Todo bool `json:"todo" jsonschema:"true marks the work TO DO, false clears the mark"`
+	Todo bool     `json:"todo" jsonschema:"true marks the work TO DO, false clears the mark"`
+	UIDs []string `json:"uids,omitempty" jsonschema:"exactly the tasks to change, each one the gesture reaches from the card; leave out for every task it reaches"`
+}
+
+type unassignWorkInput struct {
+	cardRef
+	UIDs []string `json:"uids,omitempty" jsonschema:"exactly the tasks to take out of work, each one the gesture reaches from the card; leave out for every task it reaches"`
 }
 
 // workChange answers a status gesture: how many tasks it changed.
@@ -168,19 +174,19 @@ func (h *server) setTodo(ctx context.Context, _ *mcp.CallToolRequest, in setTodo
 	if err != nil {
 		return nil, workChange{}, err
 	}
-	n, err := svc.SetTodo(ctx, boardID, in.UID, in.Todo)
+	n, err := svc.SetTodo(ctx, boardID, in.UID, in.Todo, in.UIDs)
 	if err != nil {
 		return nil, workChange{}, err
 	}
 	return nil, workChange{Changed: n}, nil
 }
 
-func (h *server) unassignWork(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, workChange, error) {
+func (h *server) unassignWork(ctx context.Context, _ *mcp.CallToolRequest, in unassignWorkInput) (*mcp.CallToolResult, workChange, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, workChange{}, err
 	}
-	n, err := svc.UnassignWork(ctx, boardID, in.UID)
+	n, err := svc.UnassignWork(ctx, boardID, in.UID, in.UIDs)
 	if err != nil {
 		return nil, workChange{}, err
 	}

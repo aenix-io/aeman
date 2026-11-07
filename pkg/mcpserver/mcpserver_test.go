@@ -1113,4 +1113,12 @@ func TestAnAgentMarksWorkToDoAndTakesItOutOfWork(t *testing.T) {
 	if msg := callErr(t, cs, "unassign_work", map[string]any{"uid": "p"}); !strings.Contains(msg, "not in work") {
 		t.Fatalf("unassign_work on parked work = %q", msg)
 	}
+	// uids names exactly the tasks to act on; one it cannot reach changes nothing.
+	if msg := callErr(t, cs, "set_todo", map[string]any{"uid": "e", "todo": false, "uids": []string{"e"}}); !strings.Contains(msg, "not one the gesture reaches") {
+		t.Fatalf("set_todo naming the epic itself = %q", msg)
+	}
+	call(t, cs, "set_todo", map[string]any{"uid": "e", "todo": false, "uids": []string{"p"}})
+	if fake.Card("p").Todo {
+		t.Fatal("set_todo with uids clears exactly the task named")
+	}
 }

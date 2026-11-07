@@ -140,6 +140,10 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 		}
 		s.logEvent(ctx, b, card, board.EventBacklog, backlogLabel(card), "")
 	}
+	// And a subtask is in no backlog: not TO DO either (K15).
+	if err := s.settleTodo(ctx, b, card, true); err != nil {
+		return err
+	}
 	// The log keeps titles, not item ids — readable for humans and agents.
 	// A card born parented (create with parent) has card.Parent == parent
 	// already: that is a fresh grouping, not a move.

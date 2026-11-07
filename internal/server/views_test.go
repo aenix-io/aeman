@@ -495,3 +495,36 @@ func TestToDoAndUnassignedOverHTTP(t *testing.T) {
 		t.Fatalf("UNASSIGNED on parked work = %d %s, want 422 notInWork", rec.Code, rec.Body.String())
 	}
 }
+
+// With a Roadmap filter on the reader sees — and the confirm counts — fewer
+// tasks than the board holds. The request names them, and the server acts on
+// exactly those (M1); a uid the gesture cannot reach from the card is 422
+// notATarget and nothing changes.
+func TestTheStatusMenuActsOnTheTasksTheReaderCountedOverHTTP(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "e", Title: "epic", Type: board.TypeEpic, Team: "alpha"},
+		{ItemID: "shown", Title: "shown", Parent: "e", Team: "alpha", Assignees: []string{"ann"}, SprintStart: today, Day: today},
+		{ItemID: "hidden", Title: "filtered out", Parent: "e", Team: "beta", Assignees: []string{"bob"}, SprintStart: today, Day: today},
+		{ItemID: "p", Title: "parked", Parent: "e", Parked: true},
+		{ItemID: "q", Title: "parked too", Parent: "e", Parked: true},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}, "beta": {Current: today, ItemID: "s2"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/unassign-work", `{"uids":["shown"]}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"changed":1`) {
+		t.Fatalf("UNASSIGNED on the counted task = %d %s", rec.Code, rec.Body.String())
+	}
+	if !fake.Card("shown").Parked || fake.Card("hidden").Parked {
+		t.Fatalf("only the counted task leaves work: shown %+v, hidden %+v", fake.Card("shown"), fake.Card("hidden"))
+	}
+	rec = do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/todo", `{"todo":true,"uids":["q"]}`)
+	if rec.Code != http.StatusOK || !fake.Card("q").Todo || fake.Card("p").Todo {
+		t.Fatalf("TO DO on the counted task = %d %s; p %v q %v", rec.Code, rec.Body.String(), fake.Card("p").Todo, fake.Card("q").Todo)
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/unassign-work", `{"uids":["hidden","p"]}`); rec.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rec.Body.String(), "notATarget") || fake.Card("hidden").Parked {
+		t.Fatalf("a uid the gesture cannot reach = %d %s, want 422 notATarget and nothing changed", rec.Code, rec.Body.String())
+	}
+}

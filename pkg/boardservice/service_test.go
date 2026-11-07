@@ -20,10 +20,12 @@ type fakeBackend struct {
 	// mu guards every field: the service runs background goroutines (the
 	// async title resolve, carry-over sprint writes), so the fake is hit
 	// concurrently with the test's assertions.
-	mu     sync.Mutex
-	refs   map[string]board.Link
-	b      board.Board
-	events map[string][]board.Event // the history AppendEvent recorded, by card
+	mu sync.Mutex
+	// unwritable is the cards CheckWrite refuses, by id.
+	unwritable map[string]bool
+	refs       map[string]board.Link
+	b          board.Board
+	events     map[string][]board.Event // the history AppendEvent recorded, by card
 	// deleteErr makes DeleteCard fail, for the paths that must report what
 	// they could not undo.
 	deleteErr error
@@ -440,6 +442,14 @@ func (f *fakeBackend) SetBacklog(
 	f.rec("SetBacklog %s %t", card.ItemID, parked)
 	if c := f.get(card.ItemID); c != nil {
 		c.Parked = parked
+	}
+	return nil
+}
+
+// CheckWrite refuses the cards named unwritable, as the server's rights do.
+func (f *fakeBackend) CheckWrite(_ context.Context, _ board.Board, card board.Card) error {
+	if f.unwritable[card.ItemID] {
+		return ErrForbidden
 	}
 	return nil
 }
