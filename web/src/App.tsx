@@ -1279,9 +1279,9 @@ export function App() {
   // server skips this tab's echoes) — except a DELETED for a card gone from
   // the board, which the author is told too (G87); relaying it drops an
   // entry that is already gone, which changes nothing.
-  const cardFrameListeners = useRef(new Set<(uid: string, deleted: boolean) => void>());
+  const cardFrameListeners = useRef(new Set<(uid: string, deleted: boolean, card?: CardModel) => void>());
   const subscribeCardFrames = useCallback(
-    (fn: (uid: string, deleted: boolean) => void) => {
+    (fn: (uid: string, deleted: boolean, card?: CardModel) => void) => {
       cardFrameListeners.current.add(fn);
       return () => {
         cardFrameListeners.current.delete(fn);
@@ -1365,7 +1365,7 @@ export function App() {
         const card = resourceToCard(frame.object);
         const notifyCardFrame = (deleted: boolean) => {
           for (const fn of cardFrameListeners.current) {
-            fn(card.itemId, deleted);
+            fn(card.itemId, deleted, card);
           }
         };
         // The drawer's card hears its frames even when no board lists it, and
@@ -1923,6 +1923,7 @@ export function App() {
           onReveal={revealOnRoadmap}
           onOpenCard={openWithin}
           onBack={detailStack.length > 0 ? backInDetail : undefined}
+          subscribeCardFrames={subscribeCardFrames}
           cardLinkFor={(uid) => cardLink(window.location.origin, window.location.pathname, view, uid, selectedDate, todayIso())}
           onError={onError}
           onCustomerAdded={(cu) =>

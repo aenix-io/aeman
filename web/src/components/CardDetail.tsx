@@ -35,6 +35,7 @@ import {
   hierarchyChoices,
   kindOf,
   planningRemoval,
+  cardsAfterDelete,
   statusOf,
   type RoadmapKind,
 } from "../roadmap";
@@ -42,9 +43,9 @@ import { isPlanning, isSubtask, subtaskParent } from "../subtasks";
 import { Avatar } from "./Avatar";
 import { DescriptionEditor } from "./DescriptionEditor";
 import { KindIcon } from "./KindIcon";
-import { PlanTree } from "./PlanTree";
+import { PlanTree, type PendingAdd } from "./PlanTree";
 import { CardIdentity } from "./CardIdentity";
-import { placementAnswer } from "../detail";
+import { placementAnswer, drawerEscapes } from "../detail";
 import { OwnerPicker } from "./OwnerPicker";
 import { ParentPicker } from "./ParentPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
@@ -70,6 +71,9 @@ interface CardDetailProps {
   onOpenCard?: (card: CardModel) => void;
   /** There is a card to go back to (the pane was opened from another). */
   onBack?: () => void;
+  /** The board's Card watch frames, relayed: the pane keeps its copy of the
+   *  hierarchy in step with them. */
+  subscribeCardFrames?: (fn: (uid: string, deleted: boolean, card?: CardModel) => void) => () => void;
   /** The card's address on this board (deeplink.cardLink), for its
    *  identity line: the id and the link to copy. */
   cardLinkFor?: (uid: string) => string;
@@ -82,6 +86,22 @@ interface CardDetailProps {
 }
 
 const errMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+// The roadmap listing the panes read, shared by every pane opened on the
+// board for a minute, so going from card to card does not fetch it again.
+// Any watch frame and any write made from a pane makes it stale.
+const LISTING_TTL_MS = 60_000;
+const listings = new Map<string, { cards: CardModel[]; at: number }>();
+function cachedListing(key: string, now: number): CardModel[] | null {
+  const l = listings.get(key);
+  return l && now - l.at <= LISTING_TTL_MS ? l.cards : null;
+}
+function storeListing(key: string, cards: CardModel[], now: number): void {
+  listings.set(key, { cards, at: now });
+}
+function dropListings(): void {
+  listings.clear();
+}
 
 
 /** CardDetail is the card's pane: a drawer that slides in from the right and
@@ -110,6 +130,7 @@ export function CardDetail({
   onOpenCard,
   onBack,
   cardLinkFor,
+  subscribeCardFrames,
   onError,
   onCustomerAdded,
 }: CardDetailProps) {
@@ -137,12 +158,20 @@ export function CardDetail({
     if (!wantsHierarchy || temp || hierarchy?.forCard === card.itemId) {
       return;
     }
+    // A plan item's "Under it" shows the project cards filed under it,
+    // marked by their kind, whatever the Roadmap's toggle says; a task's
+    // parent picker needs none of them.
+    const key = planning ? "with-project-cards" : "plan";
+    const cached = cachedListing(key, Date.now());
+    if (cached) {
+      setHierarchy({ forCard: card.itemId, cards: cached });
+      return;
+    }
     let dropped = false;
     void provider
-      // With the project cards: a plan item's "Under it" shows the ones filed
-      // under it, marked by their kind, whatever the Roadmap's toggle says.
-      .listCards({ view: "roadmap", projectCards: "true" })
+      .listCards(planning ? { view: "roadmap", projectCards: "true" } : { view: "roadmap" })
       .then((l) => {
+        storeListing(key, l.cards, Date.now());
         if (!dropped) {
           setHierarchy({ forCard: card.itemId, cards: l.cards });
         }
@@ -155,7 +184,29 @@ export function CardDetail({
     return () => {
       dropped = true;
     };
-  }, [wantsHierarchy, card.itemId, provider, hierarchy?.forCard, temp]);
+  }, [wantsHierarchy, card.itemId, provider, hierarchy?.forCard, temp, planning]);
+  // The board's watch keeps the pane's copy of the hierarchy in step: a card
+  // deleted outright leaves it, a card changed is taken as it now is, and
+  // any change makes the shared listing stale for the next pane.
+  useEffect(() => {
+    if (!subscribeCardFrames) {
+      return;
+    }
+    return subscribeCardFrames((uid, deleted, framed) => {
+      dropListings();
+      setHierarchy((h) => {
+        if (!h) {
+          return h;
+        }
+        if (deleted) {
+          return framed && !framed.title ? { ...h, cards: h.cards.filter((c) => c.itemId !== uid) } : h;
+        }
+        return framed && h.cards.some((c) => c.itemId === uid)
+          ? { ...h, cards: h.cards.map((c) => (c.itemId === uid ? { ...c, ...framed, description: c.description, notes: c.notes } : c)) }
+          : h;
+      });
+    });
+  }, [subscribeCardFrames]);
   const around = hierarchy?.forCard === card.itemId ? hierarchy.cards : null;
   // What the board itself holds is fresher than the fetched listing for the
   // cards it has (the watch keeps it so); the listing fills in the rest.
@@ -329,6 +380,7 @@ export function CardDetail({
         const withLineage: CardModel = made.lineage
           ? made
           : { ...made, lineage: [...(card.lineage ?? []), { uid: card.itemId, type: card.type, title: card.title }] };
+        dropListings();
         setHierarchy((h) => (h && h.forCard === card.itemId ? { ...h, cards: [...h.cards, withLineage] } : h));
         addCard?.(withLineage);
       })
@@ -385,23 +437,25 @@ export function CardDetail({
   const hasChildren = useMemo(() => known.some((c) => c.parent === card.itemId), [known, card.itemId]);
 
   // ---- making something under a planning card, at any level of its tree ----
-  const [pendingAdds, setPendingAdds] = useState<string[]>([]);
+  const [pendingAdds, setPendingAdds] = useState<PendingAdd[]>([]);
   const addChild = (t: string, level: CardType | "task", parent: string) => {
     const title = t.trim();
     if (!title) {
       return;
     }
-    setPendingAdds((p) => [...p, title]);
+    const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setPendingAdds((p) => [...p, { id: pendingId, title, parent }]);
     const type = level === "task" ? undefined : level;
     void provider
       .createCard({ title, type, parent, underPlanning: level === "task" })
       .then((made) => {
-        setPendingAdds((p) => p.filter((x) => x !== title));
+        setPendingAdds((p) => p.filter((x) => x.id !== pendingId));
+        dropListings();
         setHierarchy((h) => (h && h.forCard === card.itemId ? { ...h, cards: [...h.cards, made] } : h));
         addCard?.(made);
       })
       .catch((err: unknown) => {
-        setPendingAdds((p) => p.filter((x) => x !== title));
+        setPendingAdds((p) => p.filter((x) => x.id !== pendingId));
         onError?.(errMessage(err));
       });
   };
@@ -419,6 +473,7 @@ export function CardDetail({
       // parks it (K1, keepPlaced); the optimistic card says the same.
       const freed = { parent: undefined, lineage: undefined, ...keepPlaced(target, false) };
       patchCard(target.itemId, freed);
+      dropListings();
       setHierarchy((h) =>
         h ? { ...h, cards: h.cards.map((c) => (c.itemId === target.itemId ? { ...c, ...freed } : c)) } : h,
       );
@@ -434,7 +489,10 @@ export function CardDetail({
       patchCard(m.itemId, { parent: m.parent, lineage: m.parent ? target.lineage : undefined });
     }
     removeCard?.(target.itemId);
-    setHierarchy((h) => (h ? { ...h, cards: h.cards.filter((c) => c.itemId !== target.itemId) } : h));
+    // The same moves in the pane's own copy of the hierarchy, or a child
+    // the board does not hold keeps a dead parent and leaves the tree.
+    dropListings();
+    setHierarchy((h) => (h ? { ...h, cards: cardsAfterDelete(h.cards, target.itemId) } : h));
     void provider.deleteCard(target.itemId).catch((err: unknown) => {
       onError?.(errMessage(err));
       reload();
@@ -758,7 +816,7 @@ export function CardDetail({
       ref={backdropRef}
       tabIndex={-1}
       onKeyDown={(e) => {
-        if (e.key === "Escape" && !editingTitle && !choosing) {
+        if (drawerEscapes(e, editingTitle || !!choosing)) {
           e.stopPropagation();
           onClose();
         }
@@ -1065,16 +1123,11 @@ export function CardDetail({
                       onOpen={(c) => onOpenCard?.(c)}
                       onCreate={addChild}
                       onRemove={(c) => setChoosing({ card: c, choices: hierarchyChoices(c) })}
+                      pending={pendingAdds}
                       avatars={avatars}
                       names={names}
                       readOnly={isRecord || temp}
                     />
-                    {pendingAdds.map((t) => (
-                      <div key={`pending-${t}`} className="drawer-child drawer-child-pending">
-                        <span className="drawer-child-title">{t}</span>
-                        <span className="drawer-hint">adding…</span>
-                      </div>
-                    ))}
                   </section>
                 )}
               </>

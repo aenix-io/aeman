@@ -125,10 +125,9 @@ const LS_DEPTH = "aeman.roadmap.depth";
 const LS_ZOOM = "aeman.roadmap.zoom";
 const LS_FOLDED = "aeman.roadmap.folded";
 
-/** ROW_PX is the height of one row, on both sides, so the table and the
- *  timeline stay aligned without ever measuring each other. */
+/** HEAD_PX is the height of the table's head; a row's (ROW_PX) and one
+ *  level of the tree (INDENT_PX) are PlanTree's, shared with the drawer. */
 const HEAD_PX = 26;
-/** INDENT_PX is one level of the tree. */
 
 /** pxPerDay is how wide a day is drawn at a zoom: three months read a week
  *  at a glance, a year reads a month, and Fit stretches its span to about

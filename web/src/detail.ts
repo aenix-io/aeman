@@ -62,3 +62,11 @@ export function placementAnswer(u: Card): Partial<Card> {
     lineage: u.lineage,
   };
 }
+
+/** drawerEscapes reports an Esc that closes the drawer: not one a control
+ *  inside it took first (an add form's Esc cancels the form and marks the
+ *  key handled), nor one while the title is being edited or a dialog is
+ *  open over the drawer (`busy`). */
+export function drawerEscapes(e: { key: string; defaultPrevented: boolean }, busy: boolean): boolean {
+  return e.key === "Escape" && !e.defaultPrevented && !busy;
+}

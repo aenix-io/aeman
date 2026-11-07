@@ -5739,12 +5739,6 @@ button.card-age {
   margin-top: 18px;
 }
 
-.drawer-children-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  margin: 10px 0 2px;
-}
 
 .drawer-child {
   display: flex;
@@ -5822,7 +5816,6 @@ button.card-age {
   margin-top: 8px;
 }
 
-.drawer-add-level,
 .drawer-add-input {
   font: inherit;
   font-size: 12.5px;
@@ -5838,10 +5831,6 @@ button.card-age {
   min-width: 160px;
 }
 
-.drawer-add-hint {
-  flex-basis: 100%;
-  margin: 0;
-}
 
 .drawer-add-open {
   margin-top: 8px;
@@ -6291,4 +6280,34 @@ button.card-age {
 
 .drawer-pick-chain-sep {
   opacity: 0.7;
+}
+
+/* The drawer's tree is no drag surface: a swipe scrolls the drawer. */
+.plan-tree .roadmap-row {
+  touch-action: auto;
+}
+
+/* With no hover to reveal them, a row's + and × stand shown in the drawer. */
+@media (hover: none) {
+  .plan-tree .roadmap-row-add,
+  .plan-tree .roadmap-row-x {
+    opacity: 1;
+  }
+}
+
+.plan-tree-hint {
+  display: block;
+  margin-top: 2px;
+}
+
+.plan-tree-pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.plan-tree .plan-tree-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }

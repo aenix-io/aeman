@@ -445,14 +445,18 @@ as the Roadmap's tree rooted one level below the card ("Under it",
 `PlanTree`, `roadmap.subtreeRows`): every level under it — plan items,
 tasks, subtasks and the project cards filed there, each marked by its kind
 — with the Roadmap's rows (fold, title, owner with an inherited team,
-status) and no timeline or dates. A row opens that card in the pane; a plan
-item's + adds under that row (the levels it may hold, the next one first)
-and stays open for the next one; the add row at the foot adds a direct
-child of the card (a goal an initiative or an epic, an initiative an epic,
-an epic a task), the next level down first. The Under picker shows each
+status) and no timeline or dates. A row opens that card in the pane, by a
+click or from the keyboard; a plan item's + adds under that row (the levels
+it may hold, the next one first) and stays open for the next one; the add
+row at the foot adds a direct child of the card (a goal an initiative or an
+epic, an initiative an epic, an epic a task), the next level down first —
+a task made there has no team of its own and stands under the plan item's
+team, if it has one. A big tree starts folded below its first level. The
+Under picker shows each
 option's place — its ancestors, root first, small and muted with their
 kinds, cut when long and in full in the tooltip — and finds a plan item by
-its ancestors' titles too (`roadmap.parentChainOf`, `pickerMatches`). One × on every child, and on the card itself,
+its ancestors' titles too (`roadmap.parentOptions`). One × on every row
+of the tree, and on the card itself,
 asks the Team board's own question in the Team board's own dialog, with
 the hierarchy's answers: delete, or only detach (ungroup, for a subtask).
 The actions: mark as done and reopen (a task or a project card), delete
