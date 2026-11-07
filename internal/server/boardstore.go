@@ -61,11 +61,25 @@ const watchBuffer = 256
 // the reviewed card unnamed, the due date taken from the nearest planning
 // card the subscriber can read. status.effectiveTeam and effectiveCustomers
 // are inherited from those cards too (O3, O4, O6), so they are worked out
-// again from the card's own and its readable ancestors'. A subscriber who
-// reads everything is sent the resource as built.
-func (sub *subscription) seen(res apiserver.Card, find func(string) (board.Card, bool)) apiserver.Card {
+// again from the card's own and its readable ancestors'. A plan item's
+// status.hierarchy counts the tasks under it, and is counted again over the
+// ones the subscriber can read (Index.HierarchyStatusAs) — what their
+// listing, built on their visible board, says. A subscriber who reads
+// everything is sent the resource as built.
+func (sub *subscription) seen(res apiserver.Card, ix *board.Index) apiserver.Card {
 	if sub.rights == nil {
 		return res
+	}
+	find := ix.Find
+	readable := func(c board.Card) bool { return sub.rights.canRead(c.Domain) }
+	if res.Status.Hierarchy != nil {
+		if c, ok := find(res.Metadata.UID); ok {
+			st, done, total := ix.HierarchyStatusAs(c, readable)
+			h := apiserver.Hierarchy{Status: st, Done: done, Total: total}
+			if h != *res.Status.Hierarchy {
+				res.Status.Hierarchy = &h
+			}
+		}
 	}
 	can := func(uid string) bool {
 		c, ok := find(uid)
@@ -103,7 +117,6 @@ func (sub *subscription) seen(res apiserver.Card, find func(string) (board.Card,
 			}
 		}
 	}
-	readable := func(c board.Card) bool { return sub.rights.canRead(c.Domain) }
 	out.Status.EffectiveTeam, out.Status.EffectiveCustomers = inheritedFromReadable(res, find, readable)
 	out.Status.EffectivePriority, out.Status.EffectivePriorityFrom = priorityFromReadable(res, find, readable)
 	return out
@@ -766,7 +779,7 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 			if !built {
 				res, built = buildCard(e.board, index(), c), true
 			}
-			sub.send(watchFrame{Type: verb, Kind: "Card", Object: sub.seen(res, index().Find)})
+			sub.send(watchFrame{Type: verb, Kind: "Card", Object: sub.seen(res, index())})
 		}
 		for i := range ancestors {
 			a := ancestorAt(i)
@@ -776,7 +789,7 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 			if !a.built {
 				a.res, a.built = buildCard(e.board, index(), a.card), true
 			}
-			sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: sub.seen(a.res, index().Find)})
+			sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: sub.seen(a.res, index())})
 		}
 	}
 	if !scoped {
@@ -833,9 +846,9 @@ func (e *boardEntry) flushMembers() {
 			}
 			switch {
 			case !sub.members[c.ItemID]:
-				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix.Find)})
+				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix)})
 			case touched:
-				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix.Find)})
+				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix)})
 			}
 		}
 		for id := range sub.members {
@@ -856,7 +869,7 @@ func (e *boardEntry) flushMembers() {
 			}
 			obj := tombstone(id)
 			if onBoard {
-				obj = sub.seen(buildCard(e.board, ix, c), ix.Find)
+				obj = sub.seen(buildCard(e.board, ix, c), ix)
 			}
 			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})
 		}
@@ -887,7 +900,7 @@ func (e *boardEntry) reevaluate(origin string) {
 		for _, c := range apiserver.FilterCards(sub.view(e.board), *sub.sel) {
 			now[c.ItemID] = true
 			if !sub.members[c.ItemID] && !suppressed {
-				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix.Find)})
+				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: sub.seen(buildCard(e.board, ix, c), ix)})
 			}
 		}
 		for id := range sub.members {
@@ -896,7 +909,7 @@ func (e *boardEntry) reevaluate(origin string) {
 			}
 			obj := tombstone(id)
 			if c, ok := ix.Find(id); ok {
-				obj = sub.seen(buildCard(e.board, ix, c), ix.Find)
+				obj = sub.seen(buildCard(e.board, ix, c), ix)
 			}
 			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})
 		}
