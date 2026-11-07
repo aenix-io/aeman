@@ -127,26 +127,122 @@ func TestTheBacklogListsATeamsParkedOpenTasksOnly(t *testing.T) {
 	}
 }
 
-// Ordering inside a list is the reader's own: dragging is how a backlog gets
-// prioritised, so the rank decides, and cards without one fall back to age —
-// oldest first, since a card that has waited longest is the one being asked
-// about.
-func TestABacklogIsOrderedByHandThenByAge(t *testing.T) {
-	cards := []Card{
-		{ItemID: "c", CreatedAt: "2026-01-03T00:00:00Z"},
-		{ItemID: "a", CreatedAt: "2026-01-01T00:00:00Z"},
-		{ItemID: "b", CreatedAt: "2026-01-02T00:00:00Z"},
+// A backlog reads in the ROADMAP's order (K14): the path of sibling places
+// from the root plan item down — goal order, then initiative within its goal,
+// epic within its initiative, task within its epic — so the backlog and the
+// Roadmap are one order, decided by the tree. A task with no plan item above
+// it comes after every planned one, in its own place in the board's order.
+// The Roadmap draws its roots level by level (goals, then initiatives with no
+// goal, then epics with no initiative), so the first step of the path is
+// read the same way.
+func TestABacklogReadsInTheRoadmapsOrder(t *testing.T) {
+	b := NewBoard([]Card{
+		// Board order (the rank order every board reads): deliberately not
+		// the tree's, so only the path can put the tasks right.
+		{ItemID: "loose-1", Parked: true},
+		{ItemID: "t-e2", Parent: "e2", Parked: true},
+		{ItemID: "g2", Type: TypeGoal},
+		{ItemID: "e2", Type: TypeEpic, Parent: "i1"},
+		{ItemID: "t-g2", Parent: "g2", Parked: true},
+		{ItemID: "g1", Type: TypeGoal},
+		{ItemID: "loose-2", Parked: true},
+		{ItemID: "i1", Type: TypeInitiative, Parent: "g1"},
+		{ItemID: "e1", Type: TypeEpic, Parent: "i1"},
+		{ItemID: "t-e1-b", Parent: "e1", Parked: true},
+		{ItemID: "t-e1-a", Parent: "e1", Parked: true},
+		{ItemID: "t-i1", Parent: "i1", Parked: true},
+		// A root initiative: the Roadmap draws it after every goal.
+		{ItemID: "i-root", Type: TypeInitiative},
+		{ItemID: "t-iroot", Parent: "i-root", Parked: true},
+	})
+	ix := NewIndex(b)
+	var listed []Card
+	for _, c := range b.Cards {
+		if ix.OnBacklog(c) {
+			listed = append(listed, c)
+		}
 	}
-	if got := ids(BacklogOrder(cards)); !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
-		t.Fatalf("with no ranks the oldest is first: %v", got)
+	want := []string{
+		// g2 stands before g1 in the board's order: its task first.
+		"t-g2",
+		// g1 ▸ i1: e2 stands before e1 under i1, and the task directly under
+		// i1 comes after both epics (it is after them among i1's children).
+		"t-e2", "t-e1-b", "t-e1-a", "t-i1",
+		// The root initiative after every goal.
+		"t-iroot",
+		// No plan item above: after every planned task, in board order.
+		"loose-1", "loose-2",
 	}
+	if got := ids(BacklogOrder(ix, listed)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("BacklogOrder = %v\nwant          %v", got, want)
+	}
+}
 
-	ranked := []Card{
-		{ItemID: "old", CreatedAt: "2026-01-01T00:00:00Z"},
-		{ItemID: "pinned", CreatedAt: "2026-01-09T00:00:00Z", Rank: "a"},
+// TO DO tasks come first (K15), in the Roadmap's order among themselves, and
+// the rest follow in the same order: the flag lifts a task to the top of the
+// list without changing its place in the tree.
+func TestToDoTasksComeFirstInTheRoadmapsOrder(t *testing.T) {
+	b := NewBoard([]Card{
+		{ItemID: "g", Type: TypeGoal},
+		{ItemID: "a", Parent: "g", Parked: true},
+		{ItemID: "b", Parent: "g", Parked: true, Todo: true},
+		{ItemID: "c", Parent: "g", Parked: true},
+		{ItemID: "loose", Parked: true, Todo: true},
+		{ItemID: "d", Parent: "g", Parked: true, Todo: true},
+	})
+	ix := NewIndex(b)
+	var listed []Card
+	for _, c := range b.Cards {
+		if ix.OnBacklog(c) {
+			listed = append(listed, c)
+		}
 	}
-	if got := ids(BacklogOrder(ranked)); !reflect.DeepEqual(got, []string{"pinned", "old"}) {
-		t.Fatalf("a card somebody placed by hand outranks age: %v", got)
+	if got, want := ids(BacklogOrder(ix, listed)), []string{"b", "d", "loose", "a", "c"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("BacklogOrder = %v, want %v (TO DO first, planned before loose, then the rest)", got, want)
+	}
+}
+
+// A review NOBODY HAS TAKEN stands above every task (K10): it is the "needs
+// a reviewer" item, and the tree does not order it — among themselves the
+// reviews keep the board's order, newest-made on top.
+func TestAReviewNobodyHasTakenStandsAboveTheTasks(t *testing.T) {
+	b := NewBoard([]Card{
+		{ItemID: "r2", ReviewOf: "o2", Parked: true},
+		{ItemID: "g", Type: TypeGoal},
+		{ItemID: "t", Parent: "g", Parked: true, Todo: true},
+		{ItemID: "o", Parent: "g", Stage: StageReview, SprintStart: "2026-11-02"},
+		{ItemID: "r1", ReviewOf: "o", Parked: true},
+		{ItemID: "o2", Stage: StageReview, SprintStart: "2026-11-02"},
+	})
+	ix := NewIndex(b)
+	var listed []Card
+	for _, c := range b.Cards {
+		if ix.OnBacklog(c) {
+			listed = append(listed, c)
+		}
+	}
+	if got, want := ids(BacklogOrder(ix, listed)), []string{"r2", "r1", "t"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("BacklogOrder = %v, want %v", got, want)
+	}
+}
+
+// BacklogKey is the place itself, comparable on its own: the client mirrors
+// it card by card (backlogboard.ts), so the edges are pinned here too.
+func TestTheBacklogKeyComparesPathsStepByStep(t *testing.T) {
+	b := NewBoard([]Card{
+		{ItemID: "g", Type: TypeGoal},
+		{ItemID: "under-g", Parent: "g", Parked: true},
+		{ItemID: "e", Type: TypeEpic, Parent: "g"},
+		{ItemID: "under-e", Parent: "e", Parked: true},
+	})
+	ix := NewIndex(b)
+	k := func(id string) BacklogKey { c, _ := ix.Find(id); return ix.BacklogKey(c) }
+	// under-g stands before e among g's children, so before everything in e.
+	if !k("under-g").Less(k("under-e")) || k("under-e").Less(k("under-g")) {
+		t.Fatalf("under-g %v must come before under-e %v", k("under-g"), k("under-e"))
+	}
+	if k("under-g").Less(k("under-g")) {
+		t.Fatal("a key is not less than itself")
 	}
 }
 

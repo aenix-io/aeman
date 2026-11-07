@@ -9,7 +9,8 @@ package board
 // board per question, and the listing paid it for every watcher. The index
 // is a snapshot: a card added to the board after it was built is not in it.
 type Index struct {
-	cards    []Card // board order, state cards included
+	cards    []Card         // board order, state cards included
+	pos      map[string]int // id → place in the board order
 	byID     map[string]Card
 	children map[string][]Card // parent id → the cards under it, board order
 	planning map[string]bool
@@ -28,6 +29,7 @@ func NewIndex(b Board) *Index {
 	ix := &Index{
 		cards:      b.Cards,
 		byID:       make(map[string]Card, len(b.Cards)),
+		pos:        make(map[string]int, len(b.Cards)),
 		children:   map[string][]Card{},
 		planning:   map[string]bool{},
 		reviewedBy: map[string]string{},
@@ -36,8 +38,9 @@ func NewIndex(b Board) *Index {
 	for _, cu := range b.Customers {
 		ix.customers[cu.ID] = true
 	}
-	for _, c := range b.Cards {
+	for i, c := range b.Cards {
 		ix.byID[c.ItemID] = c
+		ix.pos[c.ItemID] = i
 		if c.Parent != "" {
 			ix.children[c.Parent] = append(ix.children[c.Parent], c)
 		}

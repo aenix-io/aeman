@@ -78,26 +78,85 @@ func Unplaced(c Card, subtask bool) bool {
 	return !Complete(c.Stage, c.Progress)
 }
 
-// BacklogOrder sorts a backlog's cards the way it is read: the order somebody
-// arranged by hand first, and where nobody has, the oldest first.
+// BacklogKey is a backlog card's place in the list, comparable on its own
+// (Less). The client mirrors it card by card (web/src/backlogboard.ts).
 //
-// Both halves are wanted. Dragging is how a backlog gets prioritised, so a
-// card placed by hand must stay where it was put. But a shelf nobody has
-// sorted should not read as random: the card that has waited longest is the
-// one being asked about, so it goes to the top and the shelf answers "what has
-// been sitting here" without anybody arranging it.
-func BacklogOrder(cards []Card) []Card {
+//   - Group: 0 for a review nobody has taken (K10: the "needs a reviewer"
+//     items stand above every task), 1 for a TO DO task (K15), 2 for the rest.
+//   - Loose: the card has no plan item above it; within a group the loose
+//     cards come after every planned one.
+//   - Path: the places in the board's order from the root of the card's tree
+//     down to the card itself (K14) — the Roadmap's draw order, which lists a
+//     parent's children in board order. The first step is the root's level
+//     ahead of its place, as the Roadmap draws its roots level by level (goals,
+//     then initiatives with no goal, then epics with no initiative). A review
+//     or a loose card's path is its own place alone.
+type BacklogKey struct {
+	Group int
+	Loose bool
+	Path  []int
+}
+
+// Less reports whether k stands before o.
+func (k BacklogKey) Less(o BacklogKey) bool {
+	if k.Group != o.Group {
+		return k.Group < o.Group
+	}
+	if k.Loose != o.Loose {
+		return !k.Loose
+	}
+	for i := 0; i < len(k.Path) && i < len(o.Path); i++ {
+		if k.Path[i] != o.Path[i] {
+			return k.Path[i] < o.Path[i]
+		}
+	}
+	return len(k.Path) < len(o.Path)
+}
+
+// BacklogKey is the card's place in its backlog (BacklogKey).
+func (ix *Index) BacklogKey(c Card) BacklogKey {
+	own := ix.pos[c.ItemID]
+	if NeedsReviewer(c) {
+		return BacklogKey{Group: 0, Path: []int{own}}
+	}
+	group := 2
+	if c.Todo {
+		group = 1
+	}
+	up := ix.Lineage(c)
+	planned := false
+	for _, a := range up {
+		if IsPlanning(a) {
+			planned = true
+			break
+		}
+	}
+	if !planned {
+		return BacklogKey{Group: group, Loose: true, Path: []int{own}}
+	}
+	path := make([]int, 0, len(up)+2)
+	path = append(path, Level(TypeGoal)-Level(up[0].Type))
+	for _, a := range up {
+		path = append(path, ix.pos[a.ItemID])
+	}
+	return BacklogKey{Group: group, Path: append(path, own)}
+}
+
+// BacklogOrder sorts a backlog's cards the way it is read: in the ROADMAP's
+// order (K14), the TO DO tasks first (K15), the reviews nobody has taken
+// above them all (K10) — see BacklogKey.
+//
+// One order, decided by the tree: dragging a task in the backlog moves it
+// among its siblings under the same parent, which moves it on the Roadmap
+// too, and a task's place is never something the backlog keeps apart from
+// the Roadmap's. The board's order (rank, then id) is where the siblings'
+// order comes from, as on every board.
+func BacklogOrder(ix *Index, cards []Card) []Card {
 	out := append([]Card(nil), cards...)
-	sort.SliceStable(out, func(i, j int) bool {
-		a, b := out[i], out[j]
-		if (a.Rank != "") != (b.Rank != "") {
-			// A card placed by hand outranks one that never was.
-			return a.Rank != ""
-		}
-		if a.Rank != b.Rank {
-			return a.Rank < b.Rank
-		}
-		return a.CreatedAt < b.CreatedAt
-	})
+	keys := make(map[string]BacklogKey, len(out))
+	for _, c := range out {
+		keys[c.ItemID] = ix.BacklogKey(c)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return keys[out[i].ItemID].Less(keys[out[j].ItemID]) })
 	return out
 }

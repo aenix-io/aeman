@@ -149,12 +149,13 @@ func TestTheBacklogViewListsWhatATeamHasParked(t *testing.T) {
 		return out
 	}
 
-	// Every list the team has, oldest first where nobody arranged them — and
-	// each parked card's subtasks ride along, as they do in every other view:
-	// the client nests them under their parent and needs the whole set for its
+	// Every list the team has, in the board's order (BacklogOrder: no plan
+	// item above either, so their own places decide) — and each parked
+	// card's subtasks ride along, as they do in every other view: the client
+	// nests them under their parent and needs the whole set for its
 	// derived-progress math.
-	if got := ids(Selector{View: "backlog", Team: "alpha"}); !slices.Equal(got, []string{"ice", "now1", "kid"}) {
-		t.Fatalf("view=backlog&team=alpha = %v; want the parked cards, oldest first, pieces after", got)
+	if got := ids(Selector{View: "backlog", Team: "alpha"}); !slices.Equal(got, []string{"now1", "kid", "ice"}) {
+		t.Fatalf("view=backlog&team=alpha = %v; want the parked cards in board order, each with its pieces", got)
 	}
 	// Another team's backlog is another team's business — and a set of
 	// teams lists each, which is what the Backlog board's columns read.
@@ -166,10 +167,11 @@ func TestTheBacklogViewListsWhatATeamHasParked(t *testing.T) {
 	}
 }
 
-// A review NOBODY HAS TAKEN stands in a backlog listing like any task, in
-// plain BacklogOrder (K10): it is made at the TOP of the board's order, so it
-// shows first until somebody drags it — there is no separate pinning.
-func TestAReviewNobodyHasTakenStandsInBacklogOrder(t *testing.T) {
+// A review NOBODY HAS TAKEN stands above every task in a backlog listing
+// (K10, BacklogOrder): the tree orders the tasks (K14) and does not order a
+// review, so the "needs a reviewer" items keep the top, among themselves in
+// the board's order — one dragged below a task is still above it.
+func TestAReviewNobodyHasTakenStandsAboveTheTasks(t *testing.T) {
 	b := board.NewBoard([]board.Card{
 		{ItemID: "t1", Team: "alpha", Parked: true, Rank: "b", CreatedAt: "2026-01-01T00:00:00Z"},
 		{ItemID: "o", Team: "alpha", Stage: board.StageReview, SprintStart: "2026-11-03"},
@@ -182,7 +184,7 @@ func TestAReviewNobodyHasTakenStandsInBacklogOrder(t *testing.T) {
 	for _, c := range FilterCards(b, Selector{View: "backlog", Team: "alpha"}) {
 		got = append(got, c.ItemID)
 	}
-	if want := []string{"r-top", "t1", "t2", "r-dragged"}; !slices.Equal(got, want) {
+	if want := []string{"r-top", "r-dragged", "t1", "t2"}; !slices.Equal(got, want) {
 		t.Fatalf("backlog = %v, want %v", got, want)
 	}
 }

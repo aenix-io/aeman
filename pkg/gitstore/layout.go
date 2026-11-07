@@ -120,6 +120,9 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	if c.Parked {
 		b.WriteString("parked: true\n")
 	}
+	if c.Todo {
+		b.WriteString("todo: true\n")
+	}
 	w("parent", c.Parent)
 	w("reviewOf", c.ReviewOf)
 	wi("reviewRound", c.ReviewRound)
@@ -381,6 +384,8 @@ func setKnown(f *CardFile, key string, val *yaml.Node) bool {
 		c.ReviewRound = num()
 	case "parked":
 		c.Parked = val.Value == "true"
+	case "todo":
+		c.Todo = val.Value == "true"
 	default:
 		return false
 	}

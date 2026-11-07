@@ -714,7 +714,7 @@ func backlogCards(b board.Board, ix *board.Index, sel Selector) []board.Card {
 		}
 		out = append(out, c)
 	}
-	return board.BacklogOrder(out)
+	return board.BacklogOrder(ix, out)
 }
 
 // Drawn reports whether a card is on the board the selector describes — the
