@@ -519,26 +519,137 @@ export function allowedParentKinds(kind: RoadmapKind): RoadmapKind[] {
 //
 // A row is dragged onto another row (it goes UNDER it) or between two rows
 // (it joins that gap's parent at that place). The level rule decides what
-// may land where (H2), a card never changes its type by being dragged, and
-// the tree shows the subtree where it WOULD land before the pointer is
-// released — the preview is the moved rows themselves, as the Backlog board
-// draws a card where it would land.
+// may land where (H2), and a card never changes its type by being dragged.
+//
+// While a row is dragged the list does not move: the target is read off the
+// rows as they stood when the drag began (dropTargetAt), and where the card
+// would land is a mark drawn OVER the rows (dropMark) — a line in the gap,
+// or the row it would go under — that takes no room. A preview that moved
+// the rows to where the card would land put other rows under the pointer,
+// which read as another place, which moved the rows again: the list jumped
+// under a slow aim (H13).
 
-/** DropZone is where on the hovered row the dragged row stands: its top
- *  quarter (before it), its bottom quarter (after it), or its middle (under
- *  it). */
+/** DropZone is where on the hovered row the pointer stands: its top part
+ *  (before it), its bottom part (after it), or its middle (under it). */
 export type DropZone = "before" | "into" | "after";
 
-/** zoneOf reads the zone off the dragged row's centre as a fraction of the
- *  hovered row's height (0 at its top, 1 at its bottom). */
-export function zoneOf(fraction: number): DropZone {
-  if (fraction < 0.28) {
+/** AIM_SLACK is how far, as a fraction of a row's height, the pointer must
+ *  go past a boundary — between two zones of a row, or between two rows —
+ *  before the target changes: a slow aim that wobbles a pixel or two across
+ *  a line keeps what it had. */
+export const AIM_SLACK = 0.12;
+
+const BEFORE_LINE = 0.28;
+const AFTER_LINE = 0.72;
+
+/** zoneOf reads the zone off the pointer as a fraction of the hovered row's
+ *  height (0 at its top, 1 at its bottom). Given the zone it stands in on
+ *  that row, the boundaries around that zone are pushed out by AIM_SLACK. */
+export function zoneOf(fraction: number, held?: DropZone): DropZone {
+  const before = BEFORE_LINE + (held === "before" ? AIM_SLACK : held === "into" ? -AIM_SLACK : 0);
+  const after = AFTER_LINE + (held === "after" ? -AIM_SLACK : held === "into" ? AIM_SLACK : 0);
+  if (fraction < before) {
     return "before";
   }
-  if (fraction > 0.72) {
+  if (fraction > after) {
     return "after";
   }
   return "into";
+}
+
+/** RowBox is a tree row's place in the list when the drag began: its top
+ *  and height in one fixed frame (the pointer is given in the same one). */
+export interface RowBox {
+  id: string;
+  top: number;
+  height: number;
+}
+
+/** DropTarget is what the pointer stands on: a row and the zone of it. */
+export interface DropTarget {
+  overId: string;
+  zone: DropZone;
+}
+
+/** dropTargetAt is the row and zone under the pointer, read off the boxes of
+ *  the rows as they stood when the drag began — so the answer depends on
+ *  where the pointer is and on nothing the drag itself draws. The target it
+ *  stood on (prev) is held until the pointer is AIM_SLACK of a row past its
+ *  edge or its zone's boundary. The rows the drag carries (held: the dragged
+ *  row and its subtree) are a target for nothing. Just off either end of the
+ *  tree the nearest row reads (before the first, after the last), up to a
+ *  row's height away; further off, and with no rows, nothing does. */
+export function dropTargetAt(
+  boxes: readonly RowBox[],
+  y: number,
+  prev: DropTarget | null,
+  held: ReadonlySet<string>,
+): DropTarget | null {
+  if (boxes.length === 0) {
+    return null;
+  }
+  let box: RowBox | undefined;
+  const kept = prev ? boxes.find((b) => b.id === prev.overId) : undefined;
+  if (kept) {
+    const slack = AIM_SLACK * kept.height;
+    if (y >= kept.top - slack && y < kept.top + kept.height + slack) {
+      box = kept;
+    }
+  }
+  box ??= boxes.find((b) => y >= b.top && y < b.top + b.height);
+  if (!box) {
+    const first = boxes[0];
+    const last = boxes[boxes.length - 1];
+    if (y < first.top) {
+      box = first.top - y <= first.height ? first : undefined;
+    } else if (y >= last.top + last.height) {
+      box = y - (last.top + last.height) <= last.height ? last : undefined;
+    } else {
+      // A gap between rows (a form open under one): the nearest row.
+      let best = Infinity;
+      for (const b of boxes) {
+        const d = Math.min(Math.abs(y - b.top), Math.abs(y - (b.top + b.height)));
+        if (d < best) {
+          best = d;
+          box = b;
+        }
+      }
+    }
+  }
+  if (!box || held.has(box.id)) {
+    return null;
+  }
+  const same = prev && prev.overId === box.id ? prev : null;
+  const zone = zoneOf((y - box.top) / Math.max(box.height, 1), same?.zone);
+  return same && same.zone === zone ? same : { overId: box.id, zone };
+}
+
+/** DropMark is where the landing place is drawn: the row it is drawn on,
+ *  on which edge of it ("inside" marks the row itself — the card goes under
+ *  it), and the depth the line is indented to. */
+export interface DropMark {
+  row: string;
+  edge: "top" | "bottom" | "inside";
+  depth: number;
+}
+
+/** dropMark says where to draw a target's landing place. Before a row is a
+ *  line on its top edge at its depth; after a row a line on its bottom edge
+ *  — one step deeper when that place is the first under it (an unfolded
+ *  row, see placementFor); into a row is the row itself. Null when the row
+ *  is not drawn. */
+export function dropMark(drawn: readonly Row[], target: DropTarget, placement: Placement): DropMark | null {
+  const over = drawn.find((r) => r.node.card.itemId === target.overId);
+  if (!over) {
+    return null;
+  }
+  if (target.zone === "into") {
+    return { row: target.overId, edge: "inside", depth: over.depth };
+  }
+  if (target.zone === "before") {
+    return { row: target.overId, edge: "top", depth: over.depth };
+  }
+  return { row: target.overId, edge: "bottom", depth: placement.parent === target.overId ? over.depth + 1 : over.depth };
 }
 
 /** Placement is where a dragged card would come to rest: under which parent
@@ -676,7 +787,7 @@ export function droppable(
 /** previewCards is the listing as it would read after the drop: the dragged
  *  card under its new parent, at its place among the siblings, with the
  *  lineage the breadcrumb would show. The subtree under it follows by its
- *  own parent links. The tree built from this IS the preview. */
+ *  own parent links. What a drop commits is read off it (dropCommit). */
 export function previewCards(cards: readonly Card[], draggedId: string, placement: Placement): Card[] {
   const dragged = cards.find((c) => c.itemId === draggedId);
   if (!dragged) {
