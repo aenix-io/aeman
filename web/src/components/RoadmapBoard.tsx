@@ -11,7 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { registerPendingCard } from "../api/pending";
 import { todayIso } from "../date";
-import type { Board, Card as CardModel, CardType, Provider } from "../providers/types";
+import type { Board, Card as CardModel, CardType, Priority, Provider } from "../providers/types";
 import {
   DEFAULT_DEPTH,
   DELETE_INTENT,
@@ -28,9 +28,8 @@ import {
   statusMenu,
   rolledUpAfter,
   workPatchOf,
-  hasStatusMenu,
   statusUids,
-  todoTargets,
+  priorityAfter,
   unassignTargets,
   unassignQuestion,
   UNASSIGNED_LOCALLY,
@@ -83,7 +82,7 @@ import { isPlanning } from "../subtasks";
 import { ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
 import { type Avatars, type Names } from "../users";
 import { AddCard } from "./AddCard";
-import { INDENT_PX, OwnerCell, ROW_PX, StatusPill, TreeTitle } from "./PlanTree";
+import { INDENT_PX, OwnerCell, PriorityItems, ROW_PX, StatusPill, TreeTitle } from "./PlanTree";
 import { KindIcon } from "./KindIcon";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
@@ -236,7 +235,7 @@ interface RowProps {
   /** The Owner cell's content, for a task-kind row; nothing on a planning
    *  card, which has none of a task's. */
   owner: ReactNode;
-  /** The status badge's menu (TO DO, UNASSIGNED; K15, K16), opened from the
+  /** The badge's menu (priorities, UNASSIGNED; K15, K16), opened from the
    *  badge; null on a row that offers none (a project card). */
   onStatus: ((badge: HTMLElement) => void) | null;
   /** The status menu stands open on this row (aria-expanded). */
@@ -813,7 +812,7 @@ export function RoadmapBoard({
   // ---- the ×: the Team board's own question — delete it, or only unlink it ----
   const [removeChoice, setRemoveChoice] = useState<CardModel | null>(null);
 
-  // ---- the status menu: TO DO and UNASSIGNED (K15, K16) ----
+  // ---- the badge menu: priorities and UNASSIGNED (K15, K16) ----
   // The badge of a task or a plan item opens it; what each answer reaches is
   // roadmap.statusMenu's, applied at once and settled by the server's answer.
   const [statusFor, setStatusFor] = useState<CardModel | null>(null);
@@ -853,11 +852,29 @@ export function RoadmapBoard({
         reload();
       });
   };
-  const answerTodo = (card: CardModel, todo: boolean) => {
-    // The tasks the reader was shown — a filter shows fewer than the board
-    // holds — are the ones the server changes.
-    const uids = statusUids(todoTargets(board.cards, card));
-    applyWork(uids, { todo: todo || undefined }, () => provider.setTodo(card.itemId, todo, uids));
+  // A priority is the card's own (K15); what the cards under it count under
+  // follows (roadmap.priorityAfter) — shown at once, settled by the card the
+  // server answers with and the frames it sends for the cards under it, put
+  // back on a refusal.
+  const answerPriority = (card: CardModel, value: Priority | "") => {
+    const shown = priorityAfter(board.cards, card.itemId, value);
+    const before = board.cards
+      .filter((c) => shown.has(c.itemId))
+      .map((c) => ({ id: c.itemId, patch: { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom } }));
+    patchCard(card.itemId, { priority: value || undefined });
+    for (const [id, p] of shown) {
+      patchCard(id, p);
+    }
+    void provider
+      .setPriority(card.itemId, value)
+      .then((c) => patchCard(c.itemId, { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom }))
+      .catch((err: unknown) => {
+        for (const b of before) {
+          patchCard(b.id, b.patch);
+        }
+        onError(errText(err));
+        reload();
+      });
   };
   const answerUnassign = (card: CardModel, uids: string[]) => {
     // Exactly the tasks the confirm counted.
@@ -1102,14 +1119,10 @@ export function RoadmapBoard({
                       onAdd={planning && kids.length > 0 ? () => setAddingUnder(addingUnder === card.itemId ? null : card.itemId) : null}
                       onRemove={planning ? () => setRemoveChoice(card) : null}
                       owner={ownerCell(card, r.node.kind)}
-                      onStatus={
-                        hasStatusMenu(statusMenu(board.cards, card))
-                          ? (badge) => {
-                              statusAnchor.current = badge;
-                              setStatusFor(card);
-                            }
-                          : null
-                      }
+                      onStatus={(badge) => {
+                        statusAnchor.current = badge;
+                        setStatusFor(card);
+                      }}
                       menuOpen={statusFor?.itemId === card.itemId}
                       rowRef={(el) => {
                         if (el) {
@@ -1187,30 +1200,14 @@ export function RoadmapBoard({
       <Dropdown open={!!statusFor} anchorRef={statusAnchor} onClose={() => setStatusFor(null)} className="roadmap-status-menu" role="menu">
         {statusFor && menu && (
           <>
-            <button
-              type="button"
-              role="menuitemcheckbox"
-              aria-checked={!!menu.todo?.clears}
-              className="roadmap-status-item"
-              disabled={!menu.todo}
-              title={
-                menu.todo
-                  ? menu.todo.clears
-                    ? "Clear TO DO: not ready to be taken next"
-                    : "Ready to be taken next: first in the backlog"
-                  : "Nothing waiting in a backlog here"
-              }
-              onClick={() => {
-                if (menu.todo) {
-                  answerTodo(statusFor, !menu.todo.clears);
-                }
+            <PriorityItems
+              own={menu.own}
+              onPick={(value) => {
+                answerPriority(statusFor, value);
                 setStatusFor(null);
               }}
-            >
-              <span className="roadmap-status roadmap-status-ready">TO DO</span>
-              {menu.todo?.clears && <span aria-hidden="true">✓</span>}
-              {isPlanning(statusFor) && menu.todo && <span className="roadmap-status-count">{menu.todo.count}</span>}
-            </button>
+            />
+            <div className="roadmap-status-separator" role="separator" />
             <button
               type="button"
               role="menuitem"
@@ -1222,7 +1219,7 @@ export function RoadmapBoard({
                 setStatusFor(null);
               }}
             >
-              <span className="roadmap-status roadmap-status-unassigned">UNASSIGNED</span>
+              <span className="roadmap-status roadmap-status-unassigned">Unassign</span>
               {isPlanning(statusFor) && menu.unassign > 0 && <span className="roadmap-status-count">{menu.unassign}</span>}
             </button>
           </>

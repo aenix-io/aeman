@@ -9,7 +9,8 @@
 // listing fills and the watch keeps current (K6). A card taken into work, finished or re-teamed out of
 // the selection by anybody simply stops being one of them.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Board, Card as CardModel, Provider, SizeKey } from "../providers/types";
+import type { Board, Card as CardModel, Priority, Provider, SizeKey } from "../providers/types";
+import { PriorityItems, PriorityPart } from "./PlanTree";
 import {
   insertSpot,
   insertedOrder,
@@ -435,6 +436,34 @@ export function BacklogBoard({
     });
   };
 
+  // ---- the priority: the Roadmap badge's priority part, on the card (K15) ----
+  // Set on the card itself; the list reads by the effective priority, so a
+  // card moves to its group at once and the server's answer settles it.
+  const [prioritizing, setPrioritizing] = useState<CardModel | null>(null);
+  const prioAnchor = useRef<HTMLElement | null>(null);
+  const openPriority = useCallback((card: CardModel, anchor: HTMLElement) => {
+    prioAnchor.current = anchor;
+    setPrioritizing((cur) => (cur?.itemId === card.itemId ? null : card));
+  }, []);
+  const setPriority = (card: CardModel, value: Priority | "") => {
+    setPrioritizing(null);
+    if ((card.priority ?? "") === value) {
+      return;
+    }
+    const before = { priority: card.priority, effectivePriority: card.effectivePriority, effectivePriorityFrom: card.effectivePriorityFrom };
+    // Its own when set; with none of its own it counts under what it
+    // inherited — which this board does not hold, so the server's answer
+    // says it.
+    patchCard(card.itemId, value ? { priority: value, effectivePriority: value, effectivePriorityFrom: undefined } : { priority: undefined });
+    void provider
+      .setPriority(card.itemId, value)
+      .then((c) => patchCard(c.itemId, { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom }))
+      .catch((err: unknown) => {
+        patchCard(card.itemId, before);
+        onError(errText(err));
+      });
+  };
+
   // ---- the ×: the same × as everywhere else (removal.ts) ----
   // On a card in its backlog the one answer it has is "off the board"; the
   // backlog answer is withheld from a card already there. A review nobody
@@ -575,6 +604,7 @@ export function BacklogBoard({
                       onPointerDown={beginDrag(c)}
                       onRemove={() => remove(c)}
                       onPickSize={openSizer}
+                      onPickPriority={openPriority}
                       onOpenParent={openParent}
                       owner={
                         counterpart(c) ? (
@@ -601,6 +631,9 @@ export function BacklogBoard({
           })()}
         </div>
       </section>
+      <Dropdown open={!!prioritizing} anchorRef={prioAnchor} onClose={() => setPrioritizing(null)} className="roadmap-status-menu" role="menu">
+        {prioritizing && <PriorityItems own={prioritizing.priority ?? ""} onPick={(value) => setPriority(prioritizing, value)} />}
+      </Dropdown>
       <Dropdown open={!!sizing} anchorRef={sizeAnchor} onClose={() => setSizing(null)} className="backlog-size-menu">
         {SIZE_ORDER.map((sz) => (
           <button
@@ -650,6 +683,8 @@ interface BacklogRowProps {
   onPointerDown: (e: React.PointerEvent) => void;
   onRemove: () => void;
   onPickSize: (card: CardModel, anchor: HTMLElement) => void;
+  /** The priority part of the badge, opening its menu (K15). */
+  onPickPriority: (card: CardModel, anchor: HTMLElement) => void;
   onOpenParent: (uid: string) => void;
   /** Take, while nobody has the card: asks first (TakeDialog). */
   onTake?: () => void;
@@ -671,6 +706,7 @@ function BacklogRow({
   onPointerDown,
   onRemove,
   onPickSize,
+  onPickPriority,
   onOpenParent,
   onTake,
 }: BacklogRowProps) {
@@ -685,6 +721,16 @@ function BacklogRow({
       title={card.title}
     >
       <PresenceMarks selectedBy={selectedBy} avatars={avatars} names={names} />
+      <button
+        type="button"
+        className={`backlog-row-prio${card.effectivePriority ? "" : " backlog-row-prio-none"}`}
+        title={card.effectivePriority ? "Priority" : "Set a priority"}
+        aria-haspopup="menu"
+        onClick={(e) => onPickPriority(card, e.currentTarget)}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        {card.effectivePriority ? <PriorityPart value={card.effectivePriority} from={card.effectivePriorityFrom} /> : "P"}
+      </button>
       <span className="card-title backlog-card-title">{card.title}</span>
       <span className="backlog-row-remove-slot">
         <button

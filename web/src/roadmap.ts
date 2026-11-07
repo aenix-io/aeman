@@ -6,9 +6,9 @@
 // listing says (docs/design/hierarchy.md, "The Roadmap tab").
 import { keepPlaced, type PlaceFields } from "./backlog";
 import { addDays, mondayOf } from "./date";
-import { isComplete, isInProgress } from "./stages";
+import { isComplete } from "./stages";
 import { isPlanning, isSubtask } from "./subtasks";
-import type { Card, CardPatch, CardType, HierarchyStatus } from "./providers/types";
+import type { Card, CardPatch, CardType, HierarchyStatus, LineageRef, Priority } from "./providers/types";
 
 /** RoadmapKind is what a row IS: the three planning levels, a task, or a
  *  subtask (a task under a task). */
@@ -331,32 +331,26 @@ export function pickerMatches(c: Card, cards: readonly Card[], query: string): b
   return [c, ...parentChainOf(c, cards)].some((x) => x.title.toLowerCase().includes(q));
 }
 
-/** RoadmapStatus is the pill a row wears: a planning card's derived
- *  standing (no items, to do, in progress, done — H5), or a task's own:
- *  done, TO DO (parked and marked ready, K15), a stage that holds it
- *  (review, locked, refused), BACKLOG (parked, not marked), to do before
- *  its bar has moved, in progress otherwise. */
-export type RoadmapStatus = "no-items" | "todo" | "ready" | "backlog" | "in-progress" | "done" | "review" | "locked" | "refused";
+/** RoadmapStatus is the work-status half of a row's badge: a planning
+ *  card's derived standing (no items, backlog, in progress, done — H5), or a
+ *  task's own: done, a stage that holds it (review, locked, refused), in
+ *  progress while it is in work, backlog otherwise. */
+export type RoadmapStatus = "no-items" | "backlog" | "in-progress" | "done" | "review" | "locked" | "refused";
 
-/** statusOf is a row's status: for a planning card the server's derived one
- *  (`hierarchy.status`, H5 — no items until something is filed under it,
- *  in progress once a task under it is somebody's or has moved); for a
- *  task, in this order: done when complete; else TO DO when it is parked
- *  and marked ready (K15); else the stage it is held in — review, locked,
- *  refused — which says who it waits on; else BACKLOG when it is parked
- *  (waiting in its backlog, in nobody's hands); else to do while its bar
- *  has not moved (nothing started); else in progress. The drawer and the
- *  Roadmap column read the same answer. */
-export function statusOf(c: Pick<Card, "type" | "hierarchy" | "stage" | "progress"> & Partial<Pick<Card, "parked" | "todo">>): RoadmapStatus {
+/** statusOf is a row's work status: for a planning card the server's
+ *  derived one (`hierarchy.status`, H5); for a task, in this order: done when
+ *  complete; else the stage it is held in — review, locked, refused — which
+ *  says who it waits on; else in progress while it is in work (a date or a
+ *  sprint, not parked), started or not; else backlog — waiting, whatever its
+ *  bar says. The drawer and the Roadmap column read the same answer. */
+export function statusOf(
+  c: Pick<Card, "type" | "hierarchy" | "stage" | "progress"> & Partial<Pick<Card, "parked" | "startDate" | "day" | "sprintStart">>,
+): RoadmapStatus {
   if (isPlanning(c)) {
     return c.hierarchy?.status ?? "no-items";
   }
   if (isComplete(c)) {
     return "done";
-  }
-  // A parked task marked TO DO (K15): ready to be taken next.
-  if (c.parked && c.todo) {
-    return "ready";
   }
   if (c.stage === "review") {
     return "review";
@@ -367,21 +361,14 @@ export function statusOf(c: Pick<Card, "type" | "hierarchy" | "stage" | "progres
   if (c.stage === "refuse") {
     return "refused";
   }
-  // Waiting in its backlog, not marked ready: BACKLOG, whatever its bar
-  // says — it is not in anybody's hands.
-  if (c.parked) {
-    return "backlog";
+  if (!c.parked && !!(c.startDate || c.day || c.sprintStart)) {
+    return "in-progress";
   }
-  if (!isInProgress(c) && (c.progress ?? 0) === 0) {
-    return "todo";
-  }
-  return "in-progress";
+  return "backlog";
 }
 
 export const STATUS_LABEL: Record<RoadmapStatus, string> = {
   "no-items": "No items",
-  todo: "To do",
-  ready: "TO DO",
   backlog: "Backlog",
   "in-progress": "In progress",
   done: "Done",
@@ -1109,13 +1096,16 @@ export function roadmapLines(
   return out;
 }
 
-// ---- the status menu: TO DO and UNASSIGNED (K15, K16) ----
+// ---- the badge and its menu: priorities and UNASSIGNED (K15, K16) ----
 //
-// The status badge of a row is a menu. TO DO marks the parked work under the
-// row ready to be taken next; UNASSIGNED takes the work in hand under it back
-// to its team's backlog. On a task each answers for the task itself, on a
-// plan item for every task under it at any depth (its leaf tasks: the tasks
-// whose parent is a plan item in its subtree). Mirrors board.ToDoTargets and
+// The badge of a row is one pill in two parts: the card's EFFECTIVE priority
+// on the left when it has one (its own, else the nearest ancestor's — drawn
+// lighter, naming where it comes from, when it is inherited) and its work
+// status on the right. Its menu sets the card's OWN priority — P0 to P4, or
+// none — and offers UNASSIGNED, which takes the work in hand under the row
+// back to its team's backlog: on a task the task itself, on a plan item every
+// task under it at any depth (its leaf tasks: the tasks whose parent is a
+// plan item in its subtree). Mirrors board.Index.EffectivePriority and
 // board.UnassignTargets.
 
 /** leafTasks is the tasks under a plan item through every level — a subtask
@@ -1141,16 +1131,6 @@ function ridesATask(cards: readonly Card[], t: Card): boolean {
   return !!up && !isPlanning(up);
 }
 
-/** todoTargets is what TO DO marks: parked open tasks waiting in a backlog
- *  (board.OnBacklog), never a review or a subtask. */
-export function todoTargets(cards: readonly Card[], c: Card): Card[] {
-  const ready = (t: Card) => !isPlanning(t) && !t.reviewOf && !!t.parked && !isComplete(t) && !ridesATask(cards, t);
-  if (!isPlanning(c)) {
-    return ready(c) ? [c] : [];
-  }
-  return leafTasks(cards, c.itemId).filter(ready);
-}
-
 /** unassignTargets is what UNASSIGNED takes out of work: open tasks in hand —
  *  a date or a sprint, not parked — that answer for their own place (no
  *  review card or subtask). Finished work never. */
@@ -1168,27 +1148,97 @@ export function unassignTargets(cards: readonly Card[], c: Card): Card[] {
   return leafTasks(cards, c.itemId).filter(inHand);
 }
 
-/** StatusMenu is what a row's status menu offers: TO DO with how many tasks
- *  it reaches and whether it CLEARS them (every one is marked already) —
- *  null where it reaches none — and how many tasks UNASSIGNED would take. */
+/** PRIORITY_CHOICES is the menu's priorities, highest first, then "No
+ *  priority" (the empty value, which clears the card's own). */
+export const PRIORITY_CHOICES: readonly { value: Priority | ""; label: string }[] = [
+  { value: "P0", label: "P0" },
+  { value: "P1", label: "P1" },
+  { value: "P2", label: "P2" },
+  { value: "P3", label: "P3" },
+  { value: "P4", label: "P4" },
+  { value: "", label: "No priority" },
+];
+
+/** StatusMenu is what a row's badge menu offers: the card's OWN priority
+ *  (checked in the menu; "" when it has none of its own, even when it
+ *  inherits one) and how many tasks UNASSIGNED would take (0: disabled). */
 export interface StatusMenu {
-  todo: { count: number; clears: boolean } | null;
+  own: Priority | "";
   unassign: number;
 }
 
 export function statusMenu(cards: readonly Card[], c: Card): StatusMenu {
-  const todo = todoTargets(cards, c);
+  return { own: c.priority ?? "", unassign: unassignTargets(cards, c).length };
+}
+
+/** effectivePriorityIn is the priority a card counts under — mirrors
+ *  board.Index.EffectivePriority: its own, else the nearest ancestor's that
+ *  has one (walked by parent links in the listing), else none; a review
+ *  card's is its task's. `from` is the ancestor it comes from, absent when it
+ *  is the card's own or there is none. */
+export function effectivePriorityIn(cards: readonly Card[], c: Card): { priority?: Priority; from?: Card } {
+  if (c.priority) {
+    return { priority: c.priority };
+  }
+  const byId = new Map(cards.map((x) => [x.itemId, x]));
+  if (c.reviewOf) {
+    const task = byId.get(c.reviewOf);
+    if (task && !task.reviewOf) {
+      return task.priority ? { priority: task.priority, from: task } : effectivePriorityIn(cards, task);
+    }
+  }
+  const seen = new Set<string>([c.itemId]);
+  for (let up = byId.get(c.parent ?? ""); up && !seen.has(up.itemId); up = byId.get(up.parent ?? "")) {
+    seen.add(up.itemId);
+    if (up.priority) {
+      return { priority: up.priority, from: up };
+    }
+  }
+  return {};
+}
+
+/** PriorityShown is what the badge reads of a card's effective priority. */
+export interface PriorityShown {
+  effectivePriority?: Priority;
+  effectivePriorityFrom?: LineageRef;
+}
+
+const refOf = (c: Card): LineageRef => ({ uid: c.itemId, type: c.type, title: c.title });
+
+/** priorityAfter is the effective priority of the card whose own priority
+ *  changes to `priority`, and of every card under it (by parent links), as
+ *  they read after the change — what the acting tab shows before the
+ *  server's frames for them arrive. */
+export function priorityAfter(cards: readonly Card[], id: string, priority: Priority | ""): Map<string, PriorityShown> {
+  const after = cards.map((c) => (c.itemId === id ? { ...c, priority: priority || undefined } : c));
+  const out = new Map<string, PriorityShown>();
+  for (const c of after) {
+    if (c.itemId !== id && !isUnder(after, c.itemId, id)) {
+      continue;
+    }
+    const { priority: p, from } = effectivePriorityIn(after, c);
+    out.set(c.itemId, { effectivePriority: p, effectivePriorityFrom: from ? refOf(from) : undefined });
+  }
+  return out;
+}
+
+/** Badge is one row's badge: its effective priority — with where it comes
+ *  from when inherited — and its work status. */
+export interface Badge {
+  priority?: { value: Priority; from?: LineageRef };
+  status: RoadmapStatus;
+}
+
+export function badgeOf(c: Card): Badge {
   return {
-    todo: todo.length > 0 ? { count: todo.length, clears: todo.every((t) => t.todo) } : null,
-    unassign: unassignTargets(cards, c).length,
+    priority: c.effectivePriority ? { value: c.effectivePriority, from: c.effectivePriorityFrom } : undefined,
+    status: statusOf(c),
   };
 }
 
-/** hasStatusMenu says whether a row offers the menu at all: where neither
- *  answer reaches a task (finished work, a subtask, a plan item with nothing
- *  under it) the badge is a plain badge, not a button that opens nothing. */
-export function hasStatusMenu(menu: StatusMenu): boolean {
-  return menu.todo !== null || menu.unassign > 0;
+/** inheritedTitle is the tooltip of an inherited priority. */
+export function inheritedTitle(from: LineageRef): string {
+  return `from «${from.title}»`;
 }
 
 /** statusUids is the tasks a gesture names to the server: the ones the
@@ -1209,7 +1259,6 @@ export function unassignQuestion(n: number): string {
  *  answer: back in its backlog, nobody's, undated, out of the sprint. */
 export const UNASSIGNED_LOCALLY: Partial<Card> = {
   parked: true,
-  todo: undefined,
   assignees: [],
   startDate: undefined,
   day: undefined,
@@ -1221,19 +1270,16 @@ export const UNASSIGNED_LOCALLY: Partial<Card> = {
  *  board.hierarchyStatus (H5, amended with K15/K16): no items with none;
  *  done when every one is complete; otherwise read off the OPEN ones — in
  *  progress when any is in work (a date or a sprint, not parked), ready (TO
- *  DO) when none is and every one is marked TO DO, backlog otherwise.
+ *  backlog when there are open ones and none is.
  *  Progress, a person or a stage do not count by themselves. */
 export function rollUp(leaves: readonly Card[]): HierarchyStatus {
   let done = 0;
   let inWork = 0;
-  let flagged = 0;
   for (const t of leaves) {
     if (isComplete(t)) {
       done++;
     } else if (!t.parked && !!(t.startDate || t.day || t.sprintStart)) {
       inWork++;
-    } else if (t.parked && t.todo) {
-      flagged++;
     }
   }
   const total = leaves.length;
@@ -1246,7 +1292,7 @@ export function rollUp(leaves: readonly Card[]): HierarchyStatus {
   if (inWork > 0) {
     return { status: "in-progress", done, total };
   }
-  return { status: flagged === total - done ? "ready" : "backlog", done, total };
+  return { status: "backlog", done, total };
 }
 
 /** rolledUpAfter is the new standing of every plan item above the tasks a
@@ -1270,12 +1316,11 @@ export function rolledUpAfter(cards: readonly Card[], changed: readonly string[]
 
 /** workPatchOf is what a status gesture changed on a task, read off the task
  *  as it stands (the server's answer, WorkChange.items): where it is — in
- *  its backlog or in work, whose, which days, which sprint — and its TO DO,
- *  every field present so one the server cleared is cleared locally too. */
+ *  its backlog or in work, whose, which days, which sprint — every field
+ *  present so one the server cleared is cleared locally too. */
 export function workPatchOf(c: Card): Partial<Card> {
   return {
     parked: c.parked,
-    todo: c.todo,
     assignees: c.assignees ?? [],
     startDate: c.startDate,
     day: c.day,

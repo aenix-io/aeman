@@ -22,6 +22,9 @@ export type StageKey = "locked" | "review" | "recurrent" | "refuse" | "done";
 export type CardType = "goal" | "initiative" | "epic";
 
 /** LineageRef is one ancestor of a card (status.lineage). */
+/** Priority is how much a card matters now (K15). */
+export type Priority = "P0" | "P1" | "P2" | "P3" | "P4";
+
 export interface LineageRef {
   uid: string;
   type?: CardType;
@@ -42,7 +45,7 @@ export interface ReviewedRef {
 /** HierarchyStatus is a planning card's derived standing (status.hierarchy):
  *  never stored, read off the tasks under it on every listing. */
 export interface HierarchyStatus {
-  status: "no-items" | "ready" | "backlog" | "in-progress" | "done";
+  status: "no-items" | "backlog" | "in-progress" | "done";
   done: number;
   total: number;
 }
@@ -140,9 +143,14 @@ export interface Card {
    *  and a parked card is on no day board. Every team has a backlog and
    *  nothing declares it (docs/design/backlog.md). */
   parked?: boolean;
-  /** TO DO: a parked task marked ready to be taken next (K15) — it stands at
-   *  the top of its backlog. Cleared when it is taken into work or finished. */
-  todo?: boolean;
+  /** The card's OWN priority (K15): P0 (highest) to P4, or none. Any card carries
+   *  one; nothing clears it on its own. */
+  priority?: Priority;
+  /** The priority the card counts under (status.effectivePriority): its own,
+   *  else the nearest ancestor's; and the ancestor it is taken from, absent
+   *  when it is the card's own. Computed by the server, never written. */
+  effectivePriority?: Priority;
+  effectivePriorityFrom?: LineageRef;
   /** The moment this card is FROM, when it is a record rather than the live
    *  card: its team's sprint has moved on past the day being looked at. The
    *  board shows it as it was and refuses to change it (G60). */
@@ -397,13 +405,10 @@ export interface Provider {
    *  today, out of the backlog; a review nobody has taken makes the caller
    *  its reviewer. A task already in work is 422 alreadyInWork. */
   takeCard(uid: string): Promise<Card>;
-  /** The Roadmap's TO DO (K15): mark the parked work of a task — or every
-   *  parked task under a plan item — ready to be taken next, or clear the
-   *  mark. `uids` names exactly the tasks counted (a filter shows fewer than
-   *  the board holds). Answers the tasks it changed, as they stand now (the
-   *  watch does not echo the tab's own write); 422 notParkedWork on
-   *  a task not waiting in a backlog, 403 when any is not the caller's. */
-  setTodo(uid: string, todo: boolean, uids?: string[]): Promise<Card[]>;
+  /** Set the card's OWN priority (K15): P0 to P4, or "" to clear it. On
+   *  any card; the cards under it with none of their own count under it.
+   *  Answers the card; 422 badPriority on anything else. */
+  setPriority(uid: string, priority: Priority | ""): Promise<Card>;
   /** The Roadmap's UNASSIGNED (K16): take a task in work — or every open
    *  task in work under a plan item — back to its team's backlog. Answers
    *  the tasks it moved, as they stand now; `uids` names exactly the tasks

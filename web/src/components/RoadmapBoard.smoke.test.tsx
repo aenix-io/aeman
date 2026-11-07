@@ -123,7 +123,8 @@ describe("the Roadmap's two panes", () => {
     const html = draw(board([goal, ini, epic, done, open]));
     expect(html).toContain("roadmap-status roadmap-status-in-progress");
     expect(html).toContain("roadmap-status roadmap-status-done");
-    expect(html).toContain("roadmap-status roadmap-status-todo");
+    // "open" is placed nowhere — not in work: it waits.
+    expect(html).toContain("roadmap-status roadmap-status-backlog");
     expect(html).toContain(">1/2<");
   });
 
@@ -354,30 +355,37 @@ describe("the Roadmap's column handles", () => {
   });
 });
 
-// The status badge is the row's menu (K15, K16): a button on a task and on
-// a plan item, which opens TO DO and UNASSIGNED; UNASSIGNED asks first, by
-// count. A parked task marked TO DO wears its own badge.
-describe("the status menu", () => {
-  it("draws the badge as a button where the menu has an answer, and plain where it has none", () => {
-    const inHand = { ...open, itemId: "w", title: "In hand", sprintStart: today, day: today };
-    const html = draw(board([goal, ini, epic, done, inHand]));
-    // The work in hand and the plan items above it: UNASSIGNED reaches it.
-    expect(html).toMatch(/roadmap-status-button"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"/);
-    // Finished work: neither answer reaches it, so no menu is offered.
-    expect(html).toMatch(/<span class="roadmap-status roadmap-status-done">/);
-    expect(html).not.toMatch(/roadmap-status-done roadmap-status-button/);
+// The badge is ONE pill in two parts and the row's menu (K15, K16): the
+// effective priority on the left when there is one — an inherited one drawn
+// lighter, naming where it comes from — and the work status on the right;
+// pressed, it opens P0…P4, "No priority" and UNASSIGNED, which asks first,
+// by count.
+describe("the badge", () => {
+  it("is a button opening the menu on every row of the tree", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    expect(html).toMatch(/class="roadmap-badge roadmap-status-button"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"/);
+    // Finished work too: its priority can still be set.
+    expect(html).toMatch(/roadmap-status-button"[^>]*><span class="roadmap-status roadmap-status-done">/);
   });
 
-  it("wears TO DO, filled, on a parked task marked ready", () => {
-    const ready = { ...open, itemId: "ready", title: "Ready one", parked: true, todo: true, startDate: undefined, day: undefined, sprintStart: undefined };
-    const html = draw(board([goal, ini, epic, ready]));
-    expect(html).toMatch(/roadmap-status-ready roadmap-status-button"[^>]*>TO DO</);
+  it("draws the priority and the status as one pill, or the status alone", () => {
+    const p1 = { ...open, itemId: "p1", title: "Urgent", priority: "P1" as const, effectivePriority: "P1" as const };
+    const html = draw(board([goal, ini, epic, p1, done]));
+    expect(html).toMatch(/<span class="roadmap-prio roadmap-prio-p1">P1<\/span><span class="roadmap-status roadmap-status-backlog">Backlog<\/span>/);
+    // done has no priority: the status alone.
+    expect(html).toMatch(/roadmap-status-button"[^>]*><span class="roadmap-status roadmap-status-done">Done<\/span><\/button>/);
   });
 
-  it("wears BACKLOG on a parked task nobody marked ready", () => {
-    const waiting = { ...open, itemId: "waiting", title: "Waiting one", parked: true, startDate: undefined, day: undefined, sprintStart: undefined };
-    const html = draw(board([goal, ini, epic, waiting]));
-    expect(html).toMatch(/roadmap-status-backlog roadmap-status-button"[^>]*>Backlog</);
+  it("draws an inherited priority lighter, naming the card it comes from", () => {
+    const under = {
+      ...open,
+      itemId: "u",
+      title: "Under",
+      effectivePriority: "P0" as const,
+      effectivePriorityFrom: { uid: "e", type: "epic" as const, title: "Invoices" },
+    };
+    const html = draw(board([goal, ini, epic, under]));
+    expect(html).toContain('<span class="roadmap-prio roadmap-prio-p0 roadmap-prio-inherited" title="from «Invoices»">P0</span>');
   });
 
   it("asks how many tasks leave Team and Me before taking them out of work", () => {

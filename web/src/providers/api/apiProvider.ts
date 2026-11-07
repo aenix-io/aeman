@@ -33,6 +33,7 @@ import type {
   CarryReport,
   CustomerRef,
   NewCardInput,
+  Priority,
   Note,
   Provider,
   ZoneKey,
@@ -515,11 +516,9 @@ export const apiProvider: Provider = {
     );
   },
 
-  async setTodo(uid: string, todo: boolean, uids?: string[]): Promise<Card[]> {
+  async setPriority(uid: string, priority: Priority | ""): Promise<Card> {
     uid = await resolveCardId(uid);
-    const body = uids ? { todo, uids: await Promise.all(uids.map(resolveCardId)) } : { todo };
-    const res = await answered(client.POST("/cards/{uid}/actions/todo", { params: { path: { uid } }, body }));
-    return (res.items ?? []).map(resourceToCard);
+    return cardFrom(client.POST("/cards/{uid}/actions/priority", { params: { path: { uid } }, body: { priority } }));
   },
 
   async unassignWork(uid: string, uids?: string[]): Promise<Card[]> {

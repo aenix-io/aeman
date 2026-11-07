@@ -41,6 +41,18 @@
      darker one behind white labels. In light both are the same blue. */
   --accent-emphasis: #0969da;
   --danger: #cf222e;
+  /* Priority badges (K15): P0 red, P1 orange, P2 blue, P3 and P4 grey (P4
+     the lighter); text on fill keeps AA contrast. */
+  --prio-p0-bg: #cf222e;
+  --prio-p0-fg: #ffffff;
+  --prio-p1-bg: #bc4c00;
+  --prio-p1-fg: #ffffff;
+  --prio-p2-bg: #0969da;
+  --prio-p2-fg: #ffffff;
+  --prio-p3-bg: #57606a;
+  --prio-p3-fg: #ffffff;
+  --prio-p4-bg: #d0d7de;
+  --prio-p4-fg: #24292f;
   /* Solid danger fill that carries white text (the delete-corner button on
      hover). Split from --danger for the same reason as --accent-emphasis: dark
      mode wants a lighter red for danger *text* but a deeper one behind white. */
@@ -167,6 +179,16 @@
   --accent: #4493f8;
   --accent-emphasis: #1f6feb;
   --danger: #f85149;
+  --prio-p0-bg: #da3633;
+  --prio-p0-fg: #ffffff;
+  --prio-p1-bg: #db6d28;
+  --prio-p1-fg: #0d1117;
+  --prio-p2-bg: #388bfd;
+  --prio-p2-fg: #0d1117;
+  --prio-p3-bg: #8b949e;
+  --prio-p3-fg: #0d1117;
+  --prio-p4-bg: #484f58;
+  --prio-p4-fg: #e6edf3;
   --danger-emphasis: #d5322c;
 
   --on-accent: #fff;
@@ -5083,13 +5105,8 @@ button.card-age {
   background: var(--hover-overlay-soft, var(--bg-soft));
 }
 
-/* The four standings a planning card can have (H5); a task's own read the
-   same way. Done and in progress were there; to do and no items were not. */
-.roadmap-status-todo {
-  background: var(--bg-soft);
-  color: var(--muted);
-}
-
+/* The standings a planning card can have (H5); a task's own read the same
+   way. */
 .roadmap-status-no-items {
   background: transparent;
   color: var(--faint);
@@ -5517,11 +5534,9 @@ button.card-age {
   outline-offset: -2px;
 }
 
-/* ---- Roadmap: the status menu (K15, K16) ----
-   The badge of a task or a plan item is a button opening TO DO and
-   UNASSIGNED. A parked task marked TO DO wears a filled badge of its own:
-   "To do" (nothing started yet) is drawn in the same capitals, so the colour
-   is what tells "ready to be taken next" from "not started". */
+/* ---- Roadmap: the badge menu (K15, K16) ----
+   The badge of a row is a button opening its menu: the card's own priority
+   (P0…P4, No priority) and Unassign. */
 .roadmap-status-button {
   border: none;
   font-family: inherit;
@@ -5530,11 +5545,6 @@ button.card-age {
 
 .roadmap-status-button:hover {
   outline: 1px solid var(--line);
-}
-
-.roadmap-status-ready {
-  background: var(--accent);
-  color: var(--on-accent);
 }
 
 .roadmap-status-unassigned {
@@ -5584,11 +5594,102 @@ button.card-age {
   font-size: 11px;
 }
 
-/* A parked task nobody marked ready: BACKLOG, an outlined badge — waiting,
-   in nobody's hands — set apart from TO DO (filled) and from "To do" (work
-   in hand not started). Theme variables only, so both themes draw it. */
+/* BACKLOG: waiting, in nobody's hands — an outlined badge, set apart from
+   IN PROGRESS (filled). Theme variables only, so both themes draw it. */
 .roadmap-status-backlog {
   background: transparent;
   color: var(--muted);
   box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* ---- The badge (K15): one pill in two parts ----
+   The effective priority on the left when there is one, the work status on
+   the right; the two share the pill's outline. An inherited priority keeps
+   its hue, drawn lighter (a tint of the same colour, the fill as its text). */
+.roadmap-badge {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 3px;
+  overflow: hidden;
+  padding: 0;
+  background: transparent;
+  max-width: 100%;
+}
+
+.roadmap-badge .roadmap-status {
+  border-radius: 0;
+}
+
+.roadmap-badge > :first-child {
+  border-top-left-radius: 3px;
+  border-bottom-left-radius: 3px;
+}
+
+.roadmap-badge > :last-child {
+  border-top-right-radius: 3px;
+  border-bottom-right-radius: 3px;
+}
+
+.roadmap-prio {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.roadmap-prio-p0 { background: var(--prio-p0-bg); color: var(--prio-p0-fg); }
+.roadmap-prio-p1 { background: var(--prio-p1-bg); color: var(--prio-p1-fg); }
+.roadmap-prio-p2 { background: var(--prio-p2-bg); color: var(--prio-p2-fg); }
+.roadmap-prio-p3 { background: var(--prio-p3-bg); color: var(--prio-p3-fg); }
+.roadmap-prio-p4 { background: var(--prio-p4-bg); color: var(--prio-p4-fg); }
+
+.roadmap-prio-inherited.roadmap-prio-p0 { background: color-mix(in srgb, var(--prio-p0-bg) 22%, var(--bg)); color: var(--prio-p0-bg); }
+.roadmap-prio-inherited.roadmap-prio-p1 { background: color-mix(in srgb, var(--prio-p1-bg) 22%, var(--bg)); color: var(--prio-p1-bg); }
+.roadmap-prio-inherited.roadmap-prio-p2 { background: color-mix(in srgb, var(--prio-p2-bg) 22%, var(--bg)); color: var(--prio-p2-bg); }
+.roadmap-prio-inherited.roadmap-prio-p3 { background: color-mix(in srgb, var(--prio-p3-bg) 22%, var(--bg)); color: var(--prio-p3-bg); }
+.roadmap-prio-inherited.roadmap-prio-p4 { background: color-mix(in srgb, var(--prio-p4-bg) 40%, var(--bg)); color: var(--prio-p4-fg); }
+
+.roadmap-prio-none {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.roadmap-status-separator {
+  height: 1px;
+  margin: 3px 2px;
+  background: var(--line);
+}
+
+
+/* The priority part of the badge on a Backlog card (K15): a button opening
+   the priority menu; with no priority, a muted "P" offers the same. */
+.backlog-row-prio {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.backlog-row-prio .roadmap-prio {
+  border-radius: 3px;
+}
+
+.backlog-row-prio-none {
+  padding: 0 5px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--line);
+  opacity: 0.6;
+}
+
+.backlog-row-prio-none:hover {
+  opacity: 1;
 }

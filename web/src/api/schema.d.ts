@@ -325,8 +325,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Set the card's own priority — P1, P2, P3, or none.
-         * @description The Roadmap's badge menu. Any card carries a priority: a task, a goal, an initiative, an epic. What a card counts under is its EFFECTIVE priority (`status.effectivePriority`): its own, else the nearest ancestor's that has one — so a plan item's priority reaches every card under it with none of its own, without being written on them. A backlog reads P1 first, then P2, then P3, then none, each in the Roadmap's order. An empty value clears the card's own. Nothing clears it on its own: taking the card into work, finishing it and reopening it keep it. Anything but P1, P2, P3 or empty is 422 `badPriority`.
+         * Set the card's own priority — P0 to P4, or none.
+         * @description The Roadmap's badge menu. Any card carries a priority: a task, a goal, an initiative, an epic. What a card counts under is its EFFECTIVE priority (`status.effectivePriority`): its own, else the nearest ancestor's that has one — so a plan item's priority reaches every card under it with none of its own, without being written on them. A backlog reads P0 first, then P1, P2, P3, P4, then none, each in the Roadmap's order. An empty value clears the card's own. Nothing clears it on its own: taking the card into work, finishing it and reopening it keep it. Anything but P0, P1, P2, P3, P4 or empty is 422 `badPriority`.
          */
         post: operations["setPriority"];
         delete?: never;
@@ -777,7 +777,7 @@ export interface components {
              * @description The card's OWN priority (`POST /cards/{uid}/actions/priority`); what it counts under is `status.effectivePriority`.
              * @enum {string}
              */
-            priority?: "" | "P1" | "P2" | "P3";
+            priority?: "" | "P0" | "P1" | "P2" | "P3" | "P4";
             reviewOf?: string;
             /** @description The uid of the card this one sits under — the one link of the hierarchy. Its meaning is the parent's `type`: under a task this card is a subtask; under a goal, an initiative or an epic it is filed in the hierarchy and nothing else about it changes. */
             parent?: string;
@@ -820,7 +820,7 @@ export interface components {
              * @description The priority the card counts under: its own, else the nearest ancestor's that has one (a review card's is its task's). Computed, never written. Absent when nobody above has one.
              * @enum {string}
              */
-            effectivePriority?: "" | "P1" | "P2" | "P3";
+            effectivePriority?: "" | "P0" | "P1" | "P2" | "P3" | "P4";
             /** @description The ancestor the effective priority is taken from — the Roadmap draws an inherited priority lighter, naming it. Absent when the priority is the card's own, or there is none. */
             effectivePriorityFrom?: components["schemas"]["LineageRef"];
             /** @description The customers the card is for: every ancestor's and its own, the ancestors' first; a review card's are the task's it reviews. Computed, never written. */
@@ -870,7 +870,7 @@ export interface components {
             items: components["schemas"]["Card"][];
             /** @description The moment a snapshot listing reflects (RFC3339) — the end of the day it was asked for. Absent on a live listing. */
             asOf?: string;
-            /** @description On a `backlog` listing only: the whole board's order, as every `Ordering` frame carries it. A backlog reads by effective priority (P1, P2, P3, then none), each in the Roadmap's order (the path of places in this order from the root plan item down to the task), a review nobody has taken above them all; a client that places a card the watch brings in, or re-sorts on an `Ordering` frame, reads the same key from it. */
+            /** @description On a `backlog` listing only: the whole board's order, as every `Ordering` frame carries it. A backlog reads by effective priority (P0 to P4, then none), each in the Roadmap's order (the path of places in this order from the root plan item down to the task), a review nobody has taken above them all; a client that places a card the watch brings in, or re-sorts on an `Ordering` frame, reads the same key from it. */
             boardOrder?: string[];
         };
         /** @description A team's sprint pointer; the empty team is the no-team group. */
@@ -1147,7 +1147,7 @@ export interface components {
              * @description The card's own priority; empty clears it.
              * @enum {string}
              */
-            priority: "" | "P1" | "P2" | "P3";
+            priority: "" | "P0" | "P1" | "P2" | "P3" | "P4";
         };
         UnassignWorkBody: {
             /** @description Exactly the tasks to take out of work, when given — the ones the confirm counted. Each must be one the gesture reaches from the card (422 `notATarget` otherwise). Absent: every task it reaches. */

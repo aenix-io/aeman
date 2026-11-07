@@ -65,8 +65,8 @@ export function shownTeams(filter: readonly string[] | null, roster: readonly st
 }
 
 /** BacklogKey is a backlog card's place in the list — board.BacklogKey,
- *  mirrored: its group (0 a review nobody has taken, K10; 1 a TO DO task,
- *  K15; 2 the rest), whether it is LOOSE (no plan item above it: after every
+ *  mirrored: its group (0 a review nobody has taken, K10; then the
+ *  EFFECTIVE priority, K15 — 1 for P0 … 5 for P4, 6 for none), whether it is LOOSE (no plan item above it: after every
  *  planned card of its group), and its PATH — the places in the board's order
  *  from the root of its tree down to the card (K14), the root's level ahead
  *  of its place, as the Roadmap draws its roots level by level. */
@@ -77,6 +77,13 @@ export interface BacklogKey {
 }
 
 const ROOT_LEVEL: Record<string, number> = { goal: 0, initiative: 1, epic: 2 };
+const PRIORITY_RANK: Record<string, number> = { P0: 1, P1: 2, P2: 3, P3: 4, P4: 5 };
+
+/** priorityRank orders the priorities for a backlog: P0 first, none last —
+ *  board.priorityRank. */
+export function priorityRank(p: string | undefined): number {
+  return PRIORITY_RANK[p ?? ""] ?? 6;
+}
 const PLANNING = new Set(["goal", "initiative", "epic"]);
 /** A place nobody named: after every named one. */
 const UNNAMED = Number.MAX_SAFE_INTEGER;
@@ -85,7 +92,7 @@ const UNNAMED = Number.MAX_SAFE_INTEGER;
  *  A card or an ancestor the order does not name stands after the named ones;
  *  `fallback` is the card's own place then. */
 export function backlogKey(
-  c: Pick<Card, "itemId" | "lineage" | "todo" | "reviewOf" | "assignees" | "stage" | "progress">,
+  c: Pick<Card, "itemId" | "lineage" | "effectivePriority" | "reviewOf" | "assignees" | "stage" | "progress">,
   pos: ReadonlyMap<string, number>,
   fallback = UNNAMED,
 ): BacklogKey {
@@ -93,7 +100,7 @@ export function backlogKey(
   if (needsReviewer(c)) {
     return { group: 0, loose: false, path: [own] };
   }
-  const group = c.todo ? 1 : 2;
+  const group = priorityRank(c.effectivePriority);
   const up = c.lineage ?? [];
   if (!up.some((a) => a.type && PLANNING.has(a.type))) {
     return { group, loose: true, path: [own] };
@@ -141,14 +148,14 @@ export function backlogList(cards: readonly Card[], teams: readonly string[], or
 
 /** runOf is which cards a backlog card is a SIBLING of (K14): a review nobody
  *  has taken among the other such reviews; a task among the tasks under the
- *  same parent in the same group (TO DO or not) — the loose tasks, with no
+ *  same parent in the same priority group — the loose tasks, with no
  *  plan item above, being one run. */
-function runOf(c: Pick<Card, "parent" | "lineage" | "todo" | "reviewOf" | "assignees" | "stage" | "progress">): string {
+function runOf(c: Pick<Card, "parent" | "lineage" | "effectivePriority" | "reviewOf" | "assignees" | "stage" | "progress">): string {
   if (needsReviewer(c)) {
     return "review";
   }
   const planned = (c.lineage ?? []).some((a) => a.type && PLANNING.has(a.type));
-  return `${c.todo ? "todo" : "rest"}:${planned ? (c.parent ?? "") : ""}`;
+  return `${priorityRank(c.effectivePriority)}:${planned ? (c.parent ?? "") : ""}`;
 }
 
 /** takeOwner is what TAKE leaves on the card, the server's `take` (K11)

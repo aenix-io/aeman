@@ -110,12 +110,12 @@ describe("the board in the address", () => {
     expect(calls[0].body).toBeUndefined();
   });
 
-  // The Roadmap's status menu (K15, K16): card actions that answer how many
-  // tasks they changed.
-  it("marks work TO DO and takes work out of work through the card's actions", async () => {
-    expect(await apiProvider.setTodo("c1", true, ["t1", "t2"])).toEqual([]);
-    expect(calls[0].url).toBe("/api/v1/cards/c1/actions/todo");
-    expect(calls[0].body).toEqual({ todo: true, uids: ["t1", "t2"] });
+  // The Roadmap's badge menu (K15, K16): card actions — the card's own
+  // priority, and UNASSIGNED naming the tasks it counted.
+  it("sets a priority and takes work out of work through the card's actions", async () => {
+    await apiProvider.setPriority("c1", "P0").catch(() => undefined);
+    expect(calls[0].url).toBe("/api/v1/cards/c1/actions/priority");
+    expect(calls[0].body).toEqual({ priority: "P0" });
     await apiProvider.unassignWork("c1", ["t3"]);
     expect(calls[1].url).toBe("/api/v1/cards/c1/actions/unassign-work");
     expect(calls[1].body).toEqual({ uids: ["t3"] });
