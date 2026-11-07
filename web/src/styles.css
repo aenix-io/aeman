@@ -4797,6 +4797,14 @@ button.card-age {
   padding-right: 6px;
 }
 
+/* The add row under the tree is one line of the table, as tall as a row,
+   so the timeline's lane for it keeps the two panes in step. */
+.roadmap-row-addroot {
+  display: flex;
+  align-items: center;
+  padding-left: 6px;
+}
+
 /* The Status column is the table's last, and the timeline's divider is the
    table's own right border: the column is wide enough for IN PROGRESS, and
    its cell — header and rows — keeps real space before the divider. The

@@ -994,7 +994,7 @@ export function RoadmapBoard({
   const rootLevels: CardType[] = ["goal", "initiative", "epic"];
   const rootInitial: CardType = rootLevels.includes(depth.from as CardType) ? (depth.from as CardType) : "goal";
   const addRoot = (
-    <div className="roadmap-row roadmap-row-form roadmap-row-addroot">
+    <div className="roadmap-row roadmap-row-form roadmap-row-addroot" style={{ minHeight: ROW_PX }}>
       <AddCard
         placeholder="Add a goal, an initiative or an epic…"
         forcedTeam={null}
