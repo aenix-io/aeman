@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -45,7 +44,7 @@ func TestAFailedQueuedDeleteBringsTheCardBackAtOnce(t *testing.T) {
 	if _, err := r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
 		{Path: gitstore.BoardPath, Data: []byte("schema: 3\ntitle: t\n")},
 		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: " + today + "\n")},
-		{Path: p, Data: []byte(fmt.Sprintf("---\ntitle: keep me\nteam: portal\nparked: true\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n"))},
+		{Path: p, Data: []byte("---\ntitle: keep me\nteam: portal\nparked: true\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n")},
 	}); err != nil {
 		t.Fatal(err)
 	}

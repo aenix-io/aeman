@@ -1258,10 +1258,21 @@ func (s *Service) removeFromGrid(ctx context.Context, b board.Board, c board.Car
 // is over, and the pieces of that work go with it; the demote it replaces
 // carried them along too.
 func (s *Service) deleteGroup(ctx context.Context, b board.Board, card board.Card) error {
-	for _, c := range board.Children(b, card.ItemID) {
+	kids := board.Children(b, card.ItemID)
+	for _, c := range kids {
 		if err := s.deleteWithCascade(ctx, b, c); err != nil {
 			return err
 		}
+	}
+	if len(kids) > 0 {
+		// The card's own delete frees its subtasks first; read off the board
+		// the children were taken from, it would free the very ones just
+		// deleted, and the store refuses a write to a card that is gone.
+		after, err := s.backend.LoadBoard(ctx, b.Board)
+		if err != nil {
+			return err
+		}
+		b = after
 	}
 	return s.deleteWithCascade(ctx, b, card)
 }
