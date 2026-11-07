@@ -47,6 +47,9 @@ import {
   todoTargets,
   unassignTargets,
   statusMenu,
+  rollUp,
+  rolledUpAfter,
+  workPatchOf,
   hasStatusMenu,
   statusUids,
   unassignQuestion,
@@ -143,7 +146,8 @@ describe("rows and the depth range", () => {
 describe("statusOf", () => {
   it("is the server's derived standing on a planning card, no items when it says nothing", () => {
     expect(statusOf(card({ type: "epic", hierarchy: { status: "in-progress", done: 1, total: 3 } }))).toBe("in-progress");
-    expect(statusOf(card({ type: "epic", hierarchy: { status: "todo", done: 0, total: 2 } }))).toBe("todo");
+    expect(statusOf(card({ type: "epic", hierarchy: { status: "backlog", done: 0, total: 2 } }))).toBe("backlog");
+    expect(statusOf(card({ type: "epic", hierarchy: { status: "ready", done: 0, total: 2 } }))).toBe("ready");
     expect(statusOf(card({ type: "epic", hierarchy: { status: "no-items", done: 0, total: 0 } }))).toBe("no-items");
     expect(statusOf(card({ type: "goal" }))).toBe("no-items");
   });
@@ -960,7 +964,74 @@ describe("the status menu on the Roadmap (K15, K16)", () => {
     expect(statusOf(card({ parked: true, stage: "locked", progress: 20 }))).toBe("locked");
     // Work in hand reads as before: to do until its bar moves.
     expect(statusOf(card({ sprintStart: "2026-11-09", progress: 0 }))).toBe("todo");
-    // A plan item keeps the server's rolled-up words.
-    expect(statusOf(card({ type: "epic", hierarchy: { status: "todo", done: 0, total: 2 } }))).toBe("todo");
+    // A plan item wears the server's roll-up.
+    expect(statusOf(card({ type: "epic", hierarchy: { status: "backlog", done: 0, total: 2 } }))).toBe("backlog");
   });
 });
+
+// A plan item rolls up from where its OPEN tasks stand (H5, amended with
+// K15/K16) — mirrors board.hierarchyStatus, case for case with
+// TestAPlanItemRollsUpFromWhereItsOpenTasksStand: in work → in progress;
+// none in work, all marked TO DO → ready; otherwise → backlog; all done →
+// done; none → no items. Progress alone does not make it in progress.
+describe("a plan item's roll-up", () => {
+  const today = "2026-11-09";
+  const inWork = card({ itemId: "w", parent: "e", sprintStart: today, day: today });
+  const parked = card({ itemId: "p", parent: "e", parked: true });
+  const ready = card({ itemId: "r", parent: "e", parked: true, todo: true });
+  const done = card({ itemId: "d", parent: "e", progress: 100 });
+  const st = (leaves: Card[]) => rollUp(leaves).status;
+
+  it("reads the open tasks: in work, all marked, or waiting", () => {
+    expect(st([])).toBe("no-items");
+    expect(st([done])).toBe("done");
+    expect(st([inWork, parked])).toBe("in-progress");
+    expect(st([inWork, ready])).toBe("in-progress");
+    expect(st([ready, { ...ready, itemId: "r2" }])).toBe("ready");
+    expect(st([ready, done])).toBe("ready");
+    expect(st([ready, parked])).toBe("backlog");
+    expect(st([done, parked])).toBe("backlog");
+    expect(st([{ ...parked, progress: 49 }])).toBe("backlog");
+    expect(st([{ ...parked, assignees: ["ann"] }])).toBe("backlog");
+    expect(rollUp([done, parked])).toEqual({ status: "backlog", done: 1, total: 2 });
+  });
+
+  it("re-reads the plan items above the tasks a gesture changed, before the server answers", () => {
+    const e = card({ itemId: "e", type: "epic", parent: "g", hierarchy: { status: "in-progress", done: 0, total: 2 } });
+    const g = card({ itemId: "g", type: "goal", hierarchy: { status: "in-progress", done: 0, total: 2 } });
+    const t1 = card({ itemId: "t1", parent: "e", assignees: ["ann"], sprintStart: today, day: today, progress: 49 });
+    const t2 = card({ itemId: "t2", parent: "e", parked: true });
+    const before = [g, e, t1, t2];
+    // UNASSIGNED on the epic: t1 back to its backlog, its 49% kept.
+    const after = before.map((c) => (c.itemId === "t1" ? { ...c, parked: true, assignees: [], sprintStart: undefined, day: undefined } : c));
+    expect(rolledUpAfter(after, ["t1"])).toEqual(
+      new Map([
+        ["e", { status: "backlog", done: 0, total: 2 }],
+        ["g", { status: "backlog", done: 0, total: 2 }],
+      ]),
+    );
+    // TO DO on it: both marked.
+    const marked = after.map((c) => (c.itemId.startsWith("t") ? { ...c, todo: true } : c));
+    expect(rolledUpAfter(marked, ["t1", "t2"]).get("e")?.status).toBe("ready");
+  });
+});
+
+// What the acting tab takes from the server's answer (WorkChange.items): the
+// fields a status gesture changes, every one of them — a field the server
+// cleared is cleared here too, not left as it was.
+describe("patching what a status gesture changed", () => {
+  it("takes exactly where the task stands, cleared fields included", () => {
+    const parked = card({ itemId: "t", parked: true, assignees: [], progress: 49, title: "renamed meanwhile" });
+    expect(workPatchOf(parked)).toEqual({
+      parked: true,
+      todo: undefined,
+      assignees: [],
+      startDate: undefined,
+      day: undefined,
+      sprintStart: undefined,
+    });
+    const ready = card({ itemId: "t", parked: true, todo: true, assignees: [] });
+    expect(workPatchOf(ready).todo).toBe(true);
+  });
+});
+

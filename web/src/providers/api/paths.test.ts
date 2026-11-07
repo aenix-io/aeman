@@ -113,7 +113,7 @@ describe("the board in the address", () => {
   // The Roadmap's status menu (K15, K16): card actions that answer how many
   // tasks they changed.
   it("marks work TO DO and takes work out of work through the card's actions", async () => {
-    await apiProvider.setTodo("c1", true, ["t1", "t2"]);
+    expect(await apiProvider.setTodo("c1", true, ["t1", "t2"])).toEqual([]);
     expect(calls[0].url).toBe("/api/v1/cards/c1/actions/todo");
     expect(calls[0].body).toEqual({ todo: true, uids: ["t1", "t2"] });
     await apiProvider.unassignWork("c1", ["t3"]);

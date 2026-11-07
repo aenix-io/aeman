@@ -26,6 +26,8 @@ import {
   dropCommit,
   dropShown,
   statusMenu,
+  rolledUpAfter,
+  workPatchOf,
   hasStatusMenu,
   statusUids,
   todoTargets,
@@ -818,30 +820,48 @@ export function RoadmapBoard({
   const statusAnchor = useRef<HTMLElement | null>(null);
   const [unassigning, setUnassigning] = useState<{ card: CardModel; uids: string[] } | null>(null);
   const menu = statusFor ? statusMenu(board.cards, statusFor) : null;
-  const answerTodo = (card: CardModel, todo: boolean) => {
-    const targets = todoTargets(board.cards, card);
-    for (const t of targets) {
-      patchCard(t.itemId, { todo: todo || undefined });
+  // A status gesture is shown at once — the tasks it reaches and the plan
+  // items above them, re-rolled-up (roadmap.rolledUpAfter) — then settled by
+  // the server's answer, which names the tasks it changed as they stand now:
+  // the watch does not echo the tab's own write. A refusal puts back what
+  // was there.
+  const applyWork = (uids: readonly string[], change: Partial<CardModel>, send: () => Promise<CardModel[]>) => {
+    const before = board.cards.filter((c) => uids.includes(c.itemId));
+    const after = board.cards.map((c) => (uids.includes(c.itemId) ? { ...c, ...change } : c));
+    const rolled = rolledUpAfter(after, uids);
+    const plansBefore = board.cards.filter((c) => rolled.has(c.itemId));
+    for (const id of uids) {
+      patchCard(id, change);
     }
+    for (const [id, hierarchy] of rolled) {
+      patchCard(id, { hierarchy });
+    }
+    void send()
+      .then((changed) => {
+        for (const c of changed) {
+          patchCard(c.itemId, workPatchOf(c));
+        }
+      })
+      .catch((err: unknown) => {
+        for (const c of before) {
+          patchCard(c.itemId, workPatchOf(c));
+        }
+        for (const p of plansBefore) {
+          patchCard(p.itemId, { hierarchy: p.hierarchy });
+        }
+        onError(errText(err));
+        reload();
+      });
+  };
+  const answerTodo = (card: CardModel, todo: boolean) => {
     // The tasks the reader was shown — a filter shows fewer than the board
     // holds — are the ones the server changes.
-    void provider.setTodo(card.itemId, todo, statusUids(targets)).catch((err: unknown) => {
-      for (const t of targets) {
-        patchCard(t.itemId, { todo: t.todo });
-      }
-      onError(errText(err));
-      reload();
-    });
+    const uids = statusUids(todoTargets(board.cards, card));
+    applyWork(uids, { todo: todo || undefined }, () => provider.setTodo(card.itemId, todo, uids));
   };
   const answerUnassign = (card: CardModel, uids: string[]) => {
-    for (const id of uids) {
-      patchCard(id, UNASSIGNED_LOCALLY);
-    }
     // Exactly the tasks the confirm counted.
-    void provider.unassignWork(card.itemId, uids).catch((err: unknown) => {
-      onError(errText(err));
-      reload();
-    });
+    applyWork(uids, UNASSIGNED_LOCALLY, () => provider.unassignWork(card.itemId, uids));
   };
   const answerRemoval = (card: CardModel, choice: HierarchyChoice) => {
     const plan = planningRemovalPlan(board.cards, card.itemId, choice);

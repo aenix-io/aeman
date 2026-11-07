@@ -300,7 +300,7 @@ describe("the drawer's card identity line", () => {
 // with the counts header kept.
 describe("a plan item's drawer", () => {
   it("draws what is under it as the Roadmap's tree", () => {
-    const epic = card({ itemId: "e", title: "Invoices", type: "epic", hierarchy: { status: "todo", done: 1, total: 3 } } as Partial<Card>);
+    const epic = card({ itemId: "e", title: "Invoices", type: "epic", hierarchy: { status: "backlog", done: 1, total: 3 } } as Partial<Card>);
     const t = card({ itemId: "t", title: "Render PDF", parent: "e", lineage: [{ uid: "e", type: "epic", title: "Invoices" }] });
     const b = { ...board, cards: [epic, t] } as Board;
     const html = renderToStaticMarkup(

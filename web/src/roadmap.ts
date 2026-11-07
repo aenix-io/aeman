@@ -8,7 +8,7 @@ import { keepPlaced, type PlaceFields } from "./backlog";
 import { addDays, mondayOf } from "./date";
 import { isComplete, isInProgress } from "./stages";
 import { isPlanning, isSubtask } from "./subtasks";
-import type { Card, CardPatch, CardType } from "./providers/types";
+import type { Card, CardPatch, CardType, HierarchyStatus } from "./providers/types";
 
 /** RoadmapKind is what a row IS: the three planning levels, a task, or a
  *  subtask (a task under a task). */
@@ -1215,4 +1215,71 @@ export const UNASSIGNED_LOCALLY: Partial<Card> = {
   day: undefined,
   sprintStart: undefined,
 };
+
+
+/** rollUp is the standing a plan item's leaf tasks give it — mirrors
+ *  board.hierarchyStatus (H5, amended with K15/K16): no items with none;
+ *  done when every one is complete; otherwise read off the OPEN ones — in
+ *  progress when any is in work (a date or a sprint, not parked), ready (TO
+ *  DO) when none is and every one is marked TO DO, backlog otherwise.
+ *  Progress, a person or a stage do not count by themselves. */
+export function rollUp(leaves: readonly Card[]): HierarchyStatus {
+  let done = 0;
+  let inWork = 0;
+  let flagged = 0;
+  for (const t of leaves) {
+    if (isComplete(t)) {
+      done++;
+    } else if (!t.parked && !!(t.startDate || t.day || t.sprintStart)) {
+      inWork++;
+    } else if (t.parked && t.todo) {
+      flagged++;
+    }
+  }
+  const total = leaves.length;
+  if (total === 0) {
+    return { status: "no-items", done: 0, total: 0 };
+  }
+  if (done === total) {
+    return { status: "done", done, total };
+  }
+  if (inWork > 0) {
+    return { status: "in-progress", done, total };
+  }
+  return { status: flagged === total - done ? "ready" : "backlog", done, total };
+}
+
+/** rolledUpAfter is the new standing of every plan item above the tasks a
+ *  gesture changed (`changed`), read off the cards as they stand after it —
+ *  what the acting tab shows before the server's frames for those plan
+ *  items arrive. */
+export function rolledUpAfter(cards: readonly Card[], changed: readonly string[]): Map<string, HierarchyStatus> {
+  const byId = new Map(cards.map((c) => [c.itemId, c]));
+  const out = new Map<string, HierarchyStatus>();
+  for (const id of changed) {
+    const seen = new Set<string>();
+    for (let up = byId.get(byId.get(id)?.parent ?? ""); up && !seen.has(up.itemId); up = byId.get(up.parent ?? "")) {
+      seen.add(up.itemId);
+      if (isPlanning(up) && !out.has(up.itemId)) {
+        out.set(up.itemId, rollUp(leafTasks(cards, up.itemId)));
+      }
+    }
+  }
+  return out;
+}
+
+/** workPatchOf is what a status gesture changed on a task, read off the task
+ *  as it stands (the server's answer, WorkChange.items): where it is — in
+ *  its backlog or in work, whose, which days, which sprint — and its TO DO,
+ *  every field present so one the server cleared is cleared locally too. */
+export function workPatchOf(c: Card): Partial<Card> {
+  return {
+    parked: c.parked,
+    todo: c.todo,
+    assignees: c.assignees ?? [],
+    startDate: c.startDate,
+    day: c.day,
+    sprintStart: c.sprintStart,
+  };
+}
 
