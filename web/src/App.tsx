@@ -46,6 +46,7 @@ import { frozenProvider } from "./providers/frozen";
 import { todayIso, setBoardTimezone } from "./date";
 import { doneAtAfter } from "./stages";
 import { mergeNotes } from "./notes";
+import { buildLink, cardLink, cardUnreadable, linkChange, parseLink, saveReturnTo, startDay, takeReturnTo, type LinkState } from "./deeplink";
 import { openWatches } from "./watch";
 import { nameConflict } from "./names";
 import { AppearanceMenu } from "./components/AppearanceMenu";
@@ -74,6 +75,22 @@ const LS_VIEW_AS = "aeman.viewAs";
 
 function readView(): ViewMode {
   return storedView(localStorage.getItem(LS_VIEW));
+}
+
+// The board's address at load (deeplink.ts): a deep link wins over the
+// remembered tab. The address a sign-in began on is taken off on every load,
+// whatever happens to it, and kept aside only for an address with nothing in
+// it — it is given back once the config says the visitor is signed in, so a
+// sign-in abandoned long ago, or a sign-out back to the front page, never
+// resurfaces it.
+function initialAddress(): { link: LinkState; kept: string | null } {
+  let kept: string | null = null;
+  try {
+    kept = takeReturnTo(sessionStorage, Date.now());
+  } catch {
+    // no session storage: nothing was kept
+  }
+  return { link: parseLink(window.location.search), kept: window.location.search ? null : kept };
 }
 
 function readStringList(key: string): string[] | null {
@@ -121,7 +138,8 @@ export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [tokenWarningDismissed, setTokenWarningDismissed] = useState(false);
 
-  const [view, setView] = useState<ViewMode>(readView);
+  const [{ link, kept }] = useState(initialAddress);
+  const [view, setView] = useState<ViewMode>(() => link.view ?? readView());
   // The Project filter's selection on the Project tab.
   const [projectFilter, setProjectFilterState] = useState<string[] | null>(readProjectFilter);
   const setProjectFilter = (keys: string[] | null) => {
@@ -208,7 +226,7 @@ export function App() {
   const [board, setBoard] = useState<Board | null>(null);
   // The viewed day, shared by both boards and driving the lazy view fetch and
   // the scoped watch. Lifted out of the boards so the App owns what to load.
-  const [selectedDate, setSelectedDate] = useState<string>(todayIso());
+  const [selectedDate, setSelectedDate] = useState<string>(() => link.day ?? todayIso());
   // "View as" impersonation on the Me board — lifted here because the Me fetch
   // must carry the impersonated user explicitly (the server otherwise resolves
   // the caller's own login).
@@ -318,24 +336,40 @@ export function App() {
   // task a subtask rides — each opens its card in the same drawer, and the
   // way back is this stack. A board opening a card starts afresh.
   const [detailStack, setDetailStack] = useState<CardModel[]>([]);
+  // The card the address names, still being fetched (deeplink.ts): while it
+  // is, the address is left alone. Anything the person does with the drawer
+  // or the tabs supersedes it.
+  const pendingCard = useRef<string | null>(link.card);
+  // The next change of the open card is not the person's (the server took
+  // the card away, a linked card arrived): it rewrites the address rather
+  // than adding a step to the history. Set only right before such a change,
+  // and consumed by the next run of the address effect.
+  const replaceNext = useRef(false);
   const openCard = (c: CardModel) => {
+    pendingCard.current = null;
     setDetailStack([]);
     setDetailCard(c);
   };
   const openWithin = (c: CardModel) => {
+    pendingCard.current = null;
     setDetailStack((s) => (detailCard ? [...s, detailCard] : s));
     setDetailCard(c);
   };
+  // The drawer's Back is the browser's: opening a card within pushed a step,
+  // and going back pops it (the popstate handler puts the previous card back
+  // from the stack), so the two Backs never disagree.
   const backInDetail = () => {
-    setDetailStack((s) => {
-      const prev = s[s.length - 1];
-      setDetailCard(prev ?? null);
-      return s.slice(0, -1);
-    });
+    window.history.back();
   };
   const closeDetail = () => {
+    pendingCard.current = null;
     setDetailStack([]);
     setDetailCard(null);
+  };
+  // A tab chosen supersedes a linked card still being fetched.
+  const chooseView = (v: ViewMode) => {
+    pendingCard.current = null;
+    setView(v);
   };
   // A card the Roadmap is asked to REVEAL — a breadcrumb followed from a
   // detail pane: the tab switches and the row is unfolded and marked.
@@ -343,7 +377,7 @@ export function App() {
   const revealOnRoadmap = (uid: string) => {
     closeDetail();
     setRoadmapFocus(uid);
-    setView("roadmap");
+    chooseView("roadmap");
   };
 
   // Teams are the server's (board.teams). The only team state here is the
@@ -482,7 +516,20 @@ export function App() {
         setConfig(cfg);
         // The board's "today" runs in the server's zone for everyone.
         setBoardTimezone(cfg.tz);
-        setSelectedDate(todayIso());
+        // Back from signing in: the address it began on, given back once
+        // (kept only when the board was opened with an empty address; the
+        // address effect may have written the remembered tab into it since).
+        let start = link;
+        if (cfg.authenticated && kept) {
+          window.history.replaceState(null, "", kept);
+          start = parseLink(window.location.search);
+          if (start.view) {
+            setView(start.view);
+          }
+          pendingCard.current = start.card;
+        }
+        // The linked day outlives the start; today only when none was named.
+        setSelectedDate(startDay(start, todayIso()));
       })
       .catch((err: unknown) => {
         if (!cancelled) {
@@ -691,6 +738,105 @@ export function App() {
   // Only once the board is loaded: before that there is nothing to prune
   // against.
   const boardLoaded = board !== null;
+
+  // ---- the board's address (deeplink.ts) ----
+  // The view, the day of a day board and the open card live in the address.
+  // Opening, switching or closing a card is a step Back undoes (pushState);
+  // a tab or a day only rewrites the address (replaceState). A card the
+  // address names is fetched by uid — it may stand on another board, day or
+  // team than the one on screen — and while it is being fetched the address
+  // is left alone, or the first render would take the card off it.
+  const detailRef = useRef(detailCard);
+  detailRef.current = detailCard;
+  const stackRef = useRef(detailStack);
+  stackRef.current = detailStack;
+  const placeRef = useRef({ view, selectedDate });
+  placeRef.current = { view, selectedDate };
+  const openByLink = useCallback(
+    (uid: string) => {
+      pendingCard.current = uid;
+      void provider
+        .getCard(uid)
+        .then((c) => {
+          if (pendingCard.current !== uid) {
+            return;
+          }
+          pendingCard.current = null;
+          replaceNext.current = true;
+          setDetailStack([]);
+          setDetailCard(c);
+        })
+        .catch((err: unknown) => {
+          if (pendingCard.current !== uid) {
+            return;
+          }
+          pendingCard.current = null;
+          if (!cardUnreadable(err)) {
+            // The network or the server: an error to show; the address
+            // keeps the card, so a reload tries it again.
+            setError(errMessage(err));
+            return;
+          }
+          // Not this visitor's to read, or gone: say so, and take it off the
+          // address — written from the board on screen — without a step in
+          // the history.
+          const { view: v, selectedDate: d } = placeRef.current;
+          window.history.replaceState(null, "", window.location.pathname + buildLink({ view: v, card: null, day: d }, todayIso()));
+          setError("That card is not on this board, or it is not one you can read.");
+        });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [provider],
+  );
+  useEffect(() => {
+    if (boardLoaded && pendingCard.current) {
+      openByLink(pendingCard.current);
+    }
+    // Once, when the board first arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardLoaded]);
+  useEffect(() => {
+    if (pendingCard.current) {
+      return;
+    }
+    const uid = detailCard && !detailCard.itemId.startsWith("tmp-") ? detailCard.itemId : null;
+    const next = buildLink({ view, card: uid, day: selectedDate }, todayIso());
+    const change = linkChange(window.location.search, next);
+    const url = window.location.pathname + next;
+    if (change === "push" && !replaceNext.current) {
+      window.history.pushState(null, "", url);
+    } else if (change !== "none") {
+      window.history.replaceState(null, "", url);
+    }
+    replaceNext.current = false;
+  }, [view, detailCard, selectedDate]);
+  // Back and Forward: the address says what to show.
+  useEffect(() => {
+    // The address already says what the board now shows, so none of this
+    // writes it again (the address effect finds nothing to change).
+    const onPop = () => {
+      const s = parseLink(window.location.search);
+      if (s.view) {
+        setView(s.view);
+      }
+      setSelectedDate(s.day ?? todayIso());
+      const stack = stackRef.current;
+      if (!s.card) {
+        pendingCard.current = null;
+        setDetailStack([]);
+        setDetailCard(null);
+      } else if (stack.length > 0 && stack[stack.length - 1].itemId === s.card) {
+        // Back to the card this one was opened from: it is on the stack.
+        pendingCard.current = null;
+        setDetailCard(stack[stack.length - 1]);
+        setDetailStack(stack.slice(0, -1));
+      } else if (s.card !== detailRef.current?.itemId) {
+        openByLink(s.card);
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [openByLink]);
   useEffect(() => {
     if (!boardLoaded) {
       return;
@@ -1214,7 +1360,15 @@ export function App() {
         // The drawer's card hears its frames even when no board lists it, and
         // closes only for a card deleted outright: one that left this board's
         // selection is still the card it shows.
-        setDetailCard((d) => followFrame(d, card, cardIsGone(frame)));
+        setDetailCard((d) => {
+          const next = followFrame(d, card, cardIsGone(frame));
+          // Taken away by the server, not closed by the person: the address
+          // is rewritten, no step added to the history.
+          if (d && !next) {
+            replaceNext.current = true;
+          }
+          return next;
+        });
         if (frame.type === "DELETED") {
           removeCard(card.itemId);
           notifyCardFrame(true);
@@ -1368,7 +1522,18 @@ export function App() {
         <div className="signin">
           <h2>{forge.signInTitle}</h2>
           <p>{forge.signInLead}</p>
-          <a className="btn btn-primary signin-btn" href={config.authUrl ?? "/auth/login"}>
+          <a
+            className="btn btn-primary signin-btn"
+            href={config.authUrl ?? "/auth/login"}
+            // A deep link followed before signing in is given back after it.
+            onClick={() => {
+              try {
+                saveReturnTo(sessionStorage, window.location.pathname + window.location.search, Date.now());
+              } catch {
+                // no session storage: the front page it is
+              }
+            }}
+          >
             {forge.signInButton}
           </a>
         </div>
@@ -1513,7 +1678,7 @@ export function App() {
             role="tab"
             aria-selected={view === "me"}
             className={`segment${view === "me" ? " segment-active" : ""}`}
-            onClick={() => setView("me")}
+            onClick={() => chooseView("me")}
           >
             Me
           </button>
@@ -1522,7 +1687,7 @@ export function App() {
             role="tab"
             aria-selected={view === "team"}
             className={`segment${view === "team" ? " segment-active" : ""}`}
-            onClick={() => setView("team")}
+            onClick={() => chooseView("team")}
           >
             Team
           </button>
@@ -1531,7 +1696,7 @@ export function App() {
             role="tab"
             aria-selected={view === "backlog"}
             className={`segment${view === "backlog" ? " segment-active" : ""}`}
-            onClick={() => setView("backlog")}
+            onClick={() => chooseView("backlog")}
           >
             Backlog
           </button>
@@ -1540,7 +1705,7 @@ export function App() {
             role="tab"
             aria-selected={view === "roadmap"}
             className={`segment${view === "roadmap" ? " segment-active" : ""}`}
-            onClick={() => setView("roadmap")}
+            onClick={() => chooseView("roadmap")}
           >
             Roadmap
           </button>
@@ -1549,7 +1714,7 @@ export function App() {
             role="tab"
             aria-selected={view === "project"}
             className={`segment${view === "project" ? " segment-active" : ""}`}
-            onClick={() => setView("project")}
+            onClick={() => chooseView("project")}
           >
             Project
           </button>
@@ -1747,6 +1912,7 @@ export function App() {
           onReveal={revealOnRoadmap}
           onOpenCard={openWithin}
           onBack={detailStack.length > 0 ? backInDetail : undefined}
+          cardLinkFor={(uid) => cardLink(window.location.origin, window.location.pathname, view, uid, selectedDate, todayIso())}
           onError={onError}
           onCustomerAdded={(cu) =>
             setBoard((cur) =>

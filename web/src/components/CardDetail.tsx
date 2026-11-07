@@ -42,6 +42,7 @@ import { isPlanning, isSubtask, subtaskParent } from "../subtasks";
 import { Avatar } from "./Avatar";
 import { DescriptionEditor } from "./DescriptionEditor";
 import { KindIcon } from "./KindIcon";
+import { CardIdentity } from "./CardIdentity";
 import { placementAnswer } from "../detail";
 import { OwnerPicker } from "./OwnerPicker";
 import { ParentPicker } from "./ParentPicker";
@@ -68,6 +69,9 @@ interface CardDetailProps {
   onOpenCard?: (card: CardModel) => void;
   /** There is a card to go back to (the pane was opened from another). */
   onBack?: () => void;
+  /** The card's address on this board (deeplink.cardLink), for its
+   *  identity line: the id and the link to copy. */
+  cardLinkFor?: (uid: string) => string;
   /** A write the server refused, in its own words (a parent of the wrong
    *  level, another repository, a project card). */
   onError?: (message: string) => void;
@@ -120,6 +124,7 @@ export function CardDetail({
   onReveal,
   onOpenCard,
   onBack,
+  cardLinkFor,
   onError,
   onCustomerAdded,
 }: CardDetailProps) {
@@ -886,6 +891,8 @@ export function CardDetail({
               ✕
             </button>
           </div>
+          {/* Keyed on the card, so a "copied" mark never carries over. */}
+          {cardLinkFor && <CardIdentity key={card.itemId} uid={card.itemId} link={cardLinkFor(card.itemId)} />}
         </header>
 
         <div className="drawer-body">

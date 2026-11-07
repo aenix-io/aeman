@@ -6133,3 +6133,45 @@ button.card-age {
   border-color: var(--zone-yellow-accent);
   color: var(--fg);
 }
+
+/* The drawer's identity line: the card's id to copy, and its link. */
+.drawer-identity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* "Copy ID" and "Copy link": two small chips under the title. */
+.drawer-copy-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.drawer-copy-chip:hover,
+.drawer-copy-chip:focus-visible {
+  color: var(--fg);
+  background: var(--hover-overlay-soft);
+}
+
+/* Read by a screen reader, drawn for nobody. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
