@@ -757,6 +757,14 @@ describe("a plan item's place in a picker", () => {
     expect(parentChainOf(goal, all)).toEqual([]);
   });
 
+  it("is read off the server's lineage when the ancestors are not held", () => {
+    const far = card({
+      itemId: "f", title: "Far", type: "epic", parent: "i",
+      lineage: [{ uid: "g", type: "goal", title: "Grow" }, { uid: "i", type: "initiative", title: "Billing v2" }],
+    });
+    expect(parentChainOf(far, [far]).map((c) => [c.title, c.type])).toEqual([["Grow", "goal"], ["Billing v2", "initiative"]]);
+  });
+
   it("is searched with its own title and its ancestors'", () => {
     expect(pickerMatches(epic, all, "invo")).toBe(true);
     expect(pickerMatches(epic, all, "billing")).toBe(true);

@@ -267,21 +267,30 @@ export function childLevels(kind: RoadmapKind): (CardType | "task")[] {
   return [];
 }
 
-/** parentChainOf is a card's ancestors among the cards held, root first —
- *  what a picker shows beside a plan item so two of one name under
- *  different parents are told apart. */
-export function parentChainOf(c: Pick<Card, "itemId" | "parent">, cards: readonly Card[]): Card[] {
+/** parentChainOf is a card's ancestors, root first — what a picker shows
+ *  beside a plan item so two of one name under different parents are told
+ *  apart: the cards held when the whole chain is, else the server's lineage
+ *  (only kind and title then). */
+export function parentChainOf(c: Pick<Card, "itemId" | "parent" | "lineage">, cards: readonly Card[]): Pick<Card, "itemId" | "title" | "type">[] {
   const byId = new Map(cards.map((x) => [x.itemId, x]));
   const out: Card[] = [];
   const seen = new Set([c.itemId]);
+  let broken = false;
   for (let id = c.parent; id; ) {
     const p = byId.get(id);
-    if (!p || seen.has(p.itemId) || out.length > 6) {
+    if (!p) {
+      broken = true;
+      break;
+    }
+    if (seen.has(p.itemId) || out.length > 6) {
       break;
     }
     seen.add(p.itemId);
     out.unshift(p);
     id = p.parent;
+  }
+  if (broken && c.lineage?.length) {
+    return c.lineage.map((l) => ({ itemId: l.uid, title: l.title, type: l.type }));
   }
   return out;
 }

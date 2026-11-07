@@ -6256,3 +6256,39 @@ button.card-age {
 .plan-tree-add {
   margin-top: 6px;
 }
+
+/* An Under option's place: its ancestors, root first, small and muted. */
+.drawer-pick-option {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  text-align: left;
+}
+
+.drawer-pick-chain {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.drawer-pick-chain-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.drawer-pick-chain-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 14em;
+}
+
+.drawer-pick-chain-sep {
+  opacity: 0.7;
+}

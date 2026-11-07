@@ -440,10 +440,19 @@ lists its **subtasks** and takes one more, grouped under it the way the
 Team and Me boards group a card (the parent's team, band and person come
 along; the day is the parent's or today), from whichever board the pane
 was opened on — Team, Me, Backlog or the Roadmap, where the new row stands
-under its task at once. A planning card's pane lists what sits under it,
-grouped as planning cards, tasks and project cards, each row opening that
-card; it can add under it (a goal an initiative or an epic, an initiative
-an epic, an epic a task). One × on every child, and on the card itself,
+under its task at once. A planning card's pane draws what sits under it
+as the Roadmap's tree rooted one level below the card ("Under it",
+`PlanTree`, `roadmap.subtreeRows`): every level under it — plan items,
+tasks, subtasks and the project cards filed there, each marked by its kind
+— with the Roadmap's rows (fold, title, owner with an inherited team,
+status) and no timeline or dates. A row opens that card in the pane; a plan
+item's + adds under that row (the levels it may hold, the next one first)
+and stays open for the next one; the add row at the foot adds a direct
+child of the card (a goal an initiative or an epic, an initiative an epic,
+an epic a task), the next level down first. The Under picker shows each
+option's place — its ancestors, root first, small and muted with their
+kinds, cut when long and in full in the tooltip — and finds a plan item by
+its ancestors' titles too (`roadmap.parentChainOf`, `pickerMatches`). One × on every child, and on the card itself,
 asks the Team board's own question in the Team board's own dialog, with
 the hierarchy's answers: delete, or only detach (ungroup, for a subtask).
 The actions: mark as done and reopen (a task or a project card), delete

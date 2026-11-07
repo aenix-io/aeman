@@ -1,10 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Card as CardModel, LineageRef } from "../providers/types";
-import { KIND_LABEL, allowedParentKinds, kindOf, type RoadmapKind } from "../roadmap";
+import { KIND_LABEL, allowedParentKinds, kindOf, parentChainOf, pickerMatches, type RoadmapKind } from "../roadmap";
 import { Dropdown } from "./Dropdown";
 import { KindIcon } from "./KindIcon";
 
 const ORDER: RoadmapKind[] = ["goal", "initiative", "epic"];
+
+/** ParentChain is where an option stands: its ancestors, root first, small
+ *  and muted, each with its kind — cut when long, in full in the tooltip. A
+ *  root has none to show. */
+function ParentChain({ chain }: { chain: Pick<CardModel, "itemId" | "title" | "type">[] }) {
+  if (chain.length === 0) {
+    return null;
+  }
+  return (
+    <span className="drawer-pick-chain" title={chain.map((c) => c.title).join(" › ")}>
+      {chain.map((c, i) => (
+        <span key={c.itemId} className="drawer-pick-chain-step">
+          {i > 0 && (
+            <span className="drawer-pick-chain-sep" aria-hidden="true">
+              ›
+            </span>
+          )}
+          <KindIcon kind={(c.type ?? "task") as RoadmapKind} size={11} />
+          <span className="drawer-pick-chain-title">{c.title}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
 
 interface ParentOptionListProps {
   /** The kind of the card being filed: it decides which levels are offered
@@ -48,7 +72,8 @@ export function ParentOptionList({ kind, current, options, self, onPick }: Paren
       if ((c.lineage ?? []).some((up) => up.uid === self)) {
         return false; // a card under this one cannot also be above it
       }
-      return !q || c.title.toLowerCase().includes(q);
+      // Its own title, or any of its ancestors' (roadmap.pickerMatches).
+      return pickerMatches(c, options, q);
     });
     return ORDER.filter((k) => allowed.includes(k))
       .map((k) => ({ kind: k, cards: offered.filter((c) => kindOf(c) === k) }))
@@ -81,7 +106,10 @@ export function ParentOptionList({ kind, current, options, self, onPick }: Paren
               onClick={() => onPick(c)}
             >
               <KindIcon kind={g.kind} />
-              <span className="drawer-pick-text">{c.title}</span>
+              <span className="drawer-pick-option">
+                <ParentChain chain={parentChainOf(c, options ?? [])} />
+                <span className="drawer-pick-text">{c.title}</span>
+              </span>
             </button>
           ))}
         </div>
