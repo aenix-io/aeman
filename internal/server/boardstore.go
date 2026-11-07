@@ -1992,6 +1992,14 @@ func (b *storeBackend) createSync(ctx context.Context, bd board.Board, e *boardE
 }
 
 func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card board.Card) error {
+	// A card deleted inside a request is one more write of that request:
+	// it rides the queue with the rest, so the whole request is ONE commit
+	// carrying its action (a review withdrawn by parking its task used to be
+	// a commit of its own, ahead of the request's). The cache and the
+	// watchers are told at once, as for every queued write.
+	if b.git != nil && actionFrom(ctx).ID != "" && !board.IsStateTitle(card.Title) {
+		return b.deleteQueued(ctx, bd, card)
+	}
 	if err := b.inner.DeleteCard(ctx, bd, card); err != nil {
 		return err
 	}
@@ -2013,6 +2021,34 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 	}
 	e.cardChanged(echoOrigin(ctx, card.ItemID), card, "DELETED")
 	e.mu.Unlock()
+	return nil
+}
+
+// deleteQueued takes a card off the cache now and queues the file's delete
+// with the request's other writes.
+func (b *storeBackend) deleteQueued(ctx context.Context, bd board.Board, card board.Card) error {
+	e := b.store.entry(storeKey(bd.Board))
+	e.mu.Lock()
+	e.removeCard(card.ItemID)
+	e.markGone(card.ItemID)
+	e.cardChanged(echoOrigin(ctx, card.ItemID), card, "DELETED")
+	e.mu.Unlock()
+	b.enqueue(ctx, e, pendingOp{
+		itemID: card.ItemID,
+		kind:   "delete",
+		desc:   "delete " + cardRef(card),
+		apply: func(target *board.Board) {
+			for i, c := range target.Cards {
+				if c.ItemID == card.ItemID {
+					target.Cards = append(target.Cards[:i:i], target.Cards[i+1:]...)
+					return
+				}
+			}
+		},
+		exec: func(ctx context.Context) error {
+			return b.inner.DeleteCard(ctx, bd, card)
+		},
+	})
 	return nil
 }
 
