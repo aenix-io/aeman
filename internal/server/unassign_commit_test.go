@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -17,9 +18,10 @@ import (
 // UNASSIGNED on a plan item (K16) is ONE request, so ONE commit — the tasks
 // it takes out of work and the reviews that go with them (a review nobody
 // has started leaves the board when its task is parked) — carrying the
-// request's Action-Id. The reviews used to be deleted synchronously,
+// request's Action-Id, and named for what it did rather than for the first
+// task it happened to touch. The reviews used to be deleted synchronously,
 // a commit of their own with no action, landing ahead of the request.
-func TestUnassigningAPlanItemIsOneCommit(t *testing.T) {
+func TestUnassigningAPlanItemIsOneCommitNamedForIt(t *testing.T) {
 	const today = "2026-08-31"
 	remote := gitRemoteN(t, "board")
 	r, err := gitstore.Init(memory.NewStorage(), gitstore.Options{Committer: gitstore.Identity{Name: "aeman", Email: "a@x"}})
@@ -85,6 +87,10 @@ func TestUnassigningAPlanItemIsOneCommit(t *testing.T) {
 	if !strings.Contains(head.Message, "Aeman-Action-Id: ") {
 		t.Fatalf("the commit carries no action id:\n%s", head.Message)
 	}
+	subject, _, _ := strings.Cut(head.Message, "\n")
+	if want := fmt.Sprintf("take %d tasks out of work under «ТС-2»", tasks); !strings.Contains(subject, want) {
+		t.Fatalf("subject = %q, want it to say %q", subject, want)
+	}
 	tree, err := head.Tree()
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +98,7 @@ func TestUnassigningAPlanItemIsOneCommit(t *testing.T) {
 	p, _ := gitstore.CardPath("01UNREVIEW0000000000000001")
 	if _, err := tree.File(p); err == nil {
 		t.Fatal("the review nobody started is still on the board")
-	} else if err != object.ErrFileNotFound {
+	} else if !errors.Is(err, object.ErrFileNotFound) {
 		t.Fatal(err)
 	}
 }

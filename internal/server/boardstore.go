@@ -1236,6 +1236,9 @@ type storeBackend struct {
 	// not get split across two commits (holdAction).
 	heldMu sync.Mutex
 	held   map[string]*heldAction
+	// summaries name a request's commit when its first write would not
+	// (nameAction): one action of many cards is named for the action.
+	summaries map[string]string
 }
 
 // sweeper is the long-lived service the tick's housekeeping runs through.

@@ -174,7 +174,11 @@ func (b *storeBackend) execGroup(ctx context.Context, e *boardEntry, first pendi
 	}
 	b.git.applyMu.Lock()
 	defer b.git.applyMu.Unlock()
-	sctx, flush, _ := b.git.scopeFor(ctx, first)
+	named := first
+	if s := b.takeActionName(first.action.ID); s != "" {
+		named.desc = s
+	}
+	sctx, flush, _ := b.git.scopeFor(ctx, named)
 	if err := first.exec(sctx); err != nil {
 		return err
 	}

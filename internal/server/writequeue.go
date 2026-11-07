@@ -121,6 +121,35 @@ func (b *storeBackend) enqueue(ctx context.Context, e *boardEntry, op pendingOp)
 	}
 }
 
+// nameAction gives a request's commit its subject, in place of the first
+// write's own: a gesture over many cards — UNASSIGNED under a plan item —
+// is one commit, and naming it after whichever card was written first says
+// nothing of what was done. Set while the request holds the queue; taken by
+// the group that commits it.
+func (b *storeBackend) nameAction(id, summary string) {
+	if id == "" || summary == "" {
+		return
+	}
+	b.heldMu.Lock()
+	defer b.heldMu.Unlock()
+	if b.summaries == nil {
+		b.summaries = map[string]string{}
+	}
+	b.summaries[id] = summary
+}
+
+// takeActionName is the subject nameAction set for a request, once.
+func (b *storeBackend) takeActionName(id string) string {
+	if id == "" {
+		return ""
+	}
+	b.heldMu.Lock()
+	defer b.heldMu.Unlock()
+	s := b.summaries[id]
+	delete(b.summaries, id)
+	return s
+}
+
 // holdAction says a request is still making its writes: the queue keeps them
 // and starts no worker until releaseAction. Only the HTTP action middleware
 // holds; every other writer (the sweep, the title pass, MCP) drains at once,

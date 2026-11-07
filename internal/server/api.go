@@ -785,6 +785,11 @@ func (a surface) UnassignWork(ctx context.Context, req apiv1.UnassignWorkRequest
 		changed, err = svc.UnassignPreview(ctx, boardID, req.UID)
 	} else {
 		changed, err = svc.UnassignWork(ctx, boardID, req.UID, uids)
+		if err == nil && len(changed) > 0 && a.s.gitBE != nil {
+			if of, oerr := a.s.cardsOf(ctx, svc, boardID, []string{req.UID}); oerr == nil && len(of) == 1 {
+				a.s.gitBE.nameAction(actionFrom(ctx).ID, unassignSummary(of[0], len(changed)))
+			}
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -794,6 +799,19 @@ func (a surface) UnassignWork(ctx context.Context, req apiv1.UnassignWorkRequest
 		return nil, err
 	}
 	return apiv1.UnassignWork200JSONResponse{Changed: len(changed), Items: items}, nil
+}
+
+// unassignSummary names UNASSIGNED's commit for what it did: the task, or
+// how many tasks under which plan item.
+func unassignSummary(on apiserver.Card, n int) string {
+	if on.Spec.Type == "" {
+		return "take «" + on.Spec.Title + "» out of work"
+	}
+	tasks := "tasks"
+	if n == 1 {
+		tasks = "task"
+	}
+	return fmt.Sprintf("take %d %s out of work under «%s»", n, tasks, on.Spec.Title)
 }
 
 // RemoveReviewer deletes the linked review card.
