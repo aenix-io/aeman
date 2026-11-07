@@ -257,6 +257,21 @@ describe("the Backlog board", () => {
     expect(html.indexOf(">Inherited<")).toBeLessThan(html.indexOf(">None<"));
   });
 
+  // A review's priority is its task's (K15): shown on the review card, read
+  // only — no control to set it there. Each control names its priority, and
+  // where it comes from, to a screen reader.
+  it("shows a review's priority read only, and labels each priority control", () => {
+    const review = card({ itemId: "r", title: "review: Rotate", team: "portal", reviewOf: "p1", effectivePriority: "P1", effectivePriorityFrom: { uid: "p1", title: "Rotate" } });
+    const own = card({ itemId: "o", title: "Own", team: "portal", priority: "P0", effectivePriority: "P0" });
+    const none = card({ itemId: "n", title: "None", team: "portal" });
+    const html = draw(board([review, own, none]));
+    const reviewCard = html.slice(html.indexOf('data-card="r"'), html.indexOf('data-card="n"'));
+    expect(reviewCard).not.toMatch(/<button[^>]*backlog-row-prio/);
+    expect(reviewCard).toContain('title="from «Rotate»">P1</span>');
+    expect(html).toContain('aria-label="Priority P0"');
+    expect(html).toContain('aria-label="Set a priority"');
+  });
+
   it("draws no week, no strip and no load", () => {
     const html = draw(board([first, second, cozy]));
     expect(html).not.toMatch(/triage/i);

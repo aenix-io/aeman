@@ -3,7 +3,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import type { Card as CardModel, CardType, LineageRef, Priority } from "../providers/types";
 import { ownerLabel, type Owner } from "../owner";
 import { effectiveTeamOf, roadmapOwnerCell } from "../ownership";
-import { badgeOf, childLevels, inheritedTitle, KIND_LABEL, kindOf, PRIORITY_CHOICES, STATUS_LABEL, subtreeRows, type Row } from "../roadmap";
+import { badgeOf, childLevels, inheritedTitle, KIND_LABEL, kindOf, PRIORITY_CHOICES, priorityLabel, STATUS_LABEL, subtreeRows, type Row } from "../roadmap";
 import { isPlanning } from "../subtasks";
 import { displayName, type Avatars, type Names } from "../users";
 import { AddCard } from "./AddCard";
@@ -133,6 +133,7 @@ export function StatusPill({ card, onMenu, expanded = false }: { card: CardModel
       type="button"
       className="roadmap-badge roadmap-status-button"
       title="Priority, or take out of work"
+      aria-label={`${badge.priority ? priorityLabel(badge.priority.value, badge.priority.from) : "No priority"}; ${STATUS_LABEL[badge.status]}`}
       aria-haspopup="menu"
       aria-expanded={expanded}
       onClick={(e) => {

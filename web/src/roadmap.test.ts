@@ -56,6 +56,8 @@ import {
   priorityAfter,
   badgeOf,
   inheritedTitle,
+  latestWins,
+  priorityLabel,
   statusUids,
   unassignQuestion,
   STATUS_LABEL,
@@ -982,6 +984,13 @@ describe("the effective priority", () => {
     expect(after.has("g") || after.has("bare")).toBe(false);
     expect(priorityAfter(all, "bare", "P1").get("u")).toEqual({ effectivePriority: "P1", effectivePriorityFrom: { uid: "bare", type: "goal", title: "a card" } });
   });
+
+  it("re-reads the review cards of the tasks it reaches: a review counts under its task's", () => {
+    // o is under e, which counts under i's P2: its review r goes with it.
+    expect(priorityAfter(all, "i", "P0").get("r")).toEqual({ effectivePriority: "P0", effectivePriorityFrom: { uid: "i", type: "initiative", title: "Portugal" } });
+    // A task's own priority reaches its review card too.
+    expect(priorityAfter(all, "o", "P4").get("r")).toEqual({ effectivePriority: "P4", effectivePriorityFrom: { uid: "o", type: undefined, title: "a card" } });
+  });
 });
 
 // The badge is ONE pill in two parts (K15): the effective priority on the
@@ -1093,6 +1102,31 @@ describe("UNASSIGNED under a filter", () => {
     const task = card({ itemId: "t", sprintStart: "2026-11-09" });
     expect(statusMenu([task], task).unassign).toBe(true);
     expect(statusMenu([{ ...task, parked: true, sprintStart: undefined }], { ...task, parked: true, sprintStart: undefined }).unassign).toBe(false);
+  });
+});
+
+// A later choice wins (K15): the badge applies a server answer only when it
+// answers the latest choice made on that card, so an older response arriving
+// late cannot overwrite a newer one.
+describe("the latest choice wins", () => {
+  it("applies the answer to the newest request per card only", () => {
+    const seq = latestWins();
+    const first = seq.next("c");
+    const second = seq.next("c");
+    const other = seq.next("d");
+    expect(seq.isLatest("c", first)).toBe(false);
+    expect(seq.isLatest("c", second)).toBe(true);
+    expect(seq.isLatest("d", other)).toBe(true);
+  });
+});
+
+// What the badge says to a screen reader: the priority and where it comes
+// from, or that none is set.
+describe("the priority's label", () => {
+  it("names the priority and the card it is inherited from", () => {
+    expect(priorityLabel("P1")).toBe("Priority P1");
+    expect(priorityLabel("P2", { uid: "g", type: "goal", title: "Grow" })).toBe("Priority P2, from «Grow»");
+    expect(priorityLabel(undefined)).toBe("Set a priority");
   });
 });
 

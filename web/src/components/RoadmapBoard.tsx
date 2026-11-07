@@ -30,6 +30,7 @@ import {
   workPatchOf,
   statusUids,
   priorityAfter,
+  latestWins,
   unassignQuestion,
   UNASSIGNED_LOCALLY,
   droppable,
@@ -855,6 +856,7 @@ export function RoadmapBoard({
   // follows (roadmap.priorityAfter) — shown at once, settled by the card the
   // server answers with and the frames it sends for the cards under it, put
   // back on a refusal.
+  const prioritySeq = useRef(latestWins());
   const answerPriority = (card: CardModel, value: Priority | "") => {
     const shown = priorityAfter(board.cards, card.itemId, value);
     const before = board.cards
@@ -864,9 +866,15 @@ export function RoadmapBoard({
     for (const [id, p] of shown) {
       patchCard(id, p);
     }
+    const n = prioritySeq.current.next(card.itemId);
     void provider
       .setPriority(card.itemId, value)
-      .then((c) => patchCard(c.itemId, { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom }))
+      .then((c) => {
+        // An older answer must not overwrite a newer choice.
+        if (prioritySeq.current.isLatest(card.itemId, n)) {
+          patchCard(c.itemId, { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom });
+        }
+      })
       .catch((err: unknown) => {
         for (const b of before) {
           patchCard(b.id, b.patch);

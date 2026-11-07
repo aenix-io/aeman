@@ -53,6 +53,15 @@
   --prio-p3-fg: #ffffff;
   --prio-p4-bg: #d0d7de;
   --prio-p4-fg: #24292f;
+  /* An INHERITED priority keeps its hue, drawn lighter: a pale tint of it
+     with the hue's deep ink as text — AA for small text on that tint, and
+     never mistaken for the solid own badge. */
+  --prio-p0-ink: #a40e26;
+  --prio-p1-ink: #953800;
+  --prio-p2-ink: #0550ae;
+  --prio-p3-ink: #424a53;
+  --prio-p4-ink: #57606a;
+  --prio-tint: 14%;
   /* Solid danger fill that carries white text (the delete-corner button on
      hover). Split from --danger for the same reason as --accent-emphasis: dark
      mode wants a lighter red for danger *text* but a deeper one behind white. */
@@ -189,6 +198,15 @@
   --prio-p3-fg: #0d1117;
   --prio-p4-bg: #484f58;
   --prio-p4-fg: #e6edf3;
+  /* Inherited in dark: a dim tint on the dark ground, the hue's light ink
+     as text — never brighter than the own badge (P4's ink is dimmer than
+     its own fill's text). */
+  --prio-p0-ink: #ff7b72;
+  --prio-p1-ink: #ffa657;
+  --prio-p2-ink: #79c0ff;
+  --prio-p3-ink: #8b949e;
+  --prio-p4-ink: #8b949e;
+  --prio-tint: 20%;
   --danger-emphasis: #d5322c;
 
   --on-accent: #fff;
@@ -5653,11 +5671,11 @@ button.card-age {
 .roadmap-prio-p3 { background: var(--prio-p3-bg); color: var(--prio-p3-fg); }
 .roadmap-prio-p4 { background: var(--prio-p4-bg); color: var(--prio-p4-fg); }
 
-.roadmap-prio-inherited.roadmap-prio-p0 { background: color-mix(in srgb, var(--prio-p0-bg) 22%, var(--bg)); color: var(--prio-p0-bg); }
-.roadmap-prio-inherited.roadmap-prio-p1 { background: color-mix(in srgb, var(--prio-p1-bg) 22%, var(--bg)); color: var(--prio-p1-bg); }
-.roadmap-prio-inherited.roadmap-prio-p2 { background: color-mix(in srgb, var(--prio-p2-bg) 22%, var(--bg)); color: var(--prio-p2-bg); }
-.roadmap-prio-inherited.roadmap-prio-p3 { background: color-mix(in srgb, var(--prio-p3-bg) 22%, var(--bg)); color: var(--prio-p3-bg); }
-.roadmap-prio-inherited.roadmap-prio-p4 { background: color-mix(in srgb, var(--prio-p4-bg) 40%, var(--bg)); color: var(--prio-p4-fg); }
+.roadmap-prio-inherited.roadmap-prio-p0 { background: color-mix(in srgb, var(--prio-p0-bg) var(--prio-tint), var(--bg)); color: var(--prio-p0-ink); }
+.roadmap-prio-inherited.roadmap-prio-p1 { background: color-mix(in srgb, var(--prio-p1-bg) var(--prio-tint), var(--bg)); color: var(--prio-p1-ink); }
+.roadmap-prio-inherited.roadmap-prio-p2 { background: color-mix(in srgb, var(--prio-p2-bg) var(--prio-tint), var(--bg)); color: var(--prio-p2-ink); }
+.roadmap-prio-inherited.roadmap-prio-p3 { background: color-mix(in srgb, var(--prio-p3-bg) var(--prio-tint), var(--bg)); color: var(--prio-p3-ink); }
+.roadmap-prio-inherited.roadmap-prio-p4 { background: color-mix(in srgb, var(--prio-p4-bg) var(--prio-tint), var(--bg)); color: var(--prio-p4-ink); }
 
 .roadmap-prio-none {
   font-size: 12px;
@@ -5690,15 +5708,20 @@ button.card-age {
   border-radius: 3px;
 }
 
+/* No priority: the muted text colour, AA on the card — no faded opacity. */
 .backlog-row-prio-none {
   padding: 0 5px;
   font-size: 10.5px;
   font-weight: 700;
   color: var(--muted);
   box-shadow: inset 0 0 0 1px var(--line);
-  opacity: 0.6;
 }
 
 .backlog-row-prio-none:hover {
-  opacity: 1;
+  color: var(--fg);
+}
+
+/* A review's priority is its task's: shown, not a control. */
+.backlog-row-prio-readonly {
+  cursor: default;
 }

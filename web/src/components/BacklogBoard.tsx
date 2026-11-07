@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Board, Card as CardModel, Priority, Provider, SizeKey } from "../providers/types";
 import { PriorityItems, PriorityPart } from "./PlanTree";
+import { latestWins, priorityLabel } from "../roadmap";
 import {
   insertSpot,
   insertedOrder,
@@ -445,22 +446,39 @@ export function BacklogBoard({
     prioAnchor.current = anchor;
     setPrioritizing((cur) => (cur?.itemId === card.itemId ? null : card));
   }, []);
+  const prioritySeq = useRef(latestWins());
   const setPriority = (card: CardModel, value: Priority | "") => {
     setPrioritizing(null);
     if ((card.priority ?? "") === value) {
       return;
     }
-    const before = { priority: card.priority, effectivePriority: card.effectivePriority, effectivePriorityFrom: card.effectivePriorityFrom };
-    // Its own when set; with none of its own it counts under what it
-    // inherited — which this board does not hold, so the server's answer
-    // says it.
-    patchCard(card.itemId, value ? { priority: value, effectivePriority: value, effectivePriorityFrom: undefined } : { priority: undefined });
+    // Its own when set. Cleared, it counts under what it inherits — which
+    // this board does not hold, so nothing is drawn as its own until the
+    // server's answer says what that is. Its review cards count under it.
+    const shown = value ? { effectivePriority: value, effectivePriorityFrom: undefined } : { effectivePriority: undefined, effectivePriorityFrom: undefined };
+    const affected = board.cards.filter((c) => c.itemId === card.itemId || c.reviewOf === card.itemId);
+    const before = affected.map((c) => ({ id: c.itemId, patch: { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom } }));
+    patchCard(card.itemId, { priority: value || undefined, ...shown });
+    for (const r of affected) {
+      if (r.itemId !== card.itemId) {
+        patchCard(r.itemId, value ? { effectivePriority: value, effectivePriorityFrom: { uid: card.itemId, type: card.type, title: card.title } } : shown);
+      }
+    }
+    const n = prioritySeq.current.next(card.itemId);
     void provider
       .setPriority(card.itemId, value)
-      .then((c) => patchCard(c.itemId, { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom }))
+      .then((c) => {
+        // An older answer must not overwrite a newer choice.
+        if (prioritySeq.current.isLatest(card.itemId, n)) {
+          patchCard(c.itemId, { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom });
+        }
+      })
       .catch((err: unknown) => {
-        patchCard(card.itemId, before);
+        for (const b of before) {
+          patchCard(b.id, b.patch);
+        }
         onError(errText(err));
+        reload();
       });
   };
 
@@ -721,16 +739,26 @@ function BacklogRow({
       title={card.title}
     >
       <PresenceMarks selectedBy={selectedBy} avatars={avatars} names={names} />
-      <button
-        type="button"
-        className={`backlog-row-prio${card.effectivePriority ? "" : " backlog-row-prio-none"}`}
-        title={card.effectivePriority ? "Priority" : "Set a priority"}
-        aria-haspopup="menu"
-        onClick={(e) => onPickPriority(card, e.currentTarget)}
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        {card.effectivePriority ? <PriorityPart value={card.effectivePriority} from={card.effectivePriorityFrom} /> : "P"}
-      </button>
+      {card.reviewOf ? (
+        // A review's priority is its task's (K15): shown, not set here.
+        card.effectivePriority && (
+          <span className="backlog-row-prio backlog-row-prio-readonly">
+            <PriorityPart value={card.effectivePriority} from={card.effectivePriorityFrom} />
+          </span>
+        )
+      ) : (
+        <button
+          type="button"
+          className={`backlog-row-prio${card.effectivePriority ? "" : " backlog-row-prio-none"}`}
+          title={card.effectivePriority ? "Priority" : "Set a priority"}
+          aria-label={priorityLabel(card.effectivePriority, card.effectivePriorityFrom)}
+          aria-haspopup="menu"
+          onClick={(e) => onPickPriority(card, e.currentTarget)}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {card.effectivePriority ? <PriorityPart value={card.effectivePriority} from={card.effectivePriorityFrom} /> : "P"}
+        </button>
+      )}
       <span className="card-title backlog-card-title">{card.title}</span>
       <span className="backlog-row-remove-slot">
         <button

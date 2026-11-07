@@ -1211,14 +1211,16 @@ export interface PriorityShown {
 const refOf = (c: Card): LineageRef => ({ uid: c.itemId, type: c.type, title: c.title });
 
 /** priorityAfter is the effective priority of the card whose own priority
- *  changes to `priority`, and of every card under it (by parent links), as
- *  they read after the change — what the acting tab shows before the
- *  server's frames for them arrive. */
+ *  changes to `priority`, of every card under it (by parent links), and of
+ *  the review cards of all of those — a review counts under its task's — as
+ *  they read after the change: what the acting tab shows before the server's
+ *  frames for them arrive. */
 export function priorityAfter(cards: readonly Card[], id: string, priority: Priority | ""): Map<string, PriorityShown> {
   const after = cards.map((c) => (c.itemId === id ? { ...c, priority: priority || undefined } : c));
+  const reached = new Set(after.filter((c) => c.itemId === id || isUnder(after, c.itemId, id)).map((c) => c.itemId));
   const out = new Map<string, PriorityShown>();
   for (const c of after) {
-    if (c.itemId !== id && !isUnder(after, c.itemId, id)) {
+    if (!reached.has(c.itemId) && !(c.reviewOf && reached.has(c.reviewOf))) {
       continue;
     }
     const { priority: p, from } = effectivePriorityIn(after, c);
@@ -1244,6 +1246,30 @@ export function badgeOf(c: Card): Badge {
 /** inheritedTitle is the tooltip of an inherited priority. */
 export function inheritedTitle(from: LineageRef): string {
   return `from «${from.title}»`;
+}
+
+/** priorityLabel is what a priority control says to a screen reader. */
+export function priorityLabel(value: Priority | undefined, from?: LineageRef): string {
+  if (!value) {
+    return "Set a priority";
+  }
+  return from ? `Priority ${value}, ${inheritedTitle(from)}` : `Priority ${value}`;
+}
+
+/** latestWins numbers the requests made per card, so an answer is applied
+ *  only when it answers the newest one: an older response arriving late
+ *  must not overwrite a newer choice. */
+export function latestWins(): { next: (id: string) => number; isLatest: (id: string, n: number) => boolean } {
+  const latest = new Map<string, number>();
+  let counter = 0;
+  return {
+    next: (id) => {
+      counter++;
+      latest.set(id, counter);
+      return counter;
+    },
+    isLatest: (id, n) => latest.get(id) === n,
+  };
 }
 
 /** statusUids is the tasks a gesture names to the server: the ones the

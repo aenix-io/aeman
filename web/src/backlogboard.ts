@@ -156,9 +156,11 @@ export function backlogList(cards: readonly Card[], teams: readonly string[], or
  *  has taken among the other such reviews; a task among the tasks under the
  *  same parent in the same priority group — the loose tasks, with no
  *  plan item above, being one run. */
-function runOf(c: Pick<Card, "parent" | "lineage" | "effectivePriority" | "reviewOf" | "assignees" | "stage" | "progress">): string {
+function runOf(c: Pick<Card, "itemId" | "parent" | "lineage" | "effectivePriority" | "reviewOf" | "assignees" | "stage" | "progress">): string {
   if (needsReviewer(c)) {
-    return `review:${priorityRank(c.effectivePriority)}`;
+    // Its place is its task's (K10): it is no one's sibling, so no drop of
+    // it, or by it, is a place.
+    return `review:${c.itemId}`;
   }
   const planned = (c.lineage ?? []).some((a) => a.type && PLANNING.has(a.type));
   return `${priorityRank(c.effectivePriority)}:${planned ? (c.parent ?? "") : ""}`;
