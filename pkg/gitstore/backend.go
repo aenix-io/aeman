@@ -235,6 +235,18 @@ func (b *Backend) write(ctx context.Context, op string, cards []string, p string
 // with Aeman-Change lines for what the write changed when the file diff
 // cannot say it (a file that arrives whole from another domain).
 func (b *Backend) writeWith(ctx context.Context, op string, cards []string, p string, data []byte, trailers map[string]string, changes ...Change) error {
+	return b.writeSummed(ctx, op, "", cards, p, data, trailers, changes...)
+}
+
+// writeNamed is write with the commit's subject said outright — a roster
+// entry carries no card id for the subject to name.
+func (b *Backend) writeNamed(ctx context.Context, op, summary string, cards []string, p string, data []byte) error {
+	return b.writeSummed(ctx, op, summary, cards, p, data, nil)
+}
+
+// writeSummed is writeWith with a subject; "" names the op and its one card.
+// Under a scope the action's own subject stands and the summary is unused.
+func (b *Backend) writeSummed(ctx context.Context, op, summary string, cards []string, p string, data []byte, trailers map[string]string, changes ...Change) error {
 	if sc := scopeOf(ctx); sc != nil {
 		sc.mu.Lock()
 		defer sc.mu.Unlock()
@@ -252,9 +264,11 @@ func (b *Backend) writeWith(ctx context.Context, op string, cards []string, p st
 		sc.changes = append(sc.changes, changes...)
 		return nil
 	}
-	summary := op
-	if len(cards) == 1 {
-		summary = op + " " + cards[0]
+	if summary == "" {
+		summary = op
+		if len(cards) == 1 {
+			summary = op + " " + cards[0]
+		}
 	}
 	_, err := b.repo.Commit(Action{Name: op, Actor: actorOf(ctx), At: b.now(), Cards: cards, Summary: summary, Trailers: trailers, Changes: changes}, []FileWrite{{Path: p, Data: data}})
 	return err
@@ -611,25 +625,35 @@ func (b *Backend) DeleteCard(ctx context.Context, _ board.Board, card board.Card
 	}
 	// A roster entry carries no card id to name, so its commit names the
 	// entry itself — "delete team «features»", not a bare "delete".
-	if name := stubName(card); name != "" && scopeOf(ctx) == nil {
-		_, err := b.repo.Commit(Action{Name: "delete", Actor: actorOf(ctx), At: b.now(), Summary: "delete " + name}, []FileWrite{{Path: p}})
-		return err
+	summary := ""
+	if name := StubName(card); name != "" {
+		summary = "delete " + name
 	}
-	return b.write(ctx, "delete", cardIDs(card), p, nil)
+	return b.writeNamed(ctx, "delete", summary, cardIDs(card), p, nil)
 }
 
-// stubName is how a roster entry is named in a commit subject, or "" for a
-// card.
-func stubName(c board.Card) string {
+// StubName is how a roster entry is named in a commit subject — "team
+// «portal»", "column «portal / Bugs»" — or "" for a card. An entry of no
+// project reads without the empty one.
+func StubName(c board.Card) string {
+	within := func(project, name string) string {
+		if project == "" {
+			return name
+		}
+		return project + " " + name
+	}
 	switch c.Title {
 	case board.SprintStateTitle:
 		return "team «" + c.Team + "»"
 	case board.ProjectStateTitle:
 		return "project «" + c.Project + "»"
 	case board.ScopeStateTitle:
-		return "scope «" + c.Project + " / " + c.Scope + "»"
+		if c.Project == "" {
+			return "column «" + c.Scope + "»"
+		}
+		return "column «" + c.Project + " / " + c.Scope + "»"
 	case board.DeadlineStateTitle:
-		return "deadline «" + c.Project + " " + c.Week + "»"
+		return "deadline «" + within(c.Project, c.Week) + "»"
 	}
 	return ""
 }
@@ -1344,13 +1368,15 @@ func (b *Backend) AddCustomer(ctx context.Context, _ board.Board, name string) (
 	if err != nil {
 		return board.Customer{}, err
 	}
-	if err := b.write(ctx, "add-customer", nil, CustomerPath(id), out); err != nil {
+	if err := b.writeNamed(ctx, "add-customer", "add customer «"+name+"»", nil, CustomerPath(id), out); err != nil {
 		return board.Customer{}, err
 	}
 	return board.Customer{ID: id, Name: name, Rank: rank}, nil
 }
 
-func (b *Backend) editCustomer(ctx context.Context, op, id string, fn func(*CustomerFile)) error {
+// editCustomer rewrites one customer file; summary names the change from
+// the file as it was and as it will be.
+func (b *Backend) editCustomer(ctx context.Context, op, id string, fn func(*CustomerFile), summary func(was, now CustomerFile) string) error {
 	p := CustomerPath(id)
 	data, ok, err := b.read(ctx, p)
 	if err != nil {
@@ -1363,18 +1389,21 @@ func (b *Backend) editCustomer(ctx context.Context, op, id string, fn func(*Cust
 	if err != nil {
 		return err
 	}
+	was := f
 	fn(&f)
 	out, err := EncodeCustomer(f)
 	if err != nil {
 		return err
 	}
-	return b.write(ctx, op, nil, p, out)
+	return b.writeNamed(ctx, op, summary(was, f), nil, p, out)
 }
 
 // RenameCustomer renames a customer: one file, and every card that names it
 // reads the new name at once (cards hold the id).
 func (b *Backend) RenameCustomer(ctx context.Context, _ board.Board, id, name string) error {
-	return b.editCustomer(ctx, "rename-customer", id, func(f *CustomerFile) { f.Name = name })
+	return b.editCustomer(ctx, "rename-customer", id, func(f *CustomerFile) { f.Name = name }, func(was, now CustomerFile) string {
+		return "rename customer «" + was.Name + "» to «" + now.Name + "»"
+	})
 }
 
 // MoveCustomer puts a customer right after afterID in the roster ("" = first).
@@ -1414,7 +1443,9 @@ func (b *Backend) MoveCustomer(ctx context.Context, _ board.Board, id, afterID s
 	if err != nil {
 		return err
 	}
-	return b.editCustomer(ctx, "move-customer", id, func(f *CustomerFile) { f.Rank = rank })
+	return b.editCustomer(ctx, "move-customer", id, func(f *CustomerFile) { f.Rank = rank }, func(_, now CustomerFile) string {
+		return "move customer «" + now.Name + "»"
+	})
 }
 
 // DeleteCustomer takes a customer out of the roster and off every card of
@@ -1451,17 +1482,21 @@ func (b *Backend) DeleteCustomer(ctx context.Context, _ board.Board, id string) 
 		writes = append(writes, FileWrite{Path: p, Data: out})
 		cards = append(cards, c.ItemID)
 	}
-	if _, ok, err := b.read(ctx, CustomerPath(id)); err != nil {
+	summary := "delete customer " + id
+	if data, ok, err := b.read(ctx, CustomerPath(id)); err != nil {
 		return err
 	} else if ok {
+		if f, err := DecodeCustomer(data); err == nil && f.Name != "" {
+			summary = "delete customer «" + f.Name + "»"
+		}
 		writes = append(writes, FileWrite{Path: CustomerPath(id), Data: nil})
 	}
-	return b.writeAll(ctx, "delete-customer", cards, writes)
+	return b.writeAll(ctx, "delete-customer", summary, cards, writes)
 }
 
 // writeAll records several file changes as one: staged under a scope, else
 // committed together as action op.
-func (b *Backend) writeAll(ctx context.Context, op string, cards []string, writes []FileWrite) error {
+func (b *Backend) writeAll(ctx context.Context, op, summary string, cards []string, writes []FileWrite) error {
 	if len(writes) == 0 {
 		return nil
 	}
@@ -1473,6 +1508,9 @@ func (b *Backend) writeAll(ctx context.Context, op string, cards []string, write
 		}
 		return nil
 	}
-	_, err := b.repo.Commit(Action{Name: op, Actor: actorOf(ctx), At: b.now(), Cards: cards, Summary: op}, writes)
+	if summary == "" {
+		summary = op
+	}
+	_, err := b.repo.Commit(Action{Name: op, Actor: actorOf(ctx), At: b.now(), Cards: cards, Summary: summary}, writes)
 	return err
 }

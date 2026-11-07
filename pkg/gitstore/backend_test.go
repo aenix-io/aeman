@@ -611,25 +611,82 @@ func findByID(b board.Board, id string) (board.Card, bool) {
 	return board.Card{}, false
 }
 
-// A deleted roster entry's commit says what went: a team file deleted read
-// just "delete" in the history (prod, the team «features»), where a card's
-// delete names its id and every other roster commit names its entry.
-func TestDeletingARosterEntryNamesItInTheCommit(t *testing.T) {
-	be, r := newBackend(t)
+// A roster commit says what it did to which entry, as a card's commit names
+// its card: a team file deleted read just "delete" in the history (prod, the
+// team «features»), and the customer roster's commits named nobody either.
+// An entry with no project to name reads without the empty one.
+func TestARosterCommitNamesItsEntry(t *testing.T) {
+	subject := func(r *Repo) string {
+		head, err := r.CommitObject(r.Head())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tr := ParseTrailers(head.Message); tr.Action == "" {
+			t.Fatalf("no action trailer: %q", head.Message)
+		}
+		return strings.SplitN(head.Message, "\n", 2)[0]
+	}
 	ctx := ctxAs("kvaps")
+	for _, tc := range []struct {
+		stub board.Card
+		want string
+	}{
+		{board.Card{ItemID: "01JB4TEAM", Title: board.SprintStateTitle, Team: "portal"}, "delete team «portal»"},
+		{board.Card{ItemID: "01JB4DL", Title: board.DeadlineStateTitle, Week: "2026-09-07", Project: "portal"}, "delete deadline «portal 2026-09-07»"},
+		{board.Card{ItemID: "01JB4SCOPE", Title: board.ScopeStateTitle, Scope: "Bugs", Project: "portal"}, "delete column «portal / Bugs»"},
+		{board.Card{ItemID: "01JB4PROJ", Title: board.ProjectStateTitle, Project: "portal"}, "delete project «portal»"},
+	} {
+		be, r := newBackend(t)
+		b, _ := be.LoadBoard(ctx, "acme")
+		if err := be.DeleteCard(ctx, b, tc.stub); err != nil {
+			t.Fatal(err)
+		}
+		if got := subject(r); got != tc.want {
+			t.Errorf("subject = %q, want %q", got, tc.want)
+		}
+	}
+	if got := StubName(board.Card{Title: board.ScopeStateTitle, Scope: "Loose"}); got != "column «Loose»" {
+		t.Errorf("a column of no project = %q", got)
+	}
+	if got := StubName(board.Card{Title: board.DeadlineStateTitle, Week: "2026-11-09"}); got != "deadline «2026-11-09»" {
+		t.Errorf("a deadline of no project = %q", got)
+	}
+	if got := StubName(board.Card{Title: "a card"}); got != "" {
+		t.Errorf("a card is no roster entry: %q", got)
+	}
+
+	be, r := newBackend(t)
 	b, _ := be.LoadBoard(ctx, "acme")
-	team := board.Card{ItemID: b.SprintStates["portal"].ItemID, Title: board.SprintStateTitle, Team: "portal"}
-	if err := be.DeleteCard(ctx, b, team); err != nil {
+	if _, err := be.AddCustomer(ctx, b, "Acme"); err != nil {
 		t.Fatal(err)
 	}
-	head, err := r.CommitObject(r.Head())
+	b, _ = be.LoadBoard(ctx, "acme")
+	cu, err := be.AddCustomer(ctx, b, "Hidora")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if subject := strings.SplitN(head.Message, "\n", 2)[0]; subject != "delete team «portal»" {
-		t.Fatalf("the commit subject = %q, want delete team «portal»", subject)
+	if got := subject(r); got != "add customer «Hidora»" {
+		t.Errorf("add: %q", got)
 	}
-	if tr := ParseTrailers(head.Message); tr.Action != "delete" {
-		t.Fatalf("the action trailer = %q, want delete", tr.Action)
+	b, _ = be.LoadBoard(ctx, "acme")
+	if err := be.RenameCustomer(ctx, b, cu.ID, "Hidora SA"); err != nil {
+		t.Fatal(err)
+	}
+	if got := subject(r); got != "rename customer «Hidora» to «Hidora SA»" {
+		t.Errorf("rename: %q", got)
+	}
+	b, _ = be.LoadBoard(ctx, "acme")
+	if err := be.MoveCustomer(ctx, b, cu.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := subject(r); got != "move customer «Hidora SA»" {
+		t.Errorf("move: %q", got)
+	}
+	b, _ = be.LoadBoard(ctx, "acme")
+	if err := be.DeleteCustomer(ctx, b, cu.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := subject(r); got != "delete customer «Hidora SA»" {
+		t.Errorf("delete: %q", got)
 	}
 }
