@@ -1186,11 +1186,18 @@ export function effectivePriorityIn(cards: readonly Card[], c: Card): { priority
     return { priority: c.priority };
   }
   const byId = new Map(cards.map((x) => [x.itemId, x]));
-  if (c.reviewOf) {
-    const task = byId.get(c.reviewOf);
-    if (task && !task.reviewOf) {
-      return task.priority ? { priority: task.priority, from: task } : effectivePriorityIn(cards, task);
+  // A review counts under its task's, a review of a review under the review
+  // it reviews; a cycle of reviews ends under nobody.
+  const reviewed = new Set<string>([c.itemId]);
+  for (let task = byId.get(c.reviewOf ?? ""); task; task = byId.get(c.reviewOf ?? "")) {
+    if (reviewed.has(task.itemId)) {
+      return {};
     }
+    reviewed.add(task.itemId);
+    if (task.priority) {
+      return { priority: task.priority, from: task };
+    }
+    c = task;
   }
   const seen = new Set<string>([c.itemId]);
   for (let up = byId.get(c.parent ?? ""); up && !seen.has(up.itemId); up = byId.get(up.parent ?? "")) {

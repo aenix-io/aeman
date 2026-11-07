@@ -124,8 +124,9 @@ func (ix *Index) BacklogKey(c Card) BacklogKey {
 	if NeedsReviewer(c) {
 		k := BacklogKey{Loose: true, Path: []int{ix.pos[c.ItemID]}}
 		// Placed by the card it reviews — a review of a review (a direct
-		// writer's) beside the review it reviews, as the client reads it off
-		// status.lineage and the reviewed card's place.
+		// writer's) by the review it reviews, and in that review's priority
+		// group (EffectivePriority inherits through it), as the client reads
+		// it off status.lineage and status.effectivePriority.
 		if task, ok := ix.Find(c.ReviewOf); ok {
 			k = ix.reviewedKey(task)
 		}

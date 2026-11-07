@@ -971,7 +971,12 @@ describe("the effective priority", () => {
   const u = card({ itemId: "u", parent: "bare" });
   const o = card({ itemId: "o", parent: "e", stage: "review" });
   const r = card({ itemId: "r", reviewOf: "o" });
-  const all = [g, i, e, t, own, bare, u, o, r];
+  // A review of a review counts under the review it reviews; two reviews of
+  // each other are a cycle that ends, under nobody.
+  const rr = card({ itemId: "rr", reviewOf: "r" });
+  const x = card({ itemId: "x", reviewOf: "y" });
+  const y = card({ itemId: "y", reviewOf: "x" });
+  const all = [g, i, e, t, own, bare, u, o, r, rr, x, y];
   const read = (c: Card) => {
     const got = effectivePriorityIn(all, c);
     return [got.priority ?? "", got.from?.itemId ?? ""];
@@ -986,6 +991,8 @@ describe("the effective priority", () => {
     expect(read(bare)).toEqual(["", ""]);
     expect(read(u)).toEqual(["", ""]);
     expect(read(r)).toEqual(["P2", "i"]);
+    expect(read(rr)).toEqual(["P2", "i"]);
+    expect(read(x)).toEqual(["", ""]);
   });
 
   it("re-reads the card and every card under it when its own priority changes", () => {
