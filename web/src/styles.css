@@ -6138,42 +6138,29 @@ button.card-age {
 .drawer-identity {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   margin-top: 4px;
-  font-size: 11.5px;
-  color: var(--muted);
 }
 
-.drawer-uid-btn,
-.drawer-link-btn {
+/* "Copy ID" and "Copy link": two small chips under the title. */
+.drawer-copy-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  border: none;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
   background: transparent;
   color: var(--muted);
-  cursor: pointer;
-  padding: 1px 4px;
-  border-radius: 4px;
   font: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  cursor: pointer;
 }
 
-.drawer-uid-btn:hover,
-.drawer-link-btn:hover,
-.drawer-uid-btn:focus-visible,
-.drawer-link-btn:focus-visible {
+.drawer-copy-chip:hover,
+.drawer-copy-chip:focus-visible {
   color: var(--fg);
   background: var(--hover-overlay-soft);
-}
-
-.drawer-uid {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-}
-
-.drawer-copy-mark {
-  font-size: 10.5px;
-  opacity: 0.8;
 }
 
 /* Read by a screen reader, drawn for nobody. */
