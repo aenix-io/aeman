@@ -3,25 +3,22 @@ package board
 import "testing"
 
 // A PLAN ITEM ROLLS UP FROM WHERE ITS OPEN TASKS STAND (H5, amended with
-// K15/K16, 2026-11-07). The Roadmap's status menu — TO DO and UNASSIGNED —
-// moves tasks between "in work" and "waiting in a backlog", and the plan
-// item above them must show it; a roll-up read off progress showed neither
-// (an epic whose last task was taken out of work at 49% still read "in
-// progress"). Over the plan item's OPEN leaf tasks:
+// K16, 2026-11-07). The Roadmap's UNASSIGNED moves tasks from work to the
+// backlog, and the plan item above them must show it; a roll-up read off
+// progress showed nothing (an epic whose last task was taken out of work at
+// 49% still read "in progress"). Over the plan item's leaf tasks:
 //
-//   - any of them in work (a date or a sprint, not parked) → in progress;
-//   - none in work, every one marked TO DO → TO DO ("ready");
-//   - none in work, not every one marked → BACKLOG;
+//   - any OPEN one in work (a date or a sprint, not parked) → in progress;
+//   - open ones, none in work → BACKLOG;
+//   - every one done → done; none at all → no items.
 //
-// and as before: every leaf done → done; no leaf at all → no items. The
-// done/total counts are unchanged. Progress, a person on a task, a stage do
-// not make a plan item in progress by themselves: a parked task at 49% is
-// waiting, not being worked.
+// The done/total counts are unchanged. Progress, a person on a task, a stage
+// and a priority do not make a plan item in progress by themselves: a parked
+// task at 49% is waiting, not being worked.
 func TestAPlanItemRollsUpFromWhereItsOpenTasksStand(t *testing.T) {
 	today := TodayIso()
 	inWork := Card{ItemID: "w", Parent: "e", Team: "a", SprintStart: today, Day: today}
 	parked := Card{ItemID: "p", Parent: "e", Team: "a", Parked: true}
-	ready := Card{ItemID: "r", Parent: "e", Team: "a", Parked: true, Todo: true}
 	done := Card{ItemID: "d", Parent: "e", Team: "a", Progress: 100}
 	with := func(c Card, f func(*Card)) Card { f(&c); return c }
 	for _, tc := range []struct {
@@ -32,12 +29,9 @@ func TestAPlanItemRollsUpFromWhereItsOpenTasksStand(t *testing.T) {
 		{"no task under it", nil, HierarchyNoItems},
 		{"every task done", []Card{done}, HierarchyDone},
 		{"one task in work", []Card{inWork, parked}, HierarchyInProgress},
-		{"a task in work beside one marked TO DO", []Card{inWork, ready}, HierarchyInProgress},
-		{"every open task marked TO DO", []Card{ready, with(ready, func(c *Card) { c.ItemID = "r2" })}, HierarchyReady},
-		{"TO DO with the rest done", []Card{ready, done}, HierarchyReady},
-		{"some marked TO DO, some not", []Card{ready, parked}, HierarchyBacklog},
-		{"waiting, none marked", []Card{parked}, HierarchyBacklog},
+		{"waiting", []Card{parked}, HierarchyBacklog},
 		{"done and waiting: still waiting", []Card{done, parked}, HierarchyBacklog},
+		{"a P1 task waiting is waiting", []Card{with(parked, func(c *Card) { c.Priority = PriorityP1 })}, HierarchyBacklog},
 		{"a parked task at 49% is waiting, not in progress", []Card{with(parked, func(c *Card) { c.Progress = 49 })}, HierarchyBacklog},
 		{"a parked task somebody is named on is waiting", []Card{with(parked, func(c *Card) { c.Assignees = []string{"ann"} })}, HierarchyBacklog},
 		{"a task in work at 0%, nobody's, is in work", []Card{with(inWork, func(c *Card) { c.Progress = 0 })}, HierarchyInProgress},
@@ -53,9 +47,9 @@ func TestAPlanItemRollsUpFromWhereItsOpenTasksStand(t *testing.T) {
 	}
 }
 
-// The status menu, seen from the epic: UNASSIGNED takes its last task out of
-// work and the epic reads BACKLOG; TO DO on it reads TO DO; one task taken
-// back into work reads IN PROGRESS. The counts never move.
+// UNASSIGNED, seen from the epic: its last task out of work and the epic
+// reads BACKLOG; one task taken back into work reads IN PROGRESS. The
+// counts never move.
 func TestTheStatusMenuShowsOnThePlanItem(t *testing.T) {
 	today := TodayIso()
 	b := NewBoard([]Card{
@@ -72,11 +66,8 @@ func TestTheStatusMenuShowsOnThePlanItem(t *testing.T) {
 		}
 	}
 	check("a task in work", HierarchyInProgress)
-	// UNASSIGNED: back to the backlog, its 49% kept.
 	b.Cards[1].Parked, b.Cards[1].Assignees, b.Cards[1].SprintStart, b.Cards[1].Day = true, nil, "", ""
 	check("after UNASSIGNED", HierarchyBacklog)
-	b.Cards[1].Todo, b.Cards[2].Todo = true, true
-	check("after TO DO", HierarchyReady)
-	b.Cards[2].Parked, b.Cards[2].Todo, b.Cards[2].SprintStart = false, false, today
+	b.Cards[2].Parked, b.Cards[2].SprintStart = false, today
 	check("one taken into work", HierarchyInProgress)
 }

@@ -453,11 +453,11 @@ func TestABacklogCreateTakesItsPlaceOverHTTP(t *testing.T) {
 	}
 }
 
-// The Roadmap's status menu over HTTP (K15, K16): TO DO and UNASSIGNED are
-// card actions answering how many tasks they changed — on a plan item, every
-// task under it they reach — and each refuses by name a task it means
-// nothing for.
-func TestToDoAndUnassignedOverHTTP(t *testing.T) {
+// The Roadmap's badge menu over HTTP (K15, K16): the priority is set on the
+// card itself and answers with the card; UNASSIGNED answers how many tasks it
+// took out of work — on a plan item, every task under it in work — and each
+// refuses by name what it means nothing for.
+func TestPriorityAndUnassignedOverHTTP(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "e", Title: "epic", Type: board.TypeEpic, Team: "alpha"},
@@ -469,16 +469,25 @@ func TestToDoAndUnassignedOverHTTP(t *testing.T) {
 	srv := apiServer(t, Options{}, fake)
 	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
 
-	rec := do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/todo", `{"todo":true}`)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"changed":2`) {
-		t.Fatalf("TO DO on the epic = %d %s, want 200 with 2 changed", rec.Code, rec.Body.String())
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/priority", `{"priority":"P1"}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"priority":"P1"`) {
+		t.Fatalf("P1 on the epic = %d %s, want 200 with the card", rec.Code, rec.Body.String())
 	}
-	if !fake.Card("p1").Todo || !fake.Card("p2").Todo || fake.Card("w").Todo {
-		t.Fatal("the parked tasks are TO DO, the work in hand is not")
+	if fake.Card("e").Priority != board.PriorityP1 || fake.Card("p1").Priority != board.PriorityNone {
+		t.Fatal("the priority is the epic's own; the tasks under it are not written")
 	}
-	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/w/actions/todo", `{"todo":true}`); rec.Code != http.StatusUnprocessableEntity ||
-		!strings.Contains(rec.Body.String(), "notParkedWork") {
-		t.Fatalf("TO DO on work in hand = %d %s, want 422 notParkedWork", rec.Code, rec.Body.String())
+	// A task under it counts under the epic's: status.effectivePriority, and
+	// where it comes from.
+	rec = do(t, srv, http.MethodGet, "/api/v1/cards/p1", "")
+	if !strings.Contains(rec.Body.String(), `"effectivePriority":"P1"`) || !strings.Contains(rec.Body.String(), `"effectivePriorityFrom":{"uid":"e"`) {
+		t.Fatalf("the task's effective priority: %s", rec.Body.String())
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/w/actions/priority", `{"priority":"P0"}`); rec.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rec.Body.String(), "badPriority") {
+		t.Fatalf("an unknown priority = %d %s, want 422 badPriority", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/priority", `{"priority":""}`); rec.Code != http.StatusOK || fake.Card("e").Priority != board.PriorityNone {
+		t.Fatalf("No priority = %d %s", rec.Code, rec.Body.String())
 	}
 
 	rec = do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/unassign-work", "")
@@ -531,10 +540,6 @@ func TestTheStatusMenuActsOnTheTasksTheReaderCountedOverHTTP(t *testing.T) {
 	}
 	if !fake.Card("shown").Parked || fake.Card("hidden").Parked {
 		t.Fatalf("only the counted task leaves work: shown %+v, hidden %+v", fake.Card("shown"), fake.Card("hidden"))
-	}
-	rec = do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/todo", `{"todo":true,"uids":["q"]}`)
-	if rec.Code != http.StatusOK || !fake.Card("q").Todo || fake.Card("p").Todo {
-		t.Fatalf("TO DO on the counted task = %d %s; p %v q %v", rec.Code, rec.Body.String(), fake.Card("p").Todo, fake.Card("q").Todo)
 	}
 	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/unassign-work", `{"uids":["hidden","p"]}`); rec.Code != http.StatusUnprocessableEntity ||
 		!strings.Contains(rec.Body.String(), "notATarget") || fake.Card("hidden").Parked {

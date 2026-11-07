@@ -178,17 +178,20 @@ func TestABacklogReadsInTheRoadmapsOrder(t *testing.T) {
 	}
 }
 
-// TO DO tasks come first (K15), in the Roadmap's order among themselves, and
-// the rest follow in the same order: the flag lifts a task to the top of the
-// list without changing its place in the tree.
-func TestToDoTasksComeFirstInTheRoadmapsOrder(t *testing.T) {
+// A backlog reads by PRIORITY first (K15): the EFFECTIVE priority — a
+// card's own, else the nearest ancestor's — P1, then P2, then P3, then none;
+// within each group the Roadmap's order. A task with no plan item above it
+// takes its place in its group after the planned ones.
+func TestABacklogReadsByPriorityThenInTheRoadmapsOrder(t *testing.T) {
 	b := NewBoard([]Card{
-		{ItemID: "g", Type: TypeGoal},
-		{ItemID: "a", Parent: "g", Parked: true},
-		{ItemID: "b", Parent: "g", Parked: true, Todo: true},
-		{ItemID: "c", Parent: "g", Parked: true},
-		{ItemID: "loose", Parked: true, Todo: true},
-		{ItemID: "d", Parent: "g", Parked: true, Todo: true},
+		{ItemID: "g1", Type: TypeGoal, Priority: PriorityP2},
+		{ItemID: "g2", Type: TypeGoal},
+		{ItemID: "a", Parent: "g1", Parked: true},                       // P2 from g1
+		{ItemID: "b", Parent: "g1", Parked: true, Priority: PriorityP1}, // its own P1 wins over g1's P2
+		{ItemID: "c", Parent: "g2", Parked: true},                       // none
+		{ItemID: "d", Parent: "g2", Parked: true, Priority: PriorityP3},
+		{ItemID: "loose", Parked: true, Priority: PriorityP1},
+		{ItemID: "e", Parent: "g1", Parked: true, Priority: PriorityP1},
 	})
 	ix := NewIndex(b)
 	var listed []Card
@@ -197,8 +200,48 @@ func TestToDoTasksComeFirstInTheRoadmapsOrder(t *testing.T) {
 			listed = append(listed, c)
 		}
 	}
-	if got, want := ids(BacklogOrder(ix, listed)), []string{"b", "d", "loose", "a", "c"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("BacklogOrder = %v, want %v (TO DO first, planned before loose, then the rest)", got, want)
+	// P1: b, e (planned, Roadmap order), then loose; P2: a; P3: d; none: c.
+	if got, want := ids(BacklogOrder(ix, listed)), []string{"b", "e", "loose", "a", "d", "c"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("BacklogOrder = %v, want %v", got, want)
+	}
+}
+
+// The EFFECTIVE priority (K15, like the effective team, O3): a card's own
+// when it has one, else the nearest ancestor's that has one, else none —
+// computed on reading, never written down. It names where it came from.
+func TestTheEffectivePriorityIsOwnElseTheNearestAncestors(t *testing.T) {
+	b := NewBoard([]Card{
+		{ItemID: "g", Type: TypeGoal, Priority: PriorityP3},
+		{ItemID: "i", Type: TypeInitiative, Parent: "g", Priority: PriorityP2},
+		{ItemID: "e", Type: TypeEpic, Parent: "i"},
+		{ItemID: "t", Parent: "e"},
+		{ItemID: "own", Parent: "e", Priority: PriorityP1},
+		{ItemID: "bare", Type: TypeGoal},
+		{ItemID: "u", Parent: "bare"},
+		{ItemID: "o", Stage: StageReview, Parent: "e"},
+		{ItemID: "r", ReviewOf: "o"},
+	})
+	ix := NewIndex(b)
+	for _, tc := range []struct {
+		id, want, from string
+	}{
+		{"g", "P3", ""},  // its own: from nobody
+		{"i", "P2", ""},  // its own beats the goal's
+		{"e", "P2", "i"}, // the nearest ancestor's, not the goal's
+		{"t", "P2", "i"},
+		{"own", "P1", ""},
+		{"bare", "", ""},
+		{"u", "", ""},    // nobody above has one
+		{"r", "P2", "i"}, // a review card counts under its task's
+	} {
+		c, _ := ix.Find(tc.id)
+		got, from := ix.EffectivePriority(c)
+		if string(got) != tc.want || from.ItemID != tc.from {
+			t.Errorf("%s: %q from %q, want %q from %q", tc.id, got, from.ItemID, tc.want, tc.from)
+		}
+	}
+	if !ValidPriority("P1") || !ValidPriority("") || ValidPriority("P0") || ValidPriority("p1") {
+		t.Fatal("a priority is P1, P2, P3 or none")
 	}
 }
 
@@ -209,7 +252,7 @@ func TestAReviewNobodyHasTakenStandsAboveTheTasks(t *testing.T) {
 	b := NewBoard([]Card{
 		{ItemID: "r2", ReviewOf: "o2", Parked: true},
 		{ItemID: "g", Type: TypeGoal},
-		{ItemID: "t", Parent: "g", Parked: true, Todo: true},
+		{ItemID: "t", Parent: "g", Parked: true, Priority: PriorityP1},
 		{ItemID: "o", Parent: "g", Stage: StageReview, SprintStart: "2026-11-02"},
 		{ItemID: "r1", ReviewOf: "o", Parked: true},
 		{ItemID: "o2", Stage: StageReview, SprintStart: "2026-11-02"},

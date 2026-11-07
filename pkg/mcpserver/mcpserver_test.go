@@ -139,7 +139,7 @@ func TestMCPListsTools(t *testing.T) {
 		// The Roadmap's "whose is this" (H10), and the Backlog's take (K11).
 		"own_card", "take_card",
 		// The Roadmap's status menu (K15, K16).
-		"set_todo", "unassign_work",
+		"set_priority", "unassign_work",
 		// The customer roster (docs/design/ownership.md, O9).
 		"add_customer", "rename_customer", "reorder_customers", "delete_customer",
 	}
@@ -1087,11 +1087,11 @@ func TestMCPOwnership(t *testing.T) {
 	}
 }
 
-// The Roadmap's status menu over MCP (K15, K16, ADR 0002): set_todo marks
-// parked work ready and unassign_work takes work in hand back to its
+// The Roadmap's badge menu over MCP (K15, K16, ADR 0002): set_priority sets
+// a card's own priority and unassign_work takes work in hand back to its
 // backlog — on a task, or on every task under a plan item — and each refuses
-// a task it means nothing for.
-func TestAnAgentMarksWorkToDoAndTakesItOutOfWork(t *testing.T) {
+// what it means nothing for.
+func TestAnAgentSetsAPriorityAndTakesWorkOutOfHand(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "e", Title: "epic", Type: board.TypeEpic, Team: "alpha"},
@@ -1099,12 +1099,12 @@ func TestAnAgentMarksWorkToDoAndTakesItOutOfWork(t *testing.T) {
 		{ItemID: "w", Title: "in work", Parent: "e", Team: "alpha", Assignees: []string{"ann"}, StartDate: today, Day: today, SprintStart: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	cs := connect(t, Config{Board: "acme"}, fake)
-	call(t, cs, "set_todo", map[string]any{"uid": "e", "todo": true})
-	if !fake.Card("p").Todo {
-		t.Fatal("set_todo on the epic marks its parked task")
+	call(t, cs, "set_priority", map[string]any{"uid": "e", "priority": "P2"})
+	if fake.Card("e").Priority != board.PriorityP2 || fake.Card("p").Priority != board.PriorityNone {
+		t.Fatal("set_priority sets the epic's own priority, and nothing under it")
 	}
-	if msg := callErr(t, cs, "set_todo", map[string]any{"uid": "w", "todo": true}); !strings.Contains(msg, "TO DO") {
-		t.Fatalf("set_todo on work in hand = %q", msg)
+	if msg := callErr(t, cs, "set_priority", map[string]any{"uid": "w", "priority": "urgent"}); !strings.Contains(msg, "P1, P2, P3 or none") {
+		t.Fatalf("set_priority with an unknown value = %q", msg)
 	}
 	call(t, cs, "unassign_work", map[string]any{"uid": "e"})
 	if got := fake.Card("w"); !got.Parked || len(got.Assignees) != 0 {
@@ -1114,11 +1114,7 @@ func TestAnAgentMarksWorkToDoAndTakesItOutOfWork(t *testing.T) {
 		t.Fatalf("unassign_work on parked work = %q", msg)
 	}
 	// uids names exactly the tasks to act on; one it cannot reach changes nothing.
-	if msg := callErr(t, cs, "set_todo", map[string]any{"uid": "e", "todo": false, "uids": []string{"e"}}); !strings.Contains(msg, "not one the gesture reaches") {
-		t.Fatalf("set_todo naming the epic itself = %q", msg)
-	}
-	call(t, cs, "set_todo", map[string]any{"uid": "e", "todo": false, "uids": []string{"p"}})
-	if fake.Card("p").Todo {
-		t.Fatal("set_todo with uids clears exactly the task named")
+	if msg := callErr(t, cs, "unassign_work", map[string]any{"uid": "e", "uids": []string{"p"}}); !strings.Contains(msg, "not one the gesture reaches") {
+		t.Fatalf("unassign_work naming a parked task = %q", msg)
 	}
 }

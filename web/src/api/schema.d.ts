@@ -315,7 +315,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/cards/{uid}/actions/todo": {
+    "/cards/{uid}/actions/priority": {
         parameters: {
             query?: never;
             header?: never;
@@ -325,10 +325,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Mark parked work TO DO — ready to be taken next — or clear the mark.
-         * @description The Roadmap's status menu, TO DO. On a TASK it marks the task itself, which must be waiting in its team's backlog — parked, open, not a review or a subtask (422 `notParkedWork` otherwise). On a PLAN ITEM (goal, initiative, epic) it marks every such task under it, at any depth; with none there is nothing to change. A TO DO task stands at the top of its backlog, in the Roadmap's order among the other TO DO tasks, and loses the mark when it is taken into work or finished. Every task is checked first — reachable from the card, and the caller's to write (403 naming how many and which otherwise) — and the request is applied whole or not at all, in one commit per repository it touches.
+         * Set the card's own priority — P1, P2, P3, or none.
+         * @description The Roadmap's badge menu. Any card carries a priority: a task, a goal, an initiative, an epic. What a card counts under is its EFFECTIVE priority (`status.effectivePriority`): its own, else the nearest ancestor's that has one — so a plan item's priority reaches every card under it with none of its own, without being written on them. A backlog reads P1 first, then P2, then P3, then none, each in the Roadmap's order. An empty value clears the card's own. Nothing clears it on its own: taking the card into work, finishing it and reopening it keep it. Anything but P1, P2, P3 or empty is 422 `badPriority`.
          */
-        post: operations["setTodo"];
+        post: operations["setPriority"];
         delete?: never;
         options?: never;
         head?: never;
@@ -724,7 +724,7 @@ export interface components {
              * @description The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
              * @enum {string}
              */
-            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "customerExists" | "customerName" | "customerNotFound" | "dayIsARecord" | "descriptionTooLong" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notATarget" | "notAuthenticated" | "notFinished" | "notInWork" | "notOnThisBoard" | "notParkedWork" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "ownerIsThePlans" | "ownershipUnsupported" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "reviewCardLink" | "setupRequired" | "somebodysCard" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "twoPlaces" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField";
+            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "badPriority" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "customerExists" | "customerName" | "customerNotFound" | "dayIsARecord" | "descriptionTooLong" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notATarget" | "notAuthenticated" | "notFinished" | "notInWork" | "notOnThisBoard" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "ownerIsThePlans" | "ownershipUnsupported" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "reviewCardLink" | "setupRequired" | "somebodysCard" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "twoPlaces" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField";
             /** @description Where the person can go to fix the refusal — installing the board's app — for a client to offer as a button. */
             actionUrl?: string;
         };
@@ -773,8 +773,11 @@ export interface components {
             dates: components["schemas"]["CardDates"];
             /** @description The task is in its team's BACKLOG rather than in work. A task is in work (a date or a sprint) or parked, never both and never neither: parking empties the working area — person, sprint, dates — takes the card's subtasks off the board with it, withdraws any unfinished review of it, and keeps its place in the board's order; giving a parked task a date or a sprint (or `own` with a person) takes it out of the backlog. `false` alone on a parked task with no date and no sprint is refused (422 `takeIntoWork`): a task leaves its backlog by being taken into work. Every team has a backlog and nothing declares it. A review card and a subtask are refused (422): neither has a place of its own to be parked in. A task has no week. */
             parked?: boolean;
-            /** @description A parked task marked READY to be taken next — the Roadmap's TO DO (`POST /cards/{uid}/actions/todo`). It stands at the top of its backlog, in the Roadmap's order among the other TO DO tasks. Cleared when the task is taken into work or finished. */
-            todo?: boolean;
+            /**
+             * @description The card's OWN priority (`POST /cards/{uid}/actions/priority`); what it counts under is `status.effectivePriority`.
+             * @enum {string}
+             */
+            priority?: "" | "P1" | "P2" | "P3";
             reviewOf?: string;
             /** @description The uid of the card this one sits under — the one link of the hierarchy. Its meaning is the parent's `type`: under a task this card is a subtask; under a goal, an initiative or an epic it is filed in the hierarchy and nothing else about it changes. */
             parent?: string;
@@ -813,6 +816,13 @@ export interface components {
             reviewed?: components["schemas"]["ReviewedRef"];
             /** @description The team the card counts under: its own, else the nearest ancestor's that has one. Computed, never written. */
             effectiveTeam?: string;
+            /**
+             * @description The priority the card counts under: its own, else the nearest ancestor's that has one (a review card's is its task's). Computed, never written. Absent when nobody above has one.
+             * @enum {string}
+             */
+            effectivePriority?: "" | "P1" | "P2" | "P3";
+            /** @description The ancestor the effective priority is taken from — the Roadmap draws an inherited priority lighter, naming it. Absent when the priority is the card's own, or there is none. */
+            effectivePriorityFrom?: components["schemas"]["LineageRef"];
             /** @description The customers the card is for: every ancestor's and its own, the ancestors' first; a review card's are the task's it reviews. Computed, never written. */
             effectiveCustomers?: string[];
             /** @description A task's due date: the end of its NEAREST planning card (goal, initiative or epic) — never one borrowed from a farther ancestor. Absent with no planning card above it, when the nearest has no end, and on a planning card. A review card is due when the task it reviews is. */
@@ -835,10 +845,10 @@ export interface components {
             /** @description The ancestor's end date, when it has one — a planning card's bar ends there on the Roadmap. The Backlog shows the nearest planning card's end as the due date of the task under it. */
             end?: string;
         };
-        /** @description A PLANNING card's derived standing, from the tasks under it through every level: no-items when nothing is under it; done when every leaf task is complete; otherwise read off where the OPEN ones stand — in-progress when any of them is in work (a date or a sprint, not parked), ready (TO DO) when none is and every one is marked TO DO, backlog when none is and not every one is — with the counts. Progress, a person or a stage do not make it in progress by themselves: a parked task is waiting. Never stored; absent on a task. */
+        /** @description A PLANNING card's derived standing, from the tasks under it through every level: no-items when nothing is under it; done when every leaf task is complete; in-progress when any OPEN one is in work (a date or a sprint, not parked); backlog when there are open ones and none is in work — with the counts. Progress, a person, a stage or a priority do not make it in progress by themselves: a parked task is waiting. Never stored; absent on a task. */
         Hierarchy: {
             /** @enum {string} */
-            status: "no-items" | "ready" | "backlog" | "in-progress" | "done";
+            status: "no-items" | "backlog" | "in-progress" | "done";
             done: number;
             total: number;
         };
@@ -860,7 +870,7 @@ export interface components {
             items: components["schemas"]["Card"][];
             /** @description The moment a snapshot listing reflects (RFC3339) — the end of the day it was asked for. Absent on a live listing. */
             asOf?: string;
-            /** @description On a `backlog` listing only: the whole board's order, as every `Ordering` frame carries it. A backlog reads in the Roadmap's order (the path of places in this order from the root plan item down to the task), TO DO tasks first and a review nobody has taken above them all; a client that places a card the watch brings in, or re-sorts on an `Ordering` frame, reads the same key from it. */
+            /** @description On a `backlog` listing only: the whole board's order, as every `Ordering` frame carries it. A backlog reads by effective priority (P1, P2, P3, then none), each in the Roadmap's order (the path of places in this order from the root plan item down to the task), a review nobody has taken above them all; a client that places a card the watch brings in, or re-sorts on an `Ordering` frame, reads the same key from it. */
             boardOrder?: string[];
         };
         /** @description A team's sprint pointer; the empty team is the no-team group. */
@@ -1132,11 +1142,12 @@ export interface components {
             /** @description How many days ahead of today the card is pushed; must be positive. */
             days?: number;
         };
-        SetTodoBody: {
-            /** @description `true` marks the work TO DO, `false` clears the mark. */
-            todo: boolean;
-            /** @description Exactly the tasks to change, when given — the ones the reader was shown and counted (a Roadmap filter shows fewer than the board holds). Each must be one the gesture reaches from the card (422 `notATarget` otherwise). Absent: every task it reaches. */
-            uids?: string[];
+        SetPriorityBody: {
+            /**
+             * @description The card's own priority; empty clears it.
+             * @enum {string}
+             */
+            priority: "" | "P1" | "P2" | "P3";
         };
         UnassignWorkBody: {
             /** @description Exactly the tasks to take out of work, when given — the ones the confirm counted. Each must be one the gesture reaches from the card (422 `notATarget` otherwise). Absent: every task it reaches. */
@@ -1988,7 +1999,7 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
-    setTodo: {
+    setPriority: {
         parameters: {
             query?: never;
             header?: never;
@@ -2000,17 +2011,17 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SetTodoBody"];
+                "application/json": components["schemas"]["SetPriorityBody"];
             };
         };
         responses: {
-            /** @description How many tasks changed. */
+            /** @description The card after the change. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WorkChange"];
+                    "application/json": components["schemas"]["Card"];
                 };
             };
             default: components["responses"]["Problem"];

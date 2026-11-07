@@ -572,13 +572,13 @@ func (f *Backend) SetBacklog(
 	return nil
 }
 
-// SetTodo marks a parked task ready, or clears the mark.
-func (f *Backend) SetTodo(_ context.Context, _ board.Board, card board.Card, todo bool) error {
+// SetPriority sets a card's own priority.
+func (f *Backend) SetPriority(_ context.Context, _ board.Board, card board.Card, priority board.PriorityKey) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.rec("SetTodo %s %t", card.ItemID, todo)
+	f.rec("SetPriority %s %s", card.ItemID, priority)
 	if c := f.card(card.ItemID); c != nil {
-		c.Todo = todo
+		c.Priority = priority
 	}
 	return nil
 }

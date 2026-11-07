@@ -73,10 +73,10 @@ func TestTheStatusMenuIsRefusedWholeOverAnUnwritableTask(t *testing.T) {
 	if _, err := svc.UnassignWork(ctx, "acme", "e", nil); !errors.Is(err, boardservice.ErrForbidden) {
 		t.Fatalf("UNASSIGNED over an unwritable task = %v, want ErrForbidden", err)
 	}
-	if _, err := svc.SetTodo(ctx, "acme", "e", true, nil); !errors.Is(err, boardservice.ErrForbidden) {
-		t.Fatalf("TO DO over an unwritable task = %v, want ErrForbidden", err)
+	if err := svc.SetPriority(ctx, "acme", "theirs", "P1"); !errors.Is(err, boardservice.ErrForbidden) {
+		t.Fatalf("a priority on an unwritable card = %v, want ErrForbidden", err)
 	}
-	if fake.Saw("SetBacklog mine true") || fake.Saw("SetTodo p-mine true") {
+	if fake.Saw("SetBacklog mine true") || fake.Saw("SetPriority theirs P1") {
 		t.Fatal("a refused gesture wrote part of itself")
 	}
 	// Naming only what the visitor may write goes through.

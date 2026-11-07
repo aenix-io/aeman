@@ -153,10 +153,9 @@ func (h *server) takeCard(ctx context.Context, _ *mcp.CallToolRequest, in standO
 
 // --- The Roadmap's status menu (K15, K16) --------------------------------------
 
-type setTodoInput struct {
+type setPriorityInput struct {
 	cardRef
-	Todo bool     `json:"todo" jsonschema:"true marks the work TO DO, false clears the mark"`
-	UIDs []string `json:"uids,omitempty" jsonschema:"exactly the tasks to change, each one the gesture reaches from the card; leave out for every task it reaches"`
+	Priority string `json:"priority" jsonschema:"P1, P2 or P3 — or empty to clear the card's own priority"`
 }
 
 type unassignWorkInput struct {
@@ -170,16 +169,15 @@ type workChange struct {
 	UIDs    []string `json:"uids"`
 }
 
-func (h *server) setTodo(ctx context.Context, _ *mcp.CallToolRequest, in setTodoInput) (*mcp.CallToolResult, workChange, error) {
+func (h *server) setPriority(ctx context.Context, _ *mcp.CallToolRequest, in setPriorityInput) (*mcp.CallToolResult, apiserver.Card, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
-		return nil, workChange{}, err
+		return nil, apiserver.Card{}, err
 	}
-	changed, err := svc.SetTodo(ctx, boardID, in.UID, in.Todo, in.UIDs)
-	if err != nil {
-		return nil, workChange{}, err
+	if err := svc.SetPriority(ctx, boardID, in.UID, in.Priority); err != nil {
+		return nil, apiserver.Card{}, err
 	}
-	return nil, workChange{Changed: len(changed), UIDs: changed}, nil
+	return h.cardResource(ctx, svc, boardID, in.UID)
 }
 
 func (h *server) unassignWork(ctx context.Context, _ *mcp.CallToolRequest, in unassignWorkInput) (*mcp.CallToolResult, workChange, error) {

@@ -30,9 +30,6 @@ import (
 // Reopen, an open subtask un-doing its parent in syncParentProgress, a review
 // card sending its original back to review in syncReviewLink).
 func (s *Service) keepPlaced(ctx context.Context, b board.Board, c board.Card, subtask bool) error {
-	if err := s.settleTodo(ctx, b, c, subtask); err != nil {
-		return err
-	}
 	if !board.Unplaced(c, subtask) {
 		return nil
 	}
@@ -41,18 +38,4 @@ func (s *Service) keepPlaced(ctx context.Context, b board.Board, c board.Card, s
 	}
 	s.logEvent(ctx, b, c, board.EventBacklog, "", backlogLabel(board.Card{Team: c.Team, Parked: true}))
 	return nil
-}
-
-// settleTodo drops the TO DO (K15) of a card a write has left where the flag
-// means nothing — finished, or riding a task — in the same request as that
-// write, from the card as the write left it (c): no second read of the
-// board. keepPlaced runs it for every door that can finish a task (subtasks
-// never finish their parent: the derived bar stops at 90), setParentOf for
-// a task grouped under a task; taking a task into work clears it in
-// takenIntoWork.
-func (s *Service) settleTodo(ctx context.Context, b board.Board, c board.Card, subtask bool) error {
-	if !c.Todo || (!subtask && !board.Complete(c.Stage, c.Progress)) {
-		return nil
-	}
-	return s.backend.SetTodo(ctx, b, c, false)
 }

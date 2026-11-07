@@ -790,13 +790,13 @@ func (mb *MultiBackend) SetBacklog(
 	return be.SetBacklog(ctx, bd, card, parked)
 }
 
-// SetTodo writes in the card's own domain, as SetBacklog does.
-func (mb *MultiBackend) SetTodo(ctx context.Context, bd board.Board, card board.Card, todo bool) error {
+// SetPriority writes in the card's own domain.
+func (mb *MultiBackend) SetPriority(ctx context.Context, bd board.Board, card board.Card, priority board.PriorityKey) error {
 	be, err := mb.route(ctx, card)
 	if err != nil {
 		return err
 	}
-	return be.SetTodo(ctx, bd, card, todo)
+	return be.SetPriority(ctx, bd, card, priority)
 }
 
 // SetTeam may move a team card to another domain.

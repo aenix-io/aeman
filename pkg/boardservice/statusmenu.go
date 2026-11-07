@@ -9,25 +9,25 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// The Roadmap's status menu (docs/design/backlog.md, "TO DO and
-// UNASSIGNED"): two answers a person gives about the work under a row.
+// The Roadmap's badge menu (docs/design/backlog.md, "Priorities and
+// UNASSIGNED"): two answers a person gives about a row.
 //
-//   - TO DO (K15) marks parked work READY: it stands at the top of its
-//     backlog, in the Roadmap's order among the other TO DO tasks.
+//   - PRIORITY (K15) — P1, P2, P3 or none — set on the card itself; what a
+//     card counts under is its effective priority, its own else the nearest
+//     ancestor's (board.Index.EffectivePriority), so a plan item's reaches
+//     every card under it without being written on them.
 //   - UNASSIGNED (K16) takes work OUT of hand: back to its team's backlog,
-//     nobody's, undated, out of every sprint — the ×'s unassign (K3).
-//
-// On a task each answers for the task itself; on a plan item for every task
-// under it at any depth it can mean something for (board.ToDoTargets,
-// board.UnassignTargets) — or, given uids, for exactly those of them: the
-// confirm counted the tasks the reader could see, and a Roadmap filter shows
-// fewer than the board holds. Every task is checked before anything is
-// written — reachable from the row, and the actor's to write — so a gesture
-// is applied whole or not at all, off one read of the board.
+//     nobody's, undated, out of every sprint — the ×'s unassign (K3) — for a
+//     task, or every task in work under a plan item at any depth
+//     (board.UnassignTargets); given uids, for exactly those of them: the
+//     confirm counted the tasks the reader could see, and a Roadmap filter
+//     shows fewer than the board holds. Every task is checked before
+//     anything is written — reachable from the row, and the actor's to
+//     write — so it is applied whole or not at all, off one read of the
+//     board.
 
-// ErrNotParkedWork is TO DO on a task that is not parked open work: the flag
-// orders a backlog, and the task is in none.
-var ErrNotParkedWork = errors.New("TO DO marks a task waiting in its backlog: this one is not")
+// ErrBadPriority is a priority the board has no such thing as.
+var ErrBadPriority = errors.New("a priority is P1, P2, P3 or none")
 
 // ErrNotInWork is UNASSIGNED on a task that is not work in hand: there is
 // nothing to take out of work.
@@ -85,42 +85,23 @@ func (s *Service) checkWrites(ctx context.Context, b board.Board, targets []boar
 	return nil
 }
 
-// SetTodo marks the card's parked work TO DO, or clears the mark, and names
-// the tasks it changed (their uids, in board order). A task already marked the way asked is not
-// counted, so asking twice changes nothing the second time. On a task that
-// is not parked open work it is refused (ErrNotParkedWork); on a plan item
-// with nothing parked under it there is simply nothing to change. uids, when
-// given, names exactly the tasks to change (nil: every one it reaches).
-func (s *Service) SetTodo(ctx context.Context, boardID string, itemID string, todo bool, uids []string) ([]string, error) {
+// SetPriority sets the card's OWN priority — P1, P2, P3, or "" for none —
+// on any card: a task, a goal, an initiative, an epic (K15). Only the card
+// itself is written; the cards under it with none of their own count under
+// it from now on (their effective priority), which the watch carries to them.
+// Nothing else changes, and nothing clears it later on its own.
+func (s *Service) SetPriority(ctx context.Context, boardID string, itemID string, priority string) error {
+	if !board.ValidPriority(priority) {
+		return fmt.Errorf("%w: %q", ErrBadPriority, priority)
+	}
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	reach := board.NewIndex(b).ToDoTargets(card)
-	if !board.IsPlanning(card) && len(reach) == 0 {
-		return nil, fmt.Errorf("%w: %q", ErrNotParkedWork, card.Title)
+	if card.Priority == board.PriorityKey(priority) {
+		return nil
 	}
-	targets, err := gestureTargets(reach, uids)
-	if err != nil {
-		return nil, err
-	}
-	var change []board.Card
-	for _, t := range targets {
-		if t.Todo != todo {
-			change = append(change, t)
-		}
-	}
-	if err := s.checkWrites(ctx, b, change); err != nil {
-		return nil, err
-	}
-	done := make([]string, 0, len(change))
-	for _, t := range change {
-		if err := s.backend.SetTodo(ctx, b, t, todo); err != nil {
-			return done, err
-		}
-		done = append(done, t.ItemID)
-	}
-	return done, nil
+	return s.backend.SetPriority(ctx, b, card, board.PriorityKey(priority))
 }
 
 // UnassignWork takes the card's work in hand back to its team's backlog and

@@ -194,6 +194,7 @@ const (
 	BackwardsDefer       ProblemCode = "backwardsDefer"
 	BadCapacity          ProblemCode = "badCapacity"
 	BadDay               ProblemCode = "badDay"
+	BadPriority          ProblemCode = "badPriority"
 	BodyTooLarge         ProblemCode = "bodyTooLarge"
 	CapacityRequired     ProblemCode = "capacityRequired"
 	CardNotFound         ProblemCode = "cardNotFound"
@@ -229,7 +230,6 @@ const (
 	NotFinished          ProblemCode = "notFinished"
 	NotInWork            ProblemCode = "notInWork"
 	NotOnThisBoard       ProblemCode = "notOnThisBoard"
-	NotParkedWork        ProblemCode = "notParkedWork"
 	NotYoursToRefuse     ProblemCode = "notYoursToRefuse"
 	NotYoursToRemove     ProblemCode = "notYoursToRemove"
 	NoteNotFound         ProblemCode = "noteNotFound"
@@ -281,6 +281,8 @@ func (e ProblemCode) Valid() bool {
 	case BadCapacity:
 		return true
 	case BadDay:
+		return true
+	case BadPriority:
 		return true
 	case BodyTooLarge:
 		return true
@@ -351,8 +353,6 @@ func (e ProblemCode) Valid() bool {
 	case NotInWork:
 		return true
 	case NotOnThisBoard:
-		return true
-	case NotParkedWork:
 		return true
 	case NotYoursToRefuse:
 		return true
@@ -446,6 +446,30 @@ func (e SendToReviewBodyZone) Valid() bool {
 	case SendToReviewBodyZoneUnplanned:
 		return true
 	case SendToReviewBodyZoneUrgent:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SetPriorityBodyPriority.
+const (
+	SetPriorityBodyPriorityEmpty SetPriorityBodyPriority = ""
+	SetPriorityBodyPriorityP1    SetPriorityBodyPriority = "P1"
+	SetPriorityBodyPriorityP2    SetPriorityBodyPriority = "P2"
+	SetPriorityBodyPriorityP3    SetPriorityBodyPriority = "P3"
+)
+
+// Valid indicates whether the value is a known member of the SetPriorityBodyPriority enum.
+func (e SetPriorityBodyPriority) Valid() bool {
+	switch e {
+	case SetPriorityBodyPriorityEmpty:
+		return true
+	case SetPriorityBodyPriorityP1:
+		return true
+	case SetPriorityBodyPriorityP2:
+		return true
+	case SetPriorityBodyPriorityP3:
 		return true
 	default:
 		return false
@@ -645,7 +669,7 @@ type DeferCardBody struct {
 // DomainInfo One readable repository of the visitor's board: whether they may write it, and which of the board's members can read it — so a reviewer picker offers only people who will see the card.
 type DomainInfo = apiserver.DomainInfo
 
-// Hierarchy A PLANNING card's derived standing, from the tasks under it through every level: no-items when nothing is under it; done when every leaf task is complete; otherwise read off where the OPEN ones stand — in-progress when any of them is in work (a date or a sprint, not parked), ready (TO DO) when none is and every one is marked TO DO, backlog when none is and not every one is — with the counts. Progress, a person or a stage do not make it in progress by themselves: a parked task is waiting. Never stored; absent on a task.
+// Hierarchy A PLANNING card's derived standing, from the tasks under it through every level: no-items when nothing is under it; done when every leaf task is complete; in-progress when any OPEN one is in work (a date or a sprint, not parked); backlog when there are open ones and none is in work — with the counts. Progress, a person, a stage or a priority do not make it in progress by themselves: a parked task is waiting. Never stored; absent on a task.
 type Hierarchy = apiserver.Hierarchy
 
 // LineageRef One ancestor of a card.
@@ -826,14 +850,14 @@ type SendToReviewBody struct {
 // SendToReviewBodyZone Where the review card stands; empty is the unplanned band, which is where the asking belongs.
 type SendToReviewBodyZone string
 
-// SetTodoBody defines model for SetTodoBody.
-type SetTodoBody struct {
-	// Todo `true` marks the work TO DO, `false` clears the mark.
-	Todo bool `json:"todo"`
-
-	// Uids Exactly the tasks to change, when given — the ones the reader was shown and counted (a Roadmap filter shows fewer than the board holds). Each must be one the gesture reaches from the card (422 `notATarget` otherwise). Absent: every task it reaches.
-	Uids *[]string `json:"uids,omitempty"`
+// SetPriorityBody defines model for SetPriorityBody.
+type SetPriorityBody struct {
+	// Priority The card's own priority; empty clears it.
+	Priority SetPriorityBodyPriority `json:"priority"`
 }
+
+// SetPriorityBodyPriority The card's own priority; empty clears it.
+type SetPriorityBodyPriority string
 
 // Sprint A team's sprint pointer; the empty team is the no-team group.
 type Sprint = apiserver.Sprint
@@ -1196,11 +1220,11 @@ type DeferCardJSONRequestBody = DeferCardBody
 // MoveCardJSONRequestBody defines body for MoveCard for application/json ContentType.
 type MoveCardJSONRequestBody = MoveCardBody
 
+// SetPriorityJSONRequestBody defines body for SetPriority for application/json ContentType.
+type SetPriorityJSONRequestBody = SetPriorityBody
+
 // SendToReviewJSONRequestBody defines body for SendToReview for application/json ContentType.
 type SendToReviewJSONRequestBody = SendToReviewBody
-
-// SetTodoJSONRequestBody defines body for SetTodo for application/json ContentType.
-type SetTodoJSONRequestBody = SetTodoBody
 
 // UnassignWorkJSONRequestBody defines body for UnassignWork for application/json ContentType.
 type UnassignWorkJSONRequestBody = UnassignWorkBody
@@ -1279,6 +1303,9 @@ type ServerInterface interface {
 	// MoveCard Reorder the card after (or before) another one.
 	// (POST /cards/{uid}/actions/move)
 	MoveCard(w http.ResponseWriter, r *http.Request, uid UID)
+	// SetPriority Set the card's own priority — P1, P2, P3, or none.
+	// (POST /cards/{uid}/actions/priority)
+	SetPriority(w http.ResponseWriter, r *http.Request, uid UID)
 	// RemoveReviewer Take the reviewer off the card.
 	// (POST /cards/{uid}/actions/remove-reviewer)
 	RemoveReviewer(w http.ResponseWriter, r *http.Request, uid UID)
@@ -1288,9 +1315,6 @@ type ServerInterface interface {
 	// SendToReview Send the card to a reviewer, or reassign the review that exists.
 	// (POST /cards/{uid}/actions/send-to-review)
 	SendToReview(w http.ResponseWriter, r *http.Request, uid UID)
-	// SetTodo Mark parked work TO DO — ready to be taken next — or clear the mark.
-	// (POST /cards/{uid}/actions/todo)
-	SetTodo(w http.ResponseWriter, r *http.Request, uid UID)
 	// UnassignWork Take work in hand out of work, back to its team's backlog.
 	// (POST /cards/{uid}/actions/unassign-work)
 	UnassignWork(w http.ResponseWriter, r *http.Request, uid UID)
@@ -1604,6 +1628,32 @@ func (siw *ServerInterfaceWrapper) MoveCard(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
+// SetPriority operation middleware
+func (siw *ServerInterfaceWrapper) SetPriority(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "uid" -------------
+	var uid UID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "uid", r.PathValue("uid"), &uid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uid", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetPriority(w, r, uid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RemoveReviewer operation middleware
 func (siw *ServerInterfaceWrapper) RemoveReviewer(w http.ResponseWriter, r *http.Request) {
 
@@ -1673,32 +1723,6 @@ func (siw *ServerInterfaceWrapper) SendToReview(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendToReview(w, r, uid)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// SetTodo operation middleware
-func (siw *ServerInterfaceWrapper) SetTodo(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "uid" -------------
-	var uid UID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "uid", r.PathValue("uid"), &uid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uid", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SetTodo(w, r, uid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3345,7 +3369,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/reopen", wrapper.ReopenCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/send-to-review", wrapper.SendToReview)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/remove-reviewer", wrapper.RemoveReviewer)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/todo", wrapper.SetTodo)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/priority", wrapper.SetPriority)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/unassign-work", wrapper.UnassignWork)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cards/{uid}/links", wrapper.ListLinks)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cards/{uid}/log", wrapper.GetCardLog)
@@ -3638,6 +3662,46 @@ func (response MoveCarddefaultApplicationProblemPlusJSONResponse) VisitMoveCardR
 	return err
 }
 
+type SetPriorityRequestObject struct {
+	UID  UID `json:"uid"`
+	Body *SetPriorityJSONRequestBody
+}
+
+type SetPriorityResponseObject interface {
+	VisitSetPriorityResponse(w http.ResponseWriter) error
+}
+
+type SetPriority200JSONResponse Card
+
+func (response SetPriority200JSONResponse) VisitSetPriorityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetPrioritydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response SetPrioritydefaultApplicationProblemPlusJSONResponse) VisitSetPriorityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RemoveReviewerRequestObject struct {
 	UID UID `json:"uid"`
 }
@@ -3745,46 +3809,6 @@ type SendToReviewdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response SendToReviewdefaultApplicationProblemPlusJSONResponse) VisitSendToReviewResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type SetTodoRequestObject struct {
-	UID  UID `json:"uid"`
-	Body *SetTodoJSONRequestBody
-}
-
-type SetTodoResponseObject interface {
-	VisitSetTodoResponse(w http.ResponseWriter) error
-}
-
-type SetTodo200JSONResponse WorkChange
-
-func (response SetTodo200JSONResponse) VisitSetTodoResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type SetTododefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response SetTododefaultApplicationProblemPlusJSONResponse) VisitSetTodoResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -4912,6 +4936,9 @@ type StrictServerInterface interface {
 	// MoveCard Reorder the card after (or before) another one.
 	// (POST /cards/{uid}/actions/move)
 	MoveCard(ctx context.Context, request MoveCardRequestObject) (MoveCardResponseObject, error)
+	// SetPriority Set the card's own priority — P1, P2, P3, or none.
+	// (POST /cards/{uid}/actions/priority)
+	SetPriority(ctx context.Context, request SetPriorityRequestObject) (SetPriorityResponseObject, error)
 	// RemoveReviewer Take the reviewer off the card.
 	// (POST /cards/{uid}/actions/remove-reviewer)
 	RemoveReviewer(ctx context.Context, request RemoveReviewerRequestObject) (RemoveReviewerResponseObject, error)
@@ -4921,9 +4948,6 @@ type StrictServerInterface interface {
 	// SendToReview Send the card to a reviewer, or reassign the review that exists.
 	// (POST /cards/{uid}/actions/send-to-review)
 	SendToReview(ctx context.Context, request SendToReviewRequestObject) (SendToReviewResponseObject, error)
-	// SetTodo Mark parked work TO DO — ready to be taken next — or clear the mark.
-	// (POST /cards/{uid}/actions/todo)
-	SetTodo(ctx context.Context, request SetTodoRequestObject) (SetTodoResponseObject, error)
 	// UnassignWork Take work in hand out of work, back to its team's backlog.
 	// (POST /cards/{uid}/actions/unassign-work)
 	UnassignWork(ctx context.Context, request UnassignWorkRequestObject) (UnassignWorkResponseObject, error)
@@ -5255,6 +5279,39 @@ func (sh *strictHandler) MoveCard(w http.ResponseWriter, r *http.Request, uid UI
 	}
 }
 
+// SetPriority operation middleware
+func (sh *strictHandler) SetPriority(w http.ResponseWriter, r *http.Request, uid UID) {
+	var request SetPriorityRequestObject
+
+	request.UID = uid
+
+	var body SetPriorityJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetPriority(ctx, request.(SetPriorityRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetPriority")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetPriorityResponseObject); ok {
+		if err := validResponse.VisitSetPriorityResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // RemoveReviewer operation middleware
 func (sh *strictHandler) RemoveReviewer(w http.ResponseWriter, r *http.Request, uid UID) {
 	var request RemoveReviewerRequestObject
@@ -5333,39 +5390,6 @@ func (sh *strictHandler) SendToReview(w http.ResponseWriter, r *http.Request, ui
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SendToReviewResponseObject); ok {
 		if err := validResponse.VisitSendToReviewResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// SetTodo operation middleware
-func (sh *strictHandler) SetTodo(w http.ResponseWriter, r *http.Request, uid UID) {
-	var request SetTodoRequestObject
-
-	request.UID = uid
-
-	var body SetTodoJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.SetTodo(ctx, request.(SetTodoRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "SetTodo")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(SetTodoResponseObject); ok {
-		if err := validResponse.VisitSetTodoResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -94,11 +94,12 @@ type Card struct {
 	// task is in work (a date or a sprint) or parked, never both and never
 	// neither (K1). Read it through board.InBacklog.
 	Parked bool `json:"parked,omitempty"`
-	// Todo marks a parked task READY to be taken next — the Roadmap's TO DO
-	// (K15): it stands at the top of its backlog, in the Roadmap's order
-	// among the other TO DO tasks. It means nothing on work in hand, and is
-	// cleared when the task is taken into work or finished.
-	Todo bool `json:"todo,omitempty"`
+	// Priority is how much the card matters now, said by a person: P1, P2,
+	// P3 or none (K15). Any card carries one; what it counts under is its
+	// EFFECTIVE priority — its own, else the nearest ancestor's
+	// (Index.EffectivePriority). Never cleared by taking, finishing or
+	// reopening the card.
+	Priority PriorityKey `json:"priority,omitempty"`
 	// ReviewOf, on a review card, is the itemId of the original card it reviews.
 	ReviewOf string `json:"reviewOf,omitempty"`
 	// Parent is the ONE link of the hierarchy: the itemId of the card this

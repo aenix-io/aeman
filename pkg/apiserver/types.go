@@ -88,10 +88,9 @@ type CardSpec struct {
 	// or a sprint) or parked, never both and never neither
 	// (docs/design/backlog.md, K1). A task has no week (K7).
 	Parked bool `json:"parked,omitempty"`
-	// Todo marks a parked task ready to be taken next — the Roadmap's TO DO
-	// (K15): it stands at the top of its backlog. Cleared when the task is
-	// taken into work or finished.
-	Todo     bool   `json:"todo,omitempty"`
+	// Priority is the card's OWN priority — P1, P2, P3 or none (K15); what
+	// it counts under is status.effectivePriority.
+	Priority string `json:"priority,omitempty"`
 	ReviewOf string `json:"reviewOf,omitempty"`
 	// Parent is the uid of the card this one sits under — the ONE link of
 	// the hierarchy. What it means is the parent's type: under a task this
@@ -131,7 +130,7 @@ type ReviewedRef struct {
 // the tasks under it stand, through every level, and how many of them there
 // are. Never stored — read off the tree on every listing.
 type Hierarchy struct {
-	// Status is no-items, todo, in-progress or done (board.HierarchyStatus).
+	// Status is no-items, backlog, in-progress or done (board.HierarchyStatus).
 	Status string `json:"status"`
 	Done   int    `json:"done"`
 	Total  int    `json:"total"`
@@ -180,6 +179,12 @@ type CardStatus struct {
 	// EffectiveTeam is the team the card counts under (O3): its own, else
 	// the nearest ancestor's that has one. Computed, never written.
 	EffectiveTeam string `json:"effectiveTeam,omitempty"`
+	// EffectivePriority is the priority the card counts under (K15): its
+	// own, else the nearest ancestor's that has one; a review card's is its
+	// task's. Computed, never written. EffectivePriorityFrom names the
+	// ancestor it is taken from — absent when it is the card's own.
+	EffectivePriority     string      `json:"effectivePriority,omitempty"`
+	EffectivePriorityFrom *LineageRef `json:"effectivePriorityFrom,omitempty"`
 	// EffectiveCustomers is who the card is for (O4): every ancestor's
 	// customers and its own, the ancestors' first; a review card's are its
 	// task's (O6). Computed, never written.
@@ -393,7 +398,7 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 		Recurrence:  c.Recurrence,
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
 		Parked:      c.Parked,
-		Todo:        c.Todo,
+		Priority:    string(c.Priority),
 		ReviewOf:    c.ReviewOf,
 		Parent:      c.Parent,
 		Type:        c.Type,
@@ -408,6 +413,12 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 	}
 	if !board.IsStateTitle(c.Title) {
 		status.EffectiveTeam = ix.EffectiveTeam(c)
+		if p, from := ix.EffectivePriority(c); p != board.PriorityNone {
+			status.EffectivePriority = string(p)
+			if from.ItemID != "" {
+				status.EffectivePriorityFrom = &LineageRef{UID: from.ItemID, Type: from.Type, Title: from.Title}
+			}
+		}
 		status.EffectiveCustomers = ix.EffectiveCustomers(c)
 	}
 	up := ix.Lineage(c)

@@ -82,7 +82,8 @@ func Unplaced(c Card, subtask bool) bool {
 // (Less). The client mirrors it card by card (web/src/backlogboard.ts).
 //
 //   - Group: 0 for a review nobody has taken (K10: the "needs a reviewer"
-//     items stand above every task), 1 for a TO DO task (K15), 2 for the rest.
+//     items stand above every task); then the EFFECTIVE priority (K15) —
+//     1 for P1, 2 for P2, 3 for P3, 4 for none.
 //   - Loose: the card has no plan item above it; within a group the loose
 //     cards come after every planned one.
 //   - Path: the places in the board's order from the root of the card's tree
@@ -119,10 +120,8 @@ func (ix *Index) BacklogKey(c Card) BacklogKey {
 	if NeedsReviewer(c) {
 		return BacklogKey{Group: 0, Path: []int{own}}
 	}
-	group := 2
-	if c.Todo {
-		group = 1
-	}
+	p, _ := ix.EffectivePriority(c)
+	group := priorityRank(p)
 	up := ix.Lineage(c)
 	planned := false
 	for _, a := range up {
@@ -142,15 +141,16 @@ func (ix *Index) BacklogKey(c Card) BacklogKey {
 	return BacklogKey{Group: group, Path: append(path, own)}
 }
 
-// BacklogOrder sorts a backlog's cards the way it is read: in the ROADMAP's
-// order (K14), the TO DO tasks first (K15), the reviews nobody has taken
-// above them all (K10) — see BacklogKey.
+// BacklogOrder sorts a backlog's cards the way it is read: by EFFECTIVE
+// priority (K15) — P1, P2, P3, then none — and within each priority in the
+// ROADMAP's order (K14), the reviews nobody has taken above them all (K10) —
+// see BacklogKey.
 //
 // One order, decided by the tree: dragging a task in the backlog moves it
-// among its siblings under the same parent, which moves it on the Roadmap
-// too, and a task's place is never something the backlog keeps apart from
-// the Roadmap's. The board's order (rank, then id) is where the siblings'
-// order comes from, as on every board.
+// among its siblings under the same parent, in the same priority, which
+// moves it on the Roadmap too, and a task's place is never something the
+// backlog keeps apart from the Roadmap's. The board's order (rank, then id)
+// is where the siblings' order comes from, as on every board.
 func BacklogOrder(ix *Index, cards []Card) []Card {
 	out := append([]Card(nil), cards...)
 	keys := make(map[string]BacklogKey, len(out))
@@ -158,28 +158,6 @@ func BacklogOrder(ix *Index, cards []Card) []Card {
 		keys[c.ItemID] = ix.BacklogKey(c)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return keys[out[i].ItemID].Less(keys[out[j].ItemID]) })
-	return out
-}
-
-// ToDoTargets is what the Roadmap's TO DO means on a card (K15): on a task,
-// the task itself when it is parked open work in its backlog; on a plan
-// item, every such task under it at any depth (its leaf tasks), in board
-// order. A review, a subtask, work in hand and finished work are never
-// among them: the flag orders a backlog, and they are in none.
-func (ix *Index) ToDoTargets(c Card) []Card {
-	ready := func(t Card) bool { return t.ReviewOf == "" && ix.OnBacklog(t) }
-	if !IsPlanning(c) {
-		if ready(c) {
-			return []Card{c}
-		}
-		return nil
-	}
-	var out []Card
-	for _, t := range ix.LeafTasks(c.ItemID) {
-		if ready(t) {
-			out = append(out, t)
-		}
-	}
 	return out
 }
 

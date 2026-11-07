@@ -106,6 +106,7 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	}
 	w("zone", string(c.Zone))
 	w("size", string(c.Size))
+	w("priority", string(c.Priority))
 	w("stage", string(c.Stage))
 	wi("progress", c.Progress)
 	wi("doneFrom", c.DoneFrom)
@@ -119,9 +120,6 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	// and the next write of the card drops it.
 	if c.Parked {
 		b.WriteString("parked: true\n")
-	}
-	if c.Todo {
-		b.WriteString("todo: true\n")
 	}
 	w("parent", c.Parent)
 	w("reviewOf", c.ReviewOf)
@@ -384,8 +382,8 @@ func setKnown(f *CardFile, key string, val *yaml.Node) bool {
 		c.ReviewRound = num()
 	case "parked":
 		c.Parked = val.Value == "true"
-	case "todo":
-		c.Todo = val.Value == "true"
+	case "priority":
+		c.Priority = board.PriorityKey(val.Value)
 	default:
 		return false
 	}

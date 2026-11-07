@@ -454,12 +454,12 @@ func (f *fakeBackend) CheckWrite(_ context.Context, _ board.Board, card board.Ca
 	return nil
 }
 
-func (f *fakeBackend) SetTodo(_ context.Context, _ board.Board, card board.Card, todo bool) error {
+func (f *fakeBackend) SetPriority(_ context.Context, _ board.Board, card board.Card, priority board.PriorityKey) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.rec("SetTodo %s %t", card.ItemID, todo)
+	f.rec("SetPriority %s %s", card.ItemID, priority)
 	if c := f.get(card.ItemID); c != nil {
-		c.Todo = todo
+		c.Priority = priority
 	}
 	return nil
 }

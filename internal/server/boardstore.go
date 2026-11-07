@@ -1349,10 +1349,12 @@ func shownInLineage(c board.Card) string {
 	return c.Title + "\x00" + c.StartDate + "\x00" + c.Day
 }
 
-// shownOwning is what every card below a card takes from it: its team and
-// its customers (status.effectiveTeam/effectiveCustomers; O3, O4).
+// shownOwning is what every card below a card takes from it: its team, its
+// customers and its priority (status.effectiveTeam/effectiveCustomers/
+// effectivePriority; O3, O4, K15) — a changed one re-sends the subtree, and
+// every open backlog re-sorts on the frames.
 func shownOwning(c board.Card) string {
-	return c.Team + "\x00" + strings.Join(c.Customers, ",")
+	return c.Team + "\x00" + strings.Join(c.Customers, ",") + "\x00" + string(c.Priority)
 }
 
 // shownInReview is what a review card carries of the card it reviews: its
@@ -2370,16 +2372,16 @@ func (b *storeBackend) SetBacklog(
 	return nil
 }
 
-// SetTodo marks a parked task ready to be taken next, or clears the mark.
-func (b *storeBackend) SetTodo(ctx context.Context, bd board.Board, card board.Card, todo bool) error {
-	what := "clear the TO DO on " + cardRef(card)
-	if todo {
-		what = "mark " + cardRef(card) + " TO DO"
+// SetPriority sets the card's own priority ("" clears it).
+func (b *storeBackend) SetPriority(ctx context.Context, bd board.Board, card board.Card, priority board.PriorityKey) error {
+	what := "clear the priority of " + cardRef(card)
+	if priority != board.PriorityNone {
+		what = "set " + cardRef(card) + " to " + string(priority)
 	}
-	b.mutateCard(ctx, bd, card.ItemID, "todo", what, func(c *board.Card) {
-		c.Todo = todo
+	b.mutateCard(ctx, bd, card.ItemID, "priority", what, func(c *board.Card) {
+		c.Priority = priority
 	}, func(ctx context.Context) error {
-		return b.inner.SetTodo(ctx, bd, card, todo)
+		return b.inner.SetPriority(ctx, bd, card, priority)
 	})
 	return nil
 }

@@ -100,9 +100,9 @@ var sentinels = []struct {
 	{boardservice.ErrAlreadyInWork, http.StatusUnprocessableEntity, "alreadyInWork"},
 	{boardservice.ErrAlreadyFinished, http.StatusUnprocessableEntity, "alreadyFinished"},
 	{boardservice.ErrSomebodysCard, http.StatusUnprocessableEntity, "somebodysCard"},
-	// The Roadmap's status menu (K15, K16): TO DO on a task not waiting in a
-	// backlog, UNASSIGNED on one not in work.
-	{boardservice.ErrNotParkedWork, http.StatusUnprocessableEntity, "notParkedWork"},
+	// The Roadmap's badge menu (K15, K16): a priority the board has no such
+	// thing as, UNASSIGNED on a task not in work.
+	{boardservice.ErrBadPriority, http.StatusUnprocessableEntity, "badPriority"},
 	{boardservice.ErrNotInWork, http.StatusUnprocessableEntity, "notInWork"},
 	{boardservice.ErrNotATarget, http.StatusUnprocessableEntity, "notATarget"},
 	// A shelf for a card that has no place of its own, and a process turn

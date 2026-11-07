@@ -758,26 +758,15 @@ func zoneOf[T ~string](z *T) string {
 	return string(*z)
 }
 
-// SetTodo is the Roadmap's TO DO (K15): on a task or every parked task
-// under a plan item.
-func (a surface) SetTodo(ctx context.Context, req apiv1.SetTodoRequestObject) (apiv1.SetTodoResponseObject, error) {
-	svc, boardID, err := a.s.serviceOf()
+// SetPriority sets the card's own priority (K15) and answers with the card.
+func (a surface) SetPriority(ctx context.Context, req apiv1.SetPriorityRequestObject) (apiv1.SetPriorityResponseObject, error) {
+	card, err := a.cardAfter(ctx, req.UID, func(svc *boardservice.Service, boardID string) error {
+		return svc.SetPriority(ctx, boardID, req.UID, string(req.Body.Priority))
+	})
 	if err != nil {
 		return nil, err
 	}
-	var uids []string
-	if req.Body.Uids != nil {
-		uids = *req.Body.Uids
-	}
-	changed, err := svc.SetTodo(ctx, boardID, req.UID, req.Body.Todo, uids)
-	if err != nil {
-		return nil, err
-	}
-	items, err := a.s.cardsOf(ctx, svc, boardID, changed)
-	if err != nil {
-		return nil, err
-	}
-	return apiv1.SetTodo200JSONResponse{Changed: len(changed), Items: items}, nil
+	return apiv1.SetPriority200JSONResponse(card), nil
 }
 
 // UnassignWork is the Roadmap's UNASSIGNED (K16): on a task or every task in

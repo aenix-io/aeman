@@ -603,23 +603,22 @@ paths:
                 $ref: '#/components/schemas/Card'
         default:
           $ref: '#/components/responses/Problem'
-  /cards/{uid}/actions/todo:
+  /cards/{uid}/actions/priority:
     post:
-      operationId: setTodo
+      operationId: setPriority
       tags: [Cards]
-      summary: Mark parked work TO DO — ready to be taken next — or clear the mark.
+      summary: Set the card's own priority — P1, P2, P3, or none.
       description: >-
-        The Roadmap's status menu, TO DO. On a TASK it marks the task itself,
-        which must be waiting in its team's backlog — parked, open, not a
-        review or a subtask (422 `notParkedWork` otherwise). On a PLAN ITEM
-        (goal, initiative, epic) it marks every such task under it, at any
-        depth; with none there is nothing to change. A TO DO task stands at
-        the top of its backlog, in the Roadmap's order among the other TO DO
-        tasks, and loses the mark when it is taken into work or finished.
-        Every task is checked first — reachable from the card, and the
-        caller's to write (403 naming how many and which otherwise) — and
-        the request is applied whole or not at all, in one commit per
-        repository it touches.
+        The Roadmap's badge menu. Any card carries a priority: a task, a goal,
+        an initiative, an epic. What a card counts under is its EFFECTIVE
+        priority (`status.effectivePriority`): its own, else the nearest
+        ancestor's that has one — so a plan item's priority reaches every
+        card under it with none of its own, without being written on them.
+        A backlog reads P1 first, then P2, then P3, then none, each in the
+        Roadmap's order. An empty value clears the card's own. Nothing
+        clears it on its own: taking the card into work, finishing it and
+        reopening it keep it. Anything but P1, P2, P3 or empty is 422
+        `badPriority`.
       parameters:
         - $ref: '#/components/parameters/Uid'
       requestBody:
@@ -627,14 +626,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SetTodoBody'
+              $ref: '#/components/schemas/SetPriorityBody'
       responses:
         '200':
-          description: How many tasks changed.
+          description: The card after the change.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WorkChange'
+                $ref: '#/components/schemas/Card'
         default:
           $ref: '#/components/responses/Problem'
   /cards/{uid}/actions/unassign-work:
@@ -1326,6 +1325,7 @@ components:
             - backwardsDefer
             - badCapacity
             - badDay
+            - badPriority
             - bodyTooLarge
             - capacityRequired
             - cardNotFound
@@ -1361,7 +1361,6 @@ components:
             - notFinished
             - notInWork
             - notOnThisBoard
-            - notParkedWork
             - notYoursToRefuse
             - notYoursToRemove
             - noteNotFound
@@ -1543,13 +1542,12 @@ components:
             taken into work. Every team has a backlog and nothing declares it. A
             review card and a subtask are refused (422): neither has a place of
             its own to be parked in. A task has no week.
-        todo:
-          type: boolean
+        priority:
+          type: string
+          enum: ["", P1, P2, P3]
           description: >-
-            A parked task marked READY to be taken next — the Roadmap's TO DO
-            (`POST /cards/{uid}/actions/todo`). It stands at the top of its
-            backlog, in the Roadmap's order among the other TO DO tasks.
-            Cleared when the task is taken into work or finished.
+            The card's OWN priority (`POST /cards/{uid}/actions/priority`);
+            what it counts under is `status.effectivePriority`.
         reviewOf:
           type: string
         parent:
@@ -1654,6 +1652,20 @@ components:
           description: >-
             The team the card counts under: its own, else the nearest
             ancestor's that has one. Computed, never written.
+        effectivePriority:
+          type: string
+          enum: ["", P1, P2, P3]
+          description: >-
+            The priority the card counts under: its own, else the nearest
+            ancestor's that has one (a review card's is its task's). Computed,
+            never written. Absent when nobody above has one.
+        effectivePriorityFrom:
+          allOf:
+            - $ref: '#/components/schemas/LineageRef'
+          description: >-
+            The ancestor the effective priority is taken from — the Roadmap
+            draws an inherited priority lighter, naming it. Absent when the
+            priority is the card's own, or there is none.
         effectiveCustomers:
           type: array
           description: >-
@@ -1721,17 +1733,16 @@ components:
       description: >-
         A PLANNING card's derived standing, from the tasks under it through
         every level: no-items when nothing is under it; done when every leaf
-        task is complete; otherwise read off where the OPEN ones stand —
-        in-progress when any of them is in work (a date or a sprint, not
-        parked), ready (TO DO) when none is and every one is marked TO DO,
-        backlog when none is and not every one is — with the counts.
-        Progress, a person or a stage do not make it in progress by
-        themselves: a parked task is waiting. Never stored; absent on a task.
+        task is complete; in-progress when any OPEN one is in work (a date or
+        a sprint, not parked); backlog when there are open ones and none is
+        in work — with the counts. Progress, a person, a stage or a priority
+        do not make it in progress by themselves: a parked task is waiting.
+        Never stored; absent on a task.
       required: [status, done, total]
       properties:
         status:
           type: string
-          enum: [no-items, ready, backlog, in-progress, done]
+          enum: [no-items, backlog, in-progress, done]
         done:
           type: integer
         total:
@@ -1785,12 +1796,12 @@ components:
           type: array
           description: >-
             On a `backlog` listing only: the whole board's order, as every
-            `Ordering` frame carries it. A backlog reads in the Roadmap's
-            order (the path of places in this order from the root plan item
-            down to the task), TO DO tasks first and a review nobody has
-            taken above them all; a client that places a card the watch
-            brings in, or re-sorts on an `Ordering` frame, reads the same key
-            from it.
+            `Ordering` frame carries it. A backlog reads by effective
+            priority (P1, P2, P3, then none), each in the Roadmap's order (the
+            path of places in this order from the root plan item down to the
+            task), a review nobody has taken above them all; a client that
+            places a card the watch brings in, or re-sorts on an `Ordering`
+            frame, reads the same key from it.
           items:
             type: string
     Sprint:
@@ -2450,22 +2461,14 @@ components:
         days:
           type: integer
           description: How many days ahead of today the card is pushed; must be positive.
-    SetTodoBody:
+    SetPriorityBody:
       type: object
-      required: [todo]
+      required: [priority]
       properties:
-        todo:
-          type: boolean
-          description: "`true` marks the work TO DO, `false` clears the mark."
-        uids:
-          type: array
-          description: >-
-            Exactly the tasks to change, when given — the ones the reader was
-            shown and counted (a Roadmap filter shows fewer than the board
-            holds). Each must be one the gesture reaches from the card (422
-            `notATarget` otherwise). Absent: every task it reaches.
-          items:
-            type: string
+        priority:
+          type: string
+          enum: ["", P1, P2, P3]
+          description: The card's own priority; empty clears it.
     UnassignWorkBody:
       type: object
       properties:

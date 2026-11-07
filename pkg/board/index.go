@@ -219,16 +219,15 @@ func (ix *Index) OnBacklog(c Card) bool { return OnBacklog(c, ix.IsSubtask) }
 func (ix *Index) ReviewedBy(c Card) string { return ix.reviewedBy[c.ItemID] }
 
 // hierarchyStatus is the standing a set of leaf tasks gives their planning
-// card (H5, amended with K15/K16): NO ITEMS when there are none; DONE when
-// every one is complete; otherwise it is read off where the OPEN ones stand
-// — IN PROGRESS when any is in work (a date or a sprint, not parked), TO DO
-// ("ready") when none is and every one is marked TO DO, BACKLOG when none is
-// and not every one is. Progress, a person, a stage do not count by
-// themselves: a parked task at 49% is waiting, not being worked — and the
-// Roadmap's status menu, which moves tasks between work and the backlog,
-// shows on the plan item above them.
+// card (H5, amended with K16): NO ITEMS when there are none; DONE when every
+// one is complete; IN PROGRESS when any open one is in work (a date or a
+// sprint, not parked); BACKLOG when there are open ones and none is in work.
+// Progress, a person, a stage or a priority do not count by themselves: a
+// parked task at 49% is waiting, not being worked — and the Roadmap's
+// UNASSIGNED, which takes tasks out of work, shows on the plan item above
+// them.
 func hierarchyStatus(leaves []Card) (status string, done, total int) {
-	inWork, flagged := 0, 0
+	inWork := 0
 	for _, t := range leaves {
 		total++
 		switch {
@@ -236,8 +235,6 @@ func hierarchyStatus(leaves []Card) (status string, done, total int) {
 			done++
 		case InWork(t) && !InBacklog(t):
 			inWork++
-		case t.Todo && InBacklog(t):
-			flagged++
 		}
 	}
 	switch {
@@ -247,8 +244,6 @@ func hierarchyStatus(leaves []Card) (status string, done, total int) {
 		return HierarchyDone, done, total
 	case inWork > 0:
 		return HierarchyInProgress, done, total
-	case flagged == total-done:
-		return HierarchyReady, done, total
 	}
 	return HierarchyBacklog, done, total
 }
