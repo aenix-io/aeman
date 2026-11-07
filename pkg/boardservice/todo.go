@@ -85,24 +85,24 @@ func (s *Service) checkWrites(ctx context.Context, b board.Board, targets []boar
 	return nil
 }
 
-// SetTodo marks the card's parked work TO DO, or clears the mark, and says
-// how many tasks it changed. A task already marked the way asked is not
+// SetTodo marks the card's parked work TO DO, or clears the mark, and names
+// the tasks it changed (their uids, in board order). A task already marked the way asked is not
 // counted, so asking twice changes nothing the second time. On a task that
 // is not parked open work it is refused (ErrNotParkedWork); on a plan item
 // with nothing parked under it there is simply nothing to change. uids, when
 // given, names exactly the tasks to change (nil: every one it reaches).
-func (s *Service) SetTodo(ctx context.Context, boardID string, itemID string, todo bool, uids []string) (int, error) {
+func (s *Service) SetTodo(ctx context.Context, boardID string, itemID string, todo bool, uids []string) ([]string, error) {
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	reach := board.NewIndex(b).ToDoTargets(card)
 	if !board.IsPlanning(card) && len(reach) == 0 {
-		return 0, fmt.Errorf("%w: %q", ErrNotParkedWork, card.Title)
+		return nil, fmt.Errorf("%w: %q", ErrNotParkedWork, card.Title)
 	}
 	targets, err := gestureTargets(reach, uids)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	var change []board.Card
 	for _, t := range targets {
@@ -111,43 +111,47 @@ func (s *Service) SetTodo(ctx context.Context, boardID string, itemID string, to
 		}
 	}
 	if err := s.checkWrites(ctx, b, change); err != nil {
-		return 0, err
+		return nil, err
 	}
-	for i, t := range change {
+	done := make([]string, 0, len(change))
+	for _, t := range change {
 		if err := s.backend.SetTodo(ctx, b, t, todo); err != nil {
-			return i, err
+			return done, err
 		}
+		done = append(done, t.ItemID)
 	}
-	return len(change), nil
+	return done, nil
 }
 
 // UnassignWork takes the card's work in hand back to its team's backlog and
-// says how many tasks it moved. Each goes the ×'s unassign way (SetBacklog):
+// names the tasks it moved (their uids, in board order). Each goes the ×'s unassign way (SetBacklog):
 // nobody on it, no day, no sprint, the review it asked for withdrawn, parked
 // where it stands in the board's order. Finished work is never touched. On a
 // task that is not work in hand it is refused (ErrNotInWork); on a plan item
 // with none under it nothing moves. uids, when given, names exactly the
 // tasks to move (nil: every one it reaches).
-func (s *Service) UnassignWork(ctx context.Context, boardID string, itemID string, uids []string) (int, error) {
+func (s *Service) UnassignWork(ctx context.Context, boardID string, itemID string, uids []string) ([]string, error) {
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	reach := board.NewIndex(b).UnassignTargets(card)
 	if !board.IsPlanning(card) && len(reach) == 0 {
-		return 0, fmt.Errorf("%w: %q", ErrNotInWork, card.Title)
+		return nil, fmt.Errorf("%w: %q", ErrNotInWork, card.Title)
 	}
 	targets, err := gestureTargets(reach, uids)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	if err := s.checkWrites(ctx, b, targets); err != nil {
-		return 0, err
+		return nil, err
 	}
-	for i, t := range targets {
+	done := make([]string, 0, len(targets))
+	for _, t := range targets {
 		if err := s.setBacklogOn(ctx, b, t, true); err != nil {
-			return i, err
+			return done, err
 		}
+		done = append(done, t.ItemID)
 	}
-	return len(targets), nil
+	return done, nil
 }

@@ -835,10 +835,10 @@ export interface components {
             /** @description The ancestor's end date, when it has one — a planning card's bar ends there on the Roadmap. The Backlog shows the nearest planning card's end as the due date of the task under it. */
             end?: string;
         };
-        /** @description A PLANNING card's derived standing, from the tasks under it through every level: no-items when nothing is under it; done when every leaf task is complete; in-progress when any of them is assigned to somebody, has started or is finished; todo otherwise — with the counts. Never stored; absent on a task. */
+        /** @description A PLANNING card's derived standing, from the tasks under it through every level: no-items when nothing is under it; done when every leaf task is complete; otherwise read off where the OPEN ones stand — in-progress when any of them is in work (a date or a sprint, not parked), ready (TO DO) when none is and every one is marked TO DO, backlog when none is and not every one is — with the counts. Progress, a person or a stage do not make it in progress by themselves: a parked task is waiting. Never stored; absent on a task. */
         Hierarchy: {
             /** @enum {string} */
-            status: "no-items" | "todo" | "in-progress" | "done";
+            status: "no-items" | "ready" | "backlog" | "in-progress" | "done";
             done: number;
             total: number;
         };
@@ -1142,10 +1142,12 @@ export interface components {
             /** @description Exactly the tasks to take out of work, when given — the ones the confirm counted. Each must be one the gesture reaches from the card (422 `notATarget` otherwise). Absent: every task it reaches. */
             uids?: string[];
         };
-        /** @description How many tasks a status gesture on the Roadmap changed. */
+        /** @description What a status gesture on the Roadmap changed. */
         WorkChange: {
-            /** @description The tasks changed — on a plan item, every task under it the gesture reached; a task already as asked is not counted. */
+            /** @description How many tasks changed — on a plan item, every task under it the gesture reached; a task already as asked is not counted. */
             changed: number;
+            /** @description The changed tasks as they stand after the gesture, as the caller may see them. The watch does not echo a client's own writes, so this is how the acting tab learns what it did; the plan items above them re-derive their standing (and reach every watcher). */
+            items: components["schemas"]["Card"][];
         };
         SendToReviewBody: {
             reviewer?: string;

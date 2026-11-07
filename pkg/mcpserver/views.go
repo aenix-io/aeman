@@ -164,9 +164,10 @@ type unassignWorkInput struct {
 	UIDs []string `json:"uids,omitempty" jsonschema:"exactly the tasks to take out of work, each one the gesture reaches from the card; leave out for every task it reaches"`
 }
 
-// workChange answers a status gesture: how many tasks it changed.
+// workChange answers a status gesture: how many tasks it changed, and which.
 type workChange struct {
-	Changed int `json:"changed"`
+	Changed int      `json:"changed"`
+	UIDs    []string `json:"uids"`
 }
 
 func (h *server) setTodo(ctx context.Context, _ *mcp.CallToolRequest, in setTodoInput) (*mcp.CallToolResult, workChange, error) {
@@ -174,11 +175,11 @@ func (h *server) setTodo(ctx context.Context, _ *mcp.CallToolRequest, in setTodo
 	if err != nil {
 		return nil, workChange{}, err
 	}
-	n, err := svc.SetTodo(ctx, boardID, in.UID, in.Todo, in.UIDs)
+	changed, err := svc.SetTodo(ctx, boardID, in.UID, in.Todo, in.UIDs)
 	if err != nil {
 		return nil, workChange{}, err
 	}
-	return nil, workChange{Changed: n}, nil
+	return nil, workChange{Changed: len(changed), UIDs: changed}, nil
 }
 
 func (h *server) unassignWork(ctx context.Context, _ *mcp.CallToolRequest, in unassignWorkInput) (*mcp.CallToolResult, workChange, error) {
@@ -186,11 +187,11 @@ func (h *server) unassignWork(ctx context.Context, _ *mcp.CallToolRequest, in un
 	if err != nil {
 		return nil, workChange{}, err
 	}
-	n, err := svc.UnassignWork(ctx, boardID, in.UID, in.UIDs)
+	changed, err := svc.UnassignWork(ctx, boardID, in.UID, in.UIDs)
 	if err != nil {
 		return nil, workChange{}, err
 	}
-	return nil, workChange{Changed: n}, nil
+	return nil, workChange{Changed: len(changed), UIDs: changed}, nil
 }
 
 // --- The roster gestures the manage dialogs make -------------------------------

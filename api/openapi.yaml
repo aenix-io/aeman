@@ -1721,14 +1721,17 @@ components:
       description: >-
         A PLANNING card's derived standing, from the tasks under it through
         every level: no-items when nothing is under it; done when every leaf
-        task is complete; in-progress when any of them is assigned to
-        somebody, has started or is finished; todo otherwise — with the
-        counts. Never stored; absent on a task.
+        task is complete; otherwise read off where the OPEN ones stand —
+        in-progress when any of them is in work (a date or a sprint, not
+        parked), ready (TO DO) when none is and every one is marked TO DO,
+        backlog when none is and not every one is — with the counts.
+        Progress, a person or a stage do not make it in progress by
+        themselves: a parked task is waiting. Never stored; absent on a task.
       required: [status, done, total]
       properties:
         status:
           type: string
-          enum: [no-items, todo, in-progress, done]
+          enum: [no-items, ready, backlog, in-progress, done]
         done:
           type: integer
         total:
@@ -2477,14 +2480,23 @@ components:
     WorkChange:
       type: object
       additionalProperties: false
-      required: [changed]
-      description: How many tasks a status gesture on the Roadmap changed.
+      required: [changed, items]
+      description: What a status gesture on the Roadmap changed.
       properties:
         changed:
           type: integer
           description: >-
-            The tasks changed — on a plan item, every task under it the
+            How many tasks changed — on a plan item, every task under it the
             gesture reached; a task already as asked is not counted.
+        items:
+          type: array
+          description: >-
+            The changed tasks as they stand after the gesture, as the caller
+            may see them. The watch does not echo a client's own writes, so
+            this is how the acting tab learns what it did; the plan items
+            above them re-derive their standing (and reach every watcher).
+          items:
+            $ref: '#/components/schemas/Card'
     SendToReviewBody:
       type: object
       properties:

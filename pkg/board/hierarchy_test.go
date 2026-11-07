@@ -197,31 +197,39 @@ func TestHierarchyStatusIsDerivedFromTheLeafTasks(t *testing.T) {
 		c, _ := Find(b, id)
 		return HierarchyStatus(b, c)
 	}
+	// t1 is in work: in its sprint.
+	for i := range b.Cards {
+		if b.Cards[i].ItemID == "t1" {
+			b.Cards[i].SprintStart = TodayIso()
+		}
+	}
 	if st, done, total := status("goal"); st != HierarchyInProgress || done != 1 || total != 3 {
-		t.Errorf("goal: %s %d/%d, want in-progress 1/3 (t2 done, t1 at 40, p1 at 0)", st, done, total)
+		t.Errorf("goal: %s %d/%d, want in-progress 1/3 (t2 done, t1 in work, p1 waiting)", st, done, total)
 	}
 	if st, done, total := status("epic"); st != HierarchyInProgress || done != 0 || total != 1 {
-		t.Errorf("epic: %s %d/%d, want in-progress 0/1 (t1 is at 40)", st, done, total)
+		t.Errorf("epic: %s %d/%d, want in-progress 0/1 (t1 is in work)", st, done, total)
 	}
 	// Nothing under it at all: NO ITEMS — not "to do", which would read as
 	// work waiting when there is no work.
 	if st, done, total := status("empty"); st != HierarchyNoItems || done != 0 || total != 0 {
 		t.Errorf("empty: %s %d/%d, want no-items 0/0", st, done, total)
 	}
-	// Only tasks under it, none started and nobody's: TO DO. One
-	// of them done and the rest untouched: in progress. All done: done.
+	// Only tasks under it, all waiting in a backlog: BACKLOG. One of them
+	// done and the rest waiting: still BACKLOG — nothing is in work — and
+	// the count says how far it got (K16, the roll-up off where open tasks
+	// stand).
 	plan := NewBoard([]Card{
 		{ItemID: "e", Type: TypeEpic},
-		{ItemID: "a", Parent: "e", Team: "t"},
-		{ItemID: "b", Parent: "e", Team: "t"},
+		{ItemID: "a", Parent: "e", Team: "t", Parked: true},
+		{ItemID: "b", Parent: "e", Team: "t", Parked: true},
 	})
 	e, _ := Find(plan, "e")
-	if st, _, total := HierarchyStatus(plan, e); st != HierarchyTodo || total != 2 {
-		t.Errorf("untouched tasks: %s/%d, want todo/2", st, total)
+	if st, _, total := HierarchyStatus(plan, e); st != HierarchyBacklog || total != 2 {
+		t.Errorf("waiting tasks: %s/%d, want backlog/2", st, total)
 	}
 	plan.Cards[1].Progress = 100
-	if st, done, _ := HierarchyStatus(plan, e); st != HierarchyInProgress || done != 1 {
-		t.Errorf("one done: %s %d, want in-progress 1", st, done)
+	if st, done, _ := HierarchyStatus(plan, e); st != HierarchyBacklog || done != 1 {
+		t.Errorf("one done, one waiting: %s %d, want backlog 1", st, done)
 	}
 	plan.Cards[2].Progress = 100
 	if st, done, total := HierarchyStatus(plan, e); st != HierarchyDone || done != 2 || total != 2 {
@@ -329,12 +337,11 @@ func TestAPlanningCardReadsWithNoAssigneeAndKeepsItsTeam(t *testing.T) {
 	}
 }
 
-// Somebody being ON a task is work in progress, before the first percent is
-// typed: an initiative whose tasks are all assigned and none started is
-// being worked, and the Roadmap must say so. An unassigned, unstarted task
-// is to do; a task somebody owns is in progress; and a card that is a
-// subtask's parent counts once, assigned or not.
-func TestAnAssignedLeafTaskPutsItsPlanningCardInProgress(t *testing.T) {
+// A task taken into work is work in progress before the first percent is
+// typed: an initiative with a task in hand is being worked, and the Roadmap
+// must say so. With nothing in work it is waiting (backlog); and a card that
+// is a subtask's parent counts once.
+func TestALeafTaskInWorkPutsItsPlanningCardInProgress(t *testing.T) {
 	t.Parallel()
 	b := NewBoard([]Card{
 		{ItemID: "i", Type: TypeInitiative},
@@ -343,12 +350,14 @@ func TestAnAssignedLeafTaskPutsItsPlanningCardInProgress(t *testing.T) {
 		{ItemID: "t2", Parent: "e"},
 	})
 	i, _ := Find(b, "i")
-	if st, done, total := HierarchyStatus(b, i); st != HierarchyTodo || done != 0 || total != 2 {
-		t.Fatalf("nobody on anything: %s %d/%d, want todo 0/2", st, done, total)
+	if st, done, total := HierarchyStatus(b, i); st != HierarchyBacklog || done != 0 || total != 2 {
+		t.Fatalf("nothing in work: %s %d/%d, want backlog 0/2", st, done, total)
 	}
-	b.Cards[2].Assignees = []string{"ann"}
+	// Taken into work — a person, today, the sprint: in progress before the
+	// first percent is typed.
+	b.Cards[2].Assignees, b.Cards[2].SprintStart = []string{"ann"}, TodayIso()
 	if st, done, total := HierarchyStatus(b, i); st != HierarchyInProgress || done != 0 || total != 2 {
-		t.Fatalf("one task owned, none started: %s %d/%d, want in-progress 0/2", st, done, total)
+		t.Fatalf("one task in work, none started: %s %d/%d, want in-progress 0/2", st, done, total)
 	}
 	// Its subtask is nobody's and counts through its parent only.
 	b.Cards = append(b.Cards, Card{ItemID: "t1a", Parent: "t1"})

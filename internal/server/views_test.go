@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice/boardservicetest"
 )
@@ -515,6 +516,18 @@ func TestTheStatusMenuActsOnTheTasksTheReaderCountedOverHTTP(t *testing.T) {
 	rec := do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/unassign-work", `{"uids":["shown"]}`)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"changed":1`) {
 		t.Fatalf("UNASSIGNED on the counted task = %d %s", rec.Code, rec.Body.String())
+	}
+	// The answer carries the cards it changed, as they stand now: the acting
+	// tab hears no echo of its own write and patches exactly these.
+	var answer struct {
+		Changed int              `json:"changed"`
+		Items   []apiserver.Card `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil || len(answer.Items) != 1 {
+		t.Fatalf("the answer's items: %v %s", err, rec.Body.String())
+	}
+	if it := answer.Items[0]; it.Metadata.UID != "shown" || !it.Spec.Parked || len(it.Spec.Assignees) != 0 || it.Spec.Dates.Sprint != "" {
+		t.Fatalf("the changed card as it stands now: %+v", it)
 	}
 	if !fake.Card("shown").Parked || fake.Card("hidden").Parked {
 		t.Fatalf("only the counted task leaves work: shown %+v, hidden %+v", fake.Card("shown"), fake.Card("hidden"))

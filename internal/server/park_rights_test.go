@@ -80,7 +80,7 @@ func TestTheStatusMenuIsRefusedWholeOverAnUnwritableTask(t *testing.T) {
 		t.Fatal("a refused gesture wrote part of itself")
 	}
 	// Naming only what the visitor may write goes through.
-	if n, err := svc.UnassignWork(ctx, "acme", "e", []string{"mine"}); err != nil || n != 1 {
-		t.Fatalf("UNASSIGNED on the writable task alone = %d, %v", n, err)
+	if n, err := svc.UnassignWork(ctx, "acme", "e", []string{"mine"}); err != nil || len(n) != 1 {
+		t.Fatalf("UNASSIGNED on the writable task alone = %v, %v", n, err)
 	}
 }

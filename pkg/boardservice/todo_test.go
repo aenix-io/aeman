@@ -2,6 +2,7 @@ package boardservice
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -37,15 +38,15 @@ func roadmapWorkBoard() *fakeBackend {
 func TestToDoOnATaskMarksItReady(t *testing.T) {
 	f := roadmapWorkBoard()
 	n, err := New(f).SetTodo(ctx, "acme", "p1", true, nil)
-	if err != nil || n != 1 {
-		t.Fatalf("SetTodo = %d, %v; want 1 task marked", n, err)
+	if err != nil || len(n) != 1 {
+		t.Fatalf("SetTodo = %v, %v; want 1 task marked", n, err)
 	}
 	if !f.get("p1").Todo {
 		t.Fatal("p1 is TO DO")
 	}
 	// And back.
-	if n, err := New(f).SetTodo(ctx, "acme", "p1", false, nil); err != nil || n != 1 || f.get("p1").Todo {
-		t.Fatalf("clearing = %d, %v, todo=%v", n, err, f.get("p1").Todo)
+	if n, err := New(f).SetTodo(ctx, "acme", "p1", false, nil); err != nil || len(n) != 1 || f.get("p1").Todo {
+		t.Fatalf("clearing = %v, %v, todo=%v", n, err, f.get("p1").Todo)
 	}
 }
 
@@ -57,8 +58,8 @@ func TestToDoOnAPlanItemMarksEveryOpenParkedTaskUnderIt(t *testing.T) {
 	}
 	// p1 (under the epic, two levels down) and p2 (directly under the goal);
 	// not the work in hand, not the finished one, not the card elsewhere.
-	if n != 2 {
-		t.Fatalf("marked %d, want 2", n)
+	if !slices.Equal(n, []string{"p1", "p2"}) {
+		t.Fatalf("marked %v, want p1 and p2", n)
 	}
 	for id, want := range map[string]bool{"p1": true, "p2": true, "w1": false, "w2": false, "done-parked": false, "other": false, "sub": false} {
 		if got := f.get(id).Todo; got != want {
@@ -66,8 +67,8 @@ func TestToDoOnAPlanItemMarksEveryOpenParkedTaskUnderIt(t *testing.T) {
 		}
 	}
 	// Asked again it marks nothing: what is TO DO already stays so.
-	if n, err := New(f).SetTodo(ctx, "acme", "g", true, nil); err != nil || n != 0 {
-		t.Fatalf("a second TO DO = %d, %v; want 0", n, err)
+	if n, err := New(f).SetTodo(ctx, "acme", "g", true, nil); err != nil || len(n) != 0 {
+		t.Fatalf("a second TO DO = %v, %v; want 0", n, err)
 	}
 }
 
@@ -80,8 +81,8 @@ func TestToDoIsRefusedWhereItMeansNothing(t *testing.T) {
 	}
 	// A plan item with nothing parked under it is no error: nothing to mark.
 	g := newFake([]board.Card{{ItemID: "lonely", Type: board.TypeEpic}}, nil)
-	if n, err := New(g).SetTodo(ctx, "acme", "lonely", true, nil); err != nil || n != 0 {
-		t.Fatalf("TO DO on an empty epic = %d, %v", n, err)
+	if n, err := New(g).SetTodo(ctx, "acme", "lonely", true, nil); err != nil || len(n) != 0 {
+		t.Fatalf("TO DO on an empty epic = %v, %v", n, err)
 	}
 }
 
@@ -116,8 +117,8 @@ func TestFinishingATaskClearsItsToDo(t *testing.T) {
 func TestUnassignedOnATaskParksIt(t *testing.T) {
 	f := roadmapWorkBoard()
 	n, err := New(f).UnassignWork(ctx, "acme", "w1", nil)
-	if err != nil || n != 1 {
-		t.Fatalf("UnassignWork = %d, %v; want 1", n, err)
+	if err != nil || len(n) != 1 {
+		t.Fatalf("UnassignWork = %v, %v; want 1", n, err)
 	}
 	c := f.get("w1")
 	if !c.Parked || len(c.Assignees) != 0 || c.SprintStart != "" || c.Day != "" || c.StartDate != "" {
@@ -133,8 +134,8 @@ func TestUnassignedOnAPlanItemParksEveryOpenTaskInWorkUnderIt(t *testing.T) {
 		t.Fatalf("the confirm counts %d tasks, want 2 (w1, w2)", got)
 	}
 	n, err := svc.UnassignWork(ctx, "acme", "g", nil)
-	if err != nil || n != 2 {
-		t.Fatalf("UnassignWork = %d, %v; want 2", n, err)
+	if err != nil || !slices.Equal(n, []string{"w1", "w2"}) {
+		t.Fatalf("UnassignWork = %v, %v; want 2", n, err)
 	}
 	for _, id := range []string{"w1", "w2"} {
 		if c := f.get(id); !c.Parked || len(c.Assignees) != 0 {
@@ -145,8 +146,8 @@ func TestUnassignedOnAPlanItemParksEveryOpenTaskInWorkUnderIt(t *testing.T) {
 	if c := f.get("done-work"); c.Parked || c.SprintStart == "" {
 		t.Errorf("finished work stays where it is: %+v", c)
 	}
-	if n, err := svc.UnassignWork(ctx, "acme", "g", nil); err != nil || n != 0 {
-		t.Fatalf("a second UNASSIGNED = %d, %v; want 0", n, err)
+	if n, err := svc.UnassignWork(ctx, "acme", "g", nil); err != nil || len(n) != 0 {
+		t.Fatalf("a second UNASSIGNED = %v, %v; want 0", n, err)
 	}
 }
 
@@ -166,14 +167,14 @@ func TestUnassignedIsRefusedOnWorkNotInHand(t *testing.T) {
 func TestTheStatusMenuActsOnExactlyTheTasksItWasGiven(t *testing.T) {
 	f := roadmapWorkBoard()
 	n, err := New(f).UnassignWork(ctx, "acme", "g", []string{"w1"})
-	if err != nil || n != 1 {
-		t.Fatalf("UnassignWork(g, [w1]) = %d, %v; want 1", n, err)
+	if err != nil || len(n) != 1 {
+		t.Fatalf("UnassignWork(g, [w1]) = %v, %v; want 1", n, err)
 	}
 	if !f.get("w1").Parked || f.get("w2").Parked {
 		t.Fatalf("only the named task moves: w1 %+v, w2 %+v", f.get("w1"), f.get("w2"))
 	}
-	if n, err := New(f).SetTodo(ctx, "acme", "g", true, []string{"p2"}); err != nil || n != 1 || !f.get("p2").Todo || f.get("p1").Todo {
-		t.Fatalf("SetTodo(g, [p2]) = %d, %v; p1 %v p2 %v", n, err, f.get("p1").Todo, f.get("p2").Todo)
+	if n, err := New(f).SetTodo(ctx, "acme", "g", true, []string{"p2"}); err != nil || len(n) != 1 || !f.get("p2").Todo || f.get("p1").Todo {
+		t.Fatalf("SetTodo(g, [p2]) = %v, %v; p1 %v p2 %v", n, err, f.get("p1").Todo, f.get("p2").Todo)
 	}
 }
 

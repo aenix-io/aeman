@@ -13,7 +13,7 @@ func TestAReviewCardIsNotALeafTask(t *testing.T) {
 	t.Parallel()
 	b := NewBoard([]Card{
 		{ItemID: "epic", Title: "Billing", Type: TypeEpic},
-		{ItemID: "task", Title: "the work", Parent: "epic", Team: "alpha", Progress: 40},
+		{ItemID: "task", Title: "the work", Parent: "epic", Team: "alpha", Progress: 40, SprintStart: "2026-11-02"},
 		{ItemID: "rev", Title: "review: the work", ReviewOf: "task", Parent: "epic", Team: "alpha", Progress: 10},
 	})
 	if got := ids(LeafTasks(b, "epic")); !reflect.DeepEqual(got, []string{"task"}) {

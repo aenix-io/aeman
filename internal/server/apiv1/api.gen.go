@@ -645,7 +645,7 @@ type DeferCardBody struct {
 // DomainInfo One readable repository of the visitor's board: whether they may write it, and which of the board's members can read it — so a reviewer picker offers only people who will see the card.
 type DomainInfo = apiserver.DomainInfo
 
-// Hierarchy A PLANNING card's derived standing, from the tasks under it through every level: no-items when nothing is under it; done when every leaf task is complete; in-progress when any of them is assigned to somebody, has started or is finished; todo otherwise — with the counts. Never stored; absent on a task.
+// Hierarchy A PLANNING card's derived standing, from the tasks under it through every level: no-items when nothing is under it; done when every leaf task is complete; otherwise read off where the OPEN ones stand — in-progress when any of them is in work (a date or a sprint, not parked), ready (TO DO) when none is and every one is marked TO DO, backlog when none is and not every one is — with the counts. Progress, a person or a stage do not make it in progress by themselves: a parked task is waiting. Never stored; absent on a task.
 type Hierarchy = apiserver.Hierarchy
 
 // LineageRef One ancestor of a card.
@@ -899,10 +899,13 @@ type ViewList struct {
 // ViewListKind defines model for ViewList.Kind.
 type ViewListKind string
 
-// WorkChange How many tasks a status gesture on the Roadmap changed.
+// WorkChange What a status gesture on the Roadmap changed.
 type WorkChange struct {
-	// Changed The tasks changed — on a plan item, every task under it the gesture reached; a task already as asked is not counted.
+	// Changed How many tasks changed — on a plan item, every task under it the gesture reached; a task already as asked is not counted.
 	Changed int `json:"changed"`
+
+	// Items The changed tasks as they stand after the gesture, as the caller may see them. The watch does not echo a client's own writes, so this is how the acting tab learns what it did; the plan items above them re-derive their standing (and reach every watcher).
+	Items []Card `json:"items"`
 }
 
 // Assignee defines model for Assignee.

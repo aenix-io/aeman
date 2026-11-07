@@ -769,11 +769,15 @@ func (a surface) SetTodo(ctx context.Context, req apiv1.SetTodoRequestObject) (a
 	if req.Body.Uids != nil {
 		uids = *req.Body.Uids
 	}
-	n, err := svc.SetTodo(ctx, boardID, req.UID, req.Body.Todo, uids)
+	changed, err := svc.SetTodo(ctx, boardID, req.UID, req.Body.Todo, uids)
 	if err != nil {
 		return nil, err
 	}
-	return apiv1.SetTodo200JSONResponse{Changed: n}, nil
+	items, err := a.s.cardsOf(ctx, svc, boardID, changed)
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.SetTodo200JSONResponse{Changed: len(changed), Items: items}, nil
 }
 
 // UnassignWork is the Roadmap's UNASSIGNED (K16): on a task or every task in
@@ -787,11 +791,15 @@ func (a surface) UnassignWork(ctx context.Context, req apiv1.UnassignWorkRequest
 	if req.Body != nil && req.Body.Uids != nil {
 		uids = *req.Body.Uids
 	}
-	n, err := svc.UnassignWork(ctx, boardID, req.UID, uids)
+	changed, err := svc.UnassignWork(ctx, boardID, req.UID, uids)
 	if err != nil {
 		return nil, err
 	}
-	return apiv1.UnassignWork200JSONResponse{Changed: n}, nil
+	items, err := a.s.cardsOf(ctx, svc, boardID, changed)
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.UnassignWork200JSONResponse{Changed: len(changed), Items: items}, nil
 }
 
 // RemoveReviewer deletes the linked review card.
@@ -1088,6 +1096,28 @@ func (s *Server) cardOf(ctx context.Context, svc *boardservice.Service, boardID,
 		}
 	}
 	return apiserver.Card{}, fmt.Errorf("%w: %s", boardservice.ErrCardNotFound, uid)
+}
+
+// cardsOf is the cards named, as they stand now and as the caller may see
+// them (the visitor's board), in board order — one read of the board for
+// the lot. A card the caller may not read is left out.
+func (s *Server) cardsOf(ctx context.Context, svc *boardservice.Service, boardID string, uids []string) ([]apiserver.Card, error) {
+	b, err := svc.Board(ctx, boardID)
+	if err != nil {
+		return nil, err
+	}
+	want := make(map[string]bool, len(uids))
+	for _, id := range uids {
+		want[id] = true
+	}
+	out := make([]apiserver.Card, 0, len(uids))
+	ix := board.NewIndex(b)
+	for _, c := range b.Cards {
+		if want[c.ItemID] {
+			out = append(out, apiserver.CardResourceIn(b, ix, c))
+		}
+	}
+	return out, nil
 }
 
 // cardAfter runs one card action and answers with the card as it stands after

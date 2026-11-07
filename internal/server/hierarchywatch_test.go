@@ -80,7 +80,7 @@ func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) 
 
 	// The task is filed under the epic by "me": it moves INTO the tree (it was
 	// listed already, so the frame is a change, not an arrival), and the three
-	// above it change their standing — no items → to do.
+	// above it change their standing — no items → in progress (it is in work).
 	e.mu.Lock()
 	c1 := find("c1")
 	c1.Parent = "epic"
@@ -94,8 +94,8 @@ func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) 
 	}
 	for _, id := range []string{"goal", "init", "epic"} {
 		h := got[id].Card.Status.Hierarchy
-		if got[id].Type != "MODIFIED" || h == nil || h.Status != board.HierarchyTodo || h.Total != 1 {
-			t.Fatalf("%s after the attach = %s %+v, want MODIFIED todo 0/1", id, got[id].Type, h)
+		if got[id].Type != "MODIFIED" || h == nil || h.Status != board.HierarchyInProgress || h.Total != 1 {
+			t.Fatalf("%s after the attach = %s %+v, want MODIFIED in-progress 0/1 (the task is in work)", id, got[id].Type, h)
 		}
 	}
 	// The originator holds its own change already, but not the standing the

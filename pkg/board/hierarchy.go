@@ -18,11 +18,14 @@ const (
 )
 
 // The derived status of a planning card (HierarchyStatus): never stored.
-// Four words, and the difference between the first two is the point: a
-// card with NOTHING under it is not waiting for work, it has none.
+// Five words. A card with NOTHING under it is not waiting for work, it has
+// none (no items); work under it in hand is in progress; work under it all
+// waiting in backlogs is TO DO when every waiting task is marked ready
+// (ready) and BACKLOG otherwise; done when every task is.
 const (
 	HierarchyNoItems    = "no-items"
-	HierarchyTodo       = "todo"
+	HierarchyReady      = "ready"
+	HierarchyBacklog    = "backlog"
 	HierarchyInProgress = "in-progress"
 	HierarchyDone       = "done"
 )
