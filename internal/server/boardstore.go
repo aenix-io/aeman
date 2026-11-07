@@ -728,7 +728,9 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 			scoped = true
 			continue
 		}
-		if sub.rights.canRead(c.Domain) && !mine(origin, sub.clientID) {
+		// A DELETED is never swallowed as the author's echo: the card is gone,
+		// and a frame sent mid-action may have told them otherwise.
+		if sub.rights.canRead(c.Domain) && (verb == "DELETED" || !mine(origin, sub.clientID)) {
 			if !built {
 				res, built = buildCard(e.board, index(), c), true
 			}
@@ -805,11 +807,23 @@ func (e *boardEntry) flushMembers() {
 			}
 		}
 		for id := range sub.members {
-			if now[id] || (mirrored && mine(moved[id], sub.clientID)) {
+			if now[id] {
+				continue
+			}
+			// A card GONE from the board is told as DELETED to everyone, its
+			// author included: a write that ran in the same action — a
+			// child moving up from under a plan item being deleted — may
+			// have sent the author a MODIFIED for it mid-way, and swallowing
+			// the DELETED as their echo left the card on their board. A
+			// DELETED for a card a board already took off changes nothing.
+			// Only a card still on the board that left the author's view by
+			// their own change is spared, where the board mirrors the view.
+			c, onBoard := ix.Find(id)
+			if onBoard && mirrored && mine(moved[id], sub.clientID) {
 				continue
 			}
 			obj := tombstone(id)
-			if c, ok := ix.Find(id); ok {
+			if onBoard {
 				obj = sub.seen(buildCard(e.board, ix, c), ix.Find)
 			}
 			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})

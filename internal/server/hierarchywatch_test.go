@@ -707,3 +707,75 @@ func TestPlacementMovesTasksBetweenTheGridAndBacklogWatches(t *testing.T) {
 		t.Fatalf("unfiled: docs's backlog heard %v", got)
 	}
 }
+
+// A DELETED CARD IS NEVER LEFT ON ITS AUTHOR'S BOARD. Deleting a plan item
+// is one action of several writes: its children move up first, and only then
+// does the card go. The children's move names the plan item as the chain
+// they left, so a fan-out that runs between the writes — the coalescing
+// timer firing while the delete is still being written — sends the author a
+// MODIFIED for the plan item, which is still there. The DELETED that follows
+// was then swallowed as the author's own echo, and their board drew the
+// plan item again: "the epic comes back, I have to delete it twice". A card
+// gone from the board is told as DELETED to everyone, its author included —
+// a DELETED for a card a board already took off changes nothing.
+func TestADeletedPlanItemIsToldDeletedToItsAuthorLast(t *testing.T) {
+	for _, withChildren := range []bool{true, false} {
+		store := newBoardStore()
+		cards := []board.Card{
+			{ItemID: "goal", Title: "Grow", Type: board.TypeGoal},
+			{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "goal"},
+		}
+		if withChildren {
+			cards = append(cards, board.Card{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha", Parked: true})
+		}
+		e := seedEntry(store, "k", board.NewBoardIn("acme", cards))
+		author, cancel := store.subscribe("k", "me", &apiserver.Selector{View: "roadmap"}, map[string]bool{"cards": true})
+		if withChildren {
+			// The child moves up to the goal: a write the request did not
+			// address, so it is nobody's echo.
+			e.mu.Lock()
+			c, _ := board.Find(e.board, "t")
+			c.Parent = "goal"
+			e.upsertCard(c)
+			e.cardChanged("", c, "MODIFIED")
+			e.mu.Unlock()
+			// The coalesced fan-out fires while the delete is being written.
+			e.flushMembers()
+		}
+		// The plan item goes, by the author's own request.
+		e.mu.Lock()
+		epic, _ := board.Find(e.board, "epic")
+		e.removeCard("epic")
+		e.cardChanged("me", epic, "DELETED")
+		e.mu.Unlock()
+		settled(t, e)
+		var last string
+		for {
+			select {
+			case data := <-author.ch:
+				var f struct {
+					Type   string `json:"type"`
+					Object struct {
+						Metadata struct {
+							UID string `json:"uid"`
+						} `json:"metadata"`
+					} `json:"object"`
+				}
+				_ = json.Unmarshal(data, &f)
+				if f.Object.Metadata.UID == "epic" {
+					last = f.Type
+				}
+				continue
+			default:
+			}
+			break
+		}
+		cancel()
+		if withChildren && last != "DELETED" {
+			t.Fatalf("with children: the author's last frame for the deleted epic = %q, want DELETED", last)
+		}
+		if !withChildren && last != "" && last != "DELETED" {
+			t.Fatalf("no children: the author's last frame for the deleted epic = %q", last)
+		}
+	}
+}
