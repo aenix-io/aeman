@@ -60,6 +60,8 @@ import {
   priorityLabel,
   refusalRollback,
   unassignPreview,
+  unassignNotice,
+  NOTHING_IN_WORK,
   unassignQuestion,
   STATUS_LABEL,
 } from "./roadmap";
@@ -939,6 +941,11 @@ describe("the badge menu on the Roadmap (K15, K16)", () => {
     // The server found nothing in work under the row (the board moved since
     // the menu opened): there is no "Take 0 tasks out of work?" to ask.
     expect(unassignPreview([])).toBeNull();
+    // ...but the press is answered: a click that does nothing reads as a
+    // broken button. The notice is the disabled item's own wording.
+    expect(unassignNotice(null)).toBe(NOTHING_IN_WORK);
+    expect(NOTHING_IN_WORK).toBe("Nothing in work here");
+    expect(unassignNotice(["w1"])).toBeNull();
   });
 
   it("puts a refused priority back only when it was the latest press", () => {

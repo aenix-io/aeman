@@ -29,6 +29,8 @@ import {
   rolledUpAfter,
   workPatchOf,
   unassignPreview,
+  unassignNotice,
+  NOTHING_IN_WORK,
   priorityAfter,
   latestWins,
   refusalRollback,
@@ -1223,7 +1225,7 @@ export function RoadmapBoard({
               role="menuitem"
               className="roadmap-status-item"
               disabled={!menu.unassign}
-              title={menu.unassign ? "Take out of work, back to the backlog" : "Nothing in work here"}
+              title={menu.unassign ? "Take out of work, back to the backlog" : NOTHING_IN_WORK}
               onClick={() => {
                 // The confirm counts what the SERVER would take: the
                 // Roadmap may be filtered, and only the whole board knows
@@ -1233,9 +1235,13 @@ export function RoadmapBoard({
                 void provider
                   .previewUnassign(card.itemId)
                   .then((would) => {
-                    // Nothing in work under it any more: no confirm to open.
+                    // Nothing in work under it any more: no confirm to open,
+                    // but the press is answered rather than swallowed.
                     const uids = unassignPreview(would);
-                    if (uids) {
+                    const notice = unassignNotice(uids);
+                    if (notice) {
+                      onError(notice);
+                    } else if (uids) {
                       setUnassigning({ card, uids });
                     }
                   })

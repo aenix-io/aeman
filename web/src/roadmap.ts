@@ -1295,6 +1295,17 @@ export function unassignPreview(targets: readonly Card[]): string[] | null {
   return targets.length > 0 ? targets.map((t) => t.itemId) : null;
 }
 
+/** NOTHING_IN_WORK is what UNASSIGNED says of a row with nothing in work
+ *  under it — the disabled menu item's title, and the notice a press gets
+ *  when the server found nothing after the menu opened. */
+export const NOTHING_IN_WORK = "Nothing in work here";
+
+/** unassignNotice is what a press of UNASSIGNED says when there is no
+ *  confirm to open (unassignPreview found nothing), else null. */
+export function unassignNotice(uids: readonly string[] | null): string | null {
+  return uids ? null : NOTHING_IN_WORK;
+}
+
 /** unassignQuestion is what the confirm asks before UNASSIGNED. */
 export function unassignQuestion(n: number): string {
   return n === 1
