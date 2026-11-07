@@ -31,8 +31,8 @@ type upgrade func(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error)
 
 // upgrades holds the rewrite each version asks for. Version 1 introduced
 // the marker and rewrote nothing; version 2 is the hierarchy work's bump
-// (docs/design/hierarchy.md, H8): the Process feature retired, the column
-// renamed from epic to scope, card mirrors retired; version 3 is the team
+// (docs/design/hierarchy.md, H8): the Process feature retired, card mirrors
+// retired (the column rename it once carried went with the Project board); version 3 is the team
 // backlog (docs/design/backlog.md, K8).
 var upgrades = map[int]upgrade{
 	2: func(tree *object.Tree, _ []FileWrite) ([]FileWrite, error) { return schema2(tree) },
@@ -104,21 +104,22 @@ func MigrateSchema(r *Repo) (bool, error) {
 //  1. the processes/ tree goes (the Process feature retired);
 //  2. `process`, `task` and `accumulate` come off every card — a filed turn
 //     is ORPHANED, a card of its week and its zone and nothing more;
-//  3. the column stubs move from projects/<id>/epics/ to projects/<id>/scopes/,
-//     content untouched, and the card key `epic` is written as `scope`;
+//  3. the column stubs moved from projects/<id>/epics/ to
+//     projects/<id>/scopes/ and the card key `epic` was written as `scope` —
+//     retired with the Project board (H15): the projects/ tree and every card
+//     in a column are left exactly as they are, under either spelling;
 //  4. `mirrors` comes off every card (card mirrors retired);
-//  5. a card in a column is a PROJECT CARD and stands there alone (H4):
-//     `team`, `assignees` and `parent` come off it, and a card grouped UNDER
-//     one is ungrouped — a project card has no subtasks either.
+//  5. a card grouped UNDER a card in a column is ungrouped: the board reads
+//     no project card, so the link names nothing (H4, H15).
 //
 // The steps that rewrite a card COMPOSE: one pass decides per file whether
 // any of them applies and writes the file once with all of them applied —
 // independent passes would each produce a FileWrite for the same path and
 // the last would win, undoing the others. A card none of the steps touch is
-// not rewritten, so the commit touches exactly what the retired features,
-// the rename and the project-card rule touched. Step 5 needs to know which
-// cards stand in a column before it reads the rest, so the tree is walked
-// twice: once for the column cards' ids, once for the writes.
+// not rewritten, so the commit touches exactly what the retired features
+// touched. Step 5 needs to know which cards stand in a column before it
+// reads the rest, so the tree is walked twice: once for the column cards'
+// ids, once for the writes.
 
 // retiredCardKeys are the front-matter keys schema 2 takes off a card: the
 // Process feature's (steps 2) and the mirrors list (step 4). The codec no
@@ -126,32 +127,13 @@ func MigrateSchema(r *Repo) (bool, error) {
 // finds them.
 var retiredCardKeys = map[string]bool{"process": true, "task": true, "accumulate": true, "mirrors": true}
 
-// renamedCardKeys are the keys the codec reads under a NEW name: a file that
-// still spells the old one is rewritten so the current spelling is on disk
-// (step 3). The alias in setKnown is what makes the rewrite a plain
-// decode-and-encode.
-var renamedCardKeys = map[string]bool{"epic": true}
-
 // retiredProcessesDir is the directory the Process feature kept its
 // processes and tasks in; the whole tree goes (step 1).
 const retiredProcessesDir = "processes/"
 
-// oldColumnDir is the directory segment the column stubs used to live under
-// (step 3): projects/<id>/epics/<id>.yaml → projects/<id>/scopes/<id>.yaml.
-const oldColumnDir = "/epics/"
-
-// columnCardKeys are the keys that put a card in a column, under either
-// spelling (step 5 runs on a tree that may still say `epic`).
-var columnCardKeys = map[string]bool{"scope": true, "epic": true}
-
-// projectCardCannotCarryKeys are the keys step 5 takes off a card in a
-// column: a project card has no team, no owner, no parent, no band and no
-// size (H4).
-var projectCardCannotCarryKeys = map[string]bool{"team": true, "assignees": true, "parent": true, "zone": true, "size": true, "sprint": true, "week": true}
-
 // cardsInColumns lists the ids of the cards that stand in a column, read off
 // their front-matter keys alone — what step 5 needs to recognise a card
-// grouped under one of them.
+// grouped under one of them, and what every step needs to leave one alone.
 func cardsInColumns(tree *object.Tree) (map[string]bool, error) {
 	in := map[string]bool{}
 	err := tree.Files().ForEach(func(f *object.File) error {
@@ -163,15 +145,12 @@ func cardsInColumns(tree *object.Tree) (map[string]bool, error) {
 		if err != nil {
 			return fmt.Errorf("%s: %w", f.Name, err)
 		}
-		keys, err := frontKeys(data)
+		cf, err := DecodeCard(ids[0], data)
 		if err != nil {
 			return nil //nolint:nilerr // a broken card is left as every reader leaves it
 		}
-		for _, k := range keys {
-			if columnCardKeys[k] {
-				in[ids[0]] = true
-				break
-			}
+		if cf.ProjectCard {
+			in[ids[0]] = true
 		}
 		return nil
 	})
@@ -186,24 +165,14 @@ func schema2(tree *object.Tree) ([]FileWrite, error) {
 	}
 	var writes []FileWrite
 	err = tree.Files().ForEach(func(f *object.File) error {
-		switch {
-		case strings.HasPrefix(f.Name, retiredProcessesDir):
+		if strings.HasPrefix(f.Name, retiredProcessesDir) {
 			writes = append(writes, FileWrite{Path: f.Name})
-			return nil
-		case strings.HasPrefix(f.Name, "projects/") && strings.Contains(f.Name, oldColumnDir):
-			// The stub moves: same bytes under the new path, the old path
-			// deleted — in one commit, so no tree ever has both or neither.
-			data, err := readAll(f)
-			if err != nil {
-				return fmt.Errorf("%s: %w", f.Name, err)
-			}
-			writes = append(writes,
-				FileWrite{Path: strings.Replace(f.Name, oldColumnDir, "/scopes/", 1), Data: data},
-				FileWrite{Path: f.Name})
 			return nil
 		}
 		kind, ids := ParsePath(f.Name)
-		if kind != PathCard {
+		if kind != PathCard || inColumn[ids[0]] {
+			// A project card is the retired Project board's, and stays
+			// byte for byte what it was (H15).
 			return nil
 		}
 		data, err := readAll(f)
@@ -217,16 +186,12 @@ func schema2(tree *object.Tree) ([]FileWrite, error) {
 			return nil //nolint:nilerr // see above
 		}
 		// Which steps this file MIGHT need, read off its keys: the retired
-		// and renamed keys (steps 2–4), a team, an owner or a parent on a
-		// card in a column (step 5), and a parent on any card — which is
-		// step 5 too when the parent stands in a column, known only once the
-		// card is read.
+		// keys (steps 2 and 4), and a parent — which is step 5 when the
+		// parent stands in a column, known only once the card is read.
 		touched, hasParent := false, false
 		for _, k := range keys {
 			switch {
-			case retiredCardKeys[k] || renamedCardKeys[k]:
-				touched = true
-			case inColumn[ids[0]] && projectCardCannotCarryKeys[k]:
+			case retiredCardKeys[k]:
 				touched = true
 			case k == "parent":
 				hasParent = true
@@ -239,21 +204,7 @@ func schema2(tree *object.Tree) ([]FileWrite, error) {
 		if err != nil {
 			return nil //nolint:nilerr // see above
 		}
-		switch {
-		case cf.Card.Scope != "":
-			cf.Card.Team, cf.Card.Assignees, cf.Card.Parent = "", nil, ""
-			cf.Card.Zone, cf.Card.Size = "", ""
-			// And no sprint, no week: the runtime door that files a card into
-			// a column clears both, and a sprint on a card no day board draws
-			// is one a carry-over would move for nothing. A card whose week
-			// was its only date takes that week as its dates first — the
-			// Project board draws a card by its dates, and without them it
-			// would stand on no board at all.
-			if start, day, ok := board.WeekAsDates(cf.Card); ok {
-				cf.Card.StartDate, cf.Card.Day = start, day
-			}
-			cf.Card.SprintStart, cf.Card.Week = "", ""
-		case inColumn[cf.Card.Parent]:
+		if inColumn[cf.Card.Parent] {
 			cf.Card.Parent = ""
 			touched = true
 		}
@@ -308,8 +259,9 @@ func lastWriteWins(writes []FileWrite) []FileWrite {
 //     week — it is in work;
 //  3. an open task that would have stood in the Triage strip — no date, no
 //     sprint, no week, not parked — is PARKED;
-//  4. deadline stubs keep their week (they are not card files); project
-//     cards and planning cards have none already (schema 2);
+//  4. deadline stubs and project cards are the retired Project board's and
+//     are left as they are (H15); planning cards have no week already
+//     (schema 2);
 //  5. an open task on review with no review card gets the parked review
 //     card nobody has taken (K10, schema3Reviews).
 //
@@ -364,12 +316,17 @@ func schema3(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error) {
 		if err != nil {
 			return nil //nolint:nilerr // a broken card is left as every reader leaves it
 		}
-		if rewritten && cf.Card.Week == "" {
+		if cf.ProjectCard {
+			// A project card is no card of the board any more (H15): left
+			// as it is, and no parent of anything this step judges.
+			return nil
+		}
+		if rewritten && cf.Week == "" {
 			// An earlier step's write went through the codec, which no longer
 			// writes a week (K7): the week this step decides on is the one the
 			// file had in the tree.
 			if was, err := DecodeCard(ids[0], orig); err == nil {
-				cf.Card.Week = was.Card.Week
+				cf.Week = was.Week
 			}
 		}
 		cards = append(cards, held{path: f.Name, file: cf})
@@ -388,7 +345,7 @@ func schema3(tree *object.Tree, earlier []FileWrite) ([]FileWrite, error) {
 		// or not in this tree at all (deleted, another repository) — makes
 		// it a subtask.
 		subtask := c.Parent != "" && (!hasParent || !board.IsPlanning(p))
-		if !parkForSchema3(&c, subtask, today, sprints[c.Team]) {
+		if !parkForSchema3(&c, h.file.Week, subtask, today, sprints[c.Team]) {
 			continue
 		}
 		h.file.Card = c
@@ -431,7 +388,7 @@ func schema3Reviews(cards []board.Card, now time.Time) ([]FileWrite, error) {
 	}
 	var asking []board.Card
 	for _, c := range cards {
-		if c.Stage != board.StageReview || reviewed[c.ItemID] || board.IsPlanning(c) || c.Scope != "" ||
+		if c.Stage != board.StageReview || reviewed[c.ItemID] || board.IsPlanning(c) ||
 			c.ReviewOf != "" || board.Complete(c.Stage, c.Progress) {
 			continue
 		}
@@ -494,40 +451,39 @@ func schema3Reviews(cards []board.Card, now time.Time) ([]FileWrite, error) {
 // card rides a TASK parent; today is the day the week is judged against;
 // teamSprint is the current sprint of the card's team ("" for none), which a
 // task whose week has come joins.
-func PlaceForSchema3(c *board.Card, subtask bool, today, teamSprint string) bool {
-	return parkForSchema3(c, subtask, today, teamSprint)
+func PlaceForSchema3(c *board.Card, week string, subtask bool, today, teamSprint string) bool {
+	return parkForSchema3(c, week, subtask, today, teamSprint)
 }
 
 // parkForSchema3 is schema 3's rule for one card, and reports whether it
 // changed anything.
-func parkForSchema3(c *board.Card, subtask bool, today, teamSprint string) bool {
+func parkForSchema3(c *board.Card, week string, subtask bool, today, teamSprint string) bool {
 	changed := false
-	if c.Week != "" {
+	if week != "" {
 		// Steps 1 and 2: only a task that answers for its own place is
 		// placed; anything else just loses the week.
 		task := !board.IsStateTitle(c.Title) && !board.IsPlanning(*c) &&
-			c.Scope == "" && c.ReviewOf == "" && !subtask
+			c.ReviewOf == "" && !subtask
 		if task && !board.Complete(c.Stage, c.Progress) {
 			switch {
-			case c.Week > board.MondayOf(today) && !board.InWork(*c):
+			case week > board.MondayOf(today) && !board.InWork(*c):
 				// A week ahead: the backlog.
 				c.Parked = true
-			case c.Week <= board.MondayOf(today):
+			case week <= board.MondayOf(today):
 				// A week that has come: a debt on the day boards, kept
 				// there. Its week's Monday to Friday become its dates when it
 				// has none, and with no sprint it joins its team's current
 				// one — the week is what kept it on its owner's Me board
 				// (D17), and an open card of a past day with no sprint is on
 				// no Me board.
-				if start, day, ok := board.WeekAsDates(*c); ok {
-					c.StartDate, c.Day = start, day
+				if c.StartDate == "" {
+					c.StartDate, c.Day = week, board.AddDays(week, 4)
 				}
 				if c.SprintStart == "" && teamSprint != "" {
 					c.SprintStart = teamSprint
 				}
 			}
 		}
-		c.Week = ""
 		changed = true
 	}
 	// Step 3: the strip.

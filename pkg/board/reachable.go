@@ -2,12 +2,11 @@ package board
 
 // Reachable is every card some board still shows: the day boards for the days
 // a person opens (today, and each team's current and previous sprint day), the
-// Project board's columns, the Roadmap and every team's backlog, plus the
+// Roadmap and every team's backlog, plus the
 // cards that ride one of those — a subtask under its parent, a review card
 // beside its original.
 //
-// What it does NOT name is a card on no board at all: open, in no column, not
-// parked, and standing on none of those days — an UNPLACED task (K1) among
+// What it does NOT name is a card on no board at all: open, not parked, and standing on none of those days — an UNPLACED task (K1) among
 // them, the shape the Triage strip used to draw and schema 3 parks (K8). The × used to make them by
 // the dozen — it demoted a worked card into the previous sprint, out of
 // today's way and into a sprint the day grid does not draw, the Me board's
@@ -42,8 +41,6 @@ func Reachable(b Board, today string) map[string]bool {
 		case IsStateTitle(c.Title):
 		// A goal, an initiative or an epic: the Roadmap draws it (H3).
 		case IsPlanning(c):
-		// A Project-board column.
-		case c.Scope != "":
 		// A team's BACKLOG, which is a board — the whole point of parking is
 		// that the card waits somewhere a person opens. The day boards
 		// deliberately do not draw it, so nothing else here would name it,

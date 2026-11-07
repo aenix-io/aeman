@@ -16,7 +16,6 @@ func hierarchyBoard() board.Board {
 		{ItemID: "t1", Title: "Invoices", Parent: "epic", Team: "alpha", Assignees: []string{"dev"},
 			StartDate: today, Day: today, SprintStart: today, Progress: 40},
 		{ItemID: "t1a", Title: "Invoice PDF", Parent: "t1", Team: "alpha", Progress: 100},
-		{ItemID: "p1", Title: "Legal", Parent: "init", Scope: "Compliance", Project: "eu"},
 		{ItemID: "loose", Title: "Loose", Team: "alpha", Assignees: []string{"dev"},
 			StartDate: today, Day: today, SprintStart: today},
 		{ItemID: "loose-sub", Title: "Loose piece", Parent: "loose", Team: "alpha"},
@@ -26,13 +25,12 @@ func hierarchyBoard() board.Board {
 }
 
 // The roadmap view is the hierarchy AND the work that is not in it yet: every
-// planning card and every card with one above it — a task, its subtask, a
-// project card — and, below them, every OPEN task that has no planning card
+// planning card and every card with one above it — a task, its subtask —
+// and, below them, every OPEN task that has no planning card
 // above it: the work in hand on the Team and Me boards, the cards parked on a
 // shelf, the strip. Those are what a lead drags INTO the tree, so the tree's
 // board lists them (H9). What stays out: a task already finished outside the
-// hierarchy (nothing to plan), a project card in no hierarchy (the Project
-// board's), and a subtask whose parent task is out.
+// hierarchy (nothing to plan) and a subtask whose parent task is out.
 func TestTheRoadmapListsTheHierarchy(t *testing.T) {
 	t.Parallel()
 	b := hierarchyBoard()
@@ -47,14 +45,12 @@ func TestTheRoadmapListsTheHierarchy(t *testing.T) {
 		board.Card{ItemID: "parked", Title: "Someday", Team: "alpha", Parked: true},
 		// In the strip — nobody has said when — still work to plan.
 		board.Card{ItemID: "strip", Title: "Arrived"},
-		// A project card in no hierarchy is the Project board's alone (H4).
-		board.Card{ItemID: "p-alone", Title: "Plan", Scope: "Compliance", Project: "eu"},
 	)
 	got := []string{}
-	for _, c := range FilterCards(b, Selector{View: "roadmap", ProjectCards: true}) {
+	for _, c := range FilterCards(b, Selector{View: "roadmap"}) {
 		got = append(got, c.ItemID)
 	}
-	want := []string{"goal", "init", "epic", "t1", "t1a", "p1", "loose", "loose-sub", "parked", "strip"}
+	want := []string{"goal", "init", "epic", "t1", "t1a", "loose", "loose-sub", "parked", "strip"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("roadmap = %v, want %v", got, want)
 	}
@@ -79,7 +75,7 @@ func TestTheRoadmapListsTheHierarchy(t *testing.T) {
 			t.Errorf("the roadmap draws %s", id)
 		}
 	}
-	for _, id := range []string{"done-loose", "done-sub", "p-alone"} {
+	for _, id := range []string{"done-loose", "done-sub"} {
 		if Drawn(b, Selector{View: "roadmap"}, id) {
 			t.Errorf("%s is not on the roadmap", id)
 		}
@@ -110,53 +106,11 @@ func TestACardResourceCarriesItsLineageAndHierarchy(t *testing.T) {
 	if goal.Spec.Type != board.TypeGoal || len(goal.Status.Lineage) != 0 {
 		t.Fatalf("goal = %+v", goal.Spec)
 	}
-	// t1 at 40, p1 at 0: in progress, 0 of 2 (the subtask t1a is t1's own).
-	if h := goal.Status.Hierarchy; h == nil || h.Status != board.HierarchyInProgress || h.Done != 0 || h.Total != 2 {
-		t.Fatalf("hierarchy = %+v, want in-progress 0/2", h)
+	// t1 at 40: in progress, 0 of 1 (the subtask t1a is t1's own).
+	if h := goal.Status.Hierarchy; h == nil || h.Status != board.HierarchyInProgress || h.Done != 0 || h.Total != 1 {
+		t.Fatalf("hierarchy = %+v, want in-progress 0/1", h)
 	}
 	if CardResource(b, find("loose")).Status.Lineage != nil {
 		t.Fatal("a root has no lineage")
-	}
-}
-
-// THE PROJECT CARDS ARE ASKED FOR. The Roadmap's toolbar toggle is a
-// selector the server answers (projectCards), not a filter the SPA runs: by
-// default the listing leaves out every PROJECT card — a card in a Scope
-// column — even one filed under a planning card; asked for, they are listed
-// under their planning cards as before. The planning cards' derived standing
-// is the board's, not the listing's: it counts the same either way. And the
-// gate agrees with the listing, so a watch and a gesture on the roadmap
-// answer the same question.
-func TestTheRoadmapListsProjectCardsOnlyWhenAskedFor(t *testing.T) {
-	t.Parallel()
-	b := hierarchyBoard()
-	ids := func(sel Selector) []string {
-		out := []string{}
-		for _, c := range FilterCards(b, sel) {
-			out = append(out, c.ItemID)
-		}
-		return out
-	}
-	without := ids(Selector{View: "roadmap"})
-	if want := []string{"goal", "init", "epic", "t1", "t1a", "loose", "loose-sub"}; !reflect.DeepEqual(without, want) {
-		t.Fatalf("roadmap by default = %v, want %v (no project card)", without, want)
-	}
-	with := ids(Selector{View: "roadmap", ProjectCards: true})
-	if want := []string{"goal", "init", "epic", "t1", "t1a", "p1", "loose", "loose-sub"}; !reflect.DeepEqual(with, want) {
-		t.Fatalf("roadmap with project cards = %v, want %v", with, want)
-	}
-	if Drawn(b, Selector{View: "roadmap"}, "p1") {
-		t.Fatal("the gate draws a project card the listing leaves out")
-	}
-	if !Drawn(b, Selector{View: "roadmap", ProjectCards: true}, "p1") {
-		t.Fatal("the gate does not draw a project card the listing lists")
-	}
-	// The selector reads from the query, and means nothing off the roadmap.
-	sel, err := ParseViewSelector("roadmap", map[string][]string{"projectCards": {"true"}})
-	if err != nil || !sel.ProjectCards {
-		t.Fatalf("projectCards=true parsed as %+v, %v", sel, err)
-	}
-	if sel, _ := ParseViewSelector("roadmap", nil); sel.ProjectCards {
-		t.Fatal("project cards are listed by default")
 	}
 }

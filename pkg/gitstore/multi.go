@@ -24,9 +24,9 @@ type Domain struct {
 // ErrNoDomains is returned when a board has nothing to read.
 var ErrNoDomains = errors.New("gitstore: a board needs at least its primary domain")
 
-// ErrNameTaken refuses a roster name — a team, a project, a process — that
+// ErrNameTaken refuses a roster name — a team — that
 // some domain of the board already declares. Names are one namespace across
-// the board: a card refers to its team and project by name, and the domain
+// the board: a card refers to its team by name, and the domain
 // rule resolves them by name, so two of a kind would leave a card's home
 // undecidable. The store checks every domain, readable by the caller or not;
 // the read-side alias merge is left for collisions made behind its back.
@@ -134,15 +134,6 @@ func stamp(s *Snapshot, domain string) {
 	for i := range s.Teams {
 		s.Teams[i].Domain = domain
 	}
-	for i := range s.Projects {
-		s.Projects[i].Domain = domain
-		for j := range s.Projects[i].Scopes {
-			s.Projects[i].Scopes[j].Domain = domain
-		}
-		for j := range s.Projects[i].Deadlines {
-			s.Projects[i].Deadlines[j].Domain = domain
-		}
-	}
 }
 
 // merge folds the parts into one snapshot.
@@ -155,7 +146,6 @@ func merge(parts []Snapshot) Snapshot {
 	}
 	out.Cards, out.Ghosts = mergeCards(parts)
 	out.Teams, out.Aliases = mergeTeams(parts, out.Aliases)
-	out.Projects, out.Aliases = mergeProjects(parts, out.Aliases)
 	return out
 }
 
@@ -228,48 +218,4 @@ func mergeTeams(parts []Snapshot, aliases []Alias) ([]Team, []Alias) {
 	}
 	sort.Slice(teams, func(i, j int) bool { return byRank(teams[i].Rank, teams[i].ID, teams[j].Rank, teams[j].ID) })
 	return teams, aliases
-}
-
-// mergeProjects resolves duplicate names to the oldest and folds an alias
-// project's columns and deadline lines into the winner's.
-func mergeProjects(parts []Snapshot, aliases []Alias) ([]Project, []Alias) {
-	byName := map[string]*Project{}
-	for _, p := range parts {
-		for _, pr := range p.Projects {
-			pr := pr
-			prev, seen := byName[pr.Name]
-			if !seen {
-				byName[pr.Name] = &pr
-				continue
-			}
-			winner, loser := prev, &pr
-			if older(pr.Created, pr.ID, prev.Created, prev.ID) {
-				winner, loser = &pr, prev
-			}
-			winner.Scopes = append(winner.Scopes, loser.Scopes...)
-			winner.Deadlines = append(winner.Deadlines, loser.Deadlines...)
-			// The NO-PROJECT bucket is not a collision: every repository may
-			// declare its own nameless project file, and their columns are
-			// meant to merge under one entry while each keeps the repository
-			// it was declared in (ColumnDomain). Reporting it on
-			// /api/healthz told a maintainer to rename by hand a state the
-			// board produces on purpose.
-			if pr.Name != "" {
-				aliases = append(aliases, Alias{Kind: "project", Name: pr.Name, Domain: loser.Domain, ID: loser.ID, Winner: winner.ID})
-			}
-			byName[pr.Name] = winner
-		}
-	}
-	projects := make([]Project, 0, len(byName))
-	for _, pr := range byName {
-		sort.Slice(pr.Scopes, func(i, j int) bool {
-			return byRank(pr.Scopes[i].Rank, pr.Scopes[i].ID, pr.Scopes[j].Rank, pr.Scopes[j].ID)
-		})
-		sort.Slice(pr.Deadlines, func(i, j int) bool {
-			return byRank(pr.Deadlines[i].Week, pr.Deadlines[i].ID, pr.Deadlines[j].Week, pr.Deadlines[j].ID)
-		})
-		projects = append(projects, *pr)
-	}
-	sort.Slice(projects, func(i, j int) bool { return byRank(projects[i].Rank, projects[i].ID, projects[j].Rank, projects[j].ID) })
-	return projects, aliases
 }

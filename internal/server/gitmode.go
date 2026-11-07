@@ -274,8 +274,8 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 		domains = append(domains, gitDomain{Domain: gitstore.Domain{Name: spec.Name, Repo: repo}, remote: remote})
 	}
 	if len(domains) > 1 {
-		// Two repositories that already declare the same team, project or
-		// process cannot be served as one board — the merge would fold two
+		// Two repositories that already declare the same team cannot be
+		// served as one board — the merge would fold two
 		// different things into one. Refuse, naming both files.
 		plain := make([]gitstore.Domain, 0, len(domains))
 		for _, d := range domains {
@@ -317,19 +317,10 @@ func rosterCollision(s gitstore.Snapshot) error {
 	for _, t := range s.Teams {
 		domainOf[t.ID] = t.Domain
 	}
-	for _, p := range s.Projects {
-		domainOf[p.ID] = p.Domain
-	}
-	pathOf := func(kind, id string) string {
-		if kind == "team" {
-			return gitstore.TeamPath(id)
-		}
-		return gitstore.ProjectPath(id)
-	}
 	var b strings.Builder
 	b.WriteString("the repositories declare the same name twice; rename one of each pair and start again:")
 	for _, a := range s.Aliases {
-		fmt.Fprintf(&b, "\n  %s %q: %s/%s and %s/%s", a.Kind, a.Name, domainOf[a.Winner], pathOf(a.Kind, a.Winner), a.Domain, pathOf(a.Kind, a.ID))
+		fmt.Fprintf(&b, "\n  %s %q: %s/%s and %s/%s", a.Kind, a.Name, domainOf[a.Winner], gitstore.TeamPath(a.Winner), a.Domain, gitstore.TeamPath(a.ID))
 	}
 	return errors.New(b.String())
 }

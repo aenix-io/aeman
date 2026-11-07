@@ -133,16 +133,20 @@ func TestTheImporterPlacesAWeekOnlyTaskByWhereItsWeekStands(t *testing.T) {
 	thisWeek := board.MondayOf(today)
 	ahead := board.AddDays(thisWeek, 7)
 	gone := board.AddDays(thisWeek, -14)
+	weeks := map[string]string{
+		"PVTI_ahead": ahead, "PVTI_come": thisWeek, "PVTI_gone": gone,
+		"PVTI_loose": thisWeek, "PVTI_wdone": gone,
+	}
 	cards := []board.Card{
-		{ItemID: "PVTI_ahead", Title: "planned for next week", Team: "portal", Week: ahead,
+		{ItemID: "PVTI_ahead", Title: "planned for next week", Team: "portal",
 			Assignees: []string{"kvaps"}, CreatedAt: "2026-08-28T09:00:00Z"},
-		{ItemID: "PVTI_come", Title: "owed this week", Team: "portal", Week: thisWeek,
+		{ItemID: "PVTI_come", Title: "owed this week", Team: "portal",
 			Assignees: []string{"kvaps"}, CreatedAt: "2026-08-28T09:10:00Z"},
-		{ItemID: "PVTI_gone", Title: "owed two weeks ago", Team: "portal", Week: gone,
+		{ItemID: "PVTI_gone", Title: "owed two weeks ago", Team: "portal",
 			CreatedAt: "2026-08-28T09:20:00Z"},
-		{ItemID: "PVTI_loose", Title: "owed, of no team", Week: thisWeek,
+		{ItemID: "PVTI_loose", Title: "owed, of no team",
 			CreatedAt: "2026-08-28T09:25:00Z"},
-		{ItemID: "PVTI_wdone", Title: "finished in its week", Team: "portal", Week: gone, Progress: 100,
+		{ItemID: "PVTI_wdone", Title: "finished in its week", Team: "portal", Progress: 100,
 			CreatedAt: "2026-08-28T09:30:00Z"},
 		{ItemID: "PVTI_strip", Title: "nobody said when", Team: "portal", Progress: 20,
 			CreatedAt: "2026-08-29T09:00:00Z"},
@@ -153,7 +157,7 @@ func TestTheImporterPlacesAWeekOnlyTaskByWhereItsWeekStands(t *testing.T) {
 	}
 	items := map[string]ghsource.Item{}
 	for _, c := range cards {
-		items[c.ItemID] = ghsource.Item{IsDraft: true, Week: c.Week}
+		items[c.ItemID] = ghsource.Item{IsDraft: true, Week: weeks[c.ItemID]}
 	}
 	// The no-team group is on the roster, with no sprint, as on a real board.
 	src := boardservicetest.New(cards, map[string]board.SprintState{
@@ -175,9 +179,6 @@ func TestTheImporterPlacesAWeekOnlyTaskByWhereItsWeekStands(t *testing.T) {
 	got := map[string]board.Card{}
 	for _, c := range s.Cards {
 		got[c.Title] = c
-		if c.Week != "" {
-			t.Errorf("%q came in with a week", c.Title)
-		}
 	}
 	type want struct {
 		parked             bool

@@ -9,16 +9,11 @@ package board
 // IsStateTitle reports whether a title marks a roster stub — the hidden cards
 // NewBoard splits out of the card rows.
 func IsStateTitle(title string) bool {
-	switch title {
-	case SprintStateTitle, ProjectStateTitle, ScopeStateTitle, DeadlineStateTitle:
-		return true
-	}
-	return false
+	return title == SprintStateTitle
 }
 
 // Visible is the board as a visitor who can read only some domains sees it.
-// Cards, teams, projects, columns and deadlines of an unreadable domain are
-// absent. A card whose team is unreadable stays, under its team name — the
+// Cards and teams of an unreadable domain are absent. A card whose team is unreadable stays, under its team name — the
 // team's order slot and sprint pointer do not. An entry with no recorded
 // domain belongs to the primary. The input is not modified.
 func Visible(b Board, primary string, readable func(domain string) bool) Board {
@@ -48,31 +43,6 @@ func Visible(b Board, primary string, readable func(domain string) bool) Board {
 		}
 	}
 
-	v.Projects = nil
-	v.ProjectStates = nil
-	for _, name := range b.Projects {
-		id := b.ProjectStates[name]
-		if !entry(id) {
-			continue
-		}
-		v.Projects = append(v.Projects, name)
-		if v.ProjectStates == nil {
-			v.ProjectStates = map[string]string{}
-		}
-		v.ProjectStates[name] = id
-	}
-	v.Scopes = nil
-	for _, e := range b.Scopes {
-		if entry(e.ItemID) {
-			v.Scopes = append(v.Scopes, e)
-		}
-	}
-	v.Deadlines = nil
-	for _, d := range b.Deadlines {
-		if entry(d.ItemID) {
-			v.Deadlines = append(v.Deadlines, d)
-		}
-	}
 	if b.Domains != nil {
 		v.Domains = map[string]string{}
 		for id, d := range b.Domains {
@@ -98,7 +68,7 @@ func filterCards(cards []Card, keep func(Card) bool) []Card {
 }
 
 // boardResolver answers DomainOf's questions from a board snapshot: cards by
-// their own Domain, teams and projects by the roster's.
+// their own Domain, teams by the roster's.
 type boardResolver struct {
 	b       Board
 	primary string
@@ -125,14 +95,6 @@ func (r boardResolver) CardDomain(id string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func (r boardResolver) ProjectDomain(name string) (string, bool) {
-	id, ok := r.b.ProjectStates[name]
-	if !ok {
-		return "", false
-	}
-	return r.or(r.b.Domains[id]), true
 }
 
 func (r boardResolver) TeamDomain(name string) (string, bool) {

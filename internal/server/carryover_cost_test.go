@@ -40,7 +40,6 @@ func TestACarryOverAnnouncesTheBoardOnceNotPerCard(t *testing.T) {
 	files := []gitstore.FileWrite{
 		{Path: gitstore.BoardPath, Data: []byte("schema: 3\ntitle: t\n")},
 		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: " + yesterday + "\n")},
-		{Path: gitstore.ProjectPath("01JB4PROJ"), Data: []byte("name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
 	}
 	for i := range cards {
 		id := fmt.Sprintf("01CARRY%017d", i)

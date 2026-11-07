@@ -28,7 +28,6 @@ func takeSeed() *fakeBackend {
 		{ItemID: "t2", Title: "on review too", Team: "alpha", Stage: board.StageReview, Progress: 50, SprintStart: today, StartDate: today},
 		{ItemID: "r2", Title: "review: on review too", Team: "alpha", ReviewOf: "t2", Assignees: []string{"bob"}, SprintStart: today, StartDate: today},
 		{ItemID: "e", Title: "epic", Type: board.TypeEpic},
-		{ItemID: "slot", Title: "slot", Scope: "S", Project: "P"},
 		{ItemID: "k", Title: "a piece", Team: "alpha", Parent: "w"},
 		{ItemID: "d", Title: "done", Team: "alpha", Parked: true, Progress: 100},
 		// Parked with somebody named on it (a direct writer, an old file): it
@@ -71,13 +70,12 @@ func TestTakeMakesTheActorTheReviewerOfAReviewNobodyHadTaken(t *testing.T) {
 func TestTakeIsRefusedWhereThereIsNothingToTake(t *testing.T) {
 	me := WithActor(ctx, "kvaps")
 	for id, want := range map[string]error{
-		"w":    ErrAlreadyInWork,
-		"r2":   ErrOwnerFollowsLink,
-		"e":    ErrPlanningCard,
-		"slot": ErrProjectCard,
-		"k":    ErrOwnerFollowsLink,
-		"d":    ErrAlreadyFinished,
-		"h":    ErrSomebodysCard,
+		"w":  ErrAlreadyInWork,
+		"r2": ErrOwnerFollowsLink,
+		"e":  ErrPlanningCard,
+		"k":  ErrOwnerFollowsLink,
+		"d":  ErrAlreadyFinished,
+		"h":  ErrSomebodysCard,
 	} {
 		f := takeSeed()
 		before := *f.get(id)
@@ -105,7 +103,7 @@ func TestTakeIsTheBacklogsGesture(t *testing.T) {
 			t.Errorf("%s does not offer take", v)
 		}
 	}
-	for _, v := range []board.View{board.ViewMe, board.ViewTeam, board.ViewRoadmap, board.ViewProject} {
+	for _, v := range []board.View{board.ViewMe, board.ViewTeam, board.ViewRoadmap} {
 		if Offers(v, GestureTake) {
 			t.Errorf("%s offers take; it is the backlog's", v)
 		}

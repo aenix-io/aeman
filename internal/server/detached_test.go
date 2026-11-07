@@ -28,10 +28,6 @@ func fullBoard() board.Board {
 		SprintStates:   map[string]board.SprintState{"alpha": {ItemID: "s1"}},
 		People:         map[string]board.Person{"ann": {Capacity: 20}},
 		TeamOrder:      []string{"alpha"},
-		Scopes:         []board.ScopeCol{{ItemID: "e1", Name: "scope"}},
-		Deadlines:      []board.Deadline{{ItemID: "d1", Week: "2026-09-14"}},
-		Projects:       []string{"proj"},
-		ProjectStates:  map[string]string{"proj": "ps1"},
 		Domains:        map[string]string{"s1": "primary"},
 		DroppedParents: map[string]string{"c1": "gone"},
 		Customers:      []board.Customer{{ID: "cu1", Name: "Hidora"}},
@@ -152,9 +148,7 @@ func TestWritingTheCacheDoesNotReachABoardAlreadyHandedOut(t *testing.T) {
 	// field inside a row's own slice, and entries in its maps.
 	e.board.Cards[0].Title = "renamed"
 	e.board.Cards[0].Notes[0].Body = "edited"
-	e.board.Deadlines[0].Week = "2026-12-25"
-	e.board.Scopes[0].Name = "recolumned"
-	e.board.ProjectStates["proj"] = "other"
+	e.board.SprintStates["alpha"] = board.SprintState{ItemID: "other"}
 	e.board.People["ann"] = board.Person{Capacity: 99}
 	e.board.Domains["s1"] = "elsewhere"
 
@@ -164,14 +158,8 @@ func TestWritingTheCacheDoesNotReachABoardAlreadyHandedOut(t *testing.T) {
 	if got := handed.Cards[0].Notes[0].Body; got != "first" {
 		t.Errorf("note body = %q, want %q", got, "first")
 	}
-	if got := handed.Deadlines[0].Week; got != "2026-09-14" {
-		t.Errorf("deadline week = %q, want %q", got, "2026-09-14")
-	}
-	if got := handed.Scopes[0].Name; got != "scope" {
-		t.Errorf("scope name = %q, want %q", got, "scope")
-	}
-	if got := handed.ProjectStates["proj"]; got != "ps1" {
-		t.Errorf("project state = %q, want %q", got, "ps1")
+	if got := handed.SprintStates["alpha"].ItemID; got != "s1" {
+		t.Errorf("sprint state = %q, want %q", got, "s1")
 	}
 	if got := handed.People["ann"].Capacity; got != 20 {
 		t.Errorf("capacity = %d, want 20", got)
@@ -183,7 +171,7 @@ func TestWritingTheCacheDoesNotReachABoardAlreadyHandedOut(t *testing.T) {
 
 // An empty board must stay empty rather than gain allocated containers: a
 // nil Domains is how a single-domain board says it records none, and Visible
-// branches on a nil ProjectStates.
+// branches on a nil Domains.
 func TestDetachedKeepsNilContainersNil(t *testing.T) {
 	// Derived from Board rather than listed. A hand-written list checked six
 	// of the eleven, and the guard next door demanding all eleven non-empty
@@ -198,7 +186,7 @@ func TestDetachedKeepsNilContainersNil(t *testing.T) {
 
 // detached clones board.Board's own containers and each board.Card's, and
 // stops there. That is complete only while every other struct reachable from
-// a board is flat: a slice added to ScopeCol or Deadline would slip past the
+// a board is flat: a slice added to Customer or Person would slip past the
 // clone and past the guard above, which walks one level and would keep
 // passing.
 //

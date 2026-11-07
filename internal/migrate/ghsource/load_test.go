@@ -8,8 +8,10 @@ import (
 )
 
 // domainBoardJSON is a raw project exercising the domain mapping: a normal card
-// with every typed role set, a linked review card, and a hidden sprint-state
-// card that must be split out into SprintStates (not Cards).
+// with every typed role set, a linked review card, a hidden sprint-state
+// card that must be split out into SprintStates (not Cards), and the retired
+// Project board's items — a card in a column and a project stub — that must
+// not come in at all (H15).
 const domainBoardJSON = `{
   "id":"PVT_D","number":9,"title":"Domain","url":"https://example/9",
   "fields":{"nodes":[
@@ -29,7 +31,9 @@ const domainBoardJSON = `{
        {"id":"p_fri","name":"Fri","color":"PURPLE"}]},
     {"__typename":"ProjectV2Field","id":"F_WEEK","name":"Week","dataType":"DATE"},
     {"__typename":"ProjectV2Field","id":"F_REV","name":"Review Of","dataType":"TEXT"},
-    {"__typename":"ProjectV2Field","id":"F_ROUND","name":"Review Round","dataType":"NUMBER"}
+    {"__typename":"ProjectV2Field","id":"F_ROUND","name":"Review Round","dataType":"NUMBER"},
+    {"__typename":"ProjectV2Field","id":"F_EPIC","name":"Epic","dataType":"TEXT"},
+    {"__typename":"ProjectV2Field","id":"F_PROJ","name":"Project","dataType":"TEXT"}
   ]},
   "items":{"nodes":[
     {"id":"I_ORIG","type":"DRAFT_ISSUE","createdAt":"2026-06-20T10:00:00Z",
@@ -57,6 +61,17 @@ const domainBoardJSON = `{
         {"__typename":"ProjectV2ItemFieldTextValue","text":"alpha","field":{"id":"F_TEAM","name":"Team"}},
         {"__typename":"ProjectV2ItemFieldDateValue","date":"2026-06-22","field":{"id":"F_SS","name":"Sprint Start"}},
         {"__typename":"ProjectV2ItemFieldDateValue","date":"2026-06-08","field":{"id":"F_START","name":"Start"}}
+     ]}},
+    {"id":"I_SLOT","type":"DRAFT_ISSUE","createdAt":"2026-06-10T10:00:00Z",
+     "content":{"__typename":"DraftIssue","id":"DI_SLOT","title":"A slot","assignees":{"nodes":[]}},
+     "fieldValues":{"nodes":[
+        {"__typename":"ProjectV2ItemFieldTextValue","text":"Bugs","field":{"id":"F_EPIC","name":"Epic"}},
+        {"__typename":"ProjectV2ItemFieldTextValue","text":"portal","field":{"id":"F_PROJ","name":"Project"}}
+     ]}},
+    {"id":"I_PSTUB","type":"DRAFT_ISSUE","createdAt":"2026-06-09T10:00:00Z",
+     "content":{"__typename":"DraftIssue","id":"DI_PSTUB","title":"aeman:project-state","assignees":{"nodes":[]}},
+     "fieldValues":{"nodes":[
+        {"__typename":"ProjectV2ItemFieldTextValue","text":"portal","field":{"id":"F_PROJ","name":"Project"}}
      ]}}
   ]}
 }`
@@ -73,7 +88,20 @@ func TestMapDomainBoard(t *testing.T) {
 		t.Fatalf("board provenance = %q, want acme/9", b.Board)
 	}
 	if len(b.Cards) != 2 {
-		t.Fatalf("want 2 visible cards (state card split out), got %d", len(b.Cards))
+		t.Fatalf("want 2 visible cards (state card split out, Project board left out), got %d", len(b.Cards))
+	}
+	// The retired Project board is not imported (H15): neither the card in a
+	// column nor the roster stub, and the export says how many it left.
+	for _, id := range []string{"I_SLOT", "I_PSTUB"} {
+		if _, ok := board.Find(b, id); ok {
+			t.Errorf("%s of the retired Project board came in", id)
+		}
+		if _, ok := ex.Items[id]; ok {
+			t.Errorf("%s of the retired Project board has an item", id)
+		}
+	}
+	if ex.ProjectBoardItems != 2 {
+		t.Errorf("ProjectBoardItems = %d, want 2", ex.ProjectBoardItems)
 	}
 
 	// The sprint-state card is split into SprintStates, not Cards.
@@ -103,11 +131,11 @@ func TestMapDomainBoard(t *testing.T) {
 	if orig.StartDate != "2026-06-20" || orig.SprintStart != "2026-06-22" {
 		t.Errorf("orig dates = %q / %q", orig.StartDate, orig.SprintStart)
 	}
-	// The Week field is read off the item, and a TASK's week is read as
-	// nothing once the board is built (K7): the importer parks a task that
-	// had nothing but a week (schema 3's rule, K8).
-	if orig.Team != "alpha" || orig.Week != "" {
-		t.Errorf("orig team/week = %q / %q, want alpha and no week", orig.Team, orig.Week)
+	// The Week field is read off the item, never onto the card — a card has
+	// no week (K7): the importer parks a task that had nothing but a week
+	// (schema 3's rule, K8).
+	if orig.Team != "alpha" || ex.Items["I_ORIG"].Week != "2026-06-22" {
+		t.Errorf("orig team/week = %q / %q, want alpha and the item's week", orig.Team, ex.Items["I_ORIG"].Week)
 	}
 	if len(orig.Assignees) != 1 || orig.Assignees[0] != "bob" {
 		t.Errorf("orig assignees = %v", orig.Assignees)

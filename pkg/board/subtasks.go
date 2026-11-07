@@ -33,17 +33,17 @@ func Children(b Board, itemID string) []Card {
 // Followers lists the cards whose FILE moves with this one: its subtasks
 // and its review card, and THEIRS — the store's cascade recurses, so a
 // walk that stopped at the first ring went blind exactly where a
-// columnless child hides a columned review card. What follows a card
+// child hides its own review card. What follows a card
 // cannot be left behind by a move: neither its file nor the rules that
 // read it.
 //
 // A hierarchy link is not one of them: a task under an epic lives where its
-// own project or team lives (H6), so nothing follows a planning card.
+// own team lives (H6), so nothing follows a planning card.
 //
 // Cost: one pass over the board's cards per ring of the walk, and the
 // rings are shallow (a card, its subtasks and its review card). A caller
-// that asks for every card of a COLUMN — SetScopeProject does — pays that
-// per card; at board scale it is nothing, and a card index would be the
+// that asks it for many cards pays that per card; at board scale it is
+// nothing, and a card index would be the
 // answer if a board ever made it one.
 func Followers(b Board, itemID string) []Card {
 	// Nothing follows nobody. Every root card has an empty parent and an

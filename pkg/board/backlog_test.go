@@ -39,7 +39,6 @@ func TestATaskIsInWorkOrInItsBacklogNeverBothNeverNeither(t *testing.T) {
 		{"progress does not place a card", Card{Team: "alpha", Progress: 40}, false, false, true},
 		{"finished work is not asked to be placed", Card{Progress: 100}, false, false, false},
 		{"a planning card is not a task", Card{Type: TypeEpic}, false, false, false},
-		{"a project card is the Project board's", Card{Scope: "Auth", Project: "P"}, false, false, false},
 		{"a review card with a reviewer follows its original", Card{ReviewOf: "o", Assignees: []string{"bob"}}, false, false, false},
 		{"a state card is the roster", Card{Title: SprintStateTitle}, false, false, false},
 	}
@@ -99,7 +98,7 @@ func TestEveryTeamHasABacklogWithoutDeclaringOne(t *testing.T) {
 }
 
 // The backlog lists a team's PARKED OPEN TASKS and nothing else (K2): no
-// planning card (the Roadmap's), no project card (the Project board's), no
+// planning card (the Roadmap's), no
 // subtask (it rides its parent), no review card with a reviewer (it follows
 // the card it reviews) and nothing finished — the backlog never shows work
 // that is over. The one review card it does list is a review nobody has
@@ -110,7 +109,6 @@ func TestTheBacklogListsATeamsParkedOpenTasksOnly(t *testing.T) {
 		{ItemID: "task", Team: "alpha", Parked: true},
 		{ItemID: "under-epic", Team: "alpha", Parked: true, Parent: "epic"},
 		{ItemID: "kid", Team: "alpha", Parked: true, Parent: "task"},
-		{ItemID: "slot", Scope: "Auth", Project: "P", Parked: true},
 		{ItemID: "review", Team: "alpha", Parked: true, ReviewOf: "task", Assignees: []string{"bob"}},
 		{ItemID: "done", Team: "alpha", Parked: true, Progress: 100},
 		{ItemID: "in-work", Team: "alpha", StartDate: "2026-09-01"},

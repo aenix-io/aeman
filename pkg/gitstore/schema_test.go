@@ -127,22 +127,23 @@ func TestMigrateSchema2RetiresTheProcessTree(t *testing.T) {
 	}
 }
 
-// Schema 2 also renames the Project-board column from epic to scope and
-// retires card mirrors (docs/design/hierarchy.md): the column stubs move
-// from projects/<id>/epics/ to projects/<id>/scopes/ with their content
-// untouched, the card key `epic` is rewritten as `scope`, and the `mirrors`
-// key is stripped. Every step of the bump rewrites the SAME cards, so they
-// compose: a card the Process feature, the rename and the mirrors all
-// touched comes out with all three applied, in one write.
+// Schema 2 also retires card mirrors (docs/design/hierarchy.md): the
+// `mirrors` key is stripped. Every step of the bump rewrites the SAME cards,
+// so they compose: a card the Process feature and the mirrors both touched
+// comes out with both applied, in one write. The column rename the bump
+// once made (step 3) is retired with the Project board (H15): the projects/
+// tree and every card in a column — under either spelling of the key — are
+// left byte for byte as they were.
 func TestMigrateSchema2ComposesEveryCardRewrite(t *testing.T) {
-	shared := "---\ntitle: shared work\nteam: portal\nproject: engineering\nepic: Cozystack\nmirrors:\n  - {project: strategy, epic: Fundraising}\nprocess: Invoicing\ntask: 01JB4TASK\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n\nThe body stays.\n"
-	columnOnly := "---\ntitle: in a column\nproject: engineering\nepic: Cozystack\nrank: b\ncreated: 2026-08-26T09:15:03Z\n---\n"
+	shared := "---\ntitle: shared work\nteam: portal\nmirrors:\n  - {project: strategy, epic: Fundraising}\nprocess: Invoicing\ntask: 01JB4TASK\nsprint: 2026-08-24\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n\nThe body stays.\n"
+	columnOnly := "---\ntitle: in a column\nproject: engineering\nepic: Cozystack\nmirrors:\n  - {project: strategy, epic: Fundraising}\nrank: b\ncreated: 2026-08-26T09:15:03Z\n---\n"
 	plain := "---\ntitle: untouched\nteam: portal\nsprint: 2026-08-24\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n"
 	stub := "name: Cozystack\nrank: a\ncreated: 2026-06-04T08:00:00Z\n"
+	project := "name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n"
 	r := repoWith(t, map[string]string{
 		BoardPath:                                 "schema: 1\ntitle: b\n",
 		TeamPath("01JB4TEAM"):                     "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
-		ProjectPath("01JB4PROJ"):                  "name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		"projects/01JB4PROJ/project.yaml":         project,
 		"projects/01JB4PROJ/epics/01JB4COL.yaml":  stub,
 		"cards/c/1/01JB4K2E7QZMX3R8V0N5T9WYC1.md": shared,
 		"cards/c/2/01JB4K2E7QZMX3R8V0N5T9WYC2.md": columnOnly,
@@ -157,159 +158,94 @@ func TestMigrateSchema2ComposesEveryCardRewrite(t *testing.T) {
 	if len(c.ParentHashes) != 1 || c.ParentHashes[0] != head {
 		t.Fatalf("the whole bump is ONE commit on the old tip, got parents %v", c.ParentHashes)
 	}
-	// Step 3: the column stub moved, content untouched; the old path is gone.
-	if data, err := r.ReadFile(ScopePath("01JB4PROJ", "01JB4COL")); err != nil || string(data) != stub {
-		t.Fatalf("scopes/01JB4COL.yaml = %q (%v), want the stub as it was", data, err)
-	}
-	if _, err := r.ReadFile("projects/01JB4PROJ/epics/01JB4COL.yaml"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("the old column path should be gone, err = %v", err)
-	}
-	// Steps 2, 3, 4 and 5 on ONE card, composed: the retired keys go, the
-	// column key is respelled, and — a card in a column being a project card
-	// (H4) — the team it carried goes with them.
+	// Steps 2 and 4 on ONE card, composed.
 	data, err := r.ReadFile("cards/c/1/01JB4K2E7QZMX3R8V0N5T9WYC1.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := string(data)
-	for _, gone := range []string{"epic:", "mirrors:", "process:", "task:", "team:"} {
+	for _, gone := range []string{"mirrors:", "process:", "task:"} {
 		if strings.Contains(got, gone) {
 			t.Fatalf("%s survived the bump:\n%s", gone, got)
 		}
 	}
-	for _, kept := range []string{"title: shared work", "project: engineering", "scope: Cozystack", "The body stays."} {
+	for _, kept := range []string{"title: shared work", "team: portal", "The body stays."} {
 		if !strings.Contains(got, kept) {
 			t.Fatalf("%q was lost by the bump:\n%s", kept, got)
 		}
 	}
-	// Step 3 alone on a card nothing else touched.
-	if data, _ := r.ReadFile("cards/c/2/01JB4K2E7QZMX3R8V0N5T9WYC2.md"); !strings.Contains(string(data), "scope: Cozystack") || strings.Contains(string(data), "epic:") {
-		t.Fatalf("the column key must be rewritten:\n%s", data)
+	// The retired Project board is left exactly as it was: the column stub
+	// under its old directory, the project file, the card in the column.
+	for p, want := range map[string]string{
+		"projects/01JB4PROJ/project.yaml":         project,
+		"projects/01JB4PROJ/epics/01JB4COL.yaml":  stub,
+		"cards/c/2/01JB4K2E7QZMX3R8V0N5T9WYC2.md": columnOnly,
+	} {
+		if data, err := r.ReadFile(p); err != nil || string(data) != want {
+			t.Fatalf("%s was touched by the bump: %q %v", p, data, err)
+		}
+	}
+	if _, err := r.ReadFile("projects/01JB4PROJ/scopes/01JB4COL.yaml"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("the column stub is not moved any more, err = %v", err)
 	}
 	// A card none of the steps touched is not rewritten.
 	if data, _ := r.ReadFile("cards/c/3/01JB4K2E7QZMX3R8V0N5T9WYC3.md"); string(data) != plain {
 		t.Fatalf("an untouched card was rewritten:\n%s", data)
 	}
-	// And the migrated tree loads as a board whose column holds both cards.
 	if again, err := MigrateSchema(r); err != nil || again || r.Head() != c.Hash {
 		t.Fatalf("second run: migrated=%v err=%v head moved %v", again, err, r.Head() != c.Hash)
 	}
 }
 
-// Schema 2's last step (docs/design/hierarchy.md, H4): a card in a column is
-// a PROJECT CARD and stands there alone, so the bump takes off it the team,
-// the owner and the parent it may carry from before — a slot used to be
-// handed to a team and a person, and could be a subtask — and ungroups a
-// card that was grouped UNDER one, since a project card has no subtasks
-// either. A task keeps its team and owner untouched, and a card already in
-// that shape is not rewritten.
-func TestMigrateSchema2TakesAProjectCardOutOfEverybodysHands(t *testing.T) {
+// Schema 2's last step, as it stands since the Project board went (H15): a
+// card in a column is a project card, which no board reads — so the bump
+// leaves it byte for byte as it is, team, parent, week and all, and ungroups
+// a card that was grouped UNDER one, since that link names nothing a board
+// can show. A task keeps its team and owner untouched.
+func TestMigrateSchema2LeavesAProjectCardAsItIs(t *testing.T) {
 	const planID, pieceID, taskID, cleanID = "01JB4K2E7QZMX3R8V0N5T9WYC1", "01JB4K2E7QZMX3R8V0N5T9WYC2", "01JB4K2E7QZMX3R8V0N5T9WYC3", "01JB4K2E7QZMX3R8V0N5T9WYC4"
 	plan := "---\ntitle: a plan\nassignees:\n  - kvaps\nteam: portal\nzone: yellow\nsize: M\nstart: 2026-08-24\nday: 2026-08-28\nsprint: 2026-08-24\nweek: 2026-08-24\nproject: engineering\nepic: Cozystack\nparent: " + taskID + "\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n\nThe body stays.\n"
-	piece := "---\ntitle: a piece of the plan\nteam: portal\nparent: " + planID + "\nrank: b\ncreated: 2026-08-26T09:15:03Z\n---\n"
+	piece := "---\ntitle: a piece of the plan\nteam: portal\nsprint: 2026-08-24\nparent: " + planID + "\nrank: b\ncreated: 2026-08-26T09:15:03Z\n---\n"
 	task := "---\ntitle: a task\nassignees:\n  - kvaps\nteam: portal\nsprint: 2026-08-24\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n"
 	clean := "---\ntitle: already a plan\nproject: engineering\nscope: Cozystack\nrank: d\ncreated: 2026-08-26T09:17:03Z\n---\n"
 	r := repoWith(t, map[string]string{
-		BoardPath:                                "schema: 1\ntitle: b\n",
-		TeamPath("01JB4TEAM"):                    "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
-		ProjectPath("01JB4PROJ"):                 "name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		"projects/01JB4PROJ/epics/01JB4COL.yaml": "name: Cozystack\nrank: a\ncreated: 2026-06-04T08:00:00Z\n",
-		"cards/c/1/" + planID + ".md":            plan,
-		"cards/c/2/" + pieceID + ".md":           piece,
-		"cards/c/3/" + taskID + ".md":            task,
-		"cards/c/4/" + cleanID + ".md":           clean,
+		BoardPath:                      "schema: 1\ntitle: b\n",
+		TeamPath("01JB4TEAM"):          "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
+		"cards/c/1/" + planID + ".md":  plan,
+		"cards/c/2/" + pieceID + ".md": piece,
+		"cards/c/3/" + taskID + ".md":  task,
+		"cards/c/4/" + cleanID + ".md": clean,
 	})
 	migrated, err := MigrateSchema(r)
 	if err != nil || !migrated {
 		t.Fatalf("migrated=%v err=%v, want a migration", migrated, err)
 	}
 	c, _ := r.CommitObject(r.Head())
-	// Step 5 on the card in the column: team, owner, parent, band and size
-	// gone, the rest as it was — and step 3 composed with it.
-	data, err := r.ReadFile("cards/c/1/" + planID + ".md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(data)
-	// A sprint and a week go too: a team had picked the card up before the
-	// rule, and a sprint on a card no day board draws is one a carry-over
-	// would move for nothing. The runtime door (SetScope) clears both; the
-	// bump leaves the repository in the one shape the service produces.
-	for _, gone := range []string{"team:", "assignees:", "kvaps", "parent:", "epic:", "zone:", "size:", "sprint:", "week:"} {
-		if strings.Contains(got, gone) {
-			t.Fatalf("%s survived the bump on a project card:\n%s", gone, got)
-		}
-	}
-	for _, kept := range []string{"title: a plan", "scope: Cozystack", "project: engineering", "start: 2026-08-24", "day: 2026-08-28", "The body stays."} {
-		if !strings.Contains(got, kept) {
-			t.Fatalf("%q was lost by the bump:\n%s", kept, got)
+	for p, want := range map[string]string{
+		"cards/c/1/" + planID + ".md":  plan,
+		"cards/c/3/" + taskID + ".md":  task,
+		"cards/c/4/" + cleanID + ".md": clean,
+	} {
+		if data, _ := r.ReadFile(p); string(data) != want {
+			t.Fatalf("%s was rewritten:\n%s", p, data)
 		}
 	}
 	// The card grouped under it is ungrouped, and keeps everything else.
-	data, _ = r.ReadFile("cards/c/2/" + pieceID + ".md")
+	data, _ := r.ReadFile("cards/c/2/" + pieceID + ".md")
 	if got := string(data); strings.Contains(got, "parent:") || !strings.Contains(got, "team: portal") {
 		t.Fatalf("a card grouped under a project card is ungrouped and nothing more:\n%s", got)
 	}
-	// A task keeps its team and owner, byte for byte; a card already in
-	// shape is not rewritten.
-	if data, _ := r.ReadFile("cards/c/3/" + taskID + ".md"); string(data) != task {
-		t.Fatalf("a task was rewritten:\n%s", data)
-	}
-	if data, _ := r.ReadFile("cards/c/4/" + cleanID + ".md"); string(data) != clean {
-		t.Fatalf("a project card already in shape was rewritten:\n%s", data)
-	}
-	// And the migrated tree reads as a board on which the plan has no team.
+	// And the migrated tree reads as a board without either project card.
 	snap, err := Load(r)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, card := range snap.Cards {
-		if card.ItemID == planID && (card.Team != "" || len(card.Assignees) != 0 || card.Parent != "" || card.Zone != "" || card.Size != "" || card.SprintStart != "" || card.Week != "") {
-			t.Fatalf("the loaded project card still carries %+v", card)
+		if card.ItemID == planID || card.ItemID == cleanID {
+			t.Fatalf("a project card is read as a card: %+v", card)
 		}
 	}
 	if again, err := MigrateSchema(r); err != nil || again || r.Head() != c.Hash {
 		t.Fatalf("second run: migrated=%v err=%v head moved %v", again, err, r.Head() != c.Hash)
-	}
-}
-
-// Step 5 takes the WEEK off a card in a column — and a card whose week was
-// its only date (a slot of the weekly plan, from before the week→dates
-// conversion) would then have no row on the Project board: in no column a
-// person can see, on no day board, on no list. So the week becomes the card's
-// dates first, Monday to Friday, the conversion SetScope makes at runtime;
-// dates the card already has win. The bump stays idempotent.
-func TestMigrateSchema2GivesAWeekOnlyColumnCardItsWeeksDates(t *testing.T) {
-	const slotID, datedID = "01JB4K2E7QZMX3R8V0N5T9WYD1", "01JB4K2E7QZMX3R8V0N5T9WYD2"
-	slot := "---\ntitle: a slot of the week\nweek: 2026-10-05\nproject: engineering\nepic: Cozystack\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n"
-	dated := "---\ntitle: a dated slot\nstart: 2026-10-01\nday: 2026-10-03\nweek: 2026-10-05\nproject: engineering\nepic: Cozystack\nrank: b\ncreated: 2026-08-26T09:15:03Z\n---\n"
-	r := repoWith(t, map[string]string{
-		BoardPath:                                "schema: 1\ntitle: b\n",
-		ProjectPath("01JB4PROJ"):                 "name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		"projects/01JB4PROJ/epics/01JB4COL.yaml": "name: Cozystack\nrank: a\ncreated: 2026-06-04T08:00:00Z\n",
-		"cards/d/1/" + slotID + ".md":            slot,
-		"cards/d/2/" + datedID + ".md":           dated,
-	})
-	if migrated, err := MigrateSchema(r); err != nil || !migrated {
-		t.Fatalf("migrated=%v err=%v, want a migration", migrated, err)
-	}
-	head := r.Head()
-	data, _ := r.ReadFile("cards/d/1/" + slotID + ".md")
-	got := string(data)
-	for _, want := range []string{"start: 2026-10-05", "day: 2026-10-09", "scope: Cozystack"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("a week-only column card lost its row, %q missing:\n%s", want, got)
-		}
-	}
-	if strings.Contains(got, "week:") {
-		t.Fatalf("the week survived the bump:\n%s", got)
-	}
-	data, _ = r.ReadFile("cards/d/2/" + datedID + ".md")
-	got = string(data)
-	if !strings.Contains(got, "start: 2026-10-01") || !strings.Contains(got, "day: 2026-10-03") || strings.Contains(got, "week:") {
-		t.Fatalf("a column card's own dates win over its week:\n%s", got)
-	}
-	if again, err := MigrateSchema(r); err != nil || again || r.Head() != head {
-		t.Fatalf("second run: migrated=%v err=%v head moved %v", again, err, r.Head() != head)
 	}
 }

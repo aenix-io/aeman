@@ -28,12 +28,11 @@ var ErrParentLevel = errors.New("a parent is of a higher level than its child")
 var ErrReviewCardLink = errors.New("a review card follows the card it reviews and sits under nothing of its own")
 
 // ErrPlanningCard is a goal, an initiative or an epic asked to carry what a
-// TASK carries: a stage, a progress, a band, a backlog, a sprint, a column,
-// a review. A planning card is drawn on the Roadmap and on no day
+// TASK carries: a stage, a progress, a band, a backlog, a sprint, a review. A planning card is drawn on the Roadmap and on no day
 // board (H3), and its status is derived from the tasks under it (H5) — a
 // write of any of those would be a second answer to a question the tree
 // already answers.
-var ErrPlanningCard = errors.New("a planning card has no stage, progress, band, size, backlog, sprint, column or review of its own")
+var ErrPlanningCard = errors.New("a planning card has no stage, progress, band, size, backlog, sprint or review of its own")
 
 // notAPlanningCard is the guard every task-only write starts with.
 func notAPlanningCard(c board.Card, what string) error {
@@ -42,6 +41,11 @@ func notAPlanningCard(c board.Card, what string) error {
 	}
 	return fmt.Errorf("%w: %q is %s and takes no %s", ErrPlanningCard, c.Title, articled(c.Type), what)
 }
+
+// ErrCrossDomain is a link that would cross a repository boundary: a card is
+// one file in one repository, and a parent elsewhere would be a hole to the
+// child's readers who cannot read it.
+var ErrCrossDomain = errors.New("the link would cross into another repository")
 
 // articled puts the article on a type for a sentence: "an epic", "a goal".
 func articled(typ string) string {
@@ -57,8 +61,6 @@ func articled(typ string) string {
 func planningCardCannotBe(args CreateCardArgs) error {
 	var what string
 	switch {
-	case args.Scope != "" || args.Project != "":
-		what = "column"
 	case args.Assignee != "":
 		// Its OWNER is the person who answers for it (O1, CreateCardArgs
 		// .Owner); an assignee is somebody doing the work, which a plan
@@ -95,18 +97,17 @@ func hierarchyLinkAllowed(b board.Board, child, parent board.Card) error {
 		return fmt.Errorf("%w: %s %q cannot sit under %s %q", ErrParentLevel,
 			articled(child.Type), child.Title, articled(parent.Type), parent.Title)
 	}
-	// A project card may sit under a planning card (H4 allows exactly
-	// that); a task may, a planning card may. What the link must never do is
+	// A task may sit under a planning card, and a planning card may. What
+	// the link must never do is
 	// show a reader of the child a hole where the parent is: the child's
 	// readers must be able to read the parent. A planning card lives in the
-	// PRIMARY — no team, no project to place it elsewhere — and the primary
+	// PRIMARY — nothing places it elsewhere — and the primary
 	// is the one repository every reader of the board can read, so a link
 	// UP to one is open from any repository. A parent whose file stands in
 	// the child's own repository (a direct writer put it there) is readable
 	// to the child's readers as well. Anything else crosses. The child is
 	// judged where it will LIVE after the link: a subtask leaving its task
-	// for a planning card is no subtask then, and its own team or project
-	// places it — not the task's repository it is leaving.
+	// for a planning card is no subtask then, and its own team places it — not the task's repository it is leaving.
 	after := child
 	after.Parent = ""
 	from, to := board.HomeDomain(b, after), board.FileDomain(b, parent)

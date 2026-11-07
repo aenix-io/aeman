@@ -16,8 +16,9 @@ import (
 // on it, and what a create means there (docs/design/view-scoped-api.md).
 
 // A gesture asked of a board that does not draw it is a route that is not
-// there — there is no "finished in the sprint before" on the Backlog, and the
-// Triage board's drop into a week is no route at all any more (K9).
+// there — there is no "finished in the sprint before" on the Backlog, the
+// Triage board's drop into a week is no route at all any more (K9), and the
+// retired Project board is no board (H15).
 func TestAGestureIsAnsweredOnlyByTheBoardThatDrawsIt(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
@@ -32,6 +33,7 @@ func TestAGestureIsAnsweredOnlyByTheBoardThatDrawsIt(t *testing.T) {
 		"/api/v1/views/team/cards/c1/actions/place",
 		"/api/v1/views/team/cards/c1/actions/untriage",
 		"/api/v1/views/triage/cards/c1/actions/remove",
+		"/api/v1/views/project/cards/c1/actions/remove",
 	} {
 		if rec := do(t, srv, http.MethodPost, target, `{}`); rec.Code != http.StatusNotFound {
 			t.Fatalf("%s answered %d, want 404", target, rec.Code)
@@ -45,21 +47,20 @@ func TestAGestureIsAnsweredOnlyByTheBoardThatDrawsIt(t *testing.T) {
 }
 
 // OWN is the Roadmap's "whose is this", offered by every board that draws a
-// task and not by the Project board (H10). Over HTTP it goes through the
+// task (H10). Over HTTP it goes through the
 // gesture door like every press: the board is in the address, the card must
 // be drawn there, and the answer's effect is the service's (own_test.go).
 func TestOwnIsAnsweredByTheBoardsThatDrawATask(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "loose", Title: "Arrived"},
-		{ItemID: "slot", Title: "Plan", Scope: "Compliance", Project: "eu"},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
 	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
 
-	if rec := do(t, srv, http.MethodPost, "/api/v1/views/project/cards/slot/actions/own",
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/project/cards/loose/actions/own",
 		`{"team":"alpha"}`); rec.Code != http.StatusNotFound {
-		t.Fatalf("own on the Project board answered %d, want 404 (not a gesture it draws)", rec.Code)
+		t.Fatalf("own on the retired Project board answered %d, want 404 (no such board)", rec.Code)
 	}
 	// A person without a team is the service's refusal, through the door.
 	if rec := do(t, srv, http.MethodPost, "/api/v1/views/roadmap/cards/loose/actions/own",
@@ -192,9 +193,9 @@ func TestACreateMeansWhatTheBoardMeansByIt(t *testing.T) {
 	}
 	// And a board refuses what it does not own, 422, naming the field.
 	rec := do(t, newSrv(), http.MethodPost, "/api/v1/views/me/cards",
-		`{"title":"x","team":"alpha","zone":"planned","scope":"Auth"}`)
+		`{"title":"x","team":"alpha","zone":"planned","type":"epic"}`)
 	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("a column named on the Me board answered %d", rec.Code)
+		t.Fatalf("a type named on the Me board answered %d", rec.Code)
 	}
 }
 
@@ -251,7 +252,6 @@ func TestTheCatalogNamesTheBoardsAndTheirGestures(t *testing.T) {
 		"team":    {"remove", "finished-earlier", "own"},
 		"backlog": {"remove", "own", "take"},
 		"roadmap": {"remove", "own"},
-		"project": {"remove"},
 		"all":     {"remove", "finished-earlier", "own", "take"},
 	}
 	if len(got) != len(want) {
@@ -350,7 +350,6 @@ func TestTheBacklogIsABoardItsGesturesStandOn(t *testing.T) {
 // A TASK HAS NO WEEK (K7): `week` is not a field of the create or the patch
 // any more, so the API takes nothing from it — the card a create answers with
 // carries no week, and a patch naming one changes nothing about the card.
-// Deadline stubs keep theirs: /deadlines still takes a week.
 func TestTheAPITakesNoWeekForATask(t *testing.T) {
 	today := board.TodayIso()
 	week := board.MondayOf(today)
@@ -368,8 +367,8 @@ func TestTheAPITakesNoWeekForATask(t *testing.T) {
 	if rec.Code == http.StatusOK && strings.Contains(rec.Body.String(), `"week"`) {
 		t.Fatalf("a patch took a week: %s", rec.Body.String())
 	}
-	if got := fake.Card("c1"); got == nil || got.Week != "" {
-		t.Fatalf("the card carries a week after the patch: %+v", got)
+	if got := fake.Card("c1"); got == nil || got.StartDate != today || got.Day != today {
+		t.Fatalf("a patch naming a week changed the card: %+v", got)
 	}
 }
 

@@ -32,37 +32,30 @@ func TestServiceRosterThroughTheBackend(t *testing.T) {
 	svc, _, r := newService(t)
 	ctx := ctxAs("kvaps")
 
-	if err := svc.AddProject(ctx, "acme", "portal"); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.AddScope(ctx, "acme", "Bugs", "portal"); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.AddScope(ctx, "acme", "Bugs", "portal"); err == nil {
-		t.Fatal("a duplicate column must be refused by the service")
-	}
-	card, err := svc.CreateCard(ctx, "acme", boardservice.CreateCardArgs{Title: "leak", Scope: "Bugs", Project: "portal", Start: "2026-08-24", Day: "2026-08-28"})
+	card, err := svc.CreateCard(ctx, "acme", boardservice.CreateCardArgs{Title: "leak", Team: "portal", Start: "2026-08-24", Day: "2026-08-28"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.RenameScope(ctx, "acme", "portal", "Bugs", "Defects"); err != nil {
+	if err := svc.RenameTeam(ctx, "acme", "portal", "defects"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := svc.Board(ctx, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b.Scopes) != 1 || b.Scopes[0].Name != "Defects" {
-		t.Fatalf("scopes after rename = %+v", b.Scopes)
+	if _, ok := b.SprintStates["defects"]; !ok {
+		t.Fatalf("teams after rename = %+v", b.SprintStates)
+	}
+	if _, ok := b.SprintStates["portal"]; ok {
+		t.Fatalf("the old name is still declared: %+v", b.SprintStates)
 	}
 	got, ok := findByID(b, card.ItemID)
-	if !ok || got.Scope != "Defects" || got.Project != "portal" {
+	if !ok || got.Team != "defects" {
 		t.Fatalf("the card did not follow the rename: %+v", got)
 	}
-	// One rename = one commit, whatever it touched, when the server scopes it;
-	// bare, the service's writes each commit — the files still agree.
+	// Bare, the service's writes each commit — the files still agree.
 	p, _ := CardPath(card.ItemID)
-	if data, _ := r.ReadFile(p); !strings.Contains(string(data), "scope: Defects") {
+	if data, _ := r.ReadFile(p); !strings.Contains(string(data), "team: defects") {
 		t.Fatalf("card file not renamed:\n%s", data)
 	}
 }

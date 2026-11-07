@@ -123,8 +123,8 @@ func IsSubtask(b Board, c Card) bool {
 func Lineage(b Board, c Card) []Card { return NewIndex(b).Lineage(c) }
 
 // HasPlanningAncestor reports a card with a goal, an initiative or an epic
-// somewhere above it — which is what puts a task, a subtask or a project
-// card on the Roadmap.
+// somewhere above it — which is what puts a task or a subtask on the
+// Roadmap.
 func HasPlanningAncestor(b Board, c Card) bool { return NewIndex(b).HasPlanningAncestor(c) }
 
 // ChildrenOf is every card whose parent is the given one, planning cards and
@@ -154,7 +154,7 @@ func HierarchyStatus(b Board, c Card) (status string, done, total int) {
 
 // PlanningResolver is the optional half of a DomainResolver: whether a card
 // is a planning card. The domain rule needs it — a subtask lives where its
-// parent lives, a task under an epic where its own project or team does —
+// parent lives, a task under an epic where its own team does —
 // and a resolver that cannot answer is read as "every parent is a task",
 // which is what every parent was before this field existed.
 type PlanningResolver interface {

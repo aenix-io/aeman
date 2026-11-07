@@ -205,7 +205,6 @@ const (
 	CustomerNotFound     ProblemCode = "customerNotFound"
 	DayIsARecord         ProblemCode = "dayIsARecord"
 	DescriptionTooLong   ProblemCode = "descriptionTooLong"
-	DomainConflict       ProblemCode = "domainConflict"
 	EmptyNote            ProblemCode = "emptyNote"
 	EmptyTitle           ProblemCode = "emptyTitle"
 	EndBeforeStart       ProblemCode = "endBeforeStart"
@@ -228,8 +227,6 @@ const (
 	NotAuthenticated     ProblemCode = "notAuthenticated"
 	NotFinished          ProblemCode = "notFinished"
 	NotOnThisBoard       ProblemCode = "notOnThisBoard"
-	NotYoursToDestroy    ProblemCode = "notYoursToDestroy"
-	NotYoursToPark       ProblemCode = "notYoursToPark"
 	NotYoursToRefuse     ProblemCode = "notYoursToRefuse"
 	NotYoursToRemove     ProblemCode = "notYoursToRemove"
 	NoteNotFound         ProblemCode = "noteNotFound"
@@ -243,15 +240,7 @@ const (
 	ParentNotFound       ProblemCode = "parentNotFound"
 	PlanningCard         ProblemCode = "planningCard"
 	PointsRequired       ProblemCode = "pointsRequired"
-	ProjectCard          ProblemCode = "projectCard"
-	ProjectCardProgress  ProblemCode = "projectCardProgress"
-	ProjectExists        ProblemCode = "projectExists"
-	ProjectInUse         ProblemCode = "projectInUse"
-	ProjectNotFound      ProblemCode = "projectNotFound"
 	ReviewCardLink       ProblemCode = "reviewCardLink"
-	ScopeExists          ProblemCode = "scopeExists"
-	ScopeInUse           ProblemCode = "scopeInUse"
-	ScopeNotFound        ProblemCode = "scopeNotFound"
 	SetupRequired        ProblemCode = "setupRequired"
 	SomebodysCard        ProblemCode = "somebodysCard"
 	SubtaskDepth         ProblemCode = "subtaskDepth"
@@ -312,8 +301,6 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case DescriptionTooLong:
 		return true
-	case DomainConflict:
-		return true
 	case EmptyNote:
 		return true
 	case EmptyTitle:
@@ -358,10 +345,6 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case NotOnThisBoard:
 		return true
-	case NotYoursToDestroy:
-		return true
-	case NotYoursToPark:
-		return true
 	case NotYoursToRefuse:
 		return true
 	case NotYoursToRemove:
@@ -388,23 +371,7 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case PointsRequired:
 		return true
-	case ProjectCard:
-		return true
-	case ProjectCardProgress:
-		return true
-	case ProjectExists:
-		return true
-	case ProjectInUse:
-		return true
-	case ProjectNotFound:
-		return true
 	case ReviewCardLink:
-		return true
-	case ScopeExists:
-		return true
-	case ScopeInUse:
-		return true
-	case ScopeNotFound:
 		return true
 	case SetupRequired:
 		return true
@@ -511,19 +478,6 @@ type AddCustomerBody struct {
 	Name *string `json:"name,omitempty"`
 }
 
-// AddProjectBody defines model for AddProjectBody.
-type AddProjectBody struct {
-	// Domain The repository to declare the project in; empty is the primary.
-	Domain *string `json:"domain,omitempty"`
-	Name   *string `json:"name,omitempty"`
-}
-
-// AddScopeBody defines model for AddScopeBody.
-type AddScopeBody struct {
-	Name    *string `json:"name,omitempty"`
-	Project *string `json:"project,omitempty"`
-}
-
 // Board defines model for Board.
 type Board = apiserver.BoardInfo
 
@@ -563,7 +517,7 @@ type CardMetadata = apiserver.CardMetadata
 type CardPatch struct {
 	Assignees *[]string `json:"assignees,omitempty"`
 
-	// Customers Ids from the board's customer roster this card names, replacing those it named; empty takes them all off. An id the roster lacks is 422 `customerNotFound`; a project card names none (422 `projectCard`).
+	// Customers Ids from the board's customer roster this card names, replacing those it named; empty takes them all off. An id the roster lacks is 422 `customerNotFound`.
 	Customers   *[]string       `json:"customers,omitempty"`
 	Dates       *CardDatesPatch `json:"dates,omitempty"`
 	Description *string         `json:"description,omitempty"`
@@ -577,14 +531,10 @@ type CardPatch struct {
 	// Parked `true` parks the task in its team's backlog; `false` takes a parked task that is already in work out of it, and is refused (422 `takeIntoWork`) on one with no date and no sprint — set a date, a sprint or `own` a person instead.
 	Parked *bool `json:"parked,omitempty"`
 
-	// Progress 0..100. A project card (one in a Scope column) is done or not done and takes 0 or 100 alone; any other value is 422 `projectCardProgress`.
+	// Progress 0..100.
 	Progress   *int    `json:"progress,omitempty"`
-	Project    *string `json:"project,omitempty"`
 	Recurrence *string `json:"recurrence,omitempty"`
 	ReviewOf   *string `json:"reviewOf,omitempty"`
-
-	// Scope The two halves of the card's column; empty clears. Scope names repeat across projects, so filing into another project's column names both, while naming only the scope stays inside the card's project.
-	Scope *string `json:"scope,omitempty"`
 
 	// Size S, M, L or XL in any case; empty takes the size back.
 	Size *string `json:"size,omitempty"`
@@ -622,7 +572,7 @@ type CarryReport = boardservice.CarryReport
 
 // CreateCardRequest The card a board makes. Every field is optional here because what a board REQUIRES and what it refuses are the board's own rules, answered as a 422 that names the field.
 type CreateCardRequest struct {
-	// After On the backlog, team and me views, the uid of the card the new one is placed right AFTER, in the same request — the insert "+" between two cards of a backlog or of a Team/Me cell (the cell's person and band are the create's own fields). One of `after` and `before`, or neither (the card lands last); both are 422 `twoPlaces`, an anchor the board does not have is 404 `cardNotFound` and nothing is made. The roadmap and project views refuse it (422 `notOnThisBoard`); `view=all` takes it.
+	// After On the backlog, team and me views, the uid of the card the new one is placed right AFTER, in the same request — the insert "+" between two cards of a backlog or of a Team/Me cell (the cell's person and band are the create's own fields). One of `after` and `before`, or neither (the card lands last); both are 422 `twoPlaces`, an anchor the board does not have is 404 `cardNotFound` and nothing is made. The roadmap view refuses it (422 `notOnThisBoard`); `view=all` takes it.
 	After *string `json:"after,omitempty"`
 
 	// Assignees Only the first is read — a card is one person's.
@@ -631,7 +581,7 @@ type CreateCardRequest struct {
 	// Before As `after`, the uid of the card the new one is placed right BEFORE — the "+" above the first card of a list.
 	Before *string `json:"before,omitempty"`
 
-	// Customers Ids from the board's customer roster the new card is for; refused on a project card.
+	// Customers Ids from the board's customer roster the new card is for.
 	Customers *[]string       `json:"customers,omitempty"`
 	Dates     *CardDatesInput `json:"dates,omitempty"`
 
@@ -646,11 +596,7 @@ type CreateCardRequest struct {
 
 	// Parked Puts the task straight in its team's backlog, last: no dates are set and no sprint is joined. A task has no week.
 	Parked   *bool   `json:"parked,omitempty"`
-	Project  *string `json:"project,omitempty"`
 	ReviewOf *string `json:"reviewOf,omitempty"`
-
-	// Scope With `project`, files the card on the Project board under the column that pair identifies. Its row is `dates`, which may span weeks.
-	Scope *string `json:"scope,omitempty"`
 
 	// Size S, M, L or XL in any case; empty leaves the card unsized.
 	Size           *string `json:"size,omitempty"`
@@ -680,15 +626,6 @@ type CustomerRef = apiserver.CustomerRef
 
 // DayLogList defines model for DayLogList.
 type DayLogList = apiserver.DayLogList
-
-// DeadlineBody defines model for DeadlineBody.
-type DeadlineBody struct {
-	Project *string `json:"project,omitempty"`
-	Week    *string `json:"week,omitempty"`
-}
-
-// DeadlineRef defines model for DeadlineRef.
-type DeadlineRef = apiserver.DeadlineRef
 
 // DeferCardBody defines model for DeferCardBody.
 type DeferCardBody struct {
@@ -763,13 +700,6 @@ type MoveCardBody struct {
 	Before *string `json:"before,omitempty"`
 }
 
-// MoveDeadlineBody defines model for MoveDeadlineBody.
-type MoveDeadlineBody struct {
-	From    *string `json:"from,omitempty"`
-	Project *string `json:"project,omitempty"`
-	To      *string `json:"to,omitempty"`
-}
-
 // Note defines model for Note.
 type Note = apiserver.Note
 
@@ -838,11 +768,6 @@ type Problem struct {
 // ProblemCode The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
 type ProblemCode string
 
-// ProjectBody defines model for ProjectBody.
-type ProjectBody struct {
-	Project *string `json:"project,omitempty"`
-}
-
 // RemoveCardBody defines model for RemoveCardBody.
 type RemoveCardBody struct {
 	// Intent "unassign", "off-board", or left out for the gesture to decide for itself. Anything else is refused (400).
@@ -856,19 +781,6 @@ type RenameCustomerBody struct {
 	To       *string `json:"to,omitempty"`
 }
 
-// RenameProjectBody defines model for RenameProjectBody.
-type RenameProjectBody struct {
-	Project *string `json:"project,omitempty"`
-	To      *string `json:"to,omitempty"`
-}
-
-// RenameScopeBody defines model for RenameScopeBody.
-type RenameScopeBody struct {
-	Project *string `json:"project,omitempty"`
-	Scope   *string `json:"scope,omitempty"`
-	To      *string `json:"to,omitempty"`
-}
-
 // RenameTeamBody defines model for RenameTeamBody.
 type RenameTeamBody struct {
 	Team *string `json:"team,omitempty"`
@@ -878,17 +790,6 @@ type RenameTeamBody struct {
 // ReorderCustomersBody defines model for ReorderCustomersBody.
 type ReorderCustomersBody struct {
 	Customers *[]string `json:"customers,omitempty"`
-}
-
-// ReorderProjectsBody defines model for ReorderProjectsBody.
-type ReorderProjectsBody struct {
-	Projects *[]string `json:"projects,omitempty"`
-}
-
-// ReorderScopesBody defines model for ReorderScopesBody.
-type ReorderScopesBody struct {
-	Project *string   `json:"project,omitempty"`
-	Scopes  *[]string `json:"scopes,omitempty"`
 }
 
 // ReorderTeamsBody defines model for ReorderTeamsBody.
@@ -904,15 +805,6 @@ type ReviewedRef struct {
 	UID       string    `json:"uid"`
 }
 
-// ScopeBody defines model for ScopeBody.
-type ScopeBody struct {
-	Project *string `json:"project,omitempty"`
-	Scope   *string `json:"scope,omitempty"`
-}
-
-// ScopeRef One Project-board column: its name and the project that owns it. A client cannot compute the column's repository from the project — the same project NAME may be declared in two repositories with its columns merged under one entry — and it is the COLUMN that decides whether a card may stand in it.
-type ScopeRef = apiserver.ScopeRef
-
 // SendToReviewBody defines model for SendToReviewBody.
 type SendToReviewBody struct {
 	Day      *string `json:"day,omitempty"`
@@ -924,16 +816,6 @@ type SendToReviewBody struct {
 
 // SendToReviewBodyZone Where the review card stands; empty is the unplanned band, which is where the asking belongs.
 type SendToReviewBodyZone string
-
-// SetScopeProjectBody defines model for SetScopeProjectBody.
-type SetScopeProjectBody struct {
-	// From The project the column is leaving.
-	From *string `json:"from,omitempty"`
-
-	// Project The project it joins; empty detaches it.
-	Project *string `json:"project,omitempty"`
-	Scope   *string `json:"scope,omitempty"`
-}
 
 // Sprint A team's sprint pointer; the empty team is the no-team group.
 type Sprint = apiserver.Sprint
@@ -1020,12 +902,6 @@ type NoteID = string
 // Owner defines model for Owner.
 type Owner = string
 
-// Project defines model for Project.
-type Project = string
-
-// ProjectCards defines model for ProjectCards.
-type ProjectCards = string
-
 // Reviews defines model for Reviews.
 type Reviews = string
 
@@ -1094,9 +970,6 @@ type ListCardsParams struct {
 	// User Whose Me board to read. Who-am-I is resolved server-side, so a caller needs none; an explicit one wins, for a lead looking at somebody else's day.
 	User *User `form:"user,omitempty" json:"user,omitempty"`
 
-	// Project One project's columns, for the Project board; empty is every project, including the columns that belong to none.
-	Project *Project `form:"project,omitempty" json:"project,omitempty"`
-
 	// Assignee Keep only the cards on one person.
 	Assignee *Assignee `form:"assignee,omitempty" json:"assignee,omitempty"`
 
@@ -1111,9 +984,6 @@ type ListCardsParams struct {
 
 	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
-
-	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
-	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
 	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
@@ -1139,9 +1009,6 @@ type FinishedEarlierParams struct {
 	// User Whose Me board to read. Who-am-I is resolved server-side, so a caller needs none; an explicit one wins, for a lead looking at somebody else's day.
 	User *User `form:"user,omitempty" json:"user,omitempty"`
 
-	// Project One project's columns, for the Project board; empty is every project, including the columns that belong to none.
-	Project *Project `form:"project,omitempty" json:"project,omitempty"`
-
 	// Assignee Keep only the cards on one person.
 	Assignee *Assignee `form:"assignee,omitempty" json:"assignee,omitempty"`
 
@@ -1156,9 +1023,6 @@ type FinishedEarlierParams struct {
 
 	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
-
-	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
-	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
 	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
@@ -1184,9 +1048,6 @@ type OwnCardParams struct {
 	// User Whose Me board to read. Who-am-I is resolved server-side, so a caller needs none; an explicit one wins, for a lead looking at somebody else's day.
 	User *User `form:"user,omitempty" json:"user,omitempty"`
 
-	// Project One project's columns, for the Project board; empty is every project, including the columns that belong to none.
-	Project *Project `form:"project,omitempty" json:"project,omitempty"`
-
 	// Assignee Keep only the cards on one person.
 	Assignee *Assignee `form:"assignee,omitempty" json:"assignee,omitempty"`
 
@@ -1201,9 +1062,6 @@ type OwnCardParams struct {
 
 	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
-
-	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
-	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
 	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
@@ -1229,9 +1087,6 @@ type RemoveCardParams struct {
 	// User Whose Me board to read. Who-am-I is resolved server-side, so a caller needs none; an explicit one wins, for a lead looking at somebody else's day.
 	User *User `form:"user,omitempty" json:"user,omitempty"`
 
-	// Project One project's columns, for the Project board; empty is every project, including the columns that belong to none.
-	Project *Project `form:"project,omitempty" json:"project,omitempty"`
-
 	// Assignee Keep only the cards on one person.
 	Assignee *Assignee `form:"assignee,omitempty" json:"assignee,omitempty"`
 
@@ -1246,9 +1101,6 @@ type RemoveCardParams struct {
 
 	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
-
-	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
-	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
 	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
@@ -1274,9 +1126,6 @@ type TakeCardParams struct {
 	// User Whose Me board to read. Who-am-I is resolved server-side, so a caller needs none; an explicit one wins, for a lead looking at somebody else's day.
 	User *User `form:"user,omitempty" json:"user,omitempty"`
 
-	// Project One project's columns, for the Project board; empty is every project, including the columns that belong to none.
-	Project *Project `form:"project,omitempty" json:"project,omitempty"`
-
 	// Assignee Keep only the cards on one person.
 	Assignee *Assignee `form:"assignee,omitempty" json:"assignee,omitempty"`
 
@@ -1291,9 +1140,6 @@ type TakeCardParams struct {
 
 	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
-
-	// ProjectCards On the roadmap view, "true" or "1" lists the PROJECT cards — cards in a Scope column — under the planning cards they are filed under, and a watch sends them. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and the Project board's cards stay there unless asked for (the Roadmap's "Project cards" toggle). A planning card's derived standing counts the same either way. Means nothing on any other view.
-	ProjectCards *ProjectCards `form:"projectCards,omitempty" json:"projectCards,omitempty"`
 
 	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
@@ -1338,47 +1184,11 @@ type RenameCustomerJSONRequestBody = RenameCustomerBody
 // ReorderCustomersJSONRequestBody defines body for ReorderCustomers for application/json ContentType.
 type ReorderCustomersJSONRequestBody = ReorderCustomersBody
 
-// AddDeadlineJSONRequestBody defines body for AddDeadline for application/json ContentType.
-type AddDeadlineJSONRequestBody = DeadlineBody
-
-// DeleteDeadlineJSONRequestBody defines body for DeleteDeadline for application/json ContentType.
-type DeleteDeadlineJSONRequestBody = DeadlineBody
-
-// MoveDeadlineJSONRequestBody defines body for MoveDeadline for application/json ContentType.
-type MoveDeadlineJSONRequestBody = MoveDeadlineBody
-
 // PatchPersonJSONRequestBody defines body for PatchPerson for application/json ContentType.
 type PatchPersonJSONRequestBody = PersonPatch
 
 // SetPresenceJSONRequestBody defines body for SetPresence for application/json ContentType.
 type SetPresenceJSONRequestBody = PresenceBody
-
-// AddProjectJSONRequestBody defines body for AddProject for application/json ContentType.
-type AddProjectJSONRequestBody = AddProjectBody
-
-// DeleteProjectJSONRequestBody defines body for DeleteProject for application/json ContentType.
-type DeleteProjectJSONRequestBody = ProjectBody
-
-// RenameProjectJSONRequestBody defines body for RenameProject for application/json ContentType.
-type RenameProjectJSONRequestBody = RenameProjectBody
-
-// ReorderProjectsJSONRequestBody defines body for ReorderProjects for application/json ContentType.
-type ReorderProjectsJSONRequestBody = ReorderProjectsBody
-
-// AddScopeJSONRequestBody defines body for AddScope for application/json ContentType.
-type AddScopeJSONRequestBody = AddScopeBody
-
-// DeleteScopeJSONRequestBody defines body for DeleteScope for application/json ContentType.
-type DeleteScopeJSONRequestBody = ScopeBody
-
-// RenameScopeJSONRequestBody defines body for RenameScope for application/json ContentType.
-type RenameScopeJSONRequestBody = RenameScopeBody
-
-// ReorderScopesJSONRequestBody defines body for ReorderScopes for application/json ContentType.
-type ReorderScopesJSONRequestBody = ReorderScopesBody
-
-// SetScopeProjectJSONRequestBody defines body for SetScopeProject for application/json ContentType.
-type SetScopeProjectJSONRequestBody = SetScopeProjectBody
 
 // PatchSprintJSONRequestBody defines body for PatchSprint for application/json ContentType.
 type PatchSprintJSONRequestBody = SprintPatch
@@ -1409,7 +1219,7 @@ type RemoveCardJSONRequestBody = RemoveCardBody
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-	// GetBoard The board: title, the team roster, the Project board's structure, the people and the visitor's domains.
+	// GetBoard The board: title, the team roster, the people and the visitor's domains.
 	// (GET /board)
 	GetBoard(w http.ResponseWriter, r *http.Request, params GetBoardParams)
 	// DeleteCard Hard delete, cascading to the linked review card.
@@ -1469,15 +1279,6 @@ type ServerInterface interface {
 	// ReorderCustomers Apply the roster's order — the ids named first, in that order.
 	// (POST /customers/actions/reorder)
 	ReorderCustomers(w http.ResponseWriter, r *http.Request)
-	// AddDeadline Mark a week with a project's deadline line.
-	// (POST /deadlines)
-	AddDeadline(w http.ResponseWriter, r *http.Request)
-	// DeleteDeadline Clear a project's deadline on a week.
-	// (POST /deadlines/actions/delete)
-	DeleteDeadline(w http.ResponseWriter, r *http.Request)
-	// MoveDeadline Drag a project's deadline to another week.
-	// (POST /deadlines/actions/move)
-	MoveDeadline(w http.ResponseWriter, r *http.Request)
 	// GetDayLogs One day's feed for many cards at once — what a day board shows.
 	// (GET /logs)
 	GetDayLogs(w http.ResponseWriter, r *http.Request, params GetDayLogsParams)
@@ -1490,33 +1291,6 @@ type ServerInterface interface {
 	// SetPresence Share the caller's live card selection; an empty card clears it.
 	// (POST /presence)
 	SetPresence(w http.ResponseWriter, r *http.Request)
-	// AddProject Declare a project — the Project board's top grouping, which owns scope columns.
-	// (POST /projects)
-	AddProject(w http.ResponseWriter, r *http.Request)
-	// DeleteProject Delete an EMPTY project; refused while it still owns columns.
-	// (POST /projects/actions/delete-project)
-	DeleteProject(w http.ResponseWriter, r *http.Request)
-	// RenameProject Rename a project in place; its columns and their cards follow.
-	// (POST /projects/actions/rename)
-	RenameProject(w http.ResponseWriter, r *http.Request)
-	// ReorderProjects Apply the shared project order.
-	// (POST /projects/actions/reorder-projects)
-	ReorderProjects(w http.ResponseWriter, r *http.Request)
-	// AddScope Declare an scope column.
-	// (POST /scopes)
-	AddScope(w http.ResponseWriter, r *http.Request)
-	// DeleteScope Delete an EMPTY scope column; refused while cards sit under it.
-	// (POST /scopes/actions/delete-scope)
-	DeleteScope(w http.ResponseWriter, r *http.Request)
-	// RenameScope Rename a column in place, cards and all.
-	// (POST /scopes/actions/rename)
-	RenameScope(w http.ResponseWriter, r *http.Request)
-	// ReorderScopes Apply one project's column order.
-	// (POST /scopes/actions/reorder-scopes)
-	ReorderScopes(w http.ResponseWriter, r *http.Request)
-	// SetScopeProject Move a column from one project to another; an empty target detaches it.
-	// (POST /scopes/actions/set-project)
-	SetScopeProject(w http.ResponseWriter, r *http.Request)
 	// ListSprints Per-team sprint pointers.
 	// (GET /sprints)
 	ListSprints(w http.ResponseWriter, r *http.Request, params ListSprintsParams)
@@ -1553,7 +1327,7 @@ type ServerInterface interface {
 	// OwnCard Whose is this — a team and a person on it, a team alone, or nobody.
 	// (POST /views/{view}/cards/{uid}/actions/own)
 	OwnCard(w http.ResponseWriter, r *http.Request, view View, uid UID, params OwnCardParams)
-	// RemoveCard The board's × — hand the card back to a home it still has, or delete it by that board's rules.
+	// RemoveCard The board's × — take the card out of work, or delete it by that board's rules.
 	// (POST /views/{view}/cards/{uid}/actions/remove)
 	RemoveCard(w http.ResponseWriter, r *http.Request, view View, uid UID, params RemoveCardParams)
 	// TakeCard The Backlog's "I take this into work" — the card becomes the caller's.
@@ -2093,48 +1867,6 @@ func (siw *ServerInterfaceWrapper) ReorderCustomers(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
-// AddDeadline operation middleware
-func (siw *ServerInterfaceWrapper) AddDeadline(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AddDeadline(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteDeadline operation middleware
-func (siw *ServerInterfaceWrapper) DeleteDeadline(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteDeadline(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// MoveDeadline operation middleware
-func (siw *ServerInterfaceWrapper) MoveDeadline(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.MoveDeadline(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // GetDayLogs operation middleware
 func (siw *ServerInterfaceWrapper) GetDayLogs(w http.ResponseWriter, r *http.Request) {
 
@@ -2226,132 +1958,6 @@ func (siw *ServerInterfaceWrapper) SetPresence(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetPresence(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// AddProject operation middleware
-func (siw *ServerInterfaceWrapper) AddProject(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AddProject(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteProject operation middleware
-func (siw *ServerInterfaceWrapper) DeleteProject(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteProject(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// RenameProject operation middleware
-func (siw *ServerInterfaceWrapper) RenameProject(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RenameProject(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ReorderProjects operation middleware
-func (siw *ServerInterfaceWrapper) ReorderProjects(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReorderProjects(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// AddScope operation middleware
-func (siw *ServerInterfaceWrapper) AddScope(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AddScope(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteScope operation middleware
-func (siw *ServerInterfaceWrapper) DeleteScope(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteScope(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// RenameScope operation middleware
-func (siw *ServerInterfaceWrapper) RenameScope(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RenameScope(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ReorderScopes operation middleware
-func (siw *ServerInterfaceWrapper) ReorderScopes(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReorderScopes(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// SetScopeProject operation middleware
-func (siw *ServerInterfaceWrapper) SetScopeProject(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SetScopeProject(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2575,19 +2181,6 @@ func (siw *ServerInterfaceWrapper) ListCards(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// ------------- Optional query parameter "project" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "project", r.URL.Query(), &params.Project, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project", Err: err})
-		}
-		return
-	}
-
 	// ------------- Optional query parameter "assignee" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "assignee", r.URL.Query(), &params.Assignee, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -2649,19 +2242,6 @@ func (siw *ServerInterfaceWrapper) ListCards(w http.ResponseWriter, r *http.Requ
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reviews"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reviews", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "projectCards" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectCards", r.URL.Query(), &params.ProjectCards, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
 		}
 		return
 	}
@@ -2821,19 +2401,6 @@ func (siw *ServerInterfaceWrapper) FinishedEarlier(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// ------------- Optional query parameter "project" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "project", r.URL.Query(), &params.Project, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project", Err: err})
-		}
-		return
-	}
-
 	// ------------- Optional query parameter "assignee" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "assignee", r.URL.Query(), &params.Assignee, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -2895,19 +2462,6 @@ func (siw *ServerInterfaceWrapper) FinishedEarlier(w http.ResponseWriter, r *htt
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reviews"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reviews", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "projectCards" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectCards", r.URL.Query(), &params.ProjectCards, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
 		}
 		return
 	}
@@ -3041,19 +2595,6 @@ func (siw *ServerInterfaceWrapper) OwnCard(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// ------------- Optional query parameter "project" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "project", r.URL.Query(), &params.Project, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project", Err: err})
-		}
-		return
-	}
-
 	// ------------- Optional query parameter "assignee" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "assignee", r.URL.Query(), &params.Assignee, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -3115,19 +2656,6 @@ func (siw *ServerInterfaceWrapper) OwnCard(w http.ResponseWriter, r *http.Reques
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reviews"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reviews", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "projectCards" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectCards", r.URL.Query(), &params.ProjectCards, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
 		}
 		return
 	}
@@ -3261,19 +2789,6 @@ func (siw *ServerInterfaceWrapper) RemoveCard(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// ------------- Optional query parameter "project" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "project", r.URL.Query(), &params.Project, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project", Err: err})
-		}
-		return
-	}
-
 	// ------------- Optional query parameter "assignee" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "assignee", r.URL.Query(), &params.Assignee, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -3335,19 +2850,6 @@ func (siw *ServerInterfaceWrapper) RemoveCard(w http.ResponseWriter, r *http.Req
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reviews"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reviews", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "projectCards" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectCards", r.URL.Query(), &params.ProjectCards, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
 		}
 		return
 	}
@@ -3481,19 +2983,6 @@ func (siw *ServerInterfaceWrapper) TakeCard(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// ------------- Optional query parameter "project" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "project", r.URL.Query(), &params.Project, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project", Err: err})
-		}
-		return
-	}
-
 	// ------------- Optional query parameter "assignee" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "assignee", r.URL.Query(), &params.Assignee, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -3555,19 +3044,6 @@ func (siw *ServerInterfaceWrapper) TakeCard(w http.ResponseWriter, r *http.Reque
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reviews"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reviews", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "projectCards" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectCards", r.URL.Query(), &params.ProjectCards, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectCards"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectCards", Err: err})
 		}
 		return
 	}
@@ -3785,18 +3261,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sprints/actions/carry-over", wrapper.CarryOver)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sprints/actions/reorder-teams", wrapper.ReorderTeams)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sprints/actions/delete-team", wrapper.DeleteTeam)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/scopes", wrapper.AddScope)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/scopes/actions/delete-scope", wrapper.DeleteScope)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/scopes/actions/reorder-scopes", wrapper.ReorderScopes)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/scopes/actions/set-project", wrapper.SetScopeProject)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/scopes/actions/rename", wrapper.RenameScope)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/deadlines", wrapper.AddDeadline)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/deadlines/actions/delete", wrapper.DeleteDeadline)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/deadlines/actions/move", wrapper.MoveDeadline)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects", wrapper.AddProject)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/actions/delete-project", wrapper.DeleteProject)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/actions/reorder-projects", wrapper.ReorderProjects)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/actions/rename", wrapper.RenameProject)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/customers", wrapper.AddCustomer)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/customers/actions/rename", wrapper.RenameCustomer)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/customers/actions/reorder", wrapper.ReorderCustomers)
@@ -4569,105 +4033,6 @@ func (response ReorderCustomersdefaultApplicationProblemPlusJSONResponse) VisitR
 	return err
 }
 
-type AddDeadlineRequestObject struct {
-	Body *AddDeadlineJSONRequestBody
-}
-
-type AddDeadlineResponseObject interface {
-	VisitAddDeadlineResponse(w http.ResponseWriter) error
-}
-
-type AddDeadline204Response struct {
-}
-
-func (response AddDeadline204Response) VisitAddDeadlineResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type AddDeadlinedefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response AddDeadlinedefaultApplicationProblemPlusJSONResponse) VisitAddDeadlineResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DeleteDeadlineRequestObject struct {
-	Body *DeleteDeadlineJSONRequestBody
-}
-
-type DeleteDeadlineResponseObject interface {
-	VisitDeleteDeadlineResponse(w http.ResponseWriter) error
-}
-
-type DeleteDeadline204Response struct {
-}
-
-func (response DeleteDeadline204Response) VisitDeleteDeadlineResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type DeleteDeadlinedefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response DeleteDeadlinedefaultApplicationProblemPlusJSONResponse) VisitDeleteDeadlineResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type MoveDeadlineRequestObject struct {
-	Body *MoveDeadlineJSONRequestBody
-}
-
-type MoveDeadlineResponseObject interface {
-	VisitMoveDeadlineResponse(w http.ResponseWriter) error
-}
-
-type MoveDeadline204Response struct {
-}
-
-func (response MoveDeadline204Response) VisitMoveDeadlineResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type MoveDeadlinedefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response MoveDeadlinedefaultApplicationProblemPlusJSONResponse) VisitMoveDeadlineResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type GetDayLogsRequestObject struct {
 	Params GetDayLogsParams
 }
@@ -4807,303 +4172,6 @@ type SetPresencedefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response SetPresencedefaultApplicationProblemPlusJSONResponse) VisitSetPresenceResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type AddProjectRequestObject struct {
-	Body *AddProjectJSONRequestBody
-}
-
-type AddProjectResponseObject interface {
-	VisitAddProjectResponse(w http.ResponseWriter) error
-}
-
-type AddProject204Response struct {
-}
-
-func (response AddProject204Response) VisitAddProjectResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type AddProjectdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response AddProjectdefaultApplicationProblemPlusJSONResponse) VisitAddProjectResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DeleteProjectRequestObject struct {
-	Body *DeleteProjectJSONRequestBody
-}
-
-type DeleteProjectResponseObject interface {
-	VisitDeleteProjectResponse(w http.ResponseWriter) error
-}
-
-type DeleteProject204Response struct {
-}
-
-func (response DeleteProject204Response) VisitDeleteProjectResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type DeleteProjectdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response DeleteProjectdefaultApplicationProblemPlusJSONResponse) VisitDeleteProjectResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type RenameProjectRequestObject struct {
-	Body *RenameProjectJSONRequestBody
-}
-
-type RenameProjectResponseObject interface {
-	VisitRenameProjectResponse(w http.ResponseWriter) error
-}
-
-type RenameProject204Response struct {
-}
-
-func (response RenameProject204Response) VisitRenameProjectResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type RenameProjectdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response RenameProjectdefaultApplicationProblemPlusJSONResponse) VisitRenameProjectResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ReorderProjectsRequestObject struct {
-	Body *ReorderProjectsJSONRequestBody
-}
-
-type ReorderProjectsResponseObject interface {
-	VisitReorderProjectsResponse(w http.ResponseWriter) error
-}
-
-type ReorderProjects204Response struct {
-}
-
-func (response ReorderProjects204Response) VisitReorderProjectsResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type ReorderProjectsdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response ReorderProjectsdefaultApplicationProblemPlusJSONResponse) VisitReorderProjectsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type AddScopeRequestObject struct {
-	Body *AddScopeJSONRequestBody
-}
-
-type AddScopeResponseObject interface {
-	VisitAddScopeResponse(w http.ResponseWriter) error
-}
-
-type AddScope204Response struct {
-}
-
-func (response AddScope204Response) VisitAddScopeResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type AddScopedefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response AddScopedefaultApplicationProblemPlusJSONResponse) VisitAddScopeResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DeleteScopeRequestObject struct {
-	Body *DeleteScopeJSONRequestBody
-}
-
-type DeleteScopeResponseObject interface {
-	VisitDeleteScopeResponse(w http.ResponseWriter) error
-}
-
-type DeleteScope204Response struct {
-}
-
-func (response DeleteScope204Response) VisitDeleteScopeResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type DeleteScopedefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response DeleteScopedefaultApplicationProblemPlusJSONResponse) VisitDeleteScopeResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type RenameScopeRequestObject struct {
-	Body *RenameScopeJSONRequestBody
-}
-
-type RenameScopeResponseObject interface {
-	VisitRenameScopeResponse(w http.ResponseWriter) error
-}
-
-type RenameScope204Response struct {
-}
-
-func (response RenameScope204Response) VisitRenameScopeResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type RenameScopedefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response RenameScopedefaultApplicationProblemPlusJSONResponse) VisitRenameScopeResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ReorderScopesRequestObject struct {
-	Body *ReorderScopesJSONRequestBody
-}
-
-type ReorderScopesResponseObject interface {
-	VisitReorderScopesResponse(w http.ResponseWriter) error
-}
-
-type ReorderScopes204Response struct {
-}
-
-func (response ReorderScopes204Response) VisitReorderScopesResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type ReorderScopesdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response ReorderScopesdefaultApplicationProblemPlusJSONResponse) VisitReorderScopesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type SetScopeProjectRequestObject struct {
-	Body *SetScopeProjectJSONRequestBody
-}
-
-type SetScopeProjectResponseObject interface {
-	VisitSetScopeProjectResponse(w http.ResponseWriter) error
-}
-
-type SetScopeProject204Response struct {
-}
-
-func (response SetScopeProject204Response) VisitSetScopeProjectResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type SetScopeProjectdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response SetScopeProjectdefaultApplicationProblemPlusJSONResponse) VisitSetScopeProjectResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -5644,7 +4712,7 @@ func (response TakeCarddefaultApplicationProblemPlusJSONResponse) VisitTakeCardR
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
-	// GetBoard The board: title, the team roster, the Project board's structure, the people and the visitor's domains.
+	// GetBoard The board: title, the team roster, the people and the visitor's domains.
 	// (GET /board)
 	GetBoard(ctx context.Context, request GetBoardRequestObject) (GetBoardResponseObject, error)
 	// DeleteCard Hard delete, cascading to the linked review card.
@@ -5704,15 +4772,6 @@ type StrictServerInterface interface {
 	// ReorderCustomers Apply the roster's order — the ids named first, in that order.
 	// (POST /customers/actions/reorder)
 	ReorderCustomers(ctx context.Context, request ReorderCustomersRequestObject) (ReorderCustomersResponseObject, error)
-	// AddDeadline Mark a week with a project's deadline line.
-	// (POST /deadlines)
-	AddDeadline(ctx context.Context, request AddDeadlineRequestObject) (AddDeadlineResponseObject, error)
-	// DeleteDeadline Clear a project's deadline on a week.
-	// (POST /deadlines/actions/delete)
-	DeleteDeadline(ctx context.Context, request DeleteDeadlineRequestObject) (DeleteDeadlineResponseObject, error)
-	// MoveDeadline Drag a project's deadline to another week.
-	// (POST /deadlines/actions/move)
-	MoveDeadline(ctx context.Context, request MoveDeadlineRequestObject) (MoveDeadlineResponseObject, error)
 	// GetDayLogs One day's feed for many cards at once — what a day board shows.
 	// (GET /logs)
 	GetDayLogs(ctx context.Context, request GetDayLogsRequestObject) (GetDayLogsResponseObject, error)
@@ -5725,33 +4784,6 @@ type StrictServerInterface interface {
 	// SetPresence Share the caller's live card selection; an empty card clears it.
 	// (POST /presence)
 	SetPresence(ctx context.Context, request SetPresenceRequestObject) (SetPresenceResponseObject, error)
-	// AddProject Declare a project — the Project board's top grouping, which owns scope columns.
-	// (POST /projects)
-	AddProject(ctx context.Context, request AddProjectRequestObject) (AddProjectResponseObject, error)
-	// DeleteProject Delete an EMPTY project; refused while it still owns columns.
-	// (POST /projects/actions/delete-project)
-	DeleteProject(ctx context.Context, request DeleteProjectRequestObject) (DeleteProjectResponseObject, error)
-	// RenameProject Rename a project in place; its columns and their cards follow.
-	// (POST /projects/actions/rename)
-	RenameProject(ctx context.Context, request RenameProjectRequestObject) (RenameProjectResponseObject, error)
-	// ReorderProjects Apply the shared project order.
-	// (POST /projects/actions/reorder-projects)
-	ReorderProjects(ctx context.Context, request ReorderProjectsRequestObject) (ReorderProjectsResponseObject, error)
-	// AddScope Declare an scope column.
-	// (POST /scopes)
-	AddScope(ctx context.Context, request AddScopeRequestObject) (AddScopeResponseObject, error)
-	// DeleteScope Delete an EMPTY scope column; refused while cards sit under it.
-	// (POST /scopes/actions/delete-scope)
-	DeleteScope(ctx context.Context, request DeleteScopeRequestObject) (DeleteScopeResponseObject, error)
-	// RenameScope Rename a column in place, cards and all.
-	// (POST /scopes/actions/rename)
-	RenameScope(ctx context.Context, request RenameScopeRequestObject) (RenameScopeResponseObject, error)
-	// ReorderScopes Apply one project's column order.
-	// (POST /scopes/actions/reorder-scopes)
-	ReorderScopes(ctx context.Context, request ReorderScopesRequestObject) (ReorderScopesResponseObject, error)
-	// SetScopeProject Move a column from one project to another; an empty target detaches it.
-	// (POST /scopes/actions/set-project)
-	SetScopeProject(ctx context.Context, request SetScopeProjectRequestObject) (SetScopeProjectResponseObject, error)
 	// ListSprints Per-team sprint pointers.
 	// (GET /sprints)
 	ListSprints(ctx context.Context, request ListSprintsRequestObject) (ListSprintsResponseObject, error)
@@ -5788,7 +4820,7 @@ type StrictServerInterface interface {
 	// OwnCard Whose is this — a team and a person on it, a team alone, or nobody.
 	// (POST /views/{view}/cards/{uid}/actions/own)
 	OwnCard(ctx context.Context, request OwnCardRequestObject) (OwnCardResponseObject, error)
-	// RemoveCard The board's × — hand the card back to a home it still has, or delete it by that board's rules.
+	// RemoveCard The board's × — take the card out of work, or delete it by that board's rules.
 	// (POST /views/{view}/cards/{uid}/actions/remove)
 	RemoveCard(ctx context.Context, request RemoveCardRequestObject) (RemoveCardResponseObject, error)
 	// TakeCard The Backlog's "I take this into work" — the card becomes the caller's.
@@ -6419,99 +5451,6 @@ func (sh *strictHandler) ReorderCustomers(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// AddDeadline operation middleware
-func (sh *strictHandler) AddDeadline(w http.ResponseWriter, r *http.Request) {
-	var request AddDeadlineRequestObject
-
-	var body AddDeadlineJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.AddDeadline(ctx, request.(AddDeadlineRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "AddDeadline")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(AddDeadlineResponseObject); ok {
-		if err := validResponse.VisitAddDeadlineResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// DeleteDeadline operation middleware
-func (sh *strictHandler) DeleteDeadline(w http.ResponseWriter, r *http.Request) {
-	var request DeleteDeadlineRequestObject
-
-	var body DeleteDeadlineJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteDeadline(ctx, request.(DeleteDeadlineRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteDeadline")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteDeadlineResponseObject); ok {
-		if err := validResponse.VisitDeleteDeadlineResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// MoveDeadline operation middleware
-func (sh *strictHandler) MoveDeadline(w http.ResponseWriter, r *http.Request) {
-	var request MoveDeadlineRequestObject
-
-	var body MoveDeadlineJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.MoveDeadline(ctx, request.(MoveDeadlineRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "MoveDeadline")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(MoveDeadlineResponseObject); ok {
-		if err := validResponse.VisitMoveDeadlineResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // GetDayLogs operation middleware
 func (sh *strictHandler) GetDayLogs(w http.ResponseWriter, r *http.Request, params GetDayLogsParams) {
 	var request GetDayLogsRequestObject
@@ -6619,285 +5558,6 @@ func (sh *strictHandler) SetPresence(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetPresenceResponseObject); ok {
 		if err := validResponse.VisitSetPresenceResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// AddProject operation middleware
-func (sh *strictHandler) AddProject(w http.ResponseWriter, r *http.Request) {
-	var request AddProjectRequestObject
-
-	var body AddProjectJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.AddProject(ctx, request.(AddProjectRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "AddProject")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(AddProjectResponseObject); ok {
-		if err := validResponse.VisitAddProjectResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// DeleteProject operation middleware
-func (sh *strictHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
-	var request DeleteProjectRequestObject
-
-	var body DeleteProjectJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteProject(ctx, request.(DeleteProjectRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteProject")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteProjectResponseObject); ok {
-		if err := validResponse.VisitDeleteProjectResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// RenameProject operation middleware
-func (sh *strictHandler) RenameProject(w http.ResponseWriter, r *http.Request) {
-	var request RenameProjectRequestObject
-
-	var body RenameProjectJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.RenameProject(ctx, request.(RenameProjectRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "RenameProject")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(RenameProjectResponseObject); ok {
-		if err := validResponse.VisitRenameProjectResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ReorderProjects operation middleware
-func (sh *strictHandler) ReorderProjects(w http.ResponseWriter, r *http.Request) {
-	var request ReorderProjectsRequestObject
-
-	var body ReorderProjectsJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ReorderProjects(ctx, request.(ReorderProjectsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ReorderProjects")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ReorderProjectsResponseObject); ok {
-		if err := validResponse.VisitReorderProjectsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// AddScope operation middleware
-func (sh *strictHandler) AddScope(w http.ResponseWriter, r *http.Request) {
-	var request AddScopeRequestObject
-
-	var body AddScopeJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.AddScope(ctx, request.(AddScopeRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "AddScope")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(AddScopeResponseObject); ok {
-		if err := validResponse.VisitAddScopeResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// DeleteScope operation middleware
-func (sh *strictHandler) DeleteScope(w http.ResponseWriter, r *http.Request) {
-	var request DeleteScopeRequestObject
-
-	var body DeleteScopeJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteScope(ctx, request.(DeleteScopeRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteScope")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteScopeResponseObject); ok {
-		if err := validResponse.VisitDeleteScopeResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// RenameScope operation middleware
-func (sh *strictHandler) RenameScope(w http.ResponseWriter, r *http.Request) {
-	var request RenameScopeRequestObject
-
-	var body RenameScopeJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.RenameScope(ctx, request.(RenameScopeRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "RenameScope")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(RenameScopeResponseObject); ok {
-		if err := validResponse.VisitRenameScopeResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ReorderScopes operation middleware
-func (sh *strictHandler) ReorderScopes(w http.ResponseWriter, r *http.Request) {
-	var request ReorderScopesRequestObject
-
-	var body ReorderScopesJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ReorderScopes(ctx, request.(ReorderScopesRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ReorderScopes")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ReorderScopesResponseObject); ok {
-		if err := validResponse.VisitReorderScopesResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// SetScopeProject operation middleware
-func (sh *strictHandler) SetScopeProject(w http.ResponseWriter, r *http.Request) {
-	var request SetScopeProjectRequestObject
-
-	var body SetScopeProjectJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.SetScopeProject(ctx, request.(SetScopeProjectRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "SetScopeProject")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(SetScopeProjectResponseObject); ok {
-		if err := validResponse.VisitSetScopeProjectResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

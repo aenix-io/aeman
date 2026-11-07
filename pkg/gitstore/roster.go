@@ -12,7 +12,7 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// The roster — teams, projects, scopes, deadlines and the board file — is
+// The roster — teams, customers, users and the board file — is
 // configuration that used to hide in aeman:*-state cards. Here each is a
 // small YAML file at a path that carries identity only.
 
@@ -33,19 +33,6 @@ var ErrSchemaNewer = errors.New("gitstore: repository schema is newer than this 
 // TeamPath is where a team lives; the no-team group is the team "_".
 func TeamPath(id string) string { return "teams/" + id + ".yaml" }
 
-// ProjectPath is a project's own file.
-func ProjectPath(id string) string { return "projects/" + id + "/project.yaml" }
-
-// ScopePath is one column of a project.
-func ScopePath(projectID, id string) string {
-	return "projects/" + projectID + "/scopes/" + id + ".yaml"
-}
-
-// DeadlinePath is one deadline line of a project.
-func DeadlinePath(projectID, id string) string {
-	return "projects/" + projectID + "/deadlines/" + id + ".yaml"
-}
-
 // PathKind classifies a path in the layout.
 type PathKind int
 
@@ -55,9 +42,11 @@ const (
 	PathBoard
 	PathCard
 	PathTeam
-	PathProject
-	PathScope
-	PathDeadline
+	// PathProjectBoard is anything under projects/: the retired Project
+	// board's roster — projects, their columns and deadline lines (H15). A
+	// repository may still hold it; every reader skips it and no writer
+	// touches it.
+	PathProjectBoard
 	PathUser
 	PathCustomer
 )
@@ -131,20 +120,8 @@ func ParsePath(p string) (PathKind, []string) {
 		if id, ok := strip(parts[1], ".yaml"); ok {
 			return PathTeam, []string{id}
 		}
-	case len(parts) == 3 && parts[0] == "projects" && parts[2] == "project.yaml":
-		return PathProject, []string{parts[1]}
-	// `epics/` is what the column directory was called before schema 2: a
-	// tree before the migration — a day read as it stood, a replica still
-	// on schema 1 — keeps its columns this way, as the card key `epic` keeps
-	// its cards filed. New writes go under scopes/ only (ScopePath).
-	case len(parts) == 4 && parts[0] == "projects" && (parts[2] == "scopes" || parts[2] == "epics"):
-		if id, ok := strip(parts[3], ".yaml"); ok {
-			return PathScope, []string{parts[1], id}
-		}
-	case len(parts) == 4 && parts[0] == "projects" && parts[2] == "deadlines":
-		if id, ok := strip(parts[3], ".yaml"); ok {
-			return PathDeadline, []string{parts[1], id}
-		}
+	case len(parts) > 1 && parts[0] == "projects":
+		return PathProjectBoard, nil
 	case len(parts) == 2 && parts[0] == "customers":
 		if id, ok := strip(parts[1], ".yaml"); ok {
 			return PathCustomer, []string{id}
@@ -178,29 +155,6 @@ type TeamFile struct {
 	// to a team file quietly ate the whole block.
 	CapacityExtra []ExtraField
 	Extra         []ExtraField
-}
-
-// ProjectFile is projects/<id>/project.yaml.
-type ProjectFile struct {
-	Name    string
-	Rank    string
-	Created string
-	Extra   []ExtraField
-}
-
-// ScopeFile is projects/<pid>/scopes/<id>.yaml.
-type ScopeFile struct {
-	Name    string
-	Rank    string
-	Created string
-	Extra   []ExtraField
-}
-
-// DeadlineFile is projects/<pid>/deadlines/<id>.yaml.
-type DeadlineFile struct {
-	Week    string
-	Created string
-	Extra   []ExtraField
 }
 
 // BoardFile is board.yaml.
@@ -309,32 +263,6 @@ func DecodeUser(data []byte) (UserFile, error) {
 	return f, err
 }
 
-// EncodeProject renders a project file.
-func EncodeProject(f ProjectFile) ([]byte, error) {
-	var w yamlWriter
-	w.str("name", f.Name)
-	w.str("rank", f.Rank)
-	w.str("created", f.Created)
-	return w.finish(f.Extra)
-}
-
-// EncodeScope renders an scope file.
-func EncodeScope(f ScopeFile) ([]byte, error) {
-	var w yamlWriter
-	w.str("name", f.Name)
-	w.str("rank", f.Rank)
-	w.str("created", f.Created)
-	return w.finish(f.Extra)
-}
-
-// EncodeDeadline renders a deadline file.
-func EncodeDeadline(f DeadlineFile) ([]byte, error) {
-	var w yamlWriter
-	w.str("week", f.Week)
-	w.str("created", f.Created)
-	return w.finish(f.Extra)
-}
-
 // EncodeBoard renders board.yaml. The schema is always written, even at
 // zero, because its absence means "older than versioning".
 func EncodeBoard(f BoardFile) ([]byte, error) {
@@ -419,26 +347,6 @@ func DecodeTeam(data []byte) (TeamFile, error) {
 	return f, err
 }
 
-// DecodeProject parses a project file.
-func DecodeProject(data []byte) (ProjectFile, error) {
-	var f ProjectFile
-	extra, err := each(data, func(key string, val *yaml.Node) bool {
-		return setNamed(&f.Name, &f.Rank, &f.Created, key, val)
-	})
-	f.Extra = extra
-	return f, err
-}
-
-// DecodeScope parses an scope file.
-func DecodeScope(data []byte) (ScopeFile, error) {
-	var f ScopeFile
-	extra, err := each(data, func(key string, val *yaml.Node) bool {
-		return setNamed(&f.Name, &f.Rank, &f.Created, key, val)
-	})
-	f.Extra = extra
-	return f, err
-}
-
 func setNamed(name, rank, created *string, key string, val *yaml.Node) bool {
 	switch key {
 	case "name":
@@ -451,24 +359,6 @@ func setNamed(name, rank, created *string, key string, val *yaml.Node) bool {
 		return false
 	}
 	return true
-}
-
-// DecodeDeadline parses a deadline file.
-func DecodeDeadline(data []byte) (DeadlineFile, error) {
-	var f DeadlineFile
-	extra, err := each(data, func(key string, val *yaml.Node) bool {
-		switch key {
-		case "week":
-			f.Week = val.Value
-		case "created":
-			f.Created = val.Value
-		default:
-			return false
-		}
-		return true
-	})
-	f.Extra = extra
-	return f, err
 }
 
 // DecodeBoard parses board.yaml. A schema newer than SchemaVersion is

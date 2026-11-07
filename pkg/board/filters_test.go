@@ -189,52 +189,6 @@ func TestTeamGridDeferredLeavesCurrentSprint(t *testing.T) {
 	}
 }
 
-// A card in a Scope column is a PROJECT CARD: the Project board's plan, and
-// nowhere else (H4, docs/design/hierarchy.md). Whatever its week, its dates,
-// its sprint or — in a repository written before schema 2 — its team and
-// assignees say, it is not in hand on the Team grid and not on anyone's Me
-// board. It used to stand in its owner's column once its week came (the slot
-// rule, D17), which put planning placeholders among the day's work and made
-// one card answer two questions; the two boards are disjoint now, and the
-// hierarchy is what connects them. A card carrying only a project NAME is in
-// no column and is an ordinary task, drawn like any other.
-func TestAProjectCardIsOnNoDayBoard(t *testing.T) {
-	today := TodayIso()
-	week := MondayOf(today)
-	b := NewBoardIn("acme", []Card{
-		{ItemID: "p1", Title: ProjectStateTitle, Project: "P"},
-		{ItemID: "col", Title: ScopeStateTitle, Scope: "E", Project: "P"},
-		// Every reason a task would be in hand today, on a card in a column.
-		{ItemID: "project-card", Scope: "E", Project: "P",
-			Week: week, StartDate: today, Day: today, SprintStart: today},
-		// Written before schema 2: a team and an owner it may no longer carry.
-		{ItemID: "legacy-owned", Team: "t", Assignees: []string{"kvaps"}, Scope: "E", Project: "P",
-			Week: week, StartDate: today, Day: today, SprintStart: today},
-		// A project NAME alone is no column: an ordinary dated task.
-		{ItemID: "project-only", Team: "t", Assignees: []string{"kvaps"}, Project: "P",
-			StartDate: today, Day: today},
-	})
-	b.SprintStates = map[string]SprintState{"t": {Current: today}, "": {Current: today}}
-	if got := ids(TeamGrid(b, "t", today)); !reflect.DeepEqual(got, []string{"project-only"}) {
-		t.Fatalf("Team grid = %v; want the project-only task alone — a card in a column is the Project board's", got)
-	}
-	if got := ids(TeamGrid(b, "", today)); len(got) != 0 {
-		t.Fatalf("the no-team group = %v; a project card has no team and stands in no team's column", got)
-	}
-	if got := ids(MeView(b, "kvaps", today)); !reflect.DeepEqual(got, []string{"project-only"}) {
-		t.Fatalf("Me board = %v; want the project-only task alone", got)
-	}
-	if got := ids(MeView(b, "", today)); !reflect.DeepEqual(got, []string{"project-only"}) {
-		t.Fatalf("everyone's Me board = %v; a project card is on no day board whoever looks", got)
-	}
-	// Nor on any other day: the start of its span, the end, a day between.
-	for _, day := range []string{AddDays(week, -7), week, AddDays(today, -1), AddDays(today, 1)} {
-		if got := ids(TeamGrid(b, "t", day)); slicesContains(got, "legacy-owned") {
-			t.Fatalf("TeamGrid(%s) = %v; the week a project card covers is the Project board's row, not a day's work", day, got)
-		}
-	}
-}
-
 // A DEFERRED card leaves the day grid at once — that is what deferring is —
 // and its sprint must not hold it there.
 func TestTeamGridLetsADeferredCardGo(t *testing.T) {
@@ -250,43 +204,6 @@ func TestTeamGridLetsADeferredCardGo(t *testing.T) {
 	if got := TeamGrid(b, "t", today); len(got) != 0 {
 		t.Fatalf("grid = %d card(s); a card deferred a month out is gone from today", len(got))
 	}
-}
-
-// A TASK HAS NO WEEK (K7). The week of a task is gone — nothing schedules a
-// task for a week any more — so a week a file still carries is read as
-// nothing: a task with a week and no date and no sprint stands on no day
-// board (schema 3 parks it, K8), and one with dates stands by its dates
-// alone. A DEADLINE STUB is not a task: its week is the line it draws on the
-// Project board, and it keeps it.
-func TestATasksWeekIsReadAsNothing(t *testing.T) {
-	today := TodayIso()
-	week := MondayOf(today)
-	b := NewBoard([]Card{
-		{ItemID: "st", Title: SprintStateTitle, Team: "t", SprintStart: today, StartDate: today},
-		{ItemID: "week-only", Team: "t", Week: week},
-		{ItemID: "ahead", Team: "t", Week: AddDays(week, 7), StartDate: today, Day: today},
-		{ItemID: "dl", Title: DeadlineStateTitle, Project: "P", Week: week},
-	})
-	for _, c := range b.Cards {
-		if c.Title != DeadlineStateTitle && c.Week != "" {
-			t.Errorf("%s reads with week %q; a task has none", c.ItemID, c.Week)
-		}
-	}
-	if got := ids(TeamGrid(b, "t", today)); !reflect.DeepEqual(got, []string{"ahead"}) {
-		t.Errorf("TeamGrid = %v, want the dated card alone: a week ahead holds nothing back", got)
-	}
-	if _, ok := FindDeadline(b, "P", week); !ok {
-		t.Error("a deadline stub keeps its week: it is the Project board's line")
-	}
-}
-
-func slicesContains(xs []string, x string) bool {
-	for _, s := range xs {
-		if s == x {
-			return true
-		}
-	}
-	return false
 }
 
 // Finished work belongs to the day it RECORDS being finished on (doneAt),
@@ -554,18 +471,18 @@ func TestASprintsOwnDayKeepsTheWorkItFinished(t *testing.T) {
 	}
 }
 
-// The Me board reads no week (K7, D17 retired): a task carrying one — a file
-// written before schema 3 — is drawn by its dates and sprint like any task,
-// and one with nothing else is on no day board at all. A parked card is not
-// the person's day either, whoever owns it.
+// The Me board reads no week (K7, D17 retired; a card has no week since
+// project cards went): a task is drawn by its dates and sprint, and one with
+// nothing else is on no day board at all. A parked card is not the person's
+// day either, whoever owns it.
 func TestTheMeBoardReadsNoWeek(t *testing.T) {
 	t.Parallel()
 	today := TodayIso()
 	thisWeek := MondayOf(today)
 	b := NewBoard([]Card{
 		{ItemID: "st", Title: SprintStateTitle, Team: "alpha", SprintStart: thisWeek, StartDate: thisWeek},
-		{ItemID: "week-only", Team: "alpha", Assignees: []string{"u"}, Week: thisWeek},
-		{ItemID: "dated", Team: "alpha", Assignees: []string{"u"}, Week: AddDays(thisWeek, 7),
+		{ItemID: "week-only", Team: "alpha", Assignees: []string{"u"}},
+		{ItemID: "dated", Team: "alpha", Assignees: []string{"u"},
 			StartDate: today, Day: today, SprintStart: thisWeek},
 		{ItemID: "shelved", Team: "alpha", Assignees: []string{"u"}, Parked: true},
 	})

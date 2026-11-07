@@ -32,12 +32,9 @@ func gitRemoteN(t *testing.T, name string) gitstore.Remote {
 	return gitstore.Remote{URL: url}
 }
 
-// seedClosedRemote pushes a closed domain: the project "secret" and its
-// column "Risk", no teams, and one card of the project — a task carrying
-// the project's NAME (the shared team "portal" and an owner), which the
-// project rule places in this domain. It stands in no column: a card in a
-// column has no team and no owner (H4), and the access tests need a closed
-// card that can be assigned.
+// seedClosedRemote pushes a closed domain: the team "secret", declared
+// there, and one card of that team with an owner — the access tests need a
+// closed card that can be assigned, and a team a card can be moved into.
 func seedClosedRemote(t *testing.T, remote gitstore.Remote) {
 	t.Helper()
 	r, err := gitstore.Init(memory.NewStorage(), gitTestOpts)
@@ -46,9 +43,8 @@ func seedClosedRemote(t *testing.T, remote gitstore.Remote) {
 	}
 	_, err = r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
 		{Path: gitstore.BoardPath, Data: []byte("schema: 3\ntitle: closed\n")},
-		{Path: gitstore.ProjectPath("01JB4PROJSECRET"), Data: []byte("name: secret\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
-		{Path: gitstore.ScopePath("01JB4PROJSECRET", "01JB4SCOPERISK"), Data: []byte("name: Risk\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
-		{Path: "cards/c/3/01JB4K2E7QZMX3R8V0N5T9WYC3.md", Data: []byte("---\ntitle: three-closed\nteam: portal\nproject: secret\nzone: yellow\nassignees:\n  - zoe\nprogress: 20\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n")},
+		{Path: gitstore.TeamPath("01JB4TEAMSECRET"), Data: []byte("name: secret\nrank: c\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n")},
+		{Path: "cards/c/3/01JB4K2E7QZMX3R8V0N5T9WYC3.md", Data: []byte("---\ntitle: three-closed\nteam: secret\nzone: yellow\nassignees:\n  - zoe\nprogress: 20\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n")},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -93,8 +89,7 @@ func tornMoveRemotes(t *testing.T) (gitstore.Remote, gitstore.Remote) {
 	seedRemoteFiles(t, closed, map[string]string{
 		gitstore.BoardPath:                        "schema: 3\ntitle: closed\n",
 		gitstore.TeamPath("01JB4TEAMOLD"):         "name: portal\nrank: z\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
-		gitstore.ProjectPath("01JB4PROJSECRET"):   "name: secret\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nproject: secret\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
+		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
 	})
 	return shared, closed
 }
@@ -250,8 +245,7 @@ func TestHealthzReportsAliasesAndGhosts(t *testing.T) {
 	})
 	seedRemoteFiles(t, closed, map[string]string{
 		gitstore.BoardPath:                        "schema: 3\ntitle: closed\n",
-		gitstore.ProjectPath("01JB4PROJSECRET"):   "name: secret\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nproject: secret\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
+		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
 	})
 	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"bob": rightsOn([]string{"shared", "closed"}, []string{"shared", "closed"})}}, shared, closed)
 	if rec := doAs(t, srv, "bob", "GET", "/api/v1/board", ""); rec.Code != 200 {
@@ -387,7 +381,7 @@ func actionCtx(id, name string) context.Context {
 	return withAction(board.WithActor(context.Background(), "kvaps"), id, name)
 }
 
-// G14/G22 through the store — a card filed under the closed project moves:
+// G14/G22 through the store — a card handed to the closed team moves:
 // both clones commit under the request's action id, the cache knows the new
 // domain at once, one sync pushes both, and a replica that was watching
 // adopts both and serves the card once, from the closed domain.
@@ -405,17 +399,14 @@ func TestGitTwoDomainsMovePushesBothAndIsAdopted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bd.Projects) != 1 || bd.Projects[0] != "secret" {
-		t.Fatalf("projects = %v, want the closed domain's project merged in", bd.Projects)
+	if _, ok := bd.SprintStates["secret"]; !ok {
+		t.Fatalf("teams = %v, want the closed domain's team merged in", bd.TeamOrder)
 	}
 	card := cardByTitle(bd, "one")
 	if card.Domain != "shared" {
 		t.Fatalf("card domain = %q before the move", card.Domain)
 	}
-	if err := a.SetProject(ctx, bd, card, "secret"); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.SetScope(ctx, bd, card, "Risk"); err != nil {
+	if err := a.SetTeam(ctx, bd, card, "secret"); err != nil {
 		t.Fatal(err)
 	}
 	waitQueue(t, a)
@@ -435,8 +426,8 @@ func TestGitTwoDomainsMovePushesBothAndIsAdopted(t *testing.T) {
 	}
 	// The cache learnt the new domain from the commit, not from a reload.
 	now, _ := a.LoadBoard(ctx, "acme")
-	if c := cardByTitle(now, "one"); c.Domain != "closed" || c.Project != "secret" || c.Scope != "Risk" {
-		t.Fatalf("cached card after move = domain %q project %q scope %q", c.Domain, c.Project, c.Scope)
+	if c := cardByTitle(now, "one"); c.Domain != "closed" || c.Team != "secret" {
+		t.Fatalf("cached card after move = domain %q team %q", c.Domain, c.Team)
 	}
 
 	if err := a.syncNow(ctx, "acme"); err != nil {
@@ -455,8 +446,8 @@ func TestGitTwoDomainsMovePushesBothAndIsAdopted(t *testing.T) {
 	for _, c := range seen.Cards {
 		if c.Title == "one" {
 			count++
-			if c.Domain != "closed" || c.Project != "secret" {
-				t.Fatalf("adopted card = domain %q project %q", c.Domain, c.Project)
+			if c.Domain != "closed" || c.Team != "secret" {
+				t.Fatalf("adopted card = domain %q team %q", c.Domain, c.Team)
 			}
 		}
 	}

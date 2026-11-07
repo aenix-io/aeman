@@ -129,14 +129,12 @@ func TestMCPListsTools(t *testing.T) {
 		"delete_card", "remove_card", "move_card", "defer_card", "in_progress",
 		"send_to_review", "remove_reviewer", "carry_over",
 		"list_links", "list_log", "list_notes", "add_note", "edit_note", "delete_note",
-		"add_scope", "delete_scope", "set_scope_project", "rename_scope",
-		"add_project", "delete_project", "reorder_projects", "rename_project", "rename_team",
-		"add_deadline", "delete_deadline", "move_deadline",
+		"rename_team",
 		"reopen_card",
 		"set_capacity", "set_team_capacity",
 		// The gestures and reads the boards have and the tool set did not.
 		"finished_earlier", "list_sprints",
-		"list_day_logs", "reorder_teams", "reorder_scopes", "delete_team",
+		"list_day_logs", "reorder_teams", "delete_team",
 		"set_sprint_state",
 		// The Roadmap's "whose is this" (H10), and the Backlog's take (K11).
 		"own_card", "take_card",
@@ -150,6 +148,33 @@ func TestMCPListsTools(t *testing.T) {
 	}
 	if len(names) != len(want) {
 		t.Errorf("tool count = %d, want %d (%v)", len(names), len(want), names)
+	}
+}
+
+// The Project board is gone (H15): its tools, its view and its listing flag
+// are no part of the surface, and an agent that still asks for them is told
+// so rather than answered with an empty board.
+func TestMCPHasNoProjectBoard(t *testing.T) {
+	cs := connect(t, Config{Board: "acme"}, boardservicetest.New(nil, nil))
+	for tool, err := range cs.Tools(context.Background(), nil) {
+		if err != nil {
+			t.Fatalf("list tools: %v", err)
+		}
+		for _, gone := range []string{"project", "scope", "deadline"} {
+			if strings.Contains(tool.Name, gone) {
+				t.Errorf("tool %q survives the Project board", tool.Name)
+			}
+		}
+		raw, _ := json.Marshal(tool.InputSchema)
+		for _, gone := range []string{`"projectCards"`, `"project"`, `"scope"`} {
+			if strings.Contains(string(raw), gone) {
+				t.Errorf("tool %q still takes %s", tool.Name, gone)
+			}
+		}
+	}
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "list_cards", Arguments: map[string]any{"view": "project"}})
+	if err == nil && !res.IsError {
+		t.Fatalf("view=project still lists: %s", textOf(res))
 	}
 }
 
@@ -174,26 +199,6 @@ func TestMCPListCardsTeamView(t *testing.T) {
 	res := call(t, cs, "list_cards", map[string]any{"view": "team", "team": "alpha"})
 	if !strings.Contains(textOf(res), "c1") || strings.Contains(textOf(res), "c2") {
 		t.Fatalf("team view should hold exactly c1: %s", textOf(res))
-	}
-}
-
-// The Roadmap's "Project cards" toggle is the listing's projectCards flag,
-// the same selector the HTTP listing takes: by default the roadmap lists no
-// card in a Scope column, even one filed under a planning card.
-func TestMCPListCardsRoadmapHidesProjectCardsUnlessAsked(t *testing.T) {
-	fake := boardservicetest.New([]board.Card{
-		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
-		{ItemID: "task1", Title: "Receipts", Parent: "epic", Team: "alpha", Parked: true},
-		{ItemID: "slot1", Title: "Q1 slot", Parent: "epic", Scope: "Payments", Project: "core"},
-	}, nil)
-	cs := connect(t, Config{Board: "acme"}, fake)
-	plain := textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap"}))
-	if !strings.Contains(plain, "task1") || strings.Contains(plain, "slot1") {
-		t.Fatalf("the roadmap lists no project card by default: %s", plain)
-	}
-	asked := textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap", "projectCards": true}))
-	if !strings.Contains(asked, "slot1") {
-		t.Fatalf("asked for, the project card is listed: %s", asked)
 	}
 }
 
@@ -545,27 +550,6 @@ func TestCreateCardDescribesNoRefusalTheServerDoesNotMake(t *testing.T) {
 // cannot try a gesture to see what happens — the description IS the rule for
 // it — so each of these sent it into a wrong move.
 func TestDescriptionsMatchWhatTheServiceDoes(t *testing.T) {
-	// A deadline belongs to a PROJECT: one line per project per week, so two
-	// projects due the same week are two lines (board.FindDeadline matches on
-	// both fields; TestDeadlines pins it).
-	for _, tool := range []string{"add_deadline", "move_deadline"} {
-		d := toolDescription(t, tool)
-		if strings.Contains(d, "A week holds at most one line") ||
-			strings.Contains(d, "two deadlines on one date are one deadline") {
-			t.Errorf("%s still describes deadlines as one-per-week; they are one per (project, week)", tool)
-		}
-		if !strings.Contains(d, "project") {
-			t.Errorf("%s must say a deadline belongs to a project", tool)
-		}
-	}
-
-	// The two kinds of roster name do NOT share a namespace: nameFree
-	// switches into separate maps, so a team may carry a project's name.
-	// What is shared is the repositories.
-	if team := toolDescription(t, "rename_team"); strings.Contains(team, "are one namespace") {
-		t.Error("rename_team still claims teams and projects share a namespace; they do not")
-	}
-
 	// The rules that used to live in the browser are the service's now, so an
 	// agent meets them too — and a description that does not name them turns
 	// a rule into a surprise. Each is read off the ARGUMENT it belongs to:
@@ -606,7 +590,7 @@ func TestTheToolSetHoldsWhatTheBoardsDo(t *testing.T) {
 		// The Backlog's: I take this into work (K11).
 		"take_card",
 		// The roster gestures the manage dialogs make.
-		"reorder_teams", "reorder_scopes", "delete_team", "set_sprint_state",
+		"reorder_teams", "delete_team", "set_sprint_state",
 		// What a day board reads in one request instead of a log per card.
 		"list_day_logs",
 		// And when each team's sprint began, which every date rule is

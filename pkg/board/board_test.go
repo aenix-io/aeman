@@ -98,28 +98,3 @@ func TestNewBoardDuplicateSprintStateWinner(t *testing.T) {
 		}
 	}
 }
-
-// A card naming an scope but no project is adopted by the only column of that
-// name — the pair postdates such cards, and the GitHub UI can still write a
-// bare Scope. Two columns sharing the name make it ambiguous: no guessing.
-func TestCardsWithoutAProjectJoinTheOnlyColumnOfThatName(t *testing.T) {
-	b := NewBoard([]Card{
-		{ItemID: "p1", Title: ProjectStateTitle, Project: "A"},
-		{ItemID: "e1", Title: ScopeStateTitle, Scope: "Infra", Project: "A"},
-		{ItemID: "c1", Title: "legacy", Scope: "Infra"},
-	})
-	if got := b.Cards[0].Project; got != "A" {
-		t.Fatalf("project = %q, want the only Infra column's", got)
-	}
-
-	amb := NewBoard([]Card{
-		{ItemID: "p1", Title: ProjectStateTitle, Project: "A"},
-		{ItemID: "p2", Title: ProjectStateTitle, Project: "B"},
-		{ItemID: "e1", Title: ScopeStateTitle, Scope: "Infra", Project: "A"},
-		{ItemID: "e2", Title: ScopeStateTitle, Scope: "Infra", Project: "B"},
-		{ItemID: "c1", Title: "legacy", Scope: "Infra"},
-	})
-	if got := amb.Cards[0].Project; got != "" {
-		t.Fatalf("project = %q, want none — the name is ambiguous", got)
-	}
-}

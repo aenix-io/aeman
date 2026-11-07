@@ -278,7 +278,7 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 	card := board.Card{
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Type: in.Type, Domain: in.Domain,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
-		Week: in.Week, Scope: in.Scope, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
+		Team: in.Team, ReviewOf: in.ReviewOf,
 		Parked: in.Parked, Size: in.Size,
 		Recurrence:  in.Recurrence,
 		Description: in.Body,
@@ -572,16 +572,6 @@ func (f *Backend) SetBacklog(
 	return nil
 }
 
-func (f *Backend) SetWeek(_ context.Context, _ board.Board, card board.Card, week string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetWeek %s %s", card.ItemID, week)
-	if c := f.card(card.ItemID); c != nil {
-		c.Week = week
-	}
-	return nil
-}
-
 // SetTeam sets a card's team.
 func (f *Backend) SetTeam(_ context.Context, _ board.Board, card board.Card, team string) error {
 	f.mu.Lock()
@@ -597,28 +587,6 @@ func (f *Backend) SetTeam(_ context.Context, _ board.Board, card board.Card, tea
 	}
 	if c := f.card(card.ItemID); c != nil {
 		c.Team = team
-	}
-	return nil
-}
-
-// SetScope files the card under a Project-board column.
-func (f *Backend) SetScope(_ context.Context, _ board.Board, card board.Card, scope string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetScope %s %s", card.ItemID, scope)
-	if c := f.card(card.ItemID); c != nil {
-		c.Scope = scope
-	}
-	return nil
-}
-
-// SetProject writes a state card's Project field.
-func (f *Backend) SetProject(_ context.Context, _ board.Board, card board.Card, project string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetProject %s %s", card.ItemID, project)
-	if c := f.card(card.ItemID); c != nil {
-		c.Project = project
 	}
 	return nil
 }

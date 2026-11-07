@@ -28,7 +28,6 @@ func ownSeed(today string) *fakeBackend {
 		{ItemID: "ahead", Title: "Next week", StartDate: board.AddDays(today, 7), Day: board.AddDays(today, 7)},
 		// The kinds OWN refuses.
 		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
-		{ItemID: "slot", Title: "Legal", Scope: "Compliance", Project: "eu"},
 		{ItemID: "review", Title: "review: Underway", ReviewOf: "planned", Team: "beta", Assignees: []string{"rev"},
 			StartDate: today, Day: today, SprintStart: today},
 	}, map[string]board.SprintState{
@@ -168,9 +167,8 @@ func TestOwnGivesLooseWorkAHome(t *testing.T) {
 	})
 
 	// A planning card's own is its team and its owner (O9, ownership_test.go).
-	t.Run("a project card, a subtask and a review card have no owner of their own", func(t *testing.T) {
+	t.Run("a subtask and a review card have no owner of their own", func(t *testing.T) {
 		for id, want := range map[string]error{
-			"slot":      ErrProjectCard,
 			"strip-sub": ErrOwnerFollowsLink,
 			"review":    ErrOwnerFollowsLink,
 		} {
@@ -183,16 +181,13 @@ func TestOwnGivesLooseWorkAHome(t *testing.T) {
 
 // The gesture is a BOARD's: the Roadmap's first, and every board that draws
 // a task offers it too, so the drawer can ask the same question from
-// wherever the card was opened. The Project board draws no task.
+// wherever the card was opened.
 func TestOwnIsOfferedWhereATaskIsDrawn(t *testing.T) {
 	t.Parallel()
 	for _, v := range []board.View{board.ViewRoadmap, board.ViewMe, board.ViewTeam, board.ViewBacklog, board.ViewAll} {
 		if !Offers(v, GestureOwn) {
 			t.Errorf("%s does not offer own", v)
 		}
-	}
-	if Offers(board.ViewProject, GestureOwn) {
-		t.Error("the Project board offers own, and draws no task")
 	}
 	if got := Gestures(board.ViewRoadmap); len(got) != 2 || got[0] != GestureRemove || got[1] != GestureOwn {
 		t.Fatalf("the Roadmap draws %v, want remove, own", got)

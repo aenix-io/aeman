@@ -17,7 +17,7 @@ func TestEventBodyRoundTrip(t *testing.T) {
 		{Kind: EventReviewSent, Actor: "kvaps", To: "lllamnyp"},
 		{Kind: EventReviewPassed, Actor: "lllamnyp", From: "lllamnyp"},
 		{Kind: EventReviewerRemoved, Actor: "kvaps", From: "lllamnyp"},
-		{Kind: EventWeek, Actor: "kvaps", From: "2026-07-06", To: "2026-07-13"},
+		{Kind: EventDates, Actor: "kvaps", From: "2026-07-06", To: "2026-07-13"},
 	}
 	for _, e := range events {
 		body := FormatEventBody(e)

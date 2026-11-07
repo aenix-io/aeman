@@ -140,7 +140,7 @@ func twoDomainServer(t *testing.T) *Server {
 	}}, shared, closed)
 }
 
-// G17 — an unreadable domain is absent: no project, no column, no card.
+// G17 — an unreadable domain is absent: no team, no card.
 func TestUnreadableDomainAbsent(t *testing.T) {
 	srv := twoDomainServer(t)
 	rec := doAs(t, srv, "alice", http.MethodGet, "/api/v1/board", "")
@@ -158,7 +158,7 @@ func TestUnreadableDomainAbsent(t *testing.T) {
 	}
 	rec = doAs(t, srv, "bob", http.MethodGet, "/api/v1/board", "")
 	if !strings.Contains(rec.Body.String(), `"secret"`) {
-		t.Fatalf("bob's board lacks the closed project: %s", rec.Body.String())
+		t.Fatalf("bob's board lacks the closed team: %s", rec.Body.String())
 	}
 }
 
@@ -228,18 +228,9 @@ func TestWriteNeedsWriteAccessToTheDomain(t *testing.T) {
 	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"progress":50}`); rec.Code != http.StatusOK {
 		t.Fatalf("dave PATCH shared card: %d %s", rec.Code, rec.Body.String())
 	}
-	// A team of one repository and a project of another cannot both be
-	// honoured, so that pair is refused before rights are even consulted
-	// (G46): the card carries the shared team "portal".
-	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"project":"secret","scope":"Risk"}`); rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("dave files a shared team's card under a closed project: %d %s, want 422", rec.Code, rec.Body.String())
-	}
-	// Without a team the pair is valid and the move is a real one — into a
-	// domain dave cannot write: refused, and the card stays where it was.
-	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"team":""}`); rec.Code != http.StatusOK {
-		t.Fatalf("dave clears the team: %d %s", rec.Code, rec.Body.String())
-	}
-	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"project":"secret","scope":"Risk"}`); rec.Code != http.StatusForbidden {
+	// Handing the card to the closed team is a move into a domain dave
+	// cannot write: refused, and the card stays where it was.
+	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"team":"secret"}`); rec.Code != http.StatusForbidden {
 		t.Fatalf("dave moves into closed: %d %s, want 403", rec.Code, rec.Body.String())
 	}
 	rec := doAs(t, srv, "dave", http.MethodGet, "/api/v1/cards/"+sharedUID, "")
@@ -253,11 +244,11 @@ func TestWriteNeedsWriteAccessToTheDomain(t *testing.T) {
 	if rec := doAs(t, srv, "dave", http.MethodDelete, "/api/v1/cards/"+closedUID, ""); rec.Code != http.StatusForbidden {
 		t.Fatalf("dave deletes a closed card: %d", rec.Code)
 	}
-	if rec := doAs(t, srv, "dave", http.MethodPost, "/api/v1/scopes", `{"project":"secret","name":"Later"}`); rec.Code != http.StatusForbidden {
-		t.Fatalf("dave adds a closed column: %d %s", rec.Code, rec.Body.String())
+	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/sprints", `{"team":"secret","current":"2026-08-31"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("dave moves a closed team's sprint: %d %s", rec.Code, rec.Body.String())
 	}
 	// bob may do all of it.
-	if rec := doAs(t, srv, "bob", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"project":"secret","scope":"Risk"}`); rec.Code != http.StatusOK {
+	if rec := doAs(t, srv, "bob", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"team":"secret"}`); rec.Code != http.StatusOK {
 		t.Fatalf("bob moves into closed: %d %s", rec.Code, rec.Body.String())
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -269,36 +260,33 @@ func TestWriteNeedsWriteAccessToTheDomain(t *testing.T) {
 	}
 }
 
-// Teams and projects are declared in the domain the caller picks — a body
-// field, refused unless the visitor can write there, unknown names refused
-// outright; without a choice they land in the primary.
+// Teams are declared in the domain the caller picks — a body field, refused
+// unless the visitor can write there, unknown names refused outright;
+// without a choice they land in the primary.
 func TestCreateRosterEntryInChosenDomain(t *testing.T) {
 	srv := twoDomainServer(t)
-	if rec := doAs(t, srv, "dave", http.MethodPost, "/api/v1/projects", `{"name":"vault","domain":"closed"}`); rec.Code != http.StatusForbidden {
-		t.Fatalf("dave declares a closed project: %d %s, want 403", rec.Code, rec.Body.String())
+	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/sprints", `{"team":"vault","current":"2026-08-31","domain":"closed"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("dave declares a closed team: %d %s, want 403", rec.Code, rec.Body.String())
 	}
-	if rec := doAs(t, srv, "bob", http.MethodPost, "/api/v1/projects", `{"name":"vault","domain":"nope"}`); rec.Code != http.StatusBadRequest {
+	if rec := doAs(t, srv, "bob", http.MethodPatch, "/api/v1/sprints", `{"team":"vault","current":"2026-08-31","domain":"nope"}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("unknown domain: %d %s, want 400", rec.Code, rec.Body.String())
-	}
-	if rec := doAs(t, srv, "bob", http.MethodPost, "/api/v1/projects", `{"name":"vault","domain":"closed"}`); rec.Code != http.StatusNoContent {
-		t.Fatalf("bob declares a closed project: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := doAs(t, srv, "bob", http.MethodPatch, "/api/v1/sprints", `{"team":"ops","current":"2026-08-31","domain":"closed"}`); rec.Code != http.StatusOK {
 		t.Fatalf("bob declares a closed team: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := doAs(t, srv, "alice", http.MethodPost, "/api/v1/projects", `{"name":"open"}`); rec.Code != http.StatusNoContent {
-		t.Fatalf("alice declares a primary project: %d %s", rec.Code, rec.Body.String())
+	if rec := doAs(t, srv, "alice", http.MethodPatch, "/api/v1/sprints", `{"team":"open","current":"2026-08-31"}`); rec.Code != http.StatusOK {
+		t.Fatalf("alice declares a primary team: %d %s", rec.Code, rec.Body.String())
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	srv.store.waitDrained(ctx)
-	// Alice sees the primary's project, not the closed ones.
+	// Alice sees the primary's team, not the closed ones.
 	rec := doAs(t, srv, "alice", http.MethodGet, "/api/v1/board", "")
 	if body := rec.Body.String(); !strings.Contains(body, `"open"`) || strings.Contains(body, `"vault"`) || strings.Contains(body, `"ops"`) {
 		t.Fatalf("alice's board: %s", body)
 	}
 	rec = doAs(t, srv, "bob", http.MethodGet, "/api/v1/board", "")
-	if body := rec.Body.String(); !strings.Contains(body, `"vault"`) || !strings.Contains(body, `"ops"`) {
+	if body := rec.Body.String(); strings.Contains(body, `"vault"`) || !strings.Contains(body, `"ops"`) {
 		t.Fatalf("bob's board: %s", body)
 	}
 }

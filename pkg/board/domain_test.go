@@ -4,21 +4,15 @@ import "testing"
 
 // G14 — a card's domain (the repository it lives in) follows one rule,
 // linked cards first: a review card lives with the card it reviews, a
-// subtask with its parent, an iteration with its task; only an unlinked card
-// follows its project, and only one without a project follows its team.
+// subtask with its parent; only an unlinked card follows its team.
 
-// mapResolver answers from three maps; missing keys are unknown.
+// mapResolver answers from two maps; missing keys are unknown.
 type mapResolver struct {
-	cards, projects, teams map[string]string
+	cards, teams map[string]string
 }
 
 func (m mapResolver) CardDomain(id string) (string, bool) {
 	d, ok := m.cards[id]
-	return d, ok
-}
-
-func (m mapResolver) ProjectDomain(name string) (string, bool) {
-	d, ok := m.projects[name]
 	return d, ok
 }
 
@@ -28,36 +22,27 @@ func (m mapResolver) TeamDomain(name string) (string, bool) {
 }
 
 var world = mapResolver{
-	cards:    map[string]string{"closedCard": "closed", "sharedCard": "shared"},
-	projects: map[string]string{"secret": "closed", "portal": "shared"},
-	teams:    map[string]string{"portal": "shared", "ops": "shared"},
+	cards: map[string]string{"closedCard": "closed", "sharedCard": "shared"},
+	teams: map[string]string{"portal": "shared", "ops": "shared"},
 }
 
 func TestDomainOfLinkedCardsFirst(t *testing.T) {
 	// The edge that makes the order matter: a review card carries the
-	// ORIGINAL's team (shared) and no project. The team rule would leak it
-	// into shared; the review rule keeps it with the closed original.
+	// ORIGINAL's team (shared). The team rule would leak it into shared;
+	// the review rule keeps it with the closed original.
 	review := Card{ItemID: "r", ReviewOf: "closedCard", Team: "portal"}
 	if got := DomainOf(review, world); got != "closed" {
 		t.Fatalf("review card domain = %q, want closed (the reviewed card's)", got)
 	}
-	// A subtask with its own column still follows its parent.
-	sub := Card{ItemID: "s", Parent: "closedCard", Project: "portal", Scope: "Docs", Team: "portal"}
+	// A subtask with a team of its own still follows its parent.
+	sub := Card{ItemID: "s", Parent: "closedCard", Team: "portal"}
 	if got := DomainOf(sub, world); got != "closed" {
 		t.Fatalf("subtask domain = %q, want closed (the parent's)", got)
 	}
 }
 
-func TestDomainOfProjectThenTeam(t *testing.T) {
-	// A project card lives with its project, whatever its team.
-	if got := DomainOf(Card{ItemID: "p", Project: "secret", Scope: "Bugs", Team: "portal"}, world); got != "closed" {
-		t.Fatalf("project card domain = %q, want closed", got)
-	}
-	// A card that names a project without a column still follows it.
-	if got := DomainOf(Card{ItemID: "p2", Project: "secret", Team: "portal"}, world); got != "closed" {
-		t.Fatalf("project-only card domain = %q, want closed", got)
-	}
-	// No project: the team decides.
+func TestDomainOfTeamThenPrimary(t *testing.T) {
+	// No link: the team decides.
 	if got := DomainOf(Card{ItemID: "t", Team: "ops"}, world); got != "shared" {
 		t.Fatalf("team card domain = %q, want shared", got)
 	}
@@ -65,14 +50,14 @@ func TestDomainOfProjectThenTeam(t *testing.T) {
 	if got := DomainOf(Card{ItemID: "n"}, world); got != "" {
 		t.Fatalf("bare card domain = %q, want the primary", got)
 	}
-	// A PLANNING card has no team and no project — the people and the
-	// projects are on the tasks under it — so it lives in the primary, on a
-	// board of two repositories like any other; a stray value a direct writer
-	// put on it does not move it into a closed repository.
+	// A PLANNING card is placed by nothing — the people are on the tasks
+	// under it — so it lives in the primary, on a board of two repositories
+	// like any other; a stray value a direct writer put on it does not move
+	// it into a closed repository.
 	for _, c := range []Card{
 		{ItemID: "g", Type: TypeGoal},
 		{ItemID: "g2", Type: TypeGoal, Team: "portal"},
-		{ItemID: "e", Type: TypeEpic, Project: "secret", Parent: "closedCard"},
+		{ItemID: "e", Type: TypeEpic, Parent: "closedCard"},
 	} {
 		if got := DomainOf(c, world); got != "" {
 			t.Fatalf("planning card %s domain = %q, want the primary", c.ItemID, got)
@@ -81,85 +66,13 @@ func TestDomainOfProjectThenTeam(t *testing.T) {
 }
 
 // An unknown reference does not decide: a dangling parent falls through to
-// the project and team rules, and an unknown project or team to the primary.
+// the team rule, and an unknown team to the primary.
 func TestDomainOfUnknownReferencesFallThrough(t *testing.T) {
-	if got := DomainOf(Card{ItemID: "d", Parent: "gone", Project: "secret"}, world); got != "closed" {
-		t.Fatalf("dangling parent: domain = %q, want the project's", got)
-	}
 	if got := DomainOf(Card{ItemID: "d2", Parent: "gone", Team: "ops"}, world); got != "shared" {
-		t.Fatalf("dangling parent, no project: domain = %q, want the team's", got)
+		t.Fatalf("dangling parent: domain = %q, want the team's", got)
 	}
-	if got := DomainOf(Card{ItemID: "u", Project: "nope", Team: "nope"}, world); got != "" {
-		t.Fatalf("unknown project and team: domain = %q, want the primary", got)
-	}
-}
-
-// A card's project decides where it lives and its team does not get a say
-// (DomainOf, rule 4). So a card filed under a project of one repository and
-// handed to a team of another is a card that says one thing and lives
-// somewhere else: the team's people cannot see it, and the project's people
-// can. The pair is refused rather than resolved — the board tells the caller
-// which two repositories disagree.
-func TestATeamAndAProjectFromDifferentRepositoriesAreARefusal(t *testing.T) {
-	b := Board{
-		SprintStates: map[string]SprintState{
-			"backoffice": {ItemID: "team-backoffice"},
-			"founders":   {ItemID: "team-founders"},
-			"cozystack":  {ItemID: "team-cozystack"},
-		},
-		ProjectStates: map[string]string{
-			"backoffice": "project-backoffice",
-			"strategy":   "project-strategy",
-		},
-		Domains: map[string]string{
-			"team-founders":    "founders",
-			"project-strategy": "founders",
-			// The primary's own entries record no domain at all.
-		},
-	}
-	cases := []struct {
-		name            string
-		team, project   string
-		wantTeamDomain  string
-		wantOtherDomain string
-		wantConflict    bool
-	}{
-		{name: "both in the primary", team: "backoffice", project: "backoffice"},
-		{name: "both in the same secondary", team: "founders", project: "strategy", wantTeamDomain: "founders", wantOtherDomain: "founders"},
-		{name: "a team elsewhere than its project", team: "founders", project: "backoffice",
-			wantTeamDomain: "founders", wantConflict: true},
-		{name: "a project elsewhere than its team", team: "backoffice", project: "strategy",
-			wantOtherDomain: "founders", wantConflict: true},
-		{name: "no project at all constrains nothing", team: "founders", wantTeamDomain: "founders"},
-		{name: "no team at all constrains nothing", project: "strategy", wantOtherDomain: "founders"},
-		{name: "a team the roster does not declare yet decides nothing", team: "brand-new", project: "strategy",
-			wantOtherDomain: "founders"},
-		{name: "a project the roster does not declare yet decides nothing", team: "founders", project: "brand-new",
-			wantTeamDomain: "founders"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := TeamDomain(b, tc.team); got != tc.wantTeamDomain {
-				t.Errorf("TeamDomain(%q) = %q, want %q", tc.team, got, tc.wantTeamDomain)
-			}
-			if got := ProjectDomain(b, tc.project); got != tc.wantOtherDomain {
-				t.Errorf("ProjectDomain(%q) = %q, want %q", tc.project, got, tc.wantOtherDomain)
-			}
-			team, project, conflict := RosterConflict(b, tc.team, tc.project)
-			if conflict != tc.wantConflict {
-				t.Fatalf("RosterConflict(%q, %q) = %v, want %v", tc.team, tc.project, conflict, tc.wantConflict)
-			}
-			if conflict && (team != tc.wantTeamDomain || project != tc.wantOtherDomain) {
-				t.Fatalf("the refusal must name both sides: team %q, project %q", team, project)
-			}
-		})
-	}
-	// A board of one repository records no domains at all: nothing can
-	// conflict there, and the guard must not invent a refusal.
-	single := Board{SprintStates: map[string]SprintState{"backoffice": {ItemID: "team-backoffice"}},
-		ProjectStates: map[string]string{"strategy": "project-strategy"}}
-	if _, _, conflict := RosterConflict(single, "backoffice", "strategy"); conflict {
-		t.Fatal("a single-repository board has nothing to conflict")
+	if got := DomainOf(Card{ItemID: "u", Team: "nope"}, world); got != "" {
+		t.Fatalf("unknown team: domain = %q, want the primary", got)
 	}
 }
 
@@ -173,40 +86,21 @@ func TestEveryDomainReaderAnswersInThePrimarysNamespace(t *testing.T) {
 	b := NewBoardIn("aeman-db", []Card{
 		{ItemID: "st-p", Title: SprintStateTitle, Team: "platform"},
 		{ItemID: "st-f", Title: SprintStateTitle, Team: "founders", Domain: "founders"},
-		{ItemID: "pr-e", Title: ProjectStateTitle, Project: "engineering"},
-		{ItemID: "pr-s", Title: ProjectStateTitle, Project: "strategy", Domain: "founders"},
-		{ItemID: "ep-c", Title: ScopeStateTitle, Project: "engineering", Scope: "Cozystack"},
-		{ItemID: "ep-i", Title: ScopeStateTitle, Scope: "Inbox"},
 	})
 	for _, tc := range []struct{ what, got, want string }{
 		{"an unstamped team", TeamDomain(b, "platform"), "aeman-db"},
 		{"a stamped team", TeamDomain(b, "founders"), "founders"},
-		{"an unstamped project", ProjectDomain(b, "engineering"), "aeman-db"},
-		{"a stamped project", ProjectDomain(b, "strategy"), "founders"},
 		{"a card its team places", HomeDomain(b, Card{Team: "platform"}), "aeman-db"},
-		{"a card its project places", HomeDomain(b, Card{Project: "strategy"}), "founders"},
+		{"a card its team places in a secondary", HomeDomain(b, Card{Team: "founders"}), "founders"},
 		{"a card NOTHING places", HomeDomain(b, Card{}), "aeman-db"},
 	} {
 		if tc.got != tc.want {
 			t.Errorf("%s answers %q, want %q", tc.what, tc.got, tc.want)
 		}
 	}
-	// A column answers by its own stub, the no-project bucket included:
-	// its project cannot be asked, and reading it there would call every
-	// card in the bucket foreign.
-	for _, tc := range []struct{ project, scope, want string }{
-		{"engineering", "Cozystack", "aeman-db"},
-		{"", "Inbox", "aeman-db"},
-	} {
-		cd, ok := ColumnDomain(b, tc.project, tc.scope)
-		if !ok || cd != tc.want {
-			t.Errorf("column %q/%q answers %q (known=%v), want %q", tc.project, tc.scope, cd, ok, tc.want)
-		}
-	}
 	// Where the card's FILE is, in the same namespace: the stamp, or the
 	// primary when the file carries none. A rule that reads a card's own
-	// stamp raw — a mirror asks whether the card and the column live
-	// together — compares it against answers that ARE normalized.
+	// stamp raw compares it against answers that ARE normalized.
 	for _, tc := range []struct{ what, got, want string }{
 		{"an unstamped card", FileDomain(b, Card{}), "aeman-db"},
 		{"a stamped card", FileDomain(b, Card{Domain: "founders"}), "founders"},
@@ -218,9 +112,6 @@ func TestEveryDomainReaderAnswersInThePrimarysNamespace(t *testing.T) {
 	// "Nothing declares this" stays its own answer: it decides nothing,
 	// and reading it as the primary would place a card by a team that
 	// does not exist.
-	if _, ok := ColumnDomain(b, "engineering", "Nope"); ok {
-		t.Error("an undeclared column is not known")
-	}
 	if got := TeamDomain(b, "ghosts"); got != "" {
 		t.Errorf("an undeclared team answers %q, want the empty non-answer", got)
 	}

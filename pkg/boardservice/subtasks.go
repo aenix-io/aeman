@@ -3,7 +3,6 @@ package boardservice
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strconv"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -27,12 +26,6 @@ var ErrParentNotFound = errors.New("parent card not found")
 // the lead nothing to do but delete it.
 var ErrNotYoursToRefuse = errors.New("only the person a card is on can refuse it")
 
-// ErrNotYoursToPark is a Project-board slot or a process turn sent to a list.
-// Their week is another board's to say — a slot's follows its dates, a turn's
-// is its process's record of the week it owed — so parking one here would
-// edit a plan this board does not own.
-var ErrNotYoursToPark = errors.New("this work is not this board's to park")
-
 // ErrNoPlaceOfItsOwn is a review card or a subtask sent to a backlog. The
 // backlog holds tasks with a place of their own; a review follows the card
 // it reviews and a subtask stands inside its parent, so parking one
@@ -49,14 +42,6 @@ var ErrNoPlaceOfItsOwn = errors.New("this card has no place of its own to park")
 // leaves the card standing where the lead can see it and decide; removing it
 // takes the decision away from them.
 var ErrNotYoursToRemove = errors.New("only the person who created a card can remove it from their own board")
-
-// ErrNotYoursToDestroy is asking for a card OFF THE BOARD that this board did
-// not put there: a Project-board slot is that board's commitment, and a
-// process turn is its process's record of what a week was owed. The × empties
-// the working area for those and stops. The request is refused rather than
-// quietly turned into an unassign — a gesture that does something other than
-// what it says is how the × came to be mistrusted.
-var ErrNotYoursToDestroy = errors.New("this card is not this board's to destroy")
 
 // ErrTakeIntoWork is taking a task out of its backlog with nothing to put it
 // into: parked:false on a task with no date and no sprint would leave it in
@@ -111,18 +96,6 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 	// an epic — that is not being a subtask.
 	if board.IsSubtask(b, p) || len(board.Children(b, card.ItemID)) > 0 {
 		return ErrSubtaskDepth
-	}
-	// A card in a column is nobody's subtask and has none (H4): a subtask
-	// rides its parent's team, person and sprint onto the day boards, and a
-	// project card has none of those to give or to take. EVERY refusal fires
-	// before anything is written — the handover below writes on
-	// the parent, and a refusal after it would leave the cache holding a
-	// state the commit never made.
-	if card.Scope != "" {
-		return fmt.Errorf("%w: %q stands in a column and is nobody's subtask", ErrProjectCard, card.Title)
-	}
-	if p.Scope != "" {
-		return fmt.Errorf("%w: %q stands in a column and groups nothing under it", ErrProjectCard, p.Title)
 	}
 	// A subtask always belongs to its parent's PERSON: grouping hands the
 	// child over, so a family is never split across two people's Me boards.
@@ -202,13 +175,6 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 func (s *Service) linkInHierarchy(ctx context.Context, b board.Board, card, p board.Card) error {
 	if err := hierarchyLinkAllowed(b, card, p); err != nil {
 		return err
-	}
-	// A project card may sit under a planning card and never under a task;
-	// a planning card is never a subtask — both follow from the levels, so
-	// only the plain fact is left to refuse: a project card is nobody's
-	// parent (H4).
-	if p.Scope != "" {
-		return fmt.Errorf("%w: %q stands in a column and groups nothing under it", ErrProjectCard, p.Title)
 	}
 	if card.Parent == p.ItemID {
 		return nil
@@ -325,8 +291,7 @@ func (s *Service) ungroup(ctx context.Context, b board.Board, card board.Card) e
 }
 
 // ungroupKeeping is the plain pull-out: the person is handed over (an
-// ownerless child takes its parent's login, S8) and the card's own column
-// must survive it. The grid's × wants neither — it clears the assignee on
+// ownerless child takes its parent's login, S8). The grid's × wants neither — it clears the assignee on
 // the way out — so it calls ungroupWith directly rather than through here.
 func (s *Service) ungroupKeeping(ctx context.Context, b board.Board, card board.Card) error {
 	return s.ungroupWith(ctx, b, card, true)
@@ -334,8 +299,7 @@ func (s *Service) ungroupKeeping(ctx context.Context, b board.Board, card board.
 
 // ungroupWith is ungroupKeeping with a say over the hand-over of the
 // parent's person. A pull-out is a re-file — the card leaves its parent's
-// repository for whatever its own project or team names — and strands
-// nothing on the way: a subtask carries no column (H4).
+// repository for whatever its own team names.
 func (s *Service) ungroupWith(ctx context.Context, b board.Board, card board.Card, handOver bool) error {
 	if card.Parent == "" {
 		return nil

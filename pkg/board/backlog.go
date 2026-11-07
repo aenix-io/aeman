@@ -36,10 +36,10 @@ func InWork(c Card) bool { return c.StartDate != "" || c.Day != "" || c.SprintSt
 
 // isTaskOwnPlace reports whether a card is a task that answers for its own
 // place: not the board's bookkeeping, not a planning card (the Roadmap's),
-// not a project card (the Project board's), not a review card (it follows
+// not a review card (it follows
 // the card it reviews) and not a subtask (it rides its parent).
 func isTaskOwnPlace(c Card, subtask bool) bool {
-	return !IsStateTitle(c.Title) && !IsPlanning(c) && c.Scope == "" && c.ReviewOf == "" && !subtask
+	return !IsStateTitle(c.Title) && !IsPlanning(c) && c.ReviewOf == "" && !subtask
 }
 
 // OnBacklog reports whether a card is listed in its team's backlog (K2): a

@@ -83,69 +83,6 @@ func TestListCardsSummaryOmitsBodies(t *testing.T) {
 	}
 }
 
-// The Project board is the ONE board that draws a project card, and it draws
-// what stands in a column and nothing else (H4). A card in a column is
-// nobody's subtask and has none, so nothing rides in with it: a child the
-// subtask rider appended — a group written before schema 2 — belongs to no
-// Project board, and the day boards no longer draw a card in a column either.
-func TestProjectViewDeliversWhatStandsInAColumnAndNothingElse(t *testing.T) {
-	today := board.TodayIso()
-	b := board.NewBoard([]board.Card{
-		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "freedom"},
-		{ItemID: "ep", Title: board.ScopeStateTitle, Scope: "Redis App", Project: "freedom"},
-		{ItemID: "plan", Title: "TLS for DBaaS", Project: "freedom", Scope: "Redis App",
-			StartDate: today, Day: today},
-		// Written before schema 2: a task grouped under a card in a column.
-		{ItemID: "loose", Title: "a piece of it", Parent: "plan", Team: "alpha"},
-		// A project NAME alone is no column.
-		{ItemID: "named", Title: "merely of the project", Project: "freedom", Team: "alpha",
-			StartDate: today, Day: today, SprintStart: today},
-	})
-	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today}}
-	var seen []string
-	for _, c := range FilterCards(b, Selector{View: "project"}) {
-		seen = append(seen, c.ItemID)
-	}
-	if !slices.Equal(seen, []string{"plan"}) {
-		t.Fatalf("the Project board delivers the card in the column alone, got %v", seen)
-	}
-	// And the day boards leave it to the Project board.
-	for _, sel := range []Selector{
-		{View: "team", Team: "alpha", Day: today},
-		{View: "me", Day: today},
-		{View: "backlog", Team: "alpha"},
-	} {
-		for _, c := range FilterCards(b, sel) {
-			if c.ItemID == "plan" {
-				t.Fatalf("view=%s draws a project card; it is the Project board's alone", sel.View)
-			}
-		}
-	}
-	if got := FilterCards(b, Selector{View: "team", Team: "alpha", Day: today}); len(got) != 1 || got[0].ItemID != "named" {
-		t.Fatalf("a card that merely names a project is an ordinary task: %v", got)
-	}
-}
-
-// ?view=project&project=X is ONE project's columns: a card standing in
-// another project's column is not delivered, whatever else is true of it.
-func TestProjectViewKeepsToTheProjectItWasAskedFor(t *testing.T) {
-	b := board.NewBoard([]board.Card{
-		{ItemID: "pr-e", Title: board.ProjectStateTitle, Project: "engineering"},
-		{ItemID: "pr-m", Title: board.ProjectStateTitle, Project: "marketing"},
-		{ItemID: "ep-c", Title: board.ScopeStateTitle, Scope: "Cozy", Project: "engineering"},
-		{ItemID: "ep-l", Title: board.ScopeStateTitle, Scope: "Launch", Project: "marketing"},
-		{ItemID: "ours", Title: "in our column", Project: "engineering", Scope: "Cozy"},
-		{ItemID: "theirs", Title: "in theirs", Project: "marketing", Scope: "Launch"},
-	})
-	var seen []string
-	for _, c := range FilterCards(b, Selector{View: "project", Project: "engineering"}) {
-		seen = append(seen, c.ItemID)
-	}
-	if !slices.Equal(seen, []string{"ours"}) {
-		t.Fatalf("one project's columns, got %v", seen)
-	}
-}
-
 // A PARKED card takes its subtasks off the view with it.
 //
 // The pieces of a parked card are not separate work waiting to be picked up:

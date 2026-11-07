@@ -15,13 +15,9 @@ import (
 func backlogBoard() *fakeBackend {
 	today := board.TodayIso()
 	return newFake([]board.Card{
-		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "core"},
-		{ItemID: "ep", Title: board.ScopeStateTitle, Scope: "Auth", Project: "core"},
 		// An ordinary card, in work.
 		{ItemID: "plain", Team: "alpha", Assignees: []string{"kvaps"},
 			SprintStart: today, StartDate: today, Day: today},
-		// A Project-board slot: not this board's to park.
-		{ItemID: "slot", Team: "alpha", Project: "core", Scope: "Auth", StartDate: today, Day: today},
 		// A card of the NO-TEAM group, which has a shelf like any other team.
 		{ItemID: "loose", Assignees: []string{"kvaps"}},
 		// And one of a SECOND team.
@@ -270,22 +266,6 @@ func TestReteamingAParkedTaskKeepsItInTheBacklog(t *testing.T) {
 		c := f.get("plain")
 		if c.Team != "beta" || !board.InBacklog(*c) || board.InWork(*c) {
 			t.Fatalf("%s: want it in beta's backlog, out of work: %+v", door, c)
-		}
-	}
-}
-
-// A PROJECT card is not this board's to park. Its week is another board's
-// to say — a slot's follows its dates — so parking one would take it out of
-// a plan this board does not own.
-func TestProjectWorkIsNotParked(t *testing.T) {
-	for _, id := range []string{"slot"} {
-		f := backlogBoard()
-		err := New(f).SetBacklog(ctx, "acme", id, true)
-		if !errors.Is(err, ErrNotYoursToPark) {
-			t.Fatalf("%s parked = %v, want ErrNotYoursToPark", id, err)
-		}
-		if c := f.get(id); board.InBacklog(*c) {
-			t.Fatalf("%s: the refusal fires before the write: %+v", id, c)
 		}
 	}
 }

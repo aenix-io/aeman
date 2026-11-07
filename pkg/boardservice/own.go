@@ -33,8 +33,7 @@ import (
 //
 // A subtask follows its parent's team and person (S9) and is not asked; a
 // review card's person is its reviewer and is set by the review link;
-// neither has an owner of its own. A project card carries no owner at all
-// (H4); a PLANNING card's answer is its team and the one person who answers
+// neither has an owner of its own. A PLANNING card's answer is its team and the one person who answers
 // for it, its owner — a person needs no team there (O9, ownPlan).
 
 // ErrOwnerNeedsTeam is a person named without a team: a person is picked
@@ -58,9 +57,6 @@ func (s *Service) Own(ctx context.Context, boardID string, itemID, team, person 
 	}
 	if person != "" && team == "" && !board.IsPlanning(card) {
 		return ErrOwnerNeedsTeam
-	}
-	if card.Scope != "" {
-		return fmt.Errorf("%w: %q stands in a column and has no owner", ErrProjectCard, card.Title)
 	}
 	// A PLANNING card's answer is its team and its owner (O9): the person
 	// answers for the plan item and needs no team.
@@ -188,9 +184,6 @@ func (s *Service) disown(ctx context.Context, boardID string, b board.Board, car
 // a sprint on it would draw it on the team's grid as work in progress the
 // moment nobody meant it to be.
 func (s *Service) moveTeamOffTheDay(ctx context.Context, b board.Board, card board.Card, team string) error {
-	if err := guardRoster(b, team, card.Project); err != nil {
-		return err
-	}
 	if err := s.declareTeam(ctx, b, team); err != nil {
 		return err
 	}

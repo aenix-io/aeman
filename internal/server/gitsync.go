@@ -868,9 +868,6 @@ func (b *storeBackend) createMinted(ctx context.Context, bd board.Board, e *boar
 		kind:   "create",
 		desc:   createDesc(card),
 		apply: func(target *board.Board) {
-			if installStub(target, card) {
-				return // a roster entry goes back into the roster, never into the rows
-			}
 			for _, c := range target.Cards {
 				if c.ItemID == in.ItemID {
 					return

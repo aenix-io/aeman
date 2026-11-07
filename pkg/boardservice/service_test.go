@@ -190,7 +190,7 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 	card := board.Card{
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Type: in.Type, Domain: in.Domain,
 		Zone: in.Zone, StartDate: in.Start, Day: in.Day, SprintStart: in.SprintStart,
-		Week: in.Week, Scope: in.Scope, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
+		Team: in.Team, ReviewOf: in.ReviewOf,
 		// Parent is deliberately NOT copied: this fake stands for a backend
 		// that cannot write the link at create, so the service's own
 		// grouping (and its compensating delete, parentErr) is exercised.
@@ -444,16 +444,6 @@ func (f *fakeBackend) SetBacklog(
 	return nil
 }
 
-func (f *fakeBackend) SetWeek(_ context.Context, _ board.Board, card board.Card, week string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetWeek %s %s", card.ItemID, week)
-	if c := f.get(card.ItemID); c != nil {
-		c.Week = week
-	}
-	return nil
-}
-
 func (f *fakeBackend) SetTeam(_ context.Context, _ board.Board, card board.Card, team string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -467,26 +457,6 @@ func (f *fakeBackend) SetTeam(_ context.Context, _ board.Board, card board.Card,
 	}
 	if c := f.get(card.ItemID); c != nil {
 		c.Team = team
-	}
-	return nil
-}
-
-func (f *fakeBackend) SetScope(_ context.Context, _ board.Board, card board.Card, scope string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetScope %s %s", card.ItemID, scope)
-	if c := f.get(card.ItemID); c != nil {
-		c.Scope = scope
-	}
-	return nil
-}
-
-func (f *fakeBackend) SetProject(_ context.Context, _ board.Board, card board.Card, project string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetProject %s %s", card.ItemID, project)
-	if c := f.get(card.ItemID); c != nil {
-		c.Project = project
 	}
 	return nil
 }
@@ -1336,31 +1306,6 @@ func TestRemoveGridDeletesWhenNoPreviousSprintAndNowhereElse(t *testing.T) {
 }
 
 // --- The grid x hands a card back; it never destroys one (matrix A1) --------
-
-// The incident this rule exists for: a project card created and assigned the
-// same day, removed from the person's grid, was deleted outright — gone from
-// the weekly plan AND from the Project board, because the grid x had no
-// project-card guard and a same-day card has no earlier sprint to demote into.
-func TestRemoveGridReleasesProjectCardInsteadOfDeleting(t *testing.T) {
-	// A pre-rule shape: the column card still names a team and a person (a
-	// sprint it cannot carry at all any more — the board reads one off, H4).
-	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Scope: "Journal", Project: "Portal",
-		StartDate: board.TodayIso(), Assignees: []string{"bob"}}},
-		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
-	if err := f2svc(f).Remove(ctx, "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
-		t.Fatal(err)
-	}
-	c := f.get("c1")
-	if c == nil {
-		t.Fatalf("a project card is never deleted by the grid x; log=%v", f.log)
-	}
-	if len(c.Assignees) != 0 || c.SprintStart != "" {
-		t.Fatalf("removing from a person hands the card back: %+v", c)
-	}
-	if c.Scope != "Journal" || c.Project != "Portal" {
-		t.Fatalf("it keeps its Project-board column: %+v", c)
-	}
-}
 
 // Being on someone is not a second home: a card nobody has worked on, in no
 // band and under no column, is deleted by the x even when it has an

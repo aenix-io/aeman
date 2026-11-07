@@ -9,15 +9,13 @@ import (
 	"github.com/aenix-io/aeman/pkg/boardservice"
 )
 
-// bigRepo is a board of n cards, the shape a real one has: a team, a
-// project with a column, and n cards spread over it.
+// bigRepo is a board of n cards, the shape a real one has: a team and n
+// cards on it.
 func bigRepo(t *testing.T, n int) *Repo {
 	t.Helper()
 	files := map[string]string{
-		BoardPath:                          "schema: 2\ntitle: big\n",
-		TeamPath("01T_PORTAL"):             "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n  previous: 2026-08-17\n",
-		ProjectPath("01P_PORTAL"):          "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		ScopePath("01P_PORTAL", "01E_BUG"): "name: Bugs\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		BoardPath:              "schema: 2\ntitle: big\n",
+		TeamPath("01T_PORTAL"): "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n  previous: 2026-08-17\n",
 	}
 	for i := range n {
 		id := fmt.Sprintf("01CARD%018d", i)

@@ -4,8 +4,9 @@ import "testing"
 
 // A Projects v2 board only ever had an "Epic" field — the column was called
 // that before schema 2 — so the migration has to recognise it as the scope
-// role, or every project card lands columnless and the report counts zero
-// cards filed. The current name is taken too, for a board somebody renamed.
+// role, or every project card would come in as a columnless task when it is
+// to be left out (H15). The current name is taken too, for a board somebody
+// renamed.
 func TestAnEpicFieldFillsTheScopeRole(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"Epic", "epic", "Scope", " scope "} {

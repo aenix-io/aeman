@@ -92,13 +92,9 @@ func (ix *Index) Lineage(c Card) []Card {
 
 // EffectiveTeam is the team a card counts under (O3): its own, else the
 // nearest ancestor's that has one. A task's own team always wins over an
-// inherited one; nothing is written down the tree. A project card has none
-// (H4), whatever an old file's `team:` says. A review card with no team of
+// inherited one; nothing is written down the tree. A review card with no team of
 // its own counts under its task's (O13).
 func (ix *Index) EffectiveTeam(c Card) string {
-	if c.Scope != "" {
-		return ""
-	}
 	if c.Team != "" {
 		return c.Team
 	}
@@ -118,13 +114,9 @@ func (ix *Index) EffectiveTeam(c Card) string {
 
 // EffectiveCustomers is the customers a card is for (O4): every ancestor's
 // and its own, the ancestors' first, each once — a lower card adds to them
-// and never overwrites them. A review card is for its task's (O6), and a
-// project card for none (H4). An id the board's roster does not hold is left
+// and never overwrites them. A review card is for its task's (O6). An id the board's roster does not hold is left
 // out: it names nobody (O5).
 func (ix *Index) EffectiveCustomers(c Card) []string {
-	if c.Scope != "" {
-		return nil
-	}
 	var out []string
 	seen := map[string]bool{}
 	add := func(ids []string) {
@@ -238,8 +230,7 @@ func hierarchyStatus(leaves []Card) (status string, done, total int) {
 		case len(t.Assignees) > 0 || IsInProgress(t) || t.Progress > 0 ||
 			t.Stage == StageReview || t.Stage == StageLocked:
 			// Somebody's, in progress — or plainly under way without either:
-			// any progress at all, or held in review or locked (#287). A
-			// project card has nobody on it by design (H4).
+			// any progress at all, or held in review or locked (#287).
 			working = true
 		}
 	}

@@ -6,35 +6,6 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// The fake this package publishes is what an external tool tests its own
-// board logic against (docs/embedding.md), so it has to reproduce the
-// board the service sees — domains included. Without them every
-// cross-repository rule passes silently here while the real service
-// refuses, which is worse than having no fake at all.
-func TestTheFakeRecordsWhichRepositoryDeclaredEachEntry(t *testing.T) {
-	f := New([]board.Card{
-		{ItemID: "pr-e", Title: board.ProjectStateTitle, Project: "engineering"},
-		{ItemID: "pr-s", Title: board.ProjectStateTitle, Project: "strategy", Domain: "founders"},
-		{ItemID: "ep-f", Title: board.ScopeStateTitle, Scope: "Fundraising", Project: "strategy", Domain: "founders"},
-	}, nil)
-	b, err := f.LoadBoard(t.Context(), "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := board.ProjectDomain(b, "strategy"); got != "founders" {
-		t.Fatalf("the closed project keeps its repository: %q", got)
-	}
-	if got := board.ProjectDomain(b, "engineering"); got != "" {
-		t.Fatalf("the primary is the default and names none: %q", got)
-	}
-	if cd, ok := board.ColumnDomain(b, "strategy", "Fundraising"); !ok || cd != "founders" {
-		t.Fatalf("a column carries the repository it was declared in: %q %v", cd, ok)
-	}
-	if d, _ := board.ColumnDomain(b, "strategy", "Fundraising"); d != "founders" {
-		t.Fatal("and the domain rules can finally be exercised through this fake")
-	}
-}
-
 // A team's repository is recorded on its sprint-state card, and the domain
 // rule that pairs a card's team with its project (G46) is the one an
 // external tool is most likely to trip over — so the fake has to split
@@ -119,12 +90,12 @@ func TestTheFakeHandsOutTheSameBoardEveryTime(t *testing.T) {
 
 // The fake can model the board a real store hands over: primary named,
 // every entry stamped with its domain's name. Without that an external
-// tool's test of the column rules answers in a namespace the server never
+// tool's test of the domain rules answers in a namespace the server never
 // uses, and passes where production refuses.
 func TestTheFakeCanModelAStampedBoard(t *testing.T) {
 	f := New([]board.Card{
-		{ItemID: "ep-inbox", Title: board.ScopeStateTitle, Scope: "Inbox"},
-	}, nil).InRepository("aeman-db", map[string]string{"ep-inbox": "aeman-db"})
+		{ItemID: "st-inbox", Title: board.SprintStateTitle, Team: "inbox"},
+	}, nil).InRepository("aeman-db", map[string]string{"st-inbox": "aeman-db"})
 	b, err := f.LoadBoard(t.Context(), "acme")
 	if err != nil {
 		t.Fatal(err)
@@ -132,11 +103,11 @@ func TestTheFakeCanModelAStampedBoard(t *testing.T) {
 	if b.Primary != "aeman-db" {
 		t.Fatalf("the board names its primary: %q", b.Primary)
 	}
-	cd, ok := board.ColumnDomain(b, "", "Inbox")
-	if !ok || cd != "aeman-db" {
-		t.Fatalf("the column carries the stamp: %q %v", cd, ok)
+	cd := board.TeamDomain(b, "inbox")
+	if cd != "aeman-db" {
+		t.Fatalf("the team carries the stamp: %q", cd)
 	}
-	if got := board.HomeDomain(b, board.Card{Scope: "Inbox"}); got != cd {
+	if got := board.HomeDomain(b, board.Card{}); got != cd {
 		t.Fatalf("and a card nothing places belongs to the same repository: %q vs %q", got, cd)
 	}
 }

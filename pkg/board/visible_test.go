@@ -6,8 +6,8 @@ import (
 )
 
 // G17 — a visitor's board is the union of the domains they can read: a
-// domain they cannot read is absent, not empty — no cards, teams, projects,
-// columns or deadlines from it. A card whose team lives in
+// domain they cannot read is absent, not empty — no cards or teams from it.
+// A card whose team lives in
 // an unreadable domain is still served, under its team name, with no sprint
 // pointer for that team. Entries with no recorded domain belong to the
 // primary.
@@ -17,13 +17,8 @@ func twoDomainBoard() Board {
 		{ItemID: "T_", Title: SprintStateTitle, Team: "", Domain: "shared"},
 		{ItemID: "T_PORTAL", Title: SprintStateTitle, Team: "portal", SprintStart: "2026-08-24", Domain: "shared"},
 		{ItemID: "T_OPS", Title: SprintStateTitle, Team: "ops", SprintStart: "2026-08-24", Domain: "closed"},
-		{ItemID: "P_PORTAL", Title: ProjectStateTitle, Project: "portal", Domain: "shared"},
-		{ItemID: "P_SECRET", Title: ProjectStateTitle, Project: "secret", Domain: "closed"},
-		{ItemID: "E_BUGS", Title: ScopeStateTitle, Project: "portal", Scope: "Bugs", Domain: "shared"},
-		{ItemID: "E_RISK", Title: ScopeStateTitle, Project: "secret", Scope: "Risk", Domain: "closed"},
-		{ItemID: "D_1", Title: DeadlineStateTitle, Project: "secret", Week: "2026-09-07", Domain: "closed"},
 		{ItemID: "C_SHARED", Title: "shared card", Team: "portal", Domain: "shared", Assignees: []string{"kvaps"}},
-		{ItemID: "C_CLOSED", Title: "closed card", Team: "portal", Project: "secret", Scope: "Risk", Domain: "closed", Assignees: []string{"timur"}},
+		{ItemID: "C_CLOSED", Title: "closed card", Team: "portal", Domain: "closed", Assignees: []string{"timur"}},
 		{ItemID: "C_OPS", Title: "ops card in shared", Team: "ops", Domain: "shared"},
 		{ItemID: "C_LEGACY", Title: "no domain recorded"},
 	})
@@ -39,8 +34,7 @@ func cardIDs(cards []Card) []string {
 
 func TestNewBoardRecordsRosterDomains(t *testing.T) {
 	b := twoDomainBoard()
-	want := map[string]string{"T_": "shared", "T_PORTAL": "shared", "T_OPS": "closed", "P_PORTAL": "shared", "P_SECRET": "closed",
-		"E_BUGS": "shared", "E_RISK": "closed", "D_1": "closed"}
+	want := map[string]string{"T_": "shared", "T_PORTAL": "shared", "T_OPS": "closed"}
 	if !reflect.DeepEqual(b.Domains, want) {
 		t.Fatalf("Domains = %v\nwant %v", b.Domains, want)
 	}
@@ -56,16 +50,7 @@ func TestVisibleDropsUnreadableDomainsEntirely(t *testing.T) {
 	if got := cardIDs(v.Cards); !reflect.DeepEqual(got, []string{"C_SHARED", "C_OPS", "C_LEGACY"}) {
 		t.Fatalf("cards = %v", got)
 	}
-	if !reflect.DeepEqual(v.Projects, []string{"portal"}) || v.ProjectStates["secret"] != "" {
-		t.Fatalf("projects = %v / %v", v.Projects, v.ProjectStates)
-	}
-	if len(v.Scopes) != 1 || v.Scopes[0].Name != "Bugs" {
-		t.Fatalf("scopes = %v", v.Scopes)
-	}
-	if len(v.Deadlines) != 0 {
-		t.Fatalf("closed roster leaked: deadlines %v", v.Deadlines)
-	}
-	if _, ok := v.Domains["P_SECRET"]; ok {
+	if _, ok := v.Domains["T_OPS"]; ok {
 		t.Fatal("Domains still names a closed entry")
 	}
 }

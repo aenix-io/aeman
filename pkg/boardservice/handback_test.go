@@ -6,25 +6,19 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// The grid × asked nothing (RemoveAuto) empties the working area, and where
-// the card goes is decided by what it has left — its Project-board column,
-// or nothing, in which case it is deleted. The × that says UNASSIGN puts it
-// back in its team's backlog instead (K3, intent_test.go). A card filed under
-// a column always has that column to go home to, so the × never destroys it.
+// The grid × asked nothing (RemoveAuto) empties the working area, which was
+// the card's only home, so it is deleted. The × that says UNASSIGN puts it
+// back in its team's backlog instead (K3, intent_test.go).
 //
 // The Unassigned column is not special in any of this: it is the day grid
 // like every other column, and a card made there and removed there is gone
 // — it was nowhere else.
 
 // gridBoard is a team whose sprint opened today, with yesterday's sprint
-// behind it, plus a project column to file cards under.
+// behind it.
 func gridBoard(cards []board.Card) *fakeBackend {
 	today := board.TodayIso()
-	roster := []board.Card{
-		{ItemID: "pr-core", Title: board.ProjectStateTitle, Project: "core"},
-		{ItemID: "ep-auth", Title: board.ScopeStateTitle, Scope: "Auth", Project: "core"},
-	}
-	return newFake(append(roster, cards...), map[string]board.SprintState{
+	return newFake(cards, map[string]board.SprintState{
 		"platform": {Current: today, Previous: board.AddDays(today, -1), ItemID: "st-platform"},
 	})
 }
@@ -61,27 +55,6 @@ func TestTheGridRemoveDeletesACardThatIsNowhereElse(t *testing.T) {
 	}
 }
 
-// A card filed under a Project-board column is never destroyed by the ×: its
-// column is a home it cannot be removed from here.
-func TestTheRemoveNeverDeletesAProjectCard(t *testing.T) {
-	today := board.TodayIso()
-	fake := gridBoard([]board.Card{
-		{ItemID: "c1", Title: "a slot", Team: "platform", Project: "core", Scope: "Auth",
-			SprintStart: today, StartDate: today, Day: today},
-	})
-	if err := New(fake).Remove(t.Context(), "o", "c1", board.ViewAll, RemoveAuto); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := fake.LoadBoard(t.Context(), "o")
-	c, ok := findCard(b, "c1")
-	if !ok {
-		t.Fatal("the × deleted a project card")
-	}
-	if c.Project != "core" || c.Scope != "Auth" {
-		t.Fatalf("the column must stay: project=%q scope=%q", c.Project, c.Scope)
-	}
-}
-
 // What a card carries does not buy it a different outcome here: the working
 // area was its only home, so the × empties it and the card is gone. Its
 // progress goes with it — a loss worth asking about before the request is
@@ -110,28 +83,9 @@ func TestWorkDoesNotTurnARemoveIntoAMove(t *testing.T) {
 	}
 }
 
-// A card carrying only a project name is on no board of its own: the
-// Project board renders columns by scope. So the name is a label, not a home
-// — the × treats the card like any other, and with nowhere else to be it is
-// deleted rather than left alive where no board would show it.
-func TestACardThatOnlyNamesAProjectIsNotSparedByThatName(t *testing.T) {
-	today := board.TodayIso()
-	fake := gridBoard([]board.Card{
-		{ItemID: "c1", Title: "project, no column", Team: "platform", Project: "core",
-			Assignees: []string{"kvaps"}, SprintStart: today, StartDate: today, Day: today},
-	})
-	if err := New(fake).Remove(t.Context(), "o", "c1", board.ViewAll, RemoveAuto); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := fake.LoadBoard(t.Context(), "o")
-	if _, ok := findCard(b, "c1"); ok {
-		t.Fatal("the project name is no home: with nowhere else to be, the card goes")
-	}
-}
-
 // The invariant behind all of it: a card the × keeps is a card some board
 // still shows. Sparing one for what it carries — a person, a progress bar —
-// left it alive with no sprint, no dates and no column: findable nowhere,
+// left it alive with no sprint and no dates: findable nowhere,
 // deletable nowhere. Unassigned, it is in its backlog; ×'d there, it goes.
 func TestACardTheRemoveKeepsIsAlwaysOnSomeBoard(t *testing.T) {
 	today := board.TodayIso()
@@ -147,9 +101,8 @@ func TestACardTheRemoveKeepsIsAlwaysOnSomeBoard(t *testing.T) {
 			}
 		}
 		c, ok := findCard(b, id)
-		// A slot lives on the Project board; a parked task in its team's
-		// backlog.
-		return ok && (c.Scope != "" || board.InBacklog(c))
+		// A parked task lives in its team's backlog.
+		return ok && board.InBacklog(c)
 	}
 	fake := gridBoard([]board.Card{
 		{ItemID: "c1", Title: "worked", Team: "platform",

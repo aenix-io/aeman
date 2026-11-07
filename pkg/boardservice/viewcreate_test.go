@@ -50,16 +50,6 @@ func TestEachBoardCreatesItsOwnKindOfCard(t *testing.T) {
 		}
 	})
 
-	// The Project board's own half of the same rule: a card of that board
-	// stands in a COLUMN, and one without is on no row at all.
-	t.Run("and a Project create without a column is refused", func(t *testing.T) {
-		f := seed()
-		_, err := f2svc(f).CreateInView(ctx, "acme", board.ViewProject, CreateCardArgs{Title: "a slot", Team: "alpha"})
-		if !errors.Is(err, ErrViewNeedsField) {
-			t.Fatalf("a slot with no column = %v, want ErrViewNeedsField", err)
-		}
-	})
-
 	// The Backlog's add box: a task created there is parked on that team,
 	// on no day and in no sprint.
 	t.Run("the backlog parks it", func(t *testing.T) {
@@ -148,10 +138,7 @@ func TestEachBoardCreatesItsOwnKindOfCard(t *testing.T) {
 			field string
 		}{
 			{board.ViewMe, CreateCardArgs{Title: "x", Parked: true}, "parked"},
-			{board.ViewMe, CreateCardArgs{Title: "x", Scope: "Auth"}, "scope"},
 			{board.ViewBacklog, CreateCardArgs{Title: "x", Day: today}, "day"},
-			{board.ViewBacklog, CreateCardArgs{Title: "x", Scope: "Auth"}, "scope"},
-			{board.ViewProject, CreateCardArgs{Title: "x", Scope: "Auth", Parked: true}, "parked"},
 		} {
 			f := seed()
 			_, err := f2svc(f).CreateInView(ctx, "acme", tc.view, tc.args)
@@ -217,9 +204,6 @@ func TestAGestureIsOfferedByTheBoardThatDrawsIt(t *testing.T) {
 	// the surface: the × first, then the board's own presses.
 	if got := Gestures(board.ViewBacklog); len(got) != 3 || got[0] != GestureRemove || got[1] != GestureOwn || got[2] != GestureTake {
 		t.Fatalf("the Backlog draws %v, want remove, own, take in that order", got)
-	}
-	if got := Gestures(board.ViewProject); len(got) != 1 || got[0] != GestureRemove {
-		t.Fatalf("the Project board draws %v, want the × alone", got)
 	}
 }
 

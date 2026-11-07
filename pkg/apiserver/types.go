@@ -87,12 +87,7 @@ type CardSpec struct {
 	// Every team has one and nothing declares it. A task is in work (a date
 	// or a sprint) or parked, never both and never neither
 	// (docs/design/backlog.md, K1). A task has no week (K7).
-	Parked bool `json:"parked,omitempty"`
-	// Scope and Project are the column the card is filed under ("" = none) —
-	// the pair, since scope names repeat across projects. Dates are its row,
-	// spanning the weeks its slot stretches over.
-	Scope    string `json:"scope,omitempty"`
-	Project  string `json:"project,omitempty"`
+	Parked   bool   `json:"parked,omitempty"`
 	ReviewOf string `json:"reviewOf,omitempty"`
 	// Parent is the uid of the card this one sits under — the ONE link of
 	// the hierarchy. What it means is the parent's type: under a task this
@@ -140,12 +135,8 @@ type Hierarchy struct {
 
 // CardStatus is derived by the server, never written by clients.
 type CardStatus struct {
-	Complete   bool `json:"complete"`
-	InProgress bool `json:"inProgress"`
-	// Overdue: a card that came from a plan — a Project-board slot — still
-	// open past the day it was owed by. Derived on read from
-	// the card's own dates (board.Overdue); never stored.
-	Overdue     bool   `json:"overdue,omitempty"`
+	Complete    bool   `json:"complete"`
+	InProgress  bool   `json:"inProgress"`
 	ReviewedBy  string `json:"reviewedBy,omitempty"`
 	ReviewRound int    `json:"reviewRound,omitempty"`
 	// AsOf marks a card served from the PAST: its team's sprint has moved on
@@ -286,17 +277,6 @@ type BoardMetadata struct {
 	Title string   `json:"title,omitempty"`
 	URL   string   `json:"url,omitempty"`
 	Teams []string `json:"teams"`
-	// Projects lists the Project board's projects, in board order — the top
-	// grouping: a project owns scope columns. (Not the GitHub board, which the
-	// caller addresses with owner+board.)
-	Projects []string `json:"projects,omitempty"`
-	// Deadlines are the deadline lines in board order: the week each one sits
-	// on and the project it belongs to. A project holds at most one per week.
-	Deadlines []DeadlineRef `json:"deadlines,omitempty"`
-	// Scopes lists the Project board's columns in board order, each naming the
-	// project that owns it. An scope with an empty project belongs to none and
-	// shows only in the all-projects view.
-	Scopes []ScopeRef `json:"scopes,omitempty"`
 	// Members is every distinct assignee on the board — the people roster for
 	// pickers (assign, review, view-as) now that clients load one view at a
 	// time and cannot derive it from the cards they hold — with the avatar
@@ -304,24 +284,20 @@ type BoardMetadata struct {
 	// assembles a forge URL of its own.
 	Members []Member `json:"members"`
 	// Domains are the repositories the visitor can read, primary first: which
-	// they may write — a team or project is declared in one they pick when
+	// they may write — a team is declared in one they pick when
 	// more than one is writable — and which members can read each,
 	// so a reviewer picker offers only people who will see the card. Absent
 	// primary first. The board lists its repositories whatever it spans
 	// (G59), so a client compares the stamps it carries against this list
 	// and reads a single entry as "no boundaries", never an absent one.
 	Domains []DomainInfo `json:"domains,omitempty"`
-	// TeamDomains and ProjectDomains name the repository a team or a project
-	// was declared in, for the entries that live OUTSIDE the primary — the
-	// primary is the default and needs no entry, and a single-repository
-	// board names none at all. A client needs them to keep a card's team and
-	// project in one repository: the pair cannot both be honoured, so the
-	// pickers must not offer it (boardservice.ErrDomainConflict).
 	// Customers is the board's customer roster in board order: the ids the
 	// cards name and the names to show (docs/design/ownership.md, O5).
-	Customers      []CustomerRef     `json:"customers,omitempty"`
-	TeamDomains    map[string]string `json:"teamDomains,omitempty"`
-	ProjectDomains map[string]string `json:"projectDomains,omitempty"`
+	Customers []CustomerRef `json:"customers,omitempty"`
+	// TeamDomains names the repository a team was declared in, for the
+	// teams that live OUTSIDE the primary — the primary is the default and
+	// needs no entry, and a single-repository board names none at all.
+	TeamDomains map[string]string `json:"teamDomains,omitempty"`
 }
 
 // Member is one person on the board: a login and, when the server knows the
@@ -350,57 +326,6 @@ type DomainInfo struct {
 	Name     string   `json:"name"`
 	Writable bool     `json:"writable"`
 	Members  []string `json:"members"`
-}
-
-// ScopeRef is one Project-board column: its name and the project that owns it.
-// The pair travels together because a column is meaningless without knowing
-// which project's grid it belongs in.
-type ScopeRef struct {
-	Name    string `json:"name"`
-	Project string `json:"project,omitempty"`
-	// Domain is the repository the column was declared in. The git server
-	// names every column, the primary's included; a board assembled by
-	// hand may leave the primary's blank. Read it as a NAME to compare
-	// against domains[0], never as "absent means primary". A client cannot
-	// compute it from the project: the same project NAME may be declared
-	// in two repositories with its columns merged under one entry (G13),
-	// and it is the COLUMN that decides whether a card may stand in it.
-	Domain string `json:"domain,omitempty"`
-}
-
-// DeadlineRef is one deadline line: its week and the project it belongs to.
-type DeadlineRef struct {
-	Week    string `json:"week"`
-	Project string `json:"project,omitempty"`
-}
-
-// columnDomainOf reads a column's repository the way every rule does —
-// through board.ColumnDomain, which answers in ONE namespace (an
-// unstamped entry belongs to the board's primary). Reading the raw stamp
-// here put two namespaces in one payload: scopes[].domain unstamped beside
-// projectDomains stamped, and a client comparing them found no column at
-// all.
-func columnDomainOf(b board.Board, e board.ScopeCol) string {
-	d, _ := board.ColumnDomain(b, e.Project, e.Name)
-	return d
-}
-
-// deadlineWeeks lists the deadline lines, in board order.
-func deadlineWeeks(b board.Board) []DeadlineRef {
-	out := make([]DeadlineRef, 0, len(b.Deadlines))
-	for _, d := range b.Deadlines {
-		out = append(out, DeadlineRef{Week: d.Week, Project: d.Project})
-	}
-	return out
-}
-
-// scopeRefs projects the column roster onto the wire, preserving board order.
-func scopeRefs(b board.Board) []ScopeRef {
-	out := make([]ScopeRef, 0, len(b.Scopes))
-	for _, e := range b.Scopes {
-		out = append(out, ScopeRef{Name: e.Name, Project: e.Project, Domain: columnDomainOf(b, e)})
-	}
-	return out
 }
 
 // CardList is the LIST response envelope.
@@ -458,8 +383,6 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 		Recurrence:  c.Recurrence,
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
 		Parked:      c.Parked,
-		Scope:       c.Scope,
-		Project:     c.Project,
 		ReviewOf:    c.ReviewOf,
 		Parent:      c.Parent,
 		Type:        c.Type,
@@ -467,7 +390,6 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 	status := CardStatus{
 		Complete:    board.Complete(c.Stage, c.Progress),
 		InProgress:  board.IsInProgress(c),
-		Overdue:     board.Overdue(c, board.TodayIso()),
 		ReviewRound: c.ReviewRound,
 		Domain:      c.Domain,
 		DoneAt:      c.DoneAt,
@@ -684,12 +606,8 @@ func BoardResourceWithPeople(b board.Board, person func(login string) Member) Bo
 	return BoardInfo{
 		Kind: "Board",
 		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams,
-			Projects: append([]string{}, b.Projects...), Scopes: scopeRefs(b),
-			Deadlines: deadlineWeeks(b), Members: people, Customers: customerRefs(b),
-			TeamDomains: rosterDomains(teams, func(name string) string { return board.TeamDomain(b, name) }),
-			ProjectDomains: rosterDomains(b.Projects, func(name string) string {
-				return board.ProjectDomain(b, name)
-			})},
+			Members: people, Customers: customerRefs(b),
+			TeamDomains: rosterDomains(teams, func(name string) string { return board.TeamDomain(b, name) })},
 	}
 }
 

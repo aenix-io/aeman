@@ -1,7 +1,6 @@
 package boardservice
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -14,16 +13,11 @@ import (
 func intentBoard() *fakeBackend {
 	today := board.TodayIso()
 	return newFake([]board.Card{
-		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "core"},
-		{ItemID: "ep", Title: board.ScopeStateTitle, Scope: "Auth", Project: "core"},
 		// An ordinary card, in work.
 		{ItemID: "plain", Team: "alpha", Assignees: []string{"kvaps"},
 			SprintStart: today, StartDate: today, Day: today, Zone: board.ZoneRed},
 		// Its subtask: a piece of the same work.
 		{ItemID: "kid", Team: "alpha", Parent: "plain", SprintStart: today, StartDate: today},
-		// A project card.
-		{ItemID: "slot", Team: "alpha", Project: "core", Scope: "Auth",
-			Assignees: []string{"kvaps"}, SprintStart: today, StartDate: today, Day: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 }
 
@@ -65,29 +59,6 @@ func TestOffTheBoardTakesTheCardAndItsPieces(t *testing.T) {
 	}
 	if f.get("kid") != nil {
 		t.Fatal("its subtasks are pieces of the same work and go with it")
-	}
-}
-
-// A PROJECT card is never destroyed by the ×: it is its Project board's
-// commitment. Asking for it is refused rather than quietly turned into an
-// unassign — a gesture that does something other than what it says is how
-// the × came to be mistrusted.
-func TestOffTheBoardIsRefusedForWorkThatIsNotThisBoardsToDestroy(t *testing.T) {
-	for _, id := range []string{"slot"} {
-		f := intentBoard()
-		if err := New(f).Remove(ctx, "acme", id, board.ViewAll, OffBoard); !errors.Is(err, ErrNotYoursToDestroy) {
-			t.Fatalf("%s off the board = %v, want ErrNotYoursToDestroy", id, err)
-		}
-		if f.get(id) == nil {
-			t.Fatalf("%s: the refusal fires before the write", id)
-		}
-		// Unassign is the answer they do take.
-		if err := New(f).Remove(ctx, "acme", id, board.ViewAll, Unassign); err != nil {
-			t.Fatalf("%s unassign: %v", id, err)
-		}
-		if got := f.get(id); got == nil || len(got.Assignees) != 0 {
-			t.Fatalf("%s: unassign leaves it, without a person: %+v", id, got)
-		}
 	}
 }
 

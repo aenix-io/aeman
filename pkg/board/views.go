@@ -21,8 +21,6 @@ const (
 	// hand, top is next (docs/design/backlog.md). It replaced the Triage
 	// board, whose drawer it used to be (K9).
 	ViewBacklog View = "backlog"
-	// ViewProject is the Project board: every card filed under a column.
-	ViewProject View = "project"
 	// ViewRoadmap is the hierarchy: every goal, initiative and epic, and
 	// every card with one of those above it (docs/design/hierarchy.md). A
 	// task with no parent is not on it — it is on the day boards.
@@ -36,7 +34,7 @@ const (
 
 // Views lists them in the order the SPA's own tabs run, the escape hatch last.
 func Views() []View {
-	return []View{ViewMe, ViewTeam, ViewBacklog, ViewRoadmap, ViewProject, ViewAll}
+	return []View{ViewMe, ViewTeam, ViewBacklog, ViewRoadmap, ViewAll}
 }
 
 // KnownView reports whether a name is one of them. The empty string is NOT:
@@ -54,8 +52,8 @@ func KnownView(name string) bool {
 
 // ScopedByTeam reports the boards whose LISTING is narrowed by a team: the
 // lead's grid and the backlog both ask for one (a comma-separated set of
-// them). The Me board, the
-// Project grid and the Roadmap list every team, and "" is the answer they give.
+// them). The Me board and
+// the Roadmap list every team, and "" is the answer they give.
 //
 // It is a fact about a BOARD, which is why it lives here rather than in either
 // door: a gesture is judged against the listing its board answered, and a gate

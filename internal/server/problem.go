@@ -92,9 +92,6 @@ var sentinels = []struct {
 	{boardservice.ErrTitleTooLong, http.StatusUnprocessableEntity, "titleTooLong"},
 	{boardservice.ErrBadDay, http.StatusUnprocessableEntity, "badDay"},
 	{boardservice.ErrSubtaskDepth, http.StatusUnprocessableEntity, "subtaskDepth"},
-	// The × was told to do something the card does not allow: a slot
-	// taken off the board.
-	{boardservice.ErrNotYoursToDestroy, http.StatusUnprocessableEntity, "notYoursToDestroy"},
 	// A task taken out of its backlog with nothing to put it into (K1).
 	{boardservice.ErrTakeIntoWork, http.StatusUnprocessableEntity, "takeIntoWork"},
 	// Take (K11): nobody to give the card to, work already in hand, work
@@ -103,9 +100,6 @@ var sentinels = []struct {
 	{boardservice.ErrAlreadyInWork, http.StatusUnprocessableEntity, "alreadyInWork"},
 	{boardservice.ErrAlreadyFinished, http.StatusUnprocessableEntity, "alreadyFinished"},
 	{boardservice.ErrSomebodysCard, http.StatusUnprocessableEntity, "somebodysCard"},
-	// A list the team does not have, and work another board owns: both
-	// are rules refusing a change, not the forge failing.
-	{boardservice.ErrNotYoursToPark, http.StatusUnprocessableEntity, "notYoursToPark"},
 	// A shelf for a card that has no place of its own, and a process turn
 	// carried out of the occurrence it is a turn of: the board's own
 	// rules, answered as such.
@@ -116,8 +110,6 @@ var sentinels = []struct {
 	{boardservice.ErrViewNeedsField, http.StatusUnprocessableEntity, "viewNeedsField"},
 	// A new card told to land in two places at once.
 	{boardservice.ErrTwoPlaces, http.StatusUnprocessableEntity, "twoPlaces"},
-	// A project card's progress between done and not done.
-	{boardservice.ErrProjectCardProgress, http.StatusUnprocessableEntity, "projectCardProgress"},
 	// Work sent back to the sprint it was done in, where there is nothing
 	// to send or nowhere to send it: rules refusing a change, not a forge
 	// failure.
@@ -126,13 +118,6 @@ var sentinels = []struct {
 	{boardservice.ErrParentNotFound, http.StatusUnprocessableEntity, "parentNotFound"},
 	{boardservice.ErrOpenSubtasks, http.StatusUnprocessableEntity, "openSubtasks"},
 	{boardservice.ErrTeamInUse, http.StatusUnprocessableEntity, "teamInUse"},
-	{boardservice.ErrScopeInUse, http.StatusUnprocessableEntity, "scopeInUse"},
-	{boardservice.ErrScopeExists, http.StatusUnprocessableEntity, "scopeExists"},
-	{boardservice.ErrScopeNotFound, http.StatusUnprocessableEntity, "scopeNotFound"},
-	{boardservice.ErrProjectInUse, http.StatusUnprocessableEntity, "projectInUse"},
-	{boardservice.ErrProjectExists, http.StatusUnprocessableEntity, "projectExists"},
-	{boardservice.ErrProjectNotFound, http.StatusUnprocessableEntity, "projectNotFound"},
-	{boardservice.ErrProjectCard, http.StatusUnprocessableEntity, "projectCard"},
 	// The hierarchy's rules (docs/design/hierarchy.md): a type the board
 	// has not got, a parent that is not of a higher level, and a planning
 	// card asked to carry what only a task carries.
@@ -154,7 +139,6 @@ var sentinels = []struct {
 	{boardservice.ErrNoReviewer, http.StatusUnprocessableEntity, "noReviewer"},
 	{boardservice.ErrEmptyNote, http.StatusUnprocessableEntity, "emptyNote"},
 	{boardservice.ErrEndBeforeStart, http.StatusUnprocessableEntity, "endBeforeStart"},
-	{boardservice.ErrDomainConflict, http.StatusUnprocessableEntity, "domainConflict"},
 	{boardservice.ErrCrossDomain, http.StatusUnprocessableEntity, "crossDomain"},
 }
 

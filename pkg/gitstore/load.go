@@ -21,12 +21,14 @@ var ErrEmptyRepository = errors.New("gitstore: repository has no commits")
 
 // Snapshot is everything in one domain's tree at one commit.
 type Snapshot struct {
-	Board    BoardFile
-	Cards    []board.Card
-	Teams    []Team
-	Projects []Project
+	Board BoardFile
+	Cards []board.Card
+	Teams []Team
 	// Unknown lists paths that are not part of the layout; Broken lists
-	// paths that are, but could not be read. Neither fails the load.
+	// paths that are, but could not be read. Neither fails the load. The
+	// files of the retired Project board — project cards and the projects/
+	// roster — are in neither: they are part of the layout a repository may
+	// still hold, and are skipped (H15).
 	Unknown []string
 	Broken  []BrokenFile
 	// Aliases are roster names declared in more than one domain: the
@@ -60,7 +62,7 @@ type User struct {
 
 // Alias is a roster entry that lost the duplicate-name resolution.
 type Alias struct {
-	Kind   string // team | project
+	Kind   string // team
 	Name   string
 	Domain string
 	ID     string
@@ -84,29 +86,6 @@ type Team struct {
 	TeamFile
 }
 
-// Project is a project with its columns and deadline lines.
-type Project struct {
-	ID     string
-	Domain string
-	ProjectFile
-	Scopes    []Scope
-	Deadlines []Deadline
-}
-
-// Scope is one column.
-type Scope struct {
-	ID     string
-	Domain string
-	ScopeFile
-}
-
-// Deadline is one deadline line.
-type Deadline struct {
-	ID     string
-	Domain string
-	DeadlineFile
-}
-
 // BrokenFile is a layout path whose content could not be read.
 type BrokenFile struct {
 	Path string
@@ -123,11 +102,6 @@ func (s Snapshot) clone() Snapshot {
 	out := s
 	out.Cards = append([]board.Card(nil), s.Cards...)
 	out.Teams = append([]Team(nil), s.Teams...)
-	out.Projects = append([]Project(nil), s.Projects...)
-	for i := range out.Projects {
-		out.Projects[i].Scopes = append([]Scope(nil), s.Projects[i].Scopes...)
-		out.Projects[i].Deadlines = append([]Deadline(nil), s.Projects[i].Deadlines...)
-	}
 	return out
 }
 
@@ -166,7 +140,7 @@ func loadOverlaid(r *Repo, staged map[string][]byte) (Snapshot, error) {
 	if len(staged) == 0 {
 		return Load(r)
 	}
-	l := &loader{s: Snapshot{}, projects: map[string]*Project{}}
+	l := &loader{s: Snapshot{}}
 	if head := r.Head(); !head.IsZero() {
 		c, err := object.GetCommit(r.s, head)
 		if err != nil {
@@ -213,7 +187,7 @@ func LoadAt(r *Repo, h plumbing.Hash) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	l := &loader{s: Snapshot{}, projects: map[string]*Project{}}
+	l := &loader{s: Snapshot{}}
 	err = tree.Files().ForEach(func(f *object.File) error {
 		data, err := readAll(f)
 		if err != nil {
@@ -255,8 +229,7 @@ func readAll(f *object.File) ([]byte, error) {
 }
 
 type loader struct {
-	s        Snapshot
-	projects map[string]*Project
+	s Snapshot
 }
 
 // file places one file; a schema the server does not know stops the load,
@@ -276,7 +249,7 @@ func (l *loader) file(p string, data []byte) error {
 		l.s.Board = b
 	case PathCard:
 		var f CardFile
-		if f, err = DecodeCard(ids[0], data); err == nil {
+		if f, err = DecodeCard(ids[0], data); err == nil && !f.ProjectCard {
 			l.s.Cards = append(l.s.Cards, f.Card)
 		}
 	case PathTeam:
@@ -284,23 +257,9 @@ func (l *loader) file(p string, data []byte) error {
 		if f, err = DecodeTeam(data); err == nil {
 			l.s.Teams = append(l.s.Teams, Team{ID: ids[0], TeamFile: f})
 		}
-	case PathProject:
-		var f ProjectFile
-		if f, err = DecodeProject(data); err == nil {
-			l.project(ids[0]).ProjectFile = f
-		}
-	case PathScope:
-		var f ScopeFile
-		if f, err = DecodeScope(data); err == nil {
-			pr := l.project(ids[0])
-			pr.Scopes = append(pr.Scopes, Scope{ID: ids[1], ScopeFile: f})
-		}
-	case PathDeadline:
-		var f DeadlineFile
-		if f, err = DecodeDeadline(data); err == nil {
-			pr := l.project(ids[0])
-			pr.Deadlines = append(pr.Deadlines, Deadline{ID: ids[1], DeadlineFile: f})
-		}
+	case PathProjectBoard:
+		// The retired Project board's roster (H15): left in the repository
+		// as it is, read by nobody.
 	case PathCustomer:
 		var f CustomerFile
 		if f, err = DecodeCustomer(data); err == nil {
@@ -320,15 +279,6 @@ func (l *loader) file(p string, data []byte) error {
 	return nil
 }
 
-func (l *loader) project(id string) *Project {
-	if p, ok := l.projects[id]; ok {
-		return p
-	}
-	p := &Project{ID: id}
-	l.projects[id] = p
-	return p
-}
-
 // finish sorts every list by rank, ties by id — one deterministic order
 // wherever the snapshot is read.
 func (l *loader) finish() {
@@ -339,16 +289,6 @@ func (l *loader) finish() {
 		return byRank(l.s.Teams[i].Rank, l.s.Teams[i].ID, l.s.Teams[j].Rank, l.s.Teams[j].ID)
 	})
 	sort.Slice(l.s.Unknown, func(i, j int) bool { return l.s.Unknown[i] < l.s.Unknown[j] })
-	for _, p := range l.projects {
-		sort.Slice(p.Scopes, func(i, j int) bool { return byRank(p.Scopes[i].Rank, p.Scopes[i].ID, p.Scopes[j].Rank, p.Scopes[j].ID) })
-		sort.Slice(p.Deadlines, func(i, j int) bool {
-			return byRank(p.Deadlines[i].Week, p.Deadlines[i].ID, p.Deadlines[j].Week, p.Deadlines[j].ID)
-		})
-		l.s.Projects = append(l.s.Projects, *p)
-	}
-	sort.Slice(l.s.Projects, func(i, j int) bool {
-		return byRank(l.s.Projects[i].Rank, l.s.Projects[i].ID, l.s.Projects[j].Rank, l.s.Projects[j].ID)
-	})
 }
 
 func byRank(r1, id1, r2, id2 string) bool {

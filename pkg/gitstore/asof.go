@@ -259,7 +259,7 @@ func cardInTree(t *object.Tree, id string) (board.Card, bool, error) {
 		return board.Card{}, false, err
 	}
 	card, err := DecodeCard(id, []byte(data))
-	if err != nil {
+	if err != nil || card.ProjectCard {
 		return board.Card{}, false, nil //nolint:nilerr // not a card anyone saw
 	}
 	return card.Card, true, nil
@@ -380,7 +380,7 @@ func cardAt(r *Repo, h plumbing.Hash, id string) (board.Card, bool, error) {
 		return board.Card{}, false, err
 	}
 	card, err := DecodeCard(id, []byte(data))
-	if err != nil {
+	if err != nil || card.ProjectCard {
 		return board.Card{}, false, nil //nolint:nilerr // not a card anyone saw
 	}
 	return card.Card, true, nil
@@ -448,9 +448,10 @@ func lastStateInDay(id string, day []*object.Commit, at int) (board.Card, bool, 
 			return board.Card{}, false, err
 		}
 		card, err := DecodeCard(id, []byte(data))
-		if err != nil {
+		if err != nil || card.ProjectCard {
 			// A file the decoder cannot read is not a card anyone saw; the
 			// day answers without it rather than failing over one bad file.
+			// Nor is a project card, which no board reads (H15).
 			return board.Card{}, false, nil //nolint:nilerr // deliberate
 		}
 		return card.Card, true, nil

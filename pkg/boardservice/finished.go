@@ -60,12 +60,6 @@ func (s *Service) FinishedEarlier(ctx context.Context, boardID string, itemID st
 	if !board.Complete(card.Stage, card.Progress) {
 		return fmt.Errorf("%w: %q", ErrNotFinished, card.Title)
 	}
-	// A Project-board slot carries its own dates — its week follows its
-	// start — and the sprint is not what places it. Moving one would edit a
-	// plan this board does not own.
-	if hasColumn(card) {
-		return fmt.Errorf("%w: %q", ErrNotYoursToPark, card.Title)
-	}
 	// The sprints of the team it stands under (O13): its own, else the
 	// plan item's above it.
 	team := board.PlacedTeam(b, card)

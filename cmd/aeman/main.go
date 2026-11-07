@@ -43,9 +43,9 @@ import (
 var version = "dev"
 
 // boardEnv reads the board number's environment variable. AEMAN_PROJECT is
-// the pre-rename name and is still honoured: "project" became aeman's own
-// planning entity, and a rename that silently stops a deployment from booting
-// is not a rename anyone should have to read release notes to survive.
+// the pre-rename name and is still honoured: a rename that silently stops a
+// deployment from booting is not a rename anyone should have to read release
+// notes to survive.
 func boardEnv() string {
 	if v := os.Getenv("AEMAN_BOARD"); v != "" {
 		return v

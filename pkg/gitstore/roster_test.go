@@ -8,18 +8,15 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// The roster — teams, projects, scopes, deadlines — is configuration that
+// The roster — teams, customers, users — is configuration that
 // used to hide in state cards. Here each is a file: a
 // name where it has one, a rank, a created time, and the fields the domain
 // gives it. Every path carries identity only.
 
 func TestRosterPaths(t *testing.T) {
 	cases := map[string]string{
-		TeamPath("01JB4TEAM"):                "teams/01JB4TEAM.yaml",
-		ProjectPath("01JB4PROJ"):             "projects/01JB4PROJ/project.yaml",
-		ScopePath("01JB4PROJ", "01JB4SCOPE"): "projects/01JB4PROJ/scopes/01JB4SCOPE.yaml",
-		DeadlinePath("01JB4PROJ", "01JB4DL"): "projects/01JB4PROJ/deadlines/01JB4DL.yaml",
-		BoardPath:                            "board.yaml",
+		TeamPath("01JB4TEAM"): "teams/01JB4TEAM.yaml",
+		BoardPath:             "board.yaml",
 	}
 	for got, want := range cases {
 		if got != want {
@@ -39,9 +36,13 @@ func TestParsePathClassifies(t *testing.T) {
 		{"cards/c/1/01JB4K2E7QZMX3R8V0N5T9WYC1.md", PathCard, []string{"01JB4K2E7QZMX3R8V0N5T9WYC1"}},
 		{"teams/01JB4TEAM.yaml", PathTeam, []string{"01JB4TEAM"}},
 		{"teams/_.yaml", PathTeam, []string{"_"}},
-		{"projects/01JB4PROJ/project.yaml", PathProject, []string{"01JB4PROJ"}},
-		{"projects/01JB4PROJ/scopes/01JB4SCOPE.yaml", PathScope, []string{"01JB4PROJ", "01JB4SCOPE"}},
-		{"projects/01JB4PROJ/deadlines/01JB4DL.yaml", PathDeadline, []string{"01JB4PROJ", "01JB4DL"}},
+		// The retired Project board's roster (H15): one kind, the whole
+		// projects/ tree, under any of the names it was ever written with.
+		{"projects/01JB4PROJ/project.yaml", PathProjectBoard, nil},
+		{"projects/01JB4PROJ/scopes/01JB4SCOPE.yaml", PathProjectBoard, nil},
+		{"projects/01JB4PROJ/epics/01JB4SCOPE.yaml", PathProjectBoard, nil},
+		{"projects/01JB4PROJ/deadlines/01JB4DL.yaml", PathProjectBoard, nil},
+		{"projects", PathUnknown, nil},
 		{"board.yaml", PathBoard, nil},
 		{"README.md", PathUnknown, nil},
 		// The retired Process feature's tree (schema 1) is not of the layout
@@ -88,32 +89,6 @@ func TestTeamFileRoundTrip(t *testing.T) {
 	bare, _ := EncodeTeam(TeamFile{Rank: "a", Created: "2026-06-01T08:00:00Z"})
 	if bytes.Contains(bare, []byte("name:")) || bytes.Contains(bare, []byte("sprint:")) {
 		t.Fatalf("empty fields written:\n%s", bare)
-	}
-}
-
-func TestProjectScopeDeadlineRoundTrip(t *testing.T) {
-	p, _ := EncodeProject(ProjectFile{Name: "portal", Rank: "b", Created: "2026-06-01T08:00:00Z"})
-	if string(p) != "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n" {
-		t.Fatalf("project:\n%s", p)
-	}
-	pf, err := DecodeProject(p)
-	if err != nil || pf.Name != "portal" || pf.Rank != "b" {
-		t.Fatalf("project decode: %+v %v", pf, err)
-	}
-
-	e, _ := EncodeScope(ScopeFile{Name: "Bugs", Rank: "c", Created: "2026-06-02T08:00:00Z"})
-	ef, err := DecodeScope(e)
-	if err != nil || ef.Name != "Bugs" || ef.Rank != "c" {
-		t.Fatalf("scope decode: %+v %v", ef, err)
-	}
-
-	d, _ := EncodeDeadline(DeadlineFile{Week: "2026-09-07", Created: "2026-06-03T08:00:00Z"})
-	if string(d) != "week: 2026-09-07\ncreated: 2026-06-03T08:00:00Z\n" {
-		t.Fatalf("deadline:\n%s", d)
-	}
-	df, err := DecodeDeadline(d)
-	if err != nil || df.Week != "2026-09-07" {
-		t.Fatalf("deadline decode: %+v %v", df, err)
 	}
 }
 
