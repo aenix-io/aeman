@@ -6184,12 +6184,13 @@ button.card-age {
 }
 
 /* The drawer's identity line: the card's id to copy, and its link. */
+/* Copy ID and Copy link, in the title row just left of the ✕. */
 .drawer-identity {
+  flex: none;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-bottom: 10px;
+  margin-top: 3px;
 }
 
 /* "Copy ID" and "Copy link": two small chips under the title. */

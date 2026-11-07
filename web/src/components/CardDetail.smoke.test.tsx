@@ -291,9 +291,9 @@ describe("ownership in the drawer", () => {
   });
 });
 
-// The drawer gives its card away from the top of its right-hand column: the
-// id to copy and the link to copy — the board's address with the view and
-// this card (deeplink.ts).
+// The drawer gives its card away from its title row, left of the ✕: the id
+// to copy and the link to copy — the board's address with the view and this
+// card (deeplink.ts).
 describe("the drawer's card identity line", () => {
   it("shows the id and the link of the card it shows", () => {
     const html = renderToStaticMarkup(
@@ -307,14 +307,12 @@ describe("the drawer's card identity line", () => {
         cardLinkFor={(uid) => `https://b.example/?view=me&card=${uid}`}
       />,
     );
-    // The chips stand at the top of the drawer's right-hand column, not
-    // under the title.
-    const head = html.slice(0, html.indexOf("drawer-body"));
-    expect(head).not.toContain("drawer-identity");
-    const side = html.slice(html.indexOf('class="drawer-side"'));
-    expect(side.indexOf('class="drawer-identity"')).toBeGreaterThan(-1);
-    expect(side.indexOf('class="drawer-identity"')).toBeLessThan(side.indexOf('class="drawer-row"'));
-    expect(side).toMatch(/aria-label="Copy the link to this card" title="https:\/\/b.example\/\?view=me&amp;card=/);
+    // The chips sit in the title row, just left of the close ✕.
+    const titleRow = html.slice(html.indexOf('class="drawer-title-row"'), html.indexOf("</header>"));
+    expect(titleRow.indexOf('class="drawer-identity"')).toBeGreaterThan(-1);
+    expect(titleRow.indexOf('class="drawer-identity"')).toBeLessThan(titleRow.indexOf('class="modal-close"'));
+    expect(titleRow).toMatch(/aria-label="Copy the link to this card" title="https:\/\/b.example\/\?view=me&amp;card=/);
+    expect(html.slice(html.indexOf('class="drawer-side"'))).not.toContain("drawer-identity");
   });
 });
 

@@ -912,6 +912,9 @@ export function CardDetail({
                 )}
               </h2>
             )}
+            {/* Copy ID and Copy link sit left of the ✕. Keyed on the card, so
+                a "copied" mark never carries over. */}
+            {cardLinkFor && <CardIdentity key={card.itemId} uid={card.itemId} link={cardLinkFor(card.itemId)} />}
             <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
               ✕
             </button>
@@ -1167,9 +1170,6 @@ export function CardDetail({
           </main>
 
           <aside className="drawer-side">
-            {/* Copy ID and Copy link head the right-hand column. Keyed on the
-                card, so a "copied" mark never carries over. */}
-            {cardLinkFor && <CardIdentity key={card.itemId} uid={card.itemId} link={cardLinkFor(card.itemId)} />}
             {/* The rows are the card's kind's: a planning card has a level and
                 a standing; a task a band, a size, its people; a project card
                 its column. What the server refuses is not offered. */}
