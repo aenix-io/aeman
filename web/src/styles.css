@@ -3741,7 +3741,7 @@ button.card-age {
   display: grid;
   grid-template-columns:
     var(--rm-title, 290px) var(--rm-owner, 150px) var(--rm-start, 64px)
-    var(--rm-end, 64px) var(--rm-status, 112px);
+    var(--rm-end, 64px) var(--rm-status, 144px);
   align-items: center;
   border-bottom: 1px solid var(--line-soft);
   font-size: 12.5px;
@@ -5455,7 +5455,7 @@ button.card-age {
 }
 
 .plan-tree .roadmap-row.plan-tree-row {
-  grid-template-columns: minmax(0, 1fr) 140px 112px;
+  grid-template-columns: minmax(0, 1fr) 140px 144px;
 }
 
 .plan-tree .plan-tree-form {
@@ -5614,10 +5614,18 @@ button.card-age {
   padding: 0;
   background: transparent;
   max-width: 100%;
+  min-width: 0;
+  white-space: nowrap;
 }
 
+/* Dragged narrower than the badge, the STATUS part gives way — cut short
+   with an ellipsis — and the priority part keeps its width. */
 .roadmap-badge .roadmap-status {
   border-radius: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .roadmap-badge > :first-child {
@@ -5631,6 +5639,7 @@ button.card-age {
 }
 
 .roadmap-prio {
+  flex: none;
   display: inline-block;
   padding: 1px 6px;
   font-size: 10.5px;

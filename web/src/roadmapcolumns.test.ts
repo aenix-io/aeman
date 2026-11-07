@@ -21,7 +21,7 @@ import {
 describe("the Roadmap's column widths", () => {
   it("start at the defaults, the table as wide as they add up", () => {
     expect(storedColumns(null)).toEqual(COLUMN_DEFAULTS);
-    expect(tableWidth(COLUMN_DEFAULTS)).toBe(680);
+    expect(tableWidth(COLUMN_DEFAULTS)).toBe(712);
   });
 
   it("clamp a drag to the column's floor and to a ceiling", () => {
@@ -30,6 +30,22 @@ describe("the Roadmap's column widths", () => {
     expect(resized(COLUMN_DEFAULTS, "start", 80.6).start).toBe(81);
     // The others stay as they were.
     expect(resized(COLUMN_DEFAULTS, "start", 80).owner).toBe(COLUMN_DEFAULTS.owner);
+  });
+
+  // The badge is ONE pill in two parts (K15): its widest — "P0 | IN
+  // PROGRESS", 116px measured in the browser — plus the cell's 6px + 12px of
+  // padding before the timeline is 134px; the floor keeps room to spare for
+  // a wider font, and the default sits above it.
+  it("keep the Status column wide enough for the widest two-part badge, by default and at the floor", () => {
+    expect(COLUMN_MINS.status).toBeGreaterThanOrEqual(140);
+    expect(COLUMN_DEFAULTS.status).toBeGreaterThanOrEqual(COLUMN_MINS.status);
+  });
+
+  it("clamp a narrower Status width a viewer stored before up to the new floor", () => {
+    // 112 was the default of the single pill; 110 its floor.
+    expect(storedColumns(JSON.stringify({ status: 112 })).status).toBe(COLUMN_MINS.status);
+    expect(storedColumns(JSON.stringify({ status: 110, title: 300 }))).toEqual({ ...COLUMN_DEFAULTS, title: 300, status: COLUMN_MINS.status });
+    expect(storedColumns(JSON.stringify({ status: 200 })).status).toBe(200);
   });
 
   it("read back what was stored, clamped, and nothing that is not theirs", () => {
@@ -56,8 +72,8 @@ describe("the Roadmap's column widths", () => {
       "--rm-owner": "150px",
       "--rm-start": "64px",
       "--rm-end": "64px",
-      "--rm-status": "112px",
-      "--rm-table": "680px",
+      "--rm-status": "144px",
+      "--rm-table": "712px",
     });
   });
 });

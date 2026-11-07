@@ -140,10 +140,23 @@ describe("the Roadmap's two panes", () => {
     const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
     const grid = css.match(/\.roadmap-row \{\s*display: grid;\s*grid-template-columns:([^;]+);/)?.[1] ?? "";
     const status = Number(/var\(--rm-status, (\d+)px\)/.exec(grid)?.[1] ?? 0);
-    expect(status).toBeGreaterThanOrEqual(110);
-    // The column is the reader's to size, and never narrower than the pill.
-    expect(COLUMN_DEFAULTS.status).toBeGreaterThanOrEqual(110);
-    expect(COLUMN_MINS.status).toBeGreaterThanOrEqual(110);
+    // The CSS fallback is the default: the two-part badge fits (K15).
+    expect(status).toBe(COLUMN_DEFAULTS.status);
+    // The column is the reader's to size, and never narrower than the badge.
+    expect(COLUMN_DEFAULTS.status).toBeGreaterThanOrEqual(COLUMN_MINS.status);
+    // The drawer's tree draws the same badge in a fixed column: as wide as
+    // the Roadmap's floor.
+    const drawer = css.match(/\.plan-tree \.roadmap-row\.plan-tree-row \{\s*grid-template-columns:([^;]+);/)?.[1] ?? "";
+    expect(Number(/(\d+)px\s*$/.exec(drawer.trim())?.[1] ?? 0)).toBeGreaterThanOrEqual(COLUMN_MINS.status);
+    // One line, never wrapped; dragged narrower than it, the STATUS part
+    // ellipsizes and the priority part keeps its width.
+    const badge = css.match(/\.roadmap-badge \{[^}]*\}/)?.[0] ?? "";
+    expect(badge).toMatch(/white-space: nowrap/);
+    const statusPart = css.match(/\.roadmap-badge \.roadmap-status \{[^}]*\}/)?.[0] ?? "";
+    expect(statusPart).toMatch(/text-overflow: ellipsis/);
+    expect(statusPart).toMatch(/min-width: 0/);
+    const prio = css.match(/\.roadmap-prio \{[^}]*\}/)?.[0] ?? "";
+    expect(prio).toMatch(/flex: none/);
     const cell = css.match(/\.roadmap-cell-status \{[^}]*\}/)?.[0] ?? "";
     const right = Number(/padding-right: (\d+)px/.exec(cell)?.[1] ?? 0);
     expect(right).toBeGreaterThanOrEqual(10);
@@ -351,7 +364,7 @@ describe("the Roadmap's column handles", () => {
 
   it("set the widths as CSS variables on the board, the defaults first", () => {
     const html = draw(board([goal, ini, epic, done, open]));
-    expect(html).toMatch(/class="roadmap"[^>]*style="[^"]*--rm-title:290px[^"]*--rm-table:680px/);
+    expect(html).toMatch(/class="roadmap"[^>]*style="[^"]*--rm-title:290px[^"]*--rm-table:712px/);
   });
 });
 
