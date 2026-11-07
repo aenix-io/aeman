@@ -771,7 +771,7 @@ export interface components {
             /** @description A recurrent card's reseed cycle: absent is every sprint, "week" and "month" once the interval has elapsed. */
             recurrence?: string;
             dates: components["schemas"]["CardDates"];
-            /** @description The task is in its team's BACKLOG rather than in work. A task is in work (a date or a sprint) or parked, never both and never neither: parking empties the working area — person, sprint, dates — takes the card's subtasks off the board with it, withdraws any unfinished review of it, and puts it at the top of the backlog; giving a parked task a date or a sprint (or `own` with a person) takes it out of the backlog. `false` alone on a parked task with no date and no sprint is refused (422 `takeIntoWork`): a task leaves its backlog by being taken into work. Every team has a backlog and nothing declares it. A review card and a subtask are refused (422): neither has a place of its own to be parked in. A task has no week. */
+            /** @description The task is in its team's BACKLOG rather than in work. A task is in work (a date or a sprint) or parked, never both and never neither: parking empties the working area — person, sprint, dates — takes the card's subtasks off the board with it, withdraws any unfinished review of it, and keeps its place in the board's order; giving a parked task a date or a sprint (or `own` with a person) takes it out of the backlog. `false` alone on a parked task with no date and no sprint is refused (422 `takeIntoWork`): a task leaves its backlog by being taken into work. Every team has a backlog and nothing declares it. A review card and a subtask are refused (422): neither has a place of its own to be parked in. A task has no week. */
             parked?: boolean;
             /** @description A parked task marked READY to be taken next — the Roadmap's TO DO (`POST /cards/{uid}/actions/todo`). It stands at the top of its backlog, in the Roadmap's order among the other TO DO tasks. Cleared when the task is taken into work or finished. */
             todo?: boolean;
@@ -860,7 +860,7 @@ export interface components {
             items: components["schemas"]["Card"][];
             /** @description The moment a snapshot listing reflects (RFC3339) — the end of the day it was asked for. Absent on a live listing. */
             asOf?: string;
-            /** @description On a `backlog` listing only: the board's order of every card the listing's order is read from — the listed cards and every plan item above them. A backlog reads in the Roadmap's order (the path of places in this order from the root plan item down to the task), TO DO tasks first and a review nobody has taken above them all; a client that places a card the watch brings in, or re-sorts on an `Ordering` frame (which carries the whole board's order), reads the same key from it. */
+            /** @description On a `backlog` listing only: the whole board's order, as every `Ordering` frame carries it. A backlog reads in the Roadmap's order (the path of places in this order from the root plan item down to the task), TO DO tasks first and a review nobody has taken above them all; a client that places a card the watch brings in, or re-sorts on an `Ordering` frame, reads the same key from it. */
             boardOrder?: string[];
         };
         /** @description A team's sprint pointer; the empty team is the no-team group. */

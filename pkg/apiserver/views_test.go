@@ -189,11 +189,10 @@ func TestAReviewNobodyHasTakenStandsAboveTheTasks(t *testing.T) {
 	}
 }
 
-// A backlog listing carries the board's order of everything its order is
-// read from (K14): the listed cards and every plan item above them, in board
-// order — so a client can place a card the watch brings in, and re-sort on an
-// Ordering frame, by the same key the server sorts by. Nothing else of the
-// board is named.
+// A backlog listing carries the WHOLE board's order (K14) — what every
+// Ordering frame carries too — so a client places a card the watch brings in
+// (one under a plan item no listed card stands under, say) and re-sorts on a
+// frame by the same key the server sorts by.
 func TestABacklogListingCarriesTheOrderItIsReadFrom(t *testing.T) {
 	b := board.NewBoard([]board.Card{
 		{ItemID: "elsewhere", Type: board.TypeGoal},
@@ -205,7 +204,7 @@ func TestABacklogListingCarriesTheOrderItIsReadFrom(t *testing.T) {
 		{ItemID: "loose", Team: "alpha", Parked: true},
 	})
 	list := ListCards(b, Selector{View: "backlog", Team: "alpha"})
-	if want := []string{"t2", "g", "e", "t1", "loose"}; !slices.Equal(list.BoardOrder, want) {
+	if want := []string{"elsewhere", "t2", "g", "inwork", "e", "t1", "loose"}; !slices.Equal(list.BoardOrder, want) {
 		t.Fatalf("boardOrder = %v, want %v", list.BoardOrder, want)
 	}
 	if other := ListCards(b, Selector{View: "team", Team: "alpha"}); other.BoardOrder != nil {

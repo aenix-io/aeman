@@ -630,29 +630,16 @@ func ListCards(b board.Board, sel Selector) CardList {
 	}
 	list := CardList{Kind: "CardList", Items: items}
 	if sel.View == "backlog" {
-		list.BoardOrder = backlogBoardOrder(b, ix, cards)
+		list.BoardOrder = backlogBoardOrder(b)
 	}
 	return list
 }
 
-// backlogBoardOrder is the board's order of the listed cards and of every
-// plan item above them — what their backlog keys are read from
-// (board.BacklogKey). Always a list, empty for an empty backlog.
-func backlogBoardOrder(b board.Board, ix *board.Index, cards []board.Card) []string {
-	read := make(map[string]bool, len(cards))
-	for _, c := range cards {
-		read[c.ItemID] = true
-		for _, a := range ix.Lineage(c) {
-			read[a.ItemID] = true
-		}
-	}
-	out := make([]string, 0, len(read))
-	for _, c := range b.Cards {
-		if read[c.ItemID] {
-			out = append(out, c.ItemID)
-		}
-	}
-	return out
+// backlogBoardOrder is the whole board's order, as the Ordering resource
+// carries it (OrderingResource): what a backlog key is read from
+// (board.BacklogKey), for every card a watch may bring in later too.
+func backlogBoardOrder(b board.Board) []string {
+	return OrderingResource(b).Spec.UIDs
 }
 
 // offTheTeamList is a card the team selector leaves off the views it

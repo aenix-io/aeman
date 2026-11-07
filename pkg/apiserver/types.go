@@ -340,11 +340,11 @@ type CardList struct {
 	// the day it was asked for. Empty on a live listing; a day the history
 	// no longer reaches is refused (410) rather than answered.
 	AsOf string `json:"asOf,omitempty"`
-	// BoardOrder is, on a backlog listing, the board's order of every card
-	// the listing's order is read from (K14): the listed cards and every
-	// plan item above them. A client places a card the watch brings in, and
-	// re-sorts on an Ordering frame, by the same key (board.BacklogKey).
-	// Absent on every other listing.
+	// BoardOrder is, on a backlog listing, the whole board's order — what
+	// every Ordering frame carries, and what the listing's order is read
+	// from (K14). A client places a card the watch brings in, and re-sorts
+	// on an Ordering frame, by the same key (board.BacklogKey). Absent on
+	// every other listing.
 	BoardOrder []string `json:"boardOrder,omitempty"`
 }
 

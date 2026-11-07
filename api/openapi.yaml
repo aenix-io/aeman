@@ -1536,7 +1536,7 @@ components:
             work (a date or a sprint) or parked, never both and never neither:
             parking empties the working area — person, sprint, dates — takes
             the card's subtasks off the board with it, withdraws any unfinished
-            review of it, and puts it at the top of the backlog; giving a parked
+            review of it, and keeps its place in the board's order; giving a parked
             task a date or a sprint (or `own` with a person) takes it out of the
             backlog. `false` alone on a parked task with no date and no sprint
             is refused (422 `takeIntoWork`): a task leaves its backlog by being
@@ -1781,14 +1781,13 @@ components:
         boardOrder:
           type: array
           description: >-
-            On a `backlog` listing only: the board's order of every card the
-            listing's order is read from — the listed cards and every plan
-            item above them. A backlog reads in the Roadmap's order (the path
-            of places in this order from the root plan item down to the
-            task), TO DO tasks first and a review nobody has taken above them
-            all; a client that places a card the watch brings in, or re-sorts
-            on an `Ordering` frame (which carries the whole board's order),
-            reads the same key from it.
+            On a `backlog` listing only: the whole board's order, as every
+            `Ordering` frame carries it. A backlog reads in the Roadmap's
+            order (the path of places in this order from the root plan item
+            down to the task), TO DO tasks first and a review nobody has
+            taken above them all; a client that places a card the watch
+            brings in, or re-sorts on an `Ordering` frame, reads the same key
+            from it.
           items:
             type: string
     Sprint:
