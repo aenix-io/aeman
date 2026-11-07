@@ -31,6 +31,7 @@ import {
   statusUids,
   priorityAfter,
   latestWins,
+  refusalRollback,
   unassignQuestion,
   UNASSIGNED_LOCALLY,
   droppable,
@@ -876,7 +877,9 @@ export function RoadmapBoard({
         }
       })
       .catch((err: unknown) => {
-        for (const b of before) {
+        // Put back only what THIS press changed while it is still the
+        // latest: a newer press shown since settles the card itself.
+        for (const b of refusalRollback(prioritySeq.current, card.itemId, n, before)) {
           patchCard(b.id, b.patch);
         }
         onError(errText(err));

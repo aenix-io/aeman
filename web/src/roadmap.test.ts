@@ -58,7 +58,8 @@ import {
   inheritedTitle,
   latestWins,
   priorityLabel,
-  statusUids,
+  refusalRollback,
+  unassignPreview,
   unassignQuestion,
   STATUS_LABEL,
 } from "./roadmap";
@@ -933,8 +934,21 @@ describe("the badge menu on the Roadmap (K15, K16)", () => {
     expect(PRIORITY_CHOICES.map((c) => c.value)).toEqual(["P0", "P1", "P2", "P3", "P4", ""]);
   });
 
-  it("names the tasks it counted, so the server acts on exactly those", () => {
-    expect(statusUids(unassignTargets(all, g))).toEqual(["w1", "w2"]);
+  it("names the tasks it counted, so the server acts on exactly those, and asks nothing of none", () => {
+    expect(unassignPreview(unassignTargets(all, g))).toEqual(["w1", "w2"]);
+    // The server found nothing in work under the row (the board moved since
+    // the menu opened): there is no "Take 0 tasks out of work?" to ask.
+    expect(unassignPreview([])).toBeNull();
+  });
+
+  it("puts a refused priority back only when it was the latest press", () => {
+    const seq = latestWins();
+    const p1 = seq.next("g");
+    const p2 = seq.next("g");
+    const before = [{ id: "g", patch: { priority: undefined } }];
+    // The older press (P1) failing must not undo the newer optimistic P2.
+    expect(refusalRollback(seq, "g", p1, before)).toEqual([]);
+    expect(refusalRollback(seq, "g", p2, before)).toEqual(before);
   });
 
   it("asks how many tasks leave Team and Me before UNASSIGNED takes them", () => {

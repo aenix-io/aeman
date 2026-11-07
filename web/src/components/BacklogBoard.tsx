@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Board, Card as CardModel, Priority, Provider, SizeKey } from "../providers/types";
 import { PriorityItems, PriorityPart } from "./PlanTree";
-import { latestWins, priorityLabel } from "../roadmap";
+import { latestWins, priorityLabel, refusalRollback } from "../roadmap";
 import {
   insertSpot,
   insertedOrder,
@@ -474,7 +474,9 @@ export function BacklogBoard({
         }
       })
       .catch((err: unknown) => {
-        for (const b of before) {
+        // Put back only what THIS press changed while it is still the
+        // latest: a newer press shown since settles the card itself.
+        for (const b of refusalRollback(prioritySeq.current, card.itemId, n, before)) {
           patchCard(b.id, b.patch);
         }
         onError(errText(err));
