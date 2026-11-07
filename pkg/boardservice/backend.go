@@ -12,6 +12,15 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
+// WriteChecker is a backend that can say, before anything is written,
+// whether the actor may write a card (ErrForbidden when not). A gesture that
+// writes many cards asks it of every one first, so it is applied whole or not
+// at all rather than refused half-way (the Roadmap's status menu, K15/K16).
+// A backend without it lets each write answer for itself.
+type WriteChecker interface {
+	CheckWrite(ctx context.Context, b board.Board, card board.Card) error
+}
+
 // Backend abstracts the storage backend a board lives in (GitHub Projects v2
 // today, a git backend later). It mirrors the frontend Provider in
 // web/src/providers/types.ts, expressed in the domain types from internal/board.
@@ -82,15 +91,11 @@ type Backend interface {
 	CardLogSince(ctx context.Context, b board.Board, id string, since time.Time) ([]board.Event, time.Time, error)
 	SetStart(ctx context.Context, b board.Board, card board.Card, date string) error
 	SetSprintStart(ctx context.Context, b board.Board, card board.Card, date string) error
-	SetWeek(ctx context.Context, b board.Board, card board.Card, week string) error
 	// SetBacklog puts the card on its team's shelf, or takes it off.
 	SetBacklog(ctx context.Context, b board.Board, card board.Card, parked bool) error
+	// SetPriority sets the card's own priority, P0..P4 or "" (K15).
+	SetPriority(ctx context.Context, b board.Board, card board.Card, priority board.PriorityKey) error
 	SetTeam(ctx context.Context, b board.Board, card board.Card, team string) error
-	// SetScope files the card under a Project-board column ("" clears).
-	SetScope(ctx context.Context, b board.Board, card board.Card, scope string) error
-	// SetProject writes the Project field of a hidden state card: a
-	// project-state card's own name, or the project an scope belongs to.
-	SetProject(ctx context.Context, b board.Board, card board.Card, project string) error
 	// SetRecurrence sets a recurrent card's reseed cycle ("" = every sprint).
 	SetRecurrence(ctx context.Context, b board.Board, card board.Card, cycle string) error
 	SetAssignee(ctx context.Context, b board.Board, card board.Card, login string) error

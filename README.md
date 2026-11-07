@@ -41,14 +41,14 @@ Each team has a **backlog**: one ranked list of the tasks it has accepted and no
 │  embedded SPA ───► REST /api/v1 ──┐          │  push  │                      │
 │       ▲                           │  board   ┼───────►│  cards/…/<id>.md     │
 │       └──── WS /api/v1/views/… ◄──┤  service │  fetch │  teams/<id>.yaml     │
-│                                   │  + cache ◄────────┼  projects/…          │
+│                                   │  + cache ◄────────┼  customers/…         │
 │  AI agents ───► MCP (stdio, /mcp)─┘  + clone │        │  one commit/action   │
 └──────────────────────────────────────────────┘        └──────────────────────┘
 ```
 
-- **Kubernetes-style API and live sync**: cards, sprints, notes and the board order are resources (`{kind, metadata, spec, status}`); a client LISTs them from the BOARD it has open (`GET /api/v1/views/{view}/cards` — me, team, backlog, roadmap, project, …) and then applies a WATCH stream of `ADDED / MODIFIED / DELETED` resource events over a WebSocket — optionally scoped to one view by the same selectors LIST takes. Every write — from the UI, the REST API or an agent over MCP — goes through one board service with a shared in-memory store, is answered at once, and reaches every open board in about a second (a client's own changes are not echoed back to it).
+- **Kubernetes-style API and live sync**: cards, sprints, notes and the board order are resources (`{kind, metadata, spec, status}`); a client LISTs them from the BOARD it has open (`GET /api/v1/views/{view}/cards` — me, team, backlog, roadmap, …) and then applies a WATCH stream of `ADDED / MODIFIED / DELETED` resource events over a WebSocket — optionally scoped to one view by the same selectors LIST takes. Every write — from the UI, the REST API or an agent over MCP — goes through one board service with a shared in-memory store, is answered at once, and reaches every open board in about a second (a client's own changes are not echoed back to it).
 - **Every request is one commit.** The server keeps a shallow clone of the board's repositories under `--data`, commits each request's writes as one commit (author = the person, committer = the server, machine-readable `Aeman-*` trailers), pushes in the background and fetches other replicas' commits on a timer; a rejected push is re-applied on the new tip field by field. The card's activity feed *is* this history.
-- **Visibility by repository.** A board may span several repositories (domains): a closed project in a private repository next to the shared one. A visitor sees the union of what they can read — an unreadable domain is absent, not empty — and writes need write access to the repository they land in. Design: [docs/design/git-backend.md](docs/design/git-backend.md).
+- **Visibility by repository.** A board may span several repositories (domains): a closed team in a private repository next to the shared one. A visitor sees the union of what they can read — an unreadable domain is absent, not empty — and writes need write access to the repository they land in. Design: [docs/design/git-backend.md](docs/design/git-backend.md).
 - The browser never holds a token: the binary resolves the identity server-side (the owner of the locally stored token — `aeman login`, `gh`, `glab` — or per-user OAuth sessions in the self-hosted mode); the push credential is the server's (`AEMAN_GIT_TOKEN`).
 
 ### Repository layout
@@ -56,7 +56,6 @@ Each team has a **backlog**: one ranked list of the tasks it has accepted and no
 ```
 board.yaml                        # schema, title
 teams/<id>.yaml                   # a team and its sprint pointer (teams/_.yaml = no team)
-projects/<id>/project.yaml        # a project; its scope columns and deadlines beside it
 cards/<a>/<b>/<id>.md             # a card: YAML front-matter, description, ## Notes
 ```
 
@@ -83,7 +82,7 @@ make frontend       # build the SPA once into web/dist
 make run            # go run ./cmd/aeman serve
 ```
 
-`aeman serve` flags: `--repo name=url` (repeatable; the board's repositories, primary first — env `AEMAN_REPOS`), `--data` (where the clones live), `--history` (how far back the log is loaded in the background, default 2 weeks) and `--history-max` (how far a card's log may deepen on demand, default a year), `--sync-interval` (fetch cadence, 15 s), `--unpushed-warn` (age of an unpushed commit that turns `/api/healthz` degraded, 5 m), `--committer` and `--author-email`, `--addr`, `--open`, `--verbose`. Each flag has an `AEMAN_*` environment twin; the push credential is `AEMAN_GIT_TOKEN`, never a flag. ("Project" is aeman's own planning entity — a group of scope columns — not a repository.)
+`aeman serve` flags: `--repo name=url` (repeatable; the board's repositories, primary first — env `AEMAN_REPOS`), `--data` (where the clones live), `--history` (how far back the log is loaded in the background, default 2 weeks) and `--history-max` (how far a card's log may deepen on demand, default a year), `--sync-interval` (fetch cadence, 15 s), `--unpushed-warn` (age of an unpushed commit that turns `/api/healthz` degraded, 5 m), `--committer` and `--author-email`, `--addr`, `--open`, `--verbose`. Each flag has an `AEMAN_*` environment twin; the push credential is `AEMAN_GIT_TOKEN`, never a flag.
 
 The board lives on one **forge** — GitHub or GitLab (gitlab.com or self-hosted) — which signs visitors in and answers who may read which repository. `--forge github|gitlab` (`AEMAN_FORGE`) picks it; unset, it follows the primary repository's host: `github.com` → GitHub, a host containing `gitlab` → GitLab, anything else → GitHub unless `AEMAN_GITLAB_URL` is set. `--gitlab-url` (`AEMAN_GITLAB_URL`) names a self-hosted GitLab's base URL (default `https://<host of the primary repository>`). Without OAuth variables the binary runs in the local, single-user mode. The push credential is `AEMAN_GIT_TOKEN` when set, else `GITHUB_TOKEN`/`GH_TOKEN` (GitHub) or `GITLAB_TOKEN` (GitLab), else the OS keychain that `aeman login` writes, else the forge's CLI signed in on the machine (`gh auth login`, `glab auth login`). The identity is whoever that credential belongs to — the same order, so the push and the name on the commits are one account. `AEMAN_GIT_TOKEN` is the exception: it names the server's credential only, and the identity then starts at the forge's own variables.
 

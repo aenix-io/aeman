@@ -15,6 +15,9 @@ type Export struct {
 	// Items is keyed by item id and covers every card NewBoard sorted into
 	// Board.Cards, Board.Tasks or the roster.
 	Items map[string]Item
+	// ProjectBoardItems counts the items of the retired Project board left
+	// out of Board: cards in a column and its roster stubs (H15).
+	ProjectBoardItems int
 }
 
 // Item is the GitHub side of one project item.
@@ -31,6 +34,18 @@ type Item struct {
 	// reads a task's week as nothing (K7), so the importer reads it here to
 	// place a task that had nothing but a week the way schema 3 does (K8).
 	Week string
+	// ProjectCard marks an item of the retired Project board: a card in a
+	// column (a Scope / Epic value) or one of its roster stubs. Project
+	// cards were removed (H15) and are not imported; the export leaves them
+	// out of the board altogether.
+	ProjectCard bool
+}
+
+// retiredStubTitles are the hidden state cards the Project board kept its
+// roster in on a Projects v2 board: projects, their columns and deadline
+// lines. Nothing reads them any more (H15).
+var retiredStubTitles = map[string]bool{
+	"aeman:project-state": true, "aeman:scope-state": true, "aeman:deadline-state": true,
 }
 
 // Field is a Projects v2 field definition — what the roles are resolved from.
@@ -76,9 +91,13 @@ func mapDomainBoard(owner string, raw *rawProject) Export {
 	roles := domainRoles(fields)
 	cards := make([]board.Card, 0, len(raw.Items.Nodes))
 	items := make(map[string]Item, len(raw.Items.Nodes))
+	retired := 0
 	for i := range raw.Items.Nodes {
 		card, item := mapDomainItem(&raw.Items.Nodes[i], roles)
-		item.Week = card.Week
+		if item.ProjectCard || retiredStubTitles[card.Title] {
+			retired++
+			continue
+		}
 		cards = append(cards, card)
 		items[card.ItemID] = item
 	}
@@ -86,7 +105,7 @@ func mapDomainBoard(owner string, raw *rawProject) Export {
 	b.Board = fmt.Sprintf("%s/%d", owner, raw.Number) // provenance: the Projects v2 board this came from
 	b.Title = raw.Title
 	b.URL = raw.URL
-	return Export{Board: b, Items: items}
+	return Export{Board: b, Items: items, ProjectBoardItems: retired}
 }
 
 // mapDomainItem maps one raw item onto a domain board.Card, reading the typed
@@ -129,7 +148,7 @@ func mapDomainItem(item *rawItem, roles domainFieldRoles) (board.Card, Item) {
 		}
 	}
 	for i := range item.FieldValues.Nodes {
-		applyDomainRole(&card, &item.FieldValues.Nodes[i], roles)
+		applyDomainRole(&card, &gh, &item.FieldValues.Nodes[i], roles)
 	}
 	return card, gh
 }
@@ -272,7 +291,7 @@ func domainSplitLogComments(content *rawContent, notes []board.Note) ([]board.No
 
 // applyDomainRole records a single raw field value under the matching typed
 // role.
-func applyDomainRole(card *board.Card, v *rawFieldValue, roles domainFieldRoles) {
+func applyDomainRole(card *board.Card, gh *Item, v *rawFieldValue, roles domainFieldRoles) {
 	if v.Field == nil || v.Field.ID == "" {
 		return
 	}
@@ -295,11 +314,9 @@ func applyDomainRole(card *board.Card, v *rawFieldValue, roles domainFieldRoles)
 	case roles.SprintStart != nil && id == roles.SprintStart.ID && v.Date != "":
 		card.SprintStart = v.Date
 	case roles.Week != nil && id == roles.Week.ID && v.Date != "":
-		card.Week = v.Date
+		gh.Week = v.Date
 	case roles.Scope != nil && id == roles.Scope.ID && v.Text != "":
-		card.Scope = v.Text
-	case roles.Project != nil && id == roles.Project.ID && v.Text != "":
-		card.Project = v.Text
+		gh.ProjectCard = true
 	case roles.Team != nil && id == roles.Team.ID && v.Text != "":
 		card.Team = v.Text
 	case roles.ReviewOf != nil && id == roles.ReviewOf.ID && v.Text != "":
@@ -325,7 +342,6 @@ type domainFieldRoles struct {
 	Status      *Field
 	Week        *Field
 	Scope       *Field
-	Project     *Field
 	Stage       *Field
 	Team        *Field
 	ReviewOf    *Field
@@ -348,7 +364,6 @@ var domainRoleAliases = map[string][]string{
 	// The column was called an epic before schema 2, and a Projects v2
 	// board only ever had an "Epic" field: that is the name to recognise.
 	"scope":       {"scope", "epic"},
-	"project":     {"project"},
 	"stage":       {"stage"},
 	"team":        {"team"},
 	"reviewOf":    {"review of", "reviewof"},
@@ -382,8 +397,6 @@ func domainRoles(fields []Field) domainFieldRoles {
 			r.Week = f
 		case r.Scope == nil && domainMatchesAlias("scope", name):
 			r.Scope = f
-		case r.Project == nil && domainMatchesAlias("project", name):
-			r.Project = f
 		case r.Stage == nil && domainMatchesAlias("stage", name):
 			r.Stage = f
 		case r.Team == nil && domainMatchesAlias("team", name):

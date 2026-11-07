@@ -7,7 +7,7 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// Roster names — teams, projects — are one namespace across every domain of
+// Team names are one namespace across every domain of
 // the board: a name is what cards refer to and what the domain
 // rule resolves, so two "portal"s in two repositories would leave a card's
 // home undecidable. The store refuses a create or a rename into a name any
@@ -15,24 +15,17 @@ import (
 // the read-side alias merge (G13) stays only for collisions made behind the
 // server's back.
 func TestMultiBackendRefusesRosterNamesTakenInAnotherDomain(t *testing.T) {
-	mb, _, _ := twoDomains(t) // shared: team portal, project portal; closed: project secret
+	mb, _, _ := twoDomains(t) // shared: team portal
 	ctx := ctxAs("kvaps")
 	b, _ := mb.LoadBoard(ctx, "x")
 
 	// Creating in closed what shared already has.
-	if _, err := mb.CreateCard(ctx, b, board.CreateInput{Title: board.ProjectStateTitle, Project: "portal", Domain: "closed"}); !errors.Is(err, ErrNameTaken) {
-		t.Fatalf("project portal in closed: err = %v, want ErrNameTaken", err)
-	}
 	if _, err := mb.CreateCard(ctx, b, board.CreateInput{Title: board.SprintStateTitle, Team: "portal", Domain: "closed"}); !errors.Is(err, ErrNameTaken) {
 		t.Fatalf("team portal in closed: err = %v, want ErrNameTaken", err)
 	}
 
-	// Renaming into a taken name, across domains, on each roster kind.
+	// Renaming into a taken name.
 	b, _ = mb.LoadBoard(ctx, "x")
-	secret := board.Card{ItemID: b.ProjectStates["secret"], Title: board.ProjectStateTitle, Project: "secret"}
-	if err := mb.SetProject(ctx, b, secret, "portal"); !errors.Is(err, ErrNameTaken) {
-		t.Fatalf("rename project secret → portal: err = %v, want ErrNameTaken", err)
-	}
 	if err := mb.SetSprintState(ctx, b, "ops", "2026-08-31", ""); err != nil { // a second team, in the primary
 		t.Fatal(err)
 	}
@@ -41,14 +34,11 @@ func TestMultiBackendRefusesRosterNamesTakenInAnotherDomain(t *testing.T) {
 	if err := mb.SetTeam(ctx, b, ops, "portal"); !errors.Is(err, ErrNameTaken) {
 		t.Fatalf("rename team ops → portal: err = %v, want ErrNameTaken", err)
 	}
-	// A rename to a free name, and a rename onto itself, still work.
+	// A rename to a free name still works.
 	if err := mb.SetTeam(ctx, b, ops, "operations"); err != nil {
 		t.Fatalf("rename to a free name: %v", err)
 	}
-	if err := mb.SetProject(ctx, b, secret, "secret"); err != nil {
-		t.Fatalf("rename onto itself: %v", err)
-	}
-	// An ordinary card may still be given any team or project the board has.
+	// An ordinary card may still be given any team the board has.
 	var card board.Card
 	for _, c := range b.Cards {
 		if c.Title == "closed card" {

@@ -7,7 +7,7 @@ import { closesOn } from "./Dropdown";
 import { FilterSelect, FilterSelectMenu, filterLabel, toggled } from "./FilterSelect";
 
 // THE ONE FILTER DROPDOWN every board's toolbar wears (Team, Customer,
-// Owner, Project): a button saying what is chosen, a menu of checkboxes —
+// Owner): a button saying what is chosen, a menu of checkboxes —
 // several are OR — and, where the board manages that roster, a "Manage…"
 // entry at the bottom that opens the roster's dialog. The no-team group is
 // an option like any team ("No team", the empty value).

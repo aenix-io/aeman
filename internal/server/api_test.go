@@ -740,8 +740,7 @@ func TestPatchUngroupRespectsExplicitAssignees(t *testing.T) {
 	}
 }
 
-// A team is renamed where it is declared, cards along with it; the route
-// mirrors the project rename.
+// A team is renamed where it is declared, cards along with it.
 func TestAPIRenameTeam(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Team: "test"}}, map[string]board.SprintState{
 		"test":   {Current: "2026-08-24", ItemID: "st1"},
@@ -755,7 +754,7 @@ func TestAPIRenameTeam(t *testing.T) {
 	if c := fake.Card("c1"); c == nil || c.Team != "platform" {
 		t.Fatalf("card team = %+v, want platform", c)
 	}
-	// A taken name is a 422, like a project's.
+	// A taken name is a 422.
 	rec = do(t, srv, http.MethodPost, "/api/v1/teams/actions/rename", `{"team":"platform","to":"portal"}`)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("rename into a taken name: %d %s", rec.Code, rec.Body.String())
@@ -799,7 +798,7 @@ func TestAPIRemoveReadsAStreamedIntent(t *testing.T) {
 }
 
 // The other half of the same rule: NO body at all is the intentless gesture,
-// which deletes a card that has no column to be left in.
+// which deletes a card that has nowhere else to be.
 // That tolerance is the document's, not the handler's — removeCard is the one
 // operation whose requestBody is `required: false`, and that word is what
 // makes the generated server forgive an empty body instead of refusing it with
@@ -832,7 +831,7 @@ func TestAPIRemoveTakesNoBodyAtAll(t *testing.T) {
 // operation with an empty body, so today that surfaces as a panic, which names
 // the wrong thing. This pins the set instead, so the edit is refused where it
 // is made and the reader is sent to the handler that would break.
-func TestOnlyOneOperationTakesAnOptionalBody(t *testing.T) {
+func TestOnlyTheOperationsThatCheckTheirBodyTakeItOptional(t *testing.T) {
 	doc, _ := loadedSpec(t)
 	var optional []string
 	bodies := 0
@@ -847,14 +846,16 @@ func TestOnlyOneOperationTakesAnOptionalBody(t *testing.T) {
 			}
 		}
 	}
-	if bodies < 25 {
+	if bodies < 20 {
 		t.Fatalf("only %d operations declare a body — has the document moved?", bodies)
 	}
-	// removeCard alone: sending nothing is the intentless ×, and
-	// surface.RemoveCard is the one handler that checks the pointer.
-	want := []string{"POST /views/{view}/cards/{uid}/actions/remove"}
+	// removeCard: sending nothing is the intentless ×; unassignWork: sending
+	// nothing is every task it reaches. surface.RemoveCard and
+	// surface.UnassignWork are the handlers that check the pointer.
+	want := []string{"POST /cards/{uid}/actions/unassign-work", "POST /views/{view}/cards/{uid}/actions/remove"}
+	slices.Sort(optional)
 	if !slices.Equal(optional, want) {
 		t.Errorf("operations with an optional body = %v, want %v — a handler dereferences req.Body for each of the other %d, so widening this set needs a nil check on the other side",
-			optional, want, bodies-1)
+			optional, want, bodies-len(want))
 	}
 }

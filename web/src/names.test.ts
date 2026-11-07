@@ -28,20 +28,23 @@ describe("nameConflict", () => {
   });
 
   it("still refuses a rename onto another entry", () => {
-    expect(nameConflict("project", ["freedom", "events"], "events", "freedom")).toBe(
-      "A project named “events” already exists",
+    expect(nameConflict("team", ["freedom", "events"], "events", "freedom")).toBe(
+      "A team named “events” already exists",
     );
   });
 
   it("picks the article for the kind", () => {
-    expect(nameConflict("scope", ["Auth"], "auth")).toBe(
-      "A scope named “Auth” already exists",
+    expect(nameConflict("team", ["Auth"], "auth")).toBe(
+      "A team named “Auth” already exists",
+    );
+    expect(nameConflict("customer", ["Acme"], "acme")).toBe(
+      "A customer named “Acme” already exists",
     );
   });
 
   it("has nothing to say about a free or an empty name", () => {
-    expect(nameConflict("project", ["Invoicing"], "Runway")).toBeNull();
-    expect(nameConflict("project", ["Invoicing"], "   ")).toBeNull();
+    expect(nameConflict("customer", ["Invoicing"], "Runway")).toBeNull();
+    expect(nameConflict("customer", ["Invoicing"], "   ")).toBeNull();
     expect(nameConflict("team", [], "anything")).toBeNull();
   });
 });

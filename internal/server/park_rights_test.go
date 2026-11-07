@@ -50,3 +50,37 @@ func TestVisibleBackendChecksParkAndDoneAt(t *testing.T) {
 		t.Fatal("an allowed write did not reach the backend")
 	}
 }
+
+// The Roadmap's status menu writes many cards (K15, K16): the visible backend
+// answers the write check for each BEFORE anything is written, so a plan item
+// with one task in a domain the visitor cannot write is refused whole — no
+// task of it is parked or marked (M2).
+func TestTheStatusMenuIsRefusedWholeOverAnUnwritableTask(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "e", Type: board.TypeEpic, Domain: "shared", Title: "epic"},
+		{ItemID: "mine", Parent: "e", Domain: "shared", Title: "mine", SprintStart: today, Day: today},
+		{ItemID: "theirs", Parent: "e", Domain: "closed", Title: "theirs", SprintStart: today, Day: today},
+		{ItemID: "p-mine", Parent: "e", Domain: "shared", Title: "parked mine", Parked: true},
+		{ItemID: "p-theirs", Parent: "e", Domain: "closed", Title: "parked theirs", Parked: true},
+	}, nil)
+	v := &visibleBackend{Backend: fake, primary: "shared", domains: []string{"shared", "closed"}}
+	ctx := withRights(context.Background(), rightsOn([]string{"shared", "closed"}, []string{"shared"}))
+	if err := v.CheckWrite(ctx, board.Board{}, board.Card{ItemID: "theirs", Domain: "closed"}); !errors.Is(err, boardservice.ErrForbidden) {
+		t.Fatalf("CheckWrite in an unwritable domain = %v, want ErrForbidden", err)
+	}
+	svc := boardservice.New(v)
+	if _, err := svc.UnassignWork(ctx, "acme", "e", nil); !errors.Is(err, boardservice.ErrForbidden) {
+		t.Fatalf("UNASSIGNED over an unwritable task = %v, want ErrForbidden", err)
+	}
+	if err := svc.SetPriority(ctx, "acme", "theirs", "P1"); !errors.Is(err, boardservice.ErrForbidden) {
+		t.Fatalf("a priority on an unwritable card = %v, want ErrForbidden", err)
+	}
+	if fake.Saw("SetBacklog mine true") || fake.Saw("SetPriority theirs P1") {
+		t.Fatal("a refused gesture wrote part of itself")
+	}
+	// Naming only what the visitor may write goes through.
+	if n, err := svc.UnassignWork(ctx, "acme", "e", []string{"mine"}); err != nil || len(n) != 1 {
+		t.Fatalf("UNASSIGNED on the writable task alone = %v, %v", n, err)
+	}
+}

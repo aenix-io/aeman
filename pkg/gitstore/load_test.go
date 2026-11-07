@@ -16,15 +16,17 @@ import (
 func seedBoard(t *testing.T, r *Repo) {
 	t.Helper()
 	files := map[string]string{
-		BoardPath:                                 "schema: 3\ntitle: aeman board\n",
-		TeamPath("_"):                             "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		TeamPath("01JB4TEAM"):                     "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n  previous: 2026-08-21\n",
-		ProjectPath("01JB4PROJ"):                  "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		ScopePath("01JB4PROJ", "01JB4SCOPE"):      "name: Bugs\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
-		DeadlinePath("01JB4PROJ", "01JB4DL"):      "week: 2026-09-07\ncreated: 2026-06-03T08:00:00Z\n",
-		"cards/c/1/01JB4K2E7QZMX3R8V0N5T9WYC1.md": "---\ntitle: first\nteam: portal\nzone: yellow\nprogress: 40\nrank: b\ncreated: 2026-08-26T09:14:03Z\n---\n\nDetails.\n",
-		"cards/c/2/01JB4K2E7QZMX3R8V0N5T9WYC2.md": "---\ntitle: second\nteam: portal\nrank: a\ncreated: 2026-08-26T09:15:03Z\n---\n",
-		"README.md":                               "not ours\n",
+		BoardPath:             "schema: 3\ntitle: aeman board\n",
+		TeamPath("_"):         "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		TeamPath("01JB4TEAM"): "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n  previous: 2026-08-21\n",
+		// The retired Project board's roster: still in the tree, read by
+		// nobody (H15).
+		"projects/01JB4PROJ/project.yaml":           "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		"projects/01JB4PROJ/scopes/01JB4SCOPE.yaml": "name: Bugs\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
+		"projects/01JB4PROJ/deadlines/01JB4DL.yaml": "week: 2026-09-07\ncreated: 2026-06-03T08:00:00Z\n",
+		"cards/c/1/01JB4K2E7QZMX3R8V0N5T9WYC1.md":   "---\ntitle: first\nteam: portal\nzone: yellow\nprogress: 40\nrank: b\ncreated: 2026-08-26T09:14:03Z\n---\n\nDetails.\n",
+		"cards/c/2/01JB4K2E7QZMX3R8V0N5T9WYC2.md":   "---\ntitle: second\nteam: portal\nrank: a\ncreated: 2026-08-26T09:15:03Z\n---\n",
+		"README.md": "not ours\n",
 	}
 	var writes []FileWrite
 	for p, d := range files {
@@ -59,14 +61,8 @@ func TestLoadReadsTheWholeTree(t *testing.T) {
 	if len(s.Teams) != 2 || s.Teams[0].ID != "_" || s.Teams[1].Name != "portal" || s.Teams[1].Sprint.Current != "2026-08-24" {
 		t.Fatalf("teams = %+v", s.Teams)
 	}
-	// Projects carry their scopes and deadlines.
-	if len(s.Projects) != 1 || s.Projects[0].ID != "01JB4PROJ" || s.Projects[0].Name != "portal" {
-		t.Fatalf("projects = %+v", s.Projects)
-	}
-	if len(s.Projects[0].Scopes) != 1 || s.Projects[0].Scopes[0].Name != "Bugs" || len(s.Projects[0].Deadlines) != 1 || s.Projects[0].Deadlines[0].Week != "2026-09-07" {
-		t.Fatalf("project children = %+v", s.Projects[0])
-	}
-	// What is not ours is named, not silently dropped or misread.
+	// What is not ours is named, not silently dropped or misread; the
+	// retired projects/ tree is the layout's, skipped rather than named.
 	if len(s.Unknown) != 1 || s.Unknown[0] != "README.md" {
 		t.Fatalf("unknown = %v", s.Unknown)
 	}
@@ -87,8 +83,8 @@ func TestLoadTakesAPreMigrationTree(t *testing.T) {
 		"processes/01JB4PROC/tasks/01JB4TASK.md":  "---\ntitle: Invoice ACME\nteam: portal\nrecurrence: month\n---\n",
 		"cards/c/1/01JB4K2E7QZMX3R8V0N5T9WYC1.md": "---\ntitle: a turn\nteam: portal\nstage: recurrent\nweek: 2026-08-24\nprocess: Invoicing\ntask: 01JB4TASK\naccumulate: true\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n\nStill a card.\n",
 		// A column under its old name, and a card filed in it under the old
-		// key: a day before the migration still has its Project board.
-		ProjectPath("01JB4PROJ"):                  "name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		// key: the retired Project board's, skipped like the rest of it (H15).
+		"projects/01JB4PROJ/project.yaml":         "name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		"projects/01JB4PROJ/epics/01JB4COL.yaml":  "name: Cozystack\nrank: a\ncreated: 2026-06-04T08:00:00Z\n",
 		"cards/c/2/01JB4K2E7QZMX3R8V0N5T9WYC2.md": "---\ntitle: a plan\nproject: engineering\nepic: Cozystack\nrank: b\ncreated: 2026-08-26T09:15:03Z\n---\n",
 	}
@@ -103,8 +99,8 @@ func TestLoadTakesAPreMigrationTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(s.Cards) != 2 || s.Cards[0].Title != "a turn" || s.Cards[0].Week != "2026-08-24" || s.Cards[0].Stage != board.StageRecurrent {
-		t.Fatalf("the orphaned turn is an ordinary card of its week: %+v", s.Cards)
+	if len(s.Cards) != 1 || s.Cards[0].Title != "a turn" || s.Cards[0].Stage != board.StageRecurrent {
+		t.Fatalf("the orphaned turn is an ordinary card, and the plan in a column is skipped: %+v", s.Cards)
 	}
 	if len(s.Broken) != 0 {
 		t.Fatalf("a retired key must not break the card: %+v", s.Broken)
@@ -112,15 +108,6 @@ func TestLoadTakesAPreMigrationTree(t *testing.T) {
 	want := []string{"processes/01JB4PROC/process.yaml", "processes/01JB4PROC/tasks/01JB4TASK.md"}
 	if len(s.Unknown) != 2 || s.Unknown[0] != want[0] || s.Unknown[1] != want[1] {
 		t.Fatalf("the retired tree is unknown, not read: %v", s.Unknown)
-	}
-	// The column stub is read under its old directory name, so a day before
-	// the migration shows its Project board — the card key's alias alone
-	// would file the card in a column the board does not have.
-	if s.Cards[1].Scope != "Cozystack" {
-		t.Fatalf("the old `epic` key reads as the scope: %+v", s.Cards[1])
-	}
-	if len(s.Projects) != 1 || len(s.Projects[0].Scopes) != 1 || s.Projects[0].Scopes[0].Name != "Cozystack" {
-		t.Fatalf("the column under its old directory is a scope of the project: %+v", s.Projects)
 	}
 }
 

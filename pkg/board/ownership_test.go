@@ -11,18 +11,14 @@ import (
 
 // O1 — a planning card may carry one owner and one team, and the reading
 // keeps both; a person on it as an ASSIGNEE is still not read (H3: nobody's
-// work is on a planning card). A project card carries neither an owner nor
-// customers (H4), and a task carries no owner — its people are assignees.
+// work is on a planning card). A task carries no owner — its people are
+// assignees.
 func TestAPlanningCardKeepsItsOwnerAndTeam(t *testing.T) {
 	epic := SettleCard(Card{ItemID: "e", Type: TypeEpic, Team: "portal", Owner: "ann",
 		Assignees: []string{"bob"}, Customers: []string{"c1"}})
 	if epic.Team != "portal" || epic.Owner != "ann" || len(epic.Assignees) != 0 ||
 		!reflect.DeepEqual(epic.Customers, []string{"c1"}) {
 		t.Fatalf("the epic read = %+v, want team portal, owner ann, customer c1, nobody assigned", epic)
-	}
-	slot := SettleCard(Card{ItemID: "s", Scope: "S", Project: "P", Owner: "ann", Customers: []string{"c1"}})
-	if slot.Owner != "" || len(slot.Customers) != 0 {
-		t.Fatalf("a project card read with %q / %v, want neither an owner nor customers", slot.Owner, slot.Customers)
 	}
 	task := SettleCard(Card{ItemID: "t", Team: "portal", Owner: "ann", Customers: []string{"c1"}})
 	if task.Owner != "" || !reflect.DeepEqual(task.Customers, []string{"c1"}) {
@@ -120,16 +116,5 @@ func TestADanglingCustomerIsNoOnesEffective(t *testing.T) {
 	ix = NewIndex(b)
 	if c, _ := ix.Find("t"); ix.EffectiveCustomers(c) != nil {
 		t.Errorf("with no roster the task's customers = %v, want none", ix.EffectiveCustomers(c))
-	}
-}
-
-// H4, O3 — a project card has no team, and so no effective one: a stray
-// `team:` an old file still carries is not read as the team it counts
-// under, the way its customers are none (O6).
-func TestAProjectCardHasNoEffectiveTeam(t *testing.T) {
-	ix := NewIndex(NewBoard([]Card{{ItemID: "slot", Scope: "Security", Project: "core", Team: "ops"}}))
-	c, _ := ix.Find("slot")
-	if got := ix.EffectiveTeam(c); got != "" {
-		t.Fatalf("a project card's effective team = %q, want none", got)
 	}
 }

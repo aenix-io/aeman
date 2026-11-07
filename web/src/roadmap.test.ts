@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_DEPTH,
   roadmapLines,
+  dropShown,
   DELETE_INTENT,
   allowedParentKinds,
   barOf,
@@ -37,8 +40,27 @@ import {
   sectionOf,
   sectionsOf,
   writeDrop,
-  PROJECT_CARDS_DEFAULT,
-  storedProjectCards,
+  childLevels,
+  subtreeRows,
+  parentChainOf,
+  pickerMatches,
+  cardsAfterDelete,
+  parentOptions,
+  unassignTargets,
+  statusMenu,
+  rollUp,
+  rolledUpAfter,
+  workPatchOf,
+  PRIORITY_CHOICES,
+  effectivePriorityIn,
+  priorityAfter,
+  badgeOf,
+  inheritedTitle,
+  latestWins,
+  priorityLabel,
+  statusUids,
+  unassignQuestion,
+  STATUS_LABEL,
 } from "./roadmap";
 import type { Card } from "./providers/types";
 import { resourceToCard, type CardResource } from "./api/resources";
@@ -63,17 +85,21 @@ const sub = card({
   itemId: "s", title: "Fonts", parent: "t", startDate: "2026-02-11",
   lineage: [{ uid: "e", type: "epic", title: "Invoices" }, { uid: "t", title: "Render PDF" }],
 });
-const slot = card({ itemId: "p", title: "Q2 plan", scope: "Storage", project: "cozy", parent: "i" });
+// A second task, straight under the initiative.
+const slot = card({
+  itemId: "p", title: "Q2 plan", parent: "i",
+  lineage: [{ uid: "g", type: "goal", title: "Grow" }, { uid: "i", type: "initiative", title: "Billing v2" }],
+});
 const loose = card({ itemId: "x", title: "Stray", parent: "nowhere" });
 
 describe("kindOf", () => {
-  it("is the planning type, a project card by its column, a subtask by the parent as a task, else a task", () => {
+  it("is the planning type, a subtask by the parent as a task, else a task", () => {
     expect(kindOf(goal)).toBe("goal");
     expect(kindOf(ini)).toBe("initiative");
     expect(kindOf(epic)).toBe("epic");
     expect(kindOf(task)).toBe("task");
     expect(kindOf(sub)).toBe("subtask");
-    expect(kindOf(slot)).toBe("project");
+    expect(kindOf(slot)).toBe("task");
   });
 });
 
@@ -101,7 +127,7 @@ describe("rows and the depth range", () => {
   const tree = buildTree([goal, ini, epic, task, sub, slot]);
   const all = () => true;
 
-  it("draws initiative to task by default: no goals, no subtasks, project cards with the tasks", () => {
+  it("draws initiative to task by default: no goals, no subtasks", () => {
     const ids = rows(tree, { from: "initiative", to: "task" }, all).map((r) => `${r.node.card.itemId}@${r.depth}`);
     expect(ids).toEqual(["i@0", "e@1", "t@2", "p@1"]);
   });
@@ -120,33 +146,36 @@ describe("rows and the depth range", () => {
   it("draws a collapsed row and nothing under it, and says how many it folds", () => {
     const out = rows(tree, { from: "goal", to: "task" }, (id) => id !== "i");
     expect(out.map((r) => r.node.card.itemId)).toEqual(["g", "i"]);
-    expect(out[1].foldable).toBe(2); // the epic and the project card
+    expect(out[1].foldable).toBe(2); // the epic and the task under it
   });
 });
 
 describe("statusOf", () => {
   it("is the server's derived standing on a planning card, no items when it says nothing", () => {
     expect(statusOf(card({ type: "epic", hierarchy: { status: "in-progress", done: 1, total: 3 } }))).toBe("in-progress");
-    expect(statusOf(card({ type: "epic", hierarchy: { status: "todo", done: 0, total: 2 } }))).toBe("todo");
+    expect(statusOf(card({ type: "epic", hierarchy: { status: "backlog", done: 0, total: 2 } }))).toBe("backlog");
     expect(statusOf(card({ type: "epic", hierarchy: { status: "no-items", done: 0, total: 0 } }))).toBe("no-items");
     expect(statusOf(card({ type: "goal" }))).toBe("no-items");
   });
 
-  it("reads a task's own standing, in order: done, the stage holding it, to do before it moved, else in progress", () => {
+  // The work status only (K16): where the task stands, not how far its bar
+  // has moved — BACKLOG while it waits, IN PROGRESS once it is in work, DONE;
+  // a stage that holds it still says who it waits on.
+  it("reads a task's own standing, in order: done, the stage holding it, in work, else backlog", () => {
+    const today = "2026-11-09";
     expect(statusOf(card({ progress: 100 }))).toBe("done");
     expect(statusOf(card({ stage: "done", progress: 40 }))).toBe("done");
-    // A stage that holds the card says who it waits on, and beats the bar.
-    expect(statusOf(card({ stage: "review", progress: 50 }))).toBe("review");
-    expect(statusOf(card({ stage: "locked", progress: 10 }))).toBe("locked");
-    expect(statusOf(card({ stage: "refuse", progress: 10 }))).toBe("refused");
-    // To do while nothing has started; in progress once the bar has moved.
-    expect(statusOf(card({ progress: 0 }))).toBe("todo");
-    expect(statusOf(card({ progress: 5 }))).toBe("in-progress");
-    expect(statusOf(card({ progress: 40 }))).toBe("in-progress");
-    expect(statusOf(card({ stage: "recurrent", progress: 0 }))).toBe("todo");
-    expect(statusOf(card({ stage: "recurrent", progress: 30 }))).toBe("in-progress");
-    // Done wins over a held stage: a finished review is finished.
+    expect(statusOf(card({ stage: "review", progress: 50, sprintStart: today }))).toBe("review");
+    expect(statusOf(card({ stage: "locked", progress: 10, parked: true }))).toBe("locked");
+    expect(statusOf(card({ stage: "refuse", progress: 10, sprintStart: today }))).toBe("refused");
+    // In work, started or not: in progress.
+    expect(statusOf(card({ sprintStart: today, progress: 0 }))).toBe("in-progress");
+    expect(statusOf(card({ startDate: today, day: today, progress: 40 }))).toBe("in-progress");
+    // Waiting — parked, whatever its bar says, or placed nowhere: backlog.
+    expect(statusOf(card({ parked: true, progress: 49 }))).toBe("backlog");
+    expect(statusOf(card({ progress: 0 }))).toBe("backlog");
     expect(statusOf(card({ stage: "done", progress: 100 }))).toBe("done");
+    expect(STATUS_LABEL.backlog).toBe("Backlog");
   });
 });
 
@@ -213,7 +242,6 @@ describe("the rest of the Roadmap's rules", () => {
     expect(allowedParentKinds("initiative")).toEqual(["goal"]);
     expect(allowedParentKinds("epic")).toEqual(["initiative", "goal"]);
     expect(allowedParentKinds("task")).toEqual(["epic", "initiative", "goal"]);
-    expect(allowedParentKinds("project")).toEqual(["epic", "initiative", "goal"]);
   });
 });
 
@@ -324,7 +352,7 @@ describe("dragging a row on the Roadmap", () => {
     expect(droppable(wide, "t2", "g2")).toBe(true);
     expect(droppable(wide, "t2", null)).toBe(false); // a task at the top would leave the Roadmap
     expect(droppable(wide, "p", "e")).toBe(true);
-    expect(droppable(wide, "p", "t")).toBe(false); // a project card is nobody's subtask
+    expect(droppable(wide, "p", "s")).toBe(false); // s is a subtask: one level deep
   });
 
   it("makes a subtask of a task dropped on a task, one level deep", () => {
@@ -476,28 +504,11 @@ describe("writeDrop", () => {
 });
 
 
-// The Roadmap hides PROJECT cards (cards in a Scope column) unless the
-// toolbar's "Project cards" toggle is on: OFF by default. Hiding only takes
-// rows out of the drawing — the planning rows' counts and status come from
-// the server and do not change — and every other card under the same epic
-// stays where it is.
-// The toggle's memory: OFF until the viewer turns it on, and a stored value
-// read back as it was written.
-describe("the project cards toggle", () => {
-  it("is off by default and reads back what was stored", () => {
-    expect(PROJECT_CARDS_DEFAULT).toBe(false);
-    expect(storedProjectCards(null)).toBe(false);
-    expect(storedProjectCards("1")).toBe(true);
-    expect(storedProjectCards("0")).toBe(false);
-  });
-});
-
-// The toggle on a REAL listing: the roadmap's wire cards, mapped the way the
-// board maps them — an epic, a task under it and a project card under it
-// (spec.scope, spec.parent the epic). The lines the table draws are one pure
-// function of the listing, the depth and the folds (roadmapLines); the
-// toggle is the listing's selector (viewquery, projectCards).
-describe("the lines the Roadmap draws, with the project cards toggle", () => {
+// The lines the Roadmap draws from a REAL listing: the roadmap's wire cards,
+// mapped the way the board maps them — an epic and a task under it. The
+// lines are one pure function of the listing, the depth and the folds
+// (roadmapLines), and they draw what the listing holds.
+describe("the lines the Roadmap draws", () => {
   const wire = (uid: string, spec: Partial<CardResource["spec"]>, lineage?: { uid: string; type: string; title: string }[]): CardResource =>
     ({
       kind: "Card",
@@ -506,25 +517,16 @@ describe("the lines the Roadmap draws, with the project cards toggle", () => {
       status: { complete: false, inProgress: false, ...(lineage ? { lineage } : {}) },
     }) as CardResource;
   const up = [{ uid: "e", type: "epic", title: "Billing v2" }];
-  const listing = [
+  const listing: Card[] = [
     wire("e", { title: "Billing v2", type: "epic" }),
     wire("t", { title: "Render PDF", parent: "e", team: "portal" }, up),
-    wire("s", { title: "Q1 payments slot", parent: "e", scope: "Payments", project: "Core", team: "portal" }, up),
   ].map(resourceToCard);
-  const titles = (cards: readonly Card[]) =>
-    roadmapLines(cards, { depth: DEFAULT_DEPTH, expanded: () => true })
+
+  it("draws the task under its epic", () => {
+    const titles = roadmapLines(listing, { depth: DEFAULT_DEPTH, expanded: () => true })
       .filter((l) => l.kind === "row")
       .map((l) => (l.kind === "row" ? `${l.row.depth}:${l.row.node.card.title}` : ""));
-
-  // The toggle is the server's selector: off, the listing carries no
-  // project card; on, it does, and it is drawn under its epic. The lines
-  // draw what the listing holds and filter nothing.
-  it("draws no project card when the listing has none", () => {
-    expect(titles(listing.filter((c) => !c.scope))).toEqual(["0:Billing v2", "1:Render PDF"]);
-  });
-
-  it("draws a listed project card under its epic", () => {
-    expect(titles(listing)).toEqual(["0:Billing v2", "1:Render PDF", "1:Q1 payments slot"]);
+    expect(titles).toEqual(["0:Billing v2", "1:Render PDF"]);
   });
 });
 
@@ -706,3 +708,425 @@ describe("revealing a row followed to the Roadmap", () => {
     expect(revealStep("t", true, true)).toEqual({ scroll: false, pending: "t" });
   });
 });
+
+// The drawer's "Under it" is the Roadmap's tree rooted one level below the
+// card the drawer shows: every level under it — plan items, tasks,
+// subtasks — folded as the reader folds it, with
+// no depth range (the drawer shows all there is under the card).
+describe("the tree under a card", () => {
+  const all = [goal, ini, epic, task, sub, slot];
+
+  it("starts one level below the card, with every level under it", () => {
+    const open = () => true;
+    const got = subtreeRows(all, "g", open).map((r) => [r.node.card.itemId, r.depth]);
+    expect(got).toEqual([
+      ["i", 0],
+      ["e", 1],
+      ["t", 2],
+      ["s", 3],
+      ["p", 1],
+    ]);
+    expect(subtreeRows(all, "e", open).map((r) => r.node.card.itemId)).toEqual(["t", "s"]);
+  });
+
+  it("folds what the reader folds, and is empty for a card with nothing under it", () => {
+    expect(subtreeRows(all, "g", (id) => id !== "i").map((r) => r.node.card.itemId)).toEqual(["i"]);
+    expect(subtreeRows(all, "t", () => true).map((r) => r.node.card.itemId)).toEqual(["s"]);
+    expect(subtreeRows(all, "s", () => true)).toEqual([]);
+    expect(subtreeRows(all, "missing", () => true)).toEqual([]);
+  });
+
+  it("offers the levels below a card to add, the next one first", () => {
+    expect(childLevels("goal")).toEqual(["initiative", "epic"]);
+    expect(childLevels("initiative")).toEqual(["epic"]);
+    expect(childLevels("epic")).toEqual(["task"]);
+    expect(childLevels("task")).toEqual([]);
+  });
+});
+
+// The Under picker names each option's place: its ancestors, root first, so
+// two epics of one name under two goals are told apart; and a search finds a
+// plan item by its ancestors' titles too.
+describe("a plan item's place in a picker", () => {
+  const all = [goal, ini, epic];
+
+  it("is its ancestors, root first", () => {
+    expect(parentChainOf(epic, all).map((c) => c.title)).toEqual(["Grow", "Billing v2"]);
+    expect(parentChainOf(goal, all)).toEqual([]);
+  });
+
+  it("is read off the server's lineage when the ancestors are not held", () => {
+    const far = card({
+      itemId: "f", title: "Far", type: "epic", parent: "i",
+      lineage: [{ uid: "g", type: "goal", title: "Grow" }, { uid: "i", type: "initiative", title: "Billing v2" }],
+    });
+    expect(parentChainOf(far, [far]).map((c) => [c.title, c.type])).toEqual([["Grow", "goal"], ["Billing v2", "initiative"]]);
+  });
+
+  it("is searched with its own title and its ancestors'", () => {
+    expect(pickerMatches(epic, all, "invo")).toBe(true);
+    expect(pickerMatches(epic, all, "billing")).toBe(true);
+    expect(pickerMatches(epic, all, "grow")).toBe(true);
+    expect(pickerMatches(epic, all, "nothing")).toBe(false);
+    expect(pickerMatches(epic, all, "")).toBe(true);
+  });
+});
+
+// Deleting a plan item from the drawer moves what was under it up to its
+// own parent — the same moves the server makes (reparentChildren) — in the
+// drawer's own copy of the hierarchy too, or a child would keep a dead
+// parent and fall out of the tree.
+describe("the hierarchy after a delete", () => {
+  it("moves the card's children up, with its lineage, and drops it", () => {
+    const iniL = { ...ini, lineage: [{ uid: "g", type: "goal" as const, title: "Grow" }] };
+    const got = cardsAfterDelete([goal, iniL, epic, task], "i");
+    expect(got.map((c) => c.itemId)).toEqual(["g", "e", "t"]);
+    const e = got.find((c) => c.itemId === "e")!;
+    expect(e.parent).toBe("g");
+    expect(e.lineage).toEqual([{ uid: "g", type: "goal", title: "Grow" }]);
+    expect(got.find((c) => c.itemId === "t")!.parent).toBe("e");
+  });
+
+  it("makes roots of a root's children", () => {
+    const got = cardsAfterDelete([goal, ini], "g");
+    expect(got.find((c) => c.itemId === "i")!.parent).toBeUndefined();
+  });
+});
+
+describe("a chain that is not whole", () => {
+  it("stops at a cycle", () => {
+    const a = card({ itemId: "a", title: "A", type: "epic", parent: "b" });
+    const b = card({ itemId: "b", title: "B", type: "initiative", parent: "a" });
+    expect(parentChainOf(a, [a, b]).map((c) => c.itemId)).toEqual(["b"]);
+  });
+
+  it("is what is held when an ancestor is missing and no lineage says more", () => {
+    const e2 = card({ itemId: "e2", title: "E", type: "epic", parent: "i" });
+    const i2 = card({ itemId: "i", title: "I", type: "initiative", parent: "gone" });
+    expect(parentChainOf(e2, [e2, i2]).map((c) => c.title)).toEqual(["I"]);
+  });
+});
+
+// The Under picker's list: the levels a card may sit under, never itself or
+// a card under it — whatever the search — each option with its chain, found
+// by its own title or an ancestor's.
+describe("the Under picker's options", () => {
+  const under = card({ itemId: "u", title: "Billing child", type: "epic", parent: "e", lineage: [{ uid: "e", type: "epic", title: "Invoices" }] });
+  const all = [goal, ini, epic, under];
+
+  it("leaves out the card and what stands under it, even when the search names their ancestor", () => {
+    const got = parentOptions("epic", all, "i", "grow");
+    expect(got.flatMap((g) => g.options.map((o) => o.card.itemId))).toEqual(["g"]);
+  });
+
+  it("finds an option by an ancestor's title, and carries its chain", () => {
+    const got = parentOptions("task", all, "x", "billing");
+    const ids = got.flatMap((g) => g.options.map((o) => o.card.itemId));
+    expect(ids).toEqual(["i", "e", "u"]);
+    const e = got.flatMap((g) => g.options).find((o) => o.card.itemId === "e")!;
+    expect(e.chain.map((c) => c.title)).toEqual(["Grow", "Billing v2"]);
+  });
+});
+
+// What a drop changes on the board the moment it is let go: the dragged
+// card's parent (and the lineage its breadcrumb reads) when that changed,
+// and the listing's order — always, filter or no filter. The board's
+// listing is what the server sent for the filters chosen, the drop is
+// anchored on the cards shown, and the watch never echoes a tab's own
+// writes back to it: an order not applied here is not shown until a reload.
+describe("what a drop shows at once", () => {
+  const g1 = card({ itemId: "g1", title: "One", type: "goal", team: "core" });
+  const i1 = card({ itemId: "i1", title: "One-a", type: "initiative", parent: "g1", team: "core" });
+  const g2 = card({ itemId: "g2", title: "Two", type: "goal", team: "core" });
+  const i2 = card({ itemId: "i2", title: "Two-a", type: "initiative", parent: "g2", team: "core" });
+  const g3 = card({ itemId: "g3", title: "Three", type: "goal", team: "core" });
+  const i3 = card({ itemId: "i3", title: "Three-a", type: "initiative", parent: "g3", team: "core" });
+  const e1 = card({ itemId: "e1", title: "E1", type: "epic", parent: "i1" });
+  const e2 = card({ itemId: "e2", title: "E2", type: "epic", parent: "i1" });
+  // The listing as the server sends it: board order, children interleaved.
+  const listed = [i1, g2, g1, i2, g3, i3, e1, e2];
+  const drawnAfter = (cards: Card[], from: "goal" | "initiative" = "goal") =>
+    roadmapLines(cards, { depth: { from, to: "task" }, expanded: () => true })
+      .filter((l) => l.kind === "row")
+      .map((l) => (l.kind === "row" ? l.row.node.card.itemId : ""));
+  const apply = (cards: Card[], id: string, placement: { parent: string | null; index: number }) => {
+    const shown = dropShown(cards, id, placement);
+    const order = new Map(shown.order.map((u, k) => [u, k]));
+    return cards
+      .map((c) => (c.itemId === id && shown.patch ? { ...c, ...shown.patch } : c))
+      .sort((a, b) => order.get(a.itemId)! - order.get(b.itemId)!);
+  };
+
+  it("reorders two goals at the top of the tree, with no parent written", () => {
+    expect(drawnAfter(listed)).toEqual(["g2", "i2", "g1", "i1", "e1", "e2", "g3", "i3"]);
+    // Two goes between One and Three: index 1 among the parentless cards.
+    const shown = dropShown(listed, "g2", { parent: null, index: 1 });
+    expect(shown.patch).toBeNull();
+    expect(drawnAfter(apply(listed, "g2", { parent: null, index: 1 }))).toEqual(["g1", "i1", "e1", "e2", "g2", "i2", "g3", "i3"]);
+  });
+
+  it("reorders the goals of a filtered listing the same way: the order is never left out", () => {
+    // A team filter: only these cards were sent.
+    const filtered = [g2, i2, g1, i1, g3, i3];
+    const after = apply(filtered, "g2", { parent: null, index: 2 });
+    expect(drawnAfter(after)).toEqual(["g1", "i1", "g3", "i3", "g2", "i2"]);
+    expect(dropShown(filtered, "g2", { parent: null, index: 2 }).order).toEqual(after.map((c) => c.itemId));
+  });
+
+  it("moves initiatives that stand at the top of the drawn tree when the goals are not drawn", () => {
+    // Depth from initiative: the initiatives are the drawn roots, each under
+    // its own hidden goal; Two-a dropped before Three-a joins Three, first.
+    expect(drawnAfter(listed, "initiative")).toEqual(["i2", "i1", "e1", "e2", "i3"]);
+    const moved = apply(listed, "i2", { parent: "g3", index: 0 });
+    expect(drawnAfter(moved, "initiative")).toEqual(["i1", "e1", "e2", "i2", "i3"]);
+  });
+
+  it("reorders epics under one initiative at once", () => {
+    expect(drawnAfter(apply(listed, "e1", { parent: "i1", index: 1 }))).toEqual(["g2", "i2", "g1", "i1", "e2", "e1", "g3", "i3"]);
+  });
+
+  it("writes the new parent and its lineage when the card changes parent", () => {
+    const shown = dropShown(listed, "e1", { parent: "i2", index: 0 });
+    expect(shown.patch).toEqual({
+      parent: "i2",
+      lineage: [
+        { uid: "g2", type: "goal", title: "Two" },
+        { uid: "i2", type: "initiative", title: "Two-a" },
+      ],
+    });
+    expect(drawnAfter(apply(listed, "e1", { parent: "i2", index: 0 }))).toEqual(["g2", "i2", "e1", "g1", "i1", "e2", "g3", "i3"]);
+  });
+});
+
+// The badge menu (K15, K16): the card's OWN priority — P0 to P4, or none —
+// and UNASSIGNED, which takes the work in hand under the row back to its
+// backlog. Mirrors board.UnassignTargets, case for case with boardservice's
+// TestUnassignedOnAPlanItem…
+describe("the badge menu on the Roadmap (K15, K16)", () => {
+  const today = "2026-11-09";
+  const ip = { status: "in-progress" as const, done: 0, total: 3 };
+  const g = card({ itemId: "g", type: "goal", team: "alpha", priority: "P2", hierarchy: ip });
+  const e = card({ itemId: "e", type: "epic", parent: "g", hierarchy: ip });
+  const p1 = card({ itemId: "p1", parent: "e", parked: true });
+  const p2 = card({ itemId: "p2", parent: "g", parked: true });
+  const w1 = card({ itemId: "w1", parent: "e", team: "alpha", assignees: ["kvaps"], sprintStart: today, startDate: today, day: today });
+  const w2 = card({ itemId: "w2", parent: "g", team: "alpha", assignees: ["bob"], sprintStart: today, day: today });
+  const doneWork = card({ itemId: "done-work", parent: "e", sprintStart: today, day: today, progress: 100 });
+  const sub = card({ itemId: "sub", parent: "w1", sprintStart: today });
+  const all = [g, e, p1, p2, w1, w2, doneWork, sub];
+  const ids = (cs: Card[]) => cs.map((c) => c.itemId);
+
+  it("UNASSIGNED reaches every open task in work under a plan item; finished work and subtasks never", () => {
+    expect(ids(unassignTargets(all, g))).toEqual(["w1", "w2"]);
+    expect(ids(unassignTargets(all, w2))).toEqual(["w2"]);
+    expect(unassignTargets(all, p1)).toEqual([]);
+    expect(unassignTargets(all, doneWork)).toEqual([]);
+    expect(unassignTargets(all, sub)).toEqual([]);
+  });
+
+  it("offers the four priorities with the card's OWN one checked, and UNASSIGNED where work is in hand", () => {
+    expect(statusMenu(all, g)).toEqual({ own: "P2", unassign: true });
+    // e has none of its own (it counts under g's P2): "No priority" is checked.
+    expect(statusMenu(all, e)).toEqual({ own: "", unassign: true });
+    expect(statusMenu(all, doneWork)).toEqual({ own: "", unassign: false });
+    expect(PRIORITY_CHOICES.map((c) => c.label)).toEqual(["P0", "P1", "P2", "P3", "P4", "No priority"]);
+    expect(PRIORITY_CHOICES.map((c) => c.value)).toEqual(["P0", "P1", "P2", "P3", "P4", ""]);
+  });
+
+  it("names the tasks it counted, so the server acts on exactly those", () => {
+    expect(statusUids(unassignTargets(all, g))).toEqual(["w1", "w2"]);
+  });
+
+  it("asks how many tasks leave Team and Me before UNASSIGNED takes them", () => {
+    expect(unassignQuestion(2)).toBe("Take 2 tasks out of work? They leave Team and Me and go back to their team's backlog.");
+    expect(unassignQuestion(1)).toBe("Take 1 task out of work? It leaves Team and Me and goes back to its team's backlog.");
+  });
+});
+
+// The effective priority (K15) — mirrors board.Index.EffectivePriority, case
+// for case with TestTheEffectivePriorityIsOwnElseTheNearestAncestors: its own
+// when it has one, else the nearest ancestor's, else none; a review card's is
+// its task's.
+describe("the effective priority", () => {
+  const g = card({ itemId: "g", type: "goal", title: "Grow", priority: "P3" });
+  const i = card({ itemId: "i", type: "initiative", title: "Portugal", parent: "g", priority: "P2" });
+  const e = card({ itemId: "e", type: "epic", title: "Billing", parent: "i" });
+  const t = card({ itemId: "t", parent: "e" });
+  const own = card({ itemId: "own", parent: "e", priority: "P1" });
+  const bare = card({ itemId: "bare", type: "goal" });
+  const u = card({ itemId: "u", parent: "bare" });
+  const o = card({ itemId: "o", parent: "e", stage: "review" });
+  const r = card({ itemId: "r", reviewOf: "o" });
+  const all = [g, i, e, t, own, bare, u, o, r];
+  const read = (c: Card) => {
+    const got = effectivePriorityIn(all, c);
+    return [got.priority ?? "", got.from?.itemId ?? ""];
+  };
+
+  it("is its own, else the nearest ancestor's, else none", () => {
+    expect(read(g)).toEqual(["P3", ""]);
+    expect(read(i)).toEqual(["P2", ""]);
+    expect(read(e)).toEqual(["P2", "i"]);
+    expect(read(t)).toEqual(["P2", "i"]);
+    expect(read(own)).toEqual(["P1", ""]);
+    expect(read(bare)).toEqual(["", ""]);
+    expect(read(u)).toEqual(["", ""]);
+    expect(read(r)).toEqual(["P2", "i"]);
+  });
+
+  it("re-reads the card and every card under it when its own priority changes", () => {
+    const after = priorityAfter(all, "i", "");
+    // i has none now: it and what is under it count under the goal's P3.
+    expect(after.get("i")).toEqual({ effectivePriority: "P3", effectivePriorityFrom: { uid: "g", type: "goal", title: "Grow" } });
+    expect(after.get("t")).toEqual({ effectivePriority: "P3", effectivePriorityFrom: { uid: "g", type: "goal", title: "Grow" } });
+    // A card with its own keeps it.
+    expect(after.get("own")).toEqual({ effectivePriority: "P1", effectivePriorityFrom: undefined });
+    expect(after.has("g") || after.has("bare")).toBe(false);
+    expect(priorityAfter(all, "bare", "P1").get("u")).toEqual({ effectivePriority: "P1", effectivePriorityFrom: { uid: "bare", type: "goal", title: "a card" } });
+  });
+
+  it("re-reads the review cards of the tasks it reaches: a review counts under its task's", () => {
+    // o is under e, which counts under i's P2: its review r goes with it.
+    expect(priorityAfter(all, "i", "P0").get("r")).toEqual({ effectivePriority: "P0", effectivePriorityFrom: { uid: "i", type: "initiative", title: "Portugal" } });
+    // A task's own priority reaches its review card too.
+    expect(priorityAfter(all, "o", "P4").get("r")).toEqual({ effectivePriority: "P4", effectivePriorityFrom: { uid: "o", type: undefined, title: "a card" } });
+  });
+});
+
+// The badge is ONE pill in two parts (K15): the effective priority on the
+// left when there is one — drawn lighter, naming where it comes from, when it
+// is inherited — and the work status on the right.
+describe("the badge", () => {
+  it("is the priority and the status, or the status alone", () => {
+    const today = "2026-11-09";
+    expect(badgeOf(card({ priority: "P1", effectivePriority: "P1", sprintStart: today }))).toEqual({
+      priority: { value: "P1", from: undefined },
+      status: "in-progress",
+    });
+    expect(
+      badgeOf(card({ effectivePriority: "P2", effectivePriorityFrom: { uid: "e", type: "epic", title: "Billing" }, parked: true })),
+    ).toEqual({ priority: { value: "P2", from: { uid: "e", type: "epic", title: "Billing" } }, status: "backlog" });
+    expect(badgeOf(card({ parked: true }))).toEqual({ priority: undefined, status: "backlog" });
+    expect(inheritedTitle({ uid: "e", type: "epic", title: "Billing" })).toBe("from «Billing»");
+  });
+});
+
+// A plan item rolls up from where its OPEN tasks stand (H5, amended with
+// K16) — mirrors board.hierarchyStatus, case for case with
+// TestAPlanItemRollsUpFromWhereItsOpenTasksStand: any open task in work → in
+// progress; open tasks, none in work → backlog; all done → done; none → no
+// items. Progress, a person, a priority alone do not make it in progress.
+describe("a plan item's roll-up", () => {
+  const today = "2026-11-09";
+  const inWork = card({ itemId: "w", parent: "e", sprintStart: today, day: today });
+  const parked = card({ itemId: "p", parent: "e", parked: true });
+  const done = card({ itemId: "d", parent: "e", progress: 100 });
+  const st = (leaves: Card[]) => rollUp(leaves).status;
+
+  it("reads the open tasks: in work, or waiting", () => {
+    expect(st([])).toBe("no-items");
+    expect(st([done])).toBe("done");
+    expect(st([inWork, parked])).toBe("in-progress");
+    expect(st([parked])).toBe("backlog");
+    expect(st([done, parked])).toBe("backlog");
+    expect(st([{ ...parked, priority: "P1" }])).toBe("backlog");
+    expect(st([{ ...parked, progress: 49 }])).toBe("backlog");
+    expect(st([{ ...parked, assignees: ["ann"] }])).toBe("backlog");
+    expect(rollUp([done, parked])).toEqual({ status: "backlog", done: 1, total: 2 });
+  });
+
+  it("re-reads the plan items above the tasks a gesture changed, before the server answers", () => {
+    const e = card({ itemId: "e", type: "epic", parent: "g", hierarchy: { status: "in-progress", done: 0, total: 2 } });
+    const g = card({ itemId: "g", type: "goal", hierarchy: { status: "in-progress", done: 0, total: 2 } });
+    const t1 = card({ itemId: "t1", parent: "e", assignees: ["ann"], sprintStart: today, day: today, progress: 49 });
+    const t2 = card({ itemId: "t2", parent: "e", parked: true });
+    const before = [g, e, t1, t2];
+    // UNASSIGNED on the epic: t1 back to its backlog, its 49% kept.
+    const after = before.map((c) => (c.itemId === "t1" ? { ...c, parked: true, assignees: [], sprintStart: undefined, day: undefined } : c));
+    expect(rolledUpAfter(after, ["t1"])).toEqual(
+      new Map([
+        ["e", { status: "backlog", done: 0, total: 2 }],
+        ["g", { status: "backlog", done: 0, total: 2 }],
+      ]),
+    );
+  });
+});
+
+// What the acting tab takes from the server's answer (WorkChange.items): the
+// fields a status gesture changes, every one of them — a field the server
+// cleared is cleared here too, not left as it was.
+describe("patching what a status gesture changed", () => {
+  it("takes exactly where the task stands, cleared fields included", () => {
+    const parked = card({ itemId: "t", parked: true, assignees: [], progress: 49, title: "renamed meanwhile" });
+    expect(workPatchOf(parked)).toEqual({
+      parked: true,
+      assignees: [],
+      startDate: undefined,
+      day: undefined,
+      sprintStart: undefined,
+    });
+  });
+});
+
+
+// UNASSIGNED reaches exactly the open tasks in work under a row (K16) — the
+// same fixture as board's TestUnassignTargetsMatchTheSharedFixture, read from
+// the Go package's testdata: the same cards give the same tasks on both
+// sides.
+describe("UNASSIGNED's reach, shared with the server", () => {
+  const fx = JSON.parse(
+    readFileSync(fileURLToPath(new URL("../../pkg/board/testdata/unassign_targets.json", import.meta.url)), "utf8"),
+  ) as { cards: Partial<Card>[]; targets: Record<string, string[]> };
+  const cards = fx.cards.map((c) => card(c));
+
+  it("names the same tasks as board.UnassignTargets, for every row of the fixture", () => {
+    for (const [root, want] of Object.entries(fx.targets)) {
+      const c = cards.find((x) => x.itemId === root)!;
+      expect([root, unassignTargets(cards, c).map((t) => t.itemId)]).toEqual([root, want]);
+    }
+  });
+});
+
+// The Roadmap may be filtered: the cards it holds are fewer than the board's,
+// and only the server knows every task in work under a plan item. So a plan
+// item offers UNASSIGNED by its server roll-up — IN PROGRESS means there is
+// work in hand under it — and the confirm asks the server (a dry run) what it
+// would take; a task offers it by its own place.
+describe("UNASSIGNED under a filter", () => {
+  it("is offered on a plan item the server rolls up IN PROGRESS, whatever the listing holds", () => {
+    const epic = card({ itemId: "e", type: "epic", hierarchy: { status: "in-progress", done: 0, total: 3 } });
+    // The filter left none of its tasks in the listing.
+    expect(statusMenu([epic], epic).unassign).toBe(true);
+    const waiting = { ...epic, hierarchy: { status: "backlog" as const, done: 0, total: 3 } };
+    expect(statusMenu([waiting], waiting).unassign).toBe(false);
+    const task = card({ itemId: "t", sprintStart: "2026-11-09" });
+    expect(statusMenu([task], task).unassign).toBe(true);
+    expect(statusMenu([{ ...task, parked: true, sprintStart: undefined }], { ...task, parked: true, sprintStart: undefined }).unassign).toBe(false);
+  });
+});
+
+// A later choice wins (K15): the badge applies a server answer only when it
+// answers the latest choice made on that card, so an older response arriving
+// late cannot overwrite a newer one.
+describe("the latest choice wins", () => {
+  it("applies the answer to the newest request per card only", () => {
+    const seq = latestWins();
+    const first = seq.next("c");
+    const second = seq.next("c");
+    const other = seq.next("d");
+    expect(seq.isLatest("c", first)).toBe(false);
+    expect(seq.isLatest("c", second)).toBe(true);
+    expect(seq.isLatest("d", other)).toBe(true);
+  });
+});
+
+// What the badge says to a screen reader: the priority and where it comes
+// from, or that none is set.
+describe("the priority's label", () => {
+  it("names the priority and the card it is inherited from", () => {
+    expect(priorityLabel("P1")).toBe("Priority P1");
+    expect(priorityLabel("P2", { uid: "g", type: "goal", title: "Grow" })).toBe("Priority P2, from «Grow»");
+    expect(priorityLabel(undefined)).toBe("Set a priority");
+  });
+});
+

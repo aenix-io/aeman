@@ -15,7 +15,7 @@ import (
 // carry-over of either team reaches. It does what a direct team change does
 // (SetTeam): the new team's current sprint, else today for a team with no
 // sprint yet. A card with no sprint (parked, or planned for a day to come),
-// a plan item and a project card have nothing to move. `edit` applies the
+// and a plan item have nothing to move. `edit` applies the
 // change to a copy of the board; the caller writes it.
 func (s *Service) followPlacement(ctx context.Context, b board.Board, edit func(*board.Board)) error {
 	after := b
@@ -23,7 +23,7 @@ func (s *Service) followPlacement(ctx context.Context, b board.Board, edit func(
 	edit(&after)
 	was, now := board.PlacedTeams(b), board.PlacedTeams(after)
 	for _, c := range after.Cards {
-		if board.IsPlanning(c) || c.Scope != "" || board.InBacklog(c) || c.SprintStart == "" {
+		if board.IsPlanning(c) || board.InBacklog(c) || c.SprintStart == "" {
 			continue
 		}
 		if was[c.ItemID] == now[c.ItemID] {

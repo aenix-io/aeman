@@ -14,15 +14,16 @@ func TestTheViewsAreTheBoardsAPersonOpens(t *testing.T) {
 		}
 	}
 	// Every board of the SPA is here, under the name the SPA uses.
-	for _, name := range []string{"me", "team", "backlog", "roadmap", "project", "all"} {
+	for _, name := range []string{"me", "team", "backlog", "roadmap", "all"} {
 		if !KnownView(name) {
 			t.Fatalf("%q is a board a person opens and the domain does not know it", name)
 		}
 	}
 	// The Process board is gone (it never was a view: it read the Project
 	// view's cards); so is the personal board; and a typo is not a view.
-	// The Triage board is retired (K9): its address is no board.
-	for _, name := range []string{"process", "personal", "triage", "", "Me", "week"} {
+	// The Triage board is retired (K9): its address is no board, and so is
+	// the Project board's, removed with project cards (H15).
+	for _, name := range []string{"process", "personal", "triage", "project", "", "Me", "week"} {
 		if KnownView(name) {
 			t.Fatalf("%q is not a view and was accepted", name)
 		}
@@ -55,7 +56,7 @@ func TestOnlySomeBoardsAreScopedByTeam(t *testing.T) {
 			t.Errorf("%s lists one team's work and says it does not", v)
 		}
 	}
-	for _, v := range []View{ViewMe, ViewProject, ViewAll} {
+	for _, v := range []View{ViewMe, ViewRoadmap, ViewAll} {
 		if ScopedByTeam(v) {
 			t.Errorf("%s lists every team and says it is narrowed by one", v)
 		}

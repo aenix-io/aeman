@@ -66,13 +66,6 @@ describe("the choice dialog, asked by the hierarchy's ×", () => {
     expect(html).toMatch(/stays on review/);
     expect(html.indexOf("Back to backlog")).toBeLessThan(html.indexOf("Take it off the board"));
   });
-
-  it("says a project card's Unassigned answer leaves it in its column", () => {
-    const html = draw(["unassign"]);
-    expect(html).toContain("Move it to Unassigned");
-    expect(html).toContain("its column");
-    expect(html).not.toMatch(/week/i);
-  });
 });
 
 // The withdrawal asks in its own words: what happens to the TASK, which is

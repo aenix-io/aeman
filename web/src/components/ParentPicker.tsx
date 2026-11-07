@@ -1,10 +1,33 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Card as CardModel, LineageRef } from "../providers/types";
-import { KIND_LABEL, allowedParentKinds, kindOf, type RoadmapKind } from "../roadmap";
+import { KIND_LABEL, parentOptions, type RoadmapKind } from "../roadmap";
 import { Dropdown } from "./Dropdown";
 import { KindIcon } from "./KindIcon";
 
-const ORDER: RoadmapKind[] = ["goal", "initiative", "epic"];
+
+/** ParentChain is where an option stands: its ancestors, root first, small
+ *  and muted, each with its kind — cut when long, in full in the tooltip. A
+ *  root has none to show. */
+function ParentChain({ chain }: { chain: Pick<CardModel, "itemId" | "title" | "type">[] }) {
+  if (chain.length === 0) {
+    return null;
+  }
+  return (
+    <span className="drawer-pick-chain" title={chain.map((c) => c.title).join(" › ")}>
+      {chain.map((c, i) => (
+        <span key={c.itemId} className="drawer-pick-chain-step">
+          {i > 0 && (
+            <span className="drawer-pick-chain-sep" aria-hidden="true">
+              ›
+            </span>
+          )}
+          <KindIcon kind={(c.type ?? "task") as RoadmapKind} size={11} />
+          <span className="drawer-pick-chain-title">{c.title}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
 
 interface ParentOptionListProps {
   /** The kind of the card being filed: it decides which levels are offered
@@ -21,39 +44,20 @@ interface ParentOptionListProps {
   onPick: (parent: CardModel | null) => void;
 }
 
-/** ParentOptionList is the body of every "file it under" menu: a search
- *  box, "None", and the goals, initiatives and epics the card may sit under,
- *  grouped by level, highest first. The drawer's Under picker and the
- *  Project board's "Attach to…" draw the same list. */
+/** ParentOptionList is the body of the drawer's Under picker — the one
+ *  "file it under" control: a search box, "None", and the goals, initiatives and epics the card may
+ *  sit under, grouped by level, highest first, each with its chain. */
 export function ParentOptionList({ kind, current, options, self, onPick }: ParentOptionListProps) {
   const [query, setQuery] = useState("");
   const input = useRef<HTMLInputElement | null>(null);
-  const allowed = allowedParentKinds(kind);
   useEffect(() => {
     // The list is portalled; focus lands once it is in the document.
     const t = window.setTimeout(() => input.current?.focus(), 0);
     return () => window.clearTimeout(t);
   }, []);
 
-  const groups = useMemo(() => {
-    if (!options) {
-      return null;
-    }
-    const q = query.trim().toLowerCase();
-    const offered = options.filter((c) => {
-      const k = kindOf(c);
-      if (!allowed.includes(k) || c.itemId === self) {
-        return false;
-      }
-      if ((c.lineage ?? []).some((up) => up.uid === self)) {
-        return false; // a card under this one cannot also be above it
-      }
-      return !q || c.title.toLowerCase().includes(q);
-    });
-    return ORDER.filter((k) => allowed.includes(k))
-      .map((k) => ({ kind: k, cards: offered.filter((c) => kindOf(c) === k) }))
-      .filter((g) => g.cards.length > 0);
-  }, [options, query, allowed, self]);
+  // One read of the options for the list and its labels (roadmap.parentOptions).
+  const groups = useMemo(() => (options ? parentOptions(kind, options, self, query) : null), [options, kind, self, query]);
 
   return (
     <>
@@ -73,15 +77,19 @@ export function ParentOptionList({ kind, current, options, self, onPick }: Paren
       {groups?.map((g) => (
         <div key={g.kind} className="drawer-pick-group" role="group" aria-label={KIND_LABEL[g.kind]}>
           <div className="drawer-pick-group-label">{KIND_LABEL[g.kind]}s</div>
-          {g.cards.map((c) => (
+          {g.options.map(({ card: c, chain }) => (
             <button
               key={c.itemId}
               type="button"
               className={`add-card-team-item${current === c.itemId ? " drawer-pick-on" : ""}`}
+              aria-label={chain.length ? `${c.title}, under ${chain.map((x) => x.title).join(" › ")}` : c.title}
               onClick={() => onPick(c)}
             >
               <KindIcon kind={g.kind} />
-              <span className="drawer-pick-text">{c.title}</span>
+              <span className="drawer-pick-option">
+                <ParentChain chain={chain} />
+                <span className="drawer-pick-text">{c.title}</span>
+              </span>
             </button>
           ))}
         </div>

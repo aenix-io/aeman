@@ -2,6 +2,7 @@ package gitstore
 
 import (
 	"errors"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -259,7 +260,7 @@ func cardInTree(t *object.Tree, id string) (board.Card, bool, error) {
 		return board.Card{}, false, err
 	}
 	card, err := DecodeCard(id, []byte(data))
-	if err != nil {
+	if err != nil || card.ProjectCard {
 		return board.Card{}, false, nil //nolint:nilerr // not a card anyone saw
 	}
 	return card.Card, true, nil
@@ -289,10 +290,23 @@ func cardsRemovedBetween(r *Repo, began plumbing.Hash, day []*object.Commit, tou
 			ids = append(ids, id)
 		}
 	}
-	for id := range start {
-		if _, named := touched[id]; !held[id] && !named {
-			ids = append(ids, id)
+	// A card the snapshot does not hold may still be in the day's LAST tree:
+	// a project card the board skips (H15). It was not removed, and looking
+	// up its last state would be a blob or two per card on every past day.
+	var end *object.Tree
+	if len(day) > 0 {
+		if end, err = day[0].Tree(); err != nil {
+			return nil, err
 		}
+	}
+	for id := range start {
+		if _, named := touched[id]; held[id] || named {
+			continue
+		}
+		if end == nil || stillIn(end, id) {
+			continue
+		}
+		ids = append(ids, id)
 	}
 	sort.Strings(ids) // a stable answer; the caller sorts by rank anyway
 
@@ -334,6 +348,17 @@ func horizonOf(shallow map[plumbing.Hash]bool) string {
 	return strings.Join(hs, ",")
 }
 
+// stillIn reports that a tree still has the card's file — looked up by path,
+// which walks a few tree objects and reads no blob.
+func stillIn(t *object.Tree, id string) bool {
+	p, err := CardPath(id)
+	if err != nil {
+		return false
+	}
+	_, err = t.FindEntry(p)
+	return err == nil
+}
+
 // cardIDsAt lists the cards a commit's tree holds, by their paths alone: a
 // card's id IS its file name, so nothing is read but the trees.
 func cardIDsAt(r *Repo, h plumbing.Hash) (map[string]bool, error) {
@@ -345,17 +370,26 @@ func cardIDsAt(r *Repo, h plumbing.Hash) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A tree walk, not tree.Files(): Files hands out each file with its blob
+	// read, which is every card on the board for the sake of its name.
 	out := map[string]bool{}
-	err = tree.Files().ForEach(func(f *object.File) error {
-		if kind, parts := ParsePath(f.Name); kind == PathCard {
+	w := object.NewTreeWalker(tree, true, nil)
+	defer w.Close()
+	for {
+		name, entry, err := w.Next()
+		if errors.Is(err, io.EOF) {
+			return out, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !entry.Mode.IsFile() {
+			continue
+		}
+		if kind, parts := ParsePath(name); kind == PathCard {
 			out[parts[0]] = true
 		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
-	return out, nil
 }
 
 // cardAt reads one card from a commit's tree.
@@ -380,7 +414,7 @@ func cardAt(r *Repo, h plumbing.Hash, id string) (board.Card, bool, error) {
 		return board.Card{}, false, err
 	}
 	card, err := DecodeCard(id, []byte(data))
-	if err != nil {
+	if err != nil || card.ProjectCard {
 		return board.Card{}, false, nil //nolint:nilerr // not a card anyone saw
 	}
 	return card.Card, true, nil
@@ -448,9 +482,10 @@ func lastStateInDay(id string, day []*object.Commit, at int) (board.Card, bool, 
 			return board.Card{}, false, err
 		}
 		card, err := DecodeCard(id, []byte(data))
-		if err != nil {
+		if err != nil || card.ProjectCard {
 			// A file the decoder cannot read is not a card anyone saw; the
 			// day answers without it rather than failing over one bad file.
+			// Nor is a project card, which no board reads (H15).
 			return board.Card{}, false, nil //nolint:nilerr // deliberate
 		}
 		return card.Card, true, nil

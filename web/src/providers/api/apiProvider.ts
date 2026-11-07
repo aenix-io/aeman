@@ -33,6 +33,7 @@ import type {
   CarryReport,
   CustomerRef,
   NewCardInput,
+  Priority,
   Note,
   Provider,
   ZoneKey,
@@ -66,29 +67,15 @@ export function boardMetadata(
   | "title"
   | "url"
   | "teams"
-  | "projects"
-  | "deadlines"
-  | "scopes"
   | "members"
   | "domains"
   | "teamDomains"
-  | "projectDomains"
   | "customers"
 > {
   return {
     title: info.metadata.title ?? "",
     url: info.metadata.url ?? "",
     teams: info.metadata.teams,
-    projects: info.metadata.projects ?? [],
-    deadlines: (info.metadata.deadlines ?? []).map((d) => ({
-      week: d.week,
-      project: d.project ?? "",
-    })),
-    scopes: (info.metadata.scopes ?? []).map((e) => ({
-      name: e.name,
-      project: e.project ?? "",
-      domain: e.domain || undefined,
-    })),
     members: membersFrom(info.metadata.members),
     // The repositories the board spans, primary first. An older server names
     // none; the UI then shows nothing of domains at all.
@@ -97,10 +84,8 @@ export function boardMetadata(
       writable: d.writable,
       members: d.members,
     })),
-    // Which repository a team or project lives in: what keeps the pickers
-    // from offering a pair the server will refuse.
+    // Which repository a team lives in.
     teamDomains: info.metadata.teamDomains ?? undefined,
-    projectDomains: info.metadata.projectDomains ?? undefined,
     // The customer roster (ownership.md): what a card's customer ids name.
     customers: (info.metadata.customers ?? []).map((c) => ({ id: c.id, name: c.name })),
   };
@@ -237,7 +222,7 @@ async function answered<T>(call: Promise<{ data?: T }>): Promise<T> {
 }
 
 // inDomain is the optional `domain` of a declare request: the repository a new
-// team/project is filed in. Omitted, the server picks the primary.
+// team is filed in. Omitted, the server picks the primary.
 function inDomain(domain?: string): { domain?: string } {
   return domain ? { domain } : {};
 }
@@ -307,12 +292,6 @@ function patchBody(patch: CardPatch): components["schemas"]["CardPatch"] {
   if (patch.parked !== undefined) {
     body.parked = patch.parked;
   }
-  if (patch.scope !== undefined) {
-    body.scope = patch.scope;
-  }
-  if (patch.project !== undefined) {
-    body.project = patch.project;
-  }
   if (patch.reviewOf !== undefined) {
     body.reviewOf = patch.reviewOf;
   }
@@ -357,6 +336,7 @@ export const apiProvider: Provider = {
       // Set when the server answered with a past day's board rather than
       // today's: the client freezes on that, and says which day it shows.
       asOf: list.asOf,
+      boardOrder: list.boardOrder,
     };
   },
 
@@ -391,11 +371,6 @@ export const apiProvider: Provider = {
     // Born IN the backlog: no dates, no sprint, parked on its team, last
     // (K3). A Backlog column's create says so by being made THERE
     // (views.createView), so nothing in the body has to.
-    if (input.scope) {
-      body.scope = input.scope;
-      body.project = input.project ?? "";
-      // A slot's row is the week of its start date.
-    }
     if (input.startNewSprint !== undefined) {
       body.startNewSprint = input.startNewSprint;
     }
@@ -541,6 +516,24 @@ export const apiProvider: Provider = {
     );
   },
 
+  async setPriority(uid: string, priority: Priority | ""): Promise<Card> {
+    uid = await resolveCardId(uid);
+    return cardFrom(client.POST("/cards/{uid}/actions/priority", { params: { path: { uid } }, body: { priority } }));
+  },
+
+  async previewUnassign(uid: string): Promise<Card[]> {
+    uid = await resolveCardId(uid);
+    const res = await answered(client.POST("/cards/{uid}/actions/unassign-work", { params: { path: { uid } }, body: { dryRun: true } }));
+    return (res.items ?? []).map(resourceToCard);
+  },
+
+  async unassignWork(uid: string, uids?: string[]): Promise<Card[]> {
+    uid = await resolveCardId(uid);
+    const body = uids ? { uids: await Promise.all(uids.map(resolveCardId)) } : undefined;
+    const res = await answered(client.POST("/cards/{uid}/actions/unassign-work", { params: { path: { uid } }, body }));
+    return (res.items ?? []).map(resourceToCard);
+  },
+
   async ownCard(uid: string, team: string, person: string): Promise<Card> {
     uid = await resolveCardId(uid);
     return cardFrom(
@@ -571,47 +564,6 @@ export const apiProvider: Provider = {
     await client.POST("/sprints/actions/delete-team", { body: { team } });
   },
 
-  async addScope(
-    name: string,
-    project: string,
-  ): Promise<void> {
-    await client.POST("/scopes", { body: { name, project } });
-  },
-
-  async deleteScope(
-    name: string,
-    project: string,
-  ): Promise<void> {
-    await client.POST("/scopes/actions/delete-scope", {
-      body: { scope: name, project },
-    });
-  },
-
-  async renameScope(
-    project: string,
-    scope: string,
-    to: string,
-  ): Promise<void> {
-    await client.POST("/scopes/actions/rename", { body: { project, scope, to } });
-  },
-
-  async reorderScopes(
-    project: string,
-    scopes: string[],
-  ): Promise<void> {
-    await client.POST("/scopes/actions/reorder-scopes", { body: { project, scopes } });
-  },
-
-  async setScopeProject(
-    from: string,
-    scope: string,
-    project: string,
-  ): Promise<void> {
-    await client.POST("/scopes/actions/set-project", {
-      body: { scope, from, project },
-    });
-  },
-
   async addCustomer(name: string): Promise<CustomerRef> {
     const data = await answered(client.POST("/customers", { body: { name } }));
     return { id: data.id, name: data.name };
@@ -629,55 +581,10 @@ export const apiProvider: Provider = {
     await client.POST("/customers/actions/delete", { body: { customer: id } });
   },
 
-  async addProject(name: string, domain?: string): Promise<void> {
-    await client.POST("/projects", { body: { name, ...inDomain(domain) } });
-  },
-
-  async deleteProject(name: string): Promise<void> {
-    await client.POST("/projects/actions/delete-project", {
-      body: { project: name },
-    });
-  },
-
-  async reorderProjects(names: string[]): Promise<void> {
-    await client.POST("/projects/actions/reorder-projects", {
-      body: { projects: names },
-    });
-  },
-
   async renameTeam(from: string, to: string): Promise<void> {
     await client.POST("/teams/actions/rename", { body: { team: from, to } });
   },
 
-
-  async renameProject(
-    from: string,
-    to: string,
-  ): Promise<void> {
-    await client.POST("/projects/actions/rename", { body: { project: from, to } });
-  },
-
-  async addDeadline(
-    week: string,
-    project: string,
-  ): Promise<void> {
-    await client.POST("/deadlines", { body: { week, project } });
-  },
-
-  async deleteDeadline(
-    week: string,
-    project: string,
-  ): Promise<void> {
-    await client.POST("/deadlines/actions/delete", { body: { week, project } });
-  },
-
-  async moveDeadline(
-    project: string,
-    from: string,
-    to: string,
-  ): Promise<void> {
-    await client.POST("/deadlines/actions/move", { body: { project, from, to } });
-  },
 
   async setSprintState(
     team: string | null,

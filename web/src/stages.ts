@@ -143,17 +143,3 @@ export function isInProgress(card: {
   const p = card.progress ?? 0;
   return !card.stage && p >= 10 && p <= 90;
 }
-
-/** stageChoices is the stages the menu offers a card, in their order: a
- *  PROJECT card is done or not done (#288) — the server refuses review and
- *  locked for it — so it is offered Done alone; a task every stage. Who may
- *  pick which (ME_ONLY_STAGES, a review card's limits) is the menu's. */
-export function stageChoices(c: { scope?: string }): StageKey[] {
-  return c.scope ? ["done"] : STAGE_ORDER;
-}
-
-/** offersInProgress is whether the menu offers In progress: not on a
- *  project card, which the server refuses it for (#288). */
-export function offersInProgress(c: { scope?: string }): boolean {
-  return !c.scope;
-}

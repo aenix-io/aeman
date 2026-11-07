@@ -11,19 +11,28 @@ import {
 } from "@dnd-kit/core";
 import { registerPendingCard } from "../api/pending";
 import { todayIso } from "../date";
-import type { Board, Card as CardModel, CardType, Provider } from "../providers/types";
+import type { Board, Card as CardModel, CardType, Priority, Provider } from "../providers/types";
 import {
   DEFAULT_DEPTH,
   DELETE_INTENT,
   KIND_LABEL,
   LEVELS,
-  STATUS_LABEL,
   barOf,
+  childLevels,
   buildTree,
   childrenNote,
   daysBetween,
   DropWriteError,
   dropCommit,
+  dropShown,
+  statusMenu,
+  rolledUpAfter,
+  workPatchOf,
+  statusUids,
+  priorityAfter,
+  latestWins,
+  unassignQuestion,
+  UNASSIGNED_LOCALLY,
   droppable,
   fractionOf,
   hierarchyChoices,
@@ -53,7 +62,6 @@ import {
   type RoadmapLine,
 } from "../roadmap";
 import { barColor } from "../stages";
-import { ViewToggle } from "./ViewToggle";
 import { FilterSelect } from "./FilterSelect";
 import { customerOptions, teamOptions } from "../filteroptions";
 import {
@@ -71,13 +79,14 @@ import {
 } from "../roadmapcolumns";
 import { NO_ROADMAP_FILTERS, ownerFilterOptions, peopleOf, roadmapOwnerCell, type RoadmapFilters } from "../ownership";
 import { isPlanning } from "../subtasks";
-import { ownerLabel, ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
-import { displayName, type Avatars, type Names } from "../users";
+import { ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
+import { type Avatars, type Names } from "../users";
 import { AddCard } from "./AddCard";
+import { INDENT_PX, OwnerCell, PriorityItems, ROW_PX, StatusPill, TreeTitle } from "./PlanTree";
 import { KindIcon } from "./KindIcon";
-import { OwnerBadge } from "./OwnerBadge";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
+import { Dropdown } from "./Dropdown";
 
 // The Roadmap: the hierarchy as a tree of rows on the left and a timeline
 // of bars on the right, one row per card from a goal down to a subtask
@@ -107,10 +116,6 @@ interface RoadmapBoardProps {
    *  and its row is marked; onFocused says it has been. */
   focusId?: string | null;
   onFocused?: () => void;
-  /** The "Project cards" toggle: the listing's selector (projectCards), held
-   *  and remembered by the app, which refetches and re-subscribes on it. */
-  showProjects: boolean;
-  onShowProjects: (next: boolean) => void;
   /** The Team, Customer and Owner filters (ownership.md, O7, O8): the
    *  listing's selectors, held and remembered by the app. */
   filters: RoadmapFilters;
@@ -125,12 +130,9 @@ const LS_DEPTH = "aeman.roadmap.depth";
 const LS_ZOOM = "aeman.roadmap.zoom";
 const LS_FOLDED = "aeman.roadmap.folded";
 
-/** ROW_PX is the height of one row, on both sides, so the table and the
- *  timeline stay aligned without ever measuring each other. */
-const ROW_PX = 30;
+/** HEAD_PX is the height of the table's head; a row's (ROW_PX) and one
+ *  level of the tree (INDENT_PX) are PlanTree's, shared with the drawer. */
 const HEAD_PX = 26;
-/** INDENT_PX is one level of the tree. */
-const INDENT_PX = 18;
 
 /** pxPerDay is how wide a day is drawn at a zoom: three months read a week
  *  at a glance, a year reads a month, and Fit stretches its span to about
@@ -197,23 +199,6 @@ function readFolded(): Set<string> {
 
 const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-/** childLevels is what the + on a planning row may make under it: the
- *  levels below its own, and under an epic a TASK — born with no team and
- *  no day, it is parked in the no-team backlog until somebody takes it into
- *  work (H7, K3). */
-function childLevels(kind: RoadmapKind): (CardType | "task")[] {
-  if (kind === "goal") {
-    return ["initiative", "epic"];
-  }
-  if (kind === "initiative") {
-    return ["epic"];
-  }
-  if (kind === "epic") {
-    return ["task"];
-  }
-  return [];
-}
-
 /** A row line of the table: a row of the tree or of a section (the other
  *  line is a section's header). The timeline draws a lane per line, so the
  *  two panes stay in step whatever stands between the rows. */
@@ -248,8 +233,13 @@ interface RowProps {
   onAdd: (() => void) | null;
   onRemove: (() => void) | null;
   /** The Owner cell's content, for a task-kind row; nothing on a planning
-   *  card or a project card, which have no owner. */
+   *  card, which has none of a task's. */
   owner: ReactNode;
+  /** The badge's menu (priorities, UNASSIGNED; K15, K16), opened from the
+   *  badge; null on a row that offers none (a project card). */
+  onStatus: ((badge: HTMLElement) => void) | null;
+  /** The status menu stands open on this row (aria-expanded). */
+  menuOpen: boolean;
   rowRef: (el: HTMLDivElement | null) => void;
 }
 
@@ -258,13 +248,10 @@ interface RowProps {
  *  worth of hit area, the kind by its pictogram. While a drag runs the rows
  *  stay where they are — the dragged rows dimmed in place — and where it
  *  would land is a mark over the row (roadmap.dropMark). */
-function RoadmapRow({ row, today, open, focus, ghost, forbid, mark, dragging, onToggle, onOpen, onAdd, onRemove, owner, rowRef }: RowProps) {
-  const { node, depth, foldable } = row;
-  const card = node.card;
+function RoadmapRow({ row, today, open, focus, ghost, forbid, mark, dragging, onToggle, onOpen, onAdd, onRemove, owner, onStatus, menuOpen, rowRef }: RowProps) {
+  const card = row.node.card;
   const id = card.itemId;
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id });
-  const planning = isPlanning(card);
-  const status = statusOf(card);
   const cls = [
     "roadmap-row",
     focus ? "roadmap-row-focus" : "",
@@ -287,76 +274,12 @@ function RoadmapRow({ row, today, open, focus, ghost, forbid, mark, dragging, on
       {...attributes}
       {...listeners}
     >
-      <span className="roadmap-cell roadmap-cell-title" style={{ paddingLeft: 6 + depth * INDENT_PX }}>
-        {Array.from({ length: depth }, (_, i) => (
-          <span key={i} className="roadmap-guide" style={{ left: 6 + i * INDENT_PX + 10 }} aria-hidden="true" />
-        ))}
-        {foldable > 0 ? (
-          <button
-            type="button"
-            className={`roadmap-toggle${open ? " roadmap-toggle-open" : ""}`}
-            aria-label={open ? "Fold" : `Unfold ${foldable}`}
-            aria-expanded={open}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggle();
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-              <path d="M5.5 3.5 10 8l-4.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-        ) : (
-          // A leaf keeps the chevron's width so the indent lines up, and
-          // nothing else: not a button, nothing to hover or focus.
-          <span className="roadmap-toggle-spacer" aria-hidden="true" />
-        )}
-        <KindIcon kind={node.kind} size={15} />
-        <span className="roadmap-title" title={card.title}>
-          {card.title}
-        </span>
-        {planning && card.hierarchy && card.hierarchy.total > 0 && (
-          <span className="roadmap-count" title={`${card.hierarchy.done} of ${card.hierarchy.total} tasks done`}>
-            {card.hierarchy.done}/{card.hierarchy.total}
-          </span>
-        )}
-        {onAdd && (
-          <button
-            type="button"
-            className="roadmap-row-add"
-            title={`Add under «${card.title}»`}
-            aria-label={`Add under ${card.title}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onAdd();
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            +
-          </button>
-        )}
-        {onRemove && (
-          <button
-            type="button"
-            className="roadmap-row-x"
-            title={`Delete «${card.title}», or take it out from under its parent`}
-            aria-label={`Delete ${card.title}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove();
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            ×
-          </button>
-        )}
-      </span>
+      <TreeTitle row={row} open={open} onToggle={onToggle} onAdd={onAdd} onRemove={onRemove} />
       <span className="roadmap-cell roadmap-cell-owner">{owner}</span>
       <span className="roadmap-cell roadmap-cell-date">{shortDate(card.startDate, today)}</span>
       <span className="roadmap-cell roadmap-cell-date">{shortDate(card.day, today)}</span>
       <span className="roadmap-cell roadmap-cell-status">
-        <span className={`roadmap-status roadmap-status-${status}`}>{STATUS_LABEL[status]}</span>
+        <StatusPill card={card} onMenu={onStatus ?? undefined} expanded={menuOpen} />
       </span>
     </div>
   );
@@ -449,22 +372,6 @@ function ColumnHandle({
   );
 }
 
-function OwnerCell({ owner, avatars, names, from }: { owner: Owner; avatars?: Avatars; names?: Names; from?: string }) {
-  const label = ownerLabel(owner, (l) => displayName(l, names));
-  // A team taken from above (O3) is drawn greyed and says where from; the
-  // picker still sets the card's OWN value.
-  const inherited = from !== undefined;
-  const title = inherited ? `${label} — ${from ? `from «${from}»` : "inherited"}` : label;
-  return (
-    <span
-      className={`roadmap-owner${owner.team || owner.person ? "" : " roadmap-owner-none"}${inherited ? " roadmap-owner-inherited" : ""}`}
-      title={title}
-    >
-      <OwnerBadge owner={owner} avatars={avatars} names={names} />
-    </span>
-  );
-}
-
 export function RoadmapBoard({
   board,
   provider,
@@ -481,8 +388,6 @@ export function RoadmapBoard({
   onOpen,
   focusId,
   onFocused,
-  showProjects,
-  onShowProjects,
   filters,
   onFilters,
   onManageTeams,
@@ -603,8 +508,7 @@ export function RoadmapBoard({
 
   const expanded = (id: string) => !folded.has(id);
   // The lines of the table (roadmap.roadmapLines), keyed on everything that
-  // decides them. The Project cards toggle is the listing's own selector:
-  // the app refetches on it, and what arrives is what is drawn.
+  // decides them. What arrives is what is drawn.
   const shownLines = useMemo(() => roadmapLines(shown, { depth, expanded }), [shown, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
   // The tree's rows alone, which is what a drop is read against: a section
   // row is dropped on by nothing.
@@ -704,20 +608,15 @@ export function RoadmapBoard({
     }
     const commit = dropCommit(shown, id, h.placement);
     const before = { parent: card.parent, lineage: card.lineage };
-    const parent = commit.parent ? board.cards.find((c) => c.itemId === commit.parent) : undefined;
-    if (commit.parentChanged) {
-      patchCard(id, {
-        parent: commit.parent ?? undefined,
-        lineage: parent ? [...(parent.lineage ?? []), { uid: parent.itemId, type: parent.type, title: parent.title }] : undefined,
-      });
+    // Shown at once, filter or no filter (roadmap.dropShown): the watch
+    // does not echo this tab's own move, so nothing else would show it.
+    const now = dropShown(shown, id, h.placement);
+    if (now.patch) {
+      patchCard(id, now.patch);
     }
-    // The listing order is the board's; with a filter on, the order of what
-    // is shown says nothing about the rest, so it is left to the response.
-    if (!filtering) {
-      reorderCards?.(commit.order);
-    }
+    reorderCards?.(now.order);
     // A parent the server took stays: only a refused parent is rolled
-    // back, and the reload settles the order either way.
+    // back, and the reload settles the order.
     void writeDrop(id, commit, provider).catch((err: unknown) => {
       const taken = err instanceof DropWriteError && err.parentWritten;
       if (!taken) {
@@ -912,6 +811,82 @@ export function RoadmapBoard({
 
   // ---- the ×: the Team board's own question — delete it, or only unlink it ----
   const [removeChoice, setRemoveChoice] = useState<CardModel | null>(null);
+
+  // ---- the badge menu: priorities and UNASSIGNED (K15, K16) ----
+  // The badge of a task or a plan item opens it; what each answer reaches is
+  // roadmap.statusMenu's, applied at once and settled by the server's answer.
+  const [statusFor, setStatusFor] = useState<CardModel | null>(null);
+  const statusAnchor = useRef<HTMLElement | null>(null);
+  const [unassigning, setUnassigning] = useState<{ card: CardModel; uids: string[] } | null>(null);
+  const menu = statusFor ? statusMenu(board.cards, statusFor) : null;
+  // A status gesture is shown at once — the tasks it reaches and the plan
+  // items above them, re-rolled-up (roadmap.rolledUpAfter) — then settled by
+  // the server's answer, which names the tasks it changed as they stand now:
+  // the watch does not echo the tab's own write. A refusal puts back what
+  // was there.
+  const applyWork = (uids: readonly string[], change: Partial<CardModel>, send: () => Promise<CardModel[]>) => {
+    const before = board.cards.filter((c) => uids.includes(c.itemId));
+    const after = board.cards.map((c) => (uids.includes(c.itemId) ? { ...c, ...change } : c));
+    const rolled = rolledUpAfter(after, uids);
+    const plansBefore = board.cards.filter((c) => rolled.has(c.itemId));
+    for (const id of uids) {
+      patchCard(id, change);
+    }
+    for (const [id, hierarchy] of rolled) {
+      patchCard(id, { hierarchy });
+    }
+    void send()
+      .then((changed) => {
+        for (const c of changed) {
+          patchCard(c.itemId, workPatchOf(c));
+        }
+      })
+      .catch((err: unknown) => {
+        for (const c of before) {
+          patchCard(c.itemId, workPatchOf(c));
+        }
+        for (const p of plansBefore) {
+          patchCard(p.itemId, { hierarchy: p.hierarchy });
+        }
+        onError(errText(err));
+        reload();
+      });
+  };
+  // A priority is the card's own (K15); what the cards under it count under
+  // follows (roadmap.priorityAfter) — shown at once, settled by the card the
+  // server answers with and the frames it sends for the cards under it, put
+  // back on a refusal.
+  const prioritySeq = useRef(latestWins());
+  const answerPriority = (card: CardModel, value: Priority | "") => {
+    const shown = priorityAfter(board.cards, card.itemId, value);
+    const before = board.cards
+      .filter((c) => shown.has(c.itemId))
+      .map((c) => ({ id: c.itemId, patch: { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom } }));
+    patchCard(card.itemId, { priority: value || undefined });
+    for (const [id, p] of shown) {
+      patchCard(id, p);
+    }
+    const n = prioritySeq.current.next(card.itemId);
+    void provider
+      .setPriority(card.itemId, value)
+      .then((c) => {
+        // An older answer must not overwrite a newer choice.
+        if (prioritySeq.current.isLatest(card.itemId, n)) {
+          patchCard(c.itemId, { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom });
+        }
+      })
+      .catch((err: unknown) => {
+        for (const b of before) {
+          patchCard(b.id, b.patch);
+        }
+        onError(errText(err));
+        reload();
+      });
+  };
+  const answerUnassign = (card: CardModel, uids: string[]) => {
+    // Exactly the tasks the confirm counted.
+    applyWork(uids, UNASSIGNED_LOCALLY, () => provider.unassignWork(card.itemId, uids));
+  };
   const answerRemoval = (card: CardModel, choice: HierarchyChoice) => {
     const plan = planningRemovalPlan(board.cards, card.itemId, choice);
     const before = { parent: card.parent, lineage: card.lineage };
@@ -923,7 +898,8 @@ export function RoadmapBoard({
     }
     if (plan.gone) {
       removeCard(card.itemId);
-      void provider.removeCard(plan.request.uid, DELETE_INTENT).catch((err: unknown) => {
+      // The board knows this remove deletes: the plan item goes (tombstones.ts).
+      void provider.removeCard(plan.request.uid, DELETE_INTENT, { deletes: true }).catch((err: unknown) => {
         onError(errText(err));
         reload();
       });
@@ -1031,10 +1007,6 @@ export function RoadmapBoard({
             {levelOptions()}
           </select>
         </label>
-        <ViewToggle on={showProjects} onToggle={() => onShowProjects(!showProjects)} title="Show project cards">
-          {/* The icon a project card's row wears in the tree. */}
-          <KindIcon kind="project" size={15} />
-        </ViewToggle>
         <div className="segmented roadmap-zoom" role="group" aria-label="Zoom">
           {(["3m", "1y", "fit"] as Zoom[]).map((z) => (
             <button
@@ -1154,6 +1126,11 @@ export function RoadmapBoard({
                       onAdd={planning && kids.length > 0 ? () => setAddingUnder(addingUnder === card.itemId ? null : card.itemId) : null}
                       onRemove={planning ? () => setRemoveChoice(card) : null}
                       owner={ownerCell(card, r.node.kind)}
+                      onStatus={(badge) => {
+                        statusAnchor.current = badge;
+                        setStatusFor(card);
+                      }}
+                      menuOpen={statusFor?.itemId === card.itemId}
                       rowRef={(el) => {
                         if (el) {
                           rowRefs.current.set(card.itemId, el);
@@ -1227,6 +1204,47 @@ export function RoadmapBoard({
           </DragOverlay>
         </DndContext>
       )}
+      <Dropdown open={!!statusFor} anchorRef={statusAnchor} onClose={() => setStatusFor(null)} className="roadmap-status-menu" role="menu">
+        {statusFor && menu && (
+          <>
+            <PriorityItems
+              own={menu.own}
+              onPick={(value) => {
+                answerPriority(statusFor, value);
+                setStatusFor(null);
+              }}
+            />
+            <div className="roadmap-status-separator" role="separator" />
+            <button
+              type="button"
+              role="menuitem"
+              className="roadmap-status-item"
+              disabled={!menu.unassign}
+              title={menu.unassign ? "Take out of work, back to the backlog" : "Nothing in work here"}
+              onClick={() => {
+                // The confirm counts what the SERVER would take: the
+                // Roadmap may be filtered, and only the whole board knows
+                // every task in work under the row.
+                const card = statusFor;
+                setStatusFor(null);
+                void provider
+                  .previewUnassign(card.itemId)
+                  .then((would) => setUnassigning({ card, uids: statusUids(would) }))
+                  .catch((err: unknown) => onError(errText(err)));
+              }}
+            >
+              <span className="roadmap-status roadmap-status-unassigned">Unassign</span>
+            </button>
+          </>
+        )}
+      </Dropdown>
+      {unassigning && (
+        <UnassignDialog
+          count={unassigning.uids.length}
+          onClose={() => setUnassigning(null)}
+          onConfirm={() => answerUnassign(unassigning.card, unassigning.uids)}
+        />
+      )}
       {removeChoice && (
         <RemoveChoiceDialog
           title={removeChoice.title}
@@ -1241,3 +1259,57 @@ export function RoadmapBoard({
     </div>
   );
 }
+
+/** UnassignDialog asks before UNASSIGNED takes work out of hand (K16): how
+ *  many tasks leave Team and Me for their team's backlog. */
+export function UnassignDialog({ count, onClose, onConfirm }: { count: number; onClose: () => void; onConfirm: () => void }) {
+  // The dialog takes the focus as it opens, so Escape reaches its handler.
+  const dialog = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    dialog.current?.focus();
+  }, []);
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        ref={dialog}
+        tabIndex={-1}
+        className="modal modal-narrow"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Take out of work?"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            onClose();
+          }
+        }}
+      >
+        <div className="modal-header">
+          <h2 className="modal-title">Take out of work?</h2>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <div className="modal-body">
+          <p className="take-dialog-text">{unassignQuestion(count)}</p>
+          <div className="take-dialog-actions">
+            <button type="button" className="btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                onConfirm();
+                onClose();
+              }}
+            >
+              Take out of work
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+

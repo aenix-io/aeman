@@ -9,7 +9,7 @@ import (
 // nearest ancestor's. A task with no team of its own under an epic of portal
 // is portal's work on the Team board, in the Backlog and in every team
 // filter — and the epic's team is still not written down onto it. A review
-// card stands under its task's; a project card under none; the no-team group
+// card stands under its task's; the no-team group
 // is the cards whose effective team is empty.
 
 func placedBoard() Board {
@@ -21,7 +21,6 @@ func placedBoard() Board {
 		{ItemID: "r", Title: "review: Receipts", ReviewOf: "t", Parked: true},
 		{ItemID: "plan", Title: "Docs", Type: TypeEpic},
 		{ItemID: "loose", Title: "Under a teamless epic", Parent: "plan", Parked: true},
-		{ItemID: "slot", Title: "Column", Scope: "S", Project: "P", Team: "portal"},
 	})
 	return b
 }
@@ -35,7 +34,6 @@ func TestATaskStandsUnderItsEffectiveTeam(t *testing.T) {
 		"sub":   "portal", // rides its task, which inherits
 		"r":     "portal", // a review card stands under its task's
 		"loose": "",       // no ancestor has a team: the no-team group
-		"slot":  "",       // a project card stands under none (H4)
 		"epic":  "portal", // a plan item keeps its own
 		"plan":  "",
 	} {

@@ -33,7 +33,7 @@ var ErrOwnershipUnsupported = errors.New("this board's storage keeps no owners o
 
 // ErrOwnerIsThePlans is an owner named on a card that is not a goal, an
 // initiative or an epic: an owner answers for a plan item (O1); a task's
-// people are its assignees, and a project card has neither (H4).
+// people are its assignees.
 var ErrOwnerIsThePlans = errors.New("an owner is a goal's, an initiative's or an epic's; a task's people are its assignees")
 
 // ErrCustomerNotFound is a customer id the board's roster does not hold.
@@ -128,7 +128,7 @@ func (s *Service) setPlanTeam(ctx context.Context, b board.Board, card board.Car
 }
 
 // SetCustomers names the customers a card is for (ids from the roster; nil
-// takes them all off). Any card but a project card (H4, O6); each id once,
+// takes them all off). Any card (O6); each id once,
 // in the order given; an id new to the card that the roster lacks is
 // refused before anything is written, and one the card already names that
 // the roster no longer holds is dropped (O5). The cards below inherit them
@@ -146,12 +146,6 @@ func (s *Service) SetCustomers(ctx context.Context, boardID string, itemID strin
 }
 
 func (s *Service) setCustomers(ctx context.Context, ob OwnershipBackend, b board.Board, card board.Card, ids []string) error {
-	if card.Scope != "" {
-		if len(ids) == 0 && len(card.Customers) == 0 {
-			return nil
-		}
-		return fmt.Errorf("%w: %q stands in a column and is for no customer", ErrProjectCard, card.Title)
-	}
 	var clean []string
 	for _, id := range ids {
 		id = strings.TrimSpace(id)

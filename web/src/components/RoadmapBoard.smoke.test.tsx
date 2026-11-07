@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { COLUMN_DEFAULTS, COLUMN_MAX, COLUMN_MINS } from "../roadmapcolumns";
-import { RoadmapBoard } from "./RoadmapBoard";
+import { RoadmapBoard, UnassignDialog } from "./RoadmapBoard";
 import type { RoadmapFilters } from "../ownership";
 import type { Board, Card, Provider } from "../providers/types";
 import { addDays, todayIso } from "../date";
@@ -71,9 +71,6 @@ const board = (cards: Card[]): Board =>
     url: "",
     cards,
     teams: ["core"],
-    projects: [],
-    scopes: [],
-    deadlines: [],
     members: [],
     domains: [],
     sprintStates: {},
@@ -84,8 +81,6 @@ const provider = {} as Provider;
 function draw(
   b: Board,
   focusId: string | null = null,
-  showProjects = false,
-  onShowProjects = vi.fn(),
   filters: RoadmapFilters = { teams: [], customers: [], owners: [] },
 ) {
   return renderToStaticMarkup(
@@ -93,8 +88,6 @@ function draw(
       board={b}
       filters={filters}
       onFilters={vi.fn()}
-      showProjects={showProjects}
-      onShowProjects={onShowProjects}
       provider={provider}
       roster={["core"]}
       patchCard={vi.fn()}
@@ -130,7 +123,8 @@ describe("the Roadmap's two panes", () => {
     const html = draw(board([goal, ini, epic, done, open]));
     expect(html).toContain("roadmap-status roadmap-status-in-progress");
     expect(html).toContain("roadmap-status roadmap-status-done");
-    expect(html).toContain("roadmap-status roadmap-status-todo");
+    // "open" is placed nowhere — not in work: it waits.
+    expect(html).toContain("roadmap-status roadmap-status-backlog");
     expect(html).toContain(">1/2<");
   });
 
@@ -146,10 +140,23 @@ describe("the Roadmap's two panes", () => {
     const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
     const grid = css.match(/\.roadmap-row \{\s*display: grid;\s*grid-template-columns:([^;]+);/)?.[1] ?? "";
     const status = Number(/var\(--rm-status, (\d+)px\)/.exec(grid)?.[1] ?? 0);
-    expect(status).toBeGreaterThanOrEqual(110);
-    // The column is the reader's to size, and never narrower than the pill.
-    expect(COLUMN_DEFAULTS.status).toBeGreaterThanOrEqual(110);
-    expect(COLUMN_MINS.status).toBeGreaterThanOrEqual(110);
+    // The CSS fallback is the default: the two-part badge fits (K15).
+    expect(status).toBe(COLUMN_DEFAULTS.status);
+    // The column is the reader's to size, and never narrower than the badge.
+    expect(COLUMN_DEFAULTS.status).toBeGreaterThanOrEqual(COLUMN_MINS.status);
+    // The drawer's tree draws the same badge in a fixed column: as wide as
+    // the Roadmap's floor.
+    const drawer = css.match(/\.plan-tree \.roadmap-row\.plan-tree-row \{\s*grid-template-columns:([^;]+);/)?.[1] ?? "";
+    expect(Number(/(\d+)px\s*$/.exec(drawer.trim())?.[1] ?? 0)).toBeGreaterThanOrEqual(COLUMN_MINS.status);
+    // One line, never wrapped; dragged narrower than it, the STATUS part
+    // ellipsizes and the priority part keeps its width.
+    const badge = css.match(/\.roadmap-badge \{[^}]*\}/)?.[0] ?? "";
+    expect(badge).toMatch(/white-space: nowrap/);
+    const statusPart = css.match(/\.roadmap-badge \.roadmap-status \{[^}]*\}/)?.[0] ?? "";
+    expect(statusPart).toMatch(/text-overflow: ellipsis/);
+    expect(statusPart).toMatch(/min-width: 0/);
+    const prio = css.match(/\.roadmap-prio \{[^}]*\}/)?.[0] ?? "";
+    expect(prio).toMatch(/flex: none/);
     const cell = css.match(/\.roadmap-cell-status \{[^}]*\}/)?.[0] ?? "";
     const right = Number(/padding-right: (\d+)px/.exec(cell)?.[1] ?? 0);
     expect(right).toBeGreaterThanOrEqual(10);
@@ -269,51 +276,16 @@ describe("the Roadmap's two panes", () => {
   });
 });
 
-// The toolbar's "Project cards" toggle: OFF by default, so a project card
-// under an epic is not listed and the button says so; pressed (remembered in
-// the viewer's localStorage by the app), the listing carries it under its
-// epic.
-describe("the Project cards toggle", () => {
-  const ep = card({ itemId: "pe", title: "Billing v2", type: "epic", parent: undefined, lineage: [] });
-  const task = card({ itemId: "pt", title: "Render PDF", parent: "pe", lineage: [{ uid: "pe", type: "epic", title: "Billing v2" }] });
-  const slot = card({
-    itemId: "ps",
-    title: "Q1 payments slot",
-    parent: "pe",
-    scope: "Payments",
-    project: "P",
-    lineage: [{ uid: "pe", type: "epic", title: "Billing v2" }],
-  });
-
-  // The toggle is the SERVER's selector (projectCards, viewquery.ts): the
-  // board draws the listing it was sent and filters nothing itself. Off, the
-  // server sends no project card; on, it sends them and they stand under
-  // their epic — the same listing drawn with the toggle in either state draws
-  // the same rows.
-  it("is the app's view toggle, unpressed while off, and the board draws what the server sent", () => {
-    const html = draw(board([ep, task]), null, false);
-    // The app's view toggle — the Me board's eye and focus buttons — not a
-    // segment of its own: an icon button, unpressed, named by its tooltip.
-    expect(html).toMatch(/<button[^>]*class="team-eye"[^>]*aria-pressed="false"[^>]*title="Show project cards"/);
-    expect(html).not.toContain("roadmap-projects");
-    // Its icon is the one a project card's row wears in the tree: the same
-    // KindIcon, not a lookalike.
-    expect(html).toMatch(/<button[^>]*class="team-eye"[^>]*title="Show project cards"[^>]*><svg[^>]*class="kind-icon kind-icon-project"/);
-    expect(html).toContain("Render PDF");
-    expect(html).not.toContain("Q1 payments slot");
-  });
-
-  it("is pressed while on, and draws the project cards the server sent under their epic", () => {
-    const html = draw(board([ep, task, slot]), null, true);
-    expect(html).toMatch(/<button[^>]*class="team-eye team-eye-on"[^>]*aria-pressed="true"[^>]*title="Show project cards"/);
-    expect(html).toContain("Q1 payments slot");
-  });
-
-  it("filters nothing itself: what it was sent, it draws", () => {
-    expect(draw(board([ep, task, slot]), null, false)).toContain("Q1 payments slot");
+// The Project cards toggle went with the Project board (H15): the toolbar
+// offers no such button.
+describe("the toolbar", () => {
+  it("has no Project cards toggle", () => {
+    const ep = card({ itemId: "pe", title: "Billing v2", type: "epic", parent: undefined, lineage: [] });
+    const html = draw(board([ep]));
+    expect(html).not.toContain("Show project cards");
+    expect(html).not.toContain("kind-icon-project");
   });
 });
-
 
 // docs/design/ownership.md on the Roadmap: the Owner column names a plan
 // item's owner (and its team), and the toolbar's Team, Customer and Owner
@@ -343,7 +315,7 @@ describe("ownership on the Roadmap", () => {
 
   it("offers the three filters and says what is chosen", () => {
     const b = { ...board([owned]), customers: [{ id: "cu1", name: "Hidora" }] } as unknown as Board;
-    const html = draw(b, null, false, vi.fn(), { teams: ["core"], customers: ["cu1"], owners: [] });
+    const html = draw(b, null, { teams: ["core"], customers: ["cu1"], owners: [] });
     expect(html).toMatch(/<button[^>]*aria-label="Team filter"[^>]*>[^<]*Team: core/);
     expect(html).toMatch(/<button[^>]*aria-label="Customer filter"[^>]*>[^<]*Customer: Hidora/);
     expect(html).toMatch(/<button[^>]*aria-label="Owner filter"[^>]*>[^<]*Owner: anyone/);
@@ -352,7 +324,7 @@ describe("ownership on the Roadmap", () => {
   // A filter that matches nothing is not an empty roadmap: say so, and offer
   // the way out.
   it("says nothing matches the filters, and offers to clear them", () => {
-    const html = draw(board([]), null, false, vi.fn(), { teams: [], customers: [], owners: ["nobody"] });
+    const html = draw(board([]), null, { teams: [], customers: [], owners: ["nobody"] });
     expect(html).toContain("Nothing matches the filters");
     expect(html).not.toContain("Nothing on the roadmap yet");
     expect(html).toMatch(/<button[^>]*>Clear the filters<\/button>/);
@@ -362,7 +334,7 @@ describe("ownership on the Roadmap", () => {
   // The rosters are managed from the bottom of their filters (FilterSelect's
   // Manage entry), not from buttons of their own; and No team is a team.
   it("keeps no roster button of its own, and names No team as a team", () => {
-    const html = draw(board([owned]), null, false, vi.fn(), { teams: [""], customers: [], owners: [] });
+    const html = draw(board([owned]), null, { teams: [""], customers: [], owners: [] });
     expect(html).not.toContain("Manage the customers");
     expect(html).not.toContain("roadmap-customers-btn");
     expect(html).toMatch(/aria-label="Team filter"[^>]*>Team: No team</);
@@ -392,6 +364,46 @@ describe("the Roadmap's column handles", () => {
 
   it("set the widths as CSS variables on the board, the defaults first", () => {
     const html = draw(board([goal, ini, epic, done, open]));
-    expect(html).toMatch(/class="roadmap"[^>]*style="[^"]*--rm-title:290px[^"]*--rm-table:680px/);
+    expect(html).toMatch(/class="roadmap"[^>]*style="[^"]*--rm-title:290px[^"]*--rm-table:712px/);
+  });
+});
+
+// The badge is ONE pill in two parts and the row's menu (K15, K16): the
+// effective priority on the left when there is one — an inherited one drawn
+// lighter, naming where it comes from — and the work status on the right;
+// pressed, it opens P0…P4, "No priority" and UNASSIGNED, which asks first,
+// by count.
+describe("the badge", () => {
+  it("is a button opening the menu on every row of the tree", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    expect(html).toMatch(/class="roadmap-badge roadmap-status-button"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"/);
+    // Finished work too: its priority can still be set.
+    expect(html).toMatch(/roadmap-status-button"[^>]*><span class="roadmap-status roadmap-status-done">/);
+  });
+
+  it("draws the priority and the status as one pill, or the status alone", () => {
+    const p1 = { ...open, itemId: "p1", title: "Urgent", priority: "P1" as const, effectivePriority: "P1" as const };
+    const html = draw(board([goal, ini, epic, p1, done]));
+    expect(html).toMatch(/<span class="roadmap-prio roadmap-prio-p1">P1<\/span><span class="roadmap-status roadmap-status-backlog">Backlog<\/span>/);
+    // done has no priority: the status alone.
+    expect(html).toMatch(/roadmap-status-button"[^>]*><span class="roadmap-status roadmap-status-done">Done<\/span><\/button>/);
+  });
+
+  it("draws an inherited priority lighter, naming the card it comes from", () => {
+    const under = {
+      ...open,
+      itemId: "u",
+      title: "Under",
+      effectivePriority: "P0" as const,
+      effectivePriorityFrom: { uid: "e", type: "epic" as const, title: "Invoices" },
+    };
+    const html = draw(board([goal, ini, epic, under]));
+    expect(html).toContain('<span class="roadmap-prio roadmap-prio-p0 roadmap-prio-inherited" title="from «Invoices»">P0</span>');
+  });
+
+  it("asks how many tasks leave Team and Me before taking them out of work", () => {
+    const html = renderToStaticMarkup(<UnassignDialog count={3} onClose={() => {}} onConfirm={() => {}} />);
+    expect(html).toContain("Take 3 tasks out of work? They leave Team and Me and go back to their team&#x27;s backlog.");
+    expect(html).toContain("Take out of work");
   });
 });

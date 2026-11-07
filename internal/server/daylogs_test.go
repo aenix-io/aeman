@@ -31,9 +31,8 @@ func TestDayLogsAnswersForTheVisibleCardsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedRemoteFiles(t, closed, map[string]string{
-		gitstore.BoardPath:                      "schema: 3\ntitle: closed\n",
-		gitstore.ProjectPath("01JB4PROJSECRET"): "name: secret\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		hiddenPath:                              "---\ntitle: in closed\nrank: a\ncreated: 2026-06-01T08:00:00Z\n---\n",
+		gitstore.BoardPath: "schema: 3\ntitle: closed\n",
+		hiddenPath:         "---\ntitle: in closed\nrank: a\ncreated: 2026-06-01T08:00:00Z\n---\n",
 	})
 	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{
 		"kvaps": rightsOn([]string{"shared", "closed"}, []string{"shared", "closed"}),

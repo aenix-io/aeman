@@ -8,16 +8,14 @@ import type { Board, Card as CardModel, SprintState } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { BacklogBoard } from "./components/BacklogBoard";
-import { ProjectBoard } from "./components/ProjectBoard";
 import { RoadmapBoard } from "./components/RoadmapBoard";
 import { cardIsGone, followFrame, followPatch } from "./detail";
 import { applyOrder, type OrderArg } from "./cardorder";
+import { insertedOrder, type Anchor } from "./backlogboard";
 import { presenceAfter, type PresenceMap } from "./presence";
-import { PROJECT_CARDS_KEY, storedProjectCards } from "./roadmap";
 import { ROADMAP_FILTERS_KEY, sprintTeamOf, storedRoadmapFilters, type RoadmapFilters } from "./ownership";
 import { TeamsModal } from "./components/TeamsModal";
 import { CustomersModal } from "./components/CustomersModal";
-import { readProjectFilter, writeProjectFilter } from "./projectFilter";
 import {
   boardMetadata,
   membersFrom,
@@ -46,9 +44,9 @@ import { frozenProvider } from "./providers/frozen";
 import { todayIso, setBoardTimezone } from "./date";
 import { doneAtAfter } from "./stages";
 import { mergeNotes } from "./notes";
+import { Tombstones, withTombstones } from "./tombstones";
 import { buildLink, cardLink, cardUnreadable, linkChange, parseLink, saveReturnTo, startDay, takeReturnTo, type LinkState } from "./deeplink";
 import { openWatches } from "./watch";
-import { nameConflict } from "./names";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
 
@@ -134,76 +132,22 @@ function listingMoment(lists: { asOf?: string }[]): string | null {
   return null;
 }
 
+// boardOrderOf is the board order a backlog listing carries (K14) — the
+// Backlog sorts by it — or nothing on the other views.
+function boardOrderOf(lists: { boardOrder?: string[] }[]): string[] | undefined {
+  return lists.find((l) => l.boardOrder)?.boardOrder;
+}
+
 export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [tokenWarningDismissed, setTokenWarningDismissed] = useState(false);
 
   const [{ link, kept }] = useState(initialAddress);
   const [view, setView] = useState<ViewMode>(() => link.view ?? readView());
-  // The Project filter's selection on the Project tab.
-  const [projectFilter, setProjectFilterState] = useState<string[] | null>(readProjectFilter);
-  const setProjectFilter = (keys: string[] | null) => {
-    setProjectFilterState(keys);
-    writeProjectFilter(keys);
-  };
-  // The project manager: one dialog, reached from the Project tab's chip
-  // row. Its writes return as soon as the server's cache has them; the Board
-  // watch frame repaints — nothing reloads.
-  const [managingProjects, setManagingProjects] = useState(false);
   // The team and customer rosters' dialogs, opened from the bottom of the
   // Team and Customer filters on any board that offers them.
   const [managingTeams, setManagingTeams] = useState(false);
   const [managingCustomers, setManagingCustomers] = useState(false);
-  // `domain` is the repository the project is declared in (multi-domain
-  // boards offer the choice; otherwise the server picks the primary).
-  const addProject = (name: string, domain?: string) => {
-    if (!board || !name.trim()) {
-      return;
-    }
-    // Names are one namespace across the board's repositories; the server
-    // would refuse this too, but the form should say so first.
-    const conflict = nameConflict("project", board.projects, name);
-    if (conflict) {
-      setError(conflict);
-      return;
-    }
-    setProjectFilter([name.trim()]);
-    void provider
-      .addProject(name.trim(), domain)
-      .catch((err: unknown) => setError(errMessage(err)));
-  };
-  const deleteProject = (name: string) => {
-    if (!board || !window.confirm(`Delete the project “${name}”?`)) {
-      return;
-    }
-    if (projectFilter?.includes(name)) {
-      setProjectFilter(null);
-    }
-    void provider.deleteProject(name).catch((err: unknown) => setError(errMessage(err)));
-  };
-  const renameProject = (from: string, to: string) => {
-    if (!board) {
-      return;
-    }
-    const conflict = nameConflict("project", board.projects, to, from);
-    if (conflict) {
-      setError(conflict);
-      return;
-    }
-    if (projectFilter?.includes(from)) {
-      setProjectFilter(projectFilter.map((p) => (p === from ? to : p)));
-    }
-    void provider.renameProject(from, to).catch((err: unknown) => setError(errMessage(err)));
-  };
-  const reorderProjects = (ordered: string[]) => {
-    if (!board) {
-      return;
-    }
-    // Shown in the new order at once; the frame confirms it.
-    setBoard((cur) => (cur ? { ...cur, projects: ordered } : cur));
-    void provider.reorderProjects(ordered).catch((err: unknown) => setError(errMessage(err)));
-  };
-
   // Appearance (theme mode + colour palette). Applied to <html> so the CSS
   // theme/palette overrides repaint the app; persisted in localStorage like the
   // app's other UI prefs. useLayoutEffect (not useEffect) so the attributes land
@@ -403,19 +347,8 @@ export function App() {
       // a preference, not state
     }
   }, []);
-  // The Roadmap's "Project cards" toggle is the listing's selector, not a
-  // filter of what was sent: it rides the roadmap's queries and watch
-  // (viewquery, projectCards), so turning it refetches and re-subscribes.
-  // Remembered per viewer.
-  const [projectCards, setProjectCardsState] = useState<boolean>(() => {
-    try {
-      return storedProjectCards(localStorage.getItem(PROJECT_CARDS_KEY));
-    } catch {
-      return storedProjectCards(null);
-    }
-  });
   // The Roadmap's Team, Customer and Owner filters (ownership.md, O7, O8):
-  // the listing's selectors, like the toggle above; remembered per viewer.
+  // the listing's selectors; remembered per viewer.
   const [roadmapFilters, setRoadmapFiltersState] = useState<RoadmapFilters>(() => {
     try {
       return storedRoadmapFilters(localStorage.getItem(ROADMAP_FILTERS_KEY));
@@ -431,15 +364,6 @@ export function App() {
       // a preference, not state
     }
   }, []);
-  const setProjectCards = useCallback((next: boolean) => {
-    setProjectCardsState(next);
-    try {
-      localStorage.setItem(PROJECT_CARDS_KEY, next ? "1" : "0");
-    } catch {
-      // a preference, not state
-    }
-  }, []);
-
   // The sprint pointers as they stand TODAY. A past day is served as a record
   // — its cards, its roster and its pointers are that day's — so the board in
   // hand cannot say where the current sprint is while a record is on screen,
@@ -697,10 +621,13 @@ export function App() {
   recordsRef.current = records;
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
+  // The cards this tab deleted, so a frame sent mid-delete cannot draw one
+  // again (tombstones.ts).
+  const tombstones = useRef(new Tombstones());
   const provider = useMemo(
     () =>
       frozenProvider(
-        guardSignedOut(apiProvider, onSignedOut),
+        withTombstones(guardSignedOut(apiProvider, onSignedOut), tombstones.current),
         (uid) => recordsRef.current.has(uid),
         // A write that names no card (a create, a carry-over) is refused
         // whenever the board being read IS a record — the same question the
@@ -873,9 +800,9 @@ export function App() {
         teamFilter ?? [...new Set([...roster, ""])],
         viewAs ?? undefined,
         undefined,
-        { projectCards, filters: roadmapFilters, customers: customerFilter },
+        { filters: roadmapFilters, customers: customerFilter },
       ),
-    [view, selectedDate, teamFilter, roster, viewAs, projectCards, roadmapFilters, customerFilter],
+    [view, selectedDate, teamFilter, roster, viewAs, roadmapFilters, customerFilter],
   );
   const activeKey = activeQueries.map(queryString).join("|");
   // Which BOARD the reader is standing on, for the gestures made on it: the ×,
@@ -917,9 +844,9 @@ export function App() {
         selectedDate,
         teamFilter ?? [...new Set([...roster, ""])],
         viewAs ?? undefined,
-        { projectCards, filters: roadmapFilters, customers: customerFilter },
+        { filters: roadmapFilters, customers: customerFilter },
       ).map(queryString),
-    [view, selectedDate, teamFilter, roster, viewAs, projectCards, roadmapFilters, customerFilter],
+    [view, selectedDate, teamFilter, roster, viewAs, roadmapFilters, customerFilter],
   );
   // One string for the watch effect's dep: the sockets are rebuilt only when
   // the selections actually change.
@@ -1052,6 +979,7 @@ export function App() {
       setBoard((cur) => ({
         ...loaded,
         cards: mergeCardLists(lists.map((l) => l.cards), cur?.cards, justMade),
+        boardOrder: boardOrderOf(lists),
       }));
     } catch (err: unknown) {
       // A day the history no longer reaches (410) — or storage that keeps
@@ -1106,6 +1034,7 @@ export function App() {
                 ...cur,
                 ...(loaded ? { ...loaded, cards: cur.cards } : {}),
                 cards: mergeCardLists(lists.map((l) => l.cards), cur.cards, justMade),
+                boardOrder: boardOrderOf(lists),
               }
             : cur,
         );
@@ -1257,6 +1186,12 @@ export function App() {
   const reorderCards = useCallback((order: OrderArg) => {
     setBoard((cur) => (cur ? { ...cur, cards: applyOrder(cur.cards, order) } : cur));
   }, []);
+  // The Backlog's own drop moves the card right beside its anchor in the
+  // board's order its list is sorted by (K14), as the server is about to;
+  // the watch does not echo the tab's own move.
+  const moveInBoardOrder = useCallback((id: string, anchor: Anchor) => {
+    setBoard((cur) => (cur?.boardOrder ? { ...cur, boardOrder: insertedOrder(cur.boardOrder, id, anchor) } : cur));
+  }, []);
 
   // Live updates: the server pushes resource events over an unscoped WebSocket
   // watch (Kubernetes style). We LIST via loadBoard, then mirror the ADDED /
@@ -1271,11 +1206,13 @@ export function App() {
   boardRef.current = board;
   // The day feed (MeBoard) subscribes here to hear about Card watch frames —
   // a foreign note or move must land in the feed without a reload. Own
-  // mutations never arrive (the watch is keyed by ?client=, and the server
-  // skips this tab's echoes), so every frame relayed is someone else's.
-  const cardFrameListeners = useRef(new Set<(uid: string, deleted: boolean) => void>());
+  // mutations mostly never arrive (the watch is keyed by ?client=, and the
+  // server skips this tab's echoes) — except a DELETED for a card gone from
+  // the board, which the author is told too (G87); relaying it drops an
+  // entry that is already gone, which changes nothing.
+  const cardFrameListeners = useRef(new Set<(uid: string, deleted: boolean, card?: CardModel) => void>());
   const subscribeCardFrames = useCallback(
-    (fn: (uid: string, deleted: boolean) => void) => {
+    (fn: (uid: string, deleted: boolean, card?: CardModel) => void) => {
       cardFrameListeners.current.add(fn);
       return () => {
         cardFrameListeners.current.delete(fn);
@@ -1295,7 +1232,7 @@ export function App() {
       // A past day on screen is a picture of a day that ended. Live frames
       // are about TODAY's board — applying them here would edit the picture
       // card by card until it showed neither day. The board's own structure
-      // (projects, columns, the sync counter) is not of any day and still
+      // (teams, customers, the sync counter) is not of any day and still
       // arrives; returning to today re-lists everything anyway.
       if (snapshotRef.current) {
         // The records on screen are of a day that ended; today's traffic is
@@ -1318,7 +1255,7 @@ export function App() {
       if (frame.kind === "Sync") {
         return;
       }
-      // The board's STRUCTURE changed — a project, a column, a deadline. The
+      // The board's STRUCTURE changed — a team, a customer. The
       // frame carries the board itself, so it is applied the way a Card frame
       // is: no round trip, and our own roster writes need no reload either.
       if (frame.kind === "Board") {
@@ -1351,10 +1288,15 @@ export function App() {
         return;
       }
       if (frame.kind === "Card") {
+        // A frame that would bring back a card this tab just deleted — sent
+        // between the delete's writes — is turned away; its DELETED is not.
+        if (tombstones.current.blocks(frame.object.metadata.uid ?? "", frame.type)) {
+          return;
+        }
         const card = resourceToCard(frame.object);
         const notifyCardFrame = (deleted: boolean) => {
           for (const fn of cardFrameListeners.current) {
-            fn(card.itemId, deleted);
+            fn(card.itemId, deleted, card);
           }
         };
         // The drawer's card hears its frames even when no board lists it, and
@@ -1413,6 +1355,10 @@ export function App() {
       }
       if (frame.kind === "Ordering") {
         reorderCards(frame.object.spec.uids);
+        // The whole board's order: what the Backlog sorts by (K14) — a plan
+        // item moved on the Roadmap takes its tasks with it.
+        const uids = frame.object.spec.uids;
+        setBoard((cur) => (cur?.boardOrder ? { ...cur, boardOrder: uids } : cur));
         return;
       }
       if (frame.kind === "Presence") {
@@ -1622,7 +1568,7 @@ export function App() {
         {/* The day belongs to the app, not to a board: it is the same value
             whichever day board is open, so the control that moves it stands
             with the view tabs rather than being drawn again inside each. The
-            boards that are not of a day (Backlog, Roadmap, Project) have no
+            boards that are not of a day (Backlog, Roadmap) have no
             day to show. */}
         {(view === "me" || view === "team") && (
           <DayNav
@@ -1709,15 +1655,6 @@ export function App() {
           >
             Roadmap
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={view === "project"}
-            className={`segment${view === "project" ? " segment-active" : ""}`}
-            onClick={() => chooseView("project")}
-          >
-            Project
-          </button>
         </div>
       </div>
 
@@ -1755,22 +1692,6 @@ export function App() {
             presence={presence}
           />
         )}
-        {board && view === "project" && (
-          <ProjectBoard
-            board={board}
-            provider={provider}
-            filter={projectFilter}
-            onSetFilter={setProjectFilter}
-            onManageProjects={() => setManagingProjects(true)}
-            patchCard={patchCard}
-            addCard={addCard}
-            replaceCard={replaceCard}
-            removeCard={removeCard}
-            reload={reload}
-            onError={onError}
-            onOpen={openCard}
-          />
-        )}
         {board && view === "roadmap" && (
           <RoadmapBoard
             board={board}
@@ -1788,8 +1709,6 @@ export function App() {
             onOpen={openCard}
             focusId={roadmapFocus}
             onFocused={() => setRoadmapFocus(null)}
-            showProjects={projectCards}
-            onShowProjects={setProjectCards}
             filters={roadmapFilters}
             onFilters={setRoadmapFilters}
             onManageTeams={() => setManagingTeams(true)}
@@ -1813,6 +1732,7 @@ export function App() {
             addCard={addCard}
             removeCard={removeCard}
             reorderCards={reorderCards}
+            moveInBoardOrder={moveInBoardOrder}
             reload={reload}
             onOpen={openCard}
             onError={onError}
@@ -1885,20 +1805,6 @@ export function App() {
         />
       )}
 
-      {board && managingProjects && (
-        <TeamsModal
-          teams={board.projects}
-          title="Manage projects"
-          entity="project"
-          domains={board.domains}
-          onAdd={addProject}
-          onRename={renameProject}
-          onRemove={deleteProject}
-          onReorder={reorderProjects}
-          onClose={() => setManagingProjects(false)}
-        />
-      )}
-
       {board && detailCard && (
         <CardDetail
           card={board.cards.find((c) => c.itemId === detailCard.itemId) ?? detailCard}
@@ -1912,6 +1818,7 @@ export function App() {
           onReveal={revealOnRoadmap}
           onOpenCard={openWithin}
           onBack={detailStack.length > 0 ? backInDetail : undefined}
+          subscribeCardFrames={subscribeCardFrames}
           cardLinkFor={(uid) => cardLink(window.location.origin, window.location.pathname, view, uid, selectedDate, todayIso())}
           onError={onError}
           onCustomerAdded={(cu) =>

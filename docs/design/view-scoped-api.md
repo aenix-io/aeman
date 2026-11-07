@@ -8,6 +8,8 @@ This is the second half of what [api-redesign.md](api-redesign.md) set out to do
 
 > **2026-11-03:** the Triage board (`triage`, its `place` and `untriage` gestures, the `from`/`weeks` selectors and `week` on a task) is retired by [backlog.md](backlog.md); the tables below say what the views are now, and the prose keeps the reasoning of the change that introduced them.
 
+> **2026-11-07:** the Project board (`project`, its columns, deadlines and project cards, the `/projects`, `/scopes` and `/deadlines` routes, `scope` on a create) is removed ([hierarchy.md](hierarchy.md), "Removed: the Project board"); the tables below no longer list it.
+
 ADR 0002 says the API and MCP mirror the frontend, not the backend. Two audits of the live tool set found where that stopped being true, and the pattern in both is the same: **the board's vocabulary is views and gestures, and the API's vocabulary is fields.**
 
 A person creating a card does it on a board, and the board is what makes the card what it is: typed into the Me board it is theirs, today, in this sprint; typed into a Triage week it is scheduled for that week and stands on no day; typed into the drawer it is parked; typed into a Project column it is a slot whose row is its start date. An agent creating the same cards sends `week`, `parked`, `scope`+`project` — flags that encode the boards, and nothing tells it which combinations are boards and which are states no board draws: `parked` with a `week` is a card in the drawer and in the plan at once, which the service now refuses.
@@ -53,10 +55,9 @@ That is also why PATCH and DELETE stay off the view. Patching a field is not a g
 | `team` | the lead's day grid | the cards of `team=` on `day`, everyone's |
 | `backlog` | the teams' backlogs | each named team's parked open tasks, in backlog order (`backlog.md`, K2) |
 | `roadmap` | the Roadmap | the hierarchy, board-wide: every goal, initiative and epic, and every card with one above it — and, below the tree, every open task with none above it yet: in hand or parked (`hierarchy.md`, H9) |
-| `project` | the Project board | every card filed under a column |
 | `all` | no board | everything the caller may read — the escape hatch, and it has to be said out loud |
 
-`process` is not here: the Process board draws structure (processes and their tasks), which is view-less below, and the cards it shows are `project`'s.
+`process` is not here: the Process board drew structure (processes and their tasks), which was view-less, and the cards it showed were the Project board's — both are gone now.
 
 `GET /api/v1/views` answers with the list a caller may open, each with the GESTURES it draws — so a client (or an agent) can discover the surface instead of being told it in a description.
 
@@ -68,11 +69,10 @@ Three things, in the order they bite.
 
 | create in | the card that comes out | refused |
 | --- | --- | --- |
-| `me` | on the caller, `day` (today by default), the team's current sprint, in the UNPLANNED band (a subtask takes its parent's instead) | `scope`, `parked`, any other band |
-| `team` | on `team=`, `day`, that team's current sprint, in any band; `assignee` optional (the Unassigned column) | `scope`, `parked` |
-| `backlog` | in `team=`'s backlog: parked, last, no dates, no sprint | a `day`, `scope` |
+| `me` | on the caller, `day` (today by default), the team's current sprint, in the UNPLANNED band (a subtask takes its parent's instead) | `parked`, `type`, any other band |
+| `team` | on `team=`, `day`, that team's current sprint, in any band; `assignee` optional (the Unassigned column) | `parked`, `type` |
+| `backlog` | in `team=`'s backlog: parked, last, no dates, no sprint | a `day`, `type` |
 | `roadmap` | a PLANNING card: `type`, its dates and a `parent` of a higher level — no owner, no team, no sprint, no band (H3); or a TASK under a planning `parent`, undated unless dated — parked in the no-team backlog when undated (H7, K3) | `scope`, `parked`, `reviewOf`, a sprint, a team, an assignee, a band, a size |
-| `project` | a slot under `scope` (+`project`): its row is `dates`, no sprint; a planning `parent` allowed | `parked`, `team`, `assignee`, `reviewOf`, `type` |
 | `all` | exactly what the fields say, as today | nothing |
 
 Every board but the roadmap refuses `type`: a goal, an initiative or an epic is made on the Roadmap and nowhere else (H7).
@@ -99,8 +99,7 @@ The board's structure: the roster and the pointers, one per board, owned by no v
 
 ```
 /api/v1/board            /api/v1/sprints          /api/v1/people/{login}
-/api/v1/teams/…          /api/v1/projects/…       /api/v1/scopes/…
-/api/v1/processes/…      /api/v1/processes/tasks/…  /api/v1/deadlines/…
+/api/v1/teams/…          /api/v1/customers/…
 /api/v1/presence         /api/healthz
 ```
 

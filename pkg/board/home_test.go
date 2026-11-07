@@ -2,36 +2,6 @@ package board
 
 import "testing"
 
-// A mirror is the same card standing in a second Project-board column: one
-// file, one log, one set of dates — shown in both places. The card's own
-// (project, scope) pair stays its home and keeps deciding where it lives
-// (the domain rule reads the primary, never a mirror); mirrors only add
-// columns that SHOW it.
-
-// ColumnDomain answers for the column itself, and says so plainly when the
-// roster does not declare one at all.
-func TestColumnDomainReadsTheColumnsOwnStub(t *testing.T) {
-	b := NewBoard([]Card{
-		{ItemID: "pr-e", Title: ProjectStateTitle, Project: "engineering"},
-		{ItemID: "ep-cozy", Title: ScopeStateTitle, Scope: "Cozystack", Project: "engineering"},
-		{ItemID: "ep-far", Title: ScopeStateTitle, Scope: "Far", Project: "engineering", Domain: "founders"},
-		{ItemID: "ep-loose", Title: ScopeStateTitle, Scope: "Loose"},
-	})
-	if d, ok := ColumnDomain(b, "engineering", "Cozystack"); !ok || d != "" {
-		t.Fatalf("a primary column names no repository: %q %v", d, ok)
-	}
-	// The same PROJECT name, a column declared elsewhere: the column wins.
-	if d, ok := ColumnDomain(b, "engineering", "Far"); !ok || d != "founders" {
-		t.Fatalf("the column carries its own repository: %q %v", d, ok)
-	}
-	if d, ok := ColumnDomain(b, "", "Loose"); !ok || d != "" {
-		t.Fatalf("the no-project bucket is a column and has one: %q %v", d, ok)
-	}
-	if _, ok := ColumnDomain(b, "engineering", "Ghost"); ok {
-		t.Fatal("a column nobody declared answers nothing")
-	}
-}
-
 // Followers is what the guard walks, and the store's cascade recurses — so
 // it must too, and survive a hand-written cycle rather than spin on it.
 func TestFollowersWalkTheWholeTreeAndSurviveACycle(t *testing.T) {
@@ -76,20 +46,18 @@ func TestFollowersWalkTheWholeTreeAndSurviveACycle(t *testing.T) {
 	}
 }
 
-// And ColumnDomain answers in that namespace: an entry the store stamped
-// with the primary's name, and one left unstamped by a hand-built board,
-// are the same repository.
-func TestColumnDomainAnswersInThePrimarysName(t *testing.T) {
+// TeamDomain and HomeDomain answer in the board's ONE namespace: an entry
+// the store stamped with the primary's name, and one left unstamped by a
+// hand-built board, are the same repository.
+func TestARosterEntryAnswersInThePrimarysName(t *testing.T) {
 	b := NewBoardIn("aeman-db", []Card{
-		{ItemID: "ep-inbox", Title: ScopeStateTitle, Scope: "Inbox", Domain: "aeman-db"},
-		{ItemID: "ep-bare", Title: ScopeStateTitle, Scope: "Bare"},
+		{ItemID: "st-stamped", Title: SprintStateTitle, Team: "stamped", Domain: "aeman-db"},
+		{ItemID: "st-bare", Title: SprintStateTitle, Team: "bare"},
 	})
-	stamped, _ := ColumnDomain(b, "", "Inbox")
-	bare, _ := ColumnDomain(b, "", "Bare")
-	if stamped != "aeman-db" || bare != "aeman-db" {
+	if stamped, bare := TeamDomain(b, "stamped"), TeamDomain(b, "bare"); stamped != "aeman-db" || bare != "aeman-db" {
 		t.Fatalf("both are of the primary: %q and %q", stamped, bare)
 	}
-	if got := HomeDomain(b, Card{Scope: "Inbox"}); got != "aeman-db" {
+	if got := HomeDomain(b, Card{}); got != "aeman-db" {
 		t.Fatalf("a card nothing places belongs to the primary too: %q", got)
 	}
 }

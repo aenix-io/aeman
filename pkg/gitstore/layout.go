@@ -39,6 +39,16 @@ func CardPath(id string) (string, error) {
 type CardFile struct {
 	Card  board.Card
 	Extra []ExtraField
+	// Week is the `week` a file written before schema 3 still carries. No
+	// card has one (K7): it is read for the schema-3 bump and the importer,
+	// which place a task by it, and never written back.
+	Week string
+	// ProjectCard reports a file the board no longer reads: a card in a
+	// Project-board column, a `scope` (or the pre-schema-2 `epic`) in its
+	// front matter. Project cards were removed with the Project board (H15);
+	// their files stay in the repository untouched, and every reader skips
+	// them — so nothing ever writes or deletes one either.
+	ProjectCard bool
 }
 
 // ExtraField is an unknown front-matter key, kept in first-seen order.
@@ -96,6 +106,7 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	}
 	w("zone", string(c.Zone))
 	w("size", string(c.Size))
+	w("priority", string(c.Priority))
 	w("stage", string(c.Stage))
 	wi("progress", c.Progress)
 	wi("doneFrom", c.DoneFrom)
@@ -110,8 +121,6 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	if c.Parked {
 		b.WriteString("parked: true\n")
 	}
-	w("project", c.Project)
-	w("scope", c.Scope)
 	w("parent", c.Parent)
 	w("reviewOf", c.ReviewOf)
 	wi("reviewRound", c.ReviewRound)
@@ -265,7 +274,7 @@ func decodeFront(f *CardFile, front []byte) error {
 	m := doc.Content[0]
 	for i := 0; i+1 < len(m.Content); i += 2 {
 		key, val := m.Content[i].Value, m.Content[i+1]
-		if !setKnown(&f.Card, key, val) {
+		if !setKnown(f, key, val) {
 			// An unknown key is kept verbatim so a newer server does not lose
 			// it — but its value node is marshalled ALONE on re-encode, so an
 			// alias (`*t`) whose anchor (`&t`) sits on another key would be
@@ -315,18 +324,13 @@ func resolveNode(n *yaml.Node, seen map[*yaml.Node]bool) *yaml.Node {
 // more: on a file written before the migration they ride through as Extra,
 // so a record of that day still shows the card as it stood, and the
 // migration strips them once rather than every reader forgetting them.
-func setKnown(c *board.Card, key string, val *yaml.Node) bool {
+func setKnown(f *CardFile, key string, val *yaml.Node) bool {
+	c := &f.Card
 	num := func() int { n, _ := strconv.Atoi(val.Value); return n }
 	strs := map[string]*string{
 		"title": &c.Title, "type": &c.Type, "author": &c.Author, "team": &c.Team, "owner": &c.Owner, "start": &c.StartDate,
-		"day": &c.Day, "sprint": &c.SprintStart, "week": &c.Week, "project": &c.Project,
-		"scope": &c.Scope, "parent": &c.Parent, "reviewOf": &c.ReviewOf, "recurrence": &c.Recurrence,
-		// `epic` is what the column key was called before schema 2: read as
-		// an alias so a pre-migration file, or a pre-migration day served as
-		// it stood, still files the card under its column; written back as
-		// `scope`. (Nothing to do with the planning level of the same name,
-		// which is a card TYPE — docs/design/hierarchy.md.)
-		"epic": &c.Scope,
+		"day": &c.Day, "sprint": &c.SprintStart, "week": &f.Week,
+		"parent": &c.Parent, "reviewOf": &c.ReviewOf, "recurrence": &c.Recurrence,
 		"link": &c.Link, "github": &c.GitHubID,
 		"movedFrom": &c.MovedFrom, "movedAt": &c.MovedAt, "rank": &c.Rank, "created": &c.CreatedAt,
 	}
@@ -349,6 +353,18 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 		c.Size = board.SizeKey(val.Value)
 	case "stage":
 		c.Stage = board.StageKey(val.Value)
+	case "scope", "epic":
+		// A card in a Project-board column — `epic` is what the key was
+		// called before schema 2 (nothing to do with the planning level of
+		// the same name, which is a card TYPE). Project cards are gone (H15):
+		// the file is marked for every reader to skip, never rewritten.
+		if val.Value != "" {
+			f.ProjectCard = true
+		}
+	case "project":
+		// A project name on a card in no column filed it nowhere; with the
+		// Project board gone it means nothing, and is read and dropped like
+		// `plan` below rather than ridden through on every edit.
 	case "plan":
 		// The weekly plan is gone. The key is READ and dropped rather than
 		// left unknown: an unknown key rides through in Extra and would be
@@ -366,6 +382,14 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 		c.ReviewRound = num()
 	case "parked":
 		c.Parked = val.Value == "true"
+	case "priority":
+		// A value the board has no such thing as is an UNKNOWN key: kept
+		// as it is, and no priority — it neither shadows what the card
+		// inherits nor reaches a status.
+		if !board.ValidPriority(val.Value) {
+			return false
+		}
+		c.Priority = board.PriorityKey(val.Value)
 	default:
 		return false
 	}

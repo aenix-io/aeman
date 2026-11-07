@@ -94,22 +94,6 @@ describe("the rest of a day on the Me board", () => {
   });
 });
 
-// A card in a Scope column is a PROJECT CARD and is drawn on the Project
-// board alone (H4): it has no owner to look for it here, and one written
-// before schema 2 that still names one is a plan all the same. Mirrors
-// board.MeView.
-describe("a project card is on nobody's Me board", () => {
-  it("is not drawn whatever its dates, sprint or stale owner say", () => {
-    const plan = card({ scope: "Storage", project: "P", startDate: TODAY, day: TODAY, sprintStart: THIS_WEEK });
-    expect(onMyDay(plan, board, TODAY, TODAY)).toBe(false);
-    expect(onMyDay({ ...plan, assignees: ["u"] }, board, TODAY, TODAY)).toBe(false);
-  });
-
-  it("leaves a card that merely names a project as an ordinary task", () => {
-    expect(onMyDay(card({ project: "P", startDate: TODAY, day: TODAY }), board, TODAY, TODAY)).toBe(true);
-  });
-});
-
 // The Me board's Team filter (O12) hides the viewer's own cards of other
 // teams — and says how many it hides: the "N more tasks" button, counted
 // over exactly what the board would draw on the day with no filter, which

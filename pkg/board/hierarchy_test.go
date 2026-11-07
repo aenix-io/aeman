@@ -20,8 +20,8 @@ func hierarchyBoard() Board {
 		{ItemID: "t1a", Title: "Invoice PDF", Parent: "t1", Team: "alpha", Progress: 100},
 		// A task straight under the goal, finished.
 		{ItemID: "t2", Title: "Pricing page", Parent: "goal", Team: "alpha", Progress: 100},
-		// A project card under the initiative.
-		{ItemID: "p1", Title: "Legal review", Parent: "init", Scope: "Compliance", Project: "eu"},
+		// A task straight under the initiative.
+		{ItemID: "p1", Title: "Legal review", Parent: "init", Team: "alpha"},
 		// A plain task, and a subtask of it: no planning card above either.
 		{ItemID: "t3", Title: "Fix build", Team: "alpha"},
 		{ItemID: "t3a", Title: "Flaky test", Parent: "t3", Team: "alpha"},
@@ -197,31 +197,39 @@ func TestHierarchyStatusIsDerivedFromTheLeafTasks(t *testing.T) {
 		c, _ := Find(b, id)
 		return HierarchyStatus(b, c)
 	}
+	// t1 is in work: in its sprint.
+	for i := range b.Cards {
+		if b.Cards[i].ItemID == "t1" {
+			b.Cards[i].SprintStart = TodayIso()
+		}
+	}
 	if st, done, total := status("goal"); st != HierarchyInProgress || done != 1 || total != 3 {
-		t.Errorf("goal: %s %d/%d, want in-progress 1/3 (t2 done, t1 at 40, p1 at 0)", st, done, total)
+		t.Errorf("goal: %s %d/%d, want in-progress 1/3 (t2 done, t1 in work, p1 waiting)", st, done, total)
 	}
 	if st, done, total := status("epic"); st != HierarchyInProgress || done != 0 || total != 1 {
-		t.Errorf("epic: %s %d/%d, want in-progress 0/1 (t1 is at 40)", st, done, total)
+		t.Errorf("epic: %s %d/%d, want in-progress 0/1 (t1 is in work)", st, done, total)
 	}
 	// Nothing under it at all: NO ITEMS — not "to do", which would read as
 	// work waiting when there is no work.
 	if st, done, total := status("empty"); st != HierarchyNoItems || done != 0 || total != 0 {
 		t.Errorf("empty: %s %d/%d, want no-items 0/0", st, done, total)
 	}
-	// Only project cards under it, none started and nobody's: TO DO. One
-	// of them done and the rest untouched: in progress. All done: done.
+	// Only tasks under it, all waiting in a backlog: BACKLOG. One of them
+	// done and the rest waiting: still BACKLOG — nothing is in work — and
+	// the count says how far it got (K16, the roll-up off where open tasks
+	// stand).
 	plan := NewBoard([]Card{
 		{ItemID: "e", Type: TypeEpic},
-		{ItemID: "a", Parent: "e", Scope: "S"},
-		{ItemID: "b", Parent: "e", Scope: "S"},
+		{ItemID: "a", Parent: "e", Team: "t", Parked: true},
+		{ItemID: "b", Parent: "e", Team: "t", Parked: true},
 	})
 	e, _ := Find(plan, "e")
-	if st, _, total := HierarchyStatus(plan, e); st != HierarchyTodo || total != 2 {
-		t.Errorf("untouched project cards: %s/%d, want todo/2", st, total)
+	if st, _, total := HierarchyStatus(plan, e); st != HierarchyBacklog || total != 2 {
+		t.Errorf("waiting tasks: %s/%d, want backlog/2", st, total)
 	}
 	plan.Cards[1].Progress = 100
-	if st, done, _ := HierarchyStatus(plan, e); st != HierarchyInProgress || done != 1 {
-		t.Errorf("one done: %s %d, want in-progress 1", st, done)
+	if st, done, _ := HierarchyStatus(plan, e); st != HierarchyBacklog || done != 1 {
+		t.Errorf("one done, one waiting: %s %d, want backlog 1", st, done)
 	}
 	plan.Cards[2].Progress = 100
 	if st, done, total := HierarchyStatus(plan, e); st != HierarchyDone || done != 2 || total != 2 {
@@ -234,63 +242,31 @@ func TestHierarchyStatusIsDerivedFromTheLeafTasks(t *testing.T) {
 	}
 }
 
-// A card in a column and a planning card have no band and no size — the
-// Project board and the Roadmap draw neither, and a file that still carries
+// A planning card has no band and no size — the Roadmap draws neither,
+// and a file that still carries
 // the keys (a repository migrated before the rule, a direct writer) must not
 // put them back on the wire. They are taken off on READ, where every other
 // reading of a file is settled, and the card's next rewrite drops the keys.
 // A task keeps both.
-func TestACardInAColumnOrOfALevelReadsWithNoZoneOrSize(t *testing.T) {
+func TestACardOfALevelReadsWithNoZoneOrSize(t *testing.T) {
 	t.Parallel()
 	b := NewBoard([]Card{
-		{ItemID: "plan", Scope: "Infra", Project: "P", Zone: ZoneRed, Size: SizeM, SprintStart: "2026-08-24", Week: "2026-08-24"},
-		{ItemID: "epic", Type: TypeEpic, Zone: ZoneYellow, Size: SizeXL, SprintStart: "2026-08-24", Week: "2026-08-24"},
-		{ItemID: "task", Team: "t", Zone: ZoneGreen, Size: SizeS, SprintStart: "2026-08-24", Week: "2026-08-24"},
+		{ItemID: "epic", Type: TypeEpic, Zone: ZoneYellow, Size: SizeXL, SprintStart: "2026-08-24"},
+		{ItemID: "task", Team: "t", Zone: ZoneGreen, Size: SizeS, SprintStart: "2026-08-24"},
 	})
-	for _, id := range []string{"plan", "epic"} {
+	for _, id := range []string{"epic"} {
 		c, _ := Find(b, id)
 		if c.Zone != ZoneNone || c.Size != "" {
 			t.Errorf("%s reads with zone %q size %q, want neither", id, c.Zone, c.Size)
 		}
-		// Nor a sprint or a week: no day board draws it, so a sprint on it
-		// is a sprint a carry-over would move for nothing (H3, H4).
-		if c.SprintStart != "" || c.Week != "" {
-			t.Errorf("%s reads with sprint %q week %q, want neither", id, c.SprintStart, c.Week)
+		// Nor a sprint: no day board draws it, so a sprint on it is a
+		// sprint a carry-over would move for nothing (H3).
+		if c.SprintStart != "" {
+			t.Errorf("%s reads with sprint %q, want none", id, c.SprintStart)
 		}
 	}
-	if c, _ := Find(b, "task"); c.Zone != ZoneGreen || c.Size != SizeS || c.SprintStart == "" || c.Week != "" {
-		t.Errorf("a task keeps its band, size and sprint and reads no week (K7), got %+v", c)
-	}
-}
-
-// A card in a column is DRAWN by its dates — they are its row on the Project
-// board — and the week is read off it (above). A card that had a week and no
-// dates (a slot of the weekly plan, filed before the week→dates conversion
-// existed) would then have no row at all: on no board, and nothing to bring
-// it back. So the week it was owed in BECOMES its dates, Monday to Friday,
-// before it is dropped — the same conversion the door that files a card into
-// a column makes (WeekAsDates). Dates it already has win; a task's week is
-// read as nothing (K7) and no dates are invented for it; a planning card
-// never had one to convert.
-func TestAWeekOnlyProjectCardReadsAsItsWeeksDates(t *testing.T) {
-	t.Parallel()
-	b := NewBoard([]Card{
-		{ItemID: "slot", Scope: "Infra", Project: "P", Week: "2026-10-05"},
-		{ItemID: "dated", Scope: "Infra", Project: "P", StartDate: "2026-10-01", Day: "2026-10-03", Week: "2026-10-05"},
-		{ItemID: "task", Team: "t", Week: "2026-10-05"},
-		{ItemID: "epic", Type: TypeEpic, Week: "2026-10-05"},
-	})
-	if c, _ := Find(b, "slot"); c.StartDate != "2026-10-05" || c.Day != "2026-10-09" || c.Week != "" {
-		t.Errorf("a week-only column card reads as start %q day %q week %q, want its week's Monday..Friday and no week", c.StartDate, c.Day, c.Week)
-	}
-	if c, _ := Find(b, "dated"); c.StartDate != "2026-10-01" || c.Day != "2026-10-03" || c.Week != "" {
-		t.Errorf("a column card's own dates win over its week, got start %q day %q week %q", c.StartDate, c.Day, c.Week)
-	}
-	if c, _ := Find(b, "task"); c.Week != "" || c.StartDate != "" {
-		t.Errorf("a task's week is read as nothing and no dates are invented, got %+v", c)
-	}
-	if c, _ := Find(b, "epic"); c.StartDate != "" || c.Day != "" || c.Week != "" {
-		t.Errorf("a planning card's stray week is dropped and no dates invented, got %+v", c)
+	if c, _ := Find(b, "task"); c.Zone != ZoneGreen || c.Size != SizeS || c.SprintStart == "" {
+		t.Errorf("a task keeps its band, size and sprint, got %+v", c)
 	}
 }
 
@@ -361,12 +337,11 @@ func TestAPlanningCardReadsWithNoAssigneeAndKeepsItsTeam(t *testing.T) {
 	}
 }
 
-// Somebody being ON a task is work in progress, before the first percent is
-// typed: an initiative whose tasks are all assigned and none started is
-// being worked, and the Roadmap must say so. An unassigned, unstarted task
-// is to do; a task somebody owns is in progress; and a card that is a
-// subtask's parent counts once, assigned or not.
-func TestAnAssignedLeafTaskPutsItsPlanningCardInProgress(t *testing.T) {
+// A task taken into work is work in progress before the first percent is
+// typed: an initiative with a task in hand is being worked, and the Roadmap
+// must say so. With nothing in work it is waiting (backlog); and a card that
+// is a subtask's parent counts once.
+func TestALeafTaskInWorkPutsItsPlanningCardInProgress(t *testing.T) {
 	t.Parallel()
 	b := NewBoard([]Card{
 		{ItemID: "i", Type: TypeInitiative},
@@ -375,12 +350,14 @@ func TestAnAssignedLeafTaskPutsItsPlanningCardInProgress(t *testing.T) {
 		{ItemID: "t2", Parent: "e"},
 	})
 	i, _ := Find(b, "i")
-	if st, done, total := HierarchyStatus(b, i); st != HierarchyTodo || done != 0 || total != 2 {
-		t.Fatalf("nobody on anything: %s %d/%d, want todo 0/2", st, done, total)
+	if st, done, total := HierarchyStatus(b, i); st != HierarchyBacklog || done != 0 || total != 2 {
+		t.Fatalf("nothing in work: %s %d/%d, want backlog 0/2", st, done, total)
 	}
-	b.Cards[2].Assignees = []string{"ann"}
+	// Taken into work — a person, today, the sprint: in progress before the
+	// first percent is typed.
+	b.Cards[2].Assignees, b.Cards[2].SprintStart = []string{"ann"}, TodayIso()
 	if st, done, total := HierarchyStatus(b, i); st != HierarchyInProgress || done != 0 || total != 2 {
-		t.Fatalf("one task owned, none started: %s %d/%d, want in-progress 0/2", st, done, total)
+		t.Fatalf("one task in work, none started: %s %d/%d, want in-progress 0/2", st, done, total)
 	}
 	// Its subtask is nobody's and counts through its parent only.
 	b.Cards = append(b.Cards, Card{ItemID: "t1a", Parent: "t1"})
@@ -474,7 +451,7 @@ func TestSubtaskHelpersStopAtPlanningCards(t *testing.T) {
 }
 
 // The domain rule: a subtask lives where its parent lives; a task under a
-// planning card lives where ITS OWN project or team lives (H6). The resolver
+// planning card lives where ITS OWN team lives (H6). The resolver
 // says which kind the parent is.
 func TestAHierarchyLinkDoesNotPlaceTheChild(t *testing.T) {
 	t.Parallel()

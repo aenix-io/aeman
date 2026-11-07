@@ -20,9 +20,6 @@ func hierarchySeed(today string) *fakeBackend {
 			StartDate: today, Day: today, SprintStart: today},
 		{ItemID: "loose", Title: "Loose", Team: "alpha", Assignees: []string{"dev"},
 			StartDate: today, Day: today, SprintStart: today},
-		{ItemID: "slot", Title: "Legal", Scope: "Compliance", Project: "eu"},
-		{ItemID: board.ScopeStateTitle + "-stub", Title: board.ScopeStateTitle, Scope: "Compliance", Project: "eu"},
-		{ItemID: "p-stub", Title: board.ProjectStateTitle, Project: "eu"},
 	}, map[string]board.SprintState{"alpha": {Current: today}})
 }
 
@@ -42,8 +39,8 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 		if c.Type != board.TypeInitiative || c.Parent != "goal" || c.Team != "" || len(c.Assignees) != 0 {
 			t.Fatalf("card = %+v", c)
 		}
-		if c.SprintStart != "" || c.Week != "" || c.Zone != board.ZoneNone || c.Size != "" {
-			t.Fatalf("a planning card joins no sprint, no week, no band and no size: %+v", c)
+		if c.SprintStart != "" || c.Zone != board.ZoneNone || c.Size != "" {
+			t.Fatalf("a planning card joins no sprint, no band and no size: %+v", c)
 		}
 		if c.StartDate != today || c.Day != board.AddDays(today, 60) {
 			t.Fatalf("dates = %s..%s", c.StartDate, c.Day)
@@ -113,7 +110,6 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 			"an owner":  func(a *CreateCardArgs) { a.Assignee = "dev" },
 			"a band":    func(a *CreateCardArgs) { a.Zone = board.ZoneYellow },
 			"a size":    func(a *CreateCardArgs) { a.Size = board.SizeM },
-			"a column":  func(a *CreateCardArgs) { a.Scope = "Compliance"; a.Project = "eu" },
 			"the shelf": func(a *CreateCardArgs) { a.Parked = true },
 			"a review":  func(a *CreateCardArgs) { a.ReviewOf = "loose" },
 			"a sprint":  func(a *CreateCardArgs) { a.SprintStart = today },
@@ -131,10 +127,10 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 	})
 
 	t.Run("no day board makes a planning card", func(t *testing.T) {
-		for _, v := range []board.View{board.ViewMe, board.ViewTeam, board.ViewBacklog, board.ViewProject} {
+		for _, v := range []board.View{board.ViewMe, board.ViewTeam, board.ViewBacklog} {
 			f := hierarchySeed(today)
 			_, err := f2svc(f).CreateInView(ctx, "acme", v, CreateCardArgs{
-				Title: "x", Type: board.TypeEpic, Team: "alpha", Scope: "Compliance", Project: "eu",
+				Title: "x", Type: board.TypeEpic, Team: "alpha",
 			})
 			if !errors.Is(err, ErrNotOnThisBoard) {
 				t.Errorf("%s: err = %v, want ErrNotOnThisBoard", v, err)
@@ -142,13 +138,12 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 		}
 	})
 
-	t.Run("the raw door refuses an unknown type and a planning card in a column", func(t *testing.T) {
+	t.Run("the raw door refuses an unknown type and a planning card with a task's state", func(t *testing.T) {
 		f := hierarchySeed(today)
 		if _, err := f2svc(f).CreateCard(ctx, "acme", CreateCardArgs{Title: "x", Type: "widget"}); !errors.Is(err, ErrUnknownType) {
 			t.Fatalf("widget: %v, want ErrUnknownType", err)
 		}
 		for _, args := range []CreateCardArgs{
-			{Title: "x", Type: board.TypeGoal, Scope: "Compliance", Project: "eu"},
 			{Title: "x", Type: board.TypeGoal, Parked: true},
 			{Title: "x", Type: board.TypeGoal, ReviewOf: "task"},
 			{Title: "x", Type: board.TypeGoal, SprintStart: today},
@@ -247,23 +242,6 @@ func TestTheLevelRuleGovernsTheParent(t *testing.T) {
 		// subtask, so the depth rule allows it.
 		if err := set(t, f, "other", "task"); err != nil {
 			t.Fatalf("under a task that sits under an epic: %v", err)
-		}
-	})
-
-	t.Run("a project card sits under a planning card and never under a task", func(t *testing.T) {
-		f := hierarchySeed(today)
-		if err := set(t, f, "slot", "init"); err != nil {
-			t.Fatalf("project card under an initiative: %v", err)
-		}
-		if c := f.get("slot"); c.Parent != "init" || c.Scope != "Compliance" {
-			t.Fatalf("slot = %+v", c)
-		}
-		if err := set(t, f, "slot", "loose"); !errors.Is(err, ErrProjectCard) {
-			t.Fatalf("project card under a task: %v, want ErrProjectCard", err)
-		}
-		// And a task is never grouped under a project card.
-		if err := set(t, f, "loose", "slot"); !errors.Is(err, ErrProjectCard) {
-			t.Fatalf("task under a project card: %v, want ErrProjectCard", err)
 		}
 	})
 
@@ -386,7 +364,6 @@ func TestAPlanningCardHasNoDayBoardState(t *testing.T) {
 		"size":      svc.SetSize(ctx, "acme", "epic", board.SizeM),
 		"backlog":   svc.SetBacklog(ctx, "acme", "epic", true),
 		"finished":  svc.FinishedEarlier(ctx, "acme", "epic"),
-		"scope":     svc.SetScope(ctx, "acme", "epic", "Compliance", nil),
 		"sprint":    svc.SetSprintStart(ctx, "acme", "epic", today),
 		"recurrent": svc.SetRecurrence(ctx, "acme", "epic", "week"),
 		"owner":     svc.SetAssignee(ctx, "acme", "epic", "po"),

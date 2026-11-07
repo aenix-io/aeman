@@ -218,7 +218,11 @@ func blobOf(t *object.Tree, p string) ([]byte, error) {
 //	we created, tip has not → our file
 //	tip deleted, we edited  → no-op: the delete stands
 //	both edited             → field-level: our changed fields onto theirs
+//	tip holds a project card or a projects/ file → no-op, whatever we did (H15)
 func mergeFile(p string, base, ours, theirs []byte) ([]byte, bool) {
+	if retiredOnTip(p, theirs) {
+		return nil, false
+	}
 	switch {
 	case ours == nil:
 		return nil, theirs != nil
@@ -235,6 +239,26 @@ func mergeFile(p string, base, ours, theirs []byte) ([]byte, bool) {
 	return merged, !same
 }
 
+// retiredOnTip reports a file the board no longer reads, as the tip holds
+// it: anything under projects/, or a card file that decodes as a project
+// card. A replay leaves such a file exactly as the tip has it — re-encoding
+// would drop its column, and our delete would remove a file the repository
+// keeps (H15).
+func retiredOnTip(p string, theirs []byte) bool {
+	if theirs == nil {
+		return false
+	}
+	kind, ids := ParsePath(p)
+	switch kind {
+	case PathProjectBoard:
+		return true
+	case PathCard:
+		f, err := DecodeCard(ids[len(ids)-1], theirs)
+		return err == nil && f.ProjectCard
+	}
+	return false
+}
+
 // mergeByKind applies our changed fields onto theirs for a file of the
 // layout and re-encodes canonically; same reports that the result is what
 // the tip already holds (compared canonically, so formatting alone never
@@ -248,12 +272,6 @@ func mergeByKind(p string, base, ours, theirs []byte) (merged []byte, same, merg
 		return mergeTyped(base, ours, theirs, func(d []byte) (CardFile, error) { return DecodeCard(id, d) }, EncodeCard)
 	case PathTeam:
 		return mergeTyped(base, ours, theirs, DecodeTeam, EncodeTeam)
-	case PathProject:
-		return mergeTyped(base, ours, theirs, DecodeProject, EncodeProject)
-	case PathScope:
-		return mergeTyped(base, ours, theirs, DecodeScope, EncodeScope)
-	case PathDeadline:
-		return mergeTyped(base, ours, theirs, DecodeDeadline, EncodeDeadline)
 	case PathCustomer:
 		return mergeTyped(base, ours, theirs, DecodeCustomer, EncodeCustomer)
 	case PathBoard:

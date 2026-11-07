@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cardIsGone, followFrame, followPatch, placementAnswer } from "./detail";
+import { cardIsGone, drawerEscapes, followFrame, followPatch, placementAnswer } from "./detail";
 import type { Card } from "./providers/types";
 
 const card = (over: Partial<Card>): Card => ({ itemId: "t", title: "Invoices", assignees: [], progress: 0, ...over }) as Card;
@@ -75,5 +75,16 @@ describe("the answer to a placing write", () => {
       parent: "e",
       lineage: [],
     });
+  });
+});
+
+// Esc closes the drawer — but not when something inside it took the key
+// first: an add form's Esc cancels the form and leaves the drawer open.
+describe("Esc in the drawer", () => {
+  it("closes it unless a control inside took it, or the title or a dialog is open", () => {
+    expect(drawerEscapes({ key: "Escape", defaultPrevented: false }, false)).toBe(true);
+    expect(drawerEscapes({ key: "Escape", defaultPrevented: true }, false)).toBe(false);
+    expect(drawerEscapes({ key: "Escape", defaultPrevented: false }, true)).toBe(false);
+    expect(drawerEscapes({ key: "Enter", defaultPrevented: false }, false)).toBe(false);
   });
 });

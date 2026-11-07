@@ -14,11 +14,6 @@ describe("what may be parked", () => {
     expect(parkable(card())).toBe(true);
   });
 
-  // Its place is another board's to say: a slot's row follows its start date.
-  it("refuses a project card", () => {
-    expect(parkable(card({ scope: "Auth" }))).toBe(false);
-  });
-
   // Neither has a place of its own to be parked out of: a review follows the
   // card it reviews, a subtask stands inside its parent. The × never offered
   // the shelf for them (removal.ts) while the drawer still did, so the same
@@ -114,10 +109,9 @@ describe("an open task never stands nowhere (K1)", () => {
     }
   });
 
-  it("asks nothing of what has no place of its own: a subtask, a review, a project card, a planning card", () => {
+  it("asks nothing of what has no place of its own: a subtask, a review, a planning card", () => {
     expect(unplaced(card({ parent: "t" }), true)).toBe(false);
     expect(unplaced(card({ reviewOf: "o" }), false)).toBe(false);
-    expect(unplaced(card({ scope: "Auth" }), false)).toBe(false);
     expect(unplaced(card({ type: "epic" }), false)).toBe(false);
   });
 

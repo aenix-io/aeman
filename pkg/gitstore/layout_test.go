@@ -69,8 +69,6 @@ func sample() CardFile {
 			StartDate:   "2026-08-26",
 			Day:         "2026-08-28",
 			SprintStart: "2026-08-24",
-			Project:     "portal",
-			Scope:       "Bugs",
 			Parent:      "01JB4K2E7QZMX3R8V0N5T9WYC0",
 			Rank:        "a0m",
 			CreatedAt:   "2026-08-26T09:14:03Z",
@@ -160,10 +158,10 @@ func TestCardFileClearedFieldIsOmitted(t *testing.T) {
 	in := sample()
 	data, _ := EncodeCard(in)
 	out, _ := DecodeCard(in.Card.ItemID, data)
-	out.Card.Scope = ""
-	out.Card.Project = ""
+	out.Card.Team = ""
+	out.Card.Parent = ""
 	again, _ := EncodeCard(out)
-	if bytes.Contains(again, []byte("scope:")) || bytes.Contains(again, []byte("project:")) {
+	if bytes.Contains(again, []byte("team:")) || bytes.Contains(again, []byte("parent:")) {
 		t.Fatalf("cleared fields still written:\n%s", again)
 	}
 }

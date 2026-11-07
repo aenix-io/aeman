@@ -18,8 +18,7 @@ interface KindIconProps {
  *  - initiative: a flag (a bet planted on the map);
  *  - epic: a stack of layers (a body of work);
  *  - task: a ticked box (the day boards' own card);
- *  - subtask: a branch off its task;
- *  - project card: a dashed card (a plan in a Scope column, not work in hand).
+ *  - subtask: a branch off its task.
  *
  *  The same mark everywhere is the point: the drawer's crumb and the
  *  Roadmap's row must read as the same thing. */
@@ -75,13 +74,6 @@ export function KindIcon({ kind, size = 14, className, label }: KindIconProps) {
         <svg {...common}>
           <path d="M4 2.5v6.5a2 2 0 0 0 2 2h6.5" />
           <path d="M10 8.5 12.5 11 10 13.5" />
-        </svg>
-      );
-    default:
-      return (
-        <svg {...common}>
-          <rect x="2.5" y="2.5" width="11" height="11" rx="2.2" strokeDasharray="2.4 1.8" />
-          <path d="M5.3 6.3h5.4M5.3 9.7h3.4" />
         </svg>
       );
   }

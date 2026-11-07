@@ -205,10 +205,6 @@ func TestTheBodyIsReadBeforeTheBoardIsChecked(t *testing.T) {
 		want               int
 		code               string
 	}{
-		{"a gesture the board does not draw", "/api/v1/views/project/cards/c1/actions/own",
-			`{"team":"t"}`, http.StatusNotFound, "gestureNotOffered"},
-		{"the same gesture with a body that does not parse", "/api/v1/views/project/cards/c1/actions/own",
-			`{"team":`, http.StatusBadRequest, "invalidBody"},
 		{"a create into a board nobody has", "/api/v1/views/nope/cards",
 			`{"title":"x"}`, http.StatusNotFound, "noSuchView"},
 		{"the same create with a body that does not parse", "/api/v1/views/nope/cards",

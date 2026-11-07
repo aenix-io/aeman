@@ -355,49 +355,6 @@ func (w *wbBackend) MoveCard(_ context.Context, _ board.Board, _ board.Card, _ s
 	return nil
 }
 
-// A full reload that began before a queued roster create committed must not
-// drop the entry: within the grace window a recently created project,
-// column or deadline outweighs a fresh read that predates it — exactly as a
-// recent card does — and keeps its domain.
-func TestInstallKeepsRecentRosterStubs(t *testing.T) {
-	inner := &wbBackend{board: watchBoard()}
-	store := newBoardStore()
-	be := &storeBackend{inner: inner, store: store}
-	if _, err := be.LoadBoard(context.Background(), "acme"); err != nil {
-		t.Fatal(err)
-	}
-	e := store.entry("acme")
-	stubs := []board.Card{
-		{ItemID: "P_NEW", Title: board.ProjectStateTitle, Project: "vault", Domain: "closed"},
-		{ItemID: "E_NEW", Title: board.ScopeStateTitle, Project: "vault", Scope: "Risk", Domain: "closed"},
-		{ItemID: "D_NEW", Title: board.DeadlineStateTitle, Project: "vault", Week: "2026-09-07", Domain: "closed"},
-	}
-	for _, s := range stubs {
-		be.installCreated(context.Background(), e, s)
-	}
-	// The fixture never learnt about them: its next read IS a load that
-	// began before the creates committed.
-	stale, err := inner.LoadBoard(context.Background(), "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := be.installAndTake(e, stale)
-	if got.ProjectStates["vault"] != "P_NEW" {
-		t.Fatalf("project lost on reload: %v", got.Projects)
-	}
-	if _, ok := board.FindScope(got, "vault", "Risk"); !ok {
-		t.Fatalf("column lost on reload: %+v", got.Scopes)
-	}
-	if _, ok := board.FindDeadline(got, "vault", "2026-09-07"); !ok {
-		t.Fatalf("deadline lost on reload: %+v", got.Deadlines)
-	}
-	for _, id := range []string{"P_NEW", "E_NEW", "D_NEW"} {
-		if got.Domains[id] != "closed" {
-			t.Fatalf("%s lost its domain on reload: %q", id, got.Domains[id])
-		}
-	}
-}
-
 // A background revalidation that reads GitHub's lagging replicas must not
 // roll back writes the queue already confirmed: within the grace window the
 // cached field values and card order outweigh the stale fresh read.

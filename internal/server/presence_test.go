@@ -298,3 +298,55 @@ func TestACutFramesReviewCardCountsUnderItsTasksTeam(t *testing.T) {
 		t.Errorf("r counts under %q, want its task's portal", got["r"].Status.EffectiveTeam)
 	}
 }
+
+// The effective PRIORITY is inherited like the team (K15): a watcher who
+// cannot read the goal above a task is told neither the goal's priority nor
+// its title (effectivePriorityFrom) through the task; a readable goal above
+// an unreadable epic gives the task nothing; a review card takes its task's
+// only when the task is readable. On the unscoped stream and on a scoped
+// view (flushMembers) alike.
+func TestACardFrameInheritsPriorityOnlyFromCardsItsWatcherMayRead(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("shared", []board.Card{
+		{ItemID: "secret-goal", Title: "Secret goal", Type: board.TypeGoal, Priority: board.PriorityP0, Domain: "closed"},
+		{ItemID: "epic", Title: "Open epic", Type: board.TypeEpic, Parent: "secret-goal"},
+		{ItemID: "t", Title: "Open task", Parent: "epic", Team: "alpha", Parked: true},
+		{ItemID: "goal", Title: "Open goal", Type: board.TypeGoal, Priority: board.PriorityP2},
+		{ItemID: "secret-epic", Title: "Secret epic", Type: board.TypeEpic, Parent: "goal", Domain: "closed"},
+		{ItemID: "u", Title: "Under the secret epic", Parent: "secret-epic", Team: "alpha", Parked: true},
+		{ItemID: "hidden", Title: "Secret task", Team: "alpha", Priority: board.PriorityP1, Stage: board.StageReview, Domain: "closed", SprintStart: "2026-11-02"},
+		{ItemID: "r", Title: "review: something", Team: "alpha", ReviewOf: "hidden", Parked: true},
+	})
+	e := seedEntry(store, "k", b)
+	cards := map[string]bool{"cards": true}
+	rights := rightsOn([]string{"shared"}, nil)
+	raw, cancel := store.subscribeAs("k", "bob", nil, cards, rights)
+	defer cancel()
+	sel := apiserver.Selector{View: "backlog", Team: "alpha"}
+	scoped, cancel2 := store.subscribeAs("k", "bob", &sel, cards, rights)
+	defer cancel2()
+	for _, id := range []string{"t", "u", "r"} {
+		e.mu.Lock()
+		c, _ := board.Find(e.board, id)
+		c.Title += "!"
+		e.upsertCard(c)
+		e.cardChanged("", c, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+	for name, frames := range map[string]map[string]apiserver.Card{"unscoped": cardFrames(raw), "scoped": cardFrames(scoped)} {
+		for _, id := range []string{"t", "u", "r"} {
+			st, ok := frames[id]
+			if !ok {
+				// The scoped view holds what its listing holds; t is in it.
+				if name == "unscoped" || id == "t" {
+					t.Fatalf("%s: no frame for %s", name, id)
+				}
+				continue
+			}
+			if st.Status.EffectivePriority != "" || st.Status.EffectivePriorityFrom != nil {
+				t.Errorf("%s: %s is told a priority it may not read: %q from %+v", name, id, st.Status.EffectivePriority, st.Status.EffectivePriorityFrom)
+			}
+		}
+	}
+}

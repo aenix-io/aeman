@@ -13,7 +13,7 @@ import (
 // exactly what the UI renders (the Team grid, the Me day board, the
 // backlogs); the plain field selectors compose with no view.
 type Selector struct {
-	// View is "", "all", "team", "me", "backlog", "roadmap" or "project". ""
+	// View is "", "all", "team", "me", "backlog" or "roadmap". ""
 	// and "all" both list every card (the HTTP/MCP layer defaults an
 	// unspecified view to the caller's "me").
 	View string
@@ -24,10 +24,6 @@ type Selector struct {
 	Day string
 	// User is the person for the me view ("" = everyone).
 	User string
-	// Project filters the project view to one project's scope columns. Empty
-	// means every project — the all-projects overview. Note this is the
-	// planning entity, NOT the GitHub board (that is addressed by owner+board).
-	Project string
 	// RecordCards are the cards this listing is a RECORD of — what the day's
 	// board took from that evening, by id (board.MergeAsOf). Only they give
 	// back what the × took off (LeftOn): a card of a team still inside that
@@ -63,13 +59,6 @@ type Selector struct {
 	// badge has it on hand without a second request. Off by default: agents
 	// listing a Me board do not want them mixed in.
 	IncludeReviews bool
-	// ProjectCards brings the PROJECT cards — cards in a Scope column — into
-	// the roadmap view, under the planning cards they are filed under. Off by
-	// default: the Roadmap is the plan of goals, initiatives, epics and the
-	// work under them, and the Project board's cards stay there unless asked
-	// for (the Roadmap toolbar's "Project cards" toggle). It means nothing on
-	// any other view.
-	ProjectCards bool
 	// Customer and Owner narrow the roadmap view (docs/design/ownership.md,
 	// O7, O8), each a comma-separated set: Customer by effective customers
 	// (customer ids), Owner by a planning card's own owner. On the roadmap
@@ -87,14 +76,12 @@ func ParseSelector(q url.Values) (Selector, error) {
 	sel := Selector{
 		View:           q.Get("view"),
 		Team:           q.Get("team"),
-		Project:        q.Get("project"),
 		Day:            q.Get("day"),
 		User:           q.Get("user"),
 		Assignee:       q.Get("assignee"),
 		Focus:          q.Get("focus") == "true" || q.Get("focus") == "1",
 		Snapshot:       q.Get("snapshot") == "true" || q.Get("snapshot") == "1",
 		IncludeReviews: q.Get("reviews") == "true" || q.Get("reviews") == "1",
-		ProjectCards:   q.Get("projectCards") == "true" || q.Get("projectCards") == "1",
 		Customer:       q.Get("customer"),
 		Owner:          q.Get("owner"),
 		Fields:         q.Get("fields"),
@@ -116,7 +103,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		sel.Zone = &v
 	}
 	switch sel.View {
-	case "", "all", "team", "me", "project", "backlog", "roadmap":
+	case "", "all", "team", "me", "backlog", "roadmap":
 	default:
 		return Selector{}, fmt.Errorf("unknown view %q", sel.View)
 	}
@@ -152,7 +139,7 @@ func (s Selector) normalized() Selector {
 
 // roadmapCards is the Roadmap's listing (H9): the hierarchy — every goal,
 // initiative and epic, and every card with one of those above it: a task,
-// its subtasks, a project card (docs/design/hierarchy.md) — and, below it,
+// its subtasks (docs/design/hierarchy.md) — and, below it,
 // every OPEN task that has no planning card above it yet: the work in hand
 // on the Team and Me boards and the cards parked in a backlog. The
 // loose work is listed because the Roadmap is where a lead drags it INTO the
@@ -160,19 +147,14 @@ func (s Selector) normalized() Selector {
 //
 // What stays out: a task already FINISHED outside the hierarchy — there is
 // nothing left to plan on it, and a roadmap of every card ever closed is a
-// log; a project card in no hierarchy — the Project board's alone (H4); a
-// project card IN the hierarchy too, unless the reader asked for them
-// (projectCards); and a subtask whose parent task is out, since a subtask
-// rides its parent. The
+// log; and a subtask whose parent task is out, since a subtask rides its
+// parent. The
 // tree is the client's to assemble from `parent`; the listing is the cards
 // that make it up.
-func roadmapCards(b board.Board, ix *board.Index, projectCards bool) []board.Card {
+func roadmapCards(b board.Board, ix *board.Index) []board.Card {
 	in := map[string]bool{}
 	for _, c := range b.Cards {
 		if board.IsStateTitle(c.Title) {
-			continue
-		}
-		if c.Scope != "" && !projectCards {
 			continue
 		}
 		switch {
@@ -181,7 +163,7 @@ func roadmapCards(b board.Board, ix *board.Index, projectCards bool) []board.Car
 		// Open work with no planning ancestor: a task, parked or on a day
 		// board. Not a review card — it follows the card it
 		// reviews, which is the work, and cannot be filed under anything.
-		case c.Scope == "" && c.ReviewOf == "" && !ix.IsSubtask(c) && !board.Complete(c.Stage, c.Progress):
+		case c.ReviewOf == "" && !ix.IsSubtask(c) && !board.Complete(c.Stage, c.Progress):
 			in[c.ItemID] = true
 		}
 	}
@@ -388,37 +370,20 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		}
 	case "me":
 		base = board.MeViewIn(b, index(), sel.User, sel.Day)
-	case "project":
-		// The Project board: every card filed under an scope, whatever its week
-		// — the client lays rows (weeks) and columns (scopes) out itself. The
-		// selector filters by PROJECT (an scope's owner), not by team: a project
-		// spans teams, and a card is assigned to a team from this very board.
-		for _, c := range b.Cards {
-			// A card in a column is a PROJECT CARD, and this is the one board
-			// that draws it (H4): no team, no owner, no parent — it stands in
-			// its column on its own merit.
-			if c.Scope == "" {
-				continue
-			}
-			if sel.Project != "" && !board.InProject(c, sel.Project) {
-				continue
-			}
-			base = append(base, c)
-		}
 	case "backlog":
 		base = backlogCards(b, index(), sel)
 	case "roadmap":
 		ix := index()
-		base = roadmapNarrowed(ix, roadmapCards(b, ix, sel.ProjectCards), sel)
+		base = roadmapNarrowed(ix, roadmapCards(b, ix), sel)
 	default:
 		base = b.Cards
 	}
 	out := make([]board.Card, 0, len(base))
 	// The day boards' Customer filter (O11): the roadmap applies its own
-	// (roadmapNarrowed), and the Project board's cards carry none (H4).
+	// (roadmapNarrowed).
 	var dayCustomers map[string]bool
 	var dayIx *board.Index
-	if sel.View != "roadmap" && sel.View != "project" {
+	if sel.View != "roadmap" {
 		if dayCustomers = setOf(sel.Customer); dayCustomers != nil {
 			dayIx = index()
 		}
@@ -472,33 +437,10 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		}
 	}
 	out = withSubtasks(b, out, sel, index)
-	if sel.View == "project" {
-		out = projectViewCards(b, out, sel.Project)
-	}
 	if sel.IncludeReviews && (sel.View == "me" || sel.View == "team") {
 		out = withLinkedReviews(b, out)
 	}
 	return out
-}
-
-// projectViewCards settles what the Project board's query carries: the cards
-// that stand in a column, and nothing that rode in with them. The grid draws
-// a card by its COLUMN, and a project card is nobody's subtask and has none
-// (H4), so a parented card the subtask rider appended — one written before
-// schema 2 — belongs to no Project board and would only be counted by a
-// progress bar that draws nothing.
-func projectViewCards(_ board.Board, out []board.Card, project string) []board.Card {
-	kept := make([]board.Card, 0, len(out))
-	for _, c := range out {
-		if c.Scope == "" {
-			continue
-		}
-		if project != "" && !board.InProject(c, project) {
-			continue
-		}
-		kept = append(kept, c)
-	}
-	return kept
 }
 
 // withSubtasks appends the subtasks of every delivered parent, so a view is
@@ -527,12 +469,6 @@ func withSubtasks(b board.Board, out []board.Card, sel Selector, index func() *b
 		// is that card's child, listed — or left out by a filter — on its
 		// own merit (O7).
 		if planning[c.Parent] {
-			continue
-		}
-		// The rider does not bring back a project card the roadmap left out
-		// on purpose: one filed under a planning card is its CHILD, not a
-		// piece of it.
-		if sel.View == "roadmap" && c.Scope != "" && !sel.ProjectCards {
 			continue
 		}
 		if offTheTeamList(c, sel, index) {
@@ -692,7 +628,18 @@ func ListCards(b board.Board, sel Selector) CardList {
 	for _, c := range cards {
 		items = append(items, resource(b, ix, c))
 	}
-	return CardList{Kind: "CardList", Items: items}
+	list := CardList{Kind: "CardList", Items: items}
+	if sel.View == "backlog" {
+		list.BoardOrder = backlogBoardOrder(b)
+	}
+	return list
+}
+
+// backlogBoardOrder is the whole board's order, as the Ordering resource
+// carries it (OrderingResource): what a backlog key is read from
+// (board.BacklogKey), for every card a watch may bring in later too.
+func backlogBoardOrder(b board.Board) []string {
+	return OrderingResource(b).Spec.UIDs
 }
 
 // offTheTeamList is a card the team selector leaves off the views it
@@ -760,8 +707,7 @@ func contains(s []string, v string) bool {
 }
 
 // backlogCards is the view=backlog listing (docs/design/backlog.md, K2):
-// each named team's parked open tasks — no planning card, no project card,
-// no subtask, no review card, nothing finished (board.OnBacklog) — in the
+// each named team's parked open tasks — no planning card, no subtask, no review card, nothing finished (board.OnBacklog) — in the
 // order a backlog is read: by hand first, then oldest first
 // (board.BacklogOrder). `team` names one backlog or a comma-separated set of
 // them; the Backlog board draws them as one list, in this same order.
@@ -779,7 +725,7 @@ func backlogCards(b board.Board, ix *board.Index, sel Selector) []board.Card {
 		}
 		out = append(out, c)
 	}
-	return board.BacklogOrder(out)
+	return board.BacklogOrder(ix, out)
 }
 
 // Drawn reports whether a card is on the board the selector describes — the

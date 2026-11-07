@@ -56,27 +56,3 @@ func TestTheGridCrossDeletesAnUntouchedCardToo(t *testing.T) {
 		t.Fatalf("the card is still here: %+v", c)
 	}
 }
-
-// A card in a Project-board COLUMN is still handed back to that column: the
-// column is a home of its own, and the × empties the working area, not the
-// plan. Deleting it would take a piece of the roadmap with it.
-func TestTheGridCrossStillHandsAColumnCardBack(t *testing.T) {
-	today := board.TodayIso()
-	prev := board.AddDays(today, -7)
-	f := newFake([]board.Card{
-		{ItemID: "c1", Team: "alpha", Progress: 40, Scope: "Auth", Project: "freedom",
-			SprintStart: today, StartDate: board.AddDays(today, -1), Day: today,
-			Assignees: []string{"kvaps"}},
-	}, map[string]board.SprintState{"alpha": {Current: today, Previous: prev}})
-
-	if err := f2svc(f).Remove(context.Background(), "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
-		t.Fatal(err)
-	}
-	c := f.get("c1")
-	if c == nil {
-		t.Fatal("a card standing in a column is not deleted by the grid ×")
-	}
-	if c.Scope != "Auth" {
-		t.Fatalf("it keeps its column: %+v", c)
-	}
-}

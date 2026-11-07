@@ -80,7 +80,7 @@ func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) 
 
 	// The task is filed under the epic by "me": it moves INTO the tree (it was
 	// listed already, so the frame is a change, not an arrival), and the three
-	// above it change their standing — no items → to do.
+	// above it change their standing — no items → in progress (it is in work).
 	e.mu.Lock()
 	c1 := find("c1")
 	c1.Parent = "epic"
@@ -94,8 +94,8 @@ func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) 
 	}
 	for _, id := range []string{"goal", "init", "epic"} {
 		h := got[id].Card.Status.Hierarchy
-		if got[id].Type != "MODIFIED" || h == nil || h.Status != board.HierarchyTodo || h.Total != 1 {
-			t.Fatalf("%s after the attach = %s %+v, want MODIFIED todo 0/1", id, got[id].Type, h)
+		if got[id].Type != "MODIFIED" || h == nil || h.Status != board.HierarchyInProgress || h.Total != 1 {
+			t.Fatalf("%s after the attach = %s %+v, want MODIFIED in-progress 0/1 (the task is in work)", id, got[id].Type, h)
 		}
 	}
 	// The originator holds its own change already, but not the standing the
@@ -265,69 +265,6 @@ func TestOnlyTheDirectTasksOfARetitledPlanningCardAreResent(t *testing.T) {
 	for _, id := range []string{"p1", "p2"} {
 		if got[id].Type != "MODIFIED" {
 			t.Fatalf("the epic's task %s was not re-sent: %v", id, got)
-		}
-	}
-}
-
-// THE WATCH HONOURS projectCards. A Roadmap that did not ask for project
-// cards is never sent one, and a task filed under the epic that is put INTO
-// a column leaves it — DELETED, as leaving any listing is — while a Roadmap
-// that asked keeps it, MODIFIED. The epic above hears the change either way:
-// its standing is the board's, not the listing's.
-func TestTheRoadmapWatchSendsProjectCardsOnlyWhenAskedFor(t *testing.T) {
-	today := board.TodayIso()
-	store := newBoardStore()
-	b := hierarchyWatchBoard(today)
-	b.Cards = append(b.Cards, board.Card{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha",
-		StartDate: today, Day: today, SprintStart: today})
-	e := seedEntry(store, "k", b)
-	plain := apiserver.Selector{View: "roadmap"}
-	asked := apiserver.Selector{View: "roadmap", ProjectCards: true}
-	without, cancel := store.subscribe("k", "", &plain, map[string]bool{"cards": true})
-	defer cancel()
-	with, cancel2 := store.subscribe("k", "", &asked, map[string]bool{"cards": true})
-	defer cancel2()
-	if !without.members["t"] || !with.members["t"] {
-		t.Fatalf("the task under the epic is on both: %v / %v", without.members, with.members)
-	}
-
-	e.mu.Lock()
-	c, _ := board.Find(e.board, "t")
-	c.Scope, c.Project = "Payments", "core"
-	e.upsertCard(c)
-	e.cardChanged("", c, "MODIFIED")
-	e.mu.Unlock()
-	settled(t, e)
-
-	got := took(t, without, 4)
-	if got["t"].Type != "DELETED" {
-		t.Fatalf("a roadmap without project cards: the card put in a column = %q, want DELETED", got["t"].Type)
-	}
-	if got["epic"].Type != "MODIFIED" {
-		t.Fatalf("the epic above hears it either way: %+v", got["epic"].Type)
-	}
-	if without.members["t"] {
-		t.Fatal("the project card is still a member of the roadmap that did not ask for it")
-	}
-	got = took(t, with, 4)
-	if got["t"].Type != "MODIFIED" || got["t"].Card.Spec.Scope != "Payments" {
-		t.Fatalf("a roadmap with project cards: %+v, want MODIFIED in its column", got["t"])
-	}
-
-	// A change to the project card now reaches only the roadmap that asked.
-	e.mu.Lock()
-	c, _ = board.Find(e.board, "t")
-	c.Title = "Receipts, v2"
-	e.upsertCard(c)
-	e.cardChanged("", c, "MODIFIED")
-	e.mu.Unlock()
-	settled(t, e)
-	if f := took(t, with, 4); f["t"].Card.Spec.Title != "Receipts, v2" {
-		t.Fatalf("the roadmap that asked: %+v", f["t"])
-	}
-	for _, f := range took(t, without, 3) {
-		if f.Card.Metadata.UID == "t" {
-			t.Fatal("the roadmap that did not ask was sent the project card")
 		}
 	}
 }
@@ -705,5 +642,157 @@ func TestPlacementMovesTasksBetweenTheGridAndBacklogWatches(t *testing.T) {
 	change("p", func(c *board.Card) { c.Parent = "" })
 	if got := took(t, docsBacklog, 1); got["p"].Type != "DELETED" {
 		t.Fatalf("unfiled: docs's backlog heard %v", got)
+	}
+}
+
+// A DELETED CARD IS NEVER LEFT ON ITS AUTHOR'S BOARD. Deleting a plan item
+// is one action of several writes: its children move up first, and only then
+// does the card go. The children's move names the plan item as the chain
+// they left, so a fan-out that runs between the writes — the coalescing
+// timer firing while the delete is still being written — sends the author a
+// MODIFIED for the plan item, which is still there. The DELETED that follows
+// was then swallowed as the author's own echo, and their board drew the
+// plan item again: "the epic comes back, I have to delete it twice". A card
+// gone from the board is told as DELETED to everyone, its author included —
+// a DELETED for a card a board already took off changes nothing.
+func TestADeletedPlanItemIsToldDeletedToItsAuthorLast(t *testing.T) {
+	for _, withChildren := range []bool{true, false} {
+		store := newBoardStore()
+		cards := []board.Card{
+			{ItemID: "goal", Title: "Grow", Type: board.TypeGoal},
+			{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "goal"},
+		}
+		if withChildren {
+			cards = append(cards, board.Card{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha", Parked: true})
+		}
+		e := seedEntry(store, "k", board.NewBoardIn("acme", cards))
+		author, cancel := store.subscribe("k", "me", &apiserver.Selector{View: "roadmap"}, map[string]bool{"cards": true})
+		if withChildren {
+			// The child moves up to the goal: a write the request did not
+			// address, so it is nobody's echo.
+			e.mu.Lock()
+			c, _ := board.Find(e.board, "t")
+			c.Parent = "goal"
+			e.upsertCard(c)
+			e.cardChanged("", c, "MODIFIED")
+			e.mu.Unlock()
+			// The coalesced fan-out fires while the delete is being written.
+			e.flushMembers()
+		}
+		// The plan item goes, by the author's own request.
+		e.mu.Lock()
+		epic, _ := board.Find(e.board, "epic")
+		e.removeCard("epic")
+		e.cardChanged("me", epic, "DELETED")
+		e.mu.Unlock()
+		settled(t, e)
+		var last string
+		for {
+			select {
+			case data := <-author.ch:
+				var f struct {
+					Type   string `json:"type"`
+					Object struct {
+						Metadata struct {
+							UID string `json:"uid"`
+						} `json:"metadata"`
+					} `json:"object"`
+				}
+				_ = json.Unmarshal(data, &f)
+				if f.Object.Metadata.UID == "epic" {
+					last = f.Type
+				}
+				continue
+			default:
+			}
+			break
+		}
+		cancel()
+		if withChildren && last != "DELETED" {
+			t.Fatalf("with children: the author's last frame for the deleted epic = %q, want DELETED", last)
+		}
+		if !withChildren && last != "DELETED" {
+			t.Fatalf("no children: the author's last frame for the deleted epic = %q, want DELETED", last)
+		}
+	}
+}
+
+// And the raw stream (a watch with no selector) tells the author too: a
+// DELETED is never swallowed as an echo, whatever stream carries it.
+func TestTheRawStreamTellsTheAuthorADeletedCard(t *testing.T) {
+	store := newBoardStore()
+	e := seedEntry(store, "k", board.NewBoardIn("acme", []board.Card{
+		{ItemID: "t", Title: "Receipts", Team: "alpha", Parked: true},
+	}))
+	author, cancel := store.subscribe("k", "me", nil, map[string]bool{"cards": true})
+	defer cancel()
+	e.mu.Lock()
+	c, _ := board.Find(e.board, "t")
+	e.removeCard("t")
+	e.cardChanged("me", c, "DELETED")
+	e.mu.Unlock()
+	if got := took(t, author, 1); got["t"].Type != "DELETED" {
+		t.Fatalf("the author's raw stream heard %v, want the card DELETED", got)
+	}
+}
+
+// A PLAN ITEM'S PRIORITY REACHES EVERY CARD UNDER IT (K15). The effective
+// priority is computed from the nearest ancestor that has one, and no write
+// touches the cards under it, so setting a goal's priority re-sends the
+// whole subtree with the new status.effectivePriority — which is what makes
+// every open backlog re-sort without a reload.
+func TestAPlanItemsPriorityReachesTheWholeSubtree(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "goal", Title: "Grow", Type: board.TypeGoal},
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "goal"},
+		{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha", Parked: true},
+		{ItemID: "own", Title: "Refunds", Parent: "epic", Team: "alpha", Parked: true, Priority: board.PriorityP3},
+	})
+	e := seedEntry(store, "k", b)
+	raw, cancel := store.subscribe("k", "", nil, map[string]bool{"cards": true})
+	defer cancel()
+	e.mu.Lock()
+	c, _ := board.Find(e.board, "goal")
+	c.Priority = board.PriorityP1
+	e.upsertCard(c)
+	e.cardChanged("", c, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+	got := took(t, raw, 4)
+	for _, id := range []string{"epic", "t"} {
+		st := got[id].Card.Status
+		if got[id].Type != "MODIFIED" || st.EffectivePriority != "P1" || st.EffectivePriorityFrom == nil || st.EffectivePriorityFrom.UID != "goal" {
+			t.Fatalf("%s under the goal = %+v, want MODIFIED P1 from the goal", id, st)
+		}
+	}
+	// A card with its own keeps it.
+	if st := got["own"].Card.Status; st.EffectivePriority != "P3" || st.EffectivePriorityFrom != nil {
+		t.Fatalf("the card with its own priority = %+v, want its own P3", st)
+	}
+}
+
+// A TASK'S PRIORITY REACHES ITS REVIEW CARD (K15): a review takes its task's
+// effective priority and stands by it in the backlog, so a priority set on
+// the task re-sends the review card with the new status.effectivePriority.
+func TestATasksPriorityReachesItsReviewCard(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "t", Title: "Receipts", Team: "alpha", Stage: board.StageReview, SprintStart: "2026-11-02"},
+		{ItemID: "r", Title: "review: Receipts", Team: "alpha", ReviewOf: "t", Parked: true},
+	})
+	e := seedEntry(store, "k", b)
+	raw, cancel := store.subscribe("k", "", nil, map[string]bool{"cards": true})
+	defer cancel()
+	e.mu.Lock()
+	c, _ := board.Find(e.board, "t")
+	c.Priority = board.PriorityP1
+	e.upsertCard(c)
+	e.cardChanged("", c, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+	got := took(t, raw, 2)
+	if st := got["r"].Card.Status; got["r"].Type != "MODIFIED" || st.EffectivePriority != "P1" || st.EffectivePriorityFrom == nil || st.EffectivePriorityFrom.UID != "t" {
+		t.Fatalf("the review card = %+v, want MODIFIED P1 from its task", st)
 	}
 }

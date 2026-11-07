@@ -43,11 +43,6 @@ describe("the effective team (O3)", () => {
     expect(inheritedTeamOf(cards[3], cards)).toBeNull();
   });
 
-  it("is none on a project card, whatever an old file says (H4)", () => {
-    expect(effectiveTeamOf(card({ itemId: "slot", scope: "Security", project: "core", team: "ops" }), cards)).toBe("");
-    expect(inheritedTeamOf(card({ itemId: "slot", scope: "Security", project: "core" }), cards)).toBeNull();
-  });
-
   it("falls back to the server's when the ancestors are not on the board", () => {
     expect(effectiveTeamOf(card({ itemId: "lonely", parent: "gone", effectiveTeam: "ops" }), cards)).toBe("ops");
   });
@@ -190,7 +185,7 @@ describe("a card typed in under the Customer filter", () => {
 
 // O13 — the team a card STANDS UNDER on the day boards and backlogs: its
 // effective team (its own, else the nearest ancestor's; a review card's, its
-// task's; a project card's, none; a plan item's, its own). The server's
+// task's; a plan item's, its own). The server's
 // board.PlacedTeam, mirrored for what a board holds; the server's word where
 // the chain is not on the board.
 describe("the team a card stands under", () => {
@@ -204,8 +199,7 @@ describe("the team a card stands under", () => {
     expect(placedTeamOf(review, [...cards, review])).toBe("portal");
   });
 
-  it("is none for a project card, and a plan item's own", () => {
-    expect(placedTeamOf(card({ itemId: "s", scope: "S", project: "P", team: "ops" }), cards)).toBe("");
+  it("is a plan item's own", () => {
     expect(placedTeamOf(cards[1], cards)).toBe("");
   });
 

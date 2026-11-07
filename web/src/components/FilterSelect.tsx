@@ -38,7 +38,7 @@ export function FilterSelectMenu({
 }) {
   return (
     <>
-      {options.length === 0 && <span className="card-stage-item project-menu-hint">Nothing to choose yet</span>}
+      {options.length === 0 && <span className="card-stage-item filter-menu-hint">Nothing to choose yet</span>}
       {options.map((o) => {
         const on = selected.includes(o.value);
         return (
@@ -80,7 +80,7 @@ export function FilterSelectMenu({
 }
 
 /** FilterSelect is the one filter dropdown of every board's toolbar —
- *  Team, Customer, Owner, Project (ownership.md, O7, O8, O11): a button
+ *  Team, Customer, Owner (ownership.md, O7, O8, O11): a button
  *  saying what is chosen ("Team: portal, No team", or `anyLabel`), opening
  *  a list to tick several — several are OR — with the roster's "Manage…"
  *  entry at the bottom where the board offers one. An empty selection is no

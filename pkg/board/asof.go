@@ -19,8 +19,8 @@ func TeamsPast(live Board, day string) map[string]bool {
 
 // HasRecords reports that a view can be shown AS IT STOOD on a day: only the
 // day boards can, because only they place a card by the day being looked at.
-// The Project board lays every week out at once — a day means nothing to it,
-// so a record of one would be a claim about nothing. Mirrored by snapshotDay
+// The Backlog and the Roadmap are not placed by a day — a record of one
+// would be a claim about nothing. Mirrored by snapshotDay
 // in web/src/viewquery.ts.
 func HasRecords(view string) bool { return view == "me" || view == "team" }
 

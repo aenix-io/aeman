@@ -9,7 +9,9 @@
 // listing fills and the watch keeps current (K6). A card taken into work, finished or re-teamed out of
 // the selection by anybody simply stops being one of them.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Board, Card as CardModel, Provider, SizeKey } from "../providers/types";
+import type { Board, Card as CardModel, Priority, Provider, SizeKey } from "../providers/types";
+import { PriorityItems, PriorityPart } from "./PlanTree";
+import { latestWins, priorityLabel } from "../roadmap";
 import {
   insertSpot,
   insertedOrder,
@@ -92,6 +94,9 @@ interface BacklogBoardProps {
   /** The board's one order, re-sorted locally for a drop until the server's
    *  Ordering frame says the same. */
   reorderCards: (order: OrderArg) => void;
+  /** Move a card right beside its anchor in the board's order the list is
+   *  sorted by (Board.boardOrder), as the server is about to. */
+  moveInBoardOrder?: (id: string, anchor: Anchor) => void;
   reload: () => void;
   onOpen: (card: CardModel) => void;
   onError: (message: string) => void;
@@ -141,6 +146,7 @@ export function BacklogBoard({
   addCard,
   removeCard,
   reorderCards,
+  moveInBoardOrder,
   reload,
   onOpen,
   onError,
@@ -154,8 +160,8 @@ export function BacklogBoard({
   // listing and the watch (O11), applied to what the board holds.
   const { kept, keep } = useKeptCreated(customerFilter.join(","));
   const list = useMemo(
-    () => backlogList(board.cards, teams).filter((c) => customerPasses(c, board.cards, customerFilter, kept)),
-    [board.cards, teams, customerFilter, kept],
+    () => backlogList(board.cards, teams, board.boardOrder).filter((c) => customerPasses(c, board.cards, customerFilter, kept)),
+    [board.cards, board.boardOrder, teams, customerFilter, kept],
   );
   const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
 
@@ -282,21 +288,28 @@ export function BacklogBoard({
       if (at === null) {
         return;
       }
-      const plan = dropPlan(
-        card.itemId,
-        list.map((c) => c.itemId),
-        at,
-      );
-      if (plan.kind === "none") {
+      const plan = dropPlan(card.itemId, list, at);
+      // A place next to none of its siblings is not one it can go (K14):
+      // the drag showed it as forbidden, and nothing moves.
+      if (plan.kind !== "reorder") {
         return;
       }
       reorderCards(spliceOrder(board.cards.map((c) => c.itemId), plan.order));
+      // The board's order the list is sorted by moves the same way the
+      // server will move it: right beside its anchor.
+      moveInBoardOrder?.(card.itemId, plan.anchor);
       void persistAnchor(card.itemId, plan.anchor).catch((err: unknown) => {
         onError(errText(err));
         reload();
       });
     },
-    [list, board.cards, reorderCards, persistAnchor, onError, reload],
+    [list, board.cards, reorderCards, moveInBoardOrder, persistAnchor, onError, reload],
+  );
+  // Where the card in hand would land is not a place it may go: next to
+  // none of its siblings (K14).
+  const forbidden = useMemo(
+    () => !!carried && over !== null && dropPlan(carried.itemId, list, over).kind === "forbidden",
+    [carried, over, list],
   );
 
   const beginDrag = useCallback(
@@ -424,6 +437,51 @@ export function BacklogBoard({
     });
   };
 
+  // ---- the priority: the Roadmap badge's priority part, on the card (K15) ----
+  // Set on the card itself; the list reads by the effective priority, so a
+  // card moves to its group at once and the server's answer settles it.
+  const [prioritizing, setPrioritizing] = useState<CardModel | null>(null);
+  const prioAnchor = useRef<HTMLElement | null>(null);
+  const openPriority = useCallback((card: CardModel, anchor: HTMLElement) => {
+    prioAnchor.current = anchor;
+    setPrioritizing((cur) => (cur?.itemId === card.itemId ? null : card));
+  }, []);
+  const prioritySeq = useRef(latestWins());
+  const setPriority = (card: CardModel, value: Priority | "") => {
+    setPrioritizing(null);
+    if ((card.priority ?? "") === value) {
+      return;
+    }
+    // Its own when set. Cleared, it counts under what it inherits — which
+    // this board does not hold, so nothing is drawn as its own until the
+    // server's answer says what that is. Its review cards count under it.
+    const shown = value ? { effectivePriority: value, effectivePriorityFrom: undefined } : { effectivePriority: undefined, effectivePriorityFrom: undefined };
+    const affected = board.cards.filter((c) => c.itemId === card.itemId || c.reviewOf === card.itemId);
+    const before = affected.map((c) => ({ id: c.itemId, patch: { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom } }));
+    patchCard(card.itemId, { priority: value || undefined, ...shown });
+    for (const r of affected) {
+      if (r.itemId !== card.itemId) {
+        patchCard(r.itemId, value ? { effectivePriority: value, effectivePriorityFrom: { uid: card.itemId, type: card.type, title: card.title } } : shown);
+      }
+    }
+    const n = prioritySeq.current.next(card.itemId);
+    void provider
+      .setPriority(card.itemId, value)
+      .then((c) => {
+        // An older answer must not overwrite a newer choice.
+        if (prioritySeq.current.isLatest(card.itemId, n)) {
+          patchCard(c.itemId, { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom });
+        }
+      })
+      .catch((err: unknown) => {
+        for (const b of before) {
+          patchCard(b.id, b.patch);
+        }
+        onError(errText(err));
+        reload();
+      });
+  };
+
   // ---- the ×: the same × as everywhere else (removal.ts) ----
   // On a card in its backlog the one answer it has is "off the board"; the
   // backlog answer is withheld from a card already there. A review nobody
@@ -545,7 +603,7 @@ export function BacklogBoard({
         />
       </div>
       <section className="backlog-list" aria-label="Backlog">
-        <div className={`backlog-list-body${carried ? " backlog-list-over" : ""}`} data-backlog-list="">
+        <div className={`backlog-list-body${carried ? " backlog-list-over" : ""}${forbidden ? " backlog-list-forbid" : ""}`} data-backlog-list="">
           {(() => {
             const held = list.filter((c) => c.itemId !== carried?.itemId);
             const landing = carried && over !== null ? carried : null;
@@ -554,7 +612,7 @@ export function BacklogBoard({
                 {!carried && gap(0, held.length === 0)}
                 {held.map((c, i) => (
                   <div key={c.itemId} className="backlog-slot">
-                    {landing && over === i && <Landing card={landing} />}
+                    {landing && over === i && <Landing card={landing} forbidden={forbidden} />}
                     <BacklogRow
                       card={c}
                       selected={c.itemId === selectedId}
@@ -564,6 +622,7 @@ export function BacklogBoard({
                       onPointerDown={beginDrag(c)}
                       onRemove={() => remove(c)}
                       onPickSize={openSizer}
+                      onPickPriority={openPriority}
                       onOpenParent={openParent}
                       owner={
                         counterpart(c) ? (
@@ -583,13 +642,16 @@ export function BacklogBoard({
                     {!carried && gap(i + 1)}
                   </div>
                 ))}
-                {landing && (over ?? 0) >= held.length && <Landing card={landing} />}
+                {landing && (over ?? 0) >= held.length && <Landing card={landing} forbidden={forbidden} />}
                 {held.length === 0 && !landing && <p className="backlog-list-empty">Nothing waiting</p>}
               </>
             );
           })()}
         </div>
       </section>
+      <Dropdown open={!!prioritizing} anchorRef={prioAnchor} onClose={() => setPrioritizing(null)} className="roadmap-status-menu" role="menu">
+        {prioritizing && <PriorityItems own={prioritizing.priority ?? ""} onPick={(value) => setPriority(prioritizing, value)} />}
+      </Dropdown>
       <Dropdown open={!!sizing} anchorRef={sizeAnchor} onClose={() => setSizing(null)} className="backlog-size-menu">
         {SIZE_ORDER.map((sz) => (
           <button
@@ -639,6 +701,8 @@ interface BacklogRowProps {
   onPointerDown: (e: React.PointerEvent) => void;
   onRemove: () => void;
   onPickSize: (card: CardModel, anchor: HTMLElement) => void;
+  /** The priority part of the badge, opening its menu (K15). */
+  onPickPriority: (card: CardModel, anchor: HTMLElement) => void;
   onOpenParent: (uid: string) => void;
   /** Take, while nobody has the card: asks first (TakeDialog). */
   onTake?: () => void;
@@ -660,6 +724,7 @@ function BacklogRow({
   onPointerDown,
   onRemove,
   onPickSize,
+  onPickPriority,
   onOpenParent,
   onTake,
 }: BacklogRowProps) {
@@ -674,6 +739,26 @@ function BacklogRow({
       title={card.title}
     >
       <PresenceMarks selectedBy={selectedBy} avatars={avatars} names={names} />
+      {card.reviewOf ? (
+        // A review's priority is its task's (K15): shown, not set here.
+        card.effectivePriority && (
+          <span className="backlog-row-prio backlog-row-prio-readonly">
+            <PriorityPart value={card.effectivePriority} from={card.effectivePriorityFrom} />
+          </span>
+        )
+      ) : (
+        <button
+          type="button"
+          className={`backlog-row-prio${card.effectivePriority ? "" : " backlog-row-prio-none"}`}
+          title={card.effectivePriority ? "Priority" : "Set a priority"}
+          aria-label={priorityLabel(card.effectivePriority, card.effectivePriorityFrom)}
+          aria-haspopup="menu"
+          onClick={(e) => onPickPriority(card, e.currentTarget)}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {card.effectivePriority ? <PriorityPart value={card.effectivePriority} from={card.effectivePriorityFrom} /> : "P"}
+        </button>
+      )}
       <span className="card-title backlog-card-title">{card.title}</span>
       <span className="backlog-row-remove-slot">
         <button
@@ -757,11 +842,15 @@ export function TakeDialog({ title, onClose, onTake }: { title: string; onClose:
 
 /** Landing is the card in hand, drawn where it would come to rest — an
  *  outline, since it is not there yet, but otherwise the card being dragged:
- *  a review keeps its review stripe. */
-export function Landing({ card }: { card: CardModel }) {
+ *  a review keeps its review stripe. Where it may not come to rest (next to
+ *  none of its siblings, K14) the outline says so. */
+export function Landing({ card, forbidden = false }: { card: CardModel; forbidden?: boolean }) {
   const mark = markOf(card);
   return (
-    <div className={`card backlog-card${mark ? ` card-${mark}` : ""} backlog-card-landing`}>
+    <div
+      className={`card backlog-card${mark ? ` card-${mark}` : ""} backlog-card-landing${forbidden ? " backlog-card-landing-forbid" : ""}`}
+      title={forbidden ? "Only among the tasks under the same parent: the Roadmap's tree decides the order" : undefined}
+    >
       <span className="card-title backlog-card-title">{card.title}</span>
     </div>
   );

@@ -41,7 +41,7 @@ there is only one.
 
 Several domains exist for one reason: **visibility**. A user sees the
 domains they can read — that is decided by the forge, not by us — and
-the board they get is the union. A closed project lives in a second
+the board they get is the union. A closed team lives in a second
 repository that four people can clone; everybody else's board simply
 does not contain it. Authorization is thereby handed back to the forge,
 which is where it already lives for the code.
@@ -52,7 +52,7 @@ name of the repository it was read from, the primary's included. Nothing
 on disk carries that stamp: it is where the file *is*. A reader that
 leaves it out for the primary, or a rule that compares a stamped name
 against an empty one, has two names for one repository — and every "same
-repository?" question (the domain rule below, the column guards) then
+repository?" question (the domain rule below, the link guards) then
 answers no where it should answer yes. In this codebase the
 board carries its primary's name (`board.Board.Primary`) and every
 domain reader normalizes through it, so an unstamped entry and the
@@ -67,22 +67,25 @@ card. A card's domain is decided by one rule, evaluated in this order —
 
 1. a **review card** (`reviewOf` set) lives where the card it reviews
    lives — a review is part of the reviewed work. Its `team` is the
-   original's team and its `project` is empty (`sendToReview`), which is
-   exactly why this rule must come before the team rule: a review of a
-   closed-project card would otherwise land in the shared team
-   repository;
+   original's team (`sendToReview`), which is exactly why this rule must
+   come before the team rule: a review of a card in a closed repository
+   whose team lives in the shared one would otherwise land there;
 2. a **subtask** — a task whose `parent` is a TASK — lives where its
-   parent lives, whatever column it carries itself;
-3. an unlinked card filed under a **project** (an scope column, or a
-   `project` without one) lives where that project lives;
-4. any other card lives where its **team** lives (the no-team group is a
+   parent lives;
+3. any other card lives where its **team** lives (the no-team group is a
    team for this purpose and lives in the primary domain).
+
+(Until 2026-11-07 a third rule sat between the subtask and the team
+rules: an unlinked card filed under a **project** lived where that
+project lived. Project cards and the projects roster were removed with
+the Project board — see "Retired: the Project board's files" below — and
+the rules closed up.)
 
 `parent` is also the hierarchy's link (`hierarchy.md`): a task under a
 goal, an initiative or an epic carries one too, and rule 2 does NOT apply
 to it — a hierarchy link places nothing, so the card lives where its own
-project or team puts it, and nothing under a planning card follows it
-between repositories. A planning card itself has no project and its team
+team puts it, and nothing under a planning card follows it between
+repositories. A planning card's team
 (the team that carries it out, `ownership.md`) places nothing, so nothing
 places it: it lives in the PRIMARY repository, always — said
 outright in `DomainOf` rather than left to fall through, so a stray
@@ -91,19 +94,13 @@ closed repository. The rule tells the two parents apart through the resolver's
 `PlanningResolver` half; a resolver without it reads every parent as a
 task, which every parent was before the field existed.
 
-(Schema 1 had a third link, a process iteration's `task`, between the
-subtask and the project rules; the Process feature went with schema 2,
-H8, and the rules closed up.)
+(Schema 1 had another link, a process iteration's `task`, after the
+subtask rule; the Process feature went with schema 2, H8, and the rules
+closed up.)
 
-Project before team because that is what a closed project needs: a
-closed project's cards must not sit in a shared team repository, or the
-closed project is not closed. A project that owns a column is the unit
-of sensitivity; a team is an organizational unit that spans projects.
-
-Teams and projects are declared in the domain the user picks when
-creating them — asked only when more than one writable domain exists,
-labelled by access ("shared — everyone", "closed — 4 people"), never by
-repository name. Scopes and deadlines live with their project.
+Teams are declared in the domain the user picks when creating them —
+asked only when more than one writable domain exists, labelled by access
+("shared — everyone", "closed — 4 people"), never by repository name.
 
 Teams normally live in the **primary** domain. A team declared in a
 closed domain is visible only to that domain's readers; the server,
@@ -113,9 +110,9 @@ looking.
 
 ### Moving between domains
 
-A write that changes what rule 1–4 evaluates to — filing a team card
-under a closed project, taking a closed card out of its project, moving
-a team or a project to another domain — is a **move**. A move is not a
+A write that changes what rule 1–3 evaluates to — handing a card to a
+team of a closed repository, taking it back, moving a team to another
+domain — is a **move**. A move is not a
 rename inside one repository (there is no such thing across two); it is
 a create in the new domain and a delete in the old one, **with the same
 id**, in two commits that share one `Aeman-Action-Id`; the create
@@ -139,13 +136,13 @@ deleted by the next maintenance tick once the destination has been
 pushed. Until both commits are pushed, the cache is authoritative for
 every reader of this replica, and both commits are on disk.
 
-Mass moves (a team or a project to another domain) are one explicit
+Mass moves (a team to another domain) are one explicit
 action with one `Aeman-Action-Id` across two domains, never a drag.
 
 ### References never cross a domain boundary
 
-The domain is full of links — `parent`, `reviewOf`, the per-team sprint
-pointer, and the column a card stands in. A link that crosses a
+The domain is full of links — `parent`, `reviewOf` and the per-team
+sprint pointer. A link that crosses a
 visibility boundary would show one side an orphan, exactly the "card
 vanished" class of bug. Each link is closed by its own mechanism, so an
 orphan cannot be created:
@@ -153,19 +150,18 @@ orphan cannot be created:
 | link | how it stays inside |
 | --- | --- |
 | `parent` to a TASK, `reviewOf` | the inheritance rule above places the child where the referenced card is |
-| `parent` to a planning card | not placed by it: a task under an epic lives where its own project or team lives, and nothing follows a planning card between repositories. The link must never show a reader of the child a hole where the parent is: a planning card lives in the PRIMARY, which every reader of the board can read, so `hierarchyLinkAllowed` lets a link point up to a parent whose file stands in the primary or in the child's own repository, and refuses anything else with `ErrCrossDomain` at `SetParent` and at a create with a parent (H6) |
-| `team` on a project-domain card | the one reference that legitimately points across: a closed project's card names a team whose file lives in the primary. The **server** reads every domain, so the visibility rules (`CurrentSprint(b, team)` in `MeView`/`TeamGrid`, `sendToReview`, carry selection) see the pointer for everyone. For a **visitor**: the primary domain must be readable or there is no board at all (403 — `board.yaml` lives there); a card whose team file the visitor cannot read is still shown, under its team name, with the team's controls (sprint, carry) unavailable to that visitor |
-| the column (`project`/`scope`) | `refileGuard` at every door: the column must name the repository that HOLDS the card's file — the linked card's when a link outranks the project — `ErrCrossDomain` otherwise (G57, `ColumnDomain`) |
+| `parent` to a planning card | not placed by it: a task under an epic lives where its own team lives, and nothing follows a planning card between repositories. The link must never show a reader of the child a hole where the parent is: a planning card lives in the PRIMARY, which every reader of the board can read, so `hierarchyLinkAllowed` lets a link point up to a parent whose file stands in the primary or in the child's own repository, and refuses anything else with `ErrCrossDomain` at `SetParent` and at a create with a parent (H6) |
+| `team` on a card filed elsewhere by a link | the one reference that legitimately points across: a subtask or review card in a closed repository names a team whose file lives in the primary. The **server** reads every domain, so the visibility rules (`CurrentSprint(b, team)` in `MeView`/`TeamGrid`, `sendToReview`, carry selection) see the pointer for everyone. For a **visitor**: the primary domain must be readable or there is no board at all (403 — `board.yaml` lives there); a card whose team file the visitor cannot read is still shown, under its team name, with the team's controls (sprint, carry) unavailable to that visitor |
 | the reviewer | not a stored link but a choice: the reviewer picker offers only people who can read the card's domain. You cannot review what you cannot see; the UI says so instead of failing later |
 
-Splitting goes by **sensitivity**, never by team or by project as such:
+Splitting goes by **sensitivity**, never by team as such:
 `sendToReview` gives the review card the *reviewer* as assignee and the
 *original's* team, so team-split boards would orphan every cross-team
 review.
 
 ### Rosters are fragments, merged on read
 
-Teams and projects are declared by files in their own domain — a
+Teams are declared by files in their own domain — a
 centralized roster would leak the name of a team created in a closed
 domain to everyone. Order is a **rank key** on each file (see
 "Ordering"); rank keys are comparable across domains, so the merged
@@ -175,10 +171,9 @@ Names are unique across the board: creation checks the merged roster
 the creator can see. Two writers, or a writer who cannot see a domain
 where the name already exists, can still race a duplicate into being.
 The reader resolves duplicates deterministically: the file with the
-oldest `created` is the team (or project) — its rank and
-attributes win — and the others are **aliases** of it: their cards
-count as its cards, an alias project's scopes and deadlines show as the
-winner's columns and lines, nothing is dropped. `/api/healthz` reports the
+oldest `created` is the team — its rank and attributes win — and the
+others are **aliases** of it: their cards count as its cards, nothing is
+dropped. `/api/healthz` reports the
 duplicates so a maintainer can merge them by hand; the server never
 renames or deletes on its own.
 
@@ -205,13 +200,12 @@ customers/<id>.yaml                primary domain only, one customer of the
                                    name it by id (`customers: [<id>, …]`),
                                    and a delete takes the id off every card
                                    in the same commit (`ownership.md`)
-projects/<id>/project.yaml         one project: name, rank; a file with no
-                                   `name` is the NO-PROJECT bucket, written
-                                   on demand (`projects/_/project.yaml`)
-projects/<id>/scopes/<id>.yaml      one column: name, rank
-projects/<id>/deadlines/<id>.yaml  one deadline line: week
 cards/<a>/<b>/<id>.md              one card: front-matter + body
 ```
+
+`projects/` — the retired Project board's roster — is no part of the
+layout any more; a repository may still hold it, and every reader skips
+it (see "Retired: the Project board's files").
 
 Every `<id>` is a **ULID** minted by the server (26 chars, Crockford
 base32, time-ordered). Cards are sharded under `cards/<a>/<b>/` where
@@ -249,6 +243,7 @@ assignees: [kitsunoff]
 author: kvaps
 team: portal
 zone: yellow
+priority: P1
 stage: locked
 progress: 40
 doneFrom: 0
@@ -256,8 +251,6 @@ start: 2026-08-26
 day: 2026-08-28
 sprint: 2026-08-24
 parked: false
-project: portal
-scope: Bugs
 parent: 01JB4K2E7QZMX3R8V0N5T9WYC1
 reviewOf: ""
 reviewRound: 0
@@ -279,14 +272,12 @@ Rules:
 
 - Empty fields are omitted on write (the example shows them for the
   schema). Unknown keys are preserved on rewrite — a newer server must
-  not strip what an older one does not know. One key is read under its
-  OLD name as well: `epic`, what `scope` was called before schema 2, is
-  an alias of `scope` on read and is written back as `scope` — so a card
-  of a pre-migration day still stands in its column, and a writer emits
-  `scope` only. The column stubs are read under their old directory the
-  same way (`projects/<id>/epics/` is `ParsePath`'s PathScope as
-  `scopes/` is), or the card would stand in a column the day's board did
-  not have; new stubs go under `scopes/` only.
+  not strip what an older one does not know. Two keys are NOT unknown:
+  a non-empty `scope` — or `epic`, its pre-schema-2 spelling — marks the
+  file as a retired PROJECT CARD, which no reader loads (see "Retired:
+  the Project board's files"), and a `project` on any other card is read
+  and dropped, so its next write leaves the key out. A writer emits
+  neither.
 - `type` is the card's LEVEL (`hierarchy.md`): absent for a task, else
   `goal`, `initiative` or `epic` — a planning card, drawn on the Roadmap
   and on no day board. It is written right after the title, and a task
@@ -302,9 +293,21 @@ Rules:
   sprint clears `parked`. Every team has a backlog and nothing declares it
   anywhere, which is what makes it safe: there is no list to create,
   rename or remove, so nothing can be taken from under a card.
-- A task has NO `week` (schema 3, K7): the key is read on a pre-schema-3
-  file and never written. Only a deadline stub
-  (`projects/<pid>/deadlines/<id>.yaml`) carries a week.
+- `priority: P0`…`P4` is how much a card matters now, said by a person
+  (`docs/design/backlog.md`, K15) — on any card, a task or a plan item;
+  absent when it has none. Written right after `size`. What a card counts
+  under is its effective priority — its own, else the nearest ancestor's —
+  which is computed and never written down: a writer setting a plan
+  item's priority writes that file alone. Nothing clears it on its own. A
+  value other than P0…P4 (`p1`, `high`) is read as an unknown key — kept,
+  written back as it was, and no priority: it neither shadows what the card
+  inherits nor reaches a status. A review card's priority is its task's and
+  is not written on the review card. A `todo:` key (an unreleased flag it
+  replaced) is an unknown key, kept and ignored.
+- A card has NO `week` (schema 3, K7): the key is read on a pre-schema-3
+  file into the file's own record (`CardFile.Week`) — for the schema-3
+  bump and the importer, which place a task by it — never onto the card,
+  and never written.
 - `zone` and `stage` are the domain keys (`red|yellow|green|gray`,
   `locked|review|recurrent|refuse`), not display names. Derived states
   (In Progress, Done-by-100%) are **not stored**, exactly as today — which
@@ -342,10 +345,9 @@ Rules:
 - `movedFrom` / `movedAt` name the domain a card was moved out of and
   when (see "Moving between domains"); absent on a card that never
   moved.
-- `team`, `project`, `scope` are **names**, as in the domain
-  and the API (a column is `(project, scope)`). Renaming an scope rewrites
-  every card that names it plus the scope file — in **one commit**, which
-  is what today's `RenameScope` does across N GraphQL calls.
+- `team` is a **name**, as in the domain and the API. Renaming a team
+  rewrites every card that names it plus the team file — in **one
+  commit**.
 - `parent`, `reviewOf` are **ids**, and so are the entries of
   `customers:` (the roster's, `customers/<id>.yaml`); `owner:` is a login
   and is read on a goal, an initiative or an epic only
@@ -384,9 +386,8 @@ sprint:
   previous: 2026-08-21
 ```
 
-A project, an scope, a deadline follow the same pattern: a name where it
-has one, a `rank`, a `created`, the fields the domain already gives them
-(`Deadline.Week`). The no-team group is the team file named `_.yaml` in
+Customers follow the same pattern: a `name`, a `rank`, a `created`. The
+no-team group is the team file named `_.yaml` in
 the primary domain.
 
 `board.yaml`, primary domain only:
@@ -413,6 +414,50 @@ the same file at the same path: its id is `DeriveID(<the task ULID's time>,
 "schema3-review", <the task's id>)`, its `created` is that same time, and
 its rank sits before the smallest rank the repository holds. A writer
 targeting schema 3 must leave every open task in one of the two places.
+Neither bump touches the retired Project board's files: schema 2 leaves
+`projects/` and every card carrying `scope` or `epic` byte for byte as
+they are — it only ungroups a card whose `parent` is such a card — and
+schema 3 skips them. There was no bump for their removal (the schema is
+still 3), because nothing is rewritten.
+
+### Retired: the Project board's files
+
+Removed 2026-11-07 (H15 in `behavior-matrix.md`). The Project board, its
+project cards, its columns and its deadline lines are no part of the
+model. The owner's decision was to drop them as they stand — not to
+convert them into tasks — and to leave the files in the repositories:
+
+- A card file whose front matter has a non-empty `scope` (or `epic`, the
+  pre-schema-2 spelling of the same key) is a **project card**. Every
+  path under `projects/` (`project.yaml`, `scopes/`, `epics/`,
+  `deadlines/`) is the retired roster.
+- The loader **skips** both: they are not loaded, listed, counted or
+  served, and are not reported as unknown or broken files either.
+- **Nothing writes them.** A write, a delete or a move addressed at a
+  project card's id answers card-not-found and leaves the file byte for
+  byte; maintenance (the ghost sweep, the stranded-card cleanup), the
+  rebase replay, cross-domain moves and the `Aeman-Cards` trailers only
+  ever see the cards the board loaded, so they never touch one either. A
+  replay whose tip holds a project card (or a `projects/` file) at a path
+  it touched leaves that file exactly as the tip has it, edit or delete
+  alike.
+- A `parent` naming a project card is a dangling link: it is dropped on
+  read like any other (H1) — on a reload of one card too — and a planning
+  card's counts do not include project cards.
+- A `reviewOf` naming a project card stays dangling: the review card's
+  original is unknown to the board. Such a review card is kept and stays
+  on its team's day boards, but it is no review still asked for, so a
+  carry-over does not carry it; deleting it (or the × on it) is a plain
+  delete — there is no task to put back In progress, and the project card
+  is neither read nor written.
+- A past day is not slowed by them: a card still in the day's last tree
+  is not taken for one the day removed.
+- The importer (`aeman migrate`) leaves a Projects v2 board's column
+  entries (a Scope/Epic value) and its `aeman:project-state`,
+  `aeman:scope-state` and `aeman:deadline-state` stubs out, and reports
+  how many it left (`ProjectBoardItems`).
+
+A writer must not create such files: aeman will not show them.
 
 A review card made at RUNTIME — a task put on review with nobody to review
 it (`requestReview`) — gets a fresh ULID like every create: two replicas
@@ -446,7 +491,7 @@ soft — the key grows past it rather than any file being written across
 the boundary. The key logic is pure and lives in `pkg/board`
 (`rank.go`).
 
-The same key orders teams, projects, scopes and deadlines. Because it is a plain string, roster fragments from different
+The same key orders teams and customers. Because it is a plain string, roster fragments from different
 domains merge into one order.
 
 The **top** of the board is the top of the merged order: a card put first
@@ -462,6 +507,12 @@ neighbour lives in.
 - **K1** — an open task is IN WORK (a `start`/`day` or a `sprint`) or
   `parked: true`, never both and never neither; parking clears
   `assignees`, `start`, `day`, `sprint` and sets `zone: gray`.
+- **K14/K15** — a backlog reads by effective priority (P0 first, none
+  last), each priority in the Roadmap's order: the path of board-order
+  places (rank, then id) from the root plan item down to the task, so a
+  writer reorders a task in its backlog by moving it among its siblings
+  under the same parent, and moves it to another group by its
+  `priority`.
 - **K10** — a task with `stage: review` has a review card (`reviewOf`
   naming it). With a reviewer it is theirs, in work. With nobody it is
   `parked: true`, `assignees` empty, of the reviewed task's `team`,
@@ -471,8 +522,7 @@ neighbour lives in.
   review too (back to In progress: no stage, progress kept within
   10–90). A writer clearing a reviewer while the task stays on review
   parks the review card as above, rather than leaving it in work with
-  nobody. A project card (a `scope`) is never on review and has no review
-  card.
+  nobody.
 - **K13** — a card's place in a list is its `rank`, between its
   neighbours' keys in the merged board order (above).
 
@@ -487,7 +537,7 @@ make revert hit things it should not.
 
 When an action touches **two domains** — Carry Over moves the team's
 sprint pointer (team file, team domain) and carries cards that may live
-in a project domain; `RenameScope` and `DeleteTeam` can do the same — it
+in another domain; a team rename and `DeleteTeam` can do the same — it
 produces one commit **per domain**,
 all carrying the same `Aeman-Action-Id`. Two repositories cannot share
 a commit; the id is what makes them one action for the log, for revert
@@ -984,16 +1034,16 @@ The tests are the second documentation: each names its edges.
 | G11 | Re-apply on a new tip replays the unpushed commits field by field onto the files as they now are: last write wins per field; a create is idempotent by path; the commits are found on the branch, so a restart between commit and push loses nothing | two writers, disjoint cards: both changes present; same card, different fields: both land; same field: the later re-application wins, history has both commits; two replicas creating the same path → one file, the loser's create is a no-op with no second commit; a commit made before a restart is pushed by the next run |
 | G12 | Rank insertion touches one file; rebalancing is bounded to the run and to the mover's domain | insert between neighbours: one file changes; exhausted key space: only the run between the nearest roomy neighbours is rewritten, in the same commit; a run that would cross into another domain stops at the boundary |
 | G13 | Roster fragments merge into one order across domains; duplicate names resolve to the oldest, the rest are aliases | interleaved ranks come out interleaved; identical ranks tie-break by id; two fragments declaring `portal` → one team, the older file's rank and sprint, both fragments' cards, healthz names the duplicate |
-| G14 | Domain follows the inheritance rule, linked cards first, and is never chosen per card | a card under a closed project → closed repository; a team card without a project → the team's domain; a review card of a **closed-project** original whose `team` lives in shared → closed, not shared (the review card carries the original's team and no project, so the team rule would leak it); moving a card moves its review card and subtasks in the same action |
-| G57 | ~~A card's COLUMN names the repository that holds its file while a link outranks its project~~ **Removed**: a card in a column carries no team, no owner, no task parent and no review link (H4, `hierarchy.md`), so no link ever outranks its project; what remains of the guard is the own-column check — a column of the no-project bucket declared in another repository cannot hold the card (`refileGuard`), and a column never changes repository | — |
+| G14 | Domain follows the inheritance rule, linked cards first, and is never chosen per card | a team card → the team's domain; a review card of an original in the closed repository whose `team` lives in shared → closed, not shared (the review card carries the original's team, so the team rule would leak it); moving a card moves its review card and subtasks in the same action (the project step — a card under a closed project → closed — went with the Project board, 2026-11-07) |
+| G57 | ~~A card's COLUMN names the repository that holds its file while a link outranks its project~~ **Removed**: a card in a column carries no team, no owner, no task parent and no review link (H4, `hierarchy.md`), so no link ever outranks its project; the rest of the guard (`refileGuard`) went with the Project board itself, 2026-11-07 (H15) | — |
 | G15 | ~~Mirror refuses a target column in another domain~~ **Removed**: card mirrors are retired (schema 2, `hierarchy.md`); the rule they shared with every re-file — a column names the repository that holds the card — is G57 | — |
 | G16 | The reviewer picker offers only readers of the card's domain | a login without access to the closed domain is absent; with access present |
-| G17 | An unreadable domain is absent from the snapshot AND the watch stream; the primary is required | a visitor who can read one of two domains gets exactly that domain's teams, projects and cards, no placeholders; a closed-domain commit applied from remote is not delivered to that visitor's socket; a visitor who cannot read the primary gets 403 and no board; a card whose team file is unreadable is still served, under its team name, with the team's sprint controls unavailable |
+| G17 | An unreadable domain is absent from the snapshot AND the watch stream; the primary is required | a visitor who can read one of two domains gets exactly that domain's teams and cards, no placeholders; a closed-domain commit applied from remote is not delivered to that visitor's socket; a visitor who cannot read the primary gets 403 and no board; a card whose team file is unreadable is still served, under its team name, with the team's sprint controls unavailable |
 | G18 | A newer `schema` is refused; an older one is migrated in a commit | `schema: 99` → clear error at startup; `schema: 0` → one commit, `schema: 1`, files rewritten |
 | G19 | Remote changes reach the cache by diff | a commit pushed from elsewhere touching one card updates that card only and is broadcast once, to readers of its domain only |
 | G20 | Restart keeps unpushed commits | commit, no push, reopen the store → the commit is in the queue and pushed; the same for `aeman mcp` exiting right after a mutation |
 | G21 | Repack keeps every object reachable | after `git repack -ad` and a storer reindex every commit, tree and blob of the history still reads |
-| G22 | A cross-domain move is create-then-delete with the same id and one action id; a torn move shows the card once, from the tree alone | filing a team card under a closed project → two commits, same ULID, the create carries `Aeman-Moved-From` and `movedFrom:` in the file, the delete `Aeman-Moved-To`; the create is committed to disk before the delete; only the create pushed → a fresh **depth-1** clone of both domains shows the card once (the source file is the ghost); only the delete pushed → the card is still served from this replica's cache; maintenance removes the ghost after the destination landed |
+| G22 | A cross-domain move is create-then-delete with the same id and one action id; a torn move shows the card once, from the tree alone | handing a card to a team of the closed repository → two commits, same ULID, the create carries `Aeman-Moved-From` and `movedFrom:` in the file, the delete `Aeman-Moved-To`; the create is committed to disk before the delete; only the create pushed → a fresh **depth-1** clone of both domains shows the card once (the source file is the ghost); only the delete pushed → the card is still served from this replica's cache; maintenance removes the ghost after the destination landed |
 | G23 | `Reopen` restores `doneFrom` regardless of history depth | a card done past the horizon reopens to its pre-done progress; a card with no `doneFrom` falls back to the in-progress nudge |
 | G24 | An unborn remote is refused with the init hint; `aeman init` bootstraps in one commit | `serve` against an empty repository exits naming `aeman init`; `init` writes `board.yaml` + `teams/_.yaml`, pushes, and a second `init` is a no-op |
 | G25 | Mutations require `CanWrite` on the target domain(s) | a read-only collaborator gets 403 on every mutation and 200 on every read; a move checks both domains |
@@ -1040,20 +1090,21 @@ interface change is kept as small as it is.
 
 ## Decisions taken here, for the record
 
-- Project before team as the domain axis; review cards and subtasks
-  follow what they belong to (so did process iterations, while the
+- Project before team as the domain axis (until 2026-11-07, when the
+  Project board was removed; the team is the axis now); review cards and
+  subtasks follow what they belong to (so did process iterations, while the
   feature lasted — schema 2 took it out, H8).
 - Cross-domain re-filing is a move (delete + create, same id, one action
-  id), not a refusal — "remove from project" is an everyday action and
-  it changes the domain.
-- Names, not ids, for `team`/`project`/`scope` references in cards (API
+  id), not a refusal — handing a card to another team is an everyday
+  action and it changes the domain.
+- Names, not ids, for `team` references in cards (API
   compatibility; one commit per rename anyway). Duplicates resolve to the
   oldest; the server never renames on its own.
 - Ids for `parent`/`reviewOf` (they are ids today), remapped by
   the migration.
 - `doneFrom` stored rather than a history read: actions never depend on
   a log that may be cut.
-- One file per team/project/scope/deadline, not one roster file
+- One file per team (and per customer), not one roster file
   (concurrent sprint-pointer updates per team are the common write).
 - Notes in the body with an explicit ULID per note (stable ids across
   edits; readable in a diff).

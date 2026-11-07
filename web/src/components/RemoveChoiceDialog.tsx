@@ -42,12 +42,6 @@ function say(choice: RemoveChoice, review = false, reviewing = "the task") {
         note: "The card goes, with its description and its history.",
         danger: true,
       };
-    case "unassign":
-      return {
-        label: "Move it to Unassigned",
-        note: "Nobody holds it any more; it stays in its column on the Project board.",
-        danger: false,
-      };
     case "ungroup":
       return {
         label: "Take it out of the group",
@@ -93,9 +87,7 @@ function say(choice: RemoveChoice, review = false, reviewing = "the task") {
  *  Every × puts this question, whatever it would do — the exception is a card
  *  made today that nobody has touched, which goes without ceremony
  *  (`asksFirst`). What it offers is the card's own list: a task can be taken
- *  off the board or sent back to its team's backlog (K3); a project card can
- *  only be moved to Unassigned, in its column, since it is not this board's
- *  to destroy. */
+ *  off the board or sent back to its team's backlog (K3). */
 export function RemoveChoiceDialog({
   title,
   progress,

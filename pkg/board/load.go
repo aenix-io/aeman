@@ -4,7 +4,7 @@ package board
 // across EVERY team.
 //
 // A board is nearly always read through a filter — one team's columns, one
-// project's grid — and a person is not. Somebody with four cards in the team
+// backlog — and a person is not. Somebody with four cards in the team
 // on screen may have eleven altogether, and handing them a fifth is a
 // decision made in the dark unless the whole number is in front of the
 // reader. So this one ignores the filter on purpose.

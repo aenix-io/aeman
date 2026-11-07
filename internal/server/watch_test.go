@@ -126,7 +126,7 @@ func TestWhichWatchesAreScoped(t *testing.T) {
 		{board.ViewMe, "", true},
 		{board.ViewTeam, "team=alpha", true},
 		{board.ViewBacklog, "", true},
-		{board.ViewProject, "", true},
+		{board.ViewRoadmap, "", true},
 		// No board and nothing narrowing it: the raw stream.
 		{board.ViewAll, "", false},
 		{board.ViewAll, "resources=cards&client=tab-A", false},

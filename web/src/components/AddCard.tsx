@@ -173,6 +173,10 @@ export function AddCard({
           if (e.key === "Enter") {
             submit();
           } else if (e.key === "Escape") {
+            // The form's own Esc: it cancels the form and goes no further — a
+            // drawer or a dialog around it stays open (detail.drawerEscapes).
+            e.preventDefault();
+            e.stopPropagation();
             close(false);
           }
         }}

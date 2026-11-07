@@ -15,22 +15,21 @@ import (
 var ErrNoSuchView = errors.New("no such board")
 
 // ErrNotOnThisBoard is a create carrying a field the board it was made on does
-// not own — a parked card typed into a day, a column named on the Me board.
+// not own — a parked card typed into a day, a type named on the Me board.
 // It names the field, because a create that quietly dropped it would answer
 // with a card that is not the one the caller described.
 var ErrNotOnThisBoard = errors.New("this board does not make cards like that")
 
 // ErrViewNeedsField is the other half: a board whose whole gesture is one
-// field, asked to make a card without it — a Project card with no column is
-// on no row.
+// field, asked to make a card without it — a Roadmap card that is neither a
+// plan item nor a task under one.
 var ErrViewNeedsField = errors.New("this board needs it to mean anything")
 
 // CreateInView creates a card the way the BOARD it was made on makes them.
 //
 // A person typing a title does it somewhere: into the Me board, where the card
-// is theirs and today's; into a team's backlog, where it is parked, last;
-// into a Project column, where it is a slot whose row is its start date. The
-// fields that encode the last two — `parked`, `scope` — were the whole
+// is theirs and today's; into a team's backlog, where it is parked, last. The
+// field that encodes the last — `parked` — was the whole
 // vocabulary the API had, so a caller had to know which COMBINATIONS are
 // boards and which are states no board draws (parked with a date is a card in
 // the backlog and in work at once). The view is the board, said once.
@@ -59,8 +58,8 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 	dated := args.Day != "" || args.Start != "" || args.SprintStart != ""
 	// A place among the cards is the Backlog's and the day boards': a
 	// backlog and a Team or Me cell are slices of the board's order, and the
-	// insert "+" in a gap names its neighbour. The Roadmap and the Project
-	// board place a card by its parent or its column.
+	// insert "+" in a gap names its neighbour. The Roadmap places a card by
+	// its parent.
 	placed := args.After != "" || args.Before != ""
 	var refusals []viewRefusal
 	switch view {
@@ -84,7 +83,7 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 			args.Undated = true
 		}
 		refusals = []viewRefusal{
-			{args.Parked, "parked"}, {args.Scope != "", "scope"},
+			{args.Parked, "parked"},
 			{args.ReviewOf != "", "reviewOf"},
 			{args.SprintStart != "", "sprintStart"},
 			// A planning card may be born with its team, its owner and its
@@ -98,7 +97,7 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 		}
 	case board.ViewMe, board.ViewTeam:
 		refusals = []viewRefusal{
-			{args.Parked, "parked"}, {args.Scope != "", "scope"},
+			{args.Parked, "parked"},
 			{args.Type != "", "type"},
 		}
 		// The Me board files for the person reading it — including a lead
@@ -115,7 +114,6 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 		}
 	case board.ViewBacklog:
 		refusals = []viewRefusal{
-			{args.Scope != "", "scope"},
 			{dated, "a day"}, {args.Type != "", "type"},
 		}
 		// Born in the backlog rather than born somewhere else and moved: one
@@ -123,20 +121,6 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 		// nobody put it. It lands last, or where After/Before place it (the
 		// insert "+" between two cards).
 		args.Parked = true
-	case board.ViewProject:
-		// A card made here is a PROJECT CARD (H4): the plan, not work in
-		// hand. It takes no team, no owner and no review link — those are
-		// the day boards' to give. A
-		// parent it MAY take, a planning one: CreateCard holds it to that
-		// (a project card sits under an epic and is never a subtask).
-		refusals = []viewRefusal{
-			{args.Parked, "parked"}, {args.Team != "", "team"},
-			{args.Assignee != "", "assignee"}, {args.Type != "", "type"},
-			{args.ReviewOf != "", "reviewOf"}, {placed, "a place among the cards"},
-		}
-		if args.Scope == "" {
-			return args, fmt.Errorf("%w: a card of the Project board stands in a column", ErrViewNeedsField)
-		}
 	}
 	for _, r := range refusals {
 		if r.bad {
@@ -160,7 +144,7 @@ type viewRefusal struct {
 // that does not draw it does not answer it.
 //
 // The pane actions are NOT here. Deferring a card, putting it in progress,
-// sending it to review, mirroring it into a second column: those mean the same
+// sending it to review: those mean the same
 // thing wherever the card was opened from, so they stay addressed as the card
 // itself.
 type Gesture string
@@ -186,10 +170,10 @@ const (
 // list: a caller that said "all" has no board to be refused by.
 var gestureBoards = map[Gesture][]board.View{
 	GestureRemove: {board.ViewMe, board.ViewTeam, board.ViewBacklog,
-		board.ViewRoadmap, board.ViewProject, board.ViewAll},
+		board.ViewRoadmap, board.ViewAll},
 	GestureFinishedEarlier: {board.ViewMe, board.ViewTeam, board.ViewAll},
-	// Not the Project board's: it draws no task (H4). The Backlog's owner
-	// picker is how a task is taken into work from there (K4).
+	// The Backlog's owner picker is how a task is taken into work from
+	// there (K4).
 	GestureOwn: {board.ViewRoadmap, board.ViewMe, board.ViewTeam,
 		board.ViewBacklog, board.ViewAll},
 	GestureTake: {board.ViewBacklog, board.ViewAll},
@@ -197,8 +181,7 @@ var gestureBoards = map[Gesture][]board.View{
 
 // Offers reports whether a board draws a gesture. A gesture asked of a board
 // that does not is answered as a route that is not there, because that is what
-// it is: there is no × on the Project board's drawer and no "finished
-// earlier" on the Backlog.
+// it is: there is no "finished earlier" on the Backlog.
 func Offers(view board.View, g Gesture) bool {
 	for _, v := range gestureBoards[g] {
 		if v == view {

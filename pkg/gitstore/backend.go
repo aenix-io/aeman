@@ -18,8 +18,8 @@ import (
 
 // Backend is boardservice.Backend over one domain's repository. The service
 // speaks the state-card protocol it always has — a stub card whose Title is
-// an aeman:*-state marker stands for a team, scope, project, deadline or
-// process — and the backend routes those onto roster files. Every mutation
+// an aeman:*-state marker stands for a team — and the backend routes it
+// onto its roster file. Every mutation
 // is a commit: on its own when called bare, or folded into the enclosing
 // action's single commit when the context carries a scope (WithScope).
 
@@ -45,9 +45,8 @@ func NewBackend(repo *Repo, opts BackendOptions) *Backend {
 
 // Errors the backend reports for the roster protocol.
 var (
-	ErrProjectNotFound = errors.New("gitstore: project not found")
-	ErrNoteNotFound    = errors.New("gitstore: note not found")
-	ErrCardNotFound    = errors.New("gitstore: card not found")
+	ErrNoteNotFound = errors.New("gitstore: note not found")
+	ErrCardNotFound = errors.New("gitstore: card not found")
 )
 
 // ---- scope: one action, one commit ------------------------------------------
@@ -67,8 +66,7 @@ type scope struct {
 	cards   map[string]bool
 	// roster names created inside the scope, so a later write in the same
 	// action can find them before anything is committed.
-	projects map[string]string
-	teams    map[string]string
+	teams map[string]string
 }
 
 // scopePart is one repository's staged writes, and the trailers only its
@@ -113,7 +111,7 @@ func (sc *scope) part(r *Repo) *scopePart {
 // repositories it returns the last commit's hash.
 func WithScope(ctx context.Context, a Action) (context.Context, func() (plumbing.Hash, error)) {
 	sc := &scope{action: a, parts: map[*Repo]*scopePart{}, cards: map[string]bool{},
-		projects: map[string]string{}, teams: map[string]string{}}
+		teams: map[string]string{}}
 	for _, id := range a.Cards {
 		sc.cards[id] = true
 	}
@@ -235,6 +233,18 @@ func (b *Backend) write(ctx context.Context, op string, cards []string, p string
 // with Aeman-Change lines for what the write changed when the file diff
 // cannot say it (a file that arrives whole from another domain).
 func (b *Backend) writeWith(ctx context.Context, op string, cards []string, p string, data []byte, trailers map[string]string, changes ...Change) error {
+	return b.writeSummed(ctx, op, "", cards, p, data, trailers, changes...)
+}
+
+// writeNamed is write with the commit's subject said outright — a roster
+// entry carries no card id for the subject to name.
+func (b *Backend) writeNamed(ctx context.Context, op, summary string, cards []string, p string, data []byte) error {
+	return b.writeSummed(ctx, op, summary, cards, p, data, nil)
+}
+
+// writeSummed is writeWith with a subject; "" names the op and its one card.
+// Under a scope the action's own subject stands and the summary is unused.
+func (b *Backend) writeSummed(ctx context.Context, op, summary string, cards []string, p string, data []byte, trailers map[string]string, changes ...Change) error {
 	if sc := scopeOf(ctx); sc != nil {
 		sc.mu.Lock()
 		defer sc.mu.Unlock()
@@ -252,9 +262,11 @@ func (b *Backend) writeWith(ctx context.Context, op string, cards []string, p st
 		sc.changes = append(sc.changes, changes...)
 		return nil
 	}
-	summary := op
-	if len(cards) == 1 {
-		summary = op + " " + cards[0]
+	if summary == "" {
+		summary = op
+		if len(cards) == 1 {
+			summary = op + " " + cards[0]
+		}
 	}
 	_, err := b.repo.Commit(Action{Name: op, Actor: actorOf(ctx), At: b.now(), Cards: cards, Summary: summary, Trailers: trailers, Changes: changes}, []FileWrite{{Path: p, Data: data}})
 	return err
@@ -317,21 +329,10 @@ func boardFromSnapshot(s Snapshot) board.Board { return boardFromSnapshotIn("", 
 // one namespace rather than comparing a stamped column against an
 // unstamped placement.
 func boardFromSnapshotIn(primary string, s Snapshot) board.Board {
-	cards := make([]board.Card, 0, len(s.Cards)+len(s.Teams)+len(s.Projects)*4)
+	cards := make([]board.Card, 0, len(s.Cards)+len(s.Teams))
 	for _, t := range s.Teams {
 		cards = append(cards, board.Card{ItemID: t.ID, Title: board.SprintStateTitle, Team: t.Name,
 			SprintStart: t.Sprint.Current, StartDate: t.Sprint.Previous, Rank: t.Rank, CreatedAt: t.Created, Domain: t.Domain})
-	}
-	for _, p := range s.Projects {
-		cards = append(cards, board.Card{ItemID: p.ID, Title: board.ProjectStateTitle, Project: p.Name, Rank: p.Rank, CreatedAt: p.Created, Domain: p.Domain})
-	}
-	for _, p := range s.Projects {
-		for _, e := range p.Scopes {
-			cards = append(cards, board.Card{ItemID: e.ID, Title: board.ScopeStateTitle, Scope: e.Name, Project: p.Name, Rank: e.Rank, CreatedAt: e.Created, Domain: e.Domain})
-		}
-		for _, d := range p.Deadlines {
-			cards = append(cards, board.Card{ItemID: d.ID, Title: board.DeadlineStateTitle, Week: d.Week, Project: p.Name, CreatedAt: d.Created, Domain: d.Domain})
-		}
 	}
 	cards = append(cards, s.Cards...)
 	bd := board.NewBoardIn(primary, cards)
@@ -390,12 +391,35 @@ func (b *Backend) LoadCards(ctx context.Context, _ board.Board, ids []string) ([
 		if err != nil {
 			return nil, err
 		}
+		if f.ProjectCard {
+			continue // not a card of the board (H15)
+		}
 		// Read by the same rules a read of the whole board applies to one
 		// card, or the reload of a card a commit wrote would disagree with
 		// the board about the same file.
-		out = append(out, board.SettleCard(f.Card))
+		c := board.SettleCard(f.Card)
+		if c.Parent != "" && b.holdsProjectCard(ctx, c.Parent) {
+			c.Parent = "" // dangling on a whole read too (dropDanglingParents, H15)
+		}
+		out = append(out, c)
 	}
 	return out, nil
+}
+
+// holdsProjectCard reports that this repository keeps id as a project card —
+// a file the board no longer reads (H15). A card it does not hold at all is
+// not this repository's to answer for: the board may hold it in another.
+func (b *Backend) holdsProjectCard(ctx context.Context, id string) bool {
+	p, err := CardPath(id)
+	if err != nil {
+		return false
+	}
+	data, ok, err := b.read(ctx, p)
+	if err != nil || !ok {
+		return false
+	}
+	f, err := DecodeCard(id, data)
+	return err == nil && f.ProjectCard
 }
 
 // ---- creating ------------------------------------------------------------------------
@@ -413,42 +437,6 @@ func (b *Backend) CreateCard(ctx context.Context, _ board.Board, in board.Create
 	if err != nil {
 		return board.Card{}, err
 	}
-	switch in.Title {
-	case board.ProjectStateTitle:
-		rank, _ := board.RankBetween(lastRank(len(s.Projects), func(i int) string { return s.Projects[i].Rank }), "")
-		data, err := EncodeProject(ProjectFile{Name: in.Project, Rank: rank, Created: created})
-		if err != nil {
-			return board.Card{}, err
-		}
-		if sc := scopeOf(ctx); sc != nil {
-			sc.projects[in.Project] = id
-		}
-		return board.Card{ItemID: id, Title: in.Title, Project: in.Project, Rank: rank, CreatedAt: created},
-			b.write(ctx, "add-project", nil, ProjectPath(id), data)
-	case board.ScopeStateTitle:
-		pid, pr, err := b.projectByName(ctx, s, in.Project, true)
-		if err != nil {
-			return board.Card{}, err
-		}
-		rank, _ := board.RankBetween(lastRank(len(pr.Scopes), func(i int) string { return pr.Scopes[i].Rank }), "")
-		data, err := EncodeScope(ScopeFile{Name: in.Scope, Rank: rank, Created: created})
-		if err != nil {
-			return board.Card{}, err
-		}
-		return board.Card{ItemID: id, Title: in.Title, Scope: in.Scope, Project: in.Project, Rank: rank, CreatedAt: created},
-			b.write(ctx, "add-scope", nil, ScopePath(pid, id), data)
-	case board.DeadlineStateTitle:
-		pid, _, err := b.projectByName(ctx, s, in.Project, true)
-		if err != nil {
-			return board.Card{}, err
-		}
-		data, err := EncodeDeadline(DeadlineFile{Week: in.Week, Created: created})
-		if err != nil {
-			return board.Card{}, err
-		}
-		return board.Card{ItemID: id, Title: in.Title, Week: in.Week, Project: in.Project, CreatedAt: created},
-			b.write(ctx, "add-deadline", nil, DeadlinePath(pid, id), data)
-	}
 	c := cardFromInput(in, id, created, board.ActorFrom(ctx))
 	c.Rank, _ = board.RankBetween(lastRank(len(s.Cards), func(i int) string { return s.Cards[i].Rank }), "")
 	data, err := EncodeCard(CardFile{Card: c})
@@ -462,9 +450,8 @@ func (b *Backend) CreateCard(ctx context.Context, _ board.Board, in board.Create
 func cardFromInput(in board.CreateInput, id, created, author string) board.Card {
 	c := board.Card{
 		ItemID: id, Title: in.Title, Type: in.Type, Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
-		Team: in.Team, ReviewOf: in.ReviewOf, Parent: in.Parent, Week: in.Week, Scope: in.Scope,
-		Parked: in.Parked, Size: in.Size,
-		Project: in.Project, Recurrence: in.Recurrence,
+		Team: in.Team, ReviewOf: in.ReviewOf, Parent: in.Parent,
+		Parked: in.Parked, Size: in.Size, Priority: in.Priority, Recurrence: in.Recurrence,
 		Description: in.Body, CreatedAt: created, Author: author,
 	}
 	if in.Assignee != "" {
@@ -495,121 +482,59 @@ func (b *Backend) snapshot(_ context.Context) (Snapshot, error) {
 	return s, err
 }
 
-func (b *Backend) projectByName(ctx context.Context, s Snapshot, name string, create bool) (string, Project, error) {
-	for _, p := range s.Projects {
-		if p.Name == name {
-			return p.ID, p, nil
-		}
-	}
-	if sc := scopeOf(ctx); sc != nil {
-		if id, ok := sc.projects[name]; ok {
-			return id, Project{ID: id}, nil
-		}
-	}
-	if name == "" && create {
-		// The NO-PROJECT BUCKET is a column home like any other (G15, G54):
-		// its columns are declared under a nameless project stub, the way
-		// the no-team group has `teams/_.yaml`. Nothing can add that stub —
-		// a project must have a name — so the first column filed outside
-		// every project brings it into being here. Without it the bucket
-		// was a home the store could hold but nothing could create: adding
-		// a column to it, and unbinding one INTO it, both failed with
-		// "project not found".
-		//
-		// Only for a WRITE that means to put something there. A lookup that
-		// is merely computing a path (projectOfChild, behind a delete) must
-		// not leave a file behind: a delete that writes a project stub and
-		// then removes a path under it that never existed is a commit
-		// nobody asked for.
-		return b.bucketProject(ctx, s)
-	}
-	return "", Project{}, fmt.Errorf("%w: %q", ErrProjectNotFound, name)
-}
-
-// bucketProjectID is the nameless project's file id, `_` as the no-team
-// group's is — a name no ULID takes, and one a reader can see for what it
-// is.
-const bucketProjectID = "_"
-
-// bucketProject finds or writes the nameless project stub the no-project
-// bucket's columns hang under.
-func (b *Backend) bucketProject(ctx context.Context, s Snapshot) (string, Project, error) {
-	rank, _ := board.RankBetween(lastRank(len(s.Projects), func(i int) string { return s.Projects[i].Rank }), "")
-	data, err := EncodeProject(ProjectFile{Rank: rank, Created: b.now().UTC().Format(time.RFC3339)})
-	if err != nil {
-		return "", Project{}, err
-	}
-	if sc := scopeOf(ctx); sc != nil {
-		sc.projects[""] = bucketProjectID
-	}
-	if err := b.write(ctx, "add-project", nil, ProjectPath(bucketProjectID), data); err != nil {
-		return "", Project{}, err
-	}
-	return bucketProjectID, Project{ID: bucketProjectID, ProjectFile: ProjectFile{Rank: rank}}, nil
-}
-
 // pathFor is where a card or stub lives.
-func (b *Backend) pathFor(ctx context.Context, s Snapshot, c board.Card) (string, error) {
-	switch c.Title {
-	case board.SprintStateTitle:
+func pathFor(c board.Card) (string, error) {
+	if c.Title == board.SprintStateTitle {
 		return TeamPath(c.ItemID), nil
-	case board.ProjectStateTitle:
-		return ProjectPath(c.ItemID), nil
-	case board.ScopeStateTitle:
-		pid, err := b.projectOfChild(ctx, s, c, func(p Project) bool {
-			for _, e := range p.Scopes {
-				if e.ID == c.ItemID {
-					return true
-				}
-			}
-			return false
-		})
-		if err != nil {
-			return "", err
-		}
-		return ScopePath(pid, c.ItemID), nil
-	case board.DeadlineStateTitle:
-		pid, err := b.projectOfChild(ctx, s, c, func(p Project) bool {
-			for _, d := range p.Deadlines {
-				if d.ID == c.ItemID {
-					return true
-				}
-			}
-			return false
-		})
-		if err != nil {
-			return "", err
-		}
-		return DeadlinePath(pid, c.ItemID), nil
 	}
 	return CardPath(c.ItemID)
-}
-
-// projectOfChild finds the project holding a child by id, falling back to
-// the stub's project name.
-func (b *Backend) projectOfChild(ctx context.Context, s Snapshot, c board.Card, holds func(Project) bool) (string, error) {
-	for _, p := range s.Projects {
-		if holds(p) {
-			return p.ID, nil
-		}
-	}
-	id, _, err := b.projectByName(ctx, s, c.Project, false)
-	return id, err
 }
 
 // ---- deleting and moving -----------------------------------------------------------
 
 // DeleteCard removes a card's file, or a stub's roster file.
 func (b *Backend) DeleteCard(ctx context.Context, _ board.Board, card board.Card) error {
-	s, err := b.snapshot(ctx)
+	p, err := pathFor(card)
 	if err != nil {
 		return err
 	}
-	p, err := b.pathFor(ctx, s, card)
-	if err != nil {
+	if !isStub(card) {
+		if err := b.refuseProjectCard(ctx, p, card.ItemID); err != nil {
+			return err
+		}
+	}
+	// A roster entry carries no card id to name, so its commit names the
+	// entry itself — "delete team «features»", not a bare "delete".
+	summary := ""
+	if name := StubName(card); name != "" {
+		summary = "delete " + name
+	}
+	return b.writeNamed(ctx, "delete", summary, cardIDs(card), p, nil)
+}
+
+// refuseProjectCard answers "not found" for the file of a project card:
+// the board no longer reads one (H15), so no write may reach one either — an
+// id handed in from outside the loaded board, by an embedder or a stale
+// client, must not delete or rewrite a file the repository keeps as it is.
+// A path with no file is left for the write to decide.
+func (b *Backend) refuseProjectCard(ctx context.Context, p, id string) error {
+	data, ok, err := b.read(ctx, p)
+	if err != nil || !ok {
 		return err
 	}
-	return b.write(ctx, "delete", cardIDs(card), p, nil)
+	if f, err := DecodeCard(id, data); err == nil && f.ProjectCard {
+		return fmt.Errorf("%w: %s", ErrCardNotFound, id)
+	}
+	return nil
+}
+
+// StubName is how a roster entry is named in a commit subject — "team
+// «portal»" — or "" for a card.
+func StubName(c board.Card) string {
+	if c.Title == board.SprintStateTitle {
+		return "team «" + c.Team + "»"
+	}
+	return ""
 }
 
 func cardIDs(c board.Card) []string {
@@ -620,11 +545,7 @@ func cardIDs(c board.Card) []string {
 }
 
 func isStub(c board.Card) bool {
-	switch c.Title {
-	case board.SprintStateTitle, board.ProjectStateTitle, board.ScopeStateTitle, board.DeadlineStateTitle:
-		return true
-	}
-	return false
+	return c.Title == board.SprintStateTitle
 }
 
 // MoveCard gives the card (or stub) a rank between afterID and its
@@ -665,26 +586,22 @@ func (b *Backend) MoveCard(ctx context.Context, _ board.Board, card board.Card, 
 		return err
 	}
 	if board.RankTooLong(rank) {
-		return b.rebalance(ctx, s, card, ranks, afterID)
+		return b.rebalance(ctx, card, ranks, afterID)
 	}
-	return b.setRank(ctx, s, card, rank)
+	return b.setRank(ctx, card, rank)
 }
 
 // setCardRank writes the card's rank as given — the MultiBackend's board-wide
 // top, worked out over every domain's cards.
 func (b *Backend) setCardRank(ctx context.Context, card board.Card, rank string) error {
-	s, err := b.snapshot(ctx)
-	if err != nil {
-		return err
-	}
-	return b.setRank(ctx, s, card, rank)
+	return b.setRank(ctx, card, rank)
 }
 
 // rebalance renumbers the card's whole list — the card placed after afterID
 // — in ONE commit (G12): the key space between two neighbours is exhausted,
 // and a run of short keys is the cure, not an ever longer key. Under the
 // caller's scope the rewrites join its commit; bare, they get their own.
-func (b *Backend) rebalance(ctx context.Context, s Snapshot, card board.Card, ranks []ranked, afterID string) error {
+func (b *Backend) rebalance(ctx context.Context, card board.Card, ranks []ranked, afterID string) error {
 	order := make([]string, 0, len(ranks)+1)
 	if afterID == "" {
 		order = append(order, card.ItemID)
@@ -720,7 +637,7 @@ func (b *Backend) rebalance(ctx context.Context, s Snapshot, card board.Card, ra
 		if id != card.ItemID {
 			sibling = board.Card{ItemID: id, Title: card.Title}
 		}
-		if err := b.setRank(ctx, s, sibling, keys[i]); err != nil {
+		if err := b.setRank(ctx, sibling, keys[i]); err != nil {
 			return err
 		}
 	}
@@ -738,21 +655,6 @@ func (b *Backend) rankedList(s Snapshot, c board.Card) []ranked {
 		for _, t := range s.Teams {
 			out = append(out, ranked{t.ID, t.Rank})
 		}
-	case board.ProjectStateTitle:
-		for _, p := range s.Projects {
-			out = append(out, ranked{p.ID, p.Rank})
-		}
-	case board.ScopeStateTitle:
-		for _, p := range s.Projects {
-			for _, e := range p.Scopes {
-				if e.ID == c.ItemID {
-					for _, x := range p.Scopes {
-						out = append(out, ranked{x.ID, x.Rank})
-					}
-					return out
-				}
-			}
-		}
 	default:
 		for _, x := range s.Cards {
 			out = append(out, ranked{x.ItemID, x.Rank})
@@ -762,20 +664,13 @@ func (b *Backend) rankedList(s Snapshot, c board.Card) []ranked {
 }
 
 // setRank rewrites the one file that carries the rank.
-func (b *Backend) setRank(ctx context.Context, s Snapshot, c board.Card, rank string) error {
-	p, err := b.pathFor(ctx, s, c)
+func (b *Backend) setRank(ctx context.Context, c board.Card, rank string) error {
+	p, err := pathFor(c)
 	if err != nil {
 		return err
 	}
-	switch c.Title {
-	case board.SprintStateTitle:
+	if c.Title == board.SprintStateTitle {
 		return b.editTeam(ctx, "move", p, func(f *TeamFile) { f.Rank = rank })
-	case board.ProjectStateTitle:
-		return b.editProject(ctx, "move", p, func(f *ProjectFile) { f.Rank = rank })
-	case board.ScopeStateTitle:
-		return b.editScope(ctx, "move", p, func(f *ScopeFile) { f.Rank = rank })
-	case board.DeadlineStateTitle:
-		return nil // deadlines order by week
 	}
 	return b.editCardAt(ctx, "move", p, c.ItemID, func(f *CardFile) { f.Card.Rank = rank })
 }
@@ -794,6 +689,9 @@ func (b *Backend) editCardAt(ctx context.Context, op, p, id string, fn func(*Car
 	if err != nil {
 		return err
 	}
+	if f.ProjectCard {
+		return fmt.Errorf("%w: %s", ErrCardNotFound, id)
+	}
 	fn(&f)
 	out, err := EncodeCard(f)
 	if err != nil {
@@ -804,11 +702,7 @@ func (b *Backend) editCardAt(ctx context.Context, op, p, id string, fn func(*Car
 
 // editCard edits a card or task by id.
 func (b *Backend) editCard(ctx context.Context, op string, c board.Card, fn func(*CardFile)) error {
-	s, err := b.snapshot(ctx)
-	if err != nil {
-		return err
-	}
-	p, err := b.pathFor(ctx, s, c)
+	p, err := pathFor(c)
 	if err != nil {
 		return err
 	}
@@ -888,66 +782,6 @@ func (b *Backend) SetTeamPoints(ctx context.Context, _ board.Board, team string,
 		return fmt.Errorf("%w: %s", ErrNotFound, team)
 	}
 	return b.editTeam(ctx, "capacity", TeamPath(id), func(f *TeamFile) { f.Capacity.Points = points })
-}
-
-func (b *Backend) editProject(ctx context.Context, op, p string, fn func(*ProjectFile)) error {
-	data, ok, err := b.read(ctx, p)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrProjectNotFound, p)
-	}
-	f, err := DecodeProject(data)
-	if err != nil {
-		return err
-	}
-	fn(&f)
-	out, err := EncodeProject(f)
-	if err != nil {
-		return err
-	}
-	return b.write(ctx, op, nil, p, out)
-}
-
-func (b *Backend) editScope(ctx context.Context, op, p string, fn func(*ScopeFile)) error {
-	data, ok, err := b.read(ctx, p)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrNotFound, p)
-	}
-	f, err := DecodeScope(data)
-	if err != nil {
-		return err
-	}
-	fn(&f)
-	out, err := EncodeScope(f)
-	if err != nil {
-		return err
-	}
-	return b.write(ctx, op, nil, p, out)
-}
-
-func (b *Backend) editDeadline(ctx context.Context, op, p string, fn func(*DeadlineFile)) error {
-	data, ok, err := b.read(ctx, p)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrNotFound, p)
-	}
-	f, err := DecodeDeadline(data)
-	if err != nil {
-		return err
-	}
-	fn(&f)
-	out, err := EncodeDeadline(f)
-	if err != nil {
-		return err
-	}
-	return b.write(ctx, op, nil, p, out)
 }
 
 // ---- notes and events ----------------------------------------------------------------
@@ -1102,22 +936,6 @@ func (b *Backend) SetSprintStart(ctx context.Context, _ board.Board, card board.
 	return b.editCard(ctx, "sprint", card, func(f *CardFile) { f.Card.SprintStart = date })
 }
 
-// SetWeek sets the week — of a card, or of a deadline stub.
-func (b *Backend) SetWeek(ctx context.Context, _ board.Board, card board.Card, week string) error {
-	if card.Title == board.DeadlineStateTitle {
-		s, err := b.snapshot(ctx)
-		if err != nil {
-			return err
-		}
-		p, err := b.pathFor(ctx, s, card)
-		if err != nil {
-			return err
-		}
-		return b.editDeadline(ctx, "move-deadline", p, func(f *DeadlineFile) { f.Week = week })
-	}
-	return b.editCard(ctx, "week", card, func(f *CardFile) { f.Card.Week = week })
-}
-
 // SetTeam sets or clears the team.
 func (b *Backend) SetTeam(ctx context.Context, _ board.Board, card board.Card, team string) error {
 	if card.Title == board.SprintStateTitle {
@@ -1134,60 +952,9 @@ func (b *Backend) SetBacklog(
 	return b.editCard(ctx, "backlog", card, func(f *CardFile) { f.Card.Parked = parked })
 }
 
-// SetScope files the card under a column, or renames an scope stub.
-func (b *Backend) SetScope(ctx context.Context, _ board.Board, card board.Card, scope string) error {
-	if card.Title == board.ScopeStateTitle {
-		s, err := b.snapshot(ctx)
-		if err != nil {
-			return err
-		}
-		p, err := b.pathFor(ctx, s, card)
-		if err != nil {
-			return err
-		}
-		return b.editScope(ctx, "rename-scope", p, func(f *ScopeFile) { f.Name = scope })
-	}
-	return b.editCard(ctx, "scope", card, func(f *CardFile) { f.Card.Scope = scope })
-}
-
-// SetProject renames a project stub, re-parents an scope stub, or files a
-// card under a project.
-func (b *Backend) SetProject(ctx context.Context, _ board.Board, card board.Card, project string) error {
-	switch card.Title {
-	case board.ProjectStateTitle:
-		return b.editProject(ctx, "rename-project", ProjectPath(card.ItemID), func(f *ProjectFile) { f.Name = project })
-	case board.ScopeStateTitle:
-		return b.moveScope(ctx, card, project)
-	}
-	return b.editCard(ctx, "project", card, func(f *CardFile) { f.Card.Project = project })
-}
-
-// moveScope moves a column to another project: the scope file's path names
-// its project, so this is a delete and a create with the same id.
-func (b *Backend) moveScope(ctx context.Context, card board.Card, project string) error {
-	s, err := b.snapshot(ctx)
-	if err != nil {
-		return err
-	}
-	from, err := b.pathFor(ctx, s, card)
-	if err != nil {
-		return err
-	}
-	toPID, _, err := b.projectByName(ctx, s, project, true)
-	if err != nil {
-		return err
-	}
-	data, ok, err := b.read(ctx, from)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrNotFound, from)
-	}
-	if err := b.write(ctx, "scope-project", nil, from, nil); err != nil {
-		return err
-	}
-	return b.write(ctx, "scope-project", nil, ScopePath(toPID, card.ItemID), data)
+// SetPriority sets the card's own priority ("" clears it).
+func (b *Backend) SetPriority(ctx context.Context, _ board.Board, card board.Card, priority board.PriorityKey) error {
+	return b.editCard(ctx, "priority", card, func(f *CardFile) { f.Card.Priority = priority })
 }
 
 // SetRecurrence sets a recurrent card's cycle.
@@ -1322,13 +1089,15 @@ func (b *Backend) AddCustomer(ctx context.Context, _ board.Board, name string) (
 	if err != nil {
 		return board.Customer{}, err
 	}
-	if err := b.write(ctx, "add-customer", nil, CustomerPath(id), out); err != nil {
+	if err := b.writeNamed(ctx, "add-customer", "add customer «"+name+"»", nil, CustomerPath(id), out); err != nil {
 		return board.Customer{}, err
 	}
 	return board.Customer{ID: id, Name: name, Rank: rank}, nil
 }
 
-func (b *Backend) editCustomer(ctx context.Context, op, id string, fn func(*CustomerFile)) error {
+// editCustomer rewrites one customer file; summary names the change from
+// the file as it was and as it will be.
+func (b *Backend) editCustomer(ctx context.Context, op, id string, fn func(*CustomerFile), summary func(was, now CustomerFile) string) error {
 	p := CustomerPath(id)
 	data, ok, err := b.read(ctx, p)
 	if err != nil {
@@ -1341,18 +1110,21 @@ func (b *Backend) editCustomer(ctx context.Context, op, id string, fn func(*Cust
 	if err != nil {
 		return err
 	}
+	was := f
 	fn(&f)
 	out, err := EncodeCustomer(f)
 	if err != nil {
 		return err
 	}
-	return b.write(ctx, op, nil, p, out)
+	return b.writeNamed(ctx, op, summary(was, f), nil, p, out)
 }
 
 // RenameCustomer renames a customer: one file, and every card that names it
 // reads the new name at once (cards hold the id).
 func (b *Backend) RenameCustomer(ctx context.Context, _ board.Board, id, name string) error {
-	return b.editCustomer(ctx, "rename-customer", id, func(f *CustomerFile) { f.Name = name })
+	return b.editCustomer(ctx, "rename-customer", id, func(f *CustomerFile) { f.Name = name }, func(was, now CustomerFile) string {
+		return "rename customer «" + was.Name + "» to «" + now.Name + "»"
+	})
 }
 
 // MoveCustomer puts a customer right after afterID in the roster ("" = first).
@@ -1392,7 +1164,9 @@ func (b *Backend) MoveCustomer(ctx context.Context, _ board.Board, id, afterID s
 	if err != nil {
 		return err
 	}
-	return b.editCustomer(ctx, "move-customer", id, func(f *CustomerFile) { f.Rank = rank })
+	return b.editCustomer(ctx, "move-customer", id, func(f *CustomerFile) { f.Rank = rank }, func(_, now CustomerFile) string {
+		return "move customer «" + now.Name + "»"
+	})
 }
 
 // DeleteCustomer takes a customer out of the roster and off every card of
@@ -1429,17 +1203,21 @@ func (b *Backend) DeleteCustomer(ctx context.Context, _ board.Board, id string) 
 		writes = append(writes, FileWrite{Path: p, Data: out})
 		cards = append(cards, c.ItemID)
 	}
-	if _, ok, err := b.read(ctx, CustomerPath(id)); err != nil {
+	summary := "delete customer " + id
+	if data, ok, err := b.read(ctx, CustomerPath(id)); err != nil {
 		return err
 	} else if ok {
+		if f, err := DecodeCustomer(data); err == nil && f.Name != "" {
+			summary = "delete customer «" + f.Name + "»"
+		}
 		writes = append(writes, FileWrite{Path: CustomerPath(id), Data: nil})
 	}
-	return b.writeAll(ctx, "delete-customer", cards, writes)
+	return b.writeAll(ctx, "delete-customer", summary, cards, writes)
 }
 
 // writeAll records several file changes as one: staged under a scope, else
 // committed together as action op.
-func (b *Backend) writeAll(ctx context.Context, op string, cards []string, writes []FileWrite) error {
+func (b *Backend) writeAll(ctx context.Context, op, summary string, cards []string, writes []FileWrite) error {
 	if len(writes) == 0 {
 		return nil
 	}
@@ -1451,6 +1229,9 @@ func (b *Backend) writeAll(ctx context.Context, op string, cards []string, write
 		}
 		return nil
 	}
-	_, err := b.repo.Commit(Action{Name: op, Actor: actorOf(ctx), At: b.now(), Cards: cards, Summary: op}, writes)
+	if summary == "" {
+		summary = op
+	}
+	_, err := b.repo.Commit(Action{Name: op, Actor: actorOf(ctx), At: b.now(), Cards: cards, Summary: summary}, writes)
 	return err
 }

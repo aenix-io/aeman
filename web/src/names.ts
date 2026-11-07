@@ -1,11 +1,11 @@
-// Roster names — teams, projects — are one namespace across the
-// board's repositories: a card refers to its team and project by name, so the
+// Roster names — teams, customers — are one namespace across the
+// board's repositories: a card refers to its team by name, so the
 // same name cannot be declared twice. The server refuses a taken name (422);
 // this is the same check up front, against the roster the visitor sees, so a
 // form says so before anything is sent.
 
 /** RosterKind names what is being created or renamed, for the message. */
-export type RosterKind = "team" | "project" | "scope" | "customer";
+export type RosterKind = "team" | "customer";
 
 /** nameConflict is why `name` cannot be used for a new or renamed entry, or
  *  null when it can: another entry already carries it, compared trimmed and

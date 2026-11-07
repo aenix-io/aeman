@@ -18,7 +18,7 @@ import (
 
 // boardStand is where a gesture is made from.
 type boardStand struct {
-	View string `json:"view,omitempty" jsonschema:"the BOARD you are acting from, when you are acting AS one: me (your own day board), team (the lead's grid — say team too), backlog (a team's ranked parked tasks — say team too), roadmap (the hierarchy: goals, initiatives, epics and the cards under them), project (the columns), or all when you have no board at all. Left out, nothing is assumed — you are not standing anywhere. Naming a board is how you ask to be held to it: a gesture that board does not draw, or one on a card it does not show, is then refused the way it would be refused of a person looking at that screen"`
+	View string `json:"view,omitempty" jsonschema:"the BOARD you are acting from, when you are acting AS one: me (your own day board), team (the lead's grid — say team too), backlog (a team's ranked parked tasks — say team too), roadmap (the hierarchy: goals, initiatives, epics and the cards under them), or all when you have no board at all. Left out, nothing is assumed — you are not standing anywhere. Naming a board is how you ask to be held to it: a gesture that board does not draw, or one on a card it does not show, is then refused the way it would be refused of a person looking at that screen"`
 	Team string `json:"team,omitempty" jsonschema:"the team whose board you are acting from (team and backlog); the card's own team by default"`
 	Day  string `json:"day,omitempty" jsonschema:"the day of the day board you are acting from; today by default"`
 	User string `json:"user,omitempty" jsonschema:"whose me board you are acting from; yourself by default"`
@@ -67,8 +67,8 @@ func (h *server) gestureOn(ctx context.Context, svc *boardservice.Service, board
 			sel.User = login
 		}
 	}
-	// The card's own team, but only where the LISTING names one: the Me and
-	// Project boards list every team, so filling it there would ask a
+	// The card's own team, but only where the LISTING names one: the Me board
+	// and the Roadmap list every team, so filling it there would ask a
 	// stricter question than the board answered (board.ScopedByTeam,
 	// which is the same fact both doors read rather than two copies of it).
 	if sel.Team == "" && board.ScopedByTeam(view) {
@@ -151,6 +151,53 @@ func (h *server) takeCard(ctx context.Context, _ *mcp.CallToolRequest, in standO
 	return h.cardResource(ctx, svc, boardID, in.UID)
 }
 
+// --- The Roadmap's status menu (K15, K16) --------------------------------------
+
+type setPriorityInput struct {
+	cardRef
+	Priority string `json:"priority" jsonschema:"P0 (the highest), P1, P2, P3 or P4 — or empty to clear the card's own priority"`
+}
+
+type unassignWorkInput struct {
+	cardRef
+	DryRun bool     `json:"dry_run,omitempty" jsonschema:"name the tasks it would take and change nothing — ask this before doing it to somebody else's work"`
+	UIDs   []string `json:"uids,omitempty" jsonschema:"exactly the tasks to take out of work, each one the gesture reaches from the card; leave out for every task it reaches"`
+}
+
+// workChange answers a status gesture: how many tasks it changed, and which.
+type workChange struct {
+	Changed int      `json:"changed"`
+	UIDs    []string `json:"uids"`
+}
+
+func (h *server) setPriority(ctx context.Context, _ *mcp.CallToolRequest, in setPriorityInput) (*mcp.CallToolResult, apiserver.Card, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	if err := svc.SetPriority(ctx, boardID, in.UID, in.Priority); err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	return h.cardResource(ctx, svc, boardID, in.UID)
+}
+
+func (h *server) unassignWork(ctx context.Context, _ *mcp.CallToolRequest, in unassignWorkInput) (*mcp.CallToolResult, workChange, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, workChange{}, err
+	}
+	var changed []string
+	if in.DryRun {
+		changed, err = svc.UnassignPreview(ctx, boardID, in.UID)
+	} else {
+		changed, err = svc.UnassignWork(ctx, boardID, in.UID, in.UIDs)
+	}
+	if err != nil {
+		return nil, workChange{}, err
+	}
+	return nil, workChange{Changed: len(changed), UIDs: changed}, nil
+}
+
 // --- The roster gestures the manage dialogs make -------------------------------
 
 type reorderTeamsInput struct {
@@ -164,23 +211,6 @@ func (h *server) reorderTeams(ctx context.Context, _ *mcp.CallToolRequest, in re
 		return nil, statusOutput{}, err
 	}
 	if err := svc.ReorderTeams(ctx, boardID, in.Teams); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "reordered"}, nil
-}
-
-type reorderScopesInput struct {
-	boardRef
-	Project string   `json:"project,omitempty" jsonschema:"the project whose columns these are; empty is the no-project bucket"`
-	Scopes  []string `json:"scopes" jsonschema:"that project's column names in the order they are to stand in"`
-}
-
-func (h *server) reorderScopes(ctx context.Context, _ *mcp.CallToolRequest, in reorderScopesInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.ReorderScopes(ctx, boardID, in.Project, in.Scopes); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "reordered"}, nil

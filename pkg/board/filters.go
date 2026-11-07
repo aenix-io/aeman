@@ -49,14 +49,6 @@ func TeamGridIn(b Board, ix *Index, team, day string) []Card {
 		if IsPlanning(c) || IsSubtaskIn(c, planning) || ix.PlacedTeam(c) != team || InBacklog(c) {
 			continue
 		}
-		// A card in a Scope column is a PROJECT CARD: the Project board's
-		// plan, not work in hand, whatever its week or dates say (H4,
-		// docs/design/hierarchy.md). It used to stand in its owner's column
-		// once its week came, which put planning placeholders among the
-		// day's work; the two boards are disjoint now.
-		if c.Scope != "" {
-			continue
-		}
 		// IN WORK: a date or a sprint (K1). A task with neither is in its
 		// team's backlog, which is not a day's work, or the backlog would
 		// land in everybody's column and stay there for good. It is also the
@@ -219,13 +211,6 @@ func MeViewIn(b Board, ix *Index, user, day string) []Card {
 		// Subtasks are never listed on their own; they ride with their
 		// parent. A task under an epic is not one (H1).
 		if IsSubtaskIn(c, planning) {
-			continue
-		}
-		// A card in a Scope column is a PROJECT CARD and is drawn on the
-		// Project board alone (H4): it has no owner to look for it here, and
-		// one written before schema 2 that still names one is a plan all the
-		// same. TeamGrid draws the same line.
-		if c.Scope != "" {
 			continue
 		}
 		if user != "" && !slices.Contains(c.Assignees, user) && !childAssigned(b, c.ItemID, user) {

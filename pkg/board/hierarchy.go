@@ -18,11 +18,12 @@ const (
 )
 
 // The derived status of a planning card (HierarchyStatus): never stored.
-// Four words, and the difference between the first two is the point: a
-// card with NOTHING under it is not waiting for work, it has none.
+// Four words. A card with NOTHING under it is not waiting for work, it has
+// none (no items); work under it in hand is in progress; open work under it
+// all waiting in backlogs is BACKLOG; done when every task is.
 const (
 	HierarchyNoItems    = "no-items"
-	HierarchyTodo       = "todo"
+	HierarchyBacklog    = "backlog"
 	HierarchyInProgress = "in-progress"
 	HierarchyDone       = "done"
 )
@@ -123,8 +124,8 @@ func IsSubtask(b Board, c Card) bool {
 func Lineage(b Board, c Card) []Card { return NewIndex(b).Lineage(c) }
 
 // HasPlanningAncestor reports a card with a goal, an initiative or an epic
-// somewhere above it — which is what puts a task, a subtask or a project
-// card on the Roadmap.
+// somewhere above it — which is what puts a task or a subtask on the
+// Roadmap.
 func HasPlanningAncestor(b Board, c Card) bool { return NewIndex(b).HasPlanningAncestor(c) }
 
 // ChildrenOf is every card whose parent is the given one, planning cards and
@@ -143,9 +144,10 @@ func LeafTasks(b Board, id string) []Card { return NewIndex(b).LeafTasks(id) }
 
 // HierarchyStatus is a planning card's standing, derived from its leaf tasks
 // and never stored (H5): NO ITEMS when nothing is under it; DONE when every
-// leaf task is complete; IN PROGRESS when any of them is somebody's, has
-// started, or is finished — a person named on a task is work being done
-// before the first percent is typed; TO DO otherwise. The counts are what
+// leaf task is complete; IN PROGRESS when any open one is in work (a date or
+// a sprint, not parked); BACKLOG when there are open ones and none is in
+// work (amended with K16: progress, a person or a stage alone do not count).
+// The counts are what
 // the Roadmap shows beside the word. A task answers "" — it has a stage and
 // a progress of its own.
 func HierarchyStatus(b Board, c Card) (status string, done, total int) {
@@ -154,7 +156,7 @@ func HierarchyStatus(b Board, c Card) (status string, done, total int) {
 
 // PlanningResolver is the optional half of a DomainResolver: whether a card
 // is a planning card. The domain rule needs it — a subtask lives where its
-// parent lives, a task under an epic where its own project or team does —
+// parent lives, a task under an epic where its own team does —
 // and a resolver that cannot answer is read as "every parent is a task",
 // which is what every parent was before this field existed.
 type PlanningResolver interface {

@@ -15,8 +15,8 @@ import (
 //  3. An open task that would have stood in the strip — no date, no sprint,
 //     no week, not parked — is parked.
 //
-// Nothing else moves: the rank stays (BacklogOrder puts unranked cards after
-// ranked ones, oldest first), a subtask or a review card loses a stray week
+// Nothing else moves: the rank stays (the board order puts unranked cards
+// first, oldest first), a subtask or a review card loses a stray week
 // and is not parked (it rides the card it belongs to), and a finished card,
 // a planning card and a project card are not asked to be placed at all.
 func TestSchema3ParksTheWeeklyPlanAndTheStripAndStripsTaskWeeks(t *testing.T) {
@@ -66,10 +66,10 @@ func TestSchema3ParksTheWeeklyPlanAndTheStripAndStripsTaskWeeks(t *testing.T) {
 		slot:      card("title: a project card\nproject: engineering\nscope: Cozystack\nstart: 2026-10-05\nday: 2026-10-09\nrank: l\n"),
 	}
 	tree := map[string]string{
-		BoardPath:                     "schema: 2\ntitle: b\n",
-		TeamPath("01JB4TEAM"):         "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-11-02\n  previous: 2026-10-30\n",
-		ProjectPath("01JB4PROJ"):      "name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		ScopePath("01JB4PROJ", "01C"): "name: Cozystack\nrank: a\ncreated: 2026-06-04T08:00:00Z\n",
+		BoardPath:                            "schema: 2\ntitle: b\n",
+		TeamPath("01JB4TEAM"):                "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-11-02\n  previous: 2026-10-30\n",
+		"projects/01JB4PROJ/project.yaml":    "name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		"projects/01JB4PROJ/scopes/01C.yaml": "name: Cozystack\nrank: a\ncreated: 2026-06-04T08:00:00Z\n",
 	}
 	path := func(id string) string { p, _ := CardPath(id); return p }
 	for id, body := range files {
@@ -155,15 +155,23 @@ func TestSchema3ParksTheWeeklyPlanAndTheStripAndStripsTaskWeeks(t *testing.T) {
 	if data, _ := r.ReadFile(BoardPath); !strings.Contains(string(data), "schema: 3") {
 		t.Fatalf("board.yaml after the bump:\n%s", data)
 	}
-	// And the tree reads as a board where every open task is in work or in
-	// its backlog, and none carries a week.
+	// The retired Project board's roster is left as it was (H15).
+	for p, want := range map[string]string{
+		"projects/01JB4PROJ/project.yaml":    tree["projects/01JB4PROJ/project.yaml"],
+		"projects/01JB4PROJ/scopes/01C.yaml": tree["projects/01JB4PROJ/scopes/01C.yaml"],
+	} {
+		if data, err := r.ReadFile(p); err != nil || string(data) != want {
+			t.Errorf("%s was touched by the bump: %q %v", p, data, err)
+		}
+	}
+	// And the tree reads as a board where the project card is not a card.
 	snap, err := Load(r)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, card := range snap.Cards {
-		if card.Week != "" {
-			t.Errorf("%s still reads with a week", card.ItemID)
+		if card.ItemID == slot {
+			t.Errorf("the project card %s is read as a card", card.ItemID)
 		}
 	}
 	// Idempotent: the second run finds nothing to do.
@@ -209,8 +217,8 @@ func TestTheCardCodecDropsAWeek(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cf.Card.Week != "2026-10-05" {
-		t.Fatalf("the reader lost the week it needs for the bump: %+v", cf.Card)
+	if cf.Week != "2026-10-05" {
+		t.Fatalf("the reader lost the week it needs for the bump: %+v", cf)
 	}
 	out, err := EncodeCard(cf)
 	if err != nil {

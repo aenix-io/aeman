@@ -50,16 +50,15 @@ func cardTitles(frames []map[string]any, verb string) []string {
 }
 
 // The author's own watch is spared the echo ONLY for the card their request
-// addressed. A batch operation — an scope rename fanning out over its cards —
-// has no optimistic copy on the author's side: suppressing its echoes made
-// the renamed column's cards vanish from the very board that renamed it.
+// addressed. A batch operation — a team rename fanning out over its cards —
+// has no optimistic copy on the author's side: suppressing its echoes left
+// the renamed team's cards stale on the very board that renamed it.
 func TestBatchEchoesReachTheirAuthor(t *testing.T) {
 	store := newBoardStore()
 	fake := boardservicetest.New([]board.Card{
-		{ItemID: "e1", Title: board.ScopeStateTitle, Scope: "Infra", Project: "p"},
-		{ItemID: "c1", Title: "one", Scope: "Infra", Project: "p"},
-		{ItemID: "c2", Title: "two", Scope: "Infra", Project: "p"},
-	}, nil)
+		{ItemID: "c1", Title: "one", Team: "infra"},
+		{ItemID: "c2", Title: "two", Team: "infra"},
+	}, map[string]board.SprintState{"infra": {Current: "2026-08-24", ItemID: "st-infra"}})
 	be := &storeBackend{inner: fake, store: store}
 	svc := boardservice.New(be)
 	ctx := context.Background()
@@ -74,7 +73,7 @@ func TestBatchEchoesReachTheirAuthor(t *testing.T) {
 
 	// The rename arrives as the author's request (client id, NO target card).
 	rctx := withClientID(ctx, "tab-A")
-	if err := svc.RenameScope(rctx, "acme", "p", "Infra", "Infra2"); err != nil {
+	if err := svc.RenameTeam(rctx, "acme", "infra", "infra2"); err != nil {
 		t.Fatal(err)
 	}
 	got := cardTitles(drainFrames(t, author), "MODIFIED")

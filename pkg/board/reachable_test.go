@@ -17,7 +17,6 @@ func TestReachableIsEveryCardABoardStillShows(t *testing.T) {
 	const today, cur, prev = "2026-09-02", "2026-09-01", "2026-08-31"
 	b := NewBoard([]Card{
 		{ItemID: "st", Title: SprintStateTitle, Team: "portal", SprintStart: cur, StartDate: prev},
-		{ItemID: "ep", Title: ScopeStateTitle, Scope: "Auth", Project: "freedom"},
 
 		// On the board today.
 		{ItemID: "today", Team: "portal", SprintStart: cur, StartDate: cur, Day: cur},
@@ -26,8 +25,6 @@ func TestReachableIsEveryCardABoardStillShows(t *testing.T) {
 		{ItemID: "yesterday", Team: "portal", SprintStart: prev, StartDate: prev, Day: prev},
 		// Planned for a later day: it comes back on its own.
 		{ItemID: "deferred", Team: "portal", SprintStart: cur, StartDate: "2026-09-10", Day: "2026-09-10"},
-		// In a Project-board column, which is a board of its own.
-		{ItemID: "slot", Team: "portal", Scope: "Auth", Project: "freedom", Week: "2026-09-07", Day: "2026-09-11"},
 		// Parked in its team's backlog, which is a board.
 		{ItemID: "parked", Team: "portal", Parked: true},
 		// Done, and so off the board on purpose.
@@ -47,7 +44,7 @@ func TestReachableIsEveryCardABoardStillShows(t *testing.T) {
 	})
 	got := Reachable(b, today)
 
-	for _, id := range []string{"today", "yesterday", "deferred", "slot", "parked", "done",
+	for _, id := range []string{"today", "yesterday", "deferred", "parked", "done",
 		"kid-of-today", "review-of-today", "old", "kid-of-old", "review-of-old"} {
 		if !got[id] {
 			t.Errorf("%s is on a board someone can open, and Reachable says it is not", id)

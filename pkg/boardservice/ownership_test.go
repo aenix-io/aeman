@@ -15,7 +15,6 @@ func ownershipSeed() *fakeBackend {
 	f := newFake([]board.Card{
 		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
 		{ItemID: "task", Title: "Receipts", Team: "alpha", Parent: "epic", Parked: true},
-		{ItemID: "slot", Title: "BYOK", Scope: "Security", Project: "core"},
 	}, map[string]board.SprintState{"alpha": {Current: board.TodayIso(), ItemID: "s1"}, "beta": {Current: board.TodayIso(), ItemID: "s2"}})
 	f.b.Customers = []board.Customer{{ID: "hidora", Name: "Hidora"}, {ID: "acme", Name: "Acme"}}
 	return f
@@ -92,7 +91,7 @@ func TestAnOwnerIsAPlanningCards(t *testing.T) {
 	if f.get("epic").Owner != "ann" {
 		t.Fatal("the owner was not written")
 	}
-	for _, id := range []string{"task", "slot"} {
+	for _, id := range []string{"task"} {
 		if err := svc.SetOwner(ctx, "acme", id, "ann"); !errors.Is(err, ErrOwnerIsThePlans) {
 			t.Fatalf("an owner on %s = %v, want ErrOwnerIsThePlans", id, err)
 		}
@@ -119,9 +118,6 @@ func TestACardNamesCustomersFromTheRoster(t *testing.T) {
 	}
 	if err := svc.SetCustomers(ctx, "acme", "epic", []string{"acme"}); err != nil {
 		t.Fatalf("customers on an epic = %v", err)
-	}
-	if err := svc.SetCustomers(ctx, "acme", "slot", []string{"acme"}); !errors.Is(err, ErrProjectCard) {
-		t.Fatalf("customers on a project card = %v, want ErrProjectCard", err)
 	}
 	if err := svc.SetCustomers(ctx, "acme", "task", []string{"nobody"}); !errors.Is(err, ErrCustomerNotFound) {
 		t.Fatalf("a customer the roster lacks = %v, want ErrCustomerNotFound", err)

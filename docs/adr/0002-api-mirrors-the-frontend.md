@@ -2,6 +2,8 @@
 
 **Status:** accepted · 2026-08-22
 
+> **2026-11-07:** the Project tab and its entities (projects, scope columns, deadlines, project cards) were removed from the frontend, and by this ADR from the API and the MCP with it (`docs/design/hierarchy.md`); the examples below that name them are history.
+
 ## Decision
 
 The HTTP API and the MCP tool set expose the entities a person sees in

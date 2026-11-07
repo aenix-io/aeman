@@ -103,8 +103,55 @@ func (sub *subscription) seen(res apiserver.Card, find func(string) (board.Card,
 			}
 		}
 	}
-	out.Status.EffectiveTeam, out.Status.EffectiveCustomers = inheritedFromReadable(res, find, func(c board.Card) bool { return sub.rights.canRead(c.Domain) })
+	readable := func(c board.Card) bool { return sub.rights.canRead(c.Domain) }
+	out.Status.EffectiveTeam, out.Status.EffectiveCustomers = inheritedFromReadable(res, find, readable)
+	out.Status.EffectivePriority, out.Status.EffectivePriorityFrom = priorityFromReadable(res, find, readable)
 	return out
+}
+
+// priorityFromReadable is a card's effective priority (K15) as the listing
+// on this subscriber's visible board computes it (Index.EffectivePriority):
+// its own; else — a review card — its task's, when the task is readable;
+// else the nearest ancestor's, the chain ending at the first ancestor the
+// subscriber cannot read. The ancestor it comes from is named only when
+// readable, which the chain guarantees.
+func priorityFromReadable(res apiserver.Card, find func(string) (board.Card, bool), can func(board.Card) bool) (string, *apiserver.LineageRef) {
+	c, ok := find(res.Metadata.UID)
+	if !ok {
+		return "", nil
+	}
+	ref := func(a board.Card) *apiserver.LineageRef {
+		return &apiserver.LineageRef{UID: a.ItemID, Type: a.Type, Title: a.Title}
+	}
+	var of func(c board.Card, depth int) (string, *apiserver.LineageRef)
+	of = func(c board.Card, depth int) (string, *apiserver.LineageRef) {
+		if c.Priority != board.PriorityNone {
+			if depth == 0 {
+				return string(c.Priority), nil
+			}
+			return string(c.Priority), ref(c)
+		}
+		if c.ReviewOf != "" && depth == 0 {
+			if task, ok := find(c.ReviewOf); ok && can(task) && task.ReviewOf == "" {
+				return of(task, depth+1)
+			}
+			return "", nil
+		}
+		seen := map[string]bool{c.ItemID: true}
+		for cur, hops := c, 0; cur.Parent != "" && hops < 6; hops++ {
+			p, ok := find(cur.Parent)
+			if !ok || !can(p) || seen[p.ItemID] {
+				break
+			}
+			seen[p.ItemID] = true
+			if p.Priority != board.PriorityNone {
+				return string(p.Priority), ref(p)
+			}
+			cur = p
+		}
+		return "", nil
+	}
+	return of(c, 0)
 }
 
 // inheritedFromReadable is a card's effective team and customers as the
@@ -116,7 +163,7 @@ func (sub *subscription) seen(res apiserver.Card, find func(string) (board.Card,
 // out.
 func inheritedFromReadable(res apiserver.Card, find func(string) (board.Card, bool), can func(board.Card) bool) (string, []string) {
 	c, ok := find(res.Metadata.UID)
-	if !ok || c.Scope != "" {
+	if !ok {
 		return "", nil
 	}
 	chain := func(c board.Card) []board.Card {
@@ -271,10 +318,9 @@ func withTargetItem(ctx context.Context, id string) context.Context {
 
 // echoOrigin is clientIDFrom for one card's change: the author's own watch is
 // spared the echo only when THIS card is the one their request addressed. A
-// cascade onto any other card — an scope rename fanning out, a subtask
+// cascade onto any other card — a team rename fanning out, a subtask
 // following its parent — has no optimistic copy on the author's side, and
-// suppressing it left the author's board stale until a reload (the "renamed
-// column loses its cards" bug). A request that addressed no card (a batch
+// suppressing it left the author's board stale until a reload. A request that addressed no card (a batch
 // action) suppresses nothing.
 func echoOrigin(ctx context.Context, itemID string) string {
 	origin := clientIDFrom(ctx)
@@ -495,18 +541,6 @@ func (e *boardEntry) applyRecent(fresh board.Board) board.Board {
 			pos[old.ItemID] = at
 		}
 	}
-	// A roster entry created moments ago — a project, process, column,
-	// deadline or task — outweighs a fresh read that predates it the same
-	// way a recent card does: a reload that began before the create's commit
-	// must not drop it. It goes back into the roster with its domain.
-	if len(e.recentCards) > 0 {
-		old := rosterStubs(e.board)
-		for id := range e.recentCards {
-			if stub, ok := old[id]; ok {
-				installStub(&fresh, stub)
-			}
-		}
-	}
 	// The same lag rolls back the ORDER a local move just wrote: while a
 	// recent move is inside the grace window, the cached order wins for the
 	// cards both sides know; fresh-only cards keep their fetched positions.
@@ -608,7 +642,7 @@ func (e *boardEntry) cached() (board.Board, cacheState) {
 // The cache hands its board out BY VALUE, and a board.Board copy still
 // points at the same card array, the same roster slices and the same maps.
 // Every mutation path then edits those IN PLACE under e.mu (a card's field,
-// a deadline's week, a note's body, ProjectStates), so whoever holds such a
+// a note's body, SprintStates), so whoever holds such a
 // copy reads them under no lock at all. For the slices that is a torn multi-word field;
 // for the maps it is a concurrent map read and map write, which is a fatal
 // runtime throw and takes the process with it.
@@ -626,13 +660,9 @@ func (e *boardEntry) cached() (board.Board, cacheState) {
 // wrong silently.
 func detached(b board.Board) board.Board {
 	b.Cards = detachedCards(b.Cards)
-	b.Scopes = slices.Clone(b.Scopes)
-	b.Deadlines = slices.Clone(b.Deadlines)
-	b.Projects = slices.Clone(b.Projects)
 	b.TeamOrder = slices.Clone(b.TeamOrder)
 	b.SprintStates = maps.Clone(b.SprintStates)
 	b.People = maps.Clone(b.People)
-	b.ProjectStates = maps.Clone(b.ProjectStates)
 	b.Domains = maps.Clone(b.Domains)
 	b.DroppedParents = maps.Clone(b.DroppedParents)
 	b.Customers = slices.Clone(b.Customers)
@@ -657,7 +687,9 @@ func detachedCards(cards []board.Card) []board.Card {
 // is; scoped ones get the membership transition (entering the scope is ADDED,
 // leaving it is DELETED, staying is MODIFIED). The originating client's own
 // events are suppressed — it already holds the change optimistically — but its
-// membership is still tracked, or later diffs would mis-fire.
+// membership is still tracked, or later diffs would mis-fire. A DELETED for a
+// card gone from the board is the exception: the author is told it too (G87),
+// since a frame sent mid-action may have told them the card was still there.
 func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	// Every card write can move a number beside a person — its size, who it
 	// is on, whether it is still open, which week it waits in — and the
@@ -728,7 +760,9 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 			scoped = true
 			continue
 		}
-		if sub.rights.canRead(c.Domain) && !mine(origin, sub.clientID) {
+		// A DELETED is never swallowed as the author's echo: the card is gone,
+		// and a frame sent mid-action may have told them otherwise.
+		if sub.rights.canRead(c.Domain) && (verb == "DELETED" || !mine(origin, sub.clientID)) {
 			if !built {
 				res, built = buildCard(e.board, index(), c), true
 			}
@@ -805,11 +839,23 @@ func (e *boardEntry) flushMembers() {
 			}
 		}
 		for id := range sub.members {
-			if now[id] || (mirrored && mine(moved[id], sub.clientID)) {
+			if now[id] {
+				continue
+			}
+			// A card GONE from the board is told as DELETED to everyone, its
+			// author included: a write that ran in the same action — a
+			// child moving up from under a plan item being deleted — may
+			// have sent the author a MODIFIED for it mid-way, and swallowing
+			// the DELETED as their echo left the card on their board. A
+			// DELETED for a card a board already took off changes nothing.
+			// Only a card still on the board that left the author's view by
+			// their own change is spared, where the board mirrors the view.
+			c, onBoard := ix.Find(id)
+			if onBoard && mirrored && mine(moved[id], sub.clientID) {
 				continue
 			}
 			obj := tombstone(id)
-			if c, ok := ix.Find(id); ok {
+			if onBoard {
 				obj = sub.seen(buildCard(e.board, ix, c), ix.Find)
 			}
 			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})
@@ -1350,18 +1396,21 @@ func shownInLineage(c board.Card) string {
 	return c.Title + "\x00" + c.StartDate + "\x00" + c.Day
 }
 
-// shownOwning is what every card below a card takes from it: its team and
-// its customers (status.effectiveTeam/effectiveCustomers; O3, O4).
+// shownOwning is what every card below a card takes from it: its team, its
+// customers and its priority (status.effectiveTeam/effectiveCustomers/
+// effectivePriority; O3, O4, K15) — a changed one re-sends the subtree, and
+// every open backlog re-sorts on the frames.
 func shownOwning(c board.Card) string {
-	return c.Team + "\x00" + strings.Join(c.Customers, ",")
+	return c.Team + "\x00" + strings.Join(c.Customers, ",") + "\x00" + string(c.Priority)
 }
 
 // shownInReview is what a review card carries of the card it reviews: its
 // title, type and people (status.reviewed), the parent its planning chain
-// hangs from (status.lineage) and its customers, which are the review
-// card's own (status.effectiveCustomers, O6).
+// hangs from (status.lineage), its customers, which are the review card's
+// own (status.effectiveCustomers, O6), and its priority, which is the review
+// card's effective one (K15).
 func shownInReview(c board.Card) string {
-	return c.Title + "\x00" + c.Type + "\x00" + strings.Join(c.Assignees, ",") + "\x00" + c.Parent + "\x00" + strings.Join(c.Customers, ",")
+	return c.Title + "\x00" + c.Type + "\x00" + strings.Join(c.Assignees, ",") + "\x00" + c.Parent + "\x00" + strings.Join(c.Customers, ",") + "\x00" + string(c.Priority)
 }
 
 // unionIDs is a followed by the ids of b it does not hold yet, in order.
@@ -1616,7 +1665,7 @@ func (e *boardEntry) diffNotify(old board.Board) {
 // data itself already arrived as the diff's ordinary events. The caller holds
 // e.mu.
 // rosterBroadcast tells every watcher that the board's STRUCTURE changed —
-// its projects, scope columns or deadlines. Those live in the board metadata
+// its teams, customers or capacities. Those live in the board metadata
 // rather than in any card, so a client cannot learn about them from the card
 // events it is already receiving: it has to re-read /board, and this is what
 // tells it to. Sent to every watcher regardless of the view it selected,
@@ -1624,7 +1673,7 @@ func (e *boardEntry) diffNotify(old board.Board) {
 // The caller holds e.mu.
 //
 // It is ONE announcement for a burst, not one per card. The frame carries the
-// board — every project, column, deadline and process — so building it means
+// board — every team and customer — so building it means
 // projecting the board for the watcher and marshalling the result; a
 // carry-over moves hundreds of cards, a good share of them process turns,
 // and announcing each of them to each open tab built that frame thousands of
@@ -1748,8 +1797,7 @@ type boardFrame struct {
 //
 // Coalesced exactly like rosterBroadcast, and for the same reason — a
 // carry-over moves hundreds of cards — but the frame carries only the people,
-// which is a couple of kilobytes rather than the whole roster with every
-// column and process in it.
+// which is a couple of kilobytes rather than the whole roster.
 // The caller holds e.mu.
 func (e *boardEntry) loadBroadcast() {
 	if e.loadDue {
@@ -1905,45 +1953,6 @@ func (b *storeBackend) createSync(ctx context.Context, bd board.Board, e *boardE
 		return card, err
 	}
 	e.mu.Lock()
-	if card.Title == board.DeadlineStateTitle {
-		// A deadline is a line on a week, not a card row.
-		if _, exists := board.FindDeadline(e.board, card.Project, card.Week); card.Week != "" && !exists {
-			e.board.Deadlines = append(e.board.Deadlines,
-				board.Deadline{Week: card.Week, Project: card.Project, ItemID: card.ItemID})
-		}
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
-		e.mu.Unlock()
-		return card, nil
-	}
-	if card.Title == board.ProjectStateTitle {
-		// A project-state card is a roster entry, not a card row: surface it
-		// as the board's project list (clients re-read /board).
-		if card.Project != "" && e.board.ProjectStates[card.Project] == "" {
-			if e.board.ProjectStates == nil {
-				e.board.ProjectStates = map[string]string{}
-			}
-			e.board.Projects = append(e.board.Projects, card.Project)
-			e.board.ProjectStates[card.Project] = card.ItemID
-		}
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
-		e.mu.Unlock()
-		return card, nil
-	}
-	if card.Title == board.ScopeStateTitle {
-		// A state card is a Project-board column, not a card: surface it as
-		// the board's column roster (clients re-read /board), never as a row.
-		if _, exists := board.FindScope(e.board, card.Project, card.Scope); card.Scope != "" && !exists {
-			e.board.Scopes = append(e.board.Scopes, board.ScopeCol{
-				Name: card.Scope, Project: card.Project, ItemID: card.ItemID,
-			})
-		}
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
-		e.mu.Unlock()
-		return card, nil
-	}
 	e.upsertCard(card)
 	e.markRecent(card.ItemID)
 	e.cardChanged(clientIDFrom(ctx), card, "ADDED")
@@ -1969,34 +1978,6 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 		delete(e.board.SprintStates, team)
 		e.board.TeamOrder = removeString(e.board.TeamOrder, team)
 		e.sprintChanged(clientIDFrom(ctx), team)
-		break
-	}
-	// Likewise a deleted scope-state card takes its column with it.
-	for i, col := range e.board.Scopes {
-		if col.ItemID != card.ItemID {
-			continue
-		}
-		e.board.Scopes = append(e.board.Scopes[:i:i], e.board.Scopes[i+1:]...)
-		e.rosterBroadcast()
-		break
-	}
-	// ...a deleted deadline card takes its line off the grid...
-	for i, d := range e.board.Deadlines {
-		if d.ItemID != card.ItemID {
-			continue
-		}
-		e.board.Deadlines = append(e.board.Deadlines[:i:i], e.board.Deadlines[i+1:]...)
-		e.rosterBroadcast()
-		break
-	}
-	// ...and a deleted project-state card takes its chip.
-	for project, id := range e.board.ProjectStates {
-		if id != card.ItemID {
-			continue
-		}
-		delete(e.board.ProjectStates, project)
-		e.board.Projects = removeString(e.board.Projects, project)
-		e.rosterBroadcast()
 		break
 	}
 	e.cardChanged(echoOrigin(ctx, card.ItemID), card, "DELETED")
@@ -2046,32 +2027,6 @@ func moveTeamAfter(order []string, states map[string]board.SprintState, team, af
 	return moveNameAfter(order, ids, team, afterID)
 }
 
-// scopeIndexOf finds a column by its state card's item id (-1 = not a column).
-func scopeIndexOf(cols []board.ScopeCol, itemID string) int {
-	for i, c := range cols {
-		if c.ItemID == itemID {
-			return i
-		}
-	}
-	return -1
-}
-
-// moveScopeAfter re-slots the column at index from so it follows the column
-// whose state card is afterID ("" or unknown = to the front).
-func moveScopeAfter(cols []board.ScopeCol, from int, afterID string) []board.ScopeCol {
-	col := cols[from]
-	rest := append(append([]board.ScopeCol(nil), cols[:from]...), cols[from+1:]...)
-	at := 0
-	if i := scopeIndexOf(rest, afterID); i >= 0 {
-		at = i + 1
-	}
-	out := make([]board.ScopeCol, 0, len(rest)+1)
-	out = append(out, rest[:at]...)
-	out = append(out, col)
-	out = append(out, rest[at:]...)
-	return out
-}
-
 // nameOfState finds the roster entry whose state card has the item id.
 // teamOfState is the team whose sprint pointer is the given state card.
 func teamOfState(states map[string]board.SprintState, itemID string) (string, bool) {
@@ -2093,9 +2048,8 @@ func nameOfState(ids map[string]string, itemID string) (string, bool) {
 }
 
 // moveNameAfter re-slots name in an ordered roster after the entry owning the
-// afterID state card ("" or unknown = to the front). Teams, scope columns and
-// projects all order themselves by their state card's board position, so they
-// all reorder through here.
+// afterID state card ("" or unknown = to the front). Teams order themselves
+// by their state card's board position, so they reorder through here.
 func moveNameAfter(order []string, ids map[string]string, name, afterID string) []string {
 	order = removeString(append([]string(nil), order...), name)
 	at := 0
@@ -2125,17 +2079,6 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 	// TeamOrder so /board reads agree with the new order immediately.
 	if team, ok := teamOfSprintState(e.board.SprintStates, card.ItemID); ok {
 		e.board.TeamOrder = moveTeamAfter(e.board.TeamOrder, e.board.SprintStates, team, afterID)
-	}
-	// The same for the two Project-board rosters: their order IS the board
-	// position of their state cards, so a reorder must land in the cache or
-	// /board keeps serving the old order until the next revalidation.
-	if from := scopeIndexOf(e.board.Scopes, card.ItemID); from >= 0 {
-		e.board.Scopes = moveScopeAfter(e.board.Scopes, from, afterID)
-		e.rosterBroadcast()
-	}
-	if project, ok := nameOfState(e.board.ProjectStates, card.ItemID); ok {
-		e.board.Projects = moveNameAfter(e.board.Projects, e.board.ProjectStates, project, afterID)
-		e.rosterBroadcast()
 	}
 	e.recentMove = time.Now()
 	e.orderingChanged(clientIDFrom(ctx))
@@ -2461,46 +2404,6 @@ func (b *storeBackend) SetSprintStart(ctx context.Context, bd board.Board, card 
 	return nil
 }
 
-func (b *storeBackend) SetWeek(ctx context.Context, bd board.Board, card board.Card, week string) error {
-	if card.Title == board.DeadlineStateTitle {
-		// Dragging the line: its card is not in the cached card list, so the
-		// cached deadline set is what has to follow.
-		e := b.store.entry(storeKey(bd.Board))
-		e.mu.Lock()
-		for i := range e.board.Deadlines {
-			if e.board.Deadlines[i].ItemID == card.ItemID {
-				e.board.Deadlines[i].Week = week
-				e.rosterBroadcast()
-				break
-			}
-		}
-		e.mu.Unlock()
-		b.enqueue(ctx, e, pendingOp{
-			key:    "week:" + card.ItemID,
-			itemID: card.ItemID,
-			desc:   "move the deadline to " + week,
-			apply: func(fresh *board.Board) {
-				for i := range fresh.Deadlines {
-					if fresh.Deadlines[i].ItemID == card.ItemID {
-						fresh.Deadlines[i].Week = week
-						return
-					}
-				}
-			},
-			exec: func(ctx context.Context) error {
-				return b.inner.SetWeek(ctx, bd, card, week)
-			},
-		})
-		return nil
-	}
-	b.mutateCard(ctx, bd, card.ItemID, "week", "move "+cardRef(card)+" to another week", func(c *board.Card) {
-		c.Week = week
-	}, func(ctx context.Context) error {
-		return b.inner.SetWeek(ctx, bd, card, week)
-	})
-	return nil
-}
-
 // SetBacklog parks the card on one of its team's lists, or takes it off.
 func (b *storeBackend) SetBacklog(
 	ctx context.Context, bd board.Board, card board.Card, parked bool,
@@ -2513,6 +2416,20 @@ func (b *storeBackend) SetBacklog(
 		c.Parked = parked
 	}, func(ctx context.Context) error {
 		return b.inner.SetBacklog(ctx, bd, card, parked)
+	})
+	return nil
+}
+
+// SetPriority sets the card's own priority ("" clears it).
+func (b *storeBackend) SetPriority(ctx context.Context, bd board.Board, card board.Card, priority board.PriorityKey) error {
+	what := "clear the priority of " + cardRef(card)
+	if priority != board.PriorityNone {
+		what = "set " + cardRef(card) + " to " + string(priority)
+	}
+	b.mutateCard(ctx, bd, card.ItemID, "priority", what, func(c *board.Card) {
+		c.Priority = priority
+	}, func(ctx context.Context) error {
+		return b.inner.SetPriority(ctx, bd, card, priority)
 	})
 	return nil
 }
@@ -2553,97 +2470,6 @@ func (b *storeBackend) SetTeam(ctx context.Context, bd board.Board, card board.C
 		c.Team = team
 	}, func(ctx context.Context) error {
 		return b.inner.SetTeam(ctx, bd, card, team)
-	})
-	return nil
-}
-
-func (b *storeBackend) SetScope(ctx context.Context, bd board.Board, card board.Card, scope string) error {
-	if card.Title == board.ScopeStateTitle {
-		// Renaming the column itself: the state card is not in the cached card
-		// list (NewBoard splits it out), so mutateCard cannot reach it.
-		e := b.store.entry(storeKey(bd.Board))
-		e.mu.Lock()
-		if i := scopeIndexOf(e.board.Scopes, card.ItemID); i >= 0 {
-			e.board.Scopes[i].Name = scope
-			e.rosterBroadcast()
-		}
-		e.mu.Unlock()
-		b.enqueue(ctx, e, pendingOp{
-			key:    "scope:" + card.ItemID,
-			itemID: card.ItemID,
-			desc:   "rename the scope " + card.Scope,
-			apply: func(fresh *board.Board) {
-				if i := scopeIndexOf(fresh.Scopes, card.ItemID); i >= 0 {
-					fresh.Scopes[i].Name = scope
-				}
-			},
-			exec: func(ctx context.Context) error {
-				return b.inner.SetScope(ctx, bd, card, scope)
-			},
-		})
-		return nil
-	}
-	b.mutateCard(ctx, bd, card.ItemID, "scope", "file "+cardRef(card)+" under an scope", func(c *board.Card) {
-		c.Scope = scope
-	}, func(ctx context.Context) error {
-		return b.inner.SetScope(ctx, bd, card, scope)
-	})
-	return nil
-}
-
-// SetProject rebinds an scope column to a project. The target is a hidden
-// state card, which is NOT in the cached card list (NewBoard splits it out),
-// so mutateCard cannot reach it: update the roster map directly and queue the
-// write like any other mutation.
-func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card board.Card, project string) error {
-	e := b.store.entry(storeKey(bd.Board))
-	e.mu.Lock()
-	if i := scopeIndexOf(e.board.Scopes, card.ItemID); i >= 0 {
-		e.board.Scopes[i].Project = project
-		e.rosterBroadcast()
-	} else if old, ok := nameOfState(e.board.ProjectStates, card.ItemID); ok {
-		// A project-state card renamed: re-key the roster in place.
-		e.board.Projects = renameInList(e.board.Projects, old, project)
-		delete(e.board.ProjectStates, old)
-		e.board.ProjectStates[project] = card.ItemID
-		e.rosterBroadcast()
-	} else {
-		// An ordinary card: the project is half of the column it is filed
-		// under, so it lives on the card row like any other field.
-		for i := range e.board.Cards {
-			if e.board.Cards[i].ItemID == card.ItemID {
-				e.board.Cards[i].Project = project
-				e.cardChanged(echoOrigin(ctx, e.board.Cards[i].ItemID), e.board.Cards[i], "MODIFIED")
-				break
-			}
-		}
-	}
-	e.mu.Unlock()
-	b.enqueue(ctx, e, pendingOp{
-		key:    "project:" + card.ItemID,
-		itemID: card.ItemID,
-		desc:   "file " + cardRef(card) + " under a project",
-		apply: func(fresh *board.Board) {
-			if i := scopeIndexOf(fresh.Scopes, card.ItemID); i >= 0 {
-				fresh.Scopes[i].Project = project
-				return
-			}
-			if old, ok := nameOfState(fresh.ProjectStates, card.ItemID); ok {
-				fresh.Projects = renameInList(fresh.Projects, old, project)
-				delete(fresh.ProjectStates, old)
-				fresh.ProjectStates[project] = card.ItemID
-				return
-			}
-			for i := range fresh.Cards {
-				if fresh.Cards[i].ItemID == card.ItemID {
-					fresh.Cards[i].Project = project
-					return
-				}
-			}
-		},
-		exec: func(ctx context.Context) error {
-			return b.inner.SetProject(ctx, bd, card, project)
-		},
 	})
 	return nil
 }
@@ -2789,11 +2615,9 @@ func cardFromInput(in board.CreateInput, itemID string) board.Card {
 		StartDate:   in.Start,
 		SprintStart: in.SprintStart,
 		Team:        in.Team,
-		Week:        in.Week,
 		Parked:      in.Parked,
+		Priority:    in.Priority,
 		Size:        in.Size,
-		Scope:       in.Scope,
-		Project:     in.Project,
 		Recurrence:  in.Recurrence,
 		Description: in.Body,
 		ReviewOf:    in.ReviewOf,
@@ -2809,74 +2633,13 @@ func cardFromInput(in board.CreateInput, itemID string) board.Card {
 }
 
 // installCreated puts a freshly minted card into the cache the way the
-// synchronous create does — rosters for state cards, a row otherwise — and
-// broadcasts it.
+// synchronous create does, as a row, and broadcasts it.
 func (b *storeBackend) installCreated(ctx context.Context, e *boardEntry, card board.Card) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if installStub(&e.board, card) {
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
-		return
-	}
 	e.upsertCard(card)
 	e.markRecent(card.ItemID)
 	e.cardChanged(clientIDFrom(ctx), card, "ADDED")
-}
-
-// rosterStubs is every roster entry of a board as the stub card that declared
-// it, by id — what installStub takes to put one back.
-func rosterStubs(b board.Board) map[string]board.Card {
-	out := map[string]board.Card{}
-	for name, id := range b.ProjectStates {
-		out[id] = board.Card{ItemID: id, Title: board.ProjectStateTitle, Project: name, Domain: b.Domains[id]}
-	}
-	for _, e := range b.Scopes {
-		out[e.ItemID] = board.Card{ItemID: e.ItemID, Title: board.ScopeStateTitle, Scope: e.Name, Project: e.Project, Domain: b.Domains[e.ItemID]}
-	}
-	for _, d := range b.Deadlines {
-		out[d.ItemID] = board.Card{ItemID: d.ItemID, Title: board.DeadlineStateTitle, Week: d.Week, Project: d.Project, Domain: b.Domains[d.ItemID]}
-	}
-	return out
-}
-
-// installStub puts a roster stub — a project, column or deadline state card
-// — into the board's roster, idempotently, and records its domain when it
-// carries one. It reports false for a plain card, which is a row and not the
-// roster's business. A queued create's apply uses it too, so a reload that
-// lands while the create is still pending puts the roster entry back where
-// it belongs instead of leaking a stub row.
-func installStub(target *board.Board, card board.Card) bool {
-	switch card.Title {
-	case board.ProjectStateTitle:
-		if card.Project != "" && target.ProjectStates[card.Project] == "" {
-			if target.ProjectStates == nil {
-				target.ProjectStates = map[string]string{}
-			}
-			target.Projects = append(target.Projects, card.Project)
-			target.ProjectStates[card.Project] = card.ItemID
-		}
-	case board.ScopeStateTitle:
-		if _, exists := board.FindScope(*target, card.Project, card.Scope); card.Scope != "" && !exists {
-			target.Scopes = append(target.Scopes, board.ScopeCol{
-				Name: card.Scope, Project: card.Project, ItemID: card.ItemID,
-			})
-		}
-	case board.DeadlineStateTitle:
-		if _, exists := board.FindDeadline(*target, card.Project, card.Week); card.Week != "" && !exists {
-			target.Deadlines = append(target.Deadlines,
-				board.Deadline{Week: card.Week, Project: card.Project, ItemID: card.ItemID})
-		}
-	default:
-		return false
-	}
-	if card.Domain != "" {
-		if target.Domains == nil {
-			target.Domains = map[string]string{}
-		}
-		target.Domains[card.ItemID] = card.Domain
-	}
-	return true
 }
 
 // sameSprintState compares two sprint states field by field — the pointers

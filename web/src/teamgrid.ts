@@ -36,12 +36,6 @@ export function inHandOn(
   if (isPlanning(c) || isSubtask(c) || parked(c)) {
     return false;
   }
-  // A card in a Scope column is a PROJECT CARD: the Project board's plan,
-  // not work in hand, whatever its dates say (H4,
-  // docs/design/hierarchy.md). Mirrors the same line in board.TeamGrid.
-  if (c.scope) {
-    return false;
-  }
   // IN WORK means a date or a sprint (K1). A task with neither is parked in
   // its team's backlog — drawn on the Backlog board, never here — and one
   // with neither and no flag is a shape no door makes any more (schema 3

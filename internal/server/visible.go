@@ -22,7 +22,7 @@ type visibleBackend struct {
 	domains []string // every configured domain, primary first
 }
 
-// chosen is the caller's domain choice for a new team, project or process:
+// chosen is the caller's domain choice for a new team:
 // the input's, else the context's, else the primary — and an unknown name
 // is refused here, as a bad request, before any right is checked.
 func (v *visibleBackend) chosen(ctx context.Context, explicit string) (string, error) {
@@ -148,23 +148,12 @@ func (v *visibleBackend) domainOf(ctx context.Context, bd board.Board, c board.C
 		return d, nil
 	}
 	if board.IsStateTitle(c.Title) {
-		return v.stubHome(whole, c), nil
+		return v.primary, nil
 	}
 	if d := board.DomainOf(c, board.Resolver(whole, v.primary)); d != "" {
 		return d, nil
 	}
 	return v.primary, nil
-}
-
-// stubHome is where a roster stub lives: a column or deadline with its
-// project, else the primary.
-func (v *visibleBackend) stubHome(whole board.Board, c board.Card) string {
-	if c.Title == board.ScopeStateTitle || c.Title == board.DeadlineStateTitle {
-		if d, ok := board.Resolver(whole, v.primary).ProjectDomain(c.Project); ok {
-			return d
-		}
-	}
-	return v.primary
 }
 
 // write checks the visitor may write the card's domain.
@@ -217,15 +206,12 @@ func (v *visibleBackend) CreateCard(ctx context.Context, bd board.Board, in boar
 		}
 		probe := cardFromInput(in, "")
 		var target string
-		switch {
-		case in.Title == board.ProjectStateTitle, in.Title == board.SprintStateTitle:
+		if in.Title == board.SprintStateTitle {
 			// The caller's choice, default the primary.
 			if target, err = v.chosen(ctx, in.Domain); err != nil {
 				return board.Card{}, err
 			}
-		case board.IsStateTitle(in.Title):
-			target = v.stubHome(whole, probe)
-		default:
+		} else {
 			target = board.DomainOf(probe, board.Resolver(whole, v.primary))
 		}
 		if !r.canWrite(target) {
@@ -337,32 +323,11 @@ func (v *visibleBackend) SetSprintStart(ctx context.Context, bd board.Board, car
 	return v.Backend.SetSprintStart(ctx, bd, card, date)
 }
 
-func (v *visibleBackend) SetWeek(ctx context.Context, bd board.Board, card board.Card, week string) error {
-	if err := v.write(ctx, bd, card); err != nil {
-		return err
-	}
-	return v.Backend.SetWeek(ctx, bd, card, week)
-}
-
 func (v *visibleBackend) SetTeam(ctx context.Context, bd board.Board, card board.Card, team string) error {
 	if err := v.writeMove(ctx, bd, card, func(c *board.Card) { c.Team = team }); err != nil {
 		return err
 	}
 	return v.Backend.SetTeam(ctx, bd, card, team)
-}
-
-func (v *visibleBackend) SetScope(ctx context.Context, bd board.Board, card board.Card, scope string) error {
-	if err := v.writeMove(ctx, bd, card, func(c *board.Card) { c.Scope = scope }); err != nil {
-		return err
-	}
-	return v.Backend.SetScope(ctx, bd, card, scope)
-}
-
-func (v *visibleBackend) SetProject(ctx context.Context, bd board.Board, card board.Card, project string) error {
-	if err := v.writeMove(ctx, bd, card, func(c *board.Card) { c.Project = project }); err != nil {
-		return err
-	}
-	return v.Backend.SetProject(ctx, bd, card, project)
 }
 
 func (v *visibleBackend) SetRecurrence(ctx context.Context, bd board.Board, card board.Card, cycle string) error {
@@ -447,6 +412,14 @@ func (v *visibleBackend) SetBacklog(ctx context.Context, bd board.Board, card bo
 	return v.Backend.SetBacklog(ctx, bd, card, parked)
 }
 
+// SetPriority writes the card's own domain, and takes the card's write check.
+func (v *visibleBackend) SetPriority(ctx context.Context, bd board.Board, card board.Card, priority board.PriorityKey) error {
+	if err := v.write(ctx, bd, card); err != nil {
+		return err
+	}
+	return v.Backend.SetPriority(ctx, bd, card, priority)
+}
+
 func (v *visibleBackend) SetDoneAt(ctx context.Context, bd board.Board, card board.Card, day string) error {
 	if err := v.write(ctx, bd, card); err != nil {
 		return err
@@ -483,4 +456,11 @@ func (v *visibleBackend) SetTeamPoints(ctx context.Context, bd board.Board, team
 		}
 	}
 	return v.Backend.SetTeamPoints(ctx, bd, team, points)
+}
+
+// CheckWrite answers the write check for a card before anything is written
+// (boardservice.WriteChecker): a gesture writing many cards asks it of every
+// one first, and is refused whole rather than half-way.
+func (v *visibleBackend) CheckWrite(ctx context.Context, bd board.Board, card board.Card) error {
+	return v.write(ctx, bd, card)
 }

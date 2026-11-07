@@ -36,12 +36,6 @@ export function onMyDay(
   if (isSubtask(c)) {
     return false;
   }
-  // A card in a Scope column is a PROJECT CARD and is drawn on the Project
-  // board alone (H4): it has no owner to look for it here. Mirrors
-  // board.MeView.
-  if (c.scope) {
-    return false;
-  }
   // Waiting to be taken into work, not being worked on (K1).
   if (parked(c)) {
     return false;

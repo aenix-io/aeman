@@ -15,8 +15,8 @@ import (
 
 // Backend satisfies boardservice.Backend over one domain's repository. The
 // service speaks the state-card protocol — a stub card whose Title is one of
-// the aeman:*-state markers stands for a team, scope, project, deadline or
-// process — and the backend routes those onto roster files, so the rules
+// the aeman:*-state markers stands for a team — and the backend routes it
+// onto its roster file, so the rules
 // engine does not change while the storage does.
 
 var _ boardservice.Backend = (*Backend)(nil)
@@ -193,15 +193,6 @@ func TestBackendLoadBoardFromFiles(t *testing.T) {
 	if strings.Join(b.TeamOrder, ",") != ",portal" {
 		t.Fatalf("team order = %v (rank a then b)", b.TeamOrder)
 	}
-	if len(b.Scopes) != 1 || b.Scopes[0].Name != "Bugs" || b.Scopes[0].Project != "portal" || b.Scopes[0].ItemID != "01JB4SCOPE" {
-		t.Fatalf("scopes = %+v", b.Scopes)
-	}
-	if len(b.Projects) != 1 || b.Projects[0] != "portal" || b.ProjectStates["portal"] != "01JB4PROJ" {
-		t.Fatalf("projects = %v %v", b.Projects, b.ProjectStates)
-	}
-	if len(b.Deadlines) != 1 || b.Deadlines[0].Week != "2026-09-07" || b.Deadlines[0].Project != "portal" || b.Deadlines[0].ItemID != "01JB4DL" {
-		t.Fatalf("deadlines = %+v", b.Deadlines)
-	}
 }
 
 func TestBackendCreateCardCommitsOnce(t *testing.T) {
@@ -241,44 +232,6 @@ func TestBackendCreateCardCommitsOnce(t *testing.T) {
 	again, _ := be.LoadBoard(ctx, "acme")
 	if len(again.Cards) != 3 || again.Cards[2].ItemID != c.ItemID {
 		t.Fatalf("new card not last: %+v", again.Cards)
-	}
-}
-
-// The state-card protocol: creating a stub with a marker title creates the
-// roster file, and the loaded board shows the new entry with the file's id.
-func TestBackendCreateStateCardsWriteRosterFiles(t *testing.T) {
-	be, r := newBackend(t)
-	ctx := ctxAs("kvaps")
-	b, _ := be.LoadBoard(ctx, "acme")
-
-	proj, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.ProjectStateTitle, Project: "infra"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.ReadFile(ProjectPath(proj.ItemID)); err != nil {
-		t.Fatalf("project file: %v", err)
-	}
-	b, _ = be.LoadBoard(ctx, "acme")
-	scope, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.ScopeStateTitle, Scope: "Reliability", Project: "infra"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.ReadFile(ScopePath(proj.ItemID, scope.ItemID)); err != nil {
-		t.Fatalf("scope file under its project: %v", err)
-	}
-	if _, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.ScopeStateTitle, Scope: "X", Project: "nope"}); err == nil {
-		t.Fatal("an scope under an unknown project must be refused")
-	}
-	dl, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.DeadlineStateTitle, Week: "2026-10-05", Project: "infra"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.ReadFile(DeadlinePath(proj.ItemID, dl.ItemID)); err != nil {
-		t.Fatalf("deadline file: %v", err)
-	}
-	b, _ = be.LoadBoard(ctx, "acme")
-	if len(b.Projects) != 2 || len(b.Scopes) != 2 || len(b.Deadlines) != 2 {
-		t.Fatalf("roster after creates: %d projects, %d scopes, %d deadlines", len(b.Projects), len(b.Scopes), len(b.Deadlines))
 	}
 }
 
@@ -478,63 +431,25 @@ func TestBackendDeleteCardRemovesFile(t *testing.T) {
 		t.Fatal("deleted card still on disk")
 	}
 	// A stub for a roster entry deletes its file.
-	stub := board.Card{ItemID: "01JB4DL", Title: board.DeadlineStateTitle, Week: "2026-09-07", Project: "portal"}
+	stub := board.Card{ItemID: "01JB4TEAM", Title: board.SprintStateTitle, Team: "portal"}
 	if err := be.DeleteCard(ctx, b, stub); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.ReadFile(DeadlinePath("01JB4PROJ", "01JB4DL")); err == nil {
-		t.Fatal("deleted deadline still on disk")
+	if _, err := r.ReadFile(TeamPath("01JB4TEAM")); err == nil {
+		t.Fatal("deleted team still on disk")
 	}
 	b, _ = be.LoadBoard(ctx, "acme")
-	if len(b.Cards) != 1 || len(b.Deadlines) != 0 {
-		t.Fatalf("after deletes: %d cards, %d deadlines", len(b.Cards), len(b.Deadlines))
+	if _, ok := b.SprintStates["portal"]; len(b.Cards) != 1 || ok {
+		t.Fatalf("after deletes: %d cards, team portal declared %v", len(b.Cards), ok)
 	}
 }
 
-// The roster stubs: rename, re-parent, move a deadline, reorder.
+// The roster stubs: a team is reordered through MoveCard on its stub.
 func TestBackendRosterStubs(t *testing.T) {
-	be, r := newBackend(t)
+	be, _ := newBackend(t)
 	ctx := ctxAs("kvaps")
 	b, _ := be.LoadBoard(ctx, "acme")
 
-	scope := board.Card{ItemID: "01JB4SCOPE", Title: board.ScopeStateTitle, Scope: "Bugs", Project: "portal"}
-	if err := be.SetScope(ctx, b, scope, "Defects"); err != nil {
-		t.Fatal(err)
-	}
-	proj := board.Card{ItemID: "01JB4PROJ", Title: board.ProjectStateTitle, Project: "portal"}
-	if err := be.SetProject(ctx, b, proj, "Portal"); err != nil {
-		t.Fatal(err)
-	}
-	dl := board.Card{ItemID: "01JB4DL", Title: board.DeadlineStateTitle, Week: "2026-09-07", Project: "portal"}
-	if err := be.SetWeek(ctx, b, dl, "2026-09-14"); err != nil {
-		t.Fatal(err)
-	}
-
-	b, _ = be.LoadBoard(ctx, "acme")
-	if b.Scopes[0].Name != "Defects" || b.Projects[0] != "Portal" || b.Deadlines[0].Week != "2026-09-14" {
-		t.Fatalf("roster after stubs: scopes=%+v projects=%v deadlines=%+v", b.Scopes, b.Projects, b.Deadlines)
-	}
-	// Renaming a project file does not move anything: its id and path stay.
-	if _, err := r.ReadFile(ProjectPath("01JB4PROJ")); err != nil {
-		t.Fatalf("project file moved on rename: %v", err)
-	}
-
-	// Reordering teams and scopes goes through MoveCard on their stubs.
-	if _, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.ScopeStateTitle, Scope: "Docs", Project: "Portal"}); err != nil {
-		t.Fatal(err)
-	}
-	b, _ = be.LoadBoard(ctx, "acme")
-	if b.Scopes[0].Name != "Defects" || b.Scopes[1].Name != "Docs" {
-		t.Fatalf("scopes before move = %+v", b.Scopes)
-	}
-	docs := board.Card{ItemID: b.Scopes[1].ItemID, Title: board.ScopeStateTitle, Scope: "Docs", Project: "Portal"}
-	if err := be.MoveCard(ctx, b, docs, ""); err != nil {
-		t.Fatal(err)
-	}
-	b, _ = be.LoadBoard(ctx, "acme")
-	if b.Scopes[0].Name != "Docs" {
-		t.Fatalf("scope move to top: %+v", b.Scopes)
-	}
 	team := board.Card{ItemID: "01JB4TEAM", Title: board.SprintStateTitle, Team: "portal"}
 	if err := be.MoveCard(ctx, b, team, ""); err != nil {
 		t.Fatal(err)
@@ -582,23 +497,25 @@ func TestBackendLoadCards(t *testing.T) {
 
 // The reload of ONE card reads its file by the same rules a read of the
 // whole board does (board.SettleCard): the server refreshes the cards a
-// commit wrote with this call, and a column card whose file still carries a
-// week and a band would otherwise flip back to them in the cache — and lose
-// its row on the Project board — until the next full reload.
+// commit wrote with this call, and a planning card whose file still carries
+// a band and a sprint would otherwise flip back to them in the cache until
+// the next full reload. A project card, which no board reads (H15), is not
+// reloaded at all.
 func TestLoadCardsReadsACardByTheBoardsRules(t *testing.T) {
-	const id = "01JB4K2E7QZMX3R8V0N5T9WYE1"
+	const id, slot = "01JB4K2E7QZMX3R8V0N5T9WYE1", "01JB4K2E7QZMX3R8V0N5T9WYE2"
 	r := repoWith(t, map[string]string{
-		BoardPath:                 "schema: 2\ntitle: b\n",
-		"cards/e/1/" + id + ".md": "---\ntitle: a slot\nzone: red\nweek: 2026-10-05\nproject: p\nscope: S\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n",
+		BoardPath:                   "schema: 2\ntitle: b\n",
+		"cards/e/1/" + id + ".md":   "---\ntitle: an epic\ntype: epic\nzone: red\nsprint: 2026-10-05\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n",
+		"cards/e/2/" + slot + ".md": "---\ntitle: a slot\nproject: p\nscope: S\nrank: b\ncreated: 2026-08-26T09:14:03Z\n---\n",
 	})
 	be := NewBackend(r, BackendOptions{})
-	got, err := be.LoadCards(context.Background(), board.Board{}, []string{id})
+	got, err := be.LoadCards(context.Background(), board.Board{}, []string{id, slot})
 	if err != nil || len(got) != 1 {
-		t.Fatalf("LoadCards = %v, %v", got, err)
+		t.Fatalf("LoadCards = %v, %v, want the epic alone", got, err)
 	}
 	c := got[0]
-	if c.StartDate != "2026-10-05" || c.Day != "2026-10-09" || c.Week != "" || c.Zone != board.ZoneNone {
-		t.Fatalf("a reloaded column card reads as %+v, want its week's dates, no week, no band", c)
+	if c.ItemID != id || c.SprintStart != "" || c.Zone != board.ZoneNone {
+		t.Fatalf("a reloaded planning card reads as %+v, want no sprint, no band", c)
 	}
 }
 
@@ -609,4 +526,74 @@ func findByID(b board.Board, id string) (board.Card, bool) {
 		}
 	}
 	return board.Card{}, false
+}
+
+// A roster commit says what it did to which entry, as a card's commit names
+// its card: a team file deleted read just "delete" in the history (prod, the
+// team «features»), and the customer roster's commits named nobody either.
+func TestARosterCommitNamesItsEntry(t *testing.T) {
+	subject := func(r *Repo) string {
+		head, err := r.CommitObject(r.Head())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tr := ParseTrailers(head.Message); tr.Action == "" {
+			t.Fatalf("no action trailer: %q", head.Message)
+		}
+		return strings.SplitN(head.Message, "\n", 2)[0]
+	}
+	ctx := ctxAs("kvaps")
+	for _, tc := range []struct {
+		stub board.Card
+		want string
+	}{
+		{board.Card{ItemID: "01JB4TEAM", Title: board.SprintStateTitle, Team: "portal"}, "delete team «portal»"},
+	} {
+		be, r := newBackend(t)
+		b, _ := be.LoadBoard(ctx, "acme")
+		if err := be.DeleteCard(ctx, b, tc.stub); err != nil {
+			t.Fatal(err)
+		}
+		if got := subject(r); got != tc.want {
+			t.Errorf("subject = %q, want %q", got, tc.want)
+		}
+	}
+	if got := StubName(board.Card{Title: "a card"}); got != "" {
+		t.Errorf("a card is no roster entry: %q", got)
+	}
+
+	be, r := newBackend(t)
+	b, _ := be.LoadBoard(ctx, "acme")
+	if _, err := be.AddCustomer(ctx, b, "Acme"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = be.LoadBoard(ctx, "acme")
+	cu, err := be.AddCustomer(ctx, b, "Hidora")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := subject(r); got != "add customer «Hidora»" {
+		t.Errorf("add: %q", got)
+	}
+	b, _ = be.LoadBoard(ctx, "acme")
+	if err := be.RenameCustomer(ctx, b, cu.ID, "Hidora SA"); err != nil {
+		t.Fatal(err)
+	}
+	if got := subject(r); got != "rename customer «Hidora» to «Hidora SA»" {
+		t.Errorf("rename: %q", got)
+	}
+	b, _ = be.LoadBoard(ctx, "acme")
+	if err := be.MoveCustomer(ctx, b, cu.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := subject(r); got != "move customer «Hidora SA»" {
+		t.Errorf("move: %q", got)
+	}
+	b, _ = be.LoadBoard(ctx, "acme")
+	if err := be.DeleteCustomer(ctx, b, cu.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := subject(r); got != "delete customer «Hidora SA»" {
+		t.Errorf("delete: %q", got)
+	}
 }

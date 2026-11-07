@@ -15,10 +15,9 @@ import (
 )
 
 // boardRef is embedded in every tool input to select the target board — the
-// name of its primary repository. "project" is aeman's own planning entity (a
-// group of scope columns on the Project board), not the board.
+// name of its primary repository.
 type boardRef struct {
-	Board string `json:"board,omitempty" jsonschema:"the board's name (its primary repository); defaults to the server configuration and is ignored when the server pins its board. Not to be confused with an aeman project, which groups scope columns"`
+	Board string `json:"board,omitempty" jsonschema:"the board's name (its primary repository); defaults to the server configuration and is ignored when the server pins its board"`
 }
 
 // cardRef identifies a single card on a board.
@@ -103,22 +102,20 @@ func (h *server) getBoard(ctx context.Context, _ *mcp.CallToolRequest, in boardR
 // filters, mirroring GET /api/v1/views/{view}/cards.
 type listCardsInput struct {
 	boardRef
-	View         string `json:"view,omitempty" jsonschema:"the board to list: team, me, backlog, roadmap or project — or all for every card. Empty is your own Me board, which is where everyone works. backlog lists each team's PARKED open tasks — accepted and not taken into work — in the order the backlog is read (by hand, then oldest first); they are on no day board until somebody gives them a day, a sprint or a person"`
-	Team         string `json:"team,omitempty" jsonschema:"team key for the team/backlog views (a comma-separated set lists several). A task is placed by the team it STANDS UNDER: its own, else the nearest ancestor's (a task with no team under an epic of portal is portal's); on the me and all views a comma-separated set filters to those teams' TASKS (a goal, an initiative or an epic is never listed under a team there); on the roadmap view a comma-separated set keeps a task whose EFFECTIVE team (its own, else the nearest ancestor's) is one of them and a planning card that has that team or such a task under it, each with its ancestors. A set is comma-separated and the no-team group is its empty member: 'alpha,' is alpha and the no-team group, ',' the no-team group alone. Left empty it means, per view: on team, the no-team group's grid; on backlog, me, all and roadmap, no team filter (every team's)"`
-	Day          string `json:"day,omitempty" jsonschema:"viewed day as yyyy-mm-dd for the team/me views; defaults to today"`
-	User         string `json:"user,omitempty" jsonschema:"GitHub login for the me view; empty is everyone"`
-	Project      string `json:"project,omitempty" jsonschema:"aeman project to scope the project view to — one project's scope columns; empty is every project. Read the roster from get_board metadata.projects"`
-	Stage        string `json:"stage,omitempty" jsonschema:"filter by stage: locked, review, recurrent, refuse or done"`
-	Zone         string `json:"zone,omitempty" jsonschema:"filter by semantic zone: urgent, unplanned, planned or niceToHave"`
-	Assignee     string `json:"assignee,omitempty" jsonschema:"filter by assignee GitHub login"`
-	Focus        bool   `json:"focus,omitempty" jsonschema:"keep only cards workable right now — drops done, on-review and locked; use this to show what can be picked up and worked on here and now"`
-	Title        string `json:"title,omitempty" jsonschema:"case-insensitive substring filter on the card title — the cheap way to resolve a title someone mentioned to its uid: one call, a handful of rows"`
-	Full         bool   `json:"full,omitempty" jsonschema:"include each card's full description in the listing. Default false: a listing is the board's row view — title, team, zone, assignees, progress, stage, dates, link refs — and card bodies come from get_card. Set only when genuinely reading many descriptions at once (bulk analysis), not to inspect one card"`
-	Reviews      bool   `json:"reviews,omitempty" jsonschema:"include each card's linked REVIEW card beside it (the me and team views). A review is somebody's work too — it counts in the reviewer's load — and without this it is on no listing you asked for"`
-	Customer     string `json:"customer,omitempty" jsonschema:"a comma-separated set of customer ids (get_board metadata.customers), matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view: a task whose effective customers include one, a planning card that does or has such a task under it, each listed with its ancestors. On the team, backlog, all and me views: the cards whose effective customers include one, AND the team set"`
-	Owner        string `json:"owner,omitempty" jsonschema:"on the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: the goals, initiatives and epics whose OWN owner is one of them (never inherited) and the tasks and subtasks one of them is assigned to, each with its ancestors — the plan items one answers for and the work one does. team narrows the roadmap by EFFECTIVE team (own, else the nearest ancestor's) the same way; different filters are AND"`
-	ProjectCards bool   `json:"projectCards,omitempty" jsonschema:"on the roadmap view, also list the PROJECT cards — cards in a Scope column — under the planning cards they are filed under. Off by default: the Roadmap is the plan of goals, initiatives, epics and the work under them, and project cards are hidden unless asked for (the Roadmap's Project cards toggle). A planning card's counts are the same either way"`
-	Snapshot     bool   `json:"snapshot,omitempty" jsonschema:"read a PAST day as it stood rather than today's cards filtered by that day: every field is the day's own, so a card finished since reads unfinished and one created since is absent. Needs day set to a past day; the board's history answers it, and a day it no longer reaches is an error rather than a wrong answer"`
+	View     string `json:"view,omitempty" jsonschema:"the board to list: team, me, backlog or roadmap — or all for every card. Empty is your own Me board, which is where everyone works. backlog lists each team's PARKED open tasks — accepted and not taken into work — in the order the backlog is read (by hand, then oldest first); they are on no day board until somebody gives them a day, a sprint or a person"`
+	Team     string `json:"team,omitempty" jsonschema:"team key for the team/backlog views (a comma-separated set lists several). A task is placed by the team it STANDS UNDER: its own, else the nearest ancestor's (a task with no team under an epic of portal is portal's); on the me and all views a comma-separated set filters to those teams' TASKS (a goal, an initiative or an epic is never listed under a team there); on the roadmap view a comma-separated set keeps a task whose EFFECTIVE team (its own, else the nearest ancestor's) is one of them and a planning card that has that team or such a task under it, each with its ancestors. A set is comma-separated and the no-team group is its empty member: 'alpha,' is alpha and the no-team group, ',' the no-team group alone. Left empty it means, per view: on team, the no-team group's grid; on backlog, me, all and roadmap, no team filter (every team's)"`
+	Day      string `json:"day,omitempty" jsonschema:"viewed day as yyyy-mm-dd for the team/me views; defaults to today"`
+	User     string `json:"user,omitempty" jsonschema:"GitHub login for the me view; empty is everyone"`
+	Stage    string `json:"stage,omitempty" jsonschema:"filter by stage: locked, review, recurrent, refuse or done"`
+	Zone     string `json:"zone,omitempty" jsonschema:"filter by semantic zone: urgent, unplanned, planned or niceToHave"`
+	Assignee string `json:"assignee,omitempty" jsonschema:"filter by assignee GitHub login"`
+	Focus    bool   `json:"focus,omitempty" jsonschema:"keep only cards workable right now — drops done, on-review and locked; use this to show what can be picked up and worked on here and now"`
+	Title    string `json:"title,omitempty" jsonschema:"case-insensitive substring filter on the card title — the cheap way to resolve a title someone mentioned to its uid: one call, a handful of rows"`
+	Full     bool   `json:"full,omitempty" jsonschema:"include each card's full description in the listing. Default false: a listing is the board's row view — title, team, zone, assignees, progress, stage, dates, link refs — and card bodies come from get_card. Set only when genuinely reading many descriptions at once (bulk analysis), not to inspect one card"`
+	Reviews  bool   `json:"reviews,omitempty" jsonschema:"include each card's linked REVIEW card beside it (the me and team views). A review is somebody's work too — it counts in the reviewer's load — and without this it is on no listing you asked for"`
+	Customer string `json:"customer,omitempty" jsonschema:"a comma-separated set of customer ids (get_board metadata.customers), matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view: a task whose effective customers include one, a planning card that does or has such a task under it, each listed with its ancestors. On the team, backlog, all and me views: the cards whose effective customers include one, AND the team set"`
+	Owner    string `json:"owner,omitempty" jsonschema:"on the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: the goals, initiatives and epics whose OWN owner is one of them (never inherited) and the tasks and subtasks one of them is assigned to, each with its ancestors — the plan items one answers for and the work one does. team narrows the roadmap by EFFECTIVE team (own, else the nearest ancestor's) the same way; different filters are AND"`
+	Snapshot bool   `json:"snapshot,omitempty" jsonschema:"read a PAST day as it stood rather than today's cards filtered by that day: every field is the day's own, so a card finished since reads unfinished and one created since is absent. Needs day set to a past day; the board's history answers it, and a day it no longer reaches is an error rather than a wrong answer"`
 }
 
 func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listCardsInput) (*mcp.CallToolResult, apiserver.CardList, error) {
@@ -127,10 +124,10 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 		return nil, apiserver.CardList{}, err
 	}
 	sel := apiserver.Selector{View: in.View, Team: in.Team, Day: in.Day, User: in.User,
-		Project: in.Project, Assignee: in.Assignee, Focus: in.Focus,
-		IncludeReviews: in.Reviews, ProjectCards: in.ProjectCards, Customer: in.Customer, Owner: in.Owner}
+		Assignee: in.Assignee, Focus: in.Focus,
+		IncludeReviews: in.Reviews, Customer: in.Customer, Owner: in.Owner}
 	if sel.View != "" && !board.KnownView(sel.View) {
-		return nil, apiserver.CardList{}, fmt.Errorf("%w: %q (use all, team, me, backlog, roadmap or project)",
+		return nil, apiserver.CardList{}, fmt.Errorf("%w: %q (use all, team, me, backlog or roadmap)",
 			boardservice.ErrNoSuchView, sel.View)
 	}
 	// An unspecified view defaults to the caller's own Me board (their own
@@ -216,9 +213,7 @@ type createCardInput struct {
 	Start       string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd; defaults to end, else today. A FUTURE day parks the card off the board until that day arrives — it is not shown in the current sprint meanwhile. Sprints are daily and created as they start, so no sprint covers a future day yet: the card deliberately joins NO sprint and the carry-over that reaches its day adopts it. That is the intended way to schedule work ahead; leave the sprint field alone"`
 	End         string `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; defaults to start, else today"`
 	Sprint      string `json:"sprint,omitempty" jsonschema:"sprint start day the card joins; defaults to the team's current sprint"`
-	Scope       string `json:"scope,omitempty" jsonschema:"Project-board column to file the card under, together with project — pass view=project with them, since a column is that board's. MUST be an EXISTING column — read them from get_board metadata.scopes; add_scope creates one when the user explicitly asks. A card in a column is a PROJECT CARD: it takes no team or assignee (refused) and is nobody's subtask — though it MAY sit under a goal, an initiative or an epic (parent) — its start/end dates are its row and may span several weeks, and the Project board is the one board that draws it"`
-	Type        string `json:"type,omitempty" jsonschema:"makes a PLANNING card — goal, initiative or epic — the levels above the day boards (view=roadmap, where it is required; every other board refuses it). A planning card takes a title, dates (its bar on the Roadmap) and a parent of a HIGHER level (initiative under goal; epic under initiative or goal), and may take a team (the team that carries it out), an owner (the one person who answers for it) and customers — no assignee (the people are on the tasks under it; it lives in the primary repository), no band, no size, and none of a task's day-board state: no sprint, backlog, column or review. Its status is derived from the tasks under it and never written. Leave empty for a task"`
-	Project     string `json:"project,omitempty" jsonschema:"the project half of the column named by scope (columns are the (project, scope) pair — scope names repeat across projects)"`
+	Type        string `json:"type,omitempty" jsonschema:"makes a PLANNING card — goal, initiative or epic — the levels above the day boards (view=roadmap, where it is required; every other board refuses it). A planning card takes a title, dates (its bar on the Roadmap) and a parent of a HIGHER level (initiative under goal; epic under initiative or goal), and may take a team (the team that carries it out), an owner (the one person who answers for it) and customers — no assignee (the people are on the tasks under it; it lives in the primary repository), no band, no size, and none of a task's day-board state: no sprint, backlog or review. Its status is derived from the tasks under it and never written. Leave empty for a task"`
 	ReviewOf    string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews"`
 	Description string `json:"description,omitempty" jsonschema:"the card's shared free-form body, at create instead of a separate update_card call (what the whole team sees) — and the right place for reference links: include related open PRs and issues in free form as FULL URLs or owner/repo#123 shorthands (links are extracted from anywhere in the text, surfaced on the card, and GitHub refs resolve to live titles/states; read them back with list_links). When the title is a bare GitHub issue/PR URL, that link is kept: appended to an explicit body that does not already name it. With reviewOf the body is SHARED with the card being reviewed, so a create that would overwrite a body standing there is refused — the review is made without one, or both are changed with update_card"`
 	// StartNewSprint controls sprint membership: omit for auto (join the team's
@@ -227,9 +222,9 @@ type createCardInput struct {
 	StartNewSprint *bool `json:"startNewSprint,omitempty" jsonschema:"force a new sprint (true) or join the current one (false); omit for auto"`
 	// View is the BOARD the card is typed into, which is what makes it the
 	// kind of card it is; each board refuses the fields it does not own.
-	View      string   `json:"view,omitempty" jsonschema:"the BOARD you are typing the card into, which is what it MEANS: me (the DEFAULT — the card is yours, scheduled for the day, in your team's sprint; it stands on your own board and in your column of the team's grid), team (the lead's grid, where PLANNING is done: the card lands in the Unassigned column unless you name an assignee, and any band is allowed — this is the board for work in the plan, whether it is for somebody else or for the person you are acting for, and the only one that takes urgent/planned/niceToHave), backlog (parked in the team's backlog, last: accepted and not taken into work, on no day), roadmap (a PLANNING card — a goal, an initiative or an epic: pass type, and a parent of a higher level if it has one — or a TASK under one: no type, pass parent naming a goal, an initiative or an epic; born with no team, no day and no sprint, it is parked in the no-team group's backlog and stands on the Roadmap until somebody takes it into work), project (a slot under a column — pass scope and project). A board refuses what it does not own — a parked card typed into a day, a column named on the Me board — and says which field it was"`
+	View      string   `json:"view,omitempty" jsonschema:"the BOARD you are typing the card into, which is what it MEANS: me (the DEFAULT — the card is yours, scheduled for the day, in your team's sprint; it stands on your own board and in your column of the team's grid), team (the lead's grid, where PLANNING is done: the card lands in the Unassigned column unless you name an assignee, and any band is allowed — this is the board for work in the plan, whether it is for somebody else or for the person you are acting for, and the only one that takes urgent/planned/niceToHave), backlog (parked in the team's backlog, last: accepted and not taken into work, on no day), roadmap (a PLANNING card — a goal, an initiative or an epic: pass type, and a parent of a higher level if it has one — or a TASK under one: no type, pass parent naming a goal, an initiative or an epic; born with no team, no day and no sprint, it is parked in the no-team group's backlog and stands on the Roadmap until somebody takes it into work). A board refuses what it does not own — a parked card typed into a day, a type named on the Me board — and says which field it was"`
 	Owner     string   `json:"owner,omitempty" jsonschema:"on the roadmap view, for a goal, an initiative or an epic: the person who answers for it (not inherited, puts nothing on a day board); refused on a task"`
-	Customers []string `json:"customers,omitempty" jsonschema:"customer ids from get_board metadata.customers the new card is for; refused on a project card"`
+	Customers []string `json:"customers,omitempty" jsonschema:"customer ids from get_board metadata.customers the new card is for"`
 	After     string   `json:"after,omitempty" jsonschema:"on the backlog, team and me views: uid of the card the new one is placed right AFTER, in the same create — how a person inserts a card between two in a backlog or in a Team/Me cell (the cell's person and band are the create's own fields). A list is read top-down. One of after and before, or neither (the card lands last)"`
 	Before    string   `json:"before,omitempty" jsonschema:"on the backlog, team and me views: uid of the card the new one is placed right BEFORE — the top of a list is before its first card. One of after and before, or neither"`
 	Parent    string   `json:"parent,omitempty" jsonschema:"uid of the card this one sits under — the ONE link of the hierarchy, and what it means is the parent's type. A TASK parent groups this card as a subtask (one level deep; a subtask rides its parent and is never parked, so view=backlog refuses a task parent). A goal, an initiative or an epic as parent files the card in the hierarchy: a task may sit under any of the three, an epic under an initiative or a goal, an initiative under a goal — the parent must be of a higher level (parentLevel) and in the card's own repository (crossDomain) — and nothing else about the card changes"`
@@ -310,8 +305,6 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 		Day:            in.End,
 		Start:          in.Start,
 		SprintStart:    in.Sprint,
-		Scope:          in.Scope,
-		Project:        in.Project,
 		ReviewOf:       in.ReviewOf,
 		StartNewSprint: in.StartNewSprint,
 		Parent:         in.Parent,
@@ -359,21 +352,19 @@ type updateCardInput struct {
 	cardRef
 	Title       *string   `json:"title,omitempty" jsonschema:"new title"`
 	Description *string   `json:"description,omitempty" jsonschema:"the card's shared free-form body (what the whole team sees; live-syncs onto the linked review card) — the right place for review or handoff context, and for reference links: include related open PRs and issues in free form as FULL URLs or owner/repo#123 shorthands (encouraged — links are extracted from anywhere in the text, surfaced on the card, and GitHub refs resolve to live titles/states; read them back with list_links); empty clears it"`
-	Owner       *string   `json:"owner,omitempty" jsonschema:"on a goal, an initiative or an epic: the ONE person who answers for it — breaks it down, triages what lands under it, keeps its status honest. Not inherited by the levels below and it puts nothing on anybody's day boards. Refused on a task (whose people are its assignees) and on a project card; empty takes it off"`
-	Customers   *[]string `json:"customers,omitempty" jsonschema:"customer IDS from get_board metadata.customers that this card itself is for, replacing what it named; an empty list takes them all off. The cards below inherit them (status.effectiveCustomers is a card's own plus every ancestor's). Refused on a project card; an id the roster lacks is refused — add_customer first when the user names a new customer"`
+	Owner       *string   `json:"owner,omitempty" jsonschema:"on a goal, an initiative or an epic: the ONE person who answers for it — breaks it down, triages what lands under it, keeps its status honest. Not inherited by the levels below and it puts nothing on anybody's day boards. Refused on a task (whose people are its assignees); empty takes it off"`
+	Customers   *[]string `json:"customers,omitempty" jsonschema:"customer IDS from get_board metadata.customers that this card itself is for, replacing what it named; an empty list takes them all off. The cards below inherit them (status.effectiveCustomers is a card's own plus every ancestor's). An id the roster lacks is refused — add_customer first when the user names a new customer"`
 	Team        *string   `json:"team,omitempty" jsonschema:"team to move to (joins its current sprint); empty is the no-team group. On a goal, an initiative or an epic it is the team that carries the plan item out: it joins no sprint, places nothing, and the cards below with no team of their own take it as their effective team; empty takes it off. MUST be an EXISTING team key from get_board metadata.teams — map the user's wording onto an existing key, across languages and case; an unknown value silently CREATES a new team (heavyweight, unusual) — only on an explicit request for a brand-new team"`
 	Zone        *string   `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave; empty clears it"`
 	Size        *string   `json:"size,omitempty" jsonschema:"what the card weighs: S (up to ~2h, one action in one place), M (half a day to a day, one deliverable in one component), L (2–5 days, several parts or people) or XL (a week or more, epic-shaped); empty clears it. The board sums sizes as 1/2/4/8 points against each person's weekly capacity, so size the work the card asks for, consistently — not the topic's importance"`
 	Assignee    *string   `json:"assignee,omitempty" jsonschema:"GitHub login; empty unassigns"`
-	Progress    *int      `json:"progress,omitempty" jsonschema:"readiness percentage 0..100. A PROJECT card (one in a Scope column) is done or not done and takes 0 or 100 alone — 100 marks it done, 0 takes it back; any other value is refused (projectCardProgress)"`
-	Stage       *string   `json:"stage,omitempty" jsonschema:"locked, review, recurrent, refuse or done; empty clears it. REVIEW on a task with no review card makes one with NOBODY on it, parked in the task's team's backlog (the 'needs a reviewer' item) — to name the reviewer use send_to_review, or own_card with a person on that review card. REFUSE is the answer of the person the card is on — 'I am not doing this' — and only they may set it (403 otherwise); it leaves the card on the board for their lead to answer. Clearing it is the answer, and anyone may. A REVIEW card itself takes neither review nor recurrent: a review of a review is a chain nothing draws, and the asking is one-off by nature. A PROJECT card is done or not done: review and locked are refused (projectCard); done marks it done."`
+	Progress    *int      `json:"progress,omitempty" jsonschema:"readiness percentage 0..100"`
+	Stage       *string   `json:"stage,omitempty" jsonschema:"locked, review, recurrent, refuse or done; empty clears it. REVIEW on a task with no review card makes one with NOBODY on it, parked in the task's team's backlog (the 'needs a reviewer' item) — to name the reviewer use send_to_review, or own_card with a person on that review card. REFUSE is the answer of the person the card is on — 'I am not doing this' — and only they may set it (403 otherwise); it leaves the card on the board for their lead to answer. Clearing it is the answer, and anyone may. A REVIEW card itself takes neither review nor recurrent: a review of a review is a chain nothing draws, and the asking is one-off by nature."`
 	Recurrence  *string   `json:"recurrence,omitempty" jsonschema:"reseed cycle of a recurrent card: empty = every sprint (default), week or month = reseeded by carry-over only once that interval has elapsed since the card's sprint"`
 	Start       *string   `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd: the card joins the sprint active on that day. A FUTURE day parks it off the board until that day arrives (this is how you schedule work ahead, and how the +1 day / +1 week buttons work). Sprints are daily and created as they start, so no sprint covers a future day yet: the card is left with NO sprint while it waits and the carry-over that reaches its day adopts it — expected, not a mis-scheduled card, and setting sprint by hand would only drag it back onto today's board. Empty clears the dates"`
 	End         *string   `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; empty clears it"`
 	Sprint      *string   `json:"sprint,omitempty" jsonschema:"sprint start day the card belongs to; empty clears it"`
-	Scope       *string   `json:"scope,omitempty" jsonschema:"Project-board column to file the card under. A project card lives and dies in its column: an empty scope on one is refused (delete_card instead), another column is a move. MUST be an EXISTING column from get_board metadata.scopes — and columns are identified by the (project, scope) pair, so pass project too unless the card is already in the right project. A card that carries a team, an assignee or a TASK parent cannot be filed into a column (a project card has none — a planning parent is fine): clear them first. A goal, an initiative or an epic is never filed into a column"`
-	Project     *string   `json:"project,omitempty" jsonschema:"the project half of the card's column (see scope). Scope names repeat across projects, so filing a card into another project's column needs both"`
-	Parked      *bool     `json:"parked,omitempty" jsonschema:"true parks the task in its TEAM's backlog: the ranked list of work the team has accepted and not taken into work. Every team has one and nothing declares it. Parking clears the person, the sprint and the dates, takes the card's subtasks off the board with it, withdraws any review of it and puts it at the top of the backlog. A task leaves its backlog by being TAKEN INTO WORK — a start date, a sprint, or own_card with a person — and each of those unparks it on its own; false alone on a parked task with no date and no sprint is refused. A Project-board slot, a REVIEW card and a SUBTASK are refused: none has a place of its own to be parked in. A task has no week"`
+	Parked      *bool     `json:"parked,omitempty" jsonschema:"true parks the task in its TEAM's backlog: the ranked list of work the team has accepted and not taken into work. Every team has one and nothing declares it. Parking clears the person, the sprint and the dates, takes the card's subtasks off the board with it, withdraws any review of it and puts it at the top of the backlog. A task leaves its backlog by being TAKEN INTO WORK — a start date, a sprint, or own_card with a person — and each of those unparks it on its own; false alone on a parked task with no date and no sprint is refused. A REVIEW card and a SUBTASK are refused: neither has a place of its own to be parked in. A task has no week"`
 	ReviewOf    *string   `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews; empty breaks the link"`
 	Parent      *string   `json:"parent,omitempty" jsonschema:"uid of the card this one sits under; empty takes it out. Under a TASK it is a subtask (one level deep): it keeps its own description/notes/log, feeds the parent's derived progress and rides with it — team, person, sprint — through carry-over. Under a goal, an initiative or an epic it is filed in the hierarchy and NOTHING else changes; the parent must be of a higher level than the card (an epic may not sit under an epic) and in the card's own repository"`
 }
@@ -419,18 +410,6 @@ func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, 
 	}
 	if in.Customers != nil {
 		if err := svc.SetCustomers(ctx, boardID, in.UID, *in.Customers); err != nil {
-			return err
-		}
-	}
-	if in.Scope != nil || in.Project != nil {
-		// A column is the (project, scope) pair. Naming only the scope keeps the
-		// card's current project, which is what filing inside one project
-		// means; crossing projects needs both.
-		scope := card.Scope
-		if in.Scope != nil {
-			scope = *in.Scope
-		}
-		if err := svc.SetScope(ctx, boardID, in.UID, scope, in.Project); err != nil {
 			return err
 		}
 	}
@@ -514,50 +493,6 @@ func (h *server) applyDatePatch(ctx context.Context, svc *boardservice.Service, 
 	return nil
 }
 
-// scopeInput names one Project-board column, and the project that owns it.
-type scopeInput struct {
-	boardRef
-	Name    string `json:"name" jsonschema:"the scope's name — the Project-board column header"`
-	Project string `json:"project,omitempty" jsonschema:"the project the column belongs to (required: scope names repeat across projects, so the pair identifies a column). On set_scope_project this is the TARGET project, and empty detaches the column from every project"`
-	From    string `json:"from,omitempty" jsonschema:"set_scope_project only: the project the column is in today"`
-	To      string `json:"to,omitempty" jsonschema:"rename_scope only: the column's new name"`
-}
-
-func (h *server) addScope(ctx context.Context, _ *mcp.CallToolRequest, in scopeInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.AddScope(ctx, boardID, in.Name, in.Project); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "added"}, nil
-}
-
-// setScopeProject moves a column to another project (empty detaches it).
-func (h *server) setScopeProject(ctx context.Context, _ *mcp.CallToolRequest, in scopeInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.SetScopeProject(ctx, boardID, in.From, in.Name, in.Project); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "updated"}, nil
-}
-
-// renameScope renames a column in place, cards and all.
-func (h *server) renameScope(ctx context.Context, _ *mcp.CallToolRequest, in scopeInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.RenameScope(ctx, boardID, in.Project, in.Name, in.To); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "renamed"}, nil
-}
-
 // reopenCard undoes a done mark, restoring the pre-done progress from the
 // card's own activity log (fallback: the In Progress nudge).
 func (h *server) reopenCard(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, apiserver.Card, error) {
@@ -569,48 +504,6 @@ func (h *server) reopenCard(ctx context.Context, _ *mcp.CallToolRequest, in card
 		return nil, apiserver.Card{}, err
 	}
 	return h.cardResource(ctx, svc, boardID, in.UID)
-}
-
-// deadlineInput names a week of the Project board (and, for a move, the week
-// the line is dragged to).
-type deadlineInput struct {
-	boardRef
-	Week    string `json:"week" jsonschema:"the deadline's week as yyyy-mm-dd; any day resolves to its Monday, since the line sits on a week row"`
-	Project string `json:"project,omitempty" jsonschema:"whose deadline it is — a deadline belongs to a project and takes its colour. Empty means a line belonging to no project"`
-	To      string `json:"to,omitempty" jsonschema:"move_deadline only: the week to drag the line to"`
-}
-
-func (h *server) addDeadline(ctx context.Context, _ *mcp.CallToolRequest, in deadlineInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.AddDeadline(ctx, boardID, in.Week, in.Project); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "added"}, nil
-}
-
-func (h *server) deleteDeadline(ctx context.Context, _ *mcp.CallToolRequest, in deadlineInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.DeleteDeadline(ctx, boardID, in.Week, in.Project); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "deleted"}, nil
-}
-
-func (h *server) moveDeadline(ctx context.Context, _ *mcp.CallToolRequest, in deadlineInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.MoveDeadline(ctx, boardID, in.Project, in.Week, in.To); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "moved"}, nil
 }
 
 // teamInput names one team of the board and, for a rename, its new name.
@@ -633,78 +526,6 @@ func (h *server) renameTeam(ctx context.Context, _ *mcp.CallToolRequest, in team
 	return nil, statusOutput{Status: "renamed"}, nil
 }
 
-// projectInput names one project of the Project board.
-type projectInput struct {
-	boardRef
-	Name string `json:"name" jsonschema:"the project's name — the chip on the Project board"`
-	To   string `json:"to,omitempty" jsonschema:"rename_project only: the project's new name"`
-	// Domain is the repository to declare the project in, when the board
-	// spans several (get_board metadata.domains); empty is the primary.
-	Domain string `json:"domain,omitempty" jsonschema:"add_project only: the domain (repository) to declare the project in, from get_board metadata.domains; empty = the primary"`
-}
-
-// renameProject renames a project in place, columns and cards along with it.
-func (h *server) renameProject(ctx context.Context, _ *mcp.CallToolRequest, in projectInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.RenameProject(ctx, boardID, in.Name, in.To); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "renamed"}, nil
-}
-
-func (h *server) addProject(ctx context.Context, _ *mcp.CallToolRequest, in projectInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.AddProject(board.WithDomain(ctx, in.Domain), boardID, in.Name); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "added"}, nil
-}
-
-func (h *server) deleteProject(ctx context.Context, _ *mcp.CallToolRequest, in projectInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.DeleteProject(ctx, boardID, in.Name); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "deleted"}, nil
-}
-
-// reorderProjectsInput carries the whole chip order, top to bottom.
-type reorderProjectsInput struct {
-	boardRef
-	Projects []string `json:"projects" jsonschema:"every project name in the order the chips should appear"`
-}
-
-func (h *server) reorderProjects(ctx context.Context, _ *mcp.CallToolRequest, in reorderProjectsInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.ReorderProjects(ctx, boardID, in.Projects); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "reordered"}, nil
-}
-
-func (h *server) deleteScope(ctx context.Context, _ *mcp.CallToolRequest, in scopeInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.DeleteScope(ctx, boardID, in.Name, in.Project); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "deleted"}, nil
-}
-
 func (h *server) deleteCard(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, statusOutput, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
@@ -722,7 +543,7 @@ func (h *server) deleteCard(ctx context.Context, _ *mcp.CallToolRequest, in card
 type removeCardInput struct {
 	cardRef
 	boardStand
-	Intent string `json:"intent,omitempty" jsonschema:"what the x is to do: unassign (take the card out of work and put it back in its team's backlog — parked, no person, no day, no sprint; a Project-board card is left in its column instead) or off-board (take it away, with the subtasks that were pieces of it). Omit to let the gesture decide, which is what it did before there was a choice. off-board is refused for a Project-board card — it lives and dies in its column, and delete_card deletes it; on a REVIEW card unassign is back to backlog — the reviewer taken off, the review waiting at the top of its task's team backlog with nobody on it, the task still on review — and off-board or no intent withdraws the review: the task goes back to In progress and the review card goes"`
+	Intent string `json:"intent,omitempty" jsonschema:"what the x is to do: unassign (take the card out of work and put it back in its team's backlog — parked, no person, no day, no sprint) or off-board (take it away, with the subtasks that were pieces of it). Omit to let the gesture decide, which is what it did before there was a choice. On a REVIEW card unassign is back to backlog — the reviewer taken off, the review waiting at the top of its task's team backlog with nobody on it, the task still on review — and off-board or no intent withdraws the review: the task goes back to In progress and the review card goes"`
 }
 
 func (h *server) removeCard(ctx context.Context, _ *mcp.CallToolRequest, in removeCardInput) (*mcp.CallToolResult, statusOutput, error) {

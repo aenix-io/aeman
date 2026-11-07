@@ -2,6 +2,8 @@
 
 **Status:** accepted · 2026-08-22
 
+> **2026-11-07:** projects, scope columns and deadlines are no longer entities — the Project board was removed (`docs/design/hierarchy.md`); processes and tasks went earlier (schema 2). The decision stands for what remains.
+
 ## Decision
 
 Every entity aeman exposes — cards, teams, projects, scope columns,

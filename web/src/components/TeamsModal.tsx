@@ -23,8 +23,8 @@ interface TeamsModalProps {
   teams: string[];
   /** Dialog heading; defaults to the team roster's. */
   title?: string;
-  /** What one row is, used in the add field. The Project board manages its
-   *  projects through this same dialog. */
+  /** What one row is, used in the add field. The customer roster is
+   *  managed through this same dialog. */
   entity?: string;
   /** The board's repositories; with more than one writable, the add row asks
    *  which one the new entry is declared in. */
@@ -34,9 +34,8 @@ interface TeamsModalProps {
   onRemove: (team: string) => void;
   onReorder: (ordered: string[]) => void;
   onClose: () => void;
-  /** Points a week per team, and how to change one. Teams only: the Project
-   *  board manages its projects through this same dialog, and a project has
-   *  no week to weigh. */
+  /** Points a week per team, and how to change one. Teams only: a customer
+   *  has no week to weigh. */
   capacities?: Record<string, number>;
   onSetCapacity?: (team: string, points: number) => void;
 }

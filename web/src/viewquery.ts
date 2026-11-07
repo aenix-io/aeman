@@ -4,14 +4,13 @@
 import { todayIso } from "./date";
 import type { RoadmapFilters } from "./ownership";
 
-export type ViewMode = "me" | "team" | "backlog" | "roadmap" | "project";
+export type ViewMode = "me" | "team" | "backlog" | "roadmap";
 
-/** ViewOptions are the board's own toggles that the SERVER answers: the
- *  Roadmap's "Project cards" (projectCards). They ride the listing and the
- *  watch alike, so turning one changes the keys the board refetches and
- *  re-subscribes on — nothing is filtered out of what was already sent. */
+/** ViewOptions are the board's own filters that the SERVER answers. They
+ *  ride the listing and the watch alike, so changing one changes the keys
+ *  the board refetches and re-subscribes on — nothing is filtered out of
+ *  what was already sent. */
 export interface ViewOptions {
-  projectCards?: boolean;
   /** The Roadmap's team, customer and owner filters (ownership.md, O7,
    *  O8): selectors the server applies, each a comma-separated set. */
   filters?: RoadmapFilters;
@@ -34,7 +33,7 @@ function withCustomers(q: Record<string, string>, opts: ViewOptions): Record<str
 }
 
 function roadmapQuery(opts: ViewOptions): Record<string, string> {
-  const q: Record<string, string> = opts.projectCards ? { view: "roadmap", projectCards: "true" } : { view: "roadmap" };
+  const q: Record<string, string> = { view: "roadmap" };
   const f = opts.filters;
   if (f?.teams.length) {
     q.team = teamSet(f.teams);
@@ -76,17 +75,10 @@ export function viewQueries(
     }
     return [q];
   }
-  if (view === "project") {
-    // Every scope-filed card of every project, all weeks: the Project board
-    // lays the table out itself and the project chips filter client-side, so
-    // switching projects costs no request.
-    return [{ view: "project" }];
-  }
   if (view === "roadmap") {
     // The hierarchy: every planning card and every card under one, board-
     // wide. The tree is assembled client-side from `parent`; never a
-    // snapshot — it is not a day board (docs/design/hierarchy.md). The
-    // project cards are the server's to leave out unless asked for.
+    // snapshot — it is not a day board (docs/design/hierarchy.md).
     return [roadmapQuery(opts)];
   }
   const team = teamSet(teams);
@@ -101,7 +93,7 @@ export function viewQueries(
 
 // snapshotDay reports that a day is one the board can be shown AS IT WAS: a
 // past day on a daily board (Me or Team). Today is live, tomorrow has not
-// happened, and the Project board is not a day board at all.
+// happened, and the Backlog and the Roadmap are not day boards at all.
 // Mirrors the server's own condition (boardOfRequest, internal/server/api.go).
 export function snapshotDay(view: ViewMode, day: string, today = todayIso()): boolean {
   return (view === "me" || view === "team") && day !== "" && day < today;
@@ -119,9 +111,6 @@ export function watchQuery(
   viewAs?: string,
   opts: ViewOptions = {},
 ): Record<string, string> {
-  if (view === "project") {
-    return { view: "project" };
-  }
   if (view === "roadmap") {
     return roadmapQuery(opts);
   }
@@ -186,22 +175,23 @@ export function viewOf(query: string): string {
 }
 
 /** storedView is the board a remembered tab name opens. A name a board used
- *  to have still lands on the board that carries it now: "plan" was the
- *  Project tab, "nixon" the Team tab — and "triage" was retired for the
- *  Backlog (docs/design/backlog.md, K9), so a browser that remembered it
- *  lands on the board that replaced it rather than silently on Me. */
+ *  to have still lands on the board that carries it now: "nixon" was the
+ *  Team tab, "triage" was retired for the Backlog (docs/design/backlog.md,
+ *  K9), and the Project board ("project", once "plan") was removed with
+ *  project cards (H15) — the plan lives on the Roadmap — so a browser that
+ *  remembered one lands on the board that carries its work rather than
+ *  silently on Me. */
 export function storedView(raw: string | null): ViewMode {
   switch (raw) {
     case "team":
     case "nixon":
       return "team";
-    case "project":
-    case "plan":
-      return "project";
     case "backlog":
     case "triage":
       return "backlog";
     case "roadmap":
+    case "project":
+    case "plan":
       return "roadmap";
     default:
       return "me";

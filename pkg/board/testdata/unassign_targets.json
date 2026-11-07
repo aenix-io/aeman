@@ -1,0 +1,36 @@
+{
+  "comment": "One fixture for board.UnassignTargets (Go) and roadmap.unassignTargets (TS): the same cards must give the same tasks. UNASSIGNED reaches exactly the open tasks in work under a row - what makes a plan item IN PROGRESS.",
+  "cards": [
+    { "itemId": "g", "type": "goal", "team": "alpha" },
+    { "itemId": "i", "type": "initiative", "parent": "g" },
+    { "itemId": "e", "type": "epic", "parent": "i", "team": "beta" },
+    { "itemId": "e2", "type": "epic", "parent": "g" },
+    { "itemId": "in-sprint", "parent": "e", "team": "alpha", "sprintStart": "2026-11-02", "startDate": "2026-11-03", "day": "2026-11-04" },
+    { "itemId": "sprint-only", "parent": "e", "sprintStart": "2026-11-02" },
+    { "itemId": "day-only", "parent": "i", "day": "2026-11-05" },
+    { "itemId": "past-sprint", "parent": "e", "team": "alpha", "sprintStart": "2026-09-07", "startDate": "2026-09-08", "day": "2026-09-09", "progress": 40 },
+    { "itemId": "on-review", "parent": "e", "team": "alpha", "sprintStart": "2026-11-02", "day": "2026-11-04", "stage": "review", "progress": 90 },
+    { "itemId": "locked", "parent": "e2", "team": "gamma", "sprintStart": "2026-11-02", "stage": "locked", "progress": 30 },
+    { "itemId": "other-team", "parent": "e2", "team": "gamma", "sprintStart": "2026-11-02", "day": "2026-11-03" },
+    { "itemId": "done-in-work", "parent": "e", "sprintStart": "2026-11-02", "progress": 100 },
+    { "itemId": "stage-done", "parent": "e", "sprintStart": "2026-11-02", "stage": "done", "progress": 60 },
+    { "itemId": "parked", "parent": "e", "parked": true },
+    { "itemId": "parked-dated", "parent": "e", "parked": true, "day": "2026-11-04" },
+    { "itemId": "sub", "parent": "in-sprint", "sprintStart": "2026-11-02" },
+    { "itemId": "review-card", "reviewOf": "on-review", "parent": "e", "sprintStart": "2026-11-02", "assignees": ["bob"] },
+    { "itemId": "loose", "sprintStart": "2026-11-02" }
+  ],
+  "targets": {
+    "g": ["in-sprint", "sprint-only", "day-only", "past-sprint", "on-review", "locked", "other-team"],
+    "i": ["in-sprint", "sprint-only", "day-only", "past-sprint", "on-review"],
+    "e": ["in-sprint", "sprint-only", "past-sprint", "on-review"],
+    "e2": ["locked", "other-team"],
+    "on-review": ["on-review"],
+    "past-sprint": ["past-sprint"],
+    "parked": [],
+    "done-in-work": [],
+    "sub": [],
+    "review-card": [],
+    "loose": ["loose"]
+  }
+}

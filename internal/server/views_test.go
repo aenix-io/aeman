@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice/boardservicetest"
 )
@@ -16,8 +17,9 @@ import (
 // on it, and what a create means there (docs/design/view-scoped-api.md).
 
 // A gesture asked of a board that does not draw it is a route that is not
-// there — there is no "finished in the sprint before" on the Backlog, and the
-// Triage board's drop into a week is no route at all any more (K9).
+// there — there is no "finished in the sprint before" on the Backlog, the
+// Triage board's drop into a week is no route at all any more (K9), and the
+// retired Project board is no board (H15).
 func TestAGestureIsAnsweredOnlyByTheBoardThatDrawsIt(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
@@ -32,6 +34,7 @@ func TestAGestureIsAnsweredOnlyByTheBoardThatDrawsIt(t *testing.T) {
 		"/api/v1/views/team/cards/c1/actions/place",
 		"/api/v1/views/team/cards/c1/actions/untriage",
 		"/api/v1/views/triage/cards/c1/actions/remove",
+		"/api/v1/views/project/cards/c1/actions/remove",
 	} {
 		if rec := do(t, srv, http.MethodPost, target, `{}`); rec.Code != http.StatusNotFound {
 			t.Fatalf("%s answered %d, want 404", target, rec.Code)
@@ -45,21 +48,20 @@ func TestAGestureIsAnsweredOnlyByTheBoardThatDrawsIt(t *testing.T) {
 }
 
 // OWN is the Roadmap's "whose is this", offered by every board that draws a
-// task and not by the Project board (H10). Over HTTP it goes through the
+// task (H10). Over HTTP it goes through the
 // gesture door like every press: the board is in the address, the card must
 // be drawn there, and the answer's effect is the service's (own_test.go).
 func TestOwnIsAnsweredByTheBoardsThatDrawATask(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "loose", Title: "Arrived"},
-		{ItemID: "slot", Title: "Plan", Scope: "Compliance", Project: "eu"},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
 	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
 
-	if rec := do(t, srv, http.MethodPost, "/api/v1/views/project/cards/slot/actions/own",
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/project/cards/loose/actions/own",
 		`{"team":"alpha"}`); rec.Code != http.StatusNotFound {
-		t.Fatalf("own on the Project board answered %d, want 404 (not a gesture it draws)", rec.Code)
+		t.Fatalf("own on the retired Project board answered %d, want 404 (no such board)", rec.Code)
 	}
 	// A person without a team is the service's refusal, through the door.
 	if rec := do(t, srv, http.MethodPost, "/api/v1/views/roadmap/cards/loose/actions/own",
@@ -192,9 +194,9 @@ func TestACreateMeansWhatTheBoardMeansByIt(t *testing.T) {
 	}
 	// And a board refuses what it does not own, 422, naming the field.
 	rec := do(t, newSrv(), http.MethodPost, "/api/v1/views/me/cards",
-		`{"title":"x","team":"alpha","zone":"planned","scope":"Auth"}`)
+		`{"title":"x","team":"alpha","zone":"planned","type":"epic"}`)
 	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("a column named on the Me board answered %d", rec.Code)
+		t.Fatalf("a type named on the Me board answered %d", rec.Code)
 	}
 }
 
@@ -251,7 +253,6 @@ func TestTheCatalogNamesTheBoardsAndTheirGestures(t *testing.T) {
 		"team":    {"remove", "finished-earlier", "own"},
 		"backlog": {"remove", "own", "take"},
 		"roadmap": {"remove", "own"},
-		"project": {"remove"},
 		"all":     {"remove", "finished-earlier", "own", "take"},
 	}
 	if len(got) != len(want) {
@@ -350,7 +351,6 @@ func TestTheBacklogIsABoardItsGesturesStandOn(t *testing.T) {
 // A TASK HAS NO WEEK (K7): `week` is not a field of the create or the patch
 // any more, so the API takes nothing from it — the card a create answers with
 // carries no week, and a patch naming one changes nothing about the card.
-// Deadline stubs keep theirs: /deadlines still takes a week.
 func TestTheAPITakesNoWeekForATask(t *testing.T) {
 	today := board.TodayIso()
 	week := board.MondayOf(today)
@@ -368,8 +368,8 @@ func TestTheAPITakesNoWeekForATask(t *testing.T) {
 	if rec.Code == http.StatusOK && strings.Contains(rec.Body.String(), `"week"`) {
 		t.Fatalf("a patch took a week: %s", rec.Body.String())
 	}
-	if got := fake.Card("c1"); got == nil || got.Week != "" {
-		t.Fatalf("the card carries a week after the patch: %+v", got)
+	if got := fake.Card("c1"); got == nil || got.StartDate != today || got.Day != today {
+		t.Fatalf("a patch naming a week changed the card: %+v", got)
 	}
 }
 
@@ -450,5 +450,105 @@ func TestABacklogCreateTakesItsPlaceOverHTTP(t *testing.T) {
 		`{"title":"x","type":"epic","after":"a"}`); rec.Code != http.StatusUnprocessableEntity ||
 		!strings.Contains(rec.Body.String(), "notOnThisBoard") {
 		t.Fatalf("a place on the Roadmap = %d %s, want 422 notOnThisBoard", rec.Code, rec.Body.String())
+	}
+}
+
+// The Roadmap's badge menu over HTTP (K15, K16): the priority is set on the
+// card itself and answers with the card; UNASSIGNED answers how many tasks it
+// took out of work — on a plan item, every task under it in work — and each
+// refuses by name what it means nothing for.
+func TestPriorityAndUnassignedOverHTTP(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "e", Title: "epic", Type: board.TypeEpic, Team: "alpha"},
+		{ItemID: "p1", Title: "parked one", Parent: "e", Parked: true},
+		{ItemID: "p2", Title: "parked two", Parent: "e", Parked: true},
+		{ItemID: "w", Title: "in work", Parent: "e", Team: "alpha", Assignees: []string{"ann"}, StartDate: today, Day: today, SprintStart: today},
+		{ItemID: "done", Title: "finished", Parent: "e", Team: "alpha", SprintStart: today, Day: today, Progress: 100},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/priority", `{"priority":"P1"}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"priority":"P1"`) {
+		t.Fatalf("P1 on the epic = %d %s, want 200 with the card", rec.Code, rec.Body.String())
+	}
+	if fake.Card("e").Priority != board.PriorityP1 || fake.Card("p1").Priority != board.PriorityNone {
+		t.Fatal("the priority is the epic's own; the tasks under it are not written")
+	}
+	// A task under it counts under the epic's: status.effectivePriority, and
+	// where it comes from.
+	rec = do(t, srv, http.MethodGet, "/api/v1/cards/p1", "")
+	if !strings.Contains(rec.Body.String(), `"effectivePriority":"P1"`) || !strings.Contains(rec.Body.String(), `"effectivePriorityFrom":{"uid":"e"`) {
+		t.Fatalf("the task's effective priority: %s", rec.Body.String())
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/w/actions/priority", `{"priority":"P5"}`); rec.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rec.Body.String(), "badPriority") {
+		t.Fatalf("an unknown priority = %d %s, want 422 badPriority", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/priority", `{"priority":""}`); rec.Code != http.StatusOK || fake.Card("e").Priority != board.PriorityNone {
+		t.Fatalf("No priority = %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/unassign-work", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"changed":1`) {
+		t.Fatalf("UNASSIGNED on the epic = %d %s, want 200 with 1 changed", rec.Code, rec.Body.String())
+	}
+	if got := fake.Card("w"); !got.Parked || len(got.Assignees) != 0 {
+		t.Fatalf("the work in hand is back in its backlog: %+v", got)
+	}
+	if got := fake.Card("done"); got.Parked {
+		t.Fatalf("finished work is untouched: %+v", got)
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/p1/actions/unassign-work", ""); rec.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rec.Body.String(), "notInWork") {
+		t.Fatalf("UNASSIGNED on parked work = %d %s, want 422 notInWork", rec.Code, rec.Body.String())
+	}
+}
+
+// With a Roadmap filter on the reader sees — and the confirm counts — fewer
+// tasks than the board holds. The request names them, and the server acts on
+// exactly those (M1); a uid the gesture cannot reach from the card is 422
+// notATarget and nothing changes.
+func TestTheStatusMenuActsOnTheTasksTheReaderCountedOverHTTP(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "e", Title: "epic", Type: board.TypeEpic, Team: "alpha"},
+		{ItemID: "shown", Title: "shown", Parent: "e", Team: "alpha", Assignees: []string{"ann"}, SprintStart: today, Day: today},
+		{ItemID: "hidden", Title: "filtered out", Parent: "e", Team: "beta", Assignees: []string{"bob"}, SprintStart: today, Day: today},
+		{ItemID: "p", Title: "parked", Parent: "e", Parked: true},
+		{ItemID: "q", Title: "parked too", Parent: "e", Parked: true},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}, "beta": {Current: today, ItemID: "s2"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/unassign-work", `{"uids":["shown"]}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"changed":1`) {
+		t.Fatalf("UNASSIGNED on the counted task = %d %s", rec.Code, rec.Body.String())
+	}
+	// The answer carries the cards it changed, as they stand now: the acting
+	// tab hears no echo of its own write and patches exactly these.
+	var answer struct {
+		Changed int              `json:"changed"`
+		Items   []apiserver.Card `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil || len(answer.Items) != 1 {
+		t.Fatalf("the answer's items: %v %s", err, rec.Body.String())
+	}
+	if it := answer.Items[0]; it.Metadata.UID != "shown" || !it.Spec.Parked || len(it.Spec.Assignees) != 0 || it.Spec.Dates.Sprint != "" {
+		t.Fatalf("the changed card as it stands now: %+v", it)
+	}
+	if !fake.Card("shown").Parked || fake.Card("hidden").Parked {
+		t.Fatalf("only the counted task leaves work: shown %+v, hidden %+v", fake.Card("shown"), fake.Card("hidden"))
+	}
+	// A dry run names what the gesture would take on the whole board —
+	// whatever the reader's filter showed — and writes nothing.
+	rec = do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/unassign-work", `{"dryRun":true}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"changed":1`) || !strings.Contains(rec.Body.String(), `"uid":"hidden"`) || fake.Card("hidden").Parked {
+		t.Fatalf("a dry run = %d %s; hidden parked=%v", rec.Code, rec.Body.String(), fake.Card("hidden").Parked)
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/e/actions/unassign-work", `{"uids":["hidden","p"]}`); rec.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rec.Body.String(), "notATarget") || fake.Card("hidden").Parked {
+		t.Fatalf("a uid the gesture cannot reach = %d %s, want 422 notATarget and nothing changed", rec.Code, rec.Body.String())
 	}
 }

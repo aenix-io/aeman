@@ -69,9 +69,10 @@ describe("snapshot selectors", () => {
     expect(snapshotDay("me", PAST, TODAY)).toBe(true);
     expect(snapshotDay("me", TODAY, TODAY)).toBe(false);
     expect(snapshotDay("me", "2026-07-05", TODAY)).toBe(false);
-    // The Project board is not a day board: a day means nothing
+    // The Backlog and the Roadmap are not day boards: a day means nothing
     // there, so a snapshot of one would be a claim about nothing.
-    expect(snapshotDay("project", PAST, TODAY)).toBe(false);
+    expect(snapshotDay("backlog", PAST, TODAY)).toBe(false);
+    expect(snapshotDay("roadmap", PAST, TODAY)).toBe(false);
   });
 
   // The app calls these without a `today` — the fixed one above keeps the
@@ -182,7 +183,7 @@ describe("where a selector is fetched", () => {
   });
 
   it("needs no query at all", () => {
-    expect(viewPath(queryString({ view: "project" }), "cards")).toBe("/views/project/cards");
+    expect(viewPath(queryString({ view: "roadmap" }), "cards")).toBe("/views/roadmap/cards");
   });
 
   // Nothing in the app sends a selector with no board; answering "all" is what
@@ -201,8 +202,14 @@ describe("the remembered tab", () => {
     expect(storedView("backlog")).toBe("backlog");
   });
 
+  // The Project board is gone (H15): a browser that remembered it lands on
+  // the Roadmap, where the plan lives.
+  it("lands a remembered Project board on the Roadmap", () => {
+    expect(storedView("project")).toBe("roadmap");
+    expect(storedView("plan")).toBe("roadmap");
+  });
+
   it("keeps the older renames, and falls back to Me", () => {
-    expect(storedView("plan")).toBe("project");
     expect(storedView("nixon")).toBe("team");
     expect(storedView("roadmap")).toBe("roadmap");
     expect(storedView(null)).toBe("me");
@@ -210,37 +217,12 @@ describe("the remembered tab", () => {
   });
 });
 
-// The Roadmap's "Project cards" toggle is a SELECTOR the server answers
-// (projectCards), for the listing and the watch alike — not a filter the SPA
-// runs over what it was sent. Off, nothing is asked and the server leaves
-// them out; on, both ask for them, so turning it on refetches and
-// re-subscribes rather than redrawing what the board already holds.
-describe("the Roadmap's project cards", () => {
-  it("asks for nothing while the toggle is off", () => {
+// The Roadmap asks for its listing with nothing more: the "Project cards"
+// toggle and its selector are gone with the Project board (H15).
+describe("the Roadmap's listing", () => {
+  it("asks for the roadmap and nothing else", () => {
     expect(viewQueries("roadmap", TODAY, [], undefined, TODAY)).toEqual([{ view: "roadmap" }]);
     expect(watchQuery("roadmap", TODAY, [])).toEqual({ view: "roadmap" });
-  });
-
-  it("asks the listing and the watch for them while it is on", () => {
-    expect(viewQueries("roadmap", TODAY, [], undefined, TODAY, { projectCards: true })).toEqual([
-      { view: "roadmap", projectCards: "true" },
-    ]);
-    expect(watchQueries("roadmap", TODAY, [], undefined, { projectCards: true })).toEqual([
-      { view: "roadmap", projectCards: "true" },
-    ]);
-  });
-
-  it("changes the keys the board refetches and re-subscribes on", () => {
-    const off = queryString(viewQueries("roadmap", TODAY, [], undefined, TODAY)[0]);
-    const on = queryString(viewQueries("roadmap", TODAY, [], undefined, TODAY, { projectCards: true })[0]);
-    expect(on).not.toBe(off);
-  });
-
-  it("means nothing on any other board", () => {
-    expect(viewQueries("backlog", TODAY, ["alpha"], undefined, TODAY, { projectCards: true })).toEqual([
-      { view: "backlog", team: "alpha" },
-    ]);
-    expect(watchQuery("project", TODAY, [], undefined, { projectCards: true })).toEqual({ view: "project" });
   });
 });
 
@@ -261,10 +243,9 @@ describe("the Roadmap's filters", () => {
     expect(watchQuery("roadmap", TODAY, [], undefined, opts)).toEqual(want);
   });
 
-  it("ride along with the project cards", () => {
-    expect(watchQuery("roadmap", TODAY, [], undefined, { projectCards: true, filters: { teams: [], customers: [], owners: ["ann"] } })).toEqual({
+  it("ride the watch alone", () => {
+    expect(watchQuery("roadmap", TODAY, [], undefined, { filters: { teams: [], customers: [], owners: ["ann"] } })).toEqual({
       view: "roadmap",
-      projectCards: "true",
       owner: "ann",
     });
   });

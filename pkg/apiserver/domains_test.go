@@ -7,28 +7,17 @@ import (
 )
 
 // A client cannot offer a team for a card without knowing which repository
-// the team was declared in: a project card of the primary must not be
-// offered a team that lives in another repository, because the pair cannot
-// both be honoured (boardservice refuses it). So the board names the
-// repository of the entries that live outside the primary — and only those,
-// since the primary is the default and a single-repository board has none.
-func TestTheBoardNamesTheRepositoryOfTeamsAndProjectsOutsideThePrimary(t *testing.T) {
+// the team was declared in, so the board names the repository of the teams
+// that live outside the primary — and only those, since the primary is the
+// default and a single-repository board has none.
+func TestTheBoardNamesTheRepositoryOfTeamsOutsideThePrimary(t *testing.T) {
 	b := board.Board{
 		TeamOrder: []string{"backoffice", "founders"},
 		SprintStates: map[string]board.SprintState{
 			"backoffice": {ItemID: "st-backoffice"},
 			"founders":   {ItemID: "st-founders"},
 		},
-		Projects:      []string{"backoffice", "strategy"},
-		ProjectStates: map[string]string{"backoffice": "pr-backoffice", "strategy": "pr-strategy"},
-		Scopes: []board.ScopeCol{
-			{Name: "Cozystack", Project: "backoffice", ItemID: "ep-cozy"},
-			{Name: "Fundraising", Project: "strategy", ItemID: "ep-fund"},
-		},
-		Domains: map[string]string{
-			"st-founders": "founders", "pr-strategy": "founders",
-			"ep-fund": "founders",
-		},
+		Domains: map[string]string{"st-founders": "founders"},
 	}
 	got := BoardResourceWithPeople(b, nil).Metadata
 	if got.TeamDomains["founders"] != "founders" {
@@ -37,40 +26,13 @@ func TestTheBoardNamesTheRepositoryOfTeamsAndProjectsOutsideThePrimary(t *testin
 	if _, named := got.TeamDomains["backoffice"]; named {
 		t.Fatalf("a team of the primary needs no entry: %v", got.TeamDomains)
 	}
-	if got.ProjectDomains["strategy"] != "founders" {
-		t.Fatalf("projectDomains = %v, want strategy named", got.ProjectDomains)
-	}
-	if _, named := got.ProjectDomains["backoffice"]; named {
-		t.Fatalf("a project of the primary needs no entry: %v", got.ProjectDomains)
-	}
-
-	// A column carries the repository it was declared in, which a client
-	// cannot compute from the project: the same project NAME may be
-	// declared in two repositories with its columns merged (G13), and the
-	// column is what the server asks about.
-	var closed, open bool
-	for _, e := range got.Scopes {
-		if e.Name == "Fundraising" && e.Domain == "founders" {
-			closed = true
-		}
-		if e.Name == "Cozystack" && e.Domain == "" {
-			open = true
-		}
-	}
-	if !closed || !open {
-		t.Fatalf("every column names its own repository, the primary by omission: %+v", got.Scopes)
-	}
 
 	// A board of one repository records no domains at all, and says nothing.
 	single := board.Board{
-		TeamOrder:     []string{"backoffice"},
-		SprintStates:  map[string]board.SprintState{"backoffice": {ItemID: "st-backoffice"}},
-		Projects:      []string{"backoffice"},
-		ProjectStates: map[string]string{"backoffice": "pr-backoffice"},
+		TeamOrder:    []string{"backoffice"},
+		SprintStates: map[string]board.SprintState{"backoffice": {ItemID: "st-backoffice"}},
 	}
-	bare := BoardResourceWithPeople(single, nil).Metadata
-	if bare.TeamDomains != nil || bare.ProjectDomains != nil {
-		t.Fatalf("a single-repository board must name none: %v %v",
-			bare.TeamDomains, bare.ProjectDomains)
+	if bare := BoardResourceWithPeople(single, nil).Metadata; bare.TeamDomains != nil {
+		t.Fatalf("a single-repository board must name none: %v", bare.TeamDomains)
 	}
 }

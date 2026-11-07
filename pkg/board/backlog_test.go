@@ -39,7 +39,6 @@ func TestATaskIsInWorkOrInItsBacklogNeverBothNeverNeither(t *testing.T) {
 		{"progress does not place a card", Card{Team: "alpha", Progress: 40}, false, false, true},
 		{"finished work is not asked to be placed", Card{Progress: 100}, false, false, false},
 		{"a planning card is not a task", Card{Type: TypeEpic}, false, false, false},
-		{"a project card is the Project board's", Card{Scope: "Auth", Project: "P"}, false, false, false},
 		{"a review card with a reviewer follows its original", Card{ReviewOf: "o", Assignees: []string{"bob"}}, false, false, false},
 		{"a state card is the roster", Card{Title: SprintStateTitle}, false, false, false},
 	}
@@ -99,7 +98,7 @@ func TestEveryTeamHasABacklogWithoutDeclaringOne(t *testing.T) {
 }
 
 // The backlog lists a team's PARKED OPEN TASKS and nothing else (K2): no
-// planning card (the Roadmap's), no project card (the Project board's), no
+// planning card (the Roadmap's), no
 // subtask (it rides its parent), no review card with a reviewer (it follows
 // the card it reviews) and nothing finished — the backlog never shows work
 // that is over. The one review card it does list is a review nobody has
@@ -110,7 +109,6 @@ func TestTheBacklogListsATeamsParkedOpenTasksOnly(t *testing.T) {
 		{ItemID: "task", Team: "alpha", Parked: true},
 		{ItemID: "under-epic", Team: "alpha", Parked: true, Parent: "epic"},
 		{ItemID: "kid", Team: "alpha", Parked: true, Parent: "task"},
-		{ItemID: "slot", Scope: "Auth", Project: "P", Parked: true},
 		{ItemID: "review", Team: "alpha", Parked: true, ReviewOf: "task", Assignees: []string{"bob"}},
 		{ItemID: "done", Team: "alpha", Parked: true, Progress: 100},
 		{ItemID: "in-work", Team: "alpha", StartDate: "2026-09-01"},
@@ -129,26 +127,190 @@ func TestTheBacklogListsATeamsParkedOpenTasksOnly(t *testing.T) {
 	}
 }
 
-// Ordering inside a list is the reader's own: dragging is how a backlog gets
-// prioritised, so the rank decides, and cards without one fall back to age —
-// oldest first, since a card that has waited longest is the one being asked
-// about.
-func TestABacklogIsOrderedByHandThenByAge(t *testing.T) {
-	cards := []Card{
-		{ItemID: "c", CreatedAt: "2026-01-03T00:00:00Z"},
-		{ItemID: "a", CreatedAt: "2026-01-01T00:00:00Z"},
-		{ItemID: "b", CreatedAt: "2026-01-02T00:00:00Z"},
+// A backlog reads in the ROADMAP's order (K14): the path of sibling places
+// from the root plan item down — goal order, then initiative within its goal,
+// epic within its initiative, task within its epic — so the backlog and the
+// Roadmap are one order, decided by the tree. A task with no plan item above
+// it comes after every planned one, in its own place in the board's order.
+// The Roadmap draws its roots level by level (goals, then initiatives with no
+// goal, then epics with no initiative), so the first step of the path is
+// read the same way.
+func TestABacklogReadsInTheRoadmapsOrder(t *testing.T) {
+	b := NewBoard([]Card{
+		// Board order (the rank order every board reads): deliberately not
+		// the tree's, so only the path can put the tasks right.
+		{ItemID: "loose-1", Parked: true},
+		{ItemID: "t-e2", Parent: "e2", Parked: true},
+		{ItemID: "g2", Type: TypeGoal},
+		{ItemID: "e2", Type: TypeEpic, Parent: "i1"},
+		{ItemID: "t-g2", Parent: "g2", Parked: true},
+		{ItemID: "g1", Type: TypeGoal},
+		{ItemID: "loose-2", Parked: true},
+		{ItemID: "i1", Type: TypeInitiative, Parent: "g1"},
+		{ItemID: "e1", Type: TypeEpic, Parent: "i1"},
+		{ItemID: "t-e1-b", Parent: "e1", Parked: true},
+		{ItemID: "t-e1-a", Parent: "e1", Parked: true},
+		{ItemID: "t-i1", Parent: "i1", Parked: true},
+		// A root initiative: the Roadmap draws it after every goal.
+		{ItemID: "i-root", Type: TypeInitiative},
+		{ItemID: "t-iroot", Parent: "i-root", Parked: true},
+	})
+	ix := NewIndex(b)
+	var listed []Card
+	for _, c := range b.Cards {
+		if ix.OnBacklog(c) {
+			listed = append(listed, c)
+		}
 	}
-	if got := ids(BacklogOrder(cards)); !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
-		t.Fatalf("with no ranks the oldest is first: %v", got)
+	want := []string{
+		// g2 stands before g1 in the board's order: its task first.
+		"t-g2",
+		// g1 ▸ i1: e2 stands before e1 under i1, and the task directly under
+		// i1 comes after both epics (it is after them among i1's children).
+		"t-e2", "t-e1-b", "t-e1-a", "t-i1",
+		// The root initiative after every goal.
+		"t-iroot",
+		// No plan item above: after every planned task, in board order.
+		"loose-1", "loose-2",
 	}
+	if got := ids(BacklogOrder(ix, listed)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("BacklogOrder = %v\nwant          %v", got, want)
+	}
+}
 
-	ranked := []Card{
-		{ItemID: "old", CreatedAt: "2026-01-01T00:00:00Z"},
-		{ItemID: "pinned", CreatedAt: "2026-01-09T00:00:00Z", Rank: "a"},
+// A backlog reads by PRIORITY first (K15): the EFFECTIVE priority — a
+// card's own, else the nearest ancestor's — P0, then P1 … P4, then none;
+// within each group the Roadmap's order. A task with no plan item above it
+// takes its place in its group after the planned ones.
+func TestABacklogReadsByPriorityThenInTheRoadmapsOrder(t *testing.T) {
+	b := NewBoard([]Card{
+		{ItemID: "g1", Type: TypeGoal, Priority: PriorityP2},
+		{ItemID: "g2", Type: TypeGoal},
+		{ItemID: "a", Parent: "g1", Parked: true},                       // P2 from g1
+		{ItemID: "b", Parent: "g1", Parked: true, Priority: PriorityP1}, // its own P1 wins over g1's P2
+		{ItemID: "c", Parent: "g2", Parked: true},                       // none
+		{ItemID: "d", Parent: "g2", Parked: true, Priority: PriorityP3},
+		{ItemID: "loose", Parked: true, Priority: PriorityP1},
+		{ItemID: "e", Parent: "g1", Parked: true, Priority: PriorityP1},
+		{ItemID: "y", Parent: "g2", Parked: true, Priority: PriorityP4},
+		{ItemID: "z", Parent: "g2", Parked: true, Priority: PriorityP0},
+	})
+	ix := NewIndex(b)
+	var listed []Card
+	for _, c := range b.Cards {
+		if ix.OnBacklog(c) {
+			listed = append(listed, c)
+		}
 	}
-	if got := ids(BacklogOrder(ranked)); !reflect.DeepEqual(got, []string{"pinned", "old"}) {
-		t.Fatalf("a card somebody placed by hand outranks age: %v", got)
+	// P0: z; P1: b, e (planned, Roadmap order), then loose; P2: a; P3: d;
+	// P4: y; none: c.
+	if got, want := ids(BacklogOrder(ix, listed)), []string{"z", "b", "e", "loose", "a", "d", "y", "c"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("BacklogOrder = %v, want %v", got, want)
+	}
+}
+
+// The EFFECTIVE priority (K15, like the effective team, O3): a card's own
+// when it has one, else the nearest ancestor's that has one, else none —
+// computed on reading, never written down. It names where it came from.
+func TestTheEffectivePriorityIsOwnElseTheNearestAncestors(t *testing.T) {
+	b := NewBoard([]Card{
+		{ItemID: "g", Type: TypeGoal, Priority: PriorityP3},
+		{ItemID: "i", Type: TypeInitiative, Parent: "g", Priority: PriorityP2},
+		{ItemID: "e", Type: TypeEpic, Parent: "i"},
+		{ItemID: "t", Parent: "e"},
+		{ItemID: "own", Parent: "e", Priority: PriorityP1},
+		{ItemID: "bare", Type: TypeGoal},
+		{ItemID: "u", Parent: "bare"},
+		{ItemID: "o", Stage: StageReview, Parent: "e"},
+		{ItemID: "r", ReviewOf: "o"},
+	})
+	ix := NewIndex(b)
+	for _, tc := range []struct {
+		id, want, from string
+	}{
+		{"g", "P3", ""},  // its own: from nobody
+		{"i", "P2", ""},  // its own beats the goal's
+		{"e", "P2", "i"}, // the nearest ancestor's, not the goal's
+		{"t", "P2", "i"},
+		{"own", "P1", ""},
+		{"bare", "", ""},
+		{"u", "", ""},    // nobody above has one
+		{"r", "P2", "i"}, // a review card counts under its task's
+	} {
+		c, _ := ix.Find(tc.id)
+		got, from := ix.EffectivePriority(c)
+		if string(got) != tc.want || from.ItemID != tc.from {
+			t.Errorf("%s: %q from %q, want %q from %q", tc.id, got, from.ItemID, tc.want, tc.from)
+		}
+	}
+	for _, ok := range []string{"P0", "P1", "P2", "P3", "P4", ""} {
+		if !ValidPriority(ok) {
+			t.Errorf("%q is a priority", ok)
+		}
+	}
+	for _, bad := range []string{"P5", "p1", "P-1", "high"} {
+		if ValidPriority(bad) {
+			t.Errorf("%q is not a priority", bad)
+		}
+	}
+}
+
+// A review NOBODY HAS TAKEN (K10, amended 2026-11-07) takes the effective
+// priority of the task it reviews and stands FIRST within that priority —
+// before the tasks of the group — the reviews among themselves in the
+// Roadmap's order of the tasks they review; a review of a task with no
+// priority is first in the "no priority" group.
+func TestAReviewNobodyHasTakenLeadsItsTasksPriority(t *testing.T) {
+	today := "2026-11-02"
+	b := NewBoard([]Card{
+		{ItemID: "g1", Type: TypeGoal, Priority: PriorityP1},
+		{ItemID: "g2", Type: TypeGoal},
+		// The reviews first in the board's order: only the reviewed tasks'
+		// places may put them right.
+		{ItemID: "r-late", ReviewOf: "o-late", Parked: true},
+		{ItemID: "r-none", ReviewOf: "o-none", Parked: true},
+		{ItemID: "r-early", ReviewOf: "o-early", Parked: true},
+		{ItemID: "o-early", Parent: "g1", Stage: StageReview, SprintStart: today},
+		{ItemID: "t1", Parent: "g1", Parked: true},
+		{ItemID: "o-late", Parent: "g1", Stage: StageReview, SprintStart: today},
+		{ItemID: "t-none", Parent: "g2", Parked: true},
+		{ItemID: "o-none", Parent: "g2", Stage: StageReview, SprintStart: today},
+		{ItemID: "t0", Parked: true, Priority: PriorityP0},
+	})
+	ix := NewIndex(b)
+	var listed []Card
+	for _, c := range b.Cards {
+		if ix.OnBacklog(c) {
+			listed = append(listed, c)
+		}
+	}
+	want := []string{
+		"t0",                      // P0: no review there
+		"r-early", "r-late", "t1", // P1 (from g1): its reviews first, in their tasks' order
+		"r-none", "t-none", // none: its review first
+	}
+	if got := ids(BacklogOrder(ix, listed)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("BacklogOrder = %v, want %v", got, want)
+	}
+}
+
+// BacklogKey is the place itself, comparable on its own: the client mirrors
+// it card by card (backlogboard.ts), so the edges are pinned here too.
+func TestTheBacklogKeyComparesPathsStepByStep(t *testing.T) {
+	b := NewBoard([]Card{
+		{ItemID: "g", Type: TypeGoal},
+		{ItemID: "under-g", Parent: "g", Parked: true},
+		{ItemID: "e", Type: TypeEpic, Parent: "g"},
+		{ItemID: "under-e", Parent: "e", Parked: true},
+	})
+	ix := NewIndex(b)
+	k := func(id string) BacklogKey { c, _ := ix.Find(id); return ix.BacklogKey(c) }
+	// under-g stands before e among g's children, so before everything in e.
+	if !k("under-g").Less(k("under-e")) || k("under-e").Less(k("under-g")) {
+		t.Fatalf("under-g %v must come before under-e %v", k("under-g"), k("under-e"))
+	}
+	if k("under-g").Less(k("under-g")) {
+		t.Fatal("a key is not less than itself")
 	}
 }
 
@@ -223,5 +385,31 @@ func TestAReviewNobodyHasTakenIsInTheBacklog(t *testing.T) {
 	})
 	if !Reachable(b, "2026-11-03")["r"] {
 		t.Fatal("the review waiting for a reviewer is on a board: its backlog")
+	}
+}
+
+// A review of a SUBTASK is placed by the subtask's PLANNING chain and its own
+// place — not its parent task's — exactly as the client reads it off the
+// review card's status.lineage (the planning chain only). Pinned on both
+// sides (backlogboard.test.ts, "a review of a subtask").
+func TestAReviewOfASubtaskIsPlacedByThePlanningChain(t *testing.T) {
+	today := "2026-11-02"
+	b := NewBoard([]Card{
+		{ItemID: "e", Type: TypeEpic},
+		{ItemID: "t", Parent: "e", SprintStart: today},
+		{ItemID: "t2", Parent: "e", Stage: StageReview, SprintStart: today},
+		{ItemID: "s", Parent: "t", Stage: StageReview, SprintStart: today},
+		{ItemID: "r-sub", ReviewOf: "s", Parked: true},
+		{ItemID: "r-t2", ReviewOf: "t2", Parked: true},
+	})
+	ix := NewIndex(b)
+	var listed []Card
+	for _, c := range b.Cards {
+		if ix.OnBacklog(c) {
+			listed = append(listed, c)
+		}
+	}
+	if got, want := ids(BacklogOrder(ix, listed)), []string{"r-t2", "r-sub"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("BacklogOrder = %v, want %v (s stands after t2 in the board's order)", got, want)
 	}
 }

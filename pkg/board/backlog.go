@@ -36,10 +36,10 @@ func InWork(c Card) bool { return c.StartDate != "" || c.Day != "" || c.SprintSt
 
 // isTaskOwnPlace reports whether a card is a task that answers for its own
 // place: not the board's bookkeeping, not a planning card (the Roadmap's),
-// not a project card (the Project board's), not a review card (it follows
+// not a review card (it follows
 // the card it reviews) and not a subtask (it rides its parent).
 func isTaskOwnPlace(c Card, subtask bool) bool {
-	return !IsStateTitle(c.Title) && !IsPlanning(c) && c.Scope == "" && c.ReviewOf == "" && !subtask
+	return !IsStateTitle(c.Title) && !IsPlanning(c) && c.ReviewOf == "" && !subtask
 }
 
 // OnBacklog reports whether a card is listed in its team's backlog (K2): a
@@ -78,26 +78,147 @@ func Unplaced(c Card, subtask bool) bool {
 	return !Complete(c.Stage, c.Progress)
 }
 
-// BacklogOrder sorts a backlog's cards the way it is read: the order somebody
-// arranged by hand first, and where nobody has, the oldest first.
+// BacklogKey is a backlog card's place in the list, comparable on its own
+// (Less). The client mirrors it card by card (web/src/backlogboard.ts).
 //
-// Both halves are wanted. Dragging is how a backlog gets prioritised, so a
-// card placed by hand must stay where it was put. But a shelf nobody has
-// sorted should not read as random: the card that has waited longest is the
-// one being asked about, so it goes to the top and the shelf answers "what has
-// been sitting here" without anybody arranging it.
-func BacklogOrder(cards []Card) []Card {
+//   - Group: the EFFECTIVE priority (K15) — 1 for P0 … 5 for P4, 6 for none.
+//   - Review: a review nobody has taken (K10) stands first within its group,
+//     before the tasks; its group is the reviewed task's effective priority.
+//   - Loose: the card has no plan item above it; within a group the loose
+//     cards come after every planned one.
+//   - Path: the places in the board's order from the root of the card's tree
+//     down to the card itself (K14) — the Roadmap's draw order, which lists a
+//     parent's children in board order. The first step is the root's level
+//     ahead of its place, as the Roadmap draws its roots level by level (goals,
+//     then initiatives with no goal, then epics with no initiative). A loose
+//     card's path is its own place alone; a review's is the reviewed task's,
+//     so the reviews of one group read in their tasks' Roadmap order.
+type BacklogKey struct {
+	Group  int
+	Review bool
+	Loose  bool
+	Path   []int
+}
+
+// Less reports whether k stands before o.
+func (k BacklogKey) Less(o BacklogKey) bool {
+	if k.Group != o.Group {
+		return k.Group < o.Group
+	}
+	if k.Review != o.Review {
+		return k.Review
+	}
+	if k.Loose != o.Loose {
+		return !k.Loose
+	}
+	for i := 0; i < len(k.Path) && i < len(o.Path); i++ {
+		if k.Path[i] != o.Path[i] {
+			return k.Path[i] < o.Path[i]
+		}
+	}
+	return len(k.Path) < len(o.Path)
+}
+
+// BacklogKey is the card's place in its backlog (BacklogKey).
+func (ix *Index) BacklogKey(c Card) BacklogKey {
+	if NeedsReviewer(c) {
+		k := BacklogKey{Loose: true, Path: []int{ix.pos[c.ItemID]}}
+		if task, ok := ix.Find(c.ReviewOf); ok && task.ReviewOf == "" {
+			k = ix.reviewedKey(task)
+		}
+		p, _ := ix.EffectivePriority(c)
+		k.Group, k.Review = priorityRank(p), true
+		return k
+	}
+	return ix.taskKey(c)
+}
+
+// reviewedKey is where the task a review stands by is placed for that
+// review: its PLANNING chain and its own place — a subtask's parent task is
+// not on the path, as the client reads it off the review card's
+// status.lineage, which carries the planning chain alone.
+func (ix *Index) reviewedKey(task Card) BacklogKey {
+	var up []Card
+	for _, a := range ix.Lineage(task) {
+		if IsPlanning(a) {
+			up = append(up, a)
+		}
+	}
+	if len(up) == 0 {
+		return BacklogKey{Loose: true, Path: []int{ix.pos[task.ItemID]}}
+	}
+	path := []int{Level(TypeGoal) - Level(up[0].Type)}
+	for _, a := range up {
+		path = append(path, ix.pos[a.ItemID])
+	}
+	return BacklogKey{Path: append(path, ix.pos[task.ItemID])}
+}
+
+// taskKey is a task's place by its own effective priority and tree.
+func (ix *Index) taskKey(c Card) BacklogKey {
+	own := ix.pos[c.ItemID]
+	p, _ := ix.EffectivePriority(c)
+	group := priorityRank(p)
+	up := ix.Lineage(c)
+	planned := false
+	for _, a := range up {
+		if IsPlanning(a) {
+			planned = true
+			break
+		}
+	}
+	if !planned {
+		return BacklogKey{Group: group, Loose: true, Path: []int{own}}
+	}
+	path := make([]int, 0, len(up)+2)
+	path = append(path, Level(TypeGoal)-Level(up[0].Type))
+	for _, a := range up {
+		path = append(path, ix.pos[a.ItemID])
+	}
+	return BacklogKey{Group: group, Path: append(path, own)}
+}
+
+// BacklogOrder sorts a backlog's cards the way it is read: by EFFECTIVE
+// priority (K15) — P0, P1, P2, P3, P4, then none — each priority led by the
+// reviews nobody has taken of its tasks (K10), then in the ROADMAP's order
+// (K14) — see BacklogKey.
+//
+// One order, decided by the tree: dragging a task in the backlog moves it
+// among its siblings under the same parent, in the same priority, which
+// moves it on the Roadmap too, and a task's place is never something the
+// backlog keeps apart from the Roadmap's. The board's order (rank, then id)
+// is where the siblings' order comes from, as on every board.
+func BacklogOrder(ix *Index, cards []Card) []Card {
 	out := append([]Card(nil), cards...)
-	sort.SliceStable(out, func(i, j int) bool {
-		a, b := out[i], out[j]
-		if (a.Rank != "") != (b.Rank != "") {
-			// A card placed by hand outranks one that never was.
-			return a.Rank != ""
+	keys := make(map[string]BacklogKey, len(out))
+	for _, c := range out {
+		keys[c.ItemID] = ix.BacklogKey(c)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return keys[out[i].ItemID].Less(keys[out[j].ItemID]) })
+	return out
+}
+
+// UnassignTargets is what the Roadmap's UNASSIGNED means on a card (K16): on
+// a task, the task itself when it is open work in hand; on a plan item, every
+// such task under it at any depth, in board order. Work in hand is a task
+// with a date or a sprint that is not parked; finished work, a review card
+// (it follows the card it reviews) and a subtask (it rides its parent) are
+// never among them.
+func (ix *Index) UnassignTargets(c Card) []Card {
+	inHand := func(t Card) bool {
+		return isTaskOwnPlace(t, ix.IsSubtask(t)) && InWork(t) && !InBacklog(t) && !Complete(t.Stage, t.Progress)
+	}
+	if !IsPlanning(c) {
+		if inHand(c) {
+			return []Card{c}
 		}
-		if a.Rank != b.Rank {
-			return a.Rank < b.Rank
+		return nil
+	}
+	var out []Card
+	for _, t := range ix.LeafTasks(c.ItemID) {
+		if inHand(t) {
+			out = append(out, t)
 		}
-		return a.CreatedAt < b.CreatedAt
-	})
+	}
 	return out
 }

@@ -866,11 +866,8 @@ func (b *storeBackend) createMinted(ctx context.Context, bd board.Board, e *boar
 	b.enqueue(ctx, e, pendingOp{
 		itemID: in.ItemID,
 		kind:   "create",
-		desc:   "create «" + card.Title + "»",
+		desc:   createDesc(card),
 		apply: func(target *board.Board) {
-			if installStub(target, card) {
-				return // a roster entry goes back into the roster, never into the rows
-			}
 			for _, c := range target.Cards {
 				if c.ItemID == in.ItemID {
 					return
@@ -884,4 +881,13 @@ func (b *storeBackend) createMinted(ctx context.Context, bd board.Board, e *boar
 		},
 	})
 	return card, nil
+}
+
+// createDesc is a create's commit subject: the card's title, or — a roster
+// entry, whose title is its kind's marker — the entry it declares.
+func createDesc(c board.Card) string {
+	if name := gitstore.StubName(c); name != "" {
+		return "create " + name
+	}
+	return "create «" + c.Title + "»"
 }

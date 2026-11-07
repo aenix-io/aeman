@@ -14,10 +14,3 @@ export function teamOptions(roster: readonly string[]): FilterOption[] {
 export function customerOptions(customers: readonly CustomerRef[] | undefined): FilterOption[] {
   return (customers ?? []).map((c) => ({ value: c.id, label: c.name }));
 }
-
-/** projectOptions is the projects, and "No project" when columns with no
- *  project exist to be shown by it. */
-export function projectOptions(projects: readonly string[], loose: boolean): FilterOption[] {
-  const out = projects.map((p) => ({ value: p, label: p }));
-  return loose ? [...out, { value: "", label: "No project" }] : out;
-}

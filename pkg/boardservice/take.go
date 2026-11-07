@@ -33,7 +33,7 @@ var ErrAlreadyFinished = errors.New("this card is finished; there is nothing to 
 // into work the way `own` with a person takes it (today, the unplanned band,
 // the team's sprint, out of the backlog), and a review nobody has taken makes
 // the actor its reviewer (K10). Every refusal fires before anything is
-// written: a planning card, a project card, a subtask, a review somebody
+// written: a planning card, a subtask, a review somebody
 // already has and a parked card somebody else is named on are not the
 // actor's to take; finished work has nothing left to
 // take; a task already in work is handed over with the owner picker.
@@ -48,9 +48,6 @@ func (s *Service) Take(ctx context.Context, boardID string, itemID string) error
 	}
 	if err := notAPlanningCard(card, "owner"); err != nil {
 		return err
-	}
-	if card.Scope != "" {
-		return fmt.Errorf("%w: %q stands in a column and has no owner", ErrProjectCard, card.Title)
 	}
 	if board.Complete(card.Stage, card.Progress) {
 		return fmt.Errorf("%w: %q", ErrAlreadyFinished, card.Title)

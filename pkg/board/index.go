@@ -9,7 +9,8 @@ package board
 // board per question, and the listing paid it for every watcher. The index
 // is a snapshot: a card added to the board after it was built is not in it.
 type Index struct {
-	cards    []Card // board order, state cards included
+	cards    []Card         // board order, state cards included
+	pos      map[string]int // id → place in the board order
 	byID     map[string]Card
 	children map[string][]Card // parent id → the cards under it, board order
 	planning map[string]bool
@@ -28,6 +29,7 @@ func NewIndex(b Board) *Index {
 	ix := &Index{
 		cards:      b.Cards,
 		byID:       make(map[string]Card, len(b.Cards)),
+		pos:        make(map[string]int, len(b.Cards)),
 		children:   map[string][]Card{},
 		planning:   map[string]bool{},
 		reviewedBy: map[string]string{},
@@ -36,8 +38,9 @@ func NewIndex(b Board) *Index {
 	for _, cu := range b.Customers {
 		ix.customers[cu.ID] = true
 	}
-	for _, c := range b.Cards {
+	for i, c := range b.Cards {
 		ix.byID[c.ItemID] = c
+		ix.pos[c.ItemID] = i
 		if c.Parent != "" {
 			ix.children[c.Parent] = append(ix.children[c.Parent], c)
 		}
@@ -92,13 +95,9 @@ func (ix *Index) Lineage(c Card) []Card {
 
 // EffectiveTeam is the team a card counts under (O3): its own, else the
 // nearest ancestor's that has one. A task's own team always wins over an
-// inherited one; nothing is written down the tree. A project card has none
-// (H4), whatever an old file's `team:` says. A review card with no team of
+// inherited one; nothing is written down the tree. A review card with no team of
 // its own counts under its task's (O13).
 func (ix *Index) EffectiveTeam(c Card) string {
-	if c.Scope != "" {
-		return ""
-	}
 	if c.Team != "" {
 		return c.Team
 	}
@@ -118,13 +117,9 @@ func (ix *Index) EffectiveTeam(c Card) string {
 
 // EffectiveCustomers is the customers a card is for (O4): every ancestor's
 // and its own, the ancestors' first, each once — a lower card adds to them
-// and never overwrites them. A review card is for its task's (O6), and a
-// project card for none (H4). An id the board's roster does not hold is left
+// and never overwrites them. A review card is for its task's (O6). An id the board's roster does not hold is left
 // out: it names nobody (O5).
 func (ix *Index) EffectiveCustomers(c Card) []string {
-	if c.Scope != "" {
-		return nil
-	}
 	var out []string
 	seen := map[string]bool{}
 	add := func(ids []string) {
@@ -224,23 +219,22 @@ func (ix *Index) OnBacklog(c Card) bool { return OnBacklog(c, ix.IsSubtask) }
 func (ix *Index) ReviewedBy(c Card) string { return ix.reviewedBy[c.ItemID] }
 
 // hierarchyStatus is the standing a set of leaf tasks gives their planning
-// card (H5): NO ITEMS when there are none; DONE when every one is complete;
-// IN PROGRESS when any of them is somebody's, has started — any progress,
-// or held in review or locked — or is finished — a person named on a task
-// is work being done before the first percent is typed; TO DO otherwise.
+// card (H5, amended with K16): NO ITEMS when there are none; DONE when every
+// one is complete; IN PROGRESS when any open one is in work (a date or a
+// sprint, not parked); BACKLOG when there are open ones and none is in work.
+// Progress, a person, a stage or a priority do not count by themselves: a
+// parked task at 49% is waiting, not being worked — and the Roadmap's
+// UNASSIGNED, which takes tasks out of work, shows on the plan item above
+// them.
 func hierarchyStatus(leaves []Card) (status string, done, total int) {
-	working := false
+	inWork := 0
 	for _, t := range leaves {
 		total++
 		switch {
 		case Complete(t.Stage, t.Progress):
 			done++
-		case len(t.Assignees) > 0 || IsInProgress(t) || t.Progress > 0 ||
-			t.Stage == StageReview || t.Stage == StageLocked:
-			// Somebody's, in progress — or plainly under way without either:
-			// any progress at all, or held in review or locked (#287). A
-			// project card has nobody on it by design (H4).
-			working = true
+		case InWork(t) && !InBacklog(t):
+			inWork++
 		}
 	}
 	switch {
@@ -248,8 +242,8 @@ func hierarchyStatus(leaves []Card) (status string, done, total int) {
 		return HierarchyNoItems, 0, 0
 	case done == total:
 		return HierarchyDone, done, total
-	case done > 0 || working:
+	case inWork > 0:
 		return HierarchyInProgress, done, total
 	}
-	return HierarchyTodo, done, total
+	return HierarchyBacklog, done, total
 }

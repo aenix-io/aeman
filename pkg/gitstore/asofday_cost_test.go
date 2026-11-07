@@ -14,10 +14,15 @@ import (
 type counting struct {
 	*memory.Storage
 	reads int
+	// blobs counts the file contents read, apart from the trees.
+	blobs int
 }
 
 func (c *counting) EncodedObject(t plumbing.ObjectType, h plumbing.Hash) (plumbing.EncodedObject, error) {
 	c.reads++
+	if t == plumbing.BlobObject {
+		c.blobs++
+	}
 	return c.Storage.EncodedObject(t, h)
 }
 
@@ -126,4 +131,77 @@ func TestReadingADayDoesNotCostTheWholeBoardPerCommit(t *testing.T) {
 		t.Fatalf("reading one day read %d objects; more than %d means the cost grew with the board on every commit", reads, bound)
 	}
 	t.Logf("objects read for one day: %d", reads)
+}
+
+// A project card stays in the repository (H15) and is no card of the board,
+// so a day's snapshot never holds it — and a day that BEGAN with it must not
+// take it for a card the day removed. Read that way, every past day looked
+// up each project card's last state, a blob or two apiece, for nothing.
+func TestADayDoesNotLookUpTheProjectCardsItKeeps(t *testing.T) {
+	store := &counting{Storage: memory.NewStorage()}
+	r, err := Init(store, Options{Committer: Identity{Name: "aeman", Email: "a@x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(iso string) time.Time {
+		when, err := time.Parse(time.RFC3339, iso)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return when
+	}
+	const retired = 200
+	writes := []FileWrite{{Path: BoardPath, Data: []byte("schema: 3\ntitle: t\n")}}
+	for i := range retired {
+		p, err := CardPath(fmt.Sprintf("01PROJ%020d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writes = append(writes, FileWrite{Path: p, Data: fmt.Appendf(nil, "---\ntitle: slot %d\nscope: Bugs\nrank: a\n---\n", i)})
+	}
+	task := "01TASK00000000000000000001"
+	taskP, err := CardPath(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writes = append(writes, FileWrite{Path: taskP, Data: []byte("---\ntitle: task\nteam: portal\nstart: 2026-08-20\nrank: b\n---\n")})
+	if _, err := r.Commit(Action{Name: "import", Summary: "the board", At: at("2026-08-20T09:00:00Z")}, writes); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Commit(Action{Name: "progress", Actor: "kvaps", Cards: []string{task}, Summary: "progress",
+		At: at("2026-08-21T10:00:00Z")}, []FileWrite{{Path: taskP,
+		Data: []byte("---\ntitle: task\nteam: portal\nstart: 2026-08-20\nprogress: 50\nrank: b\n---\n")}}); err != nil {
+		t.Fatal(err)
+	}
+	from, to := at("2026-08-20T23:59:59Z"), at("2026-08-21T23:59:59Z")
+	s, ok, err := LoadAsOfDay(r, from, to)
+	if err != nil || !ok {
+		t.Fatalf("the day: %v %v", ok, err)
+	}
+	if len(s.Cards) != 1 {
+		t.Fatalf("the day holds %d cards, want the task alone", len(s.Cards))
+	}
+	// What the removal lookup costs on its own, with the day's commits and
+	// both ends in hand as LoadAsOfDay has them.
+	day, touched, err := commitsOfDay(r, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	began, _, err := commitAsOf(r, from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.blobs = 0
+	gone, err := cardsRemovedBetween(r, began, day, touched, map[string]bool{task: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gone) != 0 {
+		t.Fatalf("the day removed %d cards, want none", len(gone))
+	}
+	// Trees are walked for the paths; no card's CONTENT is wanted, since
+	// nothing was removed.
+	if store.blobs != 0 {
+		t.Fatalf("finding what the day removed read %d files: the %d project cards were looked up as removed", store.blobs, retired)
+	}
 }

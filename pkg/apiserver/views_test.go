@@ -83,69 +83,6 @@ func TestListCardsSummaryOmitsBodies(t *testing.T) {
 	}
 }
 
-// The Project board is the ONE board that draws a project card, and it draws
-// what stands in a column and nothing else (H4). A card in a column is
-// nobody's subtask and has none, so nothing rides in with it: a child the
-// subtask rider appended — a group written before schema 2 — belongs to no
-// Project board, and the day boards no longer draw a card in a column either.
-func TestProjectViewDeliversWhatStandsInAColumnAndNothingElse(t *testing.T) {
-	today := board.TodayIso()
-	b := board.NewBoard([]board.Card{
-		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "freedom"},
-		{ItemID: "ep", Title: board.ScopeStateTitle, Scope: "Redis App", Project: "freedom"},
-		{ItemID: "plan", Title: "TLS for DBaaS", Project: "freedom", Scope: "Redis App",
-			StartDate: today, Day: today},
-		// Written before schema 2: a task grouped under a card in a column.
-		{ItemID: "loose", Title: "a piece of it", Parent: "plan", Team: "alpha"},
-		// A project NAME alone is no column.
-		{ItemID: "named", Title: "merely of the project", Project: "freedom", Team: "alpha",
-			StartDate: today, Day: today, SprintStart: today},
-	})
-	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today}}
-	var seen []string
-	for _, c := range FilterCards(b, Selector{View: "project"}) {
-		seen = append(seen, c.ItemID)
-	}
-	if !slices.Equal(seen, []string{"plan"}) {
-		t.Fatalf("the Project board delivers the card in the column alone, got %v", seen)
-	}
-	// And the day boards leave it to the Project board.
-	for _, sel := range []Selector{
-		{View: "team", Team: "alpha", Day: today},
-		{View: "me", Day: today},
-		{View: "backlog", Team: "alpha"},
-	} {
-		for _, c := range FilterCards(b, sel) {
-			if c.ItemID == "plan" {
-				t.Fatalf("view=%s draws a project card; it is the Project board's alone", sel.View)
-			}
-		}
-	}
-	if got := FilterCards(b, Selector{View: "team", Team: "alpha", Day: today}); len(got) != 1 || got[0].ItemID != "named" {
-		t.Fatalf("a card that merely names a project is an ordinary task: %v", got)
-	}
-}
-
-// ?view=project&project=X is ONE project's columns: a card standing in
-// another project's column is not delivered, whatever else is true of it.
-func TestProjectViewKeepsToTheProjectItWasAskedFor(t *testing.T) {
-	b := board.NewBoard([]board.Card{
-		{ItemID: "pr-e", Title: board.ProjectStateTitle, Project: "engineering"},
-		{ItemID: "pr-m", Title: board.ProjectStateTitle, Project: "marketing"},
-		{ItemID: "ep-c", Title: board.ScopeStateTitle, Scope: "Cozy", Project: "engineering"},
-		{ItemID: "ep-l", Title: board.ScopeStateTitle, Scope: "Launch", Project: "marketing"},
-		{ItemID: "ours", Title: "in our column", Project: "engineering", Scope: "Cozy"},
-		{ItemID: "theirs", Title: "in theirs", Project: "marketing", Scope: "Launch"},
-	})
-	var seen []string
-	for _, c := range FilterCards(b, Selector{View: "project", Project: "engineering"}) {
-		seen = append(seen, c.ItemID)
-	}
-	if !slices.Equal(seen, []string{"ours"}) {
-		t.Fatalf("one project's columns, got %v", seen)
-	}
-}
-
 // A PARKED card takes its subtasks off the view with it.
 //
 // The pieces of a parked card are not separate work waiting to be picked up:
@@ -212,12 +149,13 @@ func TestTheBacklogViewListsWhatATeamHasParked(t *testing.T) {
 		return out
 	}
 
-	// Every list the team has, oldest first where nobody arranged them — and
-	// each parked card's subtasks ride along, as they do in every other view:
-	// the client nests them under their parent and needs the whole set for its
+	// Every list the team has, in the board's order (BacklogOrder: no plan
+	// item above either, so their own places decide) — and each parked
+	// card's subtasks ride along, as they do in every other view: the client
+	// nests them under their parent and needs the whole set for its
 	// derived-progress math.
-	if got := ids(Selector{View: "backlog", Team: "alpha"}); !slices.Equal(got, []string{"ice", "now1", "kid"}) {
-		t.Fatalf("view=backlog&team=alpha = %v; want the parked cards, oldest first, pieces after", got)
+	if got := ids(Selector{View: "backlog", Team: "alpha"}); !slices.Equal(got, []string{"now1", "kid", "ice"}) {
+		t.Fatalf("view=backlog&team=alpha = %v; want the parked cards in board order, each with its pieces", got)
 	}
 	// Another team's backlog is another team's business — and a set of
 	// teams lists each, which is what the Backlog board's columns read.
@@ -229,10 +167,11 @@ func TestTheBacklogViewListsWhatATeamHasParked(t *testing.T) {
 	}
 }
 
-// A review NOBODY HAS TAKEN stands in a backlog listing like any task, in
-// plain BacklogOrder (K10): it is made at the TOP of the board's order, so it
-// shows first until somebody drags it — there is no separate pinning.
-func TestAReviewNobodyHasTakenStandsInBacklogOrder(t *testing.T) {
+// A review NOBODY HAS TAKEN leads its priority group in a backlog listing
+// (K10, BacklogOrder): it takes its task's effective priority — none here —
+// and stands before that group's tasks, the reviews in their tasks' Roadmap
+// order — one dragged below a task is still above it.
+func TestAReviewNobodyHasTakenLeadsItsPriorityGroup(t *testing.T) {
 	b := board.NewBoard([]board.Card{
 		{ItemID: "t1", Team: "alpha", Parked: true, Rank: "b", CreatedAt: "2026-01-01T00:00:00Z"},
 		{ItemID: "o", Team: "alpha", Stage: board.StageReview, SprintStart: "2026-11-03"},
@@ -245,7 +184,30 @@ func TestAReviewNobodyHasTakenStandsInBacklogOrder(t *testing.T) {
 	for _, c := range FilterCards(b, Selector{View: "backlog", Team: "alpha"}) {
 		got = append(got, c.ItemID)
 	}
-	if want := []string{"r-top", "t1", "t2", "r-dragged"}; !slices.Equal(got, want) {
+	if want := []string{"r-top", "r-dragged", "t1", "t2"}; !slices.Equal(got, want) {
 		t.Fatalf("backlog = %v, want %v", got, want)
+	}
+}
+
+// A backlog listing carries the WHOLE board's order (K14) — what every
+// Ordering frame carries too — so a client places a card the watch brings in
+// (one under a plan item no listed card stands under, say) and re-sorts on a
+// frame by the same key the server sorts by.
+func TestABacklogListingCarriesTheOrderItIsReadFrom(t *testing.T) {
+	b := board.NewBoard([]board.Card{
+		{ItemID: "elsewhere", Type: board.TypeGoal},
+		{ItemID: "t2", Team: "alpha", Parent: "e", Parked: true},
+		{ItemID: "g", Type: board.TypeGoal},
+		{ItemID: "inwork", Team: "alpha", Parent: "e", SprintStart: "2026-11-02"},
+		{ItemID: "e", Type: board.TypeEpic, Parent: "g"},
+		{ItemID: "t1", Team: "alpha", Parent: "e", Parked: true},
+		{ItemID: "loose", Team: "alpha", Parked: true},
+	})
+	list := ListCards(b, Selector{View: "backlog", Team: "alpha"})
+	if want := []string{"elsewhere", "t2", "g", "inwork", "e", "t1", "loose"}; !slices.Equal(list.BoardOrder, want) {
+		t.Fatalf("boardOrder = %v, want %v", list.BoardOrder, want)
+	}
+	if other := ListCards(b, Selector{View: "team", Team: "alpha"}); other.BoardOrder != nil {
+		t.Fatalf("only a backlog listing carries it: %v", other.BoardOrder)
 	}
 }

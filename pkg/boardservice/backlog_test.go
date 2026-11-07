@@ -15,13 +15,9 @@ import (
 func backlogBoard() *fakeBackend {
 	today := board.TodayIso()
 	return newFake([]board.Card{
-		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "core"},
-		{ItemID: "ep", Title: board.ScopeStateTitle, Scope: "Auth", Project: "core"},
 		// An ordinary card, in work.
 		{ItemID: "plain", Team: "alpha", Assignees: []string{"kvaps"},
 			SprintStart: today, StartDate: today, Day: today},
-		// A Project-board slot: not this board's to park.
-		{ItemID: "slot", Team: "alpha", Project: "core", Scope: "Auth", StartDate: today, Day: today},
 		// A card of the NO-TEAM group, which has a shelf like any other team.
 		{ItemID: "loose", Assignees: []string{"kvaps"}},
 		// And one of a SECOND team.
@@ -143,22 +139,18 @@ func TestACardBornOnTheShelfIsPlannedWork(t *testing.T) {
 	}
 }
 
-// A card sent to the backlog lands at the TOP of it.
-//
-// A shelf nobody has sorted reads oldest-first, which answers "what has been
-// waiting longest". That is the right answer for a shelf being worked THROUGH,
-// and the wrong one for a card just put there: the thing somebody has this
-// moment decided to keep is the thing they will look for, and it would go to
-// the bottom of a hundred older ones. So parking places the card by hand — the
-// same rank a card dragged to the top gets — and the ordering rule does the
-// rest (BacklogOrder: by hand first, by age after).
-func TestParkingPutsTheCardAtTheTopOfTheShelf(t *testing.T) {
+// A card sent to the backlog KEEPS ITS PLACE in the board's order (B11,
+// amended with K14). The backlog reads in the Roadmap's order — one order,
+// decided by the tree — so moving a parked card to the top of the board's
+// order would move it to the top of its siblings on the Roadmap too: taking
+// work out of hand must not rearrange the plan.
+func TestParkingKeepsTheCardsPlace(t *testing.T) {
 	f := backlogBoard()
 	if err := New(f).SetBacklog(ctx, "acme", "plain", true); err != nil {
 		t.Fatal(err)
 	}
-	if !logged(f, "MoveCard plain after=") {
-		t.Fatalf("parking asks for the top of the order; calls were: %v", f.log)
+	if logged(f, "MoveCard plain") {
+		t.Fatalf("parking moves nothing; calls were: %v", f.log)
 	}
 	// Taking a card OFF the shelf moves nothing: it is going into work, and
 	// its place among the parked work is not the day board's business.
@@ -270,22 +262,6 @@ func TestReteamingAParkedTaskKeepsItInTheBacklog(t *testing.T) {
 		c := f.get("plain")
 		if c.Team != "beta" || !board.InBacklog(*c) || board.InWork(*c) {
 			t.Fatalf("%s: want it in beta's backlog, out of work: %+v", door, c)
-		}
-	}
-}
-
-// A PROJECT card is not this board's to park. Its week is another board's
-// to say — a slot's follows its dates — so parking one would take it out of
-// a plan this board does not own.
-func TestProjectWorkIsNotParked(t *testing.T) {
-	for _, id := range []string{"slot"} {
-		f := backlogBoard()
-		err := New(f).SetBacklog(ctx, "acme", id, true)
-		if !errors.Is(err, ErrNotYoursToPark) {
-			t.Fatalf("%s parked = %v, want ErrNotYoursToPark", id, err)
-		}
-		if c := f.get(id); board.InBacklog(*c) {
-			t.Fatalf("%s: the refusal fires before the write: %+v", id, c)
 		}
 	}
 }

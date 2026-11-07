@@ -53,7 +53,7 @@ func gitModeServer(t *testing.T, remote gitstore.Remote) *Server {
 // too), so a client that reads "no domains" as "the primary is the empty
 // string" ends up with two names for one repository — and every rule that
 // asks "the same repository?" answers no. On a single-repository board
-// that hid the "+" in the no-project bucket, hid "No team", and made the
+// that hid "No team", and made the
 // grid's × on a subtask look like a delete to the client while the server
 // was ungrouping it.
 func TestTheBoardNamesItsRepositoryEvenWhenThereIsOnlyOne(t *testing.T) {
@@ -615,9 +615,8 @@ func TestActionNameFromRoute(t *testing.T) {
 		{http.MethodPatch, "/api/v1/cards/01J/notes/01K"}:             "note-edit",
 		{http.MethodDelete, "/api/v1/cards/01J/notes/01K"}:            "note-delete",
 		{http.MethodPost, "/api/v1/sprints/actions/carry-over"}:       "carry-over",
-		{http.MethodPost, "/api/v1/scopes"}:                           "add-scope",
-		{http.MethodPost, "/api/v1/scopes/actions/rename"}:            "rename",
-		{http.MethodPost, "/api/v1/projects"}:                         "add-project",
+		{http.MethodPost, "/api/v1/customers"}:                        "add-customer",
+		{http.MethodPost, "/api/v1/customers/actions/rename"}:         "rename",
 		{http.MethodGet, "/api/v1/views/team/cards"}:                  "",
 	}
 	for in, want := range cases {
@@ -627,8 +626,8 @@ func TestActionNameFromRoute(t *testing.T) {
 	}
 }
 
-// Two repositories that already declare the same team (or project, or
-// process) cannot be served as one board: the store would merge them into
+// Two repositories that already declare the same team cannot be served as
+// one board: the store would merge them into
 // one and the cards of two different teams would mix. The server refuses to
 // start and names both files, so a maintainer renames one and starts again.
 func TestGitModeRefusesCollidingRosterNames(t *testing.T) {

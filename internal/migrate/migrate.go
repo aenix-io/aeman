@@ -43,15 +43,18 @@ type Options struct {
 
 // Report is what the migration did and what it could not carry over.
 type Report struct {
-	AlreadyMigrated                           bool
-	Verified                                  bool
-	Cards, Teams, Projects, Scopes, Deadlines int
-	Events, Commits                           int
-	DoneFromSeeded, DoneWithoutJump           int
-	IssueCards                                []string
-	UnattributedNotes                         int
-	Dangling                                  []string
-	Dropped                                   []string
+	AlreadyMigrated                 bool
+	Verified                        bool
+	Cards, Teams                    int
+	Events, Commits                 int
+	DoneFromSeeded, DoneWithoutJump int
+	IssueCards                      []string
+	UnattributedNotes               int
+	Dangling                        []string
+	Dropped                         []string
+	// ProjectBoardItems are the source items of the retired Project board —
+	// cards in a column and its roster stubs — that were not imported (H15).
+	ProjectBoardItems int
 	// Stranded are the cards the source board carried that were PLACED on a
 	// day and then left where no view can reach them — the shape the old ×
 	// made when it demoted a worked card into the previous sprint
@@ -59,7 +62,7 @@ type Report struct {
 	// a commit of its own; the history keeps them.
 	Stranded []string
 	// Placeless are cards no view shows because nobody ever put them
-	// anywhere: no sprint, no dates, no column, no week. They are not the
+	// anywhere: no sprint, no dates, no week. They are not the
 	// ×'s leavings, so nothing is deleted — they are named, and the board's
 	// owner decides.
 	Placeless []string
@@ -73,8 +76,8 @@ func (r Report) String() string {
 		b.WriteString("already migrated — nothing written\n")
 		return b.String()
 	}
-	fmt.Fprintf(&b, "%d cards, %d teams, %d projects, %d scopes, %d deadlines\n",
-		r.Cards, r.Teams, r.Projects, r.Scopes, r.Deadlines)
+	fmt.Fprintf(&b, "%d cards, %d teams; %d items of the retired Project board left out\n",
+		r.Cards, r.Teams, r.ProjectBoardItems)
 	fmt.Fprintf(&b, "%d events replayed into %d commits; end state verified: %v\n", r.Events, r.Commits, r.Verified)
 	fmt.Fprintf(&b, "doneFrom seeded on %d done cards; %d done cards had no recorded jump (reopen falls back to the nudge)\n", r.DoneFromSeeded, r.DoneWithoutJump)
 	fmt.Fprintf(&b, "%d unattributed notes (kept without an author)\n", r.UnattributedNotes)
@@ -336,14 +339,15 @@ type mapper struct {
 	// the event log per card, in source order, kept apart from the files
 	logs map[string][]board.Event
 	// roster ids
-	teamID    map[string]string
-	projectID map[string]string
+	teamID map[string]string
+	// projectBoardItems is what the reader left out (ghsource, H15).
+	projectBoardItems int
 }
 
 func newMapper(ex ghsource.Export, rep *Report) *mapper {
 	b := ex.Board
 	m := &mapper{b: b, items: ex.Items, rep: rep, ids: rep.IDMap, paths: map[string]string{}, logs: map[string][]board.Event{},
-		teamID: map[string]string{}, projectID: map[string]string{}}
+		teamID: map[string]string{}, projectBoardItems: ex.ProjectBoardItems}
 	// A board loaded without an explicit team order (a fake, an old snapshot)
 	// still has its teams in the sprint pointers: no-team group first, then
 	// by name, so the order is the same on every run.
@@ -354,7 +358,7 @@ func newMapper(ex ghsource.Export, rep *Report) *mapper {
 		sort.Strings(b.TeamOrder)
 		m.b = b
 	}
-	// Roster ids first: cards refer to projects by name, but their files live
+	// Roster ids first: cards refer to teams by name, but their files live
 	// under the roster's ids.
 	for i, team := range b.TeamOrder {
 		st := b.SprintStates[team]
@@ -367,19 +371,6 @@ func newMapper(ex ghsource.Export, rep *Report) *mapper {
 			m.ids[st.ItemID] = id
 		}
 		_ = i
-	}
-	for _, p := range b.Projects {
-		id := gitstore.DeriveID(epoch, "project", p)
-		m.projectID[p] = id
-		if item := b.ProjectStates[p]; item != "" {
-			m.ids[item] = id
-		}
-	}
-	for _, col := range b.Scopes {
-		m.ids[col.ItemID] = gitstore.DeriveID(epoch, "scope", col.Project, col.Name)
-	}
-	for _, d := range b.Deadlines {
-		m.ids[d.ItemID] = gitstore.DeriveID(epoch, "deadline", d.Project, d.Week)
 	}
 	for i := range b.Cards {
 		m.ids[b.Cards[i].ItemID] = gitstore.DeriveID(createdAt(b.Cards[i]), "card", b.Cards[i].ItemID)
@@ -400,16 +391,6 @@ func createdAt(c board.Card) time.Time {
 func (m *mapper) convert() {
 	all := append([]board.Card(nil), m.b.Cards...)
 	ranks, _ := board.RankRebalance("", "", len(m.b.Cards))
-	// A card in a column is a PROJECT CARD (H4, docs/design/hierarchy.md) and
-	// comes in as one: no team, no owner, no parent, no band, no size — and a
-	// card grouped under one comes in ungrouped, since a project card has no
-	// subtasks. Projects v2 let a column entry carry all of those.
-	scoped := map[string]bool{}
-	for _, c := range m.b.Cards {
-		if c.Scope != "" {
-			scoped[c.ItemID] = true
-		}
-	}
 	for i := range all {
 		src := all[i]
 		c := src
@@ -428,20 +409,6 @@ func (m *mapper) convert() {
 		}
 		c.Parent = m.ref(src.ItemID, "parent", parent)
 		c.ReviewOf = m.ref(src.ItemID, "reviewOf", src.ReviewOf)
-		switch {
-		case c.Scope != "":
-			c.Team, c.Assignees, c.Parent = "", nil, ""
-			c.Zone, c.Size = board.ZoneNone, ""
-			// No week and no sprint either, and a week that was the entry's
-			// only date becomes its dates (board.WeekAsDates), or the card
-			// would stand on no board at all.
-			if start, day, ok := board.WeekAsDates(c); ok {
-				c.StartDate, c.Day = start, day
-			}
-			c.SprintStart, c.Week = "", ""
-		case scoped[src.Parent]:
-			c.Parent = ""
-		}
 		// The board is written at the current schema, so a task comes in in
 		// one of its two places (docs/design/backlog.md, K1): in work, or
 		// parked in its team's backlog — by schema 3's own rule (K8). The
@@ -450,12 +417,9 @@ func (m *mapper) convert() {
 		// the task, a week that has come becomes that week's Monday to
 		// Friday and joins its team's current sprint (the imported board's
 		// pointer), a finished task only loses it; and an open task nobody
-		// had placed at all is parked. A column card's week already became
-		// its dates on read (board.SettleCard).
-		if c.Scope == "" && c.Week == "" {
-			c.Week = gh.Week
-		}
-		gitstore.PlaceForSchema3(&c, c.Parent != "" && board.IsSubtask(m.b, src), board.TodayIso(),
+		// had placed at all is parked. A card of the retired Project board
+		// is not imported at all (H15, ghsource).
+		gitstore.PlaceForSchema3(&c, gh.Week, c.Parent != "" && board.IsSubtask(m.b, src), board.TodayIso(),
 			m.b.SprintStates[c.Team].Current)
 		c.Rank = ranks[i]
 		c.Notes = nil
@@ -482,9 +446,7 @@ func (m *mapper) convert() {
 		m.rep.Cards++
 	}
 	m.rep.Teams = len(m.b.TeamOrder)
-	m.rep.Projects = len(m.b.Projects)
-	m.rep.Scopes = len(m.b.Scopes)
-	m.rep.Deadlines = len(m.b.Deadlines)
+	m.rep.ProjectBoardItems = m.projectBoardItems
 	m.rep.Dropped = append(m.rep.Dropped, "Status field (Todo on every card; vestigial)")
 }
 
@@ -535,20 +497,6 @@ func (m *mapper) files(title string) map[string][]byte {
 		st := m.b.SprintStates[team]
 		out[gitstore.TeamPath(m.teamID[team])], _ = gitstore.EncodeTeam(gitstore.TeamFile{Name: team, Rank: teamRanks[i], Created: created,
 			Sprint: gitstore.SprintPointer{Current: st.Current, Previous: st.Previous}})
-	}
-	projRanks, _ := board.RankRebalance("", "", len(m.b.Projects))
-	for i, p := range m.b.Projects {
-		out[gitstore.ProjectPath(m.projectID[p])], _ = gitstore.EncodeProject(gitstore.ProjectFile{Name: p, Rank: projRanks[i], Created: created})
-	}
-	perProject := map[string]int{}
-	scopeRanks, _ := board.RankRebalance("", "", len(m.b.Scopes))
-	for i, col := range m.b.Scopes {
-		pid := m.projectID[col.Project]
-		perProject[col.Project]++
-		out[gitstore.ScopePath(pid, m.ids[col.ItemID])], _ = gitstore.EncodeScope(gitstore.ScopeFile{Name: col.Name, Rank: scopeRanks[i], Created: created})
-	}
-	for _, d := range m.b.Deadlines {
-		out[gitstore.DeadlinePath(m.projectID[d.Project], m.ids[d.ItemID])], _ = gitstore.EncodeDeadline(gitstore.DeadlineFile{Week: d.Week, Created: created})
 	}
 	for _, c := range m.cards {
 		out[m.pathOf(c)] = m.render(c)
@@ -609,12 +557,8 @@ func (m *mapper) apply(c *board.Card, kind, v string) {
 		c.Zone = board.ZoneKey(v)
 	case board.EventSprint:
 		c.SprintStart = v
-	case board.EventWeek:
-		c.Week = v
 	case board.EventTeam:
 		c.Team = v
-	case board.EventScope:
-		c.Scope = v
 	case board.EventAssignee:
 		if v == "" {
 			c.Assignees = nil

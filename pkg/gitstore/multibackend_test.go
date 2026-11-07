@@ -2,7 +2,6 @@ package gitstore
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -18,22 +17,19 @@ import (
 
 var _ boardservice.Backend = (*MultiBackend)(nil)
 
-// twoDomains is a shared domain with the team "portal" and the project
-// "portal", and a closed domain with the project "secret" and its column.
+// twoDomains is a shared domain with the team "portal", and a closed domain
+// with the team "secret"; each holds one card of its own team.
 func twoDomains(t *testing.T) (*MultiBackend, *Repo, *Repo) {
 	t.Helper()
 	shared := repoWith(t, map[string]string{
-		BoardPath:                          "schema: 2\ntitle: b\n",
-		TeamPath("_"):                      "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		TeamPath("01T_PORTAL"):             "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
-		ProjectPath("01P_PORTAL"):          "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		ScopePath("01P_PORTAL", "01E_BUG"): "name: Bugs\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		"cards/a/1/01CARDA1.md":            "---\ntitle: shared card\nteam: portal\nzone: yellow\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n",
+		BoardPath:               "schema: 2\ntitle: b\n",
+		TeamPath("_"):           "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		TeamPath("01T_PORTAL"):  "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
+		"cards/a/1/01CARDA1.md": "---\ntitle: shared card\nteam: portal\nzone: yellow\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n",
 	})
 	closed := repoWith(t, map[string]string{
-		ProjectPath("01P_SECRET"):           "name: secret\nrank: b\ncreated: 2026-06-02T08:00:00Z\n",
-		ScopePath("01P_SECRET", "01E_RISK"): "name: Risk\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
-		"cards/b/2/01CARDB2.md":             "---\ntitle: closed card\nteam: portal\nproject: secret\nscope: Risk\nrank: a\ncreated: 2026-08-21T09:00:00Z\n---\n",
+		TeamPath("01T_SECRET"):  "name: secret\nrank: c\ncreated: 2026-06-02T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
+		"cards/b/2/01CARDB2.md": "---\ntitle: closed card\nteam: secret\nrank: a\ncreated: 2026-08-21T09:00:00Z\n---\n",
 	})
 	clock := at("2026-08-28T09:00:00Z")
 	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}},
@@ -47,8 +43,8 @@ func TestMultiBackendLoadBoardMergesDomains(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b.Cards) != 2 || len(b.Projects) != 2 || len(b.Scopes) != 2 || len(b.TeamOrder) != 2 {
-		t.Fatalf("board = %d cards, %v projects, %d scopes, %v teams", len(b.Cards), b.Projects, len(b.Scopes), b.TeamOrder)
+	if len(b.Cards) != 2 || len(b.TeamOrder) != 3 {
+		t.Fatalf("board = %d cards, %v teams", len(b.Cards), b.TeamOrder)
 	}
 	for _, c := range b.Cards {
 		if c.Domain == "" {
@@ -57,24 +53,24 @@ func TestMultiBackendLoadBoardMergesDomains(t *testing.T) {
 	}
 }
 
-// G14 — a create lands where the rule says: a closed-project card in the
-// closed repository, a team card in the team's, a review card with its
+// G14 — a create lands where the rule says: a card of the closed team in
+// the closed repository, a team card in the team's, a review card with its
 // original, a subtask with its parent.
 func TestMultiBackendCreateInheritsDomain(t *testing.T) {
 	mb, shared, closed := twoDomains(t)
 	ctx := ctxAs("kvaps")
 	b, _ := mb.LoadBoard(ctx, "x")
 
-	inClosed, err := mb.CreateCard(ctx, b, board.CreateInput{Title: "risk item", Team: "portal", Project: "secret", Scope: "Risk"})
+	inClosed, err := mb.CreateCard(ctx, b, board.CreateInput{Title: "risk item", Team: "secret"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	p, _ := CardPath(inClosed.ItemID)
 	if _, err := closed.ReadFile(p); err != nil {
-		t.Fatalf("closed-project card not in the closed repository: %v", err)
+		t.Fatalf("closed-team card not in the closed repository: %v", err)
 	}
 	if _, err := shared.ReadFile(p); err == nil {
-		t.Fatal("closed-project card leaked into the shared repository")
+		t.Fatal("closed-team card leaked into the shared repository")
 	}
 	if inClosed.Domain != "closed" {
 		t.Fatalf("returned card domain = %q", inClosed.Domain)
@@ -89,9 +85,8 @@ func TestMultiBackendCreateInheritsDomain(t *testing.T) {
 		t.Fatalf("team card not in the team's repository: %v", err)
 	}
 
-	// The review of a closed card carries the original's team and no
-	// project — the team rule alone would leak it; it lands with the
-	// original.
+	// The review of a closed card may carry a shared team — the team rule
+	// alone would leak it; it lands with the original.
 	b, _ = mb.LoadBoard(ctx, "x")
 	review, err := mb.CreateCard(ctx, b, board.CreateInput{Title: "review: risk item", Team: "portal", ReviewOf: inClosed.ItemID, Assignee: "timur"})
 	if err != nil {
@@ -101,13 +96,13 @@ func TestMultiBackendCreateInheritsDomain(t *testing.T) {
 	if _, err := closed.ReadFile(p); err != nil {
 		t.Fatalf("review card not with its original: %v", err)
 	}
-	sub, err := mb.CreateCard(ctx, b, board.CreateInput{Title: "sub", Team: "portal", Parent: inClosed.ItemID, Project: "portal", Scope: "Bugs"})
+	sub, err := mb.CreateCard(ctx, b, board.CreateInput{Title: "sub", Team: "portal", Parent: inClosed.ItemID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	p, _ = CardPath(sub.ItemID)
 	if _, err := closed.ReadFile(p); err != nil {
-		t.Fatalf("subtask with its own column not with its parent: %v", err)
+		t.Fatalf("subtask with a team of its own not with its parent: %v", err)
 	}
 }
 
@@ -153,10 +148,7 @@ func TestMultiBackendRefilingIsAMove(t *testing.T) {
 		}
 	}
 	ctx, flush := WithScope(ctx, Action{Name: "update", ID: "01JB4KA0M2P4R6T8V0X2Z4B6N1", Cards: []string{card.ItemID}})
-	if err := mb.SetProject(ctx, b, card, "secret"); err != nil {
-		t.Fatal(err)
-	}
-	if err := mb.SetScope(ctx, b, card, "Risk"); err != nil {
+	if err := mb.SetTeam(ctx, b, card, "secret"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := flush(); err != nil {
@@ -167,7 +159,7 @@ func TestMultiBackendRefilingIsAMove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("moved card not in the closed repository: %v", err)
 	}
-	if !containsAll(string(data), "project: secret", "scope: Risk", "movedFrom: shared", "movedAt: ") {
+	if !containsAll(string(data), "team: secret", "movedFrom: shared", "movedAt: ") {
 		t.Fatalf("moved copy:\n%s", data)
 	}
 	if _, err := shared.ReadFile(p); err == nil {
@@ -195,7 +187,7 @@ func TestMultiBackendRefilingIsAMove(t *testing.T) {
 	}
 	got, _ := mb.LoadBoard(ctx, "x")
 	moved, ok := findByID(got, card.ItemID)
-	if !ok || moved.Domain != "closed" || moved.Project != "secret" || moved.MovedFrom != "shared" {
+	if !ok || moved.Domain != "closed" || moved.Team != "secret" || moved.MovedFrom != "shared" {
 		t.Fatalf("board after move = %+v (found %v)", moved, ok)
 	}
 	if n := len(got.Cards); n != 2 {
@@ -208,26 +200,24 @@ func TestMultiBackendRefilingIsAMove(t *testing.T) {
 // action, each with movedFrom; a card linked to something else stays.
 func TestMultiBackendMoveCascadesToLinkedCards(t *testing.T) {
 	shared := repoWith(t, map[string]string{
-		BoardPath:                          "schema: 2\ntitle: b\n",
-		TeamPath("_"):                      "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		TeamPath("01T_PORTAL"):             "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
-		ProjectPath("01P_PORTAL"):          "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		ScopePath("01P_PORTAL", "01E_BUG"): "name: Bugs\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
-		"cards/a/1/01CARDA1.md":            "---\ntitle: the work\nteam: portal\nrank: a\n---\n",
-		"cards/r/1/01CARDR1.md":            "---\ntitle: review\nteam: portal\nreviewOf: 01CARDA1\nrank: b\n---\n",
-		"cards/s/1/01CARDS1.md":            "---\ntitle: subtask with own column\nteam: portal\nproject: portal\nscope: Bugs\nparent: 01CARDA1\nrank: c\n---\n",
-		"cards/s/2/01CARDS2.md":            "---\ntitle: sub-subtask\nteam: portal\nparent: 01CARDS1\nrank: d\n---\n",
-		"cards/o/1/01CARDO1.md":            "---\ntitle: unrelated\nteam: portal\nrank: e\n---\n",
+		BoardPath:               "schema: 2\ntitle: b\n",
+		TeamPath("_"):           "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		TeamPath("01T_PORTAL"):  "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
+		"cards/a/1/01CARDA1.md": "---\ntitle: the work\nteam: portal\nrank: a\n---\n",
+		"cards/r/1/01CARDR1.md": "---\ntitle: review\nteam: portal\nreviewOf: 01CARDA1\nrank: b\n---\n",
+		"cards/s/1/01CARDS1.md": "---\ntitle: subtask with a team of its own\nteam: portal\nparent: 01CARDA1\nrank: c\n---\n",
+		"cards/s/2/01CARDS2.md": "---\ntitle: sub-subtask\nteam: portal\nparent: 01CARDS1\nrank: d\n---\n",
+		"cards/o/1/01CARDO1.md": "---\ntitle: unrelated\nteam: portal\nrank: e\n---\n",
 	})
 	closed := repoWith(t, map[string]string{
-		ProjectPath("01P_SECRET"): "name: secret\nrank: b\ncreated: 2026-06-02T08:00:00Z\n",
+		TeamPath("01T_SECRET"): "name: secret\nrank: c\ncreated: 2026-06-02T08:00:00Z\n",
 	})
 	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}}, BackendOptions{Now: func() time.Time { return at("2026-08-28T09:00:00Z") }})
 	ctx := ctxAs("kvaps")
 	b, _ := mb.LoadBoard(ctx, "x")
 	work, _ := findByID(b, "01CARDA1")
 	ctx, flush := WithScope(ctx, Action{Name: "update", ID: "01JB4KA0M2P4R6T8V0X2Z4B6N2", Cards: []string{"01CARDA1"}})
-	if err := mb.SetProject(ctx, b, work, "secret"); err != nil {
+	if err := mb.SetTeam(ctx, b, work, "secret"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := flush(); err != nil {
@@ -246,7 +236,7 @@ func TestMultiBackendMoveCascadesToLinkedCards(t *testing.T) {
 			t.Fatalf("%s still in the shared repository", id)
 		}
 	}
-	// The subtask's own column is a shared project, yet it followed its parent.
+	// The subtask's own team is a shared one, yet it followed its parent.
 	if p, _ := CardPath("01CARDO1"); !fileExists(shared, p) {
 		t.Fatal("an unrelated card was moved")
 	}
@@ -275,7 +265,7 @@ func fileExists(r *Repo, p string) bool {
 	return err == nil
 }
 
-// The domain a new team, project or process is declared in is the caller's
+// The domain a new team is declared in is the caller's
 // choice, carried on the context (board.WithDomain) when the input does not
 // name one: a service that builds the stub itself need not know about
 // domains. Unknown domains are refused; cards never take one.
@@ -283,13 +273,6 @@ func TestMultiBackendCreateHonoursDomainFromContext(t *testing.T) {
 	mb, shared, closed := twoDomains(t)
 	ctx := board.WithDomain(ctxAs("kvaps"), "closed")
 	b, _ := mb.LoadBoard(ctx, "x")
-	proj, err := mb.CreateCard(ctx, b, board.CreateInput{Title: board.ProjectStateTitle, Project: "vault"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := closed.ReadFile(ProjectPath(proj.ItemID)); err != nil {
-		t.Fatalf("project not declared in the chosen domain: %v", err)
-	}
 	if err := mb.SetSprintState(ctx, b, "ops", "2026-08-31", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +298,7 @@ func TestMultiBackendCreateHonoursDomainFromContext(t *testing.T) {
 	if _, err := closed.ReadFile(TeamPath("01T_PORTAL")); err == nil {
 		t.Fatal("an existing team must not be re-declared in the chosen domain")
 	}
-	if _, err := mb.CreateCard(board.WithDomain(ctxAs("kvaps"), "nope"), b, board.CreateInput{Title: board.ProjectStateTitle, Project: "x"}); err == nil {
+	if err := mb.SetSprintState(board.WithDomain(ctxAs("kvaps"), "nope"), b, "x", "2026-08-31", ""); err == nil {
 		t.Fatal("an unknown domain must be refused")
 	}
 }
@@ -332,7 +315,7 @@ func TestMultiBackendCardLogFollowsMoveIntoOldDomain(t *testing.T) {
 		t.Fatal(err)
 	}
 	sctx, flush := WithScope(ctx, Action{Name: "update", ID: "01JB4KA0M2P4R6T8V0X2Z4B6N3", Cards: []string{card.ItemID}})
-	if err := mb.SetProject(sctx, b, card, "secret"); err != nil {
+	if err := mb.SetTeam(sctx, b, card, "secret"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := flush(); err != nil {
@@ -355,13 +338,13 @@ func TestMultiBackendCardLogFollowsMoveIntoOldDomain(t *testing.T) {
 		kinds = append(kinds, e.Kind+":"+e.From+">"+e.To+"@"+e.Actor)
 	}
 	joined := strings.Join(kinds, " ")
-	for _, want := range []string{"progress:30>60@timur", "project:>secret@kvaps", "progress:>30@kvaps"} {
+	for _, want := range []string{"progress:30>60@timur", "team:portal>secret@kvaps", "progress:>30@kvaps"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("log lacks %q:\n%s", want, joined)
 		}
 	}
 	// Newest first, and the old domain's entries come after the move.
-	if !strings.HasPrefix(joined, "progress:30>60@timur") || strings.Index(joined, "project:>secret") > strings.Index(joined, "progress:>30@kvaps") {
+	if !strings.HasPrefix(joined, "progress:30>60@timur") || strings.Index(joined, "team:portal>secret") > strings.Index(joined, "progress:>30@kvaps") {
 		t.Fatalf("order:\n%s", joined)
 	}
 	for _, e := range events {
@@ -381,7 +364,7 @@ func TestMultiBackendIssuesReportAliasesAndGhosts(t *testing.T) {
 	})
 	closed := repoWith(t, map[string]string{
 		TeamPath("01T_OLDER"):   "name: portal\nrank: z\ncreated: 2026-06-01T08:00:00Z\n",
-		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nproject: secret\nrank: a\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
+		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nteam: secret\nrank: a\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
 	})
 	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}}, BackendOptions{})
 	if aliases, ghosts := mb.Issues(); aliases != nil || ghosts != nil {
@@ -407,11 +390,11 @@ func TestMultiBackendLoadCardsPrefersMovedCopy(t *testing.T) {
 		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nteam: portal\nrank: a\n---\n",
 	})
 	closed := repoWith(t, map[string]string{
-		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nproject: secret\nrank: a\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
+		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nteam: secret\nrank: a\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
 	})
 	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}}, BackendOptions{})
 	got, err := mb.LoadCards(context.Background(), board.Board{}, []string{"01CARDA1"})
-	if err != nil || len(got) != 1 || got[0].Domain != "closed" || got[0].Project != "secret" {
+	if err != nil || len(got) != 1 || got[0].Domain != "closed" || got[0].Team != "secret" {
 		t.Fatalf("LoadCards = %+v (%v), want the closed copy once", got, err)
 	}
 }
@@ -426,7 +409,7 @@ func TestMultiBackendSweepGhosts(t *testing.T) {
 		"cards/d/1/01CARDD1.md": "---\ntitle: dup\nteam: portal\nrank: b\n---\n",
 	})
 	closed := repoWith(t, map[string]string{
-		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nproject: secret\nrank: a\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
+		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nteam: secret\nrank: a\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
 		"cards/d/1/01CARDD1.md": "---\ntitle: dup\nteam: portal\nrank: b\n---\n",
 	})
 	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}}, BackendOptions{Now: func() time.Time { return at("2026-08-28T11:00:00Z") }})
@@ -463,21 +446,22 @@ func TestMultiBackendRosterDomainChoice(t *testing.T) {
 	mb, shared, closed := twoDomains(t)
 	ctx := ctxAs("kvaps")
 	b, _ := mb.LoadBoard(ctx, "x")
-	proj, err := mb.CreateCard(ctx, b, board.CreateInput{Title: board.ProjectStateTitle, Project: "infra"})
-	if err != nil {
+	if err := mb.SetSprintState(ctx, b, "infra", "2026-08-31", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := shared.ReadFile(ProjectPath(proj.ItemID)); err != nil {
-		t.Fatalf("project without a domain choice must land in the primary: %v", err)
-	}
-	proj2, err := mb.CreateCard(ctx, b, board.CreateInput{Title: board.ProjectStateTitle, Project: "vault", Domain: "closed"})
-	if err != nil {
+	if err := mb.SetSprintState(board.WithDomain(ctx, "closed"), b, "vault", "2026-08-31", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := closed.ReadFile(ProjectPath(proj2.ItemID)); err != nil {
-		t.Fatalf("project with a domain choice must land there: %v", err)
+	s, _ := LoadAll(mb.domains)
+	for _, tm := range s.Teams {
+		switch {
+		case tm.Name == "infra" && tm.Domain != "shared":
+			t.Fatalf("a team without a domain choice landed in %q, want the primary", tm.Domain)
+		case tm.Name == "vault" && tm.Domain != "closed":
+			t.Fatalf("a team with a domain choice landed in %q, want it", tm.Domain)
+		}
 	}
-	if _, err := mb.CreateCard(ctx, b, board.CreateInput{Title: board.ProjectStateTitle, Project: "x", Domain: "nope"}); err == nil {
+	if err := mb.SetSprintState(board.WithDomain(ctx, "nope"), b, "x", "2026-08-31", ""); err == nil {
 		t.Fatal("an unknown domain must be refused")
 	}
 	// A team in the closed domain, and its pointer written there.
@@ -488,9 +472,7 @@ func TestMultiBackendRosterDomainChoice(t *testing.T) {
 	if _, ok := b.SprintStates["ops"]; !ok {
 		t.Fatal("new team missing")
 	}
-	// A card of the closed project whose team lives in shared is still a
-	// closed card (project before team) — and the team's pointer is read for
-	// it all the same: the server reads every domain.
+	// The pointer of a team is written where the team is declared.
 	if err := mb.SetSprintState(ctx, b, "portal", "2026-08-31", "2026-08-24"); err != nil {
 		t.Fatal(err)
 	}
@@ -525,56 +507,8 @@ func indexOf(s, sub string) int {
 	return -1
 }
 
-// A column's STUB never changes repository: refile hands a stub straight
-// back to the backend that holds it (isStub). So a column cannot follow a
-// project into another repository — the service refuses that move rather
-// than produce a column declared in one repository and owned by a project
-// of another, with every card in it stranded (G57).
-func TestAnScopeStubStaysInItsRepositoryWhenItsProjectChanges(t *testing.T) {
-	mb, _, _ := twoDomains(t)
-	ctx := context.Background()
-	b, err := mb.LoadBoard(ctx, "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The primary repository's column, moved to the CLOSED repository's
-	// project: the write must land where the stub already is.
-	var stub board.Card
-	for _, e := range b.Scopes {
-		if e.Project == "portal" {
-			stub = board.Card{ItemID: e.ItemID, Title: board.ScopeStateTitle, Scope: e.Name, Project: e.Project}
-			break
-		}
-	}
-	if stub.ItemID == "" {
-		t.Fatalf("the fixture must declare a column of portal: %+v", b.Scopes)
-	}
-	was := b.Domains[stub.ItemID]
-	// The write goes to the backend that HOLDS the stub, so the target
-	// project is looked for there — and a project of the other repository
-	// is simply not there. The store cannot perform this move at all.
-	if err := mb.SetProject(ctx, b, stub, "secret"); !errors.Is(err, ErrProjectNotFound) {
-		t.Fatalf("a stub is written where it already lives: %v", err)
-	}
-	after, err := mb.LoadBoard(ctx, "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := after.Domains[stub.ItemID]; got != was {
-		t.Fatalf("and it stays there: %q → %q", was, got)
-	}
-	// Which is why boardservice refuses the move up front, with a sentence
-	// about repositories instead of a confusing "project not found".
-	if d := board.ProjectDomain(after, "secret"); d == was {
-		t.Fatalf("the fixture's two projects must live apart: %q", d)
-	}
-}
-
-// The grid's × on a subtask standing in a column of its PARENT's
-// repository, against the real store: the pull-out moves the card's FILE to
-// the repository its own team names, the column cannot come with it and is
-// repaired away, and what is left is answered like any other columnless
-// card — deleted, the working area having been its last home. The service
+// The grid's × on a subtask standing in its PARENT's repository, against
+// the real store: what is left is answered like any other card — deleted, the working area having been its last home. The service
 // tests prove the rule; this proves the whole gesture survives the move,
 // which is the part a fake cannot show: the file is left in NEITHER
 // repository, and no half-moved copy stays behind.
@@ -584,15 +518,11 @@ func TestTheGridRemoveOnASubtaskAcrossRepositories(t *testing.T) {
 		TeamPath("01T_PORTAL"): "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n  previous: 2026-08-17\n",
 	})
 	closed := repoWith(t, map[string]string{
-		ProjectPath("01P_SECRET"):           "name: secret\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
-		ScopePath("01P_SECRET", "01E_RISK"): "name: Risk\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
-		// The no-project bucket of the CLOSED repository: a column that
-		// places no card by a project, so a card standing in it is placed
-		// by its own team — in the other repository.
-		ProjectPath("_"):            "rank: b\ncreated: 2026-06-02T08:00:00Z\n",
-		ScopePath("_", "01E_CHORE"): "name: Chores\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
-		"cards/t/1/01PARENT1.md":    "---\ntitle: closed work\nteam: portal\nproject: secret\nscope: Risk\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n",
-		"cards/0/1/01KID00001.md":   "---\ntitle: the child\nteam: portal\nparent: 01PARENT1\nscope: Chores\nstart: 2026-08-20\nsprint: 2026-08-24\nrank: b\ncreated: 2026-08-20T09:00:00Z\n---\n",
+		TeamPath("01T_SECRET"): "name: secret\nrank: b\ncreated: 2026-06-02T08:00:00Z\nsprint:\n  current: 2026-08-24\n  previous: 2026-08-17\n",
+		// The child carries a team of the OTHER repository: out of its
+		// group, its own team places it there.
+		"cards/t/1/01PARENT1.md":  "---\ntitle: closed work\nteam: secret\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n",
+		"cards/0/1/01KID00001.md": "---\ntitle: the child\nteam: portal\nparent: 01PARENT1\nstart: 2026-08-20\nsprint: 2026-08-24\nrank: b\ncreated: 2026-08-20T09:00:00Z\n---\n",
 	})
 	clock := at("2026-08-28T09:00:00Z")
 	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}},
@@ -667,132 +597,6 @@ func TestCreatingASubtaskInsideOneScope(t *testing.T) {
 	p, _ := CardPath(kid.ItemID)
 	if _, err := shared.ReadFile(p); err != nil {
 		t.Fatalf("with its file where the parent's is: %v", err)
-	}
-}
-
-// The NO-PROJECT BUCKET must be creatable, not only readable. This line
-// makes it a home like any other — a column cards stand in, mirror into
-// and are removed from, and the one place a teamless card can be created
-// — and G57 says a column may be UNBOUND into it. Both need a nameless
-// project stub, which nothing could write (a project must have a name), so
-// on a real board every one of those gestures failed with "project not
-// found" while the fake, holding the roster in memory, said yes.
-func TestTheNoProjectBucketCanBeCreated(t *testing.T) {
-	mb, shared, _ := twoDomains(t)
-	svc := boardservice.New(mb)
-	ctx := ctxAs("kvaps")
-
-	// A column added outside every project.
-	if err := svc.AddScope(ctx, "acme", "Chores", ""); err != nil {
-		t.Fatalf("a column of no project: %v", err)
-	}
-	b, err := mb.LoadBoard(ctx, "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := board.FindScope(b, "", "Chores"); !ok {
-		t.Fatalf("the bucket holds it: %+v", b.Scopes)
-	}
-	if _, err := shared.ReadFile(ProjectPath(bucketProjectID)); err != nil {
-		t.Fatalf("under a nameless project stub: %v", err)
-	}
-
-	// And an existing column unbound INTO it — the gesture G57 describes.
-	if err := svc.SetScopeProject(ctx, "acme", "portal", "Bugs", ""); err != nil {
-		t.Fatalf("unbinding a column moves it to the bucket: %v", err)
-	}
-	if b, err = mb.LoadBoard(ctx, "acme"); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := board.FindScope(b, "", "Bugs"); !ok {
-		t.Fatalf("and it is there: %+v", b.Scopes)
-	}
-	// One stub, whatever finds it first.
-	if n := len(b.Projects); n != 2 {
-		t.Fatalf("the bucket is not a project of its own on the board: %v", b.Projects)
-	}
-}
-
-// The no-project bucket is not ONE place on the board. Every repository may
-// declare its own nameless project file, and a column of it belongs to the
-// repository that declared it — so unbinding a column of the CLOSED
-// repository into the bucket leaves that column in closed and must not
-// make "the bucket" mean closed for everyone: the next bucket column, and
-// the board's "+" that opens a teamless card in one, both belong to the
-// primary, which is where a card nothing places lives.
-func TestUnbindingAClosedColumnDoesNotMoveTheBoardsBucket(t *testing.T) {
-	mb, shared, closed := twoDomains(t)
-	svc := boardservice.New(mb)
-	ctx := ctxAs("kvaps")
-
-	// An EMPTY column of the closed repository — a column with cards in it
-	// refuses the unbind for its own reason (their team would move them out
-	// of it, G57).
-	if err := svc.AddScope(ctx, "acme", "Audit", "secret"); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.SetScopeProject(ctx, "acme", "secret", "Audit", ""); err != nil {
-		t.Fatalf("unbinding a column moves nothing: %v", err)
-	}
-	if _, err := closed.ReadFile(ProjectPath(bucketProjectID)); err != nil {
-		t.Fatalf("the closed repository declares its own bucket for it: %v", err)
-	}
-
-	// A column added to the bucket now still belongs to the PRIMARY.
-	if err := svc.AddScope(ctx, "acme", "Chores", ""); err != nil {
-		t.Fatalf("a column of no project: %v", err)
-	}
-	if _, err := shared.ReadFile(ProjectPath(bucketProjectID)); err != nil {
-		t.Fatalf("under the primary's own nameless stub: %v", err)
-	}
-	b, err := mb.LoadBoard(ctx, "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cd, ok := board.ColumnDomain(b, "", "Chores"); !ok || cd != "shared" {
-		t.Fatalf("and the column is the primary's: %q %v", cd, ok)
-	}
-	// …so the gesture the bucket exists for works: a card with no team and
-	// no project, created in it.
-	if _, err := svc.CreateCard(ctx, "acme", boardservice.CreateCardArgs{
-		Title: "loose work", Scope: "Chores",
-	}); err != nil {
-		t.Fatalf("a teamless card belongs in the primary's bucket: %v", err)
-	}
-	// The closed column keeps its own repository, which is what makes it
-	// unreachable for such a card — the column's own stub answers.
-	if cd, ok := board.ColumnDomain(b, "", "Audit"); !ok || cd != "closed" {
-		t.Fatalf("the unbound column stays where its stub is: %q %v", cd, ok)
-	}
-	// Two nameless stubs are the intended state, not a name collision:
-	// /api/healthz must not ask a maintainer to rename by hand something
-	// the board produces on purpose.
-	aliases, _ := mb.Issues()
-	for _, a := range aliases {
-		if a.Kind == "project" && a.Name == "" {
-			t.Fatalf("the bucket is reported as a duplicate to merge: %+v", a)
-		}
-	}
-}
-
-// A lookup must not write. Computing the PATH of a stub the roster no
-// longer holds (a concurrent delete, a torn move) falls through to the
-// nameless-project resolver, and minting the bucket there left a delete
-// writing a project file and then removing a path under it that never
-// existed — a commit nobody asked for.
-func TestDeletingAStrayColumnStubWritesNoBucket(t *testing.T) {
-	mb, shared, _ := twoDomains(t)
-	ctx := ctxAs("kvaps")
-	b, err := mb.LoadBoard(ctx, "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	stray := board.Card{ItemID: "01STRAYCOLUMN00000000000", Title: board.ScopeStateTitle, Scope: "Ghost"}
-	if err := mb.DeleteCard(ctx, b, stray); err == nil {
-		t.Log("a stub the roster does not hold deletes nothing; an error is fine either way")
-	}
-	if _, err := shared.ReadFile(ProjectPath(bucketProjectID)); err == nil {
-		t.Fatal("and it must not have written the bucket's project stub")
 	}
 }
 

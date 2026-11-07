@@ -17,10 +17,6 @@ func TestNothingToReturnIs204(t *testing.T) {
 	}, map[string]board.SprintState{"test": {Current: "2026-08-24", ItemID: "st1"}})
 	srv := apiServer(t, Options{}, fake)
 	for _, tc := range []struct{ name, method, target, body string }{
-		{"a project added", http.MethodPost, "/api/v1/projects", `{"name":"engineering"}`},
-		{"an scope added", http.MethodPost, "/api/v1/scopes", `{"name":"Launch","project":"engineering"}`},
-		{"an scope renamed", http.MethodPost, "/api/v1/scopes/actions/rename", `{"project":"engineering","scope":"Launch","to":"Ship"}`},
-		{"a deadline added", http.MethodPost, "/api/v1/deadlines", `{"week":"2026-08-24","project":"engineering"}`},
 		{"a team renamed", http.MethodPost, "/api/v1/teams/actions/rename", `{"team":"test","to":"platform"}`},
 		{"a team's capacity set", http.MethodPost, "/api/v1/teams/actions/capacity", `{"team":"platform","points":40}`},
 		{"a card moved", http.MethodPost, "/api/v1/cards/c1/actions/move", `{"after":"c2"}`},

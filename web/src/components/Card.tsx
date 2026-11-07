@@ -3,8 +3,7 @@ import { type JSX, useMemo, useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
 import {
   STAGES,
-  stageChoices,
-  offersInProgress,
+  STAGE_ORDER,
   ME_ONLY_STAGES,
   DEFAULT_BAR_COLOR,
   barColor,
@@ -15,8 +14,7 @@ import {
 import { ProgressSlider } from "./ProgressSlider";
 import { isPlanning, isSubtask } from "../subtasks";
 import { teamColor, teamInitial } from "../avatar";
-import { hasOriginToShow, markOf, type CardPlacements } from "../placements";
-import { PlacementMenu } from "./PlacementMenu";
+import { markOf, type CardPlacements } from "../placements";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
 import { daysSince, localDateIso } from "../date";
@@ -41,8 +39,7 @@ interface CardProps {
   onProgress: (card: CardModel, value: number) => void;
   onDelete: (card: CardModel) => void;
   /** Whether the × is offered at all. A board hides it where it has nothing
-   *  to do — a project card already out of the working area, which the ×
-   *  would hand back to a place it is already in (removal.offersRemoval). */
+   *  to do (removal.offersRemoval). */
   deletable?: boolean;
   /** The board will put its own question to the user, so the card must not
    *  ask first. */
@@ -75,7 +72,7 @@ interface CardProps {
   /** This card has a linked review card; deleting it cascades (the board owns
    *  the combined confirmation, so the card skips its own delete prompt). */
   hasLinkedReview?: boolean;
-  /** Attach/mirror targets and callbacks for the assign menu's placement
+  /** Callbacks for the assign menu's placement
    *  section; absent hides it (see placements.ts). */
   placements?: CardPlacements;
   /** Assignees of the linked counterpart card — the reviewer(s) on an original
@@ -423,22 +420,18 @@ export function Card({
         onClose={() => setMenuOpen(false)}
         className="card-stage-menu"
       >
-        {/* A project card is done or not done (#288): Done alone, no In
-            progress — the menu offers what the server takes. */}
-        {offersInProgress(card) && (
-          <button
-            type="button"
-            className={`card-stage-item${isInProgress(card) ? " card-stage-item-active" : ""}`}
-            onClick={pickInProgress}
-          >
-            <span
-              className="card-stage-dot"
-              style={{ background: DEFAULT_BAR_COLOR }}
-            />
-            In Progress
-          </button>
-        )}
-        {stageChoices(card).map((stage) =>
+        <button
+          type="button"
+          className={`card-stage-item${isInProgress(card) ? " card-stage-item-active" : ""}`}
+          onClick={pickInProgress}
+        >
+          <span
+            className="card-stage-dot"
+            style={{ background: DEFAULT_BAR_COLOR }}
+          />
+          In Progress
+        </button>
+        {STAGE_ORDER.map((stage) =>
           // Refused is the owner's own answer and is offered only on their
           // board; elsewhere the stage still RENDERS on a card that carries
           // it — the lead has to see it — but cannot be chosen.
@@ -520,11 +513,9 @@ export function Card({
 
   return (
     <div
-      className={`card${selected ? " card-selected" : ""}${card.overdue ? " card-overdue" : ""}${(selectedBy?.length ?? 0) > 0 ? " card-peer-selected" : ""}${
-        // Where the card came FROM, said by the stripe down its left edge: a
-        // Project-board commitment, or somebody else's work waiting on this
-        // person. A review card is the innermost of the two — it IS the
-        // waiting — so it wins where they meet.
+      className={`card${selected ? " card-selected" : ""}${(selectedBy?.length ?? 0) > 0 ? " card-peer-selected" : ""}${
+        // Where the card came FROM, said by the stripe down its left edge:
+        // somebody else's work waiting on this person.
         markOf(card) ? ` card-${markOf(card)}` : ""
       }${dimAvatar ? " card-dim-avatar" : ""}${
         groupTarget ? " card-group-target" : ""
@@ -858,33 +849,6 @@ export function Card({
                   .map((p) => p)
                   .join(", ")}
               </div>
-            )}
-            {/* What this card is part of — the menu is where a person asks
-                "whose is this?", and the answer starts with where it came
-                from. */}
-            {hasOriginToShow(card) && (
-              <div className="card-assign-origin">
-                {(card.project || card.scope) && (
-                  <span>
-                    <span className="card-assign-origin-kind">
-                      {card.project ? "project" : "column"}
-                    </span>
-                    {card.project}
-                    {card.project && card.scope ? " · " : ""}
-                    {card.scope}
-                  </span>
-                )}
-              </div>
-            )}
-            {placements?.attach && (
-              <PlacementMenu
-                label="Attach to project…"
-                targets={placements.attach}
-                onPick={(project, scope) => {
-                  placements.onAttachProject(project, scope);
-                  setAssignOpen(false);
-                }}
-              />
             )}
             {/* One action, not a menu: a card goes on its own team's shelf,
                 and every team has one. */}

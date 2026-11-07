@@ -5,8 +5,8 @@ package board
 // the nearest ancestor's — so a task with no team of its own under an epic
 // of portal is portal's work on the Team board, in the Backlog, in every
 // team filter and in portal's sprint, while the epic's team is never
-// written down onto it. A review card stands under its task's; a project
-// card under none (H4); a plan item keeps its own. The no-team group is
+// written down onto it. A review card stands under its task's; a plan
+// item keeps its own. The no-team group is
 // the cards that stand under no team.
 //
 // The OWN team stays what storage, the domain rule (DomainOf) and every
@@ -36,7 +36,7 @@ func PlacedTeams(b Board) map[string]string {
 
 // PlacedTeam is one card's placed team on a board.
 func PlacedTeam(b Board, c Card) string {
-	if c.Team != "" && c.Scope == "" {
+	if c.Team != "" {
 		return c.Team
 	}
 	return NewIndex(b).PlacedTeam(c)

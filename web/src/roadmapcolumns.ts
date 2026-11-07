@@ -11,13 +11,15 @@ export const ROADMAP_COLUMNS: readonly RoadmapColumn[] = ["title", "owner", "sta
 
 export type ColumnWidths = Record<RoadmapColumn, number>;
 
-/** COLUMN_DEFAULTS are the widths the board opened with before columns
- *  could be sized: a 680px table. */
-export const COLUMN_DEFAULTS: ColumnWidths = { title: 290, owner: 150, start: 64, end: 64, status: 112 };
+/** COLUMN_DEFAULTS are the widths the board opens with: a 712px table. */
+export const COLUMN_DEFAULTS: ColumnWidths = { title: 290, owner: 150, start: 64, end: 64, status: 144 };
 
 /** COLUMN_MINS are the floors: no column collapses, and Status keeps room
- *  for its widest pill, IN PROGRESS. */
-export const COLUMN_MINS: ColumnWidths = { title: 120, owner: 60, start: 48, end: 48, status: 110 };
+ *  for its widest badge — the two-part "P0 | IN PROGRESS" (K15), 116px in
+ *  the browser, plus the cell's padding before the timeline — with some to
+ *  spare for a wider font. A width stored before (the single pill's 112) is
+ *  clamped up to it on reading. */
+export const COLUMN_MINS: ColumnWidths = { title: 120, owner: 60, start: 48, end: 48, status: 140 };
 
 /** COLUMN_MAX is the ceiling of any column. */
 export const COLUMN_MAX = 1200;

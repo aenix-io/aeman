@@ -13,6 +13,7 @@ import type {
   Card,
   CardType,
   Note,
+  Priority,
   SprintState,
   StageKey,
   ZoneKey,
@@ -124,7 +125,6 @@ export function resourceToCard(res: CardResource): Card {
       ? { status: res.status.hierarchy.status, done: res.status.hierarchy.done, total: res.status.hierarchy.total }
       : undefined,
     reviewRound: res.status?.reviewRound,
-    overdue: res.status?.overdue ?? false,
     asOf: res.status?.asOf,
     doneAt: res.status?.doneAt || undefined,
     recurrence: spec.recurrence || undefined,
@@ -132,9 +132,16 @@ export function resourceToCard(res: CardResource): Card {
     startDate: dates.start || undefined,
     sprintStart: dates.sprint || undefined,
     parked: spec.parked || undefined,
+    priority: (spec.priority as Priority | "" | undefined) || undefined,
+    effectivePriority: (res.status?.effectivePriority as Priority | "" | undefined) || undefined,
+    effectivePriorityFrom: res.status?.effectivePriorityFrom
+      ? {
+          uid: res.status.effectivePriorityFrom.uid,
+          type: (res.status.effectivePriorityFrom.type as CardType | undefined) || undefined,
+          title: res.status.effectivePriorityFrom.title,
+        }
+      : undefined,
     size: sizeFromWire(spec.size),
-    scope: spec.scope || undefined,
-    project: spec.project || undefined,
     // A summary listing omits the body: description stays undefined ("not
     // loaded") and the boards fetch it on selection. A full resource with a
     // genuinely empty body also arrives undefined (the field is omitempty) —

@@ -174,11 +174,11 @@ func TestAPastDayIsServedAsThatDaysOwnBoard(t *testing.T) {
 		t.Fatalf("the sprint pointer of that day = %q, want the one it had (2026-08-20)", found)
 	}
 
-	// Only the DAY boards have a day to be a record of. The Project and
-	// Process boards lay every week out at once — a day means nothing there —
-	// so the flag is ignored and the live board answers, which is what
-	// docs/api.md, docs/dates.md and G60 all say.
-	for _, view := range []string{"project", "all", "backlog"} {
+	// Only the DAY boards have a day to be a record of. The others are not
+	// placed by a day — a day means nothing there — so the flag is ignored
+	// and the live board answers, which is what docs/api.md, docs/dates.md
+	// and G60 all say.
+	for _, view := range []string{"roadmap", "all", "backlog"} {
 		items, asOf, _ := read("view=" + view + "&day=2026-08-21&snapshot=1")
 		if asOf != "" {
 			t.Fatalf("view=%s claimed a moment (%s); only Me and Team have days", view, asOf)

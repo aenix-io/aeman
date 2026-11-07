@@ -20,10 +20,12 @@ type fakeBackend struct {
 	// mu guards every field: the service runs background goroutines (the
 	// async title resolve, carry-over sprint writes), so the fake is hit
 	// concurrently with the test's assertions.
-	mu     sync.Mutex
-	refs   map[string]board.Link
-	b      board.Board
-	events map[string][]board.Event // the history AppendEvent recorded, by card
+	mu sync.Mutex
+	// unwritable is the cards CheckWrite refuses, by id.
+	unwritable map[string]bool
+	refs       map[string]board.Link
+	b          board.Board
+	events     map[string][]board.Event // the history AppendEvent recorded, by card
 	// deleteErr makes DeleteCard fail, for the paths that must report what
 	// they could not undo.
 	deleteErr error
@@ -190,11 +192,11 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 	card := board.Card{
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Type: in.Type, Domain: in.Domain,
 		Zone: in.Zone, StartDate: in.Start, Day: in.Day, SprintStart: in.SprintStart,
-		Week: in.Week, Scope: in.Scope, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
+		Team: in.Team, ReviewOf: in.ReviewOf,
 		// Parent is deliberately NOT copied: this fake stands for a backend
 		// that cannot write the link at create, so the service's own
 		// grouping (and its compensating delete, parentErr) is exercised.
-		Parked: in.Parked, Size: in.Size,
+		Parked: in.Parked, Size: in.Size, Priority: in.Priority,
 		Recurrence:  in.Recurrence,
 		Description: in.Body,
 		Assignees:   []string{},
@@ -444,12 +446,20 @@ func (f *fakeBackend) SetBacklog(
 	return nil
 }
 
-func (f *fakeBackend) SetWeek(_ context.Context, _ board.Board, card board.Card, week string) error {
+// CheckWrite refuses the cards named unwritable, as the server's rights do.
+func (f *fakeBackend) CheckWrite(_ context.Context, _ board.Board, card board.Card) error {
+	if f.unwritable[card.ItemID] {
+		return ErrForbidden
+	}
+	return nil
+}
+
+func (f *fakeBackend) SetPriority(_ context.Context, _ board.Board, card board.Card, priority board.PriorityKey) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.rec("SetWeek %s %s", card.ItemID, week)
+	f.rec("SetPriority %s %s", card.ItemID, priority)
 	if c := f.get(card.ItemID); c != nil {
-		c.Week = week
+		c.Priority = priority
 	}
 	return nil
 }
@@ -467,26 +477,6 @@ func (f *fakeBackend) SetTeam(_ context.Context, _ board.Board, card board.Card,
 	}
 	if c := f.get(card.ItemID); c != nil {
 		c.Team = team
-	}
-	return nil
-}
-
-func (f *fakeBackend) SetScope(_ context.Context, _ board.Board, card board.Card, scope string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetScope %s %s", card.ItemID, scope)
-	if c := f.get(card.ItemID); c != nil {
-		c.Scope = scope
-	}
-	return nil
-}
-
-func (f *fakeBackend) SetProject(_ context.Context, _ board.Board, card board.Card, project string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetProject %s %s", card.ItemID, project)
-	if c := f.get(card.ItemID); c != nil {
-		c.Project = project
 	}
 	return nil
 }
@@ -1089,7 +1079,7 @@ func TestCarryOverReseedsFinishedRecurrent(t *testing.T) {
 	old := "2026-01-01"
 	f := newFake([]board.Card{
 		{ItemID: "r1", Team: "alpha", SprintStart: old, Stage: board.StageRecurrent, Progress: 100,
-			Title: "standup", Description: "daily sync", Assignees: []string{"bob"}, Zone: board.ZoneGray},
+			Title: "standup", Description: "daily sync", Assignees: []string{"bob"}, Zone: board.ZoneGray, Priority: board.PriorityP2},
 		{ItemID: "r2", Team: "alpha", SprintStart: old, Stage: board.StageRecurrent, Progress: 40},
 	}, map[string]board.SprintState{"alpha": {Current: old}})
 	today := board.TodayIso()
@@ -1109,7 +1099,8 @@ func TestCarryOverReseedsFinishedRecurrent(t *testing.T) {
 		t.Fatalf("expected one reseed create; creates=%v log=%v", f.creates, f.log)
 	}
 	in := f.creates[0]
-	if in.Title != "standup" || in.Team != "alpha" || in.Assignee != "bob" ||
+	// Its priority comes with it, as its size does (K15: nothing clears it).
+	if in.Title != "standup" || in.Team != "alpha" || in.Assignee != "bob" || in.Priority != board.PriorityP2 ||
 		in.SprintStart != today || in.Start != today || in.Day != today {
 		t.Fatalf("reseed input = %+v", in)
 	}
@@ -1336,31 +1327,6 @@ func TestRemoveGridDeletesWhenNoPreviousSprintAndNowhereElse(t *testing.T) {
 }
 
 // --- The grid x hands a card back; it never destroys one (matrix A1) --------
-
-// The incident this rule exists for: a project card created and assigned the
-// same day, removed from the person's grid, was deleted outright — gone from
-// the weekly plan AND from the Project board, because the grid x had no
-// project-card guard and a same-day card has no earlier sprint to demote into.
-func TestRemoveGridReleasesProjectCardInsteadOfDeleting(t *testing.T) {
-	// A pre-rule shape: the column card still names a team and a person (a
-	// sprint it cannot carry at all any more — the board reads one off, H4).
-	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Scope: "Journal", Project: "Portal",
-		StartDate: board.TodayIso(), Assignees: []string{"bob"}}},
-		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
-	if err := f2svc(f).Remove(ctx, "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
-		t.Fatal(err)
-	}
-	c := f.get("c1")
-	if c == nil {
-		t.Fatalf("a project card is never deleted by the grid x; log=%v", f.log)
-	}
-	if len(c.Assignees) != 0 || c.SprintStart != "" {
-		t.Fatalf("removing from a person hands the card back: %+v", c)
-	}
-	if c.Scope != "Journal" || c.Project != "Portal" {
-		t.Fatalf("it keeps its Project-board column: %+v", c)
-	}
-}
 
 // Being on someone is not a second home: a card nobody has worked on, in no
 // band and under no column, is deleted by the x even when it has an
