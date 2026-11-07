@@ -6186,9 +6186,10 @@ button.card-age {
 /* The drawer's identity line: the card's id to copy, and its link. */
 .drawer-identity {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-top: 4px;
+  margin-bottom: 10px;
 }
 
 /* "Copy ID" and "Copy link": two small chips under the title. */
