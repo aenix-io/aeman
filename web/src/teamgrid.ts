@@ -31,7 +31,7 @@ export function inHandOn(
   currentSprint = "",
 ): boolean {
   // The day boards draw TASKS: a goal, an initiative or an epic is the
-  // Roadmap's (H3), and a subtask rides its parent. A task under an epic is
+  // Strategy's (H3), and a subtask rides its parent. A task under an epic is
   // neither — it stands here like any task (H1). Mirrors board.TeamGrid.
   if (isPlanning(c) || isSubtask(c) || parked(c)) {
     return false;

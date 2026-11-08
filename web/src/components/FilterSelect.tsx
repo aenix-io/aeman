@@ -29,7 +29,7 @@ export function toggled(selected: readonly string[], v: string): string[] {
   return selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v];
 }
 
-/** QuickChoice is a board's one-click shortcut — the Roadmap's "Hide
+/** QuickChoice is a board's one-click shortcut — the Strategy board's "Hide
  *  done" — offered at the foot of its filter's menu in the place and the
  *  look of the way back to "all" while nothing is chosen; once something is,
  *  "all" stands there instead. */

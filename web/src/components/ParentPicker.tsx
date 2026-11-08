@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Card as CardModel, LineageRef } from "../providers/types";
-import { KIND_LABEL, parentOptions, type RoadmapKind } from "../roadmap";
+import { KIND_LABEL, parentOptions, type StrategyKind } from "../strategy";
 import { Dropdown } from "./Dropdown";
 import { KindIcon } from "./KindIcon";
 
@@ -21,7 +21,7 @@ export function ParentChain({ chain }: { chain: Pick<CardModel, "itemId" | "titl
               ›
             </span>
           )}
-          <KindIcon kind={(c.type ?? "task") as RoadmapKind} size={11} />
+          <KindIcon kind={(c.type ?? "task") as StrategyKind} size={11} />
           <span className="drawer-pick-chain-title">{c.title}</span>
         </span>
       ))}
@@ -31,11 +31,11 @@ export function ParentChain({ chain }: { chain: Pick<CardModel, "itemId" | "titl
 
 interface ParentOptionListProps {
   /** The kind of the card being filed: it decides which levels are offered
-   *  (roadmap.allowedParentKinds, H2). */
-  kind: RoadmapKind;
+   *  (strategy.allowedParentKinds, H2). */
+  kind: StrategyKind;
   /** The card's parent now, marked in the list. */
   current?: string;
-  /** Every card the list may choose from (the roadmap listing); null while
+  /** Every card the list may choose from (the strategy listing); null while
    *  it is still being fetched. The list filters by level itself and never
    *  offers the card its own descendants. */
   options: CardModel[] | null;
@@ -56,7 +56,7 @@ export function ParentOptionList({ kind, current, options, self, onPick }: Paren
     return () => window.clearTimeout(t);
   }, []);
 
-  // One read of the options for the list and its labels (roadmap.parentOptions).
+  // One read of the options for the list and its labels (strategy.parentOptions).
   const groups = useMemo(() => (options ? parentOptions(kind, options, self, query) : null), [options, kind, self, query]);
 
   return (
@@ -104,7 +104,7 @@ export function ParentOptionList({ kind, current, options, self, onPick }: Paren
 }
 
 interface ParentPickerProps {
-  kind: RoadmapKind;
+  kind: StrategyKind;
   /** The parent as the card shows it now — the last crumb of its lineage. */
   current?: LineageRef;
   options: CardModel[] | null;
@@ -148,7 +148,7 @@ export function ParentPicker({ kind, current, options, self, disabled, onOpen, o
       >
         {current ? (
           <>
-            <KindIcon kind={(current.type ?? "task") as RoadmapKind} />
+            <KindIcon kind={(current.type ?? "task") as StrategyKind} />
             <span className="drawer-pick-text">{current.title}</span>
           </>
         ) : (

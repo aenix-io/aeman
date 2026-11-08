@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Card as CardModel, LineageRef } from "../providers/types";
 import { blocksOf, dependencyOptions, dependencyRows } from "../dependencies";
-import { kindOf, type RoadmapKind } from "../roadmap";
+import { kindOf, type StrategyKind } from "../strategy";
 import { Dropdown } from "./Dropdown";
 import { KindIcon } from "./KindIcon";
 import { ParentChain } from "./ParentPicker";
@@ -9,9 +9,9 @@ import { StatusPill } from "./PlanTree";
 
 interface DependsOnProps {
   card: CardModel;
-  /** Every card the drawer knows: the board's and the roadmap listing's. */
+  /** Every card the drawer knows: the board's and the strategy listing's. */
   known: CardModel[];
-  /** The candidates for a new dependency (the roadmap listing); null while
+  /** The candidates for a new dependency (the strategy listing); null while
    *  it is still being fetched. */
   options: CardModel[] | null;
   readOnly?: boolean;
@@ -22,8 +22,8 @@ interface DependsOnProps {
   onOpen: (uid: string) => void;
 }
 
-const kindOfRef = (r: LineageRef & { card?: CardModel }): RoadmapKind =>
-  r.card ? kindOf(r.card) : ((r.type ?? "task") as RoadmapKind);
+const kindOfRef = (r: LineageRef & { card?: CardModel }): StrategyKind =>
+  r.card ? kindOf(r.card) : ((r.type ?? "task") as StrategyKind);
 
 /** DependsOn is the drawer's "Depends on" section (docs/design/
  *  dependencies.md) — what this card waits for, each with its status, a
@@ -96,7 +96,7 @@ export function DependsOn({ card, known, options, readOnly, onWantOptions, onAdd
           {blocks.map((b) => (
             <div key={b.uid} className="drawer-child">
               <button type="button" className="drawer-child-open" onClick={() => onOpen(b.uid)}>
-                <KindIcon kind={(b.type ?? "task") as RoadmapKind} />
+                <KindIcon kind={(b.type ?? "task") as StrategyKind} />
                 <span className="drawer-child-title">{b.title}</span>
               </button>
             </div>
@@ -107,7 +107,7 @@ export function DependsOn({ card, known, options, readOnly, onWantOptions, onAdd
   );
 }
 
-/** DependencyOptionList is the picker's body: a search over the roadmap and
+/** DependencyOptionList is the picker's body: a search over the strategy and
  *  every card this one may wait for (dependencies.dependencyOptions), each
  *  with its chain. */
 export function DependencyOptionList({
@@ -154,7 +154,7 @@ export function DependencyOptionList({
         </button>
       ))}
       {offered && offered.length === 0 && (
-        <span className="add-card-team-item modal-parent-loading">{query ? "Nothing on the roadmap matches" : "Nothing to wait for"}</span>
+        <span className="add-card-team-item modal-parent-loading">{query ? "Nothing on the strategy matches" : "Nothing to wait for"}</span>
       )}
     </>
   );

@@ -19,7 +19,7 @@ import {
 } from "../../api/resources";
 import type { components, paths } from "../../api/schema";
 import { splitDayLogs } from "../../daylog";
-import { viewOf, wireView } from "../../viewquery";
+import { viewOf } from "../../viewquery";
 import { createView, type ViewName } from "../../views";
 import type { Member } from "../../users";
 import type {
@@ -363,7 +363,7 @@ export const apiProvider: Provider = {
       parent: input.parent ? await resolveCardId(input.parent) : "",
     };
     if (input.type) {
-      body.type = input.type; // a planning card: the Roadmap's create
+      body.type = input.type; // a planning card: the Strategy board's create
     }
     // A day card passes its start/end and the server joins (or records) the
     // sprint itself.
@@ -393,7 +393,7 @@ export const apiProvider: Provider = {
       body.before = await resolveCardId(input.before);
     }
     return cardFrom(
-      client.POST("/views/{view}/cards", { params: { path: { view: wireView(view) } }, body }),
+      client.POST("/views/{view}/cards", { params: { path: { view } }, body }),
     );
   },
 

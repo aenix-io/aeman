@@ -784,7 +784,7 @@ export function Landing({ card, forbidden = false }: { card: CardModel; forbidde
 
 /** ParentChain is a card's parent chain, root first — goal, initiative,
  *  epic — on the right side of the card, each with its kind icon as the
- *  Roadmap draws it. Every name opens that planning card's drawer; a long one
+ *  Strategy draws it. Every name opens that planning card's drawer; a long one
  *  is cut short and named whole in its tooltip. */
 export function ParentChain({ chain, onOpen }: { chain: readonly LineageRef[]; onOpen: (uid: string) => void }) {
   if (chain.length === 0) {

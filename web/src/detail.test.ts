@@ -49,7 +49,7 @@ describe("the drawer's card", () => {
 });
 
 // A scoped watch's DELETED says a card LEFT the board's selection — on a
-// filtered Roadmap, the author's own reassignment does that — and carries the
+// filtered Strategy, the author's own reassignment does that — and carries the
 // card as it now is; only a card deleted outright arrives as a bare uid. The
 // drawer closes for the second alone.
 describe("a DELETED frame", () => {

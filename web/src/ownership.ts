@@ -159,13 +159,13 @@ export function effectiveCustomersOf(c: Card, cards: Held): string[] {
   return out;
 }
 
-/** roadmapOwnerCell is what the Roadmap's Owner column shows for a card:
+/** strategyOwnerCell is what the Strategy board's Owner column shows for a card:
  *  its own team and person (a plan item's owner, a task's first assignee),
  *  and — when it has no team of its own — the team it takes from above, with
  *  the title it comes from (`from`, "" when only the server knows), to be
  *  drawn greyed (O3). A task somebody holds shows them as it is; a plan
  *  item's owner is its own only, never inherited (O2). */
-export function roadmapOwnerCell(
+export function strategyOwnerCell(
   c: Card,
   cards: Held,
   planning: boolean,
@@ -244,7 +244,7 @@ export function customerChips(c: Card, cards: Held): CustomerChip[] {
   return out;
 }
 
-/** ownerFilterOptions is whom the Roadmap's Owner filter offers — its one
+/** ownerFilterOptions is whom the Strategy board's Owner filter offers — its one
  *  person filter (O8): the board's members, every plan item's owner, every
  *  task's assignee, whoever is already chosen and whoever the board has
  *  shown before (`seen`: a filtered listing holds only the filter's answer,
@@ -287,49 +287,49 @@ export function peopleOf(cards: readonly Pick<Card, "owner" | "assignees">[]): s
   return [...out];
 }
 
-/** RoadmapFilters are the Roadmap's team, customer, owner and status
+/** StrategyFilters are the Strategy board's team, customer, owner and status
  *  filters (O7, O8), passed to the server's listing and watch. Statuses are
  *  the Status filter's values (workstatus.ts): in-progress, backlog,
  *  locked, no-items, done. */
-export interface RoadmapFilters {
+export interface StrategyFilters {
   teams: string[];
   customers: string[];
   owners: string[];
   statuses: string[];
 }
 
-export const NO_ROADMAP_FILTERS: RoadmapFilters = { teams: [], customers: [], owners: [], statuses: [] };
+export const NO_STRATEGY_FILTERS: StrategyFilters = { teams: [], customers: [], owners: [], statuses: [] };
 
-/** ROADMAP_FILTERS_KEY is where the viewer's choice is remembered. */
-export const ROADMAP_FILTERS_KEY = "aeman.strategy.filters";
+/** STRATEGY_FILTERS_KEY is where the viewer's choice is remembered. */
+export const STRATEGY_FILTERS_KEY = "aeman.strategy.filters";
 
-/** ROADMAP_FILTERS_VERSION marks a choice stored since the Status filter
+/** STRATEGY_FILTERS_VERSION marks a choice stored since the Status filter
  *  took Locked and No items (O14). */
-const ROADMAP_FILTERS_VERSION = 2;
+const STRATEGY_FILTERS_VERSION = 2;
 
-/** storeRoadmapFilters writes the choice to remember, versioned. */
-export function storeRoadmapFilters(f: RoadmapFilters): string {
-  return JSON.stringify({ ...f, v: ROADMAP_FILTERS_VERSION });
+/** storeStrategyFilters writes the choice to remember, versioned. */
+export function storeStrategyFilters(f: StrategyFilters): string {
+  return JSON.stringify({ ...f, v: STRATEGY_FILTERS_VERSION });
 }
 
-/** storedRoadmapFilters reads the remembered choice; anything else is no
+/** storedStrategyFilters reads the remembered choice; anything else is no
  *  filter. A Hide done stored before Locked and No items existed — In
  *  progress + Backlog, then the only way to say "everything but done" —
  *  reads as today's Hide done. */
-export function storedRoadmapFilters(raw: string | null): RoadmapFilters {
+export function storedStrategyFilters(raw: string | null): StrategyFilters {
   if (!raw) {
-    return { ...NO_ROADMAP_FILTERS };
+    return { ...NO_STRATEGY_FILTERS };
   }
   try {
-    const v = JSON.parse(raw) as Partial<RoadmapFilters> & { v?: unknown };
+    const v = JSON.parse(raw) as Partial<StrategyFilters> & { v?: unknown };
     const list = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
     let statuses: string[] = list(v.statuses).filter(isStatusFilter);
     const oldHideDone = statuses.length === 2 && statuses.includes("backlog") && statuses.includes("in-progress");
-    if (v.v !== ROADMAP_FILTERS_VERSION && oldHideDone) {
+    if (v.v !== STRATEGY_FILTERS_VERSION && oldHideDone) {
       statuses = [...HIDE_DONE];
     }
     return { teams: list(v.teams), customers: list(v.customers), owners: list(v.owners), statuses };
   } catch {
-    return { ...NO_ROADMAP_FILTERS };
+    return { ...NO_STRATEGY_FILTERS };
   }
 }

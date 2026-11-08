@@ -110,7 +110,7 @@ describe("the board in the address", () => {
     expect(calls[0].body).toBeUndefined();
   });
 
-  // The Roadmap's badge menu (K16): UNASSIGNED, a card action naming the
+  // The Strategy board's badge menu (K16): UNASSIGNED, a card action naming the
   // tasks it counted. (There is no priority action: priorities were
   // removed.)
   it("takes work out of work through the card's actions", async () => {
@@ -132,7 +132,7 @@ describe("the board in the address", () => {
   });
 
   // A planning card is the Strategy board's create, addressed by the board's
-  // name; the Roadmap was its old one, and the client sends the new.
+  // name; the Strategy board was its old one, and the client sends the new.
   it("creates a planning card into the Strategy board", async () => {
     standingOn("view=strategy");
     await apiProvider.createCard({ title: "Grow", type: "goal", team: null });

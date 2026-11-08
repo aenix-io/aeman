@@ -1,6 +1,6 @@
 import type { Card } from "./providers/types";
 
-/** isPlanning reports a goal, an initiative or an epic — a card the Roadmap
+/** isPlanning reports a goal, an initiative or an epic — a card the Strategy board
  *  draws and no day board does. Mirrors board.IsPlanning. */
 export function isPlanning(c: Pick<Card, "type">): boolean {
   return !!c.type;

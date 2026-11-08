@@ -13,7 +13,7 @@ import {
   withFetched,
   withoutDependency,
 } from "./dependencies";
-import { latestWins } from "./roadmap";
+import { latestWins } from "./strategy";
 
 const card = (c: Partial<Card> & { itemId: string }): Card => ({ title: c.itemId, assignees: [], ...c });
 

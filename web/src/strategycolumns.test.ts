@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   COLUMN_DEFAULTS,
   COLUMN_MINS,
-  ROADMAP_COLUMNS_KEY,
+  STRATEGY_COLUMNS_KEY,
   columnVars,
   draggedWidths,
   resized,
@@ -11,14 +11,14 @@ import {
   steppedWidth,
   storedColumns,
   tableWidth,
-} from "./roadmapcolumns";
+} from "./strategycolumns";
 
-// The Roadmap's table columns are the reader's to size: every boundary in
+// The Strategy board's table columns are the reader's to size: every boundary in
 // the header — Card | Owner | Start | End | Status, and Status | the
 // timeline, which is the split between the table and the timeline — drags,
 // double-click puts the column back, and the widths are remembered per
 // viewer. Nothing collapses: each column has a floor.
-describe("the Roadmap's column widths", () => {
+describe("the Strategy board's column widths", () => {
   it("start at the defaults, the table as wide as they add up", () => {
     expect(storedColumns(null)).toEqual(COLUMN_DEFAULTS);
     expect(tableWidth(COLUMN_DEFAULTS)).toBe(712);
@@ -52,7 +52,7 @@ describe("the Roadmap's column widths", () => {
     const raw = JSON.stringify({ title: 400, owner: 5, status: "wide", bogus: 3 });
     expect(storedColumns(raw)).toEqual({ ...COLUMN_DEFAULTS, title: 400, owner: COLUMN_MINS.owner });
     expect(storedColumns("not json")).toEqual(COLUMN_DEFAULTS);
-    expect(ROADMAP_COLUMNS_KEY).toBe("aeman.strategy.columns");
+    expect(STRATEGY_COLUMNS_KEY).toBe("aeman.strategy.columns");
   });
 
   it("put one column back on a double-click", () => {

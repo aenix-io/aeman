@@ -38,8 +38,8 @@ import {
   planningRemoval,
   cardsAfterDelete,
   statusOf,
-  type RoadmapKind,
-} from "../roadmap";
+  type StrategyKind,
+} from "../strategy";
 import { isPlanning, isSubtask, subtaskParent } from "../subtasks";
 import { Avatar } from "./Avatar";
 import { DescriptionEditor } from "./DescriptionEditor";
@@ -68,7 +68,7 @@ interface CardDetailProps {
    *  the pane keeps its own list until the watch catches up. */
   addCard?: (card: CardModel) => void;
   removeCard?: (itemId: string) => void;
-  /** A breadcrumb was followed: show that card on the Roadmap. */
+  /** A breadcrumb was followed: show that card on the Strategy board. */
   onReveal?: (uid: string) => void;
   /** A crumb, a child row, the task a subtask rides: open that card here,
    *  in this drawer, with a way back. */
@@ -94,7 +94,7 @@ interface CardDetailProps {
 
 const errMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-// The roadmap listing the panes read, shared by every pane opened on the
+// The strategy listing the panes read, shared by every pane opened on the
 // board for a minute, so going from card to card does not fetch it again.
 // Any watch frame and any write made from a pane makes it stale.
 const LISTING_TTL_MS = 60_000;
@@ -153,7 +153,7 @@ export function CardDetail({
   const subtask = isSubtask(card);
 
   // The hierarchy around this card: what it may sit under, and what sits
-  // under it. Both come from the roadmap listing, which holds every planning
+  // under it. Both come from the strategy listing, which holds every planning
   // card and every card under one — the day boards never deliver a planning
   // card, so a pane opened from one has only the lineage until this
   // arrives. Fetched once per card, when the pane needs it: a planning
@@ -167,7 +167,7 @@ export function CardDetail({
       return;
     }
     // A plan item's "Under it" and a task's parent picker read the same
-    // listing: the Roadmap's.
+    // listing: the Strategy board's.
     const key = "plan";
     const cached = cachedListing(key, Date.now());
     if (cached) {
@@ -445,7 +445,7 @@ export function CardDetail({
     }
     const before = { parent: card.parent, lineage: card.lineage };
     // The optimistic lineage: the parent's own plus the parent, so the
-    // breadcrumb and the Roadmap's tree read right before the server answers.
+    // breadcrumb and the Strategy board's tree read right before the server answers.
     patchCard(card.itemId, {
       parent: nextId || undefined,
       lineage: next ? [...(next.lineage ?? []), { uid: next.itemId, type: next.type, title: next.title }] : undefined,
@@ -496,7 +496,7 @@ export function CardDetail({
       });
   };
 
-  // A planning card's dates are its bar on the Roadmap; a task's are its
+  // A planning card's dates are its bar on the Strategy board; a task's are its
   // placement on the day boards
   // and are moved there, so here they only read.
   const editsDates = !isRecord && !task;
@@ -515,7 +515,7 @@ export function CardDetail({
       });
   };
 
-  // What sits under a planning card: the Roadmap's tree, rooted one level
+  // What sits under a planning card: the Strategy board's tree, rooted one level
   // below this card (PlanTree), over the hierarchy the pane holds.
   const hasChildren = useMemo(() => known.some((c) => c.parent === card.itemId), [known, card.itemId]);
 
@@ -545,7 +545,7 @@ export function CardDetail({
 
   // ---- the × on a child, and the actions on the card itself ----
   // One dialog for all of it: the Team board's own, with the hierarchy's two
-  // answers — delete, or only unlink (roadmap.hierarchyChoices).
+  // answers — delete, or only unlink (strategy.hierarchyChoices).
   const [choosing, setChoosing] = useState<{ card: CardModel; choices: RemoveChoice[] } | null>(null);
   const answer = (target: CardModel, choice: RemoveChoice) => {
     // Detach a child of a planning card, or ungroup a subtask: the same
@@ -909,7 +909,7 @@ export function CardDetail({
         <header className="drawer-head">
           {/* Where this card stands in the hierarchy, root first: the goal,
               the initiative, the epic — and for a subtask, its task. A
-              planning crumb leads to the Roadmap, which is the one board that
+              planning crumb leads to the Strategy board, which is the one board that
               draws it; a task crumb is a name, since the day boards are where
               a task is met. */}
           {(onBack || crumbs.length > 0) && (
@@ -920,7 +920,7 @@ export function CardDetail({
                 </button>
               )}
               {/* Every crumb opens that card here; a planning crumb also
-                  offers the Roadmap, which is the one board that draws it. */}
+                  offers the Strategy board, which is the one board that draws it. */}
               {crumbs.map((up, i) => (
                 <span key={up.uid} className="modal-crumb">
                   {i > 0 && (
@@ -928,7 +928,7 @@ export function CardDetail({
                       ›
                     </span>
                   )}
-                  <KindIcon kind={(up.type ?? "task") as RoadmapKind} />
+                  <KindIcon kind={(up.type ?? "task") as StrategyKind} />
                   {onOpenCard ? (
                     <button
                       type="button"
@@ -1145,7 +1145,7 @@ export function CardDetail({
                         >
                           <KindIcon kind="subtask" />
                           <span className="drawer-child-title">{c.title}</span>
-                          <span className={`roadmap-status roadmap-status-${statusOf(c)}`}>{STATUS_LABEL[statusOf(c)]}</span>
+                          <span className={`strategy-status strategy-status-${statusOf(c)}`}>{STATUS_LABEL[statusOf(c)]}</span>
                         </button>
                         {!isRecord && (
                           <button
@@ -1202,7 +1202,7 @@ export function CardDetail({
                   </section>
                 )}
 
-                {/* What sits under a planning card, as the Roadmap groups it:
+                {/* What sits under a planning card, as the Strategy board groups it:
                     the levels below, the tasks. A row opens
                     that card here; its × asks the Team board's question. */}
                 {planning && (
@@ -1283,7 +1283,7 @@ export function CardDetail({
             {row(
               "Status",
               <>
-                <span className={`roadmap-status roadmap-status-${status}`}>{STATUS_LABEL[status]}</span>
+                <span className={`strategy-status strategy-status-${status}`}>{STATUS_LABEL[status]}</span>
                 {planning && card.hierarchy && card.hierarchy.total > 0 && (
                   <span className="modal-level-count" title="Tasks done, of those under it">
                     {card.hierarchy.done}/{card.hierarchy.total}
@@ -1357,7 +1357,7 @@ export function CardDetail({
                     title="Who reviews it"
                     onClick={() => setReviewerOpen((o) => !o)}
                   >
-                    {reviewer && <Avatar login={reviewer} avatars={avatars} names={names} className="avatar-img roadmap-owner-avatar" />}
+                    {reviewer && <Avatar login={reviewer} avatars={avatars} names={names} className="avatar-img strategy-owner-avatar" />}
                     <span className="drawer-pick-text">{reviewer ? displayName(reviewer, names) : "Nobody yet"}</span>
                     {!isRecord && !temp && <span className="add-card-team-caret">▾</span>}
                   </button>
@@ -1566,7 +1566,7 @@ export function CardDetail({
 
 /** DrawerOwnerFace is what the drawer's Owner shows: the card's own team and
  *  person, or — with no team of its own — the team it counts under (O3),
- *  drawn translucent as the Roadmap's Owner cell draws it, with where it
+ *  drawn translucent as the Strategy board's Owner cell draws it, with where it
  *  comes from in the tooltip. The picker around it still sets the card's OWN
  *  value. */
 function DrawerOwnerFace({
@@ -1590,7 +1590,7 @@ function DrawerOwnerFace({
   return (
     <span className={cls} title={tip}>
       {shown.team && <span className="team-dot drawer-owner-team" style={{ background: teamColor(shown.team) }} />}
-      {shown.person && <Avatar login={shown.person} avatars={avatars} names={names} className="avatar-img roadmap-owner-avatar" />}
+      {shown.person && <Avatar login={shown.person} avatars={avatars} names={names} className="avatar-img strategy-owner-avatar" />}
       <span className="drawer-owner-text">{shown.team || shown.person ? label : "Nobody yet"}</span>
     </span>
   );

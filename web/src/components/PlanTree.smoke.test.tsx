@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { Card } from "../providers/types";
 import { PlanTree, addPlanFor, initialFolded, nextAdding } from "./PlanTree";
 
-// The drawer's "Under it" is the Roadmap's tree rooted one level below the
-// card the drawer shows: the Roadmap's rows — kind, fold, title, owner,
+// The drawer's "Under it" is the Strategy board's tree rooted one level below the
+// card the drawer shows: the Strategy board's rows — kind, fold, title, owner,
 // status — with no timeline and no Start/End; a plan item's + and the add
 // row at the foot, which offers the next level down first.
 const card = (over: Partial<Card>): Card => ({ itemId: "c", title: "a card", assignees: [], progress: 0, ...over }) as Card;
@@ -25,15 +25,15 @@ describe("the drawer's tree", () => {
     expect(html.match(/role="treeitem"/g)?.length).toBe(3);
   });
 
-  it("draws the Roadmap's rows, without dates or a timeline", () => {
+  it("draws the Strategy board's rows, without dates or a timeline", () => {
     const html = draw(goal);
-    expect(html).toContain("roadmap-cell-title");
-    expect(html).toContain("roadmap-cell-owner");
-    expect(html).toContain("roadmap-status");
-    expect(html).not.toContain("roadmap-cell-date");
-    expect(html).not.toContain("roadmap-timeline");
+    expect(html).toContain("strategy-cell-title");
+    expect(html).toContain("strategy-cell-owner");
+    expect(html).toContain("strategy-status");
+    expect(html).not.toContain("strategy-cell-date");
+    expect(html).not.toContain("strategy-timeline");
     // The inherited team shows on a row with none of its own (O3).
-    expect(html).toContain("roadmap-owner-inherited");
+    expect(html).toContain("strategy-owner-inherited");
   });
 
   it("offers a + on a plan item, and an add row for the card's next level first", () => {
@@ -72,7 +72,7 @@ describe("the drawer's rows and the keyboard", () => {
   it("are focusable tree items that say whether they are open", () => {
     const html = draw(goal);
     expect(html).toMatch(/role="treeitem"[^>]*tabindex="0"[^>]*aria-expanded="true"/);
-    expect(html).toMatch(/class="roadmap-rowgroup" role="none"/);
+    expect(html).toMatch(/class="strategy-rowgroup" role="none"/);
   });
 });
 

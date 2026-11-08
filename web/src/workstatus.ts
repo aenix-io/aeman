@@ -1,10 +1,10 @@
-// A task's WORK STATUS, and the rest of what the Roadmap's Status filter
+// A task's WORK STATUS, and the rest of what the Strategy board's Status filter
 // reads (locked, no-items). Mirrors pkg/board board.WorkStatus,
 // TaskStatuses and PlanStatuses. The SERVER applies the filter (the `status`
-// selector of view=roadmap); this is the TS copy of its rule, kept in step
+// selector of view=strategy); this is the TS copy of its rule, kept in step
 // with the Go one case by case by workstatus.test.ts over the shared
 // pkg/board/testdata/work_status.json. workStatus also places a row's badge
-// (roadmap.statusOf); taskStatuses and planStatuses draw nothing — they are
+// (strategy.statusOf); taskStatuses and planStatuses draw nothing — they are
 // the rule written down where the client's tests can hold it to the
 // server's.
 

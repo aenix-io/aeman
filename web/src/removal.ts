@@ -128,10 +128,10 @@ export function asksFirst(
  *  nobody, no day, no sprint (K3); the board sends it as the unassign
  *  intent.
  *
- *  The hierarchy's × has two answers of its own (roadmap.hierarchyChoices):
+ *  The hierarchy's × has two answers of its own (strategy.hierarchyChoices):
  *  "detach" takes the card out from under its parent and changes nothing
  *  else; "delete" destroys it — a planning card's children move up a level
- *  (roadmap.planningRemoval), as the server does (reparentChildren). */
+ *  (strategy.planningRemoval), as the server does (reparentChildren). */
 export type RemoveChoice =
   | "off-board"
   | "ungroup"

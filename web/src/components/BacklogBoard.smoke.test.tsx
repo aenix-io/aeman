@@ -272,7 +272,7 @@ describe("the Backlog board", () => {
 
 // Clicking a name in the chain opens that planning card's drawer: the link
 // hands its uid to the board, which fetches the card and opens the drawer
-// the Roadmap opens (backlogboard.openPlanning).
+// the Strategy board opens (backlogboard.openPlanning).
 describe("the parent chain", () => {
   const buttons = (node: ReactNode): ReactElement<{ onClick: () => void; title: string }>[] => {
     if (Array.isArray(node)) {

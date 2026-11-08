@@ -1,5 +1,5 @@
 // OwnerBadge is whose a task is, drawn the same wherever an owner is shown —
-// the Roadmap's Owner column and the Backlog card: the TEAM's avatar as the
+// the Strategy board's Owner column and the Backlog card: the TEAM's avatar as the
 // Me and Team boards draw it (the coloured circle with its initial); with a
 // person, the person's avatar to its right, OVERLAPPING it by a quarter of
 // its width and on top of it; and beside the group one label — the team when

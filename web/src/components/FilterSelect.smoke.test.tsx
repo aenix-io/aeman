@@ -113,7 +113,7 @@ describe("the styles of the chip rows", () => {
 describe("a quick choice in the filter dropdown", () => {
   // A QUICK choice takes the foot of the menu while nothing is chosen, in
   // the place and the look of the way back to "all", which shows instead
-  // once something is chosen — the Roadmap's Status filter offers "Hide
+  // once something is chosen — the Strategy board's Status filter offers "Hide
   // done", one click for every status but done. No check mark: it is a
   // shortcut, not an option.
   it("offers the quick choice in All's place while nothing is chosen", () => {

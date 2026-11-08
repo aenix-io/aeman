@@ -97,14 +97,14 @@ describe("what a task under an epic may do, that a subtask may not", () => {
   });
 });
 
-describe("the Roadmap is a board", () => {
+describe("the Strategy board is a board", () => {
   it("a create with a type belongs to it", () => {
-    expect(createView({ type: "epic" })).toBe("roadmap");
+    expect(createView({ type: "epic" })).toBe("strategy");
     expect(createView({}, "team")).toBe("team");
   });
   it("lists the hierarchy board-wide, and watches it, never as a snapshot", () => {
-    expect(viewQueries("roadmap", "2026-01-01", ["alpha"], undefined, TODAY)).toEqual([{ view: "strategy" }]);
-    expect(watchQuery("roadmap", TODAY, ["alpha"])).toEqual({ view: "strategy" });
+    expect(viewQueries("strategy", "2026-01-01", ["alpha"], undefined, TODAY)).toEqual([{ view: "strategy" }]);
+    expect(watchQuery("strategy", TODAY, ["alpha"])).toEqual({ view: "strategy" });
   });
 });
 

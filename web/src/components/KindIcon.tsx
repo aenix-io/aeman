@@ -1,7 +1,7 @@
-import { KIND_LABEL, type RoadmapKind } from "../roadmap";
+import { KIND_LABEL, type StrategyKind } from "../strategy";
 
 interface KindIconProps {
-  kind: RoadmapKind;
+  kind: StrategyKind;
   /** Pixels; the glyphs are drawn on a 16-unit grid. */
   size?: number;
   className?: string;
@@ -11,7 +11,7 @@ interface KindIconProps {
 }
 
 /** KindIcon is the pictogram a card's kind wears wherever the hierarchy is
- *  drawn — a Roadmap row, a breadcrumb, a parent picker, a child row — one
+ *  drawn — a Strategy row, a breadcrumb, a parent picker, a child row — one
  *  shape per level, readable at 14px, coloured by the kind's own class:
  *
  *  - goal: a target (what the company is aiming at);
@@ -21,7 +21,7 @@ interface KindIconProps {
  *  - subtask: a branch off its task.
  *
  *  The same mark everywhere is the point: the drawer's crumb and the
- *  Roadmap's row must read as the same thing. */
+ *  Strategy's row must read as the same thing. */
 export function KindIcon({ kind, size = 14, className, label }: KindIconProps) {
   const cls = `kind-icon kind-icon-${kind}${className ? ` ${className}` : ""}`;
   const common = {

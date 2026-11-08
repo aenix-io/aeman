@@ -1,9 +1,9 @@
-// What the Roadmap draws: the hierarchy as a tree of rows and a timeline of
+// What the Strategy board draws: the hierarchy as a tree of rows and a timeline of
 // bars, card by card. It lives in a file of its own for the reason every
 // other mirror does — the tree is assembled from `parent`, the status of a
 // planning card is the server's derived one, and a bar is a card's own
 // dates — so a component re-deciding any of it would drift from what the
-// listing says (docs/design/hierarchy.md, "The Roadmap tab").
+// listing says (docs/design/hierarchy.md, "The Strategy board tab").
 import { keepPlaced, type PlaceFields } from "./backlog";
 import { addDays, mondayOf } from "./date";
 import { isComplete } from "./stages";
@@ -12,50 +12,50 @@ import { lockTitle } from "./dependencies";
 import { isPlanning, isSubtask } from "./subtasks";
 import type { Card, CardPatch, CardType, HierarchyStatus } from "./providers/types";
 
-/** RoadmapKind is what a row IS: the three planning levels, a task, or a
+/** StrategyKind is what a row IS: the three planning levels, a task, or a
  *  subtask (a task under a task). */
-export type RoadmapKind = "goal" | "initiative" | "epic" | "task" | "subtask";
+export type StrategyKind = "goal" | "initiative" | "epic" | "task" | "subtask";
 
 /** LEVELS orders the kinds top-down; the depth selector picks a range of
  *  them. */
-export const LEVELS: readonly RoadmapKind[] = ["goal", "initiative", "epic", "task", "subtask"];
+export const LEVELS: readonly StrategyKind[] = ["goal", "initiative", "epic", "task", "subtask"];
 
 /** levelOf is a kind's rank in LEVELS: 0 for a goal, 4 for a subtask.
  *  Mirrors board.Level, inverted. */
-export function levelOf(kind: RoadmapKind): number {
+export function levelOf(kind: StrategyKind): number {
   return LEVELS.indexOf(kind);
 }
 
-/** kindOf is a card's kind on the Roadmap: its planning type, else a
+/** kindOf is a card's kind on the Strategy board: its planning type, else a
  *  subtask by the parent AS A TASK, else a task. */
-export function kindOf(c: Pick<Card, "type" | "parent" | "lineage">): RoadmapKind {
+export function kindOf(c: Pick<Card, "type" | "parent" | "lineage">): StrategyKind {
   if (isPlanning(c)) {
-    return c.type as RoadmapKind;
+    return c.type as StrategyKind;
   }
   return isSubtask(c) ? "subtask" : "task";
 }
 
-/** RoadmapNode is one card in the tree, with the rows under it. */
-export interface RoadmapNode {
+/** StrategyNode is one card in the tree, with the rows under it. */
+export interface StrategyNode {
   card: Card;
-  kind: RoadmapKind;
-  children: RoadmapNode[];
+  kind: StrategyKind;
+  children: StrategyNode[];
 }
 
 /** buildTree is the forest the listing makes: a card goes under the card its
  *  `parent` names when that card is in the listing, and is a root otherwise.
- *  The roadmap listing is closed under ancestors (a card is on it because a
+ *  The strategy listing is closed under ancestors (a card is on it because a
  *  planning card is above it), so a root with a parent is a card whose
  *  parent the reader may not see — it is drawn at the top rather than
  *  dropped, since a hole is worse than a flat row. Children keep listing
  *  order: the listing is board order, and the Ordering frames keep it so.
  *  Roots come planning cards first, by level, then in listing order. */
-export function buildTree(cards: readonly Card[]): RoadmapNode[] {
-  const byId = new Map<string, RoadmapNode>();
+export function buildTree(cards: readonly Card[]): StrategyNode[] {
+  const byId = new Map<string, StrategyNode>();
   for (const card of cards) {
     byId.set(card.itemId, { card, kind: kindOf(card), children: [] });
   }
-  const roots: RoadmapNode[] = [];
+  const roots: StrategyNode[] = [];
   for (const card of cards) {
     const node = byId.get(card.itemId)!;
     const up = card.parent ? byId.get(card.parent) : undefined;
@@ -68,17 +68,17 @@ export function buildTree(cards: readonly Card[]): RoadmapNode[] {
   return roots.sort((a, b) => levelOf(a.kind) - levelOf(b.kind) || 0);
 }
 
-/** RoadmapSection is where a root of the forest is drawn. The TREE is the
+/** StrategySection is where a root of the forest is drawn. The TREE is the
  *  hierarchy: every planning card and everything under one. Below it, after
  *  everything else, stands the open work that is not in the tree yet — the
- *  roadmap listing carries it so a lead can file it (H9) — in the two places
+ *  strategy listing carries it so a lead can file it (H9) — in the two places
  *  a task can be (K1): IN WORK is what the day boards draw (a card with a
  *  date or a sprint), BACKLOG is what is parked in a team's backlog. There
  *  is no third: the Triage strip ("unsorted") is gone, and every door that
  *  left a task there parks it instead (K3). */
-export type RoadmapSection = "tree" | "in-work" | "backlog";
+export type StrategySection = "tree" | "in-work" | "backlog";
 
-export const SECTION_LABEL: Record<Exclude<RoadmapSection, "tree">, string> = {
+export const SECTION_LABEL: Record<Exclude<StrategySection, "tree">, string> = {
   "in-work": "In work",
   backlog: "Backlog",
 };
@@ -91,24 +91,24 @@ export const SECTION_LABEL: Record<Exclude<RoadmapSection, "tree">, string> = {
  *  reads it — the flag — so a card a direct writer left with the flag AND
  *  dates is drawn once, in the backlog. A subtask is never asked: it rides
  *  its task into whichever section. */
-export function sectionOf(c: Pick<Card, "type" | "lineage" | "parked">): RoadmapSection {
+export function sectionOf(c: Pick<Card, "type" | "lineage" | "parked">): StrategySection {
   if (isPlanning(c) || (c.lineage ?? []).some((up) => !!up.type)) {
     return "tree";
   }
   return c.parked ? "backlog" : "in-work";
 }
 
-/** RoadmapSections is the forest split by section: the tree's roots, then
+/** StrategySections is the forest split by section: the tree's roots, then
  *  the loose roots — in work, then each team's backlog (grouped by team, the
  *  way the Backlog board draws its columns; "" is the no-team group). */
-export interface RoadmapSections {
-  tree: RoadmapNode[];
-  inWork: RoadmapNode[];
-  backlog: { team: string; nodes: RoadmapNode[] }[];
+export interface StrategySections {
+  tree: StrategyNode[];
+  inWork: StrategyNode[];
+  backlog: { team: string; nodes: StrategyNode[] }[];
 }
 
-export function sectionsOf(roots: readonly RoadmapNode[]): RoadmapSections {
-  const out: RoadmapSections = { tree: [], inWork: [], backlog: [] };
+export function sectionsOf(roots: readonly StrategyNode[]): StrategySections {
+  const out: StrategySections = { tree: [], inWork: [], backlog: [] };
   for (const node of roots) {
     switch (sectionOf(node.card)) {
       case "tree":
@@ -135,17 +135,17 @@ export function sectionsOf(roots: readonly RoadmapNode[]): RoadmapSections {
  *  level to a bottom one ("initiative to subtask"). Default: initiative to
  *  task — the row a lead reads, with the work under it, and no subtasks. */
 export interface DepthRange {
-  from: RoadmapKind;
-  to: RoadmapKind;
+  from: StrategyKind;
+  to: StrategyKind;
 }
 
 export const DEFAULT_DEPTH: DepthRange = { from: "initiative", to: "task" };
 
 /** visibleLevels is the set of kinds a depth range draws. */
-export function visibleLevels(range: DepthRange): Set<RoadmapKind> {
+export function visibleLevels(range: DepthRange): Set<StrategyKind> {
   const lo = Math.min(levelOf(range.from), levelOf(range.to));
   const hi = Math.max(levelOf(range.from), levelOf(range.to));
-  const out = new Set<RoadmapKind>();
+  const out = new Set<StrategyKind>();
   for (const k of LEVELS) {
     const l = levelOf(k);
     if (l >= lo && l <= hi) {
@@ -155,10 +155,10 @@ export function visibleLevels(range: DepthRange): Set<RoadmapKind> {
   return out;
 }
 
-/** Row is one line of the Roadmap: a node at a depth, and whether it has
+/** Row is one line of the Strategy board: a node at a depth, and whether it has
  *  rows under it that the reader can unfold. */
 export interface Row {
-  node: RoadmapNode;
+  node: StrategyNode;
   depth: number;
   /** Children the depth range would draw — what the toggle unfolds. */
   foldable: number;
@@ -169,14 +169,14 @@ export interface Row {
  *  their initiatives as roots); a level BELOW the range is cut with its
  *  subtree. A collapsed node draws itself and nothing under it. */
 export function rows(
-  tree: readonly RoadmapNode[],
+  tree: readonly StrategyNode[],
   range: DepthRange,
   expanded: (id: string) => boolean,
 ): Row[] {
   const visible = visibleLevels(range);
   const lo = Math.min(levelOf(range.from), levelOf(range.to));
   const out: Row[] = [];
-  const walk = (nodes: readonly RoadmapNode[], depth: number) => {
+  const walk = (nodes: readonly StrategyNode[], depth: number) => {
     for (const node of nodes) {
       const level = levelOf(node.kind);
       if (level < lo) {
@@ -201,13 +201,13 @@ export function rows(
 /** ALL_LEVELS is every level, for a tree that shows everything under a card. */
 const ALL_LEVELS: DepthRange = { from: "goal", to: "subtask" };
 
-/** subtreeRows is the Roadmap's tree rooted ONE LEVEL BELOW a card — the
+/** subtreeRows is the Strategy board's tree rooted ONE LEVEL BELOW a card — the
  *  drawer's "Under it": every level under the card (plan items, tasks,
  *  subtasks), at depth 0 for its children,
  *  folded as `expanded` says. Empty for a card with nothing under it, or
  *  one the cards do not hold. */
 export function subtreeRows(cards: readonly Card[], rootId: string, expanded: (id: string) => boolean): Row[] {
-  const find = (nodes: readonly RoadmapNode[]): RoadmapNode | null => {
+  const find = (nodes: readonly StrategyNode[]): StrategyNode | null => {
     for (const n of nodes) {
       if (n.card.itemId === rootId) {
         return n;
@@ -224,11 +224,11 @@ export function subtreeRows(cards: readonly Card[], rootId: string, expanded: (i
 }
 
 /** childLevels is what may be made under a card of a kind, the next level
- *  first — what the Roadmap's per-row "+" and the drawer's add row offer:
+ *  first — what the Strategy board's per-row "+" and the drawer's add row offer:
  *  the levels below a plan item's own, and under an epic a TASK (born with
  *  no team and no day, parked in the no-team backlog until somebody takes
  *  it into work, H7, K3). */
-export function childLevels(kind: RoadmapKind): (CardType | "task")[] {
+export function childLevels(kind: StrategyKind): (CardType | "task")[] {
   if (kind === "goal") {
     return ["initiative", "epic"];
   }
@@ -276,7 +276,7 @@ export interface ParentOption {
   chain: Pick<Card, "itemId" | "title" | "type">[];
 }
 
-const PICK_ORDER: RoadmapKind[] = ["goal", "initiative", "epic"];
+const PICK_ORDER: StrategyKind[] = ["goal", "initiative", "epic"];
 
 /** parentOptions is the Under picker's list for a card of `kind` (`self`):
  *  the levels it may sit under (allowedParentKinds), grouped highest first,
@@ -285,11 +285,11 @@ const PICK_ORDER: RoadmapKind[] = ["goal", "initiative", "epic"];
  *  cards are read once (one map, one chain per card), and the list and its
  *  labels share it. */
 export function parentOptions(
-  kind: RoadmapKind,
+  kind: StrategyKind,
   cards: readonly Card[],
   self: string,
   query: string,
-): { kind: RoadmapKind; options: ParentOption[] }[] {
+): { kind: StrategyKind; options: ParentOption[] }[] {
   const allowed = allowedParentKinds(kind);
   const q = query.trim().toLowerCase();
   const offered: ParentOption[] = [];
@@ -333,11 +333,11 @@ export function pickerMatches(c: Card, cards: readonly Card[], query: string): b
   return [c, ...parentChainOf(c, cards)].some((x) => x.title.toLowerCase().includes(q));
 }
 
-/** RoadmapStatus is the work-status half of a row's badge: a planning
+/** StrategyStatus is the work-status half of a row's badge: a planning
  *  card's derived standing (no items, backlog, in progress, done — H5), or a
  *  task's own: done, a stage that holds it (review, locked, refused), in
  *  progress while it is in work, backlog otherwise. */
-export type RoadmapStatus = "no-items" | "backlog" | "in-progress" | "done" | "review" | "locked" | "refused";
+export type StrategyStatus = "no-items" | "backlog" | "in-progress" | "done" | "review" | "locked" | "refused";
 
 /** statusOf is a row's work status: for a planning card the server's
  *  derived one (`hierarchy.status`, H5); for a task, its work status
@@ -345,11 +345,11 @@ export type RoadmapStatus = "no-items" | "backlog" | "in-progress" | "done" | "r
  *  card not done that is held in a stage — review, locked, refused — names
  *  the stage, which says who it waits on. The badge may say "Review" on a
  *  parked card the filter counts as backlog; everywhere else the two agree.
- *  The drawer and the Roadmap column read the same answer. */
+ *  The drawer and the Strategy board column read the same answer. */
 export function statusOf(
   c: Pick<Card, "type" | "hierarchy" | "stage" | "progress"> &
     Partial<Pick<Card, "parked" | "startDate" | "day" | "sprintStart" | "locked">>,
-): RoadmapStatus {
+): StrategyStatus {
   if (isPlanning(c)) {
     const rolled = c.hierarchy?.status ?? "no-items";
     // A plan item waiting for work not done yet (status.locked, derived)
@@ -378,7 +378,7 @@ export function statusOf(
   return placed;
 }
 
-export const STATUS_LABEL: Record<RoadmapStatus, string> = {
+export const STATUS_LABEL: Record<StrategyStatus, string> = {
   "no-items": "No items",
   backlog: "Backlog",
   "in-progress": "In progress",
@@ -556,7 +556,7 @@ export function hierarchyChoices(c: Pick<Card, "parent">): HierarchyChoice[] {
   return c.parent ? ["delete", "detach"] : ["delete"];
 }
 
-/** DELETE_INTENT is what the roadmap `remove` gesture must be asked for. The
+/** DELETE_INTENT is what the strategy `remove` gesture must be asked for. The
  *  server's default intent is the day boards' "unassign", which a planning
  *  card refuses (it has no working area to be left in) — so a × that sent no
  *  intent got a 422 back and looked like a × that did nothing. */
@@ -620,7 +620,7 @@ export function childrenNote(
  *  strictly above it, with a task's one exception — another task, which
  *  makes it a subtask (that flow is the group gesture's, not the picker's).
  *  A goal under nothing. */
-export function allowedParentKinds(kind: RoadmapKind): RoadmapKind[] {
+export function allowedParentKinds(kind: StrategyKind): StrategyKind[] {
   switch (kind) {
     case "goal":
       return [];
@@ -763,7 +763,7 @@ export function pointerContentY(clientY: number | null, scroll: number, headBott
   return clientY + scroll;
 }
 
-/** revealStep is one pass of bringing a row followed to the Roadmap (a
+/** revealStep is one pass of bringing a row followed to the Strategy board (a
  *  breadcrumb) into view: pending is the row still owed a scroll. It is
  *  scrolled to once it is drawn and no drag runs, and then nothing is owed
  *  — later re-renders do not pull the list back to it. */
@@ -898,7 +898,7 @@ export function isUnder(
  *  level, a task's one exception being another task, which makes it a
  *  subtask (one level deep: not under a subtask, not with subtasks of its
  *  own) — never itself or anything under it, and the top of the tree for planning cards only: a task
- *  dropped there would leave the Roadmap altogether, which is not a drop
+ *  dropped there would leave the Strategy board altogether, which is not a drop
  *  but a detach, and the × asks for that. A card never changes its type by
  *  being dragged. */
 export function droppable(
@@ -1058,7 +1058,7 @@ export async function writeDrop(
   }
 }
 
-export const KIND_LABEL: Record<RoadmapKind, string> = {
+export const KIND_LABEL: Record<StrategyKind, string> = {
   goal: "Goal",
   initiative: "Initiative",
   epic: "Epic",
@@ -1066,32 +1066,32 @@ export const KIND_LABEL: Record<RoadmapKind, string> = {
   subtask: "Subtask",
 };
 
-/** RoadmapLine is one line of the Roadmap's table: a row, in the section it
+/** StrategyLine is one line of the Strategy board's table: a row, in the section it
  *  is drawn in, or a section's header. */
-export type RoadmapLine =
-  | { kind: "row"; row: Row; section: RoadmapSection }
+export type StrategyLine =
+  | { kind: "row"; row: Row; section: StrategySection }
   | { kind: "header"; key: string; label: string };
 
-/** roadmapLines is the table's lines, ONE function of what decides them —
+/** strategyLines is the table's lines, ONE function of what decides them —
  *  the listing, the depth range and the folds — so the board's memo of it is
  *  keyed on exactly these. The listing is what the server sent. The tree's
  *  rows come first, then each section
  *  below it: a header line and its rows. The sections draw tasks and their
  *  subtasks (when the depth range reaches them); the range's upper levels
  *  are the tree's business. */
-export function roadmapLines(
+export function strategyLines(
   cards: readonly Card[],
   opts: { depth: DepthRange; expanded: (id: string) => boolean },
-): RoadmapLine[] {
+): StrategyLine[] {
   const sections = sectionsOf(buildTree(cards));
   const sub = visibleLevels(opts.depth).has("subtask");
   const flat: DepthRange = { from: "task", to: sub ? "subtask" : "task" };
-  const out: RoadmapLine[] = rows(sections.tree, opts.depth, opts.expanded).map((row) => ({
+  const out: StrategyLine[] = rows(sections.tree, opts.depth, opts.expanded).map((row) => ({
     kind: "row",
     row,
     section: "tree" as const,
   }));
-  const add = (section: Exclude<RoadmapSection, "tree">, label: string, nodes: readonly RoadmapNode[], key: string) => {
+  const add = (section: Exclude<StrategySection, "tree">, label: string, nodes: readonly StrategyNode[], key: string) => {
     if (nodes.length === 0) {
       return;
     }
@@ -1114,7 +1114,7 @@ export function roadmapLines(
 // the task itself, on a plan item every task under it at any depth (its leaf
 // tasks: the tasks whose parent is a plan item in its subtree). Mirrors
 // board.UnassignTargets. (Priorities were removed: the backlog's order is the
-// place in the Roadmap tree, K14.)
+// place in the Strategy board tree, K14.)
 
 /** leafTasks is the tasks under a plan item through every level — a subtask
  *  (its parent is a task) and a review card not among them — in board order. */
@@ -1132,7 +1132,7 @@ function leafTasks(cards: readonly Card[], id: string): Card[] {
   return cards.filter((c) => !isPlanning(c) && !c.reviewOf && !!c.parent && subtree.has(c.parent));
 }
 
-/** ridesATask reports a subtask, read off the listing the Roadmap holds: its
+/** ridesATask reports a subtask, read off the listing the Strategy board holds: its
  *  parent is a task here. */
 function ridesATask(cards: readonly Card[], t: Card): boolean {
   const up = t.parent ? cards.find((c) => c.itemId === t.parent) : undefined;
@@ -1159,7 +1159,7 @@ export function unassignTargets(cards: readonly Card[], c: Card): Card[] {
 /** StatusMenu is what a row's badge menu offers: whether UNASSIGNED has
  *  anything to take. A plan item
  *  says so by its SERVER roll-up — IN PROGRESS is work in hand under it —
- *  because a filtered Roadmap holds fewer of its tasks than the board does;
+ *  because a filtered Strategy holds fewer of its tasks than the board does;
  *  a task by its own place. How many it would take is the server's answer
  *  too (a dry run), asked as the confirm opens. */
 export interface StatusMenu {
@@ -1174,7 +1174,7 @@ export function statusMenu(cards: readonly Card[], c: Card): StatusMenu {
 /** Badge is one row's badge: its work status; `lock` is what a card LOCKED
  *  by its dependencies waits for, the badge's tooltip. */
 export interface Badge {
-  status: RoadmapStatus;
+  status: StrategyStatus;
   lock?: string;
 }
 

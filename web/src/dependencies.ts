@@ -4,7 +4,7 @@
 // item passes down — is the server's (status.locked, status.blockedBy); the
 // client never decides it, so there is no rule here to drift from Go. What
 // lives here is what the drawer offers and how it names what it shows.
-import { isUnder, parentChainOf, refusalRollback, type ParentOption } from "./roadmap";
+import { isUnder, parentChainOf, refusalRollback, type ParentOption } from "./strategy";
 import { isComplete } from "./stages";
 import type { Card, LineageRef } from "./providers/types";
 

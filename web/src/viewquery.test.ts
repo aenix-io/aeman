@@ -69,10 +69,10 @@ describe("snapshot selectors", () => {
     expect(snapshotDay("me", PAST, TODAY)).toBe(true);
     expect(snapshotDay("me", TODAY, TODAY)).toBe(false);
     expect(snapshotDay("me", "2026-07-05", TODAY)).toBe(false);
-    // The Backlog and the Roadmap are not day boards: a day means nothing
+    // The Backlog and the Strategy board are not day boards: a day means nothing
     // there, so a snapshot of one would be a claim about nothing.
     expect(snapshotDay("backlog", PAST, TODAY)).toBe(false);
-    expect(snapshotDay("roadmap", PAST, TODAY)).toBe(false);
+    expect(snapshotDay("strategy", PAST, TODAY)).toBe(false);
   });
 
   // The app calls these without a `today` — the fixed one above keeps the
@@ -203,38 +203,38 @@ describe("the remembered tab", () => {
   });
 
   // The Project board is gone (H15): a browser that remembered it lands on
-  // the Roadmap, where the plan lives.
-  it("lands a remembered Project board on the Roadmap", () => {
-    expect(storedView("project")).toBe("roadmap");
-    expect(storedView("plan")).toBe("roadmap");
+  // the Strategy board, where the plan lives.
+  it("lands a remembered Project board on the Strategy board", () => {
+    expect(storedView("project")).toBe("strategy");
+    expect(storedView("plan")).toBe("strategy");
   });
 
   it("keeps the older renames, and falls back to Me", () => {
     expect(storedView("nixon")).toBe("team");
-    expect(storedView("roadmap")).toBe("roadmap");
-    // The Strategy board is the Roadmap renamed: its own name and the old
-    // one both open it.
-    expect(storedView("strategy")).toBe("roadmap");
+    expect(storedView("strategy")).toBe("strategy");
+    // A remembered "roadmap" was rewritten once by storagemigrate; read
+    // here it is a name like any other that names no board.
+    expect(storedView("roadmap")).toBe("me");
     expect(storedView(null)).toBe("me");
     expect(storedView("whatever")).toBe("me");
   });
 });
 
-// The Roadmap asks for its listing with nothing more: the "Project cards"
+// The Strategy board asks for its listing with nothing more: the "Project cards"
 // toggle and its selector are gone with the Project board (H15).
-describe("the Roadmap's listing", () => {
+describe("the Strategy board's listing", () => {
   it("asks for the Strategy board by its name and nothing else", () => {
-    expect(viewQueries("roadmap", TODAY, [], undefined, TODAY)).toEqual([{ view: "strategy" }]);
-    expect(watchQuery("roadmap", TODAY, [])).toEqual({ view: "strategy" });
+    expect(viewQueries("strategy", TODAY, [], undefined, TODAY)).toEqual([{ view: "strategy" }]);
+    expect(watchQuery("strategy", TODAY, [])).toEqual({ view: "strategy" });
   });
 });
 
-// The Roadmap's team, customer and owner filters (ownership.md, O7, O8) are
+// The Strategy board's team, customer and owner filters (ownership.md, O7, O8) are
 // the server's: they ride the listing and the watch as selectors, so a
 // change refetches and re-subscribes; nothing is filtered locally.
-describe("the Roadmap's filters", () => {
+describe("the Strategy board's filters", () => {
   it("ask nothing while none is chosen", () => {
-    expect(viewQueries("roadmap", TODAY, [], undefined, TODAY, { filters: { teams: [], customers: [], owners: [], statuses: [] } })).toEqual([
+    expect(viewQueries("strategy", TODAY, [], undefined, TODAY, { filters: { teams: [], customers: [], owners: [], statuses: [] } })).toEqual([
       { view: "strategy" },
     ]);
   });
@@ -242,21 +242,21 @@ describe("the Roadmap's filters", () => {
   it("ask the listing and the watch for the chosen ones, each a set", () => {
     const opts = { filters: { teams: ["portal", "ops"], customers: ["cu1"], owners: ["ann"], statuses: ["in-progress", "backlog"] } };
     const want = { view: "strategy", team: "portal,ops", customer: "cu1", owner: "ann", status: "backlog,in-progress" };
-    expect(viewQueries("roadmap", TODAY, [], undefined, TODAY, opts)).toEqual([want]);
-    expect(watchQuery("roadmap", TODAY, [], undefined, opts)).toEqual(want);
+    expect(viewQueries("strategy", TODAY, [], undefined, TODAY, opts)).toEqual([want]);
+    expect(watchQuery("strategy", TODAY, [], undefined, opts)).toEqual(want);
   });
 
   // The Status filter (In progress, Backlog, Done) is a set like the rest,
   // sorted so the same choice is the same subscription.
   it("ask for the chosen work statuses, sorted", () => {
-    expect(watchQuery("roadmap", TODAY, [], undefined, { filters: { teams: [], customers: [], owners: [], statuses: ["done"] } })).toEqual({
+    expect(watchQuery("strategy", TODAY, [], undefined, { filters: { teams: [], customers: [], owners: [], statuses: ["done"] } })).toEqual({
       view: "strategy",
       status: "done",
     });
   });
 
   it("ride the watch alone", () => {
-    expect(watchQuery("roadmap", TODAY, [], undefined, { filters: { teams: [], customers: [], owners: ["ann"], statuses: [] } })).toEqual({
+    expect(watchQuery("strategy", TODAY, [], undefined, { filters: { teams: [], customers: [], owners: ["ann"], statuses: [] } })).toEqual({
       view: "strategy",
       owner: "ann",
     });
@@ -269,8 +269,8 @@ describe("the Roadmap's filters", () => {
 // listing and watch; the Me board filters what it holds itself, since it
 // counts what its filters hide.
 describe("the day boards' team and customer sets", () => {
-  it("write the Roadmap's No team alone as ',' too", () => {
-    expect(watchQuery("roadmap", TODAY, [], undefined, { filters: { teams: [""], customers: [], owners: [], statuses: [] } }).team).toBe(",");
+  it("write the Strategy board's No team alone as ',' too", () => {
+    expect(watchQuery("strategy", TODAY, [], undefined, { filters: { teams: [""], customers: [], owners: [], statuses: [] } }).team).toBe(",");
   });
 
   it("write the no-team group alone as ','", () => {

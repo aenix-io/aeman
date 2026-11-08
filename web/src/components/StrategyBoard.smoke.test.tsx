@@ -2,14 +2,14 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { COLUMN_DEFAULTS, COLUMN_MAX, COLUMN_MINS } from "../roadmapcolumns";
-import { RoadmapBoard, UnassignDialog } from "./RoadmapBoard";
-import type { RoadmapFilters } from "../ownership";
+import { COLUMN_DEFAULTS, COLUMN_MAX, COLUMN_MINS } from "../strategycolumns";
+import { StrategyBoard, UnassignDialog } from "./StrategyBoard";
+import type { StrategyFilters } from "../ownership";
 import { HIDE_DONE } from "../workstatus";
 import type { Board, Card, Provider } from "../providers/types";
 import { addDays, todayIso } from "../date";
 
-// The Roadmap draws its own two panes — a table of rows and a timeline of
+// The Strategy board draws its own two panes — a table of rows and a timeline of
 // bars — and nothing else in the suite renders them. This is the one test
 // that proves the tree comes out: the header, a row per card at its depth,
 // the status pills, a bar per dated card and the today line. Markup only:
@@ -82,10 +82,10 @@ const provider = {} as Provider;
 function draw(
   b: Board,
   focusId: string | null = null,
-  filters: RoadmapFilters = { teams: [], customers: [], owners: [], statuses: [] },
+  filters: StrategyFilters = { teams: [], customers: [], owners: [], statuses: [] },
 ) {
   return renderToStaticMarkup(
-    <RoadmapBoard
+    <StrategyBoard
       board={b}
       filters={filters}
       onFilters={vi.fn()}
@@ -103,13 +103,13 @@ function draw(
   );
 }
 
-describe("the Roadmap's two panes", () => {
+describe("the Strategy board's two panes", () => {
   it("draws the header, and a row per card from the initiative down to the tasks", () => {
     const html = draw(board([goal, ini, epic, done, open]));
-    expect(html).toContain("roadmap-head");
+    expect(html).toContain("strategy-head");
     // Initiative to task by default: the goal is above the range and its
     // initiative stands in its place; the two tasks are the epic's rows.
-    expect(html.match(/class="roadmap-row"/g)?.length).toBe(4);
+    expect(html.match(/class="strategy-row"/g)?.length).toBe(4);
     expect(html).toContain("Billing v2");
     expect(html).toContain("Invoices");
     expect(html).toContain("Render PDF");
@@ -122,10 +122,10 @@ describe("the Roadmap's two panes", () => {
 
   it("wears the server's standing on a planning card and a task's own on a task", () => {
     const html = draw(board([goal, ini, epic, done, open]));
-    expect(html).toContain("roadmap-status roadmap-status-in-progress");
-    expect(html).toContain("roadmap-status roadmap-status-done");
+    expect(html).toContain("strategy-status strategy-status-in-progress");
+    expect(html).toContain("strategy-status strategy-status-done");
     // "open" is placed nowhere — not in work: it waits.
-    expect(html).toContain("roadmap-status roadmap-status-backlog");
+    expect(html).toContain("strategy-status strategy-status-backlog");
     expect(html).toContain(">1/2<");
   });
 
@@ -136,46 +136,46 @@ describe("the Roadmap's two panes", () => {
   // clipping cell does not: it only cut the pill off at the line.
   it("keeps the Status column clear of the timeline, header and rows alike", () => {
     const html = draw(board([goal, ini, epic, done, open]));
-    expect(html).toMatch(/<span class="roadmap-cell roadmap-cell-status roadmap-head-cell">Status</);
-    expect(html.match(/class="roadmap-cell roadmap-cell-status/g)?.length).toBeGreaterThan(1);
+    expect(html).toMatch(/<span class="strategy-cell strategy-cell-status strategy-head-cell">Status</);
+    expect(html.match(/class="strategy-cell strategy-cell-status/g)?.length).toBeGreaterThan(1);
     const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
-    const grid = css.match(/\.roadmap-row \{\s*display: grid;\s*grid-template-columns:([^;]+);/)?.[1] ?? "";
+    const grid = css.match(/\.strategy-row \{\s*display: grid;\s*grid-template-columns:([^;]+);/)?.[1] ?? "";
     const status = Number(/var\(--rm-status, (\d+)px\)/.exec(grid)?.[1] ?? 0);
     // The CSS fallback is the default: the two-part badge fits (K15).
     expect(status).toBe(COLUMN_DEFAULTS.status);
     // The column is the reader's to size, and never narrower than the badge.
     expect(COLUMN_DEFAULTS.status).toBeGreaterThanOrEqual(COLUMN_MINS.status);
     // The drawer's tree draws the same badge in a fixed column: as wide as
-    // the Roadmap's floor.
-    const drawer = css.match(/\.plan-tree \.roadmap-row\.plan-tree-row \{\s*grid-template-columns:([^;]+);/)?.[1] ?? "";
+    // the Strategy board's floor.
+    const drawer = css.match(/\.plan-tree \.strategy-row\.plan-tree-row \{\s*grid-template-columns:([^;]+);/)?.[1] ?? "";
     expect(Number(/(\d+)px\s*$/.exec(drawer.trim())?.[1] ?? 0)).toBeGreaterThanOrEqual(COLUMN_MINS.status);
     // One line, never wrapped; dragged narrower than it, the status
     // ellipsizes.
-    const badge = css.match(/\.roadmap-badge \{[^}]*\}/)?.[0] ?? "";
+    const badge = css.match(/\.strategy-badge \{[^}]*\}/)?.[0] ?? "";
     expect(badge).toMatch(/white-space: nowrap/);
-    const statusPart = css.match(/\.roadmap-badge \.roadmap-status \{[^}]*\}/)?.[0] ?? "";
+    const statusPart = css.match(/\.strategy-badge \.strategy-status \{[^}]*\}/)?.[0] ?? "";
     expect(statusPart).toMatch(/text-overflow: ellipsis/);
     expect(statusPart).toMatch(/min-width: 0/);
-    const cell = css.match(/\.roadmap-cell-status \{[^}]*\}/)?.[0] ?? "";
+    const cell = css.match(/\.strategy-cell-status \{[^}]*\}/)?.[0] ?? "";
     const right = Number(/padding-right: (\d+)px/.exec(cell)?.[1] ?? 0);
     expect(right).toBeGreaterThanOrEqual(10);
-    const pill = css.match(/\.roadmap-status \{[^}]*\}/)?.[0] ?? "";
+    const pill = css.match(/\.strategy-status \{[^}]*\}/)?.[0] ?? "";
     expect(pill).not.toMatch(/margin/);
   });
 
   it("draws a bar for every dated card, a done one distinct, and the today line", () => {
     const html = draw(board([goal, ini, epic, done, open]));
-    expect(html.match(/class="roadmap-bar /g)?.length).toBe(3); // initiative, epic, the done task
-    expect(html).toContain("roadmap-bar-done");
-    expect(html).toContain("roadmap-bar-initiative");
-    expect(html).toContain("roadmap-today");
-    expect(html.match(/class="roadmap-lane"/g)?.length).toBe(4);
+    expect(html.match(/class="strategy-bar /g)?.length).toBe(3); // initiative, epic, the done task
+    expect(html).toContain("strategy-bar-done");
+    expect(html).toContain("strategy-bar-initiative");
+    expect(html).toContain("strategy-today");
+    expect(html.match(/class="strategy-lane"/g)?.length).toBe(4);
   });
 
   it("says so when there is nothing to draw", () => {
     const html = draw(board([]));
-    expect(html).toContain("roadmap-empty");
-    expect(html).not.toContain("roadmap-body");
+    expect(html).toContain("strategy-empty");
+    expect(html).not.toContain("strategy-body");
   });
 
   it("offers the + and the x on a planning row, and neither on a task", () => {
@@ -191,18 +191,18 @@ describe("the Roadmap's two panes", () => {
     expect(html).toContain("kind-icon-initiative");
     expect(html).toContain("kind-icon-epic");
     expect(html).toContain("kind-icon-task");
-    expect(html).toContain('class="roadmap-toggle roadmap-toggle-open"'); // the chevron, open, on a row with rows under it
-    expect(html).toContain('class="roadmap-toggle-spacer"'); // and a spacer on a leaf
-    expect(html.match(/roadmap-guide/g)?.length).toBe(1 + 2 + 2); // the epic one deep, its two tasks two deep
+    expect(html).toContain('class="strategy-toggle strategy-toggle-open"'); // the chevron, open, on a row with rows under it
+    expect(html).toContain('class="strategy-toggle-spacer"'); // and a spacer on a leaf
+    expect(html.match(/strategy-guide/g)?.length).toBe(1 + 2 + 2); // the epic one deep, its two tasks two deep
   });
 
   it("gives a leaf no button in the chevron's place: a spacer, not something that lights up", () => {
     const html = draw(board([goal, ini, epic, done, open]));
     // Two leaves (the tasks), two spacers — and the only toggle buttons are
     // on the rows that fold something (the initiative and the epic).
-    expect(html.match(/class="roadmap-toggle-spacer"/g)?.length).toBe(2);
-    expect(html.match(/<button[^>]*class="roadmap-toggle /g)?.length).toBe(2);
-    expect(html).not.toContain("roadmap-toggle-none");
+    expect(html.match(/class="strategy-toggle-spacer"/g)?.length).toBe(2);
+    expect(html.match(/<button[^>]*class="strategy-toggle /g)?.length).toBe(2);
+    expect(html).not.toContain("strategy-toggle-none");
   });
 
   // Every row offers the picker now: a task's whose-is-this, and a plan
@@ -215,12 +215,12 @@ describe("the Roadmap's two panes", () => {
     expect(html).toContain('title="core · ann"');
     expect(html).toContain('title="core"');
     expect(html.match(/class="owner-picker"/g)?.length).toBe(4);
-    expect(html).not.toContain('class="roadmap-cell roadmap-cell-owner"></span>');
+    expect(html).not.toContain('class="strategy-cell strategy-cell-owner"></span>');
   });
 
   it("draws no landing mark while nothing is dragged", () => {
     const html = draw(board([goal, ini, epic, done, open]));
-    expect(html).not.toContain("roadmap-row-drop-");
+    expect(html).not.toContain("strategy-row-drop-");
   });
 
   it("lists the open work that is not in the tree below it: in work, then each team's backlog (K1)", () => {
@@ -235,25 +235,25 @@ describe("the Roadmap's two panes", () => {
     // No third section: the strip is gone.
     expect(html).not.toContain(">Unsorted<");
     // A header is a line on both panes, so the lanes stay in step.
-    expect(html.match(/roadmap-section-label/g)?.length).toBe(2);
-    expect(html.match(/class="roadmap-lane roadmap-lane-section"/g)?.length).toBe(2);
+    expect(html.match(/strategy-section-label/g)?.length).toBe(2);
+    expect(html.match(/class="strategy-lane strategy-lane-section"/g)?.length).toBe(2);
   });
 
   it("adds a plan item from a row under the tree, before In work, not from the toolbar", () => {
     const inWork = card({ itemId: "w", title: "Fix the build", team: "core", startDate: today, day: today });
     const html = draw(board([goal, ini, epic, done, open, inWork]));
-    const toolbar = html.slice(html.indexOf("roadmap-toolbar"), html.indexOf("roadmap-head"));
+    const toolbar = html.slice(html.indexOf("strategy-toolbar"), html.indexOf("strategy-head"));
     expect(toolbar).not.toContain("+ add");
     const at = (s: string) => html.indexOf(s);
-    expect(at("roadmap-row-addroot")).toBeGreaterThan(at("Send by mail"));
-    expect(at("roadmap-row-addroot")).toBeLessThan(at(">In work<"));
+    expect(at("strategy-row-addroot")).toBeGreaterThan(at("Send by mail"));
+    expect(at("strategy-row-addroot")).toBeLessThan(at(">In work<"));
     // A line on both panes: the timeline keeps a lane for it.
-    expect(html.match(/roadmap-lane-addroot/g)?.length).toBe(1);
+    expect(html.match(/strategy-lane-addroot/g)?.length).toBe(1);
   });
 
-  it("offers the add row on an empty roadmap too", () => {
+  it("offers the add row on an empty strategy too", () => {
     const html = draw(board([]));
-    expect(html).toContain("roadmap-row-addroot");
+    expect(html).toContain("strategy-row-addroot");
     expect(html).toContain("+ add");
   });
 
@@ -261,7 +261,7 @@ describe("the Roadmap's two panes", () => {
     const html = draw(board([goal, ini, epic, done, open]));
     expect(html).not.toContain("team-filter-chip");
     expect(html).not.toContain('aria-label="Assignee filter"');
-    expect(html).not.toContain("roadmap-who");
+    expect(html).not.toContain("strategy-who");
     expect(html.match(/aria-label="Owner filter"/g)?.length).toBe(1);
   });
 
@@ -270,8 +270,8 @@ describe("the Roadmap's two panes", () => {
     // The class is the BUTTON's (opacity 0 until the row is hovered); a row
     // container wearing it opened as an empty line — "the + makes an empty
     // space below". The inline form has a class of its own.
-    expect(html).not.toMatch(/<div[^>]*class="[^"]*\broadmap-row-add\b/);
-    expect(html).toMatch(/<button[^>]*class="roadmap-row-add"/);
+    expect(html).not.toMatch(/<div[^>]*class="[^"]*\bstrategy-row-add\b/);
+    expect(html).toMatch(/<button[^>]*class="strategy-row-add"/);
   });
 });
 
@@ -286,17 +286,17 @@ describe("the toolbar", () => {
   });
 });
 
-// docs/design/ownership.md on the Roadmap: the Owner column names a plan
+// docs/design/ownership.md on the Strategy board: the Owner column names a plan
 // item's owner (and its team), and the toolbar's Team, Customer and Owner
 // filters — the server's selectors — say what is chosen; the customer
 // roster is managed from the toolbar too.
-describe("ownership on the Roadmap", () => {
+describe("ownership on the Strategy board", () => {
   const owned = card({ itemId: "oe", title: "Billing", type: "epic", team: "core", owner: "ann", lineage: [] });
 
   it("names a plan item's owner and team in the Owner column", () => {
     const html = draw(board([owned]));
     const row = html.slice(html.indexOf(">Billing<"));
-    expect(row).toMatch(/roadmap-cell-owner[^>]*>.*owner-badge/s);
+    expect(row).toMatch(/strategy-cell-owner[^>]*>.*owner-badge/s);
     expect(row).toContain('title="Team core"');
   });
 
@@ -306,10 +306,10 @@ describe("ownership on the Roadmap", () => {
     const task = card({ itemId: "ot", title: "Receipts", parent: "oe", lineage: [{ uid: "oe", type: "epic", title: "Billing" }] });
     const html = draw(board([owned, task]));
     const row = html.slice(html.indexOf(">Receipts<"));
-    expect(row).toMatch(/class="roadmap-owner roadmap-owner-inherited" title="core — from «Billing»"/);
+    expect(row).toMatch(/class="strategy-owner strategy-owner-inherited" title="core — from «Billing»"/);
     expect(row).toContain('title="Team core"');
     const own = html.slice(html.indexOf(">Billing<"), html.indexOf(">Receipts<"));
-    expect(own).not.toContain("roadmap-owner-inherited");
+    expect(own).not.toContain("strategy-owner-inherited");
   });
 
   it("offers the three filters and says what is chosen", () => {
@@ -320,7 +320,7 @@ describe("ownership on the Roadmap", () => {
     expect(html).toMatch(/<button[^>]*aria-label="Owner filter"[^>]*>[^<]*Owner: anyone/);
   });
 
-  // A filter that matches nothing is not an empty roadmap: say so, and offer
+  // A filter that matches nothing is not an empty strategy: say so, and offer
   // the way out.
   // The Status filter (In progress, Backlog, Done) stands with the other
   // three, and a status chosen is a filter like any: the empty state says
@@ -344,7 +344,7 @@ describe("ownership on the Roadmap", () => {
     const empty = card({ itemId: "client", title: "Acme rollout", type: "epic", hierarchy: { status: "no-items", done: 0, total: 0 } });
     const drawn = draw(board([empty]), null, { teams: [], customers: [], owners: [], statuses: [...HIDE_DONE] });
     expect(drawn).toContain(">Acme rollout<");
-    expect(drawn).toContain("roadmap-status roadmap-status-no-items");
+    expect(drawn).toContain("strategy-status strategy-status-no-items");
   });
 
   it("says nothing matches the filters, and offers to clear them", () => {
@@ -360,19 +360,19 @@ describe("ownership on the Roadmap", () => {
   it("keeps no roster button of its own, and names No team as a team", () => {
     const html = draw(board([owned]), null, { teams: [""], customers: [], owners: [], statuses: [] });
     expect(html).not.toContain("Manage the customers");
-    expect(html).not.toContain("roadmap-customers-btn");
+    expect(html).not.toContain("strategy-customers-btn");
     expect(html).toMatch(/aria-label="Team filter"[^>]*>Team: No team</);
   });
 });
 
-// The table's columns are the reader's to size (roadmapcolumns.ts): a handle
+// The table's columns are the reader's to size (strategycolumns.ts): a handle
 // on every boundary of the header — the last one being the split with the
 // timeline — reachable by the keyboard, and the widths reach the rows as
 // CSS variables on the board.
-describe("the Roadmap's column handles", () => {
+describe("the Strategy board's column handles", () => {
   it("stand on every boundary of the header, as keyboard separators", () => {
     const html = draw(board([goal, ini, epic, done, open]));
-    const head = html.slice(html.indexOf("roadmap-head"), html.indexOf("roadmap-rowgroup"));
+    const head = html.slice(html.indexOf("strategy-head"), html.indexOf("strategy-rowgroup"));
     const handles = head.match(/<span[^>]*role="separator"[^>]*>/g) ?? [];
     expect(handles).toHaveLength(5);
     for (const h of handles) {
@@ -388,7 +388,7 @@ describe("the Roadmap's column handles", () => {
 
   it("set the widths as CSS variables on the board, the defaults first", () => {
     const html = draw(board([goal, ini, epic, done, open]));
-    expect(html).toMatch(/class="roadmap"[^>]*style="[^"]*--rm-title:290px[^"]*--rm-table:712px/);
+    expect(html).toMatch(/class="strategy"[^>]*style="[^"]*--rm-title:290px[^"]*--rm-table:712px/);
   });
 });
 
@@ -397,16 +397,16 @@ describe("the Roadmap's column handles", () => {
 describe("the badge", () => {
   it("is a button opening the menu on every row of the tree", () => {
     const html = draw(board([goal, ini, epic, done, open]));
-    expect(html).toMatch(/class="roadmap-badge roadmap-status-button"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"/);
+    expect(html).toMatch(/class="strategy-badge strategy-status-button"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"/);
     // Finished work too: the menu stays, with its one item.
-    expect(html).toMatch(/roadmap-status-button"[^>]*><span class="roadmap-status roadmap-status-done">/);
+    expect(html).toMatch(/strategy-status-button"[^>]*><span class="strategy-status strategy-status-done">/);
   });
 
   it("draws the work status alone, with no priority part", () => {
     const html = draw(board([goal, ini, epic, open, done]));
-    expect(html).toMatch(/roadmap-status-button"[^>]*><span class="roadmap-status roadmap-status-backlog">Backlog<\/span><\/button>/);
-    expect(html).toMatch(/roadmap-status-button"[^>]*><span class="roadmap-status roadmap-status-done">Done<\/span><\/button>/);
-    expect(html).not.toMatch(/roadmap-prio/);
+    expect(html).toMatch(/strategy-status-button"[^>]*><span class="strategy-status strategy-status-backlog">Backlog<\/span><\/button>/);
+    expect(html).toMatch(/strategy-status-button"[^>]*><span class="strategy-status strategy-status-done">Done<\/span><\/button>/);
+    expect(html).not.toMatch(/strategy-prio/);
   });
 
   it("asks how many tasks leave Team and Me before taking them out of work", () => {

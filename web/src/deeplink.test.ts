@@ -13,17 +13,18 @@ const TODAY = "2026-11-07";
 
 describe("reading the board's address", () => {
   it("reads the view, the card and the day", () => {
-    expect(parseLink("?view=strategy&card=01JABC")).toEqual({ view: "roadmap", card: "01JABC", day: null });
+    expect(parseLink("?view=strategy&card=01JABC")).toEqual({ view: "strategy", card: "01JABC", day: null });
     expect(parseLink("?view=team&day=2026-11-03")).toEqual({ view: "team", card: null, day: "2026-11-03" });
     expect(parseLink("")).toEqual({ view: null, card: null, day: null });
   });
 
   it("knows the old names of a view, and takes nothing for an unknown one", () => {
     expect(parseLink("?view=triage").view).toBe("backlog");
-    // The Strategy board was the Roadmap: an old link still opens it, and
-    // the address is written back with its new name.
-    expect(parseLink("?view=roadmap").view).toBe("roadmap");
-    expect(buildLink(parseLink("?view=roadmap&card=01JABC"), TODAY)).toBe("?view=strategy&card=01JABC");
+    expect(parseLink("?view=strategy").view).toBe("strategy");
+    expect(buildLink(parseLink("?view=strategy&card=01JABC"), TODAY)).toBe("?view=strategy&card=01JABC");
+    // The Strategy board's old name is no board any more: an old link is
+    // taken like any unknown view.
+    expect(parseLink("?view=roadmap").view).toBeNull();
     expect(parseLink("?view=whatever").view).toBeNull();
   });
 
@@ -49,7 +50,7 @@ describe("reading the board's address", () => {
 
 describe("writing the board's address", () => {
   it("names the view and the open card", () => {
-    expect(buildLink({ view: "roadmap", card: "01JABC", day: TODAY }, TODAY)).toBe("?view=strategy&card=01JABC");
+    expect(buildLink({ view: "strategy", card: "01JABC", day: TODAY }, TODAY)).toBe("?view=strategy&card=01JABC");
     expect(buildLink({ view: "me", card: null, day: TODAY }, TODAY)).toBe("?view=me");
   });
 
@@ -103,8 +104,8 @@ describe("the address kept across signing in", () => {
 
   it("is given back once", () => {
     const s = storage();
-    saveReturnTo(s, "/?view=roadmap&card=01JABC", 1000);
-    expect(takeReturnTo(s, 2000)).toBe("/?view=roadmap&card=01JABC");
+    saveReturnTo(s, "/?view=strategy&card=01JABC", 1000);
+    expect(takeReturnTo(s, 2000)).toBe("/?view=strategy&card=01JABC");
     expect(takeReturnTo(s, 2000)).toBeNull();
   });
 
@@ -114,7 +115,7 @@ describe("the address kept across signing in", () => {
   // on the next load whatever happens to it.
   it("is not given back after the sign-in's span", () => {
     const s = storage();
-    saveReturnTo(s, "/?view=roadmap&card=01JABC", 0);
+    saveReturnTo(s, "/?view=strategy&card=01JABC", 0);
     expect(takeReturnTo(s, 11 * 60 * 1000)).toBeNull();
     expect(s.getItem("aeman.returnTo")).toBeNull();
   });
