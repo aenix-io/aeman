@@ -116,7 +116,7 @@ Unranked tasks come from direct writers; an invalid key (empty, a character outs
 
 **What the client sees.** The acting tab shows the new order at once (the `queue.ts` mirror) and a toast "Epic moved · N tasks · Undo"; the answer is `{actionId, moved}`. Other tabs get ONE `Ordering` frame with the complete result. A refusal rolls the optimistic order back.
 
-**Undo.** An ordering action's commits are found by their `Aeman-Action-Id` among the commits of the last 24 hours; each card file the commits changed is read at the commit and at its parent, and the two `rank` lines are the change. Undo is itself an ordering action: for each change, a card whose rank is still the one the action wrote gets its old one back; a card moved since is skipped and reported (`skipped`). The server also remembers its own recent actions in memory, so an Undo that arrives before the commit has drained still finds them. `POST /views/{view}/actions/{actionId}/undo` and MCP `undo_action`; the UI's toast offers it for about 10 seconds.
+**Undo.** An ordering action's commits are found by their `Aeman-Action-Id` among the commits of the last 24 hours; each card file the commits changed is read at the commit and at its parent, and the two `rank` lines are the change. Undo is itself an ordering action: for each change, a card whose rank is still the one the action wrote gets its old one back; a card moved since is skipped and reported (`skipped`). The server also remembers its own recent actions in memory, so an Undo that arrives before the commit has drained still finds them. `POST /actions/{actionId}/undo` and MCP `undo_action`; the UI's toast offers it for about 10 seconds.
 
 **Cost.** 1 + k files (k = the epic's parked tasks out of place); one commit per repository touched, typically one or two; O(n) compute on ~3300 cards; one `Ordering` frame as before.
 
@@ -138,7 +138,7 @@ Unranked tasks come from direct writers; an invalid key (empty, a character outs
 - **`pkg/boardservice`** — ordering operations through `Backend.Reorder` (a planner run over the merged board, keys written as given); `Place` at every door; `Normalize`; `UndoAction`.
 - **`pkg/gitstore`** — `Reorder` on `Backend` and `MultiBackend`; `ActionRanks` (undo from commits); `MigrateOrdering` (schema 4); defects 1–2.
 - **`internal/server`** — the planner under the store lock and one queued op per action; normalisation at start-up and after a fetch; the in-memory record of recent actions for Undo.
-- **API / OpenAPI / MCP** — `move` on an epic gathers and answers 200 `{actionId, moved}`; `reorder-in-epic`; `actions/{actionId}/undo`; `inheritParent` on create; MCP `reorder_in_epic` and `undo_action`, `inherit_parent` on `create_card`; the `parked` text fixed.
+- **API / OpenAPI / MCP** — `move` on an epic gathers and answers 200 `{actionId, moved}`; `reorder-in-epic`; `actions/{actionId}/undo`; `inheritParent` on create; MCP `reorder_in_epic` and `undo_action`, `inheritParent` on `create_card`; the `parked` text fixed.
 - **`web`** — `queue.ts` mirror; Backlog drops anywhere, the "+" with an epic chip, the Undo toast; Strategy's flat epic list and the drop rules above.
 
 ## Defects found by the analysis (fixed first)

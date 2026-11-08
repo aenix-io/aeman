@@ -510,16 +510,24 @@ insert "+" of a backlog or a Team/Me cell, K13) gets a key strictly
 between its neighbours in the merged list, whichever repository each
 neighbour lives in.
 
-### What an external writer keeps true (K1, K10, K13)
+### What an external writer keeps true (K1, K10, K13, Q1–Q14)
 
 - **K1** — an open task is IN WORK (a `start`/`day` or a `sprint`) or
   `parked: true`, never both and never neither; parking clears
   `assignees`, `start`, `day`, `sprint` and sets `zone: gray`.
-- **K14** — a backlog reads in the Strategy board's order: the path of
-  board-order places (rank, then id) from the root plan item down to the
-  task, the tasks with no plan item last, the reviews nobody has taken
-  first (K10), so a writer reorders a task in its backlog by moving it
-  among its siblings under the same parent.
+- **Q1–Q14** ([ordering.md](ordering.md), schema 4) — a card's `rank`
+  means its kind's order: an EPIC's is the board-wide epic order, a
+  TASK's is its place in its team's queue (the open parked tasks standing
+  under the team, in board order), nothing inherited down the tree. A
+  backlog reads the reviews nobody has taken first, then the tasks, each
+  in board order (Q2). A writer reorders with a key strictly between ANY
+  two neighbours of the merged board (Q4). A writer creating a parked
+  task may omit `rank`: the server places it by the default rule —
+  after its epic's last parked task in the team's queue, or the epic's
+  best gap — at its next fetch (Q11); a writer that does choose a key
+  should choose that place. A writer moving an epic and gathering its
+  tasks writes every file in one commit per repository. An empty or
+  invalid key sorts after every valid one.
 - **K10** — a task with `stage: review` has a review card (`reviewOf`
   naming it). With a reviewer it is theirs, in work. With nobody it is
   `parked: true`, `assignees` empty, of the reviewed task's `team`,

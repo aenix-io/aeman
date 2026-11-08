@@ -65,8 +65,9 @@ SPA's tabs are **Me, Team, Backlog, Strategy, Project**.
 - **What is listed.** The team's parked tasks: no planning card, no
   subtask, no review card, nothing finished. Order is
   `BacklogOrder` over the union — the reviews nobody has taken first
-  (K10), then the **Strategy board's order** (K14), the tasks with no plan item
-  last.
+  (K10), then the tasks in the **board's order** (Q2,
+  [ordering.md](ordering.md); it was the Strategy board's tree order,
+  K14, until 2026-11-08).
 - **The card.** One wide card per row, a plain card with no coloured
   accent down its edge: the title; on the RIGHT its parent chain —
   every goal, initiative and epic it sits under, root first (all of
@@ -78,13 +79,11 @@ SPA's tabs are **Me, Team, Backlog, Strategy, Project**.
   person's stacked over it when somebody has it, one label (the shared
   owner badge, the Strategy board's too), with a separate Take button to its
   left while nobody has it.
-- **Order.** Dragging a card reorders it **among its siblings** — the
-  tasks under the same parent (the tasks with no plan item above are one
-  run): the move gesture anchored on the
-  sibling just above it (`after`), else the one just below (`before`). A
-  place next to none of its siblings is shown as forbidden and writes
-  nothing: the order is the tree's (K14), and the move changes the
-  Strategy board's order too. A drag does not change the team: the card's team
+- **Order.** Dragging a card puts it between **any two neighbours**
+  (Q4, [ordering.md](ordering.md)): the move gesture anchored on the
+  task just above it (`after`), else the one just below (`before`); it
+  becomes an exception to its epic's order and the epic's key does not
+  change. A review nobody has taken is never dragged. A drag does not change the team: the card's team
   chip is its owner picker, and `own` with a team alone hands it to that
   team, still parked; the owner badge is that picker.
 - **Adding.** No add box at the foot of the list: every gap — above the
@@ -112,7 +111,12 @@ SPA's tabs are **Me, Team, Backlog, Strategy, Project**.
   in every open backlog without a reload; a reorder arrives as the
   `Ordering` frame the other boards already apply.
 
-## One order with the Strategy board (K14)
+## One order with the Strategy board (K14) — superseded
+
+**Superseded 2026-11-08 by [ordering.md](ordering.md)**: the epics set the
+base order and a task's key is its place in its team's queue; the section
+below is kept for the history of the decision and for the schema-4
+migration, which preserves exactly this order once.
 
 Decided 2026-11-07 with the owner. The backlog reads in the **Strategy board's
 order**, across the whole hierarchy: goal order first, then each
