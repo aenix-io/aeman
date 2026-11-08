@@ -63,9 +63,12 @@ direct writer left cyclic.
   every read and never written. It is independent of the manual
   `stage: locked`, which stays what it was (a person's stage).
 - LOCKED is a badge, not a work status: the Roadmap's status filter (O14)
-  keeps reading placement, the plan roll-up (`status.hierarchy`) counts a
-  locked task by its placement, and every board still lets the card be
-  planned, moved and taken.
+  keeps reading placement for In progress, Backlog and Done, the plan
+  roll-up (`status.hierarchy`) counts a locked task by its placement, and
+  every board still lets the card be planned, moved and taken. The status
+  filter offers Locked as a value of its own (amended 2026-11-08): a locked
+  card that is not done matches it, beside its work status, and Hide done
+  keeps it.
 
 ### Wire
 
