@@ -786,6 +786,47 @@ func TestAStatusFilteredRoadmapWatchSeesWorkEnterAndLeave(t *testing.T) {
 	noFrame(t, shelf)
 }
 
+// O14 — Locked and Hide done on a watch. The client epic is empty and waits
+// for the product epic; when the product's last task finishes, the lock
+// lifts without a write to the client epic: the Locked watch hears it leave
+// (with the goal, which nothing else holds there), and the Hide done watch
+// hears the finished product leave while the empty client epic stays,
+// unlocked.
+func TestALockedRoadmapWatchSeesTheLockLift(t *testing.T) {
+	today := board.TodayIso()
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "goal", Title: "Operations", Type: board.TypeGoal},
+		{ItemID: "prod", Title: "Product", Type: board.TypeEpic, Parent: "goal"},
+		{ItemID: "t", Title: "Build", Parent: "prod", Team: "alpha", SprintStart: today, StartDate: today},
+		{ItemID: "client", Title: "Acme rollout", Type: board.TypeEpic, Parent: "goal", DependsOn: []string{"prod"}},
+	})
+	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today}}
+	e := seedEntry(store, "k", b)
+	locked, cancel := store.subscribe("k", "viewer", &apiserver.Selector{View: "roadmap", Status: "locked"}, map[string]bool{"cards": true})
+	defer cancel()
+	open, cancel2 := store.subscribe("k", "viewer2", &apiserver.Selector{View: "roadmap",
+		Status: "backlog,in-progress,locked,no-items"}, map[string]bool{"cards": true})
+	defer cancel2()
+	e.mu.Lock()
+	c, _ := board.Find(e.board, "t")
+	c.Progress = 100
+	e.upsertCard(c)
+	e.cardChanged("lead", c, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+	if got := took(t, locked, 2); got["goal"].Type != "DELETED" || got["client"].Type != "DELETED" {
+		t.Fatalf("the lock lifted: the Locked watch heard %v", got)
+	}
+	// The goal stays for the client epic and hears its fresh roll-up; the
+	// client epic stays too, and hears its lock lift.
+	got := took(t, open, 4)
+	if got["prod"].Type != "DELETED" || got["t"].Type != "DELETED" || got["goal"].Type != "MODIFIED" ||
+		got["client"].Type != "MODIFIED" || got["client"].Card.Status.Locked {
+		t.Fatalf("the product finished: the Hide done watch heard %v", got)
+	}
+}
+
 // O14 — under a status filter a plan item stays while ANY task under it
 // still matches: one of two tasks leaving takes no DELETED to the epic. And
 // what rides the task leaves with it — its subtask and its review card,
