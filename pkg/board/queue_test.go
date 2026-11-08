@@ -456,3 +456,25 @@ func TestSplitIsAnotherTaskInsideTheEpicsArea(t *testing.T) {
 		t.Fatalf("split: A %v, B %v, A on U %v", ix.Split("A", "T"), ix.Split("B", "T"), ix.Split("A", "U"))
 	}
 }
+
+// Q5 — an epic's block that already stands TOGETHER in a gap that costs no
+// more than the best is left where it is: moving the epic writes its own key
+// and nothing else — it is not pushed past neutral tasks into another gap
+// of the same cost (seen on a production copy: an epic moved up dropped its
+// task behind two tasks with no epic).
+func TestAGatheredEpicInAMinimalGapStaysPut(t *testing.T) {
+	b := (&qboard{}).epic("A", "a").epic("B", "b").
+		task("B1", "B", "T", "c").task("L1", "", "T", "d").task("L2", "", "T", "e").task("A1", "A", "T", "f").board()
+	changes, err := MoveEpicPlan(b, "B", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ch := range changes {
+		if ch.ID != "B" {
+			t.Fatalf("%s was re-keyed: %+v", ch.ID, changes)
+		}
+	}
+	if got := queueOf(ApplyRankChanges(b, changes), "T"); got != "B1 L1 L2 A1" {
+		t.Fatalf("queue = %s", got)
+	}
+}

@@ -484,8 +484,16 @@ func GatherPlan(b Board, epic string) ([]RankChange, error) {
 				rest = append(rest, t)
 			}
 		}
-		g := BestGap(rest, epic, ix.EpicOrderFor(team), ix.EpicOf)
+		order := ix.EpicOrderFor(team)
+		g := BestGap(rest, epic, order, ix.EpicOf)
 		if contiguousAt(q, block, rest, g) {
+			continue
+		}
+		// A block already standing together in a gap that costs no more than
+		// the best one is where it should be: moved elsewhere it would only
+		// trade places with tasks no epic order speaks of (neutral ones).
+		if at, together := blockGap(q, block); together &&
+			GapCost(rest, at, epic, order, ix.EpicOf) <= GapCost(rest, g, epic, order, ix.EpicOf) {
 			continue
 		}
 		changes, err := blockChanges(b, block, spotAtGap(rest, g))
@@ -496,6 +504,34 @@ func GatherPlan(b Board, epic string) ([]RankChange, error) {
 		b = applyChanges(b, changes)
 	}
 	return plan, nil
+}
+
+// blockGap is the gap of rest (the queue without the block) a block stands
+// in when its tasks stand together in q, and whether they do.
+func blockGap(q, block []Card) (int, bool) {
+	if len(block) == 0 {
+		return 0, false
+	}
+	in := make(map[string]bool, len(block))
+	for _, c := range block {
+		in[c.ItemID] = true
+	}
+	first := -1
+	for i, c := range q {
+		if in[c.ItemID] {
+			first = i
+			break
+		}
+	}
+	if first < 0 || first+len(block) > len(q) {
+		return 0, false
+	}
+	for i := first; i < first+len(block); i++ {
+		if !in[q[i].ItemID] {
+			return 0, false
+		}
+	}
+	return first, true
 }
 
 // contiguousAt reports a queue that already reads rest[:g] + block + rest[g:].

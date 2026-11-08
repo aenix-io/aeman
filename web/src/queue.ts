@@ -104,7 +104,36 @@ export function gathered(q: readonly QueueItem[], epic: string, order: ReadonlyM
     return [...q];
   }
   const g = bestGap(rest, epic, order);
+  // A block already together in a gap costing no more than the best one
+  // stays where it is (board.GatherPlan).
+  const first = q.findIndex((t) => t.epic === epic);
+  const together = q.slice(first, first + block.length).every((t) => t.epic === epic);
+  if (together && gapCost(rest, first, epic, order) <= gapCost(rest, g, epic, order)) {
+    return [...q];
+  }
   return [...rest.slice(0, g), ...block, ...rest.slice(g)];
+}
+
+/** gapCost is what bestGap weighs gap g by (board.GapCost). */
+export function gapCost(q: readonly QueueItem[], g: number, epic: string, order: ReadonlyMap<string, number>): number {
+  const me = order.get(epic);
+  if (me === undefined) {
+    return 0;
+  }
+  let n = 0;
+  q.forEach((t, i) => {
+    if (!t.epic || t.epic === epic) {
+      return;
+    }
+    const p = order.get(t.epic);
+    if (p === undefined) {
+      return;
+    }
+    if ((i < g && p > me) || (i >= g && p < me)) {
+      n++;
+    }
+  });
+  return n;
 }
 
 /** reorderedInEpic is a task moved within its epic (Q6,

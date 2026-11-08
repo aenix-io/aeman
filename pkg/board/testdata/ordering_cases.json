@@ -17,7 +17,8 @@
   "moveEpic": [
     { "queue": ["A1", "B2", "A2", "B1"], "epicOrder": ["B", "A", "C", "X"], "epic": "B", "want": ["B2", "B1", "A1", "A2"] },
     { "queue": ["C1", "A9", "C2", "B1", "A1"], "epicOrder": ["B", "A", "C", "X"], "epic": "B", "want": ["B1", "C1", "A9", "C2", "A1"] },
-    { "queue": ["A1", "B1", "A2"], "epicOrder": ["A", "B", "C", "X"], "epic": "A", "want": ["A1", "A2", "B1"] }
+    { "queue": ["A1", "B1", "A2"], "epicOrder": ["A", "B", "C", "X"], "epic": "A", "want": ["A1", "A2", "B1"] },
+    { "queue": ["B1", "L1", "L2", "A1"], "epicOrder": ["B", "A", "C", "X"], "epic": "B", "want": ["B1", "L1", "L2", "A1"] }
   ],
   "reorderInEpic": [
     { "queue": ["A1", "B2", "A2", "B1", "A3"], "task": "A3", "before": "A1", "want": ["A3", "B2", "A1", "B1", "A2"] },
