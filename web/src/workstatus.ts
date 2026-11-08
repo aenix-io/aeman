@@ -1,9 +1,12 @@
 // A task's WORK STATUS, and the rest of what the Roadmap's Status filter
 // reads (locked, no-items). Mirrors pkg/board board.WorkStatus,
-// TaskStatuses and PlanStatuses: the server applies the filter (the `status`
-// selector of view=roadmap) and this copy is what the client says about a
-// card, so the two must agree case by case (workstatus.test.ts, over the
-// shared pkg/board/testdata/work_status.json).
+// TaskStatuses and PlanStatuses. The SERVER applies the filter (the `status`
+// selector of view=roadmap); this is the TS copy of its rule, kept in step
+// with the Go one case by case by workstatus.test.ts over the shared
+// pkg/board/testdata/work_status.json. workStatus also places a row's badge
+// (roadmap.statusOf); taskStatuses and planStatuses draw nothing — they are
+// the rule written down where the client's tests can hold it to the
+// server's.
 
 import type { Card } from "./providers/types";
 import { isComplete } from "./stages";
@@ -46,15 +49,17 @@ export function workStatus(
   return "in-progress";
 }
 
-/** taskStatuses mirrors board.TaskStatuses: the values a task answers — its
- *  work status, and locked while a dependency holds it and it is not done
- *  (done wins, so Hide done hides exactly the finished work). */
+/** taskStatuses is the TS copy of board.TaskStatuses (the server filters;
+ *  the shared fixture keeps the two in step): the values a task answers —
+ *  its work status, and locked while a dependency holds it and it is not
+ *  done (done wins, so Hide done hides exactly the finished work). */
 export function taskStatuses(c: Parameters<typeof workStatus>[0], locked: boolean): StatusFilter[] {
   const ws = workStatus(c);
   return locked && ws !== "done" ? [ws, "locked"] : [ws];
 }
 
-/** planStatuses mirrors board.PlanStatuses: what a plan item answers BY
+/** planStatuses is the TS copy of board.PlanStatuses (the server filters;
+ *  the shared fixture keeps the two in step): what a plan item answers BY
  *  ITSELF from its roll-up and its lock — no-items when nothing is under it,
  *  locked while held and not done. The rest it answers by its tasks. */
 export function planStatuses(rollUp: "no-items" | "backlog" | "in-progress" | "done", locked: boolean): StatusFilter[] {
