@@ -846,3 +846,61 @@ func TestAStatusFilteredRoadmapWatchSeesWorkEnterAndLeave(t *testing.T) {
 	}
 	noFrame(t, shelf)
 }
+
+// O14 — under a status filter a plan item stays while ANY task under it
+// still matches: one of two tasks leaving takes no DELETED to the epic. And
+// what rides the task leaves with it — its subtask and its review card,
+// though neither is of that status itself (both parked).
+func TestAStatusFilteredRoadmapKeepsAPlanItemWhileATaskStillMatches(t *testing.T) {
+	today := board.TodayIso()
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "goal", Title: "Grow", Type: board.TypeGoal},
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "goal"},
+		{ItemID: "t1", Title: "Receipts", Parent: "epic", Team: "alpha", SprintStart: today, StartDate: today},
+		{ItemID: "t2", Title: "Invoices", Parent: "epic", Team: "alpha", SprintStart: today, StartDate: today},
+		{ItemID: "kid", Title: "Receipts PDF", Parent: "t1", Team: "alpha", Parked: true},
+		{ItemID: "rev", Title: "review: Receipts", ReviewOf: "t1", Parent: "epic", Team: "alpha",
+			Assignees: []string{"bob"}, Parked: true},
+	})
+	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today}}
+	e := seedEntry(store, "k", b)
+	sub, cancel := store.subscribe("k", "viewer", &apiserver.Selector{View: "roadmap", Status: "in-progress"}, map[string]bool{"cards": true})
+	defer cancel()
+	e.mu.Lock()
+	c, _ := board.Find(e.board, "t1")
+	c.Progress = 100
+	e.upsertCard(c)
+	e.cardChanged("lead", c, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+	deleted := map[string]bool{}
+	for {
+		select {
+		case data := <-sub.ch:
+			var f frame
+			if err := json.Unmarshal(data, &f); err != nil {
+				t.Fatalf("bad frame: %v", err)
+			}
+			if f.Kind == "Load" {
+				continue
+			}
+			if f.Type == "DELETED" {
+				deleted[frameUID(t, f)] = true
+			}
+			continue
+		default:
+		}
+		break
+	}
+	for _, id := range []string{"t1", "kid", "rev"} {
+		if !deleted[id] {
+			t.Errorf("%s did not leave with its task: deleted %v", id, deleted)
+		}
+	}
+	for _, id := range []string{"goal", "epic", "t2"} {
+		if deleted[id] {
+			t.Errorf("%s left though t2 is still in progress: deleted %v", id, deleted)
+		}
+	}
+}
