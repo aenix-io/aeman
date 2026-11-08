@@ -311,3 +311,49 @@ describe("a plan item's drawer", () => {
     expect(html).toMatch(/>\+ Add task<\/button>/);
   });
 });
+
+// What a card waits for (dependencies.md): "Depends on" stands above what
+// sits under the card, the read-only "Blocks" below it; a review card has
+// neither — it neither waits nor is waited for.
+describe("the drawer's dependencies", () => {
+  const at = (html: string, label: string) => html.indexOf(`aria-label="${label}"`);
+
+  it("draws Depends on above Under it, and Blocks right below Depends on", () => {
+    const html = draw(
+      card({
+        itemId: "e",
+        type: "epic",
+        title: "Billing",
+        dependsOn: ["auth"],
+        blockedBy: [{ uid: "auth", title: "Auth API" }],
+        locked: true,
+        blocks: [{ uid: "l", title: "Launch", type: "initiative" }],
+      }),
+    );
+    expect(at(html, "Depends on")).toBeGreaterThan(-1);
+    expect(at(html, "Blocks")).toBeGreaterThan(at(html, "Depends on"));
+    expect(at(html, "Under this card")).toBeGreaterThan(at(html, "Blocks"));
+    expect(html).toContain(">Auth API<");
+    expect(html).toContain(">Launch<");
+    expect(html).toContain("+ Add dependency");
+    expect(html).toContain('aria-label="Stop waiting for «Auth API»"');
+  });
+
+  it("stands above a task's subtasks, and says when it waits for nothing", () => {
+    const html = draw(card({}));
+    expect(at(html, "Depends on")).toBeLessThan(at(html, "Subtasks"));
+    expect(html).toContain("Waits for nothing.");
+    expect(at(html, "Blocks")).toBe(-1);
+  });
+
+  it("is not offered on a review card", () => {
+    const html = draw(card({ reviewOf: "t", reviewed: { uid: "t", title: "Invoices" } }));
+    expect(at(html, "Depends on")).toBe(-1);
+  });
+
+  it("offers no picker and no × on a record", () => {
+    const html = draw(card({ asOf: "2026-11-01T00:00:00Z", dependsOn: ["auth"], blockedBy: [{ uid: "auth", title: "Auth API" }] }));
+    expect(html).not.toContain("+ Add dependency");
+    expect(html).not.toContain("Stop waiting for");
+  });
+});

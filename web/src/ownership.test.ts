@@ -54,6 +54,17 @@ describe("the effective customers (O4, O6)", () => {
     expect(effectiveCustomersOf(cards[3], cards)).toEqual(["hidora", "acme"]);
   });
 
+  // dependencies.md: the work waiting for a card brings its customers, and
+  // what a plan item gets that way flows down to the cards under it.
+  it("include those the waiting work brings, the card's own and every ancestor's", () => {
+    const waited = cards.map((c) =>
+      c.itemId === "e" ? { ...c, dependentCustomers: [{ customer: "globex", from: { uid: "w", title: "Launch" } }] } : c,
+    );
+    expect(effectiveCustomersOf(waited[2], waited)).toEqual(["hidora", "acme", "zeta", "globex"]);
+    const own = { ...cards[3], dependentCustomers: [{ customer: "initech", from: { uid: "w", title: "Launch" } }] };
+    expect(effectiveCustomersOf(own, cards)).toEqual(["hidora", "acme", "initech"]);
+  });
+
   it("are a review card's task's", () => {
     expect(effectiveCustomersOf(cards[4], cards)).toEqual(["hidora", "acme", "zeta"]);
   });
@@ -77,6 +88,25 @@ describe("the customer chips", () => {
   it("are the own ones removable and the inherited ones from their ancestor", () => {
     expect(customerChips(cards[2], cards)).toEqual([
       { id: "hidora", from: "Grow" },
+      { id: "acme" },
+      { id: "zeta" },
+    ]);
+  });
+
+  // A card work for a customer waits for is for that customer too
+  // (dependencies.md): grey like an inherited one, from the nearest card
+  // that waits for it — and named once when it arrives both ways.
+  it("add the customers of the work that waits for the card, from the card that waits", () => {
+    const waited = {
+      ...cards[2],
+      dependentCustomers: [
+        { customer: "globex", from: { uid: "w", title: "Launch" } },
+        { customer: "hidora", from: { uid: "w", title: "Launch" } },
+      ],
+    };
+    expect(customerChips(waited, cards)).toEqual([
+      { id: "hidora", from: "Grow" },
+      { id: "globex", from: "Launch" },
       { id: "acme" },
       { id: "zeta" },
     ]);

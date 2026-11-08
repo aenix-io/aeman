@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   Board,
   Card as CardModel,
@@ -48,6 +48,8 @@ import { CardIdentity } from "./CardIdentity";
 import { placementAnswer, drawerEscapes, joinsTree } from "../detail";
 import { OwnerPicker } from "./OwnerPicker";
 import { ParentPicker } from "./ParentPicker";
+import { DependsOn } from "./DependsOn";
+import { withDependency, withoutDependency } from "../dependencies";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { notTombstoned, type Tombstones } from "../tombstones";
 
@@ -157,7 +159,8 @@ export function CardDetail({
   // card's children at once, a task's parent options when the picker opens.
   const [hierarchy, setHierarchy] = useState<{ forCard: string; cards: CardModel[] } | null>(null);
   const [wantsOptions, setWantsOptions] = useState(false);
-  const wantsHierarchy = planning || wantsOptions;
+  // A card that waits for others names them from the same listing.
+  const wantsHierarchy = planning || wantsOptions || (card.dependsOn?.length ?? 0) > 0;
   useEffect(() => {
     if (!wantsHierarchy || temp || hierarchy?.forCard === card.itemId) {
       return;
@@ -215,6 +218,7 @@ export function CardDetail({
     });
   }, [subscribeCardFrames]);
   const around = hierarchy?.forCard === card.itemId ? hierarchy.cards : null;
+  const [fetchedDeps, setFetchedDeps] = useState<CardModel[]>([]);
   // What the board itself holds is fresher than the fetched listing for the
   // cards it has (the watch keeps it so); the listing fills in the rest.
   const known = useMemo(() => {
@@ -222,11 +226,38 @@ export function CardDetail({
     for (const c of around ?? []) {
       byId.set(c.itemId, c);
     }
+    for (const c of fetchedDeps) {
+      if (!byId.has(c.itemId)) {
+        byId.set(c.itemId, c);
+      }
+    }
     for (const c of board.cards) {
       byId.set(c.itemId, c);
     }
     return [...byId.values()];
-  }, [around, board.cards]);
+  }, [around, board.cards, fetchedDeps]);
+  // A dependency the listing does not carry — finished work outside the
+  // tree, a card of another view — is fetched by id once, so its row has a
+  // title and a status rather than a bare uid.
+  useEffect(() => {
+    if (around === null || temp) {
+      return;
+    }
+    const have = new Set([...around, ...board.cards, ...fetchedDeps].map((c) => c.itemId));
+    const missing = (card.dependsOn ?? []).filter((id) => !have.has(id));
+    if (missing.length === 0) {
+      return;
+    }
+    let dropped = false;
+    void Promise.all(missing.map((id) => provider.getCard(id).catch(() => null))).then((got) => {
+      if (!dropped) {
+        setFetchedDeps((prev) => [...prev, ...got.filter((c): c is CardModel => c !== null)]);
+      }
+    });
+    return () => {
+      dropped = true;
+    };
+  }, [around, board.cards, card.dependsOn, fetchedDeps, provider, temp]);
 
   // The parent as the pane shows it: the last crumb of the lineage.
   const parentCrumb = card.lineage?.[card.lineage.length - 1];
@@ -414,6 +445,29 @@ export function CardDetail({
       // Filed under another plan item it may stand under another team, in
       // that team's sprint (O13): take where the server put it.
       .then((updated) => patchCard(card.itemId, placementAnswer(updated)))
+      .catch((err: unknown) => {
+        patchCard(card.itemId, before);
+        onError?.(errMessage(err));
+      });
+  };
+
+  // What this card waits for: the whole list is written, the drawer shows
+  // it at once and takes it back when the server refuses (a cycle, a target
+  // it may not wait for), in the server's words.
+  const wantDependencyOptions = useCallback(() => setWantsOptions(true), []);
+  const setDependsOn = (next: string[]) => {
+    const before: Partial<CardModel> = { dependsOn: card.dependsOn };
+    patchCard(card.itemId, { dependsOn: next.length ? next : undefined });
+    void provider
+      .patchCard(card.itemId, { dependsOn: next })
+      .then((updated) =>
+        patchCard(card.itemId, {
+          dependsOn: updated.dependsOn,
+          locked: updated.locked,
+          blockedBy: updated.blockedBy,
+          hiddenBlockers: updated.hiddenBlockers,
+        }),
+      )
       .catch((err: unknown) => {
         patchCard(card.itemId, before);
         onError?.(errMessage(err));
@@ -1030,6 +1084,22 @@ export function CardDetail({
                       Save
                     </button>
                   </div>
+                )}
+
+                {/* What this card waits for, and what waits for it
+                    (dependencies.md) — above what sits under it. A review
+                    card neither waits nor is waited for. */}
+                {!card.reviewOf && (
+                  <DependsOn
+                    card={card}
+                    known={known}
+                    options={around}
+                    readOnly={isRecord || temp}
+                    onWantOptions={wantDependencyOptions}
+                    onAdd={(t) => setDependsOn(withDependency(card.dependsOn, t.itemId))}
+                    onRemove={(uid) => setDependsOn(withoutDependency(card.dependsOn, uid))}
+                    onOpen={openById}
+                  />
                 )}
 
                 {/* A task's subtasks: what rides it, each opening here, each

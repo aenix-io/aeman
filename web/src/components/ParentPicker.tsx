@@ -8,7 +8,7 @@ import { KindIcon } from "./KindIcon";
 /** ParentChain is where an option stands: its ancestors, root first, small
  *  and muted, each with its kind — cut when long, in full in the tooltip. A
  *  root has none to show. */
-function ParentChain({ chain }: { chain: Pick<CardModel, "itemId" | "title" | "type">[] }) {
+export function ParentChain({ chain }: { chain: Pick<CardModel, "itemId" | "title" | "type">[] }) {
   if (chain.length === 0) {
     return null;
   }
