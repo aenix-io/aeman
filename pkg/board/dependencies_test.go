@@ -1,8 +1,11 @@
 package board
 
 import (
+	"fmt"
 	"reflect"
+	"slices"
 	"testing"
+	"time"
 )
 
 // N1–N6 — a card waits for other cards (docs/design/dependencies.md).
@@ -323,4 +326,49 @@ func TestACustomerCycleAnswersTheSameWhicheverCardIsAskedFirst(t *testing.T) {
 			}
 		}
 	}
+}
+
+// A CLIQUE a direct writer left — every card waiting on every other — is
+// worked out in linear time, not by trying every order of the cycle: the
+// watch counts it under the board's lock, and a dozen cards once took
+// seconds. Each answer is the whole clique's customers, the same through the
+// listing's door and the watch's.
+func TestACustomerCliqueIsWorkedOutFast(t *testing.T) {
+	const k = 12
+	var cards []Card
+	var roster []Customer
+	for i := range k {
+		id := fmt.Sprintf("c%02d", i)
+		var deps []string
+		for j := range k {
+			if j != i {
+				deps = append(deps, fmt.Sprintf("c%02d", j))
+			}
+		}
+		cards = append(cards, Card{ItemID: id, Title: id, Team: "t", Customers: []string{"x" + id}, DependsOn: deps})
+		roster = append(roster, Customer{ID: "x" + id})
+	}
+	b := NewBoard(cards)
+	b.Customers = roster
+	ix := NewIndex(b)
+	start := time.Now()
+	for _, c := range b.Cards {
+		got := ix.EffectiveCustomers(c)
+		if len(got) != k {
+			t.Fatalf("%s has %d customers, want the whole clique's %d", c.ItemID, len(got), k)
+		}
+		as, _ := ix.EffectiveCustomersAs(c, func(Card) bool { return true })
+		if !slices.Equal(sortedCopy(got), sortedCopy(as)) {
+			t.Fatalf("%s: listing %v, watch %v", c.ItemID, got, as)
+		}
+	}
+	if took := time.Since(start); took > 50*time.Millisecond {
+		t.Fatalf("a %d-card clique took %v", k, took)
+	}
+}
+
+func sortedCopy(s []string) []string {
+	out := slices.Clone(s)
+	slices.Sort(out)
+	return out
 }

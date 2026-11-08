@@ -163,7 +163,15 @@ func (ix *Index) customersOf(c Card) customersAnswer {
 	if ok {
 		return a
 	}
-	a, _ = ix.wholeCustomers(c, map[string]bool{})
+	a, whole := ix.wholeCustomers(c, map[string]bool{})
+	if !whole {
+		// A cycle a direct writer left (the server refuses one, N2): the
+		// memoizing walk gave up at the first card met again, and the
+		// linear walk — each card visited once — answers instead.
+		ids, from := ix.effectiveCustomers(c, map[string]bool{c.ItemID: true}, nil)
+		a = customersAnswer{ids: ids, from: from}
+		ix.keepCustomers(c.ItemID, a)
+	}
 	return a
 }
 
@@ -171,9 +179,10 @@ func (ix *Index) customersOf(c Card) customersAnswer {
 // answer kept as it is found: the cards that wait for a card hand it their
 // own whole answers, so a dense board works each one out once, not once per
 // card below or above it. onPath is the cards being worked out further up
-// the walk — a cycle a direct writer left. A card met there gives nothing
-// yet, and every answer that leaned on it is partial and not kept (whole is
-// false), so it is worked out again, whole, when it is asked for itself.
+// the walk — a cycle a direct writer left. Meeting one there ends the walk
+// at once (whole is false) and nothing on the way is kept: going on would
+// try every order of the cycle, factorial in its size. customersOf answers
+// such a card by the linear walk instead.
 func (ix *Index) wholeCustomers(c Card, onPath map[string]bool) (customersAnswer, bool) {
 	ix.memo.Lock()
 	a, ok := ix.cust[c.ItemID]
@@ -217,12 +226,18 @@ func (ix *Index) wholeCustomers(c Card, onPath map[string]bool) (customersAnswer
 	}
 	ix.eachHolder(c, func(h Card) {
 		for _, d := range ix.dependents[h.ItemID] {
+			if !whole {
+				return
+			}
 			if onPath[d.ItemID] {
 				whole = false
-				continue
+				return
 			}
 			da, dWhole := ix.wholeCustomers(d, onPath)
-			whole = whole && dWhole
+			if !dWhole {
+				whole = false
+				return
+			}
 			for _, id := range da.ids {
 				if !has(id) {
 					ids = append(ids, id)
