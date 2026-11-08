@@ -1,0 +1,23 @@
+{
+  "comment": "O14 — a task's work status, the Roadmap status filter's reading. Shared by pkg/board (TestTheWorkStatusMatchesTheSharedFixture) and web/src/workstatus.test.ts: the filter follows PLACEMENT — done when complete (board.Complete), else backlog when parked or placed nowhere (no date, no sprint), whatever the stage says, else in progress. A card's stage badge may still show its stage.",
+  "cases": [
+    {"name": "finished at 100", "card": {"progress": 100, "start": "2026-11-02"}, "status": "done"},
+    {"name": "done stage", "card": {"stage": "done"}, "status": "done"},
+    {"name": "finished while parked", "card": {"parked": true, "progress": 100}, "status": "done"},
+    {"name": "recurrent at 100", "card": {"stage": "recurrent", "progress": 100, "sprint": "2026-11-02"}, "status": "done"},
+    {"name": "locked at 100 is not complete", "card": {"stage": "locked", "progress": 100, "sprint": "2026-11-02"}, "status": "in-progress"},
+    {"name": "review at 100 is not complete", "card": {"stage": "review", "progress": 100, "sprint": "2026-11-02"}, "status": "in-progress"},
+    {"name": "parked", "card": {"parked": true}, "status": "backlog"},
+    {"name": "parked with dates", "card": {"parked": true, "start": "2026-11-02", "day": "2026-11-03"}, "status": "backlog"},
+    {"name": "parked on review", "card": {"parked": true, "stage": "review", "progress": 50}, "status": "backlog"},
+    {"name": "parked and locked", "card": {"parked": true, "stage": "locked", "progress": 50}, "status": "backlog"},
+    {"name": "review with no date or sprint", "card": {"stage": "review", "progress": 50}, "status": "backlog"},
+    {"name": "unplaced", "card": {}, "status": "backlog"},
+    {"name": "dated", "card": {"start": "2026-11-02", "day": "2026-11-02"}, "status": "in-progress"},
+    {"name": "end date alone", "card": {"day": "2026-11-02"}, "status": "in-progress"},
+    {"name": "in a sprint", "card": {"sprint": "2026-11-02"}, "status": "in-progress"},
+    {"name": "on review in work", "card": {"sprint": "2026-11-02", "stage": "review", "progress": 50}, "status": "in-progress"},
+    {"name": "locked in work", "card": {"sprint": "2026-11-02", "stage": "locked", "progress": 50}, "status": "in-progress"},
+    {"name": "refused in work", "card": {"sprint": "2026-11-02", "stage": "refuse"}, "status": "in-progress"}
+  ]
+}
