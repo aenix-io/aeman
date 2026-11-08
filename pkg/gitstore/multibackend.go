@@ -594,34 +594,60 @@ func (mb *MultiBackend) DeleteCard(ctx context.Context, bd board.Board, card boa
 	return be.DeleteCard(ctx, bd, card)
 }
 
-// MoveCard reorders within the card's domain. The TOP of the board (afterID
-// "") is the top of the merged board, not of the card's own repository: the
-// board's order is one list across the domains, and a card put first — a
-// review nobody has taken being made (K10), a card parked at the top of its
-// backlog — must rank before every domain's first card.
+// MoveCard reorders a card in the MERGED board's order: the board's order is
+// one list across the domains, so the neighbours a key goes between are
+// read off every domain's cards — an anchor another repository holds is a
+// place like any other (the TOP, afterID "", included: a review nobody has
+// taken being made, K10, ranks before every domain's first card). Only the
+// card's own file is written, in its own domain.
 func (mb *MultiBackend) MoveCard(ctx context.Context, bd board.Board, card board.Card, afterID string) error {
 	be, err := mb.route(ctx, card)
 	if err != nil {
 		return err
 	}
-	if afterID == "" && len(mb.domains) > 1 && !board.IsStateTitle(card.Title) {
-		first := ""
-		for _, c := range bd.Cards {
-			if c.ItemID == card.ItemID || c.Rank == "" || board.IsStateTitle(c.Title) {
-				continue
-			}
-			if first == "" || c.Rank < first {
-				first = c.Rank
-			}
+	if len(mb.domains) > 1 && !board.IsStateTitle(card.Title) {
+		fresh, err := mb.LoadBoard(ctx, bd.Board)
+		if err != nil {
+			return err
 		}
-		if first != "" {
-			rank, err := board.RankBetween("", first)
+		prev, next := mergedNeighbours(fresh.Cards, card.ItemID, afterID)
+		if prev == "" || next == "" || prev < next {
+			rank, err := board.RankBetween(prev, next)
 			if err == nil && !board.RankTooLong(rank) {
 				return be.setCardRank(ctx, card, rank)
 			}
 		}
 	}
 	return be.MoveCard(ctx, bd, card, afterID)
+}
+
+// mergedNeighbours is the ranks a card moved after afterID goes between in
+// the merged order ("" = an open end); an anchor the board does not hold is
+// the end of the list.
+func mergedNeighbours(cards []board.Card, id, afterID string) (prev, next string) {
+	rest := make([]board.Card, 0, len(cards))
+	for _, c := range cards {
+		if c.ItemID != id && !board.IsStateTitle(c.Title) {
+			rest = append(rest, c)
+		}
+	}
+	at := 0
+	if afterID != "" {
+		at = len(rest)
+		for i, c := range rest {
+			if c.ItemID == afterID {
+				at = i + 1
+				break
+			}
+		}
+	}
+	if at > 0 {
+		prev = rest[at-1].Rank
+	}
+	if at < len(rest) {
+		next = rest[at].Rank
+	}
+	return prev, next
 }
 
 // AddNote appends a note in the card's domain.

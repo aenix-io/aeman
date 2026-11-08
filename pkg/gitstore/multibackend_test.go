@@ -676,3 +676,37 @@ func TestMultiBackendKeepsTheCustomerRosterInThePrimary(t *testing.T) {
 		t.Fatalf("the roster still holds %+v", b.Customers)
 	}
 }
+
+// AN ANCHOR IN ANOTHER REPOSITORY IS A PLACE, NOT A GUESS. The board's order
+// is one list across the domains, so a card moved after a card another
+// repository holds lands right after it in the merged order — not at the
+// key a list without the anchor gives ("i", wherever that falls).
+func TestMultiBackendMovesAfterAnAnchorInAnotherRepository(t *testing.T) {
+	shared := repoWith(t, map[string]string{
+		BoardPath:               "schema: 3\ntitle: b\n",
+		TeamPath("01T_PORTAL"):  "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
+		"cards/a/1/01CARDA1.md": "---\ntitle: first\nteam: portal\nparked: true\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n",
+		"cards/a/2/01CARDA2.md": "---\ntitle: third\nteam: portal\nparked: true\nrank: c\ncreated: 2026-08-20T09:00:00Z\n---\n",
+	})
+	closed := repoWith(t, map[string]string{
+		TeamPath("01T_SECRET"):  "name: secret\nrank: c\ncreated: 2026-06-02T08:00:00Z\n",
+		"cards/b/2/01CARDB2.md": "---\ntitle: second\nteam: secret\nparked: true\nrank: z\ncreated: 2026-08-21T09:00:00Z\n---\n",
+	})
+	clock := at("2026-08-28T09:00:00Z")
+	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}},
+		BackendOptions{Now: func() time.Time { clock = clock.Add(time.Second); return clock }})
+	ctx := ctxAs("kvaps")
+	b, _ := mb.LoadBoard(ctx, "x")
+	card, _ := board.Find(b, "01CARDB2")
+	if err := mb.MoveCard(ctx, b, card, "01CARDA1"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = mb.LoadBoard(ctx, "x")
+	var got []string
+	for _, c := range b.Cards {
+		got = append(got, c.ItemID)
+	}
+	if strings.Join(got, " ") != "01CARDA1 01CARDB2 01CARDA2" {
+		t.Fatalf("board order = %v, want the closed card right after its anchor", got)
+	}
+}
