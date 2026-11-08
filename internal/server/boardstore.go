@@ -731,6 +731,7 @@ func detached(b board.Board) board.Board {
 	b.Domains = maps.Clone(b.Domains)
 	b.DroppedParents = maps.Clone(b.DroppedParents)
 	b.BlockerTotals = maps.Clone(b.BlockerTotals)
+	b.UndoneTargets = maps.Clone(b.UndoneTargets)
 	b.Customers = slices.Clone(b.Customers)
 	return b
 }

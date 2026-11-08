@@ -33,6 +33,7 @@ func Visible(b Board, primary string, readable func(domain string) bool) Board {
 	// One index over the whole board, and only when something waits: a
 	// board on which nothing does pays nothing for the count.
 	v.BlockerTotals = nil
+	v.UndoneTargets = nil
 	if len(v.Cards) < len(b.Cards) && anyDependsOn(b.Cards) {
 		ix := NewIndex(b)
 		for _, c := range v.Cards {
@@ -41,6 +42,16 @@ func Visible(b Board, primary string, readable func(domain string) bool) Board {
 					v.BlockerTotals = map[string]int{}
 				}
 				v.BlockerTotals[c.ItemID] = n
+			}
+		}
+		for _, c := range b.Cards {
+			for _, id := range c.DependsOn {
+				if t, ok := ix.Find(id); ok && !ix.Done(t) {
+					if v.UndoneTargets == nil {
+						v.UndoneTargets = map[string]bool{}
+					}
+					v.UndoneTargets[id] = true
+				}
 			}
 		}
 	}

@@ -262,6 +262,12 @@ type Board struct {
 	// visitor's resource counts the ones it cannot name (N4). Nil when
 	// nothing was hidden.
 	BlockerTotals map[string]int `json:"-"`
+	// UndoneTargets are the cards something waits for that are NOT done on
+	// the WHOLE board, recorded by Visible beside BlockerTotals: a plan item
+	// is done by its whole roll-up, not by the part of it the visitor's board
+	// holds, so the visitor's listing judges a blocker the way a watch frame
+	// does (N4). Nil when nothing was hidden.
+	UndoneTargets map[string]bool `json:"-"`
 }
 
 // Customer is one entry of the board's customer roster: who the work is for.

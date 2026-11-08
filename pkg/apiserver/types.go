@@ -821,10 +821,15 @@ func heldIDs(ix *board.Index, ids []string) []string {
 }
 
 // applyDependencies fills the derived dependency fields (N3–N5). On a
-// visitor's visible board the blockers it cannot name are the whole board's
-// count (BlockerTotals) less the ones it found.
+// visitor's visible board a target is judged done or not on the WHOLE board
+// (UndoneTargets) — the basis a watch frame uses — and the blockers it
+// cannot name are the whole board's count (BlockerTotals) less the ones it
+// found.
 func applyDependencies(status *CardStatus, b board.Board, ix *board.Index, c board.Card) {
 	blockers := ix.Blockers(c)
+	if b.BlockerTotals != nil {
+		blockers = blockersJudgedWhole(b, ix, c)
+	}
 	for _, bl := range blockers {
 		ref := BlockerRef{UID: bl.Target.ItemID, Type: bl.Target.Type, Title: bl.Target.Title}
 		if bl.Via.ItemID != c.ItemID {
@@ -845,4 +850,26 @@ func applyDependencies(status *CardStatus, b board.Board, ix *board.Index, c boa
 		status.DependentCustomers = append(status.DependentCustomers, DependentCustomerRef{Customer: dc.Customer,
 			From: LineageRef{UID: dc.From.ItemID, Type: dc.From.Type, Title: dc.From.Title}})
 	}
+}
+
+// blockersJudgedWhole is Index.Blockers on a visitor's visible board with
+// each target's done taken from the whole board (UndoneTargets): the card's
+// own waits first, then each readable ancestor's, nearest first — the
+// visible board's lineage already ends at the first ancestor the visitor
+// cannot read, as Index.BlockersAs ends a readable path.
+func blockersJudgedWhole(b board.Board, ix *board.Index, c board.Card) []board.Blocker {
+	var out []board.Blocker
+	holders := []board.Card{c}
+	up := ix.Lineage(c)
+	for i := len(up) - 1; i >= 0; i-- {
+		holders = append(holders, up[i])
+	}
+	for _, h := range holders {
+		for _, id := range h.DependsOn {
+			if t, ok := ix.Find(id); ok && b.UndoneTargets[id] {
+				out = append(out, board.Blocker{Target: t, Via: h})
+			}
+		}
+	}
+	return out
 }

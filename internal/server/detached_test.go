@@ -33,6 +33,7 @@ func fullBoard() board.Board {
 		DroppedParents: map[string]string{"c1": "gone"},
 		Customers:      []board.Customer{{ID: "cu1", Name: "Hidora"}},
 		BlockerTotals:  map[string]int{"c1": 1},
+		UndoneTargets:  map[string]bool{"c2": true},
 	}
 }
 

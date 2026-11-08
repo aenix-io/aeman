@@ -78,3 +78,22 @@ func TestAFrameKeepsTheCustomersWaitingWorkGivesItsWatcher(t *testing.T) {
 		t.Fatalf("kid frame customers %v, want acme through the waiter", got.Status.EffectiveCustomers)
 	}
 }
+
+// not on the same basis in the listing and on the frame.
+func TestAnEpicTargetWithHiddenLeavesCountsAlikeInListingAndFrame(t *testing.T) {
+	store := newBoardStore()
+	// On the watcher's board the epic's one readable task is done; on the
+	// whole board a task they cannot read is still open.
+	b := targetEpicBoard()
+	for i := range b.Cards {
+		if b.Cards[i].ItemID == "infra-t" {
+			b.Cards[i].Domain = "closed"
+		}
+	}
+	e := seedEntry(store, "k", b)
+	rights := rightsOn([]string{"shared"}, nil)
+	narrow, cancel := store.subscribeAs("k", "bob", nil, map[string]bool{"cards": true}, rights)
+	defer cancel()
+	change(t, e, "t", func(c *board.Card) { c.Title += "!" })
+	restrictedFrameAgrees(t, e, rights, cardFrames(narrow), "t")
+}
