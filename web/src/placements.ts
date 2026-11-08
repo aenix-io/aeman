@@ -88,12 +88,29 @@ export function markClass(c: Partial<Marked>): string {
   return ` card-prio card-${mark}`;
 }
 
-/** markTitle is what a priority stripe says to a pointer and a screen
- *  reader: "P1", or "P1 (from «Goal»)" when inherited; nothing on a review
- *  or a card with no priority. */
+/** reviewMark is what a review's stripe says: somebody else's work waiting
+ *  on the person whose board it is. */
+const reviewMark = "A review: somebody's work waiting on you";
+
+/** markTitle is what a card's stripe says to a pointer: "P1", or
+ *  "P1 (from «Goal»)" when inherited; a review's stripe says it is one;
+ *  nothing on a card with neither. */
 export function markTitle(c: Partial<Marked>): string {
-  if (c.reviewOf || !c.effectivePriority) {
+  if (c.reviewOf) {
+    return reviewMark;
+  }
+  if (!c.effectivePriority) {
     return "";
   }
   return c.effectivePriorityFrom ? `${c.effectivePriority} (from «${c.effectivePriorityFrom.title}»)` : c.effectivePriority;
+}
+
+/** markLabel names the stripe for a screen reader: its kind, then its
+ *  title — "Priority P1 (from «Goal»)", or the review's own sentence. */
+export function markLabel(c: Partial<Marked>): string {
+  const title = markTitle(c);
+  if (!title || c.reviewOf) {
+    return title;
+  }
+  return `Priority ${title}`;
 }

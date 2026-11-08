@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { makeCardPlacements, markClass, markOf, markTitle, type CardPlacements } from "./placements";
+import { makeCardPlacements, markClass, markLabel, markOf, markTitle, type CardPlacements } from "./placements";
 import type { Card } from "./providers/types";
 import { parkedLocally } from "./backlog";
 
@@ -8,6 +8,8 @@ import { parkedLocally } from "./backlog";
  *  `unknown` asserts nothing about the shape it hides, and these cases are
  *  the rules' documentation. */
 const mk = (c: Partial<Card>): Card => c as Card;
+
+const REVIEW_MARK = "A review: somebody's work waiting on you";
 
 describe("makeCardPlacements", () => {
   const run = (card: Card, act: (p: CardPlacements) => void) => {
@@ -74,7 +76,15 @@ describe("markOf", () => {
   it("titles a priority stripe, naming where an inherited one comes from", () => {
     expect(markTitle({ effectivePriority: "P1" })).toBe("P1");
     expect(markTitle({ effectivePriority: "P1", effectivePriorityFrom: { uid: "g", title: "Grow" } })).toBe("P1 (from «Grow»)");
-    expect(markTitle({ reviewOf: "c1", effectivePriority: "P1" })).toBe("");
+    expect(markTitle({ reviewOf: "c1", effectivePriority: "P1" })).toBe(REVIEW_MARK);
     expect(markTitle({})).toBe("");
+  });
+
+  // A review's stripe says what it is too, and a screen reader hears the
+  // stripe's kind before its title.
+  it("names a stripe for a screen reader by its kind", () => {
+    expect(markLabel({ effectivePriority: "P2" })).toBe("Priority P2");
+    expect(markLabel({ reviewOf: "c1" })).toBe(REVIEW_MARK);
+    expect(markLabel({})).toBe("");
   });
 });

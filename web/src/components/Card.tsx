@@ -14,7 +14,7 @@ import {
 import { ProgressSlider } from "./ProgressSlider";
 import { isPlanning, isSubtask } from "../subtasks";
 import { teamColor, teamInitial } from "../avatar";
-import { markClass, markTitle, type CardPlacements } from "../placements";
+import { markClass, markLabel, markTitle, type CardPlacements } from "../placements";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
 import { daysSince, localDateIso } from "../date";
@@ -532,7 +532,7 @@ export function Card({
       onClick={() => (clickOn(!!selected) === "open" ? onOpen(card) : onSelect(card))}
       title={card.title}
     >
-      {markTitle(card) && <span className="card-prio-mark" title={markTitle(card)} aria-label={`Priority ${markTitle(card)}`} />}
+      {markTitle(card) && <span className="card-prio-mark" role="img" title={markTitle(card)} aria-label={markLabel(card)} />}
       {(subCount ?? 0) > 0 && onToggleExpand && (
         <button
           type="button"

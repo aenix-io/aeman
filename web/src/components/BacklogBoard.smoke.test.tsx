@@ -253,8 +253,8 @@ describe("the Backlog board", () => {
     expect(html).toContain('class="card backlog-card card-prio card-prio-p0"');
     expect(html).toContain('class="card backlog-card card-prio card-prio-p2"');
     expect(html).not.toContain("card-prio-inherited");
-    expect(html).toContain('class="card-prio-mark" title="P0" aria-label="Priority P0"');
-    expect(html).toContain('class="card-prio-mark" title="P2 (from «Billing v2»)" aria-label="Priority P2 (from «Billing v2»)"');
+    expect(html).toContain('class="card-prio-mark" role="img" title="P0" aria-label="Priority P0"');
+    expect(html).toContain('class="card-prio-mark" role="img" title="P2 (from «Billing v2»)" aria-label="Priority P2 (from «Billing v2»)"');
     expect(html).toContain('class="card backlog-card card-review"');
     expect(html).not.toMatch(/card-review card-prio|card-prio[^"]*card-review/);
     expect(html).not.toContain("backlog-row-prio");

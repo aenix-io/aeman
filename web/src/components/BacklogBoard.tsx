@@ -54,7 +54,7 @@ import { displayName } from "../users";
 import { InsertGap } from "./InsertGap";
 import { Dropdown } from "./Dropdown";
 import { KindIcon } from "./KindIcon";
-import { markClass, markTitle } from "../placements";
+import { markClass, markLabel, markTitle } from "../placements";
 import { OwnerBadge } from "./OwnerBadge";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
@@ -684,7 +684,7 @@ function BacklogRow({
       title={card.title}
     >
       <PresenceMarks selectedBy={selectedBy} avatars={avatars} names={names} />
-      {markTitle(card) && <span className="card-prio-mark" title={markTitle(card)} aria-label={`Priority ${markTitle(card)}`} />}
+      {markTitle(card) && <span className="card-prio-mark" role="img" title={markTitle(card)} aria-label={markLabel(card)} />}
       <span className="card-title backlog-card-title">{card.title}</span>
       <span className="backlog-row-remove-slot">
         <button

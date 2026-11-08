@@ -53,6 +53,9 @@
   --prio-p3-fg: #ffffff;
   --prio-p4-bg: #d0d7de;
   --prio-p4-fg: #24292f;
+  /* P4's chip colour is too pale for a 4px stripe on a card: the stripe
+     takes a darker grey that keeps 3:1 against the card (WCAG non-text). */
+  --prio-p4-stripe: #8c959f;
   /* An INHERITED priority keeps its hue, drawn lighter: a pale tint of it
      with the hue's deep ink as text — AA for small text on that tint, and
      never mistaken for the solid own badge. */
@@ -198,6 +201,7 @@
   --prio-p3-fg: #0d1117;
   --prio-p4-bg: #484f58;
   --prio-p4-fg: #e6edf3;
+  --prio-p4-stripe: #6e7681;
   /* Inherited in dark: a dim tint on the dark ground, the hue's light ink
      as text — never brighter than the own badge (P4's ink is dimmer than
      its own fill's text). */
@@ -5723,7 +5727,7 @@ button.card-age {
 .card-prio-p1::before { background: var(--prio-p1-bg); }
 .card-prio-p2::before { background: var(--prio-p2-bg); }
 .card-prio-p3::before { background: var(--prio-p3-bg); }
-.card-prio-p4::before { background: var(--prio-p4-bg); }
+.card-prio-p4::before { background: var(--prio-p4-stripe); }
 
 
 /* The stripe's tooltip and its name for a screen reader: a span laid over
