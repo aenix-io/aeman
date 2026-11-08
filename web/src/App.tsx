@@ -30,7 +30,7 @@ import { forgeCopy } from "./forge";
 import { unpushedNotice, type HealthStatus } from "./health";
 import { migrateBoardScopedKeys } from "./storage";
 import { pruneTeamFilter, settlePendingTeams, teamRoster } from "./teams";
-import { forgetMade, justMade } from "./justmade";
+import { forgetMade, justMade, staysOnLeave } from "./justmade";
 import {
   queryString,
   snapshotDay,
@@ -357,6 +357,9 @@ export function App() {
     }
   });
   const setRoadmapFilters = useCallback((next: RoadmapFilters) => {
+    // Another filter is another question: what was made under the last one
+    // is no longer kept drawn (justmade.ts, staysOnLeave).
+    forgetMade();
     setRoadmapFiltersState(next);
     try {
       localStorage.setItem(ROADMAP_FILTERS_KEY, JSON.stringify(next));
@@ -1316,6 +1319,14 @@ export function App() {
           }
           return next;
         });
+        // A card made here that the selection does not take stays until
+        // the reader asks another question (justmade.ts): its frame is an
+        // update, not a removal.
+        if (frame.type === "DELETED" && staysOnLeave(card.itemId, cardIsGone(frame))) {
+          patchCard(card.itemId, card);
+          notifyCardFrame(false);
+          return;
+        }
         if (frame.type === "DELETED") {
           // Back must never land on a card deleted outright.
           if (cardIsGone(frame)) {

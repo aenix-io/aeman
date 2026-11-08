@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { forgetMade, justMade, noteMade } from "./justmade";
+import { forgetMade, justMade, noteMade, staysOnLeave } from "./justmade";
 import { asksFirst } from "./removal";
 
 beforeEach(forgetMade);
@@ -54,5 +54,28 @@ describe("when the × asks first", () => {
     // The safe reading for a caller that has not looked: a gesture that acts
     // in silence is how an × comes to be feared.
     expect(asksFirst({ progress: 0 })).toBe(true);
+  });
+});
+
+// A card made under a filter that does not take it — the Roadmap's task is
+// born parked, and "In progress" leaves it out — would leave the board the
+// moment the server answers, as a membership DELETED. Made here, it stays
+// until the filter (or the view) changes; one deleted outright still goes.
+describe("a card made here that its filter leaves out", () => {
+  it("stays when it only left the selection", () => {
+    noteMade("01NEW");
+    expect(staysOnLeave("01NEW", false)).toBe(true);
+  });
+  it("goes when it was deleted outright", () => {
+    noteMade("01NEW");
+    expect(staysOnLeave("01NEW", true)).toBe(false);
+  });
+  it("goes when it was not made here", () => {
+    expect(staysOnLeave("01OLD", false)).toBe(false);
+  });
+  it("goes once the reader asks another question", () => {
+    noteMade("01NEW");
+    forgetMade();
+    expect(staysOnLeave("01NEW", false)).toBe(false);
   });
 });

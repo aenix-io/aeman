@@ -36,3 +36,13 @@ export function justMade(id: string): boolean {
 export function forgetMade(): void {
   made.clear();
 }
+
+/** staysOnLeave reports whether a card leaving the board's selection — a
+ *  membership DELETED, not a delete — stays drawn: one made here does, so a
+ *  card born under a filter that does not take it (the Roadmap's task, born
+ *  parked, under "In progress") is not gone the moment the server answers. It
+ *  stays until the reader asks another question — another view or filter
+ *  (forgetMade). A card deleted outright goes whoever made it. */
+export function staysOnLeave(id: string, gone: boolean): boolean {
+  return !gone && made.has(id);
+}
