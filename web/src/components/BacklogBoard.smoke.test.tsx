@@ -240,29 +240,12 @@ describe("the Backlog board", () => {
   });
 
   // K9: nothing of the Triage board — no weeks, no strip, no load.
-  // The priority on a Backlog card is a STRIPE down its left edge (K15),
-  // in its full hue, own or inherited, titled "P1 (from «X»)"; no badge, no
-  // button (it is set from the drawer or the Roadmap). A review keeps its
-  // yellow stripe and gets no priority stripe: never two.
-  it("draws the card's priority as a stripe, and a review's yellow stripe alone", () => {
-    const own = card({ itemId: "o", title: "Own", team: "portal", priority: "P0", effectivePriority: "P0" });
-    const inherited = card({ itemId: "i", title: "Inherited", team: "portal", effectivePriority: "P2", effectivePriorityFrom: { uid: "e", type: "epic", title: "Billing v2" } });
-    const none = card({ itemId: "n", title: "None", team: "portal" });
-    const review = card({ itemId: "r", title: "review: Own", team: "portal", reviewOf: "o", effectivePriority: "P0", effectivePriorityFrom: { uid: "o", title: "Own" } });
-    const html = draw(board([own, inherited, none, review]));
-    expect(html).toContain('class="card backlog-card card-prio card-prio-p0"');
-    expect(html).toContain('class="card backlog-card card-prio card-prio-p2"');
-    expect(html).not.toContain("card-prio-inherited");
-    expect(html).toContain('class="card-prio-mark" role="img" title="P0" aria-label="Priority P0"');
-    expect(html).toContain('class="card-prio-mark" role="img" title="P2 (from «Billing v2»)" aria-label="Priority P2 (from «Billing v2»)"');
-    expect(html).toContain('class="card backlog-card card-review"');
-    expect(html).not.toMatch(/card-review card-prio|card-prio[^"]*card-review/);
-    expect(html).not.toContain("backlog-row-prio");
-    expect(html).not.toContain("roadmap-prio");
-    // The list still reads by priority, the review first in its group.
-    expect(html.indexOf(">review: Own<")).toBeLessThan(html.indexOf(">Own<"));
-    expect(html.indexOf(">Own<")).toBeLessThan(html.indexOf(">Inherited<"));
-    expect(html.indexOf(">Inherited<")).toBeLessThan(html.indexOf(">None<"));
+  // There are no priorities (removed): a backlog card carries no priority
+  // part and no menu to set one.
+  it("draws no priority on a backlog card", () => {
+    const html = draw(board([first, second, cozy]));
+    expect(html).not.toMatch(/prio/);
+    expect(html).not.toMatch(/Priority/);
   });
 
   it("draws no week, no strip and no load", () => {

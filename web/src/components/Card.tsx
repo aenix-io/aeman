@@ -14,7 +14,7 @@ import {
 import { ProgressSlider } from "./ProgressSlider";
 import { isPlanning, isSubtask } from "../subtasks";
 import { teamColor, teamInitial } from "../avatar";
-import { markClass, markLabel, markTitle, type CardPlacements } from "../placements";
+import { markOf, type CardPlacements } from "../placements";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
 import { daysSince, localDateIso } from "../date";
@@ -521,9 +521,9 @@ export function Card({
   return (
     <div
       className={`card${selected ? " card-selected" : ""}${(selectedBy?.length ?? 0) > 0 ? " card-peer-selected" : ""}${
-        // The stripe down its left edge: somebody else's work waiting on
-        // this person (a review), else its effective priority's hue (K15).
-        markClass(card)
+        // Where the card came FROM, said by the stripe down its left edge:
+        // somebody else's work waiting on this person.
+        markOf(card) ? ` card-${markOf(card)}` : ""
       }${dimAvatar ? " card-dim-avatar" : ""}${
         groupTarget ? " card-group-target" : ""
       }${record ? " card-record" : ""}`}
@@ -532,7 +532,6 @@ export function Card({
       onClick={() => (clickOn(!!selected) === "open" ? onOpen(card) : onSelect(card))}
       title={card.title}
     >
-      {markTitle(card) && <span className="card-prio-mark" role="img" title={markTitle(card)} aria-label={markLabel(card)} />}
       {(subCount ?? 0) > 0 && onToggleExpand && (
         <button
           type="button"

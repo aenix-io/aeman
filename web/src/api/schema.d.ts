@@ -315,26 +315,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/cards/{uid}/actions/priority": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Set the card's own priority — P0 to P4, or none.
-         * @description The Roadmap's badge menu. Any card carries a priority: a task, a goal, an initiative, an epic. What a card counts under is its EFFECTIVE priority (`status.effectivePriority`): its own, else the nearest ancestor's that has one — so a plan item's priority reaches every card under it with none of its own, without being written on them. A backlog reads P0 first, then P1, P2, P3, P4, then none, each in the Roadmap's order. An empty value clears the card's own. Nothing clears it on its own: taking the card into work, finishing it and reopening it keep it. Anything but P0, P1, P2, P3, P4 or empty is 422 `badPriority`. A review card's priority is its task's: setting one on a review card is 422 `priorityFollowsTask`.
-         */
-        post: operations["setPriority"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/cards/{uid}/actions/unassign-work": {
         parameters: {
             query?: never;
@@ -724,7 +704,7 @@ export interface components {
              * @description The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
              * @enum {string}
              */
-            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "badPriority" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "customerExists" | "customerName" | "customerNotFound" | "dayIsARecord" | "dependenciesUnsupported" | "dependencyCycle" | "dependencyTarget" | "descriptionTooLong" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notATarget" | "notAuthenticated" | "notFinished" | "notInWork" | "notOnThisBoard" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "ownerIsThePlans" | "ownershipUnsupported" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "priorityFollowsTask" | "reviewCardLink" | "setupRequired" | "somebodysCard" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "twoPlaces" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField";
+            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "customerExists" | "customerName" | "customerNotFound" | "dayIsARecord" | "dependenciesUnsupported" | "dependencyCycle" | "dependencyTarget" | "descriptionTooLong" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notATarget" | "notAuthenticated" | "notFinished" | "notInWork" | "notOnThisBoard" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "ownerIsThePlans" | "ownershipUnsupported" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "reviewCardLink" | "setupRequired" | "somebodysCard" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "twoPlaces" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField";
             /** @description Where the person can go to fix the refusal — installing the board's app — for a client to offer as a button. */
             actionUrl?: string;
         };
@@ -775,11 +755,6 @@ export interface components {
             dates: components["schemas"]["CardDates"];
             /** @description The task is in its team's BACKLOG rather than in work. A task is in work (a date or a sprint) or parked, never both and never neither: parking empties the working area — person, sprint, dates — takes the card's subtasks off the board with it, withdraws any unfinished review of it, and keeps its place in the board's order; giving a parked task a date or a sprint (or `own` with a person) takes it out of the backlog. `false` alone on a parked task with no date and no sprint is refused (422 `takeIntoWork`): a task leaves its backlog by being taken into work. Every team has a backlog and nothing declares it. A review card and a subtask are refused (422): neither has a place of its own to be parked in. A task has no week. */
             parked?: boolean;
-            /**
-             * @description The card's OWN priority (`POST /cards/{uid}/actions/priority`); what it counts under is `status.effectivePriority`.
-             * @enum {string}
-             */
-            priority?: "" | "P0" | "P1" | "P2" | "P3" | "P4";
             reviewOf?: string;
             /** @description The uid of the card this one sits under — the one link of the hierarchy. Its meaning is the parent's `type`: under a task this card is a subtask; under a goal, an initiative or an epic it is filed in the hierarchy and nothing else about it changes. */
             parent?: string;
@@ -820,13 +795,6 @@ export interface components {
             reviewed?: components["schemas"]["ReviewedRef"];
             /** @description The team the card counts under: its own, else the nearest ancestor's that has one. Computed, never written. */
             effectiveTeam?: string;
-            /**
-             * @description The priority the card counts under: its own, else the nearest ancestor's that has one (a review card's is its task's). Computed, never written. Absent when nobody above has one.
-             * @enum {string}
-             */
-            effectivePriority?: "" | "P0" | "P1" | "P2" | "P3" | "P4";
-            /** @description The ancestor the effective priority is taken from — the Roadmap draws an inherited priority lighter, naming it. Absent when the priority is the card's own, or there is none. */
-            effectivePriorityFrom?: components["schemas"]["LineageRef"];
             /** @description The customers the card is for: every ancestor's and its own, the ancestors' first; a review card's are the task's it reviews. Computed, never written. Includes the customers of the work that waits for this card (status.dependentCustomers). */
             effectiveCustomers?: string[];
             /** @description The effective customers that come only from the work that waits for this card (or for an ancestor), transitively, each with the nearest card that waits — drawn "from «A»". Readable cards only. */
@@ -872,7 +840,7 @@ export interface components {
             /** @description The ancestor's end date, when it has one — a planning card's bar ends there on the Roadmap. The Backlog shows the nearest planning card's end as the due date of the task under it. */
             end?: string;
         };
-        /** @description A PLANNING card's derived standing, from the tasks under it through every level: no-items when nothing is under it; done when every leaf task is complete; in-progress when any OPEN one is in work (a date or a sprint, not parked); backlog when there are open ones and none is in work — with the counts. Progress, a person, a stage or a priority do not make it in progress by themselves: a parked task is waiting. Never stored; absent on a task. */
+        /** @description A PLANNING card's derived standing, from the tasks under it through every level: no-items when nothing is under it; done when every leaf task is complete; in-progress when any OPEN one is in work (a date or a sprint, not parked); backlog when there are open ones and none is in work — with the counts. Progress, a person or a stage do not make it in progress by themselves: a parked task is waiting. Never stored; absent on a task. */
         Hierarchy: {
             /** @enum {string} */
             status: "no-items" | "backlog" | "in-progress" | "done";
@@ -897,7 +865,7 @@ export interface components {
             items: components["schemas"]["Card"][];
             /** @description The moment a snapshot listing reflects (RFC3339) — the end of the day it was asked for. Absent on a live listing. */
             asOf?: string;
-            /** @description On a `backlog` listing only: the whole board's order, as every `Ordering` frame carries it. A backlog reads by effective priority (P0 to P4, then none), each in the Roadmap's order (the path of places in this order from the root plan item down to the task), a review nobody has taken first in its task's priority; a client that places a card the watch brings in, or re-sorts on an `Ordering` frame, reads the same key from it. */
+            /** @description On a `backlog` listing only: the whole board's order, as every `Ordering` frame carries it. A backlog reads in the Roadmap's order (the path of places in this order from the root plan item down to the task), the reviews nobody has taken first, in their tasks' order; a client that places a card the watch brings in, or re-sorts on an `Ordering` frame, reads the same key from it. */
             boardOrder?: string[];
         };
         /** @description A team's sprint pointer; the empty team is the no-team group. */
@@ -1171,13 +1139,6 @@ export interface components {
             /** @description How many days ahead of today the card is pushed; must be positive. */
             days?: number;
         };
-        SetPriorityBody: {
-            /**
-             * @description The card's own priority; empty clears it.
-             * @enum {string}
-             */
-            priority: "" | "P0" | "P1" | "P2" | "P3" | "P4";
-        };
         UnassignWorkBody: {
             /** @description Name what the gesture would take — in `items`, as they stand — and write nothing: what a confirm counts. The reader's Roadmap may be filtered; this answers for the whole board. */
             dryRun?: boolean;
@@ -1377,7 +1338,7 @@ export interface components {
     parameters: {
         /** @description The card's own address, a ULID assigned at creation. */
         Uid: string;
-        /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: by effective priority (P0 to P4, then none), each priority led by the reviews nobody has taken, then in the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+        /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: the reviews nobody has taken first, in their tasks' Roadmap order, then the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
         View: string;
         /** @description The note's id inside the card. */
         NoteId: string;
@@ -1499,7 +1460,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: by effective priority (P0 to P4, then none), each priority led by the reviews nobody has taken, then in the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: the reviews nobody has taken first, in their tasks' Roadmap order, then the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
             };
             cookie?: never;
@@ -1523,7 +1484,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: by effective priority (P0 to P4, then none), each priority led by the reviews nobody has taken, then in the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: the reviews nobody has taken first, in their tasks' Roadmap order, then the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
             };
             cookie?: never;
@@ -1582,7 +1543,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: by effective priority (P0 to P4, then none), each priority led by the reviews nobody has taken, then in the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: the reviews nobody has taken first, in their tasks' Roadmap order, then the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
             };
             cookie?: never;
@@ -1630,7 +1591,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: by effective priority (P0 to P4, then none), each priority led by the reviews nobody has taken, then in the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: the reviews nobody has taken first, in their tasks' Roadmap order, then the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
                 /** @description The card's own address, a ULID assigned at creation. */
                 uid: components["parameters"]["Uid"];
@@ -1685,7 +1646,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: by effective priority (P0 to P4, then none), each priority led by the reviews nobody has taken, then in the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: the reviews nobody has taken first, in their tasks' Roadmap order, then the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
                 /** @description The card's own address, a ULID assigned at creation. */
                 uid: components["parameters"]["Uid"];
@@ -1742,7 +1703,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: by effective priority (P0 to P4, then none), each priority led by the reviews nobody has taken, then in the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: the reviews nobody has taken first, in their tasks' Roadmap order, then the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
                 /** @description The card's own address, a ULID assigned at creation. */
                 uid: components["parameters"]["Uid"];
@@ -1795,7 +1756,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: by effective priority (P0 to P4, then none), each priority led by the reviews nobody has taken, then in the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
+                /** @description The board the caller is standing on: me, team, backlog, roadmap, or all — the escape hatch, which has to be said out loud. A board nobody has is a route that is not there (404) — `triage`, the retired Triage board, and `project`, the retired Project board, among them. The backlog lists each named team's parked open tasks in the order the backlog is read: the reviews nobody has taken first, in their tasks' Roadmap order, then the Roadmap's order — tasks under a plan item by their place in the tree, loose tasks after them. The roadmap lists the hierarchy — every goal, initiative and epic, and every card with one above it — and a create there is a planning card (`type` required). */
                 view: components["parameters"]["View"];
                 /** @description The card's own address, a ULID assigned at creation. */
                 uid: components["parameters"]["Uid"];
@@ -2031,34 +1992,6 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
-        responses: {
-            /** @description The card after the change. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Card"];
-                };
-            };
-            default: components["responses"]["Problem"];
-        };
-    };
-    setPriority: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The card's own address, a ULID assigned at creation. */
-                uid: components["parameters"]["Uid"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetPriorityBody"];
-            };
-        };
         responses: {
             /** @description The card after the change. */
             200: {

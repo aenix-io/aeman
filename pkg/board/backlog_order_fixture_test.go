@@ -16,7 +16,6 @@ type backlogFixture struct {
 		Parent      string   `json:"parent"`
 		Team        string   `json:"team"`
 		Parked      bool     `json:"parked"`
-		Priority    string   `json:"priority"`
 		ReviewOf    string   `json:"reviewOf"`
 		SprintStart string   `json:"sprintStart"`
 		StartDate   string   `json:"startDate"`
@@ -32,17 +31,17 @@ func (fx backlogFixture) board() Board {
 	var cards []Card
 	for _, c := range fx.Cards {
 		cards = append(cards, Card{ItemID: c.ItemID, Type: c.Type, Parent: c.Parent, Team: c.Team,
-			Parked: c.Parked, Priority: PriorityKey(c.Priority), ReviewOf: c.ReviewOf,
+			Parked: c.Parked, ReviewOf: c.ReviewOf,
 			SprintStart: c.SprintStart, StartDate: c.StartDate, Stage: StageKey(c.Stage), Progress: c.Progress,
 			Assignees: c.Assignees})
 	}
 	return NewBoard(cards)
 }
 
-// THE BACKLOG'S ORDER IS ONE RULE ON BOTH SIDES (K14, K15, K10). The fixture
-// is shared with the client's mirror (web/src/backlogboard.test.ts reads the
-// same file): priorities own and inherited, a review nobody has taken
-// leading its task's group, one of a task in work, one that carries a parent
+// THE BACKLOG'S ORDER IS ONE RULE ON BOTH SIDES (K14, K10). The fixture is
+// shared with the client's mirror (web/src/backlogboard.test.ts reads the
+// same file): the reviews nobody has taken first in their tasks' Roadmap
+// order, one of them of a task in work, one that carries a parent
 // of its own (a direct writer's stray: it is placed by the task it reviews,
 // never by that parent) and a review of a review (placed by the review it
 // reviews) — the same cards must read in the same order.

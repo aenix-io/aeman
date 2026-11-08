@@ -81,20 +81,18 @@ func Unplaced(c Card, subtask bool) bool {
 // BacklogKey is a backlog card's place in the list, comparable on its own
 // (Less). The client mirrors it card by card (web/src/backlogboard.ts).
 //
-//   - Group: the EFFECTIVE priority (K15) — 1 for P0 … 5 for P4, 6 for none.
-//   - Review: a review nobody has taken (K10) stands first within its group,
-//     before the tasks; its group is the reviewed task's effective priority.
-//   - Loose: the card has no plan item above it; within a group the loose
-//     cards come after every planned one.
+//   - Review: a review nobody has taken (K10) stands first, before every
+//     task, in its own group.
+//   - Loose: the card has no plan item above it; the loose cards come after
+//     every planned one.
 //   - Path: the places in the board's order from the root of the card's tree
 //     down to the card itself (K14) — the Roadmap's draw order, which lists a
 //     parent's children in board order. The first step is the root's level
 //     ahead of its place, as the Roadmap draws its roots level by level (goals,
 //     then initiatives with no goal, then epics with no initiative). A loose
 //     card's path is its own place alone; a review's is the reviewed task's,
-//     so the reviews of one group read in their tasks' Roadmap order.
+//     so the reviews read in their tasks' Roadmap order.
 type BacklogKey struct {
-	Group  int
 	Review bool
 	Loose  bool
 	Path   []int
@@ -102,9 +100,6 @@ type BacklogKey struct {
 
 // Less reports whether k stands before o.
 func (k BacklogKey) Less(o BacklogKey) bool {
-	if k.Group != o.Group {
-		return k.Group < o.Group
-	}
 	if k.Review != o.Review {
 		return k.Review
 	}
@@ -124,14 +119,12 @@ func (ix *Index) BacklogKey(c Card) BacklogKey {
 	if NeedsReviewer(c) {
 		k := BacklogKey{Loose: true, Path: []int{ix.pos[c.ItemID]}}
 		// Placed by the card it reviews — a review of a review (a direct
-		// writer's) by the review it reviews, and in that review's priority
-		// group (EffectivePriority inherits through it), as the client reads
-		// it off status.lineage and status.effectivePriority.
+		// writer's) by the review it reviews — as the client reads it off
+		// status.lineage.
 		if task, ok := ix.Find(c.ReviewOf); ok {
 			k = ix.reviewedKey(task)
 		}
-		p, _ := ix.EffectivePriority(c)
-		k.Group, k.Review = priorityRank(p), true
+		k.Review = true
 		return k
 	}
 	return ix.taskKey(c)
@@ -158,11 +151,9 @@ func (ix *Index) reviewedKey(task Card) BacklogKey {
 	return BacklogKey{Path: append(path, ix.pos[task.ItemID])}
 }
 
-// taskKey is a task's place by its own effective priority and tree.
+// taskKey is a task's place by its tree.
 func (ix *Index) taskKey(c Card) BacklogKey {
 	own := ix.pos[c.ItemID]
-	p, _ := ix.EffectivePriority(c)
-	group := priorityRank(p)
 	up := ix.Lineage(c)
 	planned := false
 	for _, a := range up {
@@ -172,23 +163,23 @@ func (ix *Index) taskKey(c Card) BacklogKey {
 		}
 	}
 	if !planned {
-		return BacklogKey{Group: group, Loose: true, Path: []int{own}}
+		return BacklogKey{Loose: true, Path: []int{own}}
 	}
 	path := make([]int, 0, len(up)+2)
 	path = append(path, Level(TypeGoal)-Level(up[0].Type))
 	for _, a := range up {
 		path = append(path, ix.pos[a.ItemID])
 	}
-	return BacklogKey{Group: group, Path: append(path, own)}
+	return BacklogKey{Path: append(path, own)}
 }
 
-// BacklogOrder sorts a backlog's cards the way it is read: by EFFECTIVE
-// priority (K15) — P0, P1, P2, P3, P4, then none — each priority led by the
-// reviews nobody has taken of its tasks (K10), then in the ROADMAP's order
-// (K14) — see BacklogKey.
+// BacklogOrder sorts a backlog's cards the way it is read: the reviews
+// nobody has taken (K10) first, in their tasks' Roadmap order, then the
+// tasks in the ROADMAP's order across the whole hierarchy (K14), the tasks
+// with no plan item above them after — see BacklogKey.
 //
 // One order, decided by the tree: dragging a task in the backlog moves it
-// among its siblings under the same parent, in the same priority, which
+// among its siblings under the same parent, which
 // moves it on the Roadmap too, and a task's place is never something the
 // backlog keeps apart from the Roadmap's. The board's order (rank, then id)
 // is where the siblings' order comes from, as on every board.

@@ -41,30 +41,6 @@
      darker one behind white labels. In light both are the same blue. */
   --accent-emphasis: #0969da;
   --danger: #cf222e;
-  /* Priority badges (K15): P0 red, P1 orange, P2 blue, P3 and P4 grey (P4
-     the lighter); text on fill keeps AA contrast. */
-  --prio-p0-bg: #cf222e;
-  --prio-p0-fg: #ffffff;
-  --prio-p1-bg: #bc4c00;
-  --prio-p1-fg: #ffffff;
-  --prio-p2-bg: #0969da;
-  --prio-p2-fg: #ffffff;
-  --prio-p3-bg: #57606a;
-  --prio-p3-fg: #ffffff;
-  --prio-p4-bg: #d0d7de;
-  --prio-p4-fg: #24292f;
-  /* P4's chip colour is too pale for a 4px stripe on a card: the stripe
-     takes a darker grey that keeps 3:1 against the card (WCAG non-text). */
-  --prio-p4-stripe: #8c959f;
-  /* An INHERITED priority keeps its hue, drawn lighter: a pale tint of it
-     with the hue's deep ink as text — AA for small text on that tint, and
-     never mistaken for the solid own badge. */
-  --prio-p0-ink: #a40e26;
-  --prio-p1-ink: #953800;
-  --prio-p2-ink: #0550ae;
-  --prio-p3-ink: #424a53;
-  --prio-p4-ink: #57606a;
-  --prio-tint: 14%;
   /* Solid danger fill that carries white text (the delete-corner button on
      hover). Split from --danger for the same reason as --accent-emphasis: dark
      mode wants a lighter red for danger *text* but a deeper one behind white. */
@@ -191,26 +167,6 @@
   --accent: #4493f8;
   --accent-emphasis: #1f6feb;
   --danger: #f85149;
-  --prio-p0-bg: #da3633;
-  --prio-p0-fg: #ffffff;
-  --prio-p1-bg: #db6d28;
-  --prio-p1-fg: #0d1117;
-  --prio-p2-bg: #388bfd;
-  --prio-p2-fg: #0d1117;
-  --prio-p3-bg: #8b949e;
-  --prio-p3-fg: #0d1117;
-  --prio-p4-bg: #484f58;
-  --prio-p4-fg: #e6edf3;
-  --prio-p4-stripe: #6e7681;
-  /* Inherited in dark: a dim tint on the dark ground, the hue's light ink
-     as text — never brighter than the own badge (P4's ink is dimmer than
-     its own fill's text). */
-  --prio-p0-ink: #ff7b72;
-  --prio-p1-ink: #ffa657;
-  --prio-p2-ink: #79c0ff;
-  --prio-p3-ink: #8b949e;
-  --prio-p4-ink: #8b949e;
-  --prio-tint: 20%;
   --danger-emphasis: #d5322c;
 
   --on-accent: #fff;
@@ -5556,9 +5512,8 @@ button.card-age {
   outline-offset: -2px;
 }
 
-/* ---- Roadmap: the badge menu (K15, K16) ----
-   The badge of a row is a button opening its menu: the card's own priority
-   (P0…P4, No priority) and Unassign. */
+/* ---- Roadmap: the badge menu (K16) ----
+   The badge of a row is a button opening its menu: Unassign. */
 .roadmap-status-button {
   border: none;
   font-family: inherit;
@@ -5624,10 +5579,7 @@ button.card-age {
   box-shadow: inset 0 0 0 1px var(--line);
 }
 
-/* ---- The badge (K15): one pill in two parts ----
-   The effective priority on the left when there is one, the work status on
-   the right; the two share the pill's outline. An inherited priority keeps
-   its hue, drawn lighter (a tint of the same colour, the fill as its text). */
+/* ---- The badge: the work status in one pill ---- */
 .roadmap-badge {
   display: inline-flex;
   align-items: stretch;
@@ -5640,8 +5592,8 @@ button.card-age {
   white-space: nowrap;
 }
 
-/* Dragged narrower than the badge, the STATUS part gives way — cut short
-   with an ellipsis — and the priority part keeps its width. */
+/* Dragged narrower than the badge, the status is cut short with an
+   ellipsis. */
 .roadmap-badge .roadmap-status {
   border-radius: 0;
   min-width: 0;
@@ -5660,83 +5612,3 @@ button.card-age {
   border-bottom-right-radius: 3px;
 }
 
-.roadmap-prio {
-  flex: none;
-  display: inline-block;
-  padding: 1px 6px;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.roadmap-prio-p0 { background: var(--prio-p0-bg); color: var(--prio-p0-fg); }
-.roadmap-prio-p1 { background: var(--prio-p1-bg); color: var(--prio-p1-fg); }
-.roadmap-prio-p2 { background: var(--prio-p2-bg); color: var(--prio-p2-fg); }
-.roadmap-prio-p3 { background: var(--prio-p3-bg); color: var(--prio-p3-fg); }
-.roadmap-prio-p4 { background: var(--prio-p4-bg); color: var(--prio-p4-fg); }
-
-.roadmap-prio-inherited.roadmap-prio-p0 { background: color-mix(in srgb, var(--prio-p0-bg) var(--prio-tint), var(--bg)); color: var(--prio-p0-ink); }
-.roadmap-prio-inherited.roadmap-prio-p1 { background: color-mix(in srgb, var(--prio-p1-bg) var(--prio-tint), var(--bg)); color: var(--prio-p1-ink); }
-.roadmap-prio-inherited.roadmap-prio-p2 { background: color-mix(in srgb, var(--prio-p2-bg) var(--prio-tint), var(--bg)); color: var(--prio-p2-ink); }
-.roadmap-prio-inherited.roadmap-prio-p3 { background: color-mix(in srgb, var(--prio-p3-bg) var(--prio-tint), var(--bg)); color: var(--prio-p3-ink); }
-.roadmap-prio-inherited.roadmap-prio-p4 { background: color-mix(in srgb, var(--prio-p4-bg) var(--prio-tint), var(--bg)); color: var(--prio-p4-ink); }
-
-.roadmap-prio-none {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-/* The drawer's Priority row (K15): the badge's priority part on its own,
-   rounded, and where an inherited one comes from. */
-.drawer-prio .roadmap-prio {
-  border-radius: 3px;
-}
-
-.drawer-prio-from {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.roadmap-status-separator {
-  height: 1px;
-  margin: 3px 2px;
-  background: var(--line);
-}
-
-
-/* ---- The priority stripe (K15) ----
-   A card's effective priority, down its left edge in the same slot and the
-   same geometry as a review's stripe — a review keeps its yellow one and
-   gets no priority stripe (placements.markClass decides: never two). The
-   hues are the badge's tokens, always the FULL colour: own or inherited, the
-   stripe is the same (that difference is the badges', in the drawer and on
-   the Roadmap). Nothing else draws on a card's left edge: a zone's band is the
-   zone's own border, outside the card, and a drag's ghost and the selection
-   ring are the card's outline. */
-.card-prio::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  border-radius: 5px 0 0 5px;
-}
-
-.card-prio-p0::before { background: var(--prio-p0-bg); }
-.card-prio-p1::before { background: var(--prio-p1-bg); }
-.card-prio-p2::before { background: var(--prio-p2-bg); }
-.card-prio-p3::before { background: var(--prio-p3-bg); }
-.card-prio-p4::before { background: var(--prio-p4-stripe); }
-
-
-/* The stripe's tooltip and its name for a screen reader: a span laid over
-   it, a little wider than the stripe so a pointer can find it. */
-.card-prio-mark {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 7px;
-  z-index: 1;
-}

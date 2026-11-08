@@ -11,7 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { registerPendingCard } from "../api/pending";
 import { todayIso } from "../date";
-import type { Board, Card as CardModel, CardType, Priority, Provider } from "../providers/types";
+import type { Board, Card as CardModel, CardType, Provider } from "../providers/types";
 import {
   DEFAULT_DEPTH,
   DELETE_INTENT,
@@ -31,7 +31,6 @@ import {
   unassignPreview,
   unassignNotice,
   NOTHING_IN_WORK,
-  latestWins,
   unassignQuestion,
   UNASSIGNED_LOCALLY,
   droppable,
@@ -84,12 +83,11 @@ import { isPlanning } from "../subtasks";
 import { ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
 import { type Avatars, type Names } from "../users";
 import { AddCard } from "./AddCard";
-import { INDENT_PX, OwnerCell, PriorityItems, ROW_PX, StatusPill, TreeTitle } from "./PlanTree";
+import { INDENT_PX, OwnerCell, ROW_PX, StatusPill, TreeTitle } from "./PlanTree";
 import { KindIcon } from "./KindIcon";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { Dropdown } from "./Dropdown";
-import { pressPriority } from "../priorityset";
 
 // The Roadmap: the hierarchy as a tree of rows on the left and a timeline
 // of bars on the right, one row per card from a goal down to a subtask
@@ -238,7 +236,7 @@ interface RowProps {
   /** The Owner cell's content, for a task-kind row; nothing on a planning
    *  card, which has none of a task's. */
   owner: ReactNode;
-  /** The badge's menu (priorities, UNASSIGNED; K15, K16), opened from the
+  /** The badge's menu (UNASSIGNED, K16), opened from the
    *  badge; null on a row that offers none. */
   onStatus: ((badge: HTMLElement) => void) | null;
   /** The status menu stands open on this row (aria-expanded). */
@@ -816,7 +814,7 @@ export function RoadmapBoard({
   // ---- the ×: the Team board's own question — delete it, or only unlink it ----
   const [removeChoice, setRemoveChoice] = useState<CardModel | null>(null);
 
-  // ---- the badge menu: priorities and UNASSIGNED (K15, K16) ----
+  // ---- the badge menu: UNASSIGNED (K16) ----
   // The badge of a task or a plan item opens it; what each answer reaches is
   // roadmap.statusMenu's, applied at once and settled by the server's answer.
   const [statusFor, setStatusFor] = useState<CardModel | null>(null);
@@ -855,14 +853,6 @@ export function RoadmapBoard({
         onError(errText(err));
         reload();
       });
-  };
-  // A priority is the card's own (K15); what the cards under it count under
-  // follows (roadmap.priorityAfter) — shown at once, settled by the card the
-  // server answers with and the frames it sends for the cards under it, put
-  // back on a refusal.
-  const prioritySeq = useRef(latestWins());
-  const answerPriority = (card: CardModel, value: Priority | "") => {
-    void pressPriority({ cards: board.cards, patchCard, provider, seq: prioritySeq.current, onError, reload }, card, value);
   };
   const answerUnassign = (card: CardModel, uids: string[]) => {
     // Exactly the tasks the confirm counted.
@@ -1203,14 +1193,6 @@ export function RoadmapBoard({
       <Dropdown open={!!statusFor} anchorRef={statusAnchor} onClose={() => setStatusFor(null)} className="roadmap-status-menu" role="menu">
         {statusFor && menu && (
           <>
-            <PriorityItems
-              own={menu.own}
-              onPick={(value) => {
-                answerPriority(statusFor, value);
-                setStatusFor(null);
-              }}
-            />
-            <div className="roadmap-status-separator" role="separator" />
             <button
               type="button"
               role="menuitem"

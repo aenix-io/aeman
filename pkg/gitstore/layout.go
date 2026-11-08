@@ -115,7 +115,6 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	}
 	w("zone", string(c.Zone))
 	w("size", string(c.Size))
-	w("priority", string(c.Priority))
 	w("stage", string(c.Stage))
 	wi("progress", c.Progress)
 	wi("doneFrom", c.DoneFrom)
@@ -141,12 +140,6 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	w("rank", c.Rank)
 	w("created", c.CreatedAt)
 	for _, x := range f.Extra {
-		// An invalid priority rides as an unknown key only until a valid one
-		// is set: written beside it, the file would carry the key twice — a
-		// duplicate YAML key no later parse survives.
-		if x.Key == "priority" && c.Priority != "" {
-			continue
-		}
 		out, err := yaml.Marshal(&yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
 			{Kind: yaml.ScalarNode, Value: x.Key}, x.Value,
 		}})
@@ -405,14 +398,6 @@ func setKnown(f *CardFile, key string, val *yaml.Node) bool {
 		c.ReviewRound = num()
 	case "parked":
 		c.Parked = val.Value == "true"
-	case "priority":
-		// A value the board has no such thing as is an UNKNOWN key: kept
-		// as it is, and no priority — it neither shadows what the card
-		// inherits nor reaches a status.
-		if !board.ValidPriority(val.Value) {
-			return false
-		}
-		c.Priority = board.PriorityKey(val.Value)
 	default:
 		return false
 	}

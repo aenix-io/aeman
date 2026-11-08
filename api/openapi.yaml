@@ -609,40 +609,6 @@ paths:
                 $ref: '#/components/schemas/Card'
         default:
           $ref: '#/components/responses/Problem'
-  /cards/{uid}/actions/priority:
-    post:
-      operationId: setPriority
-      tags: [Cards]
-      summary: Set the card's own priority — P0 to P4, or none.
-      description: >-
-        The Roadmap's badge menu. Any card carries a priority: a task, a goal,
-        an initiative, an epic. What a card counts under is its EFFECTIVE
-        priority (`status.effectivePriority`): its own, else the nearest
-        ancestor's that has one — so a plan item's priority reaches every
-        card under it with none of its own, without being written on them.
-        A backlog reads P0 first, then P1, P2, P3, P4, then none, each in the
-        Roadmap's order. An empty value clears the card's own. Nothing
-        clears it on its own: taking the card into work, finishing it and
-        reopening it keep it. Anything but P0, P1, P2, P3, P4 or empty is
-        422 `badPriority`. A review card's priority is its task's: setting
-        one on a review card is 422 `priorityFollowsTask`.
-      parameters:
-        - $ref: '#/components/parameters/Uid'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SetPriorityBody'
-      responses:
-        '200':
-          description: The card after the change.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Card'
-        default:
-          $ref: '#/components/responses/Problem'
   /cards/{uid}/actions/unassign-work:
     post:
       operationId: unassignWork
@@ -1134,10 +1100,9 @@ components:
         has is a route that is not there (404) — `triage`, the retired Triage
         board, and `project`, the retired Project board, among them. The
         backlog lists each named team's parked open tasks in the order the
-        backlog is read: by effective priority (P0 to P4, then none), each
-        priority led by the reviews nobody has taken, then in the Roadmap's
-        order — tasks under a plan item by their place in the tree, loose
-        tasks after them. The roadmap lists
+        backlog is read: the reviews nobody has taken first, in their tasks'
+        Roadmap order, then the Roadmap's order — tasks under a plan item by
+        their place in the tree, loose tasks after them. The roadmap lists
         the hierarchy — every goal, initiative and epic, and every card with one
         above it — and a create there is a planning card (`type` required).
       schema:
@@ -1354,7 +1319,6 @@ components:
             - backwardsDefer
             - badCapacity
             - badDay
-            - badPriority
             - bodyTooLarge
             - capacityRequired
             - cardNotFound
@@ -1406,7 +1370,6 @@ components:
             - parentNotFound
             - planningCard
             - pointsRequired
-            - priorityFollowsTask
             - reviewCardLink
             - setupRequired
             - somebodysCard
@@ -1585,12 +1548,6 @@ components:
             taken into work. Every team has a backlog and nothing declares it. A
             review card and a subtask are refused (422): neither has a place of
             its own to be parked in. A task has no week.
-        priority:
-          type: string
-          enum: ["", P0, P1, P2, P3, P4]
-          description: >-
-            The card's OWN priority (`POST /cards/{uid}/actions/priority`);
-            what it counts under is `status.effectivePriority`.
         reviewOf:
           type: string
         parent:
@@ -1702,20 +1659,6 @@ components:
           description: >-
             The team the card counts under: its own, else the nearest
             ancestor's that has one. Computed, never written.
-        effectivePriority:
-          type: string
-          enum: ["", P0, P1, P2, P3, P4]
-          description: >-
-            The priority the card counts under: its own, else the nearest
-            ancestor's that has one (a review card's is its task's). Computed,
-            never written. Absent when nobody above has one.
-        effectivePriorityFrom:
-          allOf:
-            - $ref: '#/components/schemas/LineageRef'
-          description: >-
-            The ancestor the effective priority is taken from — the Roadmap
-            draws an inherited priority lighter, naming it. Absent when the
-            priority is the card's own, or there is none.
         effectiveCustomers:
           type: array
           description: >-
@@ -1852,8 +1795,8 @@ components:
         every level: no-items when nothing is under it; done when every leaf
         task is complete; in-progress when any OPEN one is in work (a date or
         a sprint, not parked); backlog when there are open ones and none is
-        in work — with the counts. Progress, a person, a stage or a priority
-        do not make it in progress by themselves: a parked task is waiting.
+        in work — with the counts. Progress, a person or a stage do not make
+        it in progress by themselves: a parked task is waiting.
         Never stored; absent on a task.
       required: [status, done, total]
       properties:
@@ -1913,11 +1856,10 @@ components:
           type: array
           description: >-
             On a `backlog` listing only: the whole board's order, as every
-            `Ordering` frame carries it. A backlog reads by effective
-            priority (P0 to P4, then none), each in the Roadmap's order (the
-            path of places in this order from the root plan item down to the
-            task), a review nobody has taken first in its task's priority; a
-            client that
+            `Ordering` frame carries it. A backlog reads in the Roadmap's
+            order (the path of places in this order from the root plan item
+            down to the task), the reviews nobody has taken first, in their
+            tasks' order; a client that
             places a card the watch brings in, or re-sorts on an `Ordering`
             frame, reads the same key from it.
           items:
@@ -2591,14 +2533,6 @@ components:
         days:
           type: integer
           description: How many days ahead of today the card is pushed; must be positive.
-    SetPriorityBody:
-      type: object
-      required: [priority]
-      properties:
-        priority:
-          type: string
-          enum: ["", P0, P1, P2, P3, P4]
-          description: The card's own priority; empty clears it.
     UnassignWorkBody:
       type: object
       properties:

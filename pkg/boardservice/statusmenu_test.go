@@ -9,9 +9,9 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// The Roadmap's badge menu: a card's own PRIORITY (K15), and UNASSIGNED,
-// which takes work out of hand and back to its backlog (K16) — for a task,
-// or every task in work under a plan item, at any depth.
+// The Roadmap's badge menu: UNASSIGNED, which takes work out of hand and
+// back to its backlog (K16) — for a task, or every task in work under a plan
+// item, at any depth.
 
 func roadmapWorkBoard() *fakeBackend {
 	today := board.TodayIso()
@@ -32,58 +32,6 @@ func roadmapWorkBoard() *fakeBackend {
 		// Not under the goal at all.
 		{ItemID: "other", Parked: true},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
-}
-
-// The menu sets the card's OWN priority — a task's or a plan item's — and
-// "No priority" clears it; anything else is refused before it is written.
-func TestThePriorityIsSetOnTheCardItself(t *testing.T) {
-	f := roadmapWorkBoard()
-	svc := New(f)
-	if err := svc.SetPriority(ctx, "acme", "e", "P1"); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.SetPriority(ctx, "acme", "w1", "P3"); err != nil {
-		t.Fatal(err)
-	}
-	if f.get("e").Priority != board.PriorityP1 || f.get("w1").Priority != board.PriorityP3 {
-		t.Fatalf("e %q, w1 %q", f.get("e").Priority, f.get("w1").Priority)
-	}
-	// Set on the epic, it is written on the epic alone: what the tasks under
-	// it count under is derived, never written down on them.
-	if f.get("p1").Priority != board.PriorityNone || f.count("SetPriority p1") != 0 {
-		t.Fatalf("the epic's priority was written on a task under it: %+v", f.get("p1"))
-	}
-	if err := svc.SetPriority(ctx, "acme", "e", ""); err != nil || f.get("e").Priority != board.PriorityNone {
-		t.Fatalf("No priority clears it: %v, %q", err, f.get("e").Priority)
-	}
-	for _, bad := range []string{"P5", "p1", "P-1", "high"} {
-		if err := svc.SetPriority(ctx, "acme", "w1", bad); !errors.Is(err, ErrBadPriority) {
-			t.Errorf("SetPriority %q = %v, want ErrBadPriority", bad, err)
-		}
-	}
-	if f.get("w1").Priority != board.PriorityP3 {
-		t.Fatalf("a refused value changed nothing: %q", f.get("w1").Priority)
-	}
-}
-
-// Nothing clears a priority on its own (K15): taking the task into work,
-// finishing it and reopening it all keep it.
-func TestThePriorityOutlivesTakingFinishingAndReopening(t *testing.T) {
-	f := roadmapWorkBoard()
-	f.get("p1").Priority = board.PriorityP2
-	svc := New(f)
-	if err := svc.SetSprintStart(ctx, "acme", "p1", board.TodayIso()); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.SetStage(ctx, "acme", "p1", board.StageDone); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.Reopen(ctx, "acme", "p1"); err != nil {
-		t.Fatal(err)
-	}
-	if got := f.get("p1").Priority; got != board.PriorityP2 || f.count("SetPriority") != 0 {
-		t.Fatalf("priority after take, finish, reopen = %q (%d writes), want P2 untouched", got, f.count("SetPriority"))
-	}
 }
 
 func TestUnassignedOnATaskParksIt(t *testing.T) {
@@ -208,20 +156,5 @@ func TestUnassignedDryRunNamesTheTasksAndWritesNothing(t *testing.T) {
 	}
 	if _, err := New(f).UnassignPreview(ctx, "acme", "p1"); !errors.Is(err, ErrNotInWork) {
 		t.Fatalf("a dry run on parked work = %v, want ErrNotInWork", err)
-	}
-}
-
-// A review card's priority is its task's (K15): it is not set on the review
-// card itself — the refusal names that.
-func TestThePriorityOfAReviewIsItsTasks(t *testing.T) {
-	f := newFake([]board.Card{
-		{ItemID: "t", Team: "alpha", Stage: board.StageReview, SprintStart: board.TodayIso()},
-		{ItemID: "r", Team: "alpha", ReviewOf: "t", Parked: true},
-	}, nil)
-	if err := New(f).SetPriority(ctx, "acme", "r", "P1"); !errors.Is(err, ErrPriorityFollowsTask) {
-		t.Fatalf("SetPriority on a review card = %v, want ErrPriorityFollowsTask", err)
-	}
-	if f.count("SetPriority") != 0 {
-		t.Fatal("nothing is written")
 	}
 }

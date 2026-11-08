@@ -1,9 +1,9 @@
 import { useMemo, useState, type ReactNode } from "react";
 
-import type { Card as CardModel, CardType, LineageRef, Priority } from "../providers/types";
+import type { Card as CardModel, CardType } from "../providers/types";
 import { ownerLabel, type Owner } from "../owner";
 import { effectiveTeamOf, roadmapOwnerCell } from "../ownership";
-import { badgeOf, childLevels, inheritedTitle, KIND_LABEL, kindOf, PRIORITY_CHOICES, priorityLabel, STATUS_LABEL, subtreeRows, type Row } from "../roadmap";
+import { badgeOf, childLevels, KIND_LABEL, kindOf, STATUS_LABEL, subtreeRows, type Row } from "../roadmap";
 import { isPlanning } from "../subtasks";
 import { displayName, type Avatars, type Names } from "../users";
 import { AddCard } from "./AddCard";
@@ -99,33 +99,15 @@ export function TreeTitle({
   );
 }
 
-/** PriorityPart is the priority half of a badge (K15): the effective
- *  priority in its colour — an inherited one drawn lighter, its tooltip
- *  naming the card it comes from. */
-export function PriorityPart({ value, from }: { value: Priority; from?: LineageRef }) {
-  return (
-    <span
-      className={`roadmap-prio roadmap-prio-${value.toLowerCase()}${from ? " roadmap-prio-inherited" : ""}`}
-      title={from ? inheritedTitle(from) : undefined}
-    >
-      {value}
-    </span>
-  );
-}
-
-/** StatusPill is a row's badge: ONE pill in two parts (roadmap.badgeOf) —
- *  the effective priority on the left when there is one, the work status
- *  (roadmap.statusOf) on the right. Given onMenu it is the button that opens
- *  the row's menu (priorities, UNASSIGNED; K15, K16). */
+/** StatusPill is a row's badge: its work status (roadmap.badgeOf, over
+ *  roadmap.statusOf), its tooltip what a locked card waits for. Given onMenu
+ *  it is the button that opens the row's menu (UNASSIGNED, K16). */
 export function StatusPill({ card, onMenu, expanded = false }: { card: CardModel; onMenu?: (badge: HTMLElement) => void; expanded?: boolean }) {
   const badge = badgeOf(card);
   const parts = (
-    <>
-      {badge.priority && <PriorityPart value={badge.priority.value} from={badge.priority.from} />}
-      <span className={`roadmap-status roadmap-status-${badge.status}`} title={badge.lock}>
-        {STATUS_LABEL[badge.status]}
-      </span>
-    </>
+    <span className={`roadmap-status roadmap-status-${badge.status}`} title={badge.lock}>
+      {STATUS_LABEL[badge.status]}
+    </span>
   );
   if (!onMenu) {
     return <span className="roadmap-badge">{parts}</span>;
@@ -134,8 +116,8 @@ export function StatusPill({ card, onMenu, expanded = false }: { card: CardModel
     <button
       type="button"
       className="roadmap-badge roadmap-status-button"
-      title="Priority, or take out of work"
-      aria-label={`${badge.priority ? priorityLabel(badge.priority.value, badge.priority.from) : "No priority"}; ${STATUS_LABEL[badge.status]}`}
+      title="Take out of work"
+      aria-label={`${STATUS_LABEL[badge.status]}${badge.lock ? `; ${badge.lock}` : ""}`}
       aria-haspopup="menu"
       aria-expanded={expanded}
       onClick={(e) => {
@@ -146,29 +128,6 @@ export function StatusPill({ card, onMenu, expanded = false }: { card: CardModel
     >
       {parts}
     </button>
-  );
-}
-
-/** PriorityItems is the priority half of a badge menu: P0 to P4 and "No
- *  priority", the card's OWN value checked (an inherited one is not its own:
- *  "No priority" is checked then). */
-export function PriorityItems({ own, onPick }: { own: Priority | ""; onPick: (value: Priority | "") => void }) {
-  return (
-    <>
-      {PRIORITY_CHOICES.map((choice) => (
-        <button
-          key={choice.label}
-          type="button"
-          role="menuitemradio"
-          aria-checked={own === choice.value}
-          className="roadmap-status-item"
-          onClick={() => onPick(choice.value)}
-        >
-          {choice.value ? <PriorityPart value={choice.value} /> : <span className="roadmap-prio-none">{choice.label}</span>}
-          {own === choice.value && <span aria-hidden="true">✓</span>}
-        </button>
-      ))}
-    </>
   );
 }
 

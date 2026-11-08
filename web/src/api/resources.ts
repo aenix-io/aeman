@@ -13,7 +13,6 @@ import type {
   Card,
   CardType,
   Note,
-  Priority,
   SprintState,
   StageKey,
   ZoneKey,
@@ -134,15 +133,6 @@ export function resourceToCard(res: CardResource): Card {
     startDate: dates.start || undefined,
     sprintStart: dates.sprint || undefined,
     parked: spec.parked || undefined,
-    priority: (spec.priority as Priority | "" | undefined) || undefined,
-    effectivePriority: (res.status?.effectivePriority as Priority | "" | undefined) || undefined,
-    effectivePriorityFrom: res.status?.effectivePriorityFrom
-      ? {
-          uid: res.status.effectivePriorityFrom.uid,
-          type: (res.status.effectivePriorityFrom.type as CardType | undefined) || undefined,
-          title: res.status.effectivePriorityFrom.title,
-        }
-      : undefined,
     // What the card waits for, and the lock derived from it
     // (docs/design/dependencies.md).
     dependsOn: spec.dependsOn?.length ? spec.dependsOn : undefined,

@@ -112,7 +112,7 @@ func (sub *subscription) seen(res apiserver.Card, ix *board.Index) apiserver.Car
 	if res.Status.Reviewed != nil && !can(res.Status.Reviewed.UID) {
 		hidden = true
 	}
-	// A review card inherits through its TASK's ancestors too (O13, K15),
+	// A review card inherits through its TASK's ancestors too (O13),
 	// which are on no crumb of its own: one the subscriber cannot read cuts
 	// the chain as it does on their listing.
 	if c, ok := find(res.Metadata.UID); ok && !hidden && c.ReviewOf != "" {
@@ -160,53 +160,7 @@ func (sub *subscription) seen(res apiserver.Card, ix *board.Index) apiserver.Car
 		// none does.
 		out.Status.EffectiveCustomers = customers
 	}
-	out.Status.EffectivePriority, out.Status.EffectivePriorityFrom = priorityFromReadable(res, find, readable)
 	return out
-}
-
-// priorityFromReadable is a card's effective priority (K15) as the listing
-// on this subscriber's visible board computes it (Index.EffectivePriority):
-// its own; else — a review card — its task's, when the task is readable;
-// else the nearest ancestor's, the chain ending at the first ancestor the
-// subscriber cannot read. The ancestor it comes from is named only when
-// readable, which the chain guarantees.
-func priorityFromReadable(res apiserver.Card, find func(string) (board.Card, bool), can func(board.Card) bool) (string, *apiserver.LineageRef) {
-	c, ok := find(res.Metadata.UID)
-	if !ok {
-		return "", nil
-	}
-	ref := func(a board.Card) *apiserver.LineageRef {
-		return &apiserver.LineageRef{UID: a.ItemID, Type: a.Type, Title: a.Title}
-	}
-	var of func(c board.Card, depth int) (string, *apiserver.LineageRef)
-	of = func(c board.Card, depth int) (string, *apiserver.LineageRef) {
-		if c.Priority != board.PriorityNone {
-			if depth == 0 {
-				return string(c.Priority), nil
-			}
-			return string(c.Priority), ref(c)
-		}
-		if c.ReviewOf != "" && depth == 0 {
-			if task, ok := find(c.ReviewOf); ok && can(task) && task.ReviewOf == "" {
-				return of(task, depth+1)
-			}
-			return "", nil
-		}
-		seen := map[string]bool{c.ItemID: true}
-		for cur, hops := c, 0; cur.Parent != "" && hops < 6; hops++ {
-			p, ok := find(cur.Parent)
-			if !ok || !can(p) || seen[p.ItemID] {
-				break
-			}
-			seen[p.ItemID] = true
-			if p.Priority != board.PriorityNone {
-				return string(p.Priority), ref(p)
-			}
-			cur = p
-		}
-		return "", nil
-	}
-	return of(c, 0)
 }
 
 // inheritedFromReadable is a card's effective team and customers as the
@@ -1476,21 +1430,19 @@ func shownInLineage(c board.Card) string {
 	return c.Title + "\x00" + c.StartDate + "\x00" + c.Day
 }
 
-// shownOwning is what every card below a card takes from it: its team, its
-// customers and its priority (status.effectiveTeam/effectiveCustomers/
-// effectivePriority; O3, O4, K15) — a changed one re-sends the subtree, and
-// every open backlog re-sorts on the frames.
+// shownOwning is what every card below a card takes from it: its team and
+// its customers (status.effectiveTeam/effectiveCustomers; O3, O4) — a
+// changed one re-sends the subtree.
 func shownOwning(c board.Card) string {
-	return c.Team + "\x00" + strings.Join(c.Customers, ",") + "\x00" + string(c.Priority)
+	return c.Team + "\x00" + strings.Join(c.Customers, ",")
 }
 
 // shownInReview is what a review card carries of the card it reviews: its
 // title, type and people (status.reviewed), the parent its planning chain
 // hangs from (status.lineage), its customers, which are the review card's
-// own (status.effectiveCustomers, O6), and its priority, which is the review
-// card's effective one (K15).
+// own (status.effectiveCustomers, O6).
 func shownInReview(c board.Card) string {
-	return c.Title + "\x00" + c.Type + "\x00" + strings.Join(c.Assignees, ",") + "\x00" + c.Parent + "\x00" + strings.Join(c.Customers, ",") + "\x00" + string(c.Priority)
+	return c.Title + "\x00" + c.Type + "\x00" + strings.Join(c.Assignees, ",") + "\x00" + c.Parent + "\x00" + strings.Join(c.Customers, ",")
 }
 
 // unionIDs is a followed by the ids of b it does not hold yet, in order.
@@ -2536,20 +2488,6 @@ func (b *storeBackend) SetBacklog(
 	return nil
 }
 
-// SetPriority sets the card's own priority ("" clears it).
-func (b *storeBackend) SetPriority(ctx context.Context, bd board.Board, card board.Card, priority board.PriorityKey) error {
-	what := "clear the priority of " + cardRef(card)
-	if priority != board.PriorityNone {
-		what = "set " + cardRef(card) + " to " + string(priority)
-	}
-	b.mutateCard(ctx, bd, card.ItemID, "priority", what, func(c *board.Card) {
-		c.Priority = priority
-	}, func(ctx context.Context) error {
-		return b.inner.SetPriority(ctx, bd, card, priority)
-	})
-	return nil
-}
-
 func (b *storeBackend) SetTeam(ctx context.Context, bd board.Board, card board.Card, team string) error {
 	if card.Title == board.SprintStateTitle {
 		// The team's own stub is not a card the cache holds: its name is the
@@ -2732,7 +2670,6 @@ func cardFromInput(in board.CreateInput, itemID string) board.Card {
 		SprintStart: in.SprintStart,
 		Team:        in.Team,
 		Parked:      in.Parked,
-		Priority:    in.Priority,
 		Size:        in.Size,
 		Recurrence:  in.Recurrence,
 		Description: in.Body,

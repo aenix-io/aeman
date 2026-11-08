@@ -167,11 +167,10 @@ func TestTheBacklogViewListsWhatATeamHasParked(t *testing.T) {
 	}
 }
 
-// A review NOBODY HAS TAKEN leads its priority group in a backlog listing
-// (K10, BacklogOrder): it takes its task's effective priority — none here —
-// and stands before that group's tasks, the reviews in their tasks' Roadmap
-// order — one dragged below a task is still above it.
-func TestAReviewNobodyHasTakenLeadsItsPriorityGroup(t *testing.T) {
+// The reviews NOBODY HAS TAKEN lead a backlog listing (K10, BacklogOrder):
+// before every task, in their tasks' Roadmap order — one dragged below a
+// task is still above it.
+func TestTheReviewsNobodyHasTakenLeadABacklogListing(t *testing.T) {
 	b := board.NewBoard([]board.Card{
 		{ItemID: "t1", Team: "alpha", Parked: true, Rank: "b", CreatedAt: "2026-01-01T00:00:00Z"},
 		{ItemID: "o", Team: "alpha", Stage: board.StageReview, SprintStart: "2026-11-03"},

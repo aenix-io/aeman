@@ -54,7 +54,7 @@ import { displayName } from "../users";
 import { InsertGap } from "./InsertGap";
 import { Dropdown } from "./Dropdown";
 import { KindIcon } from "./KindIcon";
-import { markClass, markLabel, markTitle } from "../placements";
+import { markOf } from "../placements";
 import { OwnerBadge } from "./OwnerBadge";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
@@ -676,15 +676,15 @@ function BacklogRow({
 }: BacklogRowProps) {
   const up = nearestPlanning(card);
   const due = dueOf(card);
+  const mark = markOf(card);
   return (
     <div
-      className={`card backlog-card${markClass(card)}${selected ? " card-selected" : ""}${(selectedBy?.length ?? 0) > 0 ? " card-peer-selected" : ""}`}
+      className={`card backlog-card${mark ? ` card-${mark}` : ""}${selected ? " card-selected" : ""}${(selectedBy?.length ?? 0) > 0 ? " card-peer-selected" : ""}`}
       data-card={card.itemId}
       onPointerDown={onPointerDown}
       title={card.title}
     >
       <PresenceMarks selectedBy={selectedBy} avatars={avatars} names={names} />
-      {markTitle(card) && <span className="card-prio-mark" role="img" title={markTitle(card)} aria-label={markLabel(card)} />}
       <span className="card-title backlog-card-title">{card.title}</span>
       <span className="backlog-row-remove-slot">
         <button
@@ -771,9 +771,10 @@ export function TakeDialog({ title, onClose, onTake }: { title: string; onClose:
  *  a review keeps its review stripe. Where it may not come to rest (next to
  *  none of its siblings, K14) the outline says so. */
 export function Landing({ card, forbidden = false }: { card: CardModel; forbidden?: boolean }) {
+  const mark = markOf(card);
   return (
     <div
-      className={`card backlog-card${markClass(card)} backlog-card-landing${forbidden ? " backlog-card-landing-forbid" : ""}`}
+      className={`card backlog-card${mark ? ` card-${mark}` : ""} backlog-card-landing${forbidden ? " backlog-card-landing-forbid" : ""}`}
       title={forbidden ? "Only among the tasks under the same parent: the Roadmap's tree decides the order" : undefined}
     >
       <span className="card-title backlog-card-title">{card.title}</span>

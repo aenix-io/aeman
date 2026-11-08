@@ -64,13 +64,11 @@ SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
   (features reads portal's and cozystack's) selects them all.
 - **What is listed.** The team's parked tasks: no planning card, no
   subtask, no review card, nothing finished. Order is
-  `BacklogOrder` over the union — by **effective priority** (K15, below),
-  P0 first and none last, each priority in the **Roadmap's order** (K14).
-- **The card.** One wide card per row. Down its left edge, the
-  **priority stripe** (K15, below) — the review's yellow one on a review
-  card — and no priority badge (superseded 2026-11-08: the card was plain,
-  with a priority button first; the stripe replaced both); then the
-  title; on the RIGHT its parent chain —
+  `BacklogOrder` over the union — the reviews nobody has taken first
+  (K10), then the **Roadmap's order** (K14), the tasks with no plan item
+  last.
+- **The card.** One wide card per row, a plain card with no coloured
+  accent down its edge: the title; on the RIGHT its parent chain —
   every goal, initiative and epic it sits under, root first (all of
   `status.lineage`), each with its kind icon as the Roadmap draws it, a
   long name cut short with the whole name in its tooltip, and each
@@ -81,8 +79,8 @@ SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
   owner badge, the Roadmap's too), with a separate Take button to its
   left while nobody has it.
 - **Order.** Dragging a card reorders it **among its siblings** — the
-  tasks under the same parent, in the same effective priority (the tasks
-  with no plan item above are one run per priority): the move gesture anchored on the
+  tasks under the same parent (the tasks with no plan item above are one
+  run): the move gesture anchored on the
   sibling just above it (`after`), else the one just below (`before`). A
   place next to none of its siblings is shown as forbidden and writes
   nothing: the order is the tree's (K14), and the move changes the
@@ -145,66 +143,31 @@ card (one migrated in schema 3 and never placed) now stands where the
 board's order puts it — before the ranked ones of its run, oldest first —
 rather than after them.
 
-**Reviews nobody has taken** (K10, amended 2026-11-07) take the effective
-priority of the task they review and stand FIRST within that priority
-group, before its tasks; the reviews of a group read in the Roadmap's order
-of the tasks they review, and a review of a task with no priority leads the
-no-priority group. Their place is their tasks': a review is not dragged
-(a drop of it is forbidden and writes nothing). K10's "at the top until
-somebody drags it" is gone. A review's priority is its task's — shown on
-the review card, read only, and refused if set on the review card itself
-(422 `priorityFollowsTask`).
+**Reviews nobody has taken** (K10, amended 2026-11-07 and 2026-11-08)
+stand FIRST, in a group of their own before every task, in the Roadmap's
+order of the tasks they review. Their place is their tasks': a review is
+not dragged (a drop of it is forbidden and writes nothing). K10's "at the
+top until somebody drags it" is gone.
 
-## Priorities and UNASSIGNED (K15, K16)
+## Priorities removed; UNASSIGNED (K15, K16)
 
-Decided 2026-11-07 with the owner; it replaced a TO DO flag that was never
-released (a stray `todo:` key in a file is an unknown key, kept and
-ignored). The badge on the Roadmap is ONE pill in two parts, and a menu.
+**Priorities were removed on 2026-11-08** (K15, decided by the owner with a
+co-founder): order or priorities, not both. The backlog's order is the
+relation "X before Y" — the place in the Roadmap tree (K14) — and priority
+groups beside it broke that model. There is no `priority` on a card, no
+effective priority, no priority route or MCP tool, and the badge is the
+work status alone. A `priority:` key a file still carries (one card on the
+production board) is an unknown key: kept, written back, ignored. No
+migration.
 
-- **Priority** (K15): any card — a task, a goal, an initiative, an epic —
-  carries one of P0 (the highest), P1, P2, P3, P4, or none, the scale Jira
-  uses, stored as `priority: P0` (absent when none). What a card counts
-  under is its **effective priority**: its own when it has one, else the
-  nearest ancestor's that has one (a review card's is its task's) —
-  computed, never written down, the way a card counts under its effective
-  team (O3); the API serves it as `status.effectivePriority` with
-  `status.effectivePriorityFrom` naming the ancestor. The backlog reads
-  P0 first, then P1 … P4, then none, each priority in the Roadmap's order.
-  **Nothing clears a priority on its own**: taking the card into work,
-  finishing it and reopening it keep it. Setting a plan item's priority
-  writes the plan item alone; every card under it with none of its own
-  follows, the watch re-sends them, and every open backlog re-sorts.
-  `POST /cards/{uid}/actions/priority {priority}` (answers the card), MCP
-  `set_priority`.
-- **The badge**: the effective priority on the left when there is one —
-  P0 red, P1 orange, P2 blue, P3 and P4 grey (P4 lighter), theme tokens
-  with legible contrast in both themes; an inherited one keeps its hue,
-  drawn lighter, its tooltip "from «ancestor»" — and the **work status** on
-  the right: BACKLOG, IN PROGRESS, DONE (and NO ITEMS on a plan item;
-  review, locked and refused on a task held in one). A task's is where it
+- **The badge**: the **work status** — BACKLOG, IN PROGRESS, DONE (and NO
+  ITEMS on a plan item; review, locked and refused on a task held in one;
+  LOCKED while a dependency waits, `dependencies.md`). A task's is where it
   stands — in progress while it is in work, started or not, backlog while
   it waits, whatever its bar says; a plan item's is its roll-up (H5): in
   progress while any open task under it is in work, backlog when there are
   open ones and none is, done when all are done, no items with none.
-- **The menu**: P0, P1, P2, P3, P4 and "No priority" — setting the card's
-  OWN value, the current own value checked (a card that only inherits one
-  has "No priority" checked) — a separator, and Unassign, disabled with
-  nothing in work under the row. The card drawer's **Priority** row draws
-  the badge's priority part the same way — own solid, inherited faded with
-  "from «ancestor»", "No priority" when there is none — and opens the same
-  priorities, without Unassign; on a review card it only reads (its
-  task's).
-- **The stripe** (decided 2026-11-08 with the owner): a card on the Me,
-  Team and Backlog boards with an effective priority wears a stripe down
-  its left edge in that priority's colour — the badge's hue, ALWAYS the
-  full colour, own or inherited (that difference is the badges', in the
-  drawer and on the Roadmap) — with the same geometry as a review card's
-  stripe. A review card keeps its yellow stripe and gets no priority
-  stripe: never two. Its tooltip, and its name for a screen reader, say
-  "P1" or "P1 (from «ancestor»)". Nothing else draws on a card's left
-  edge — a zone's band is the zone's own border, outside the card; the
-  selection ring and a drag's ghost are the card's outline — so the
-  stripe takes the review stripe's slot and collides with nothing.
+- **The menu**: Unassign, disabled with nothing in work under the row.
 - **UNASSIGNED** (K16) takes work out of hand: after "Take N tasks out of
   work? They leave Team and Me and go back to their team's backlog." every
   open task in work — the task itself, or every open task in work under
@@ -267,11 +230,10 @@ Decided 2026-11-03 with the owner (K10).
   made with **nobody** on it and **parked in the task's team's backlog**:
   the "needs a reviewer" item. A task that already has a review card gets
   no second one.
-- **Its place is first in its task's priority group** (amended with
-  K14/K15, 2026-11-07): it takes the effective priority of the task it
-  reviews and stands before that group's tasks, the reviews of a group in
-  their tasks' Roadmap order; a review of a task with no priority leads the
-  no-priority group. It is not dragged: its place is its task's. It stands in the same list as the tasks, drawn as a
+- **Its place is first in the backlog** (amended with K14, 2026-11-07;
+  priorities removed 2026-11-08): in a group of its own before every task,
+  the reviews in their tasks' Roadmap order. It is not dragged: its place
+  is its task's. It stands in the same list as the tasks, drawn as a
   review card is drawn on the Me and Team boards, with the reviewed task's
   parent chain — goal, initiative and epic only, as a task's; the drawer's breadcrumb, which ends in the task (`status.reviewed`), is the way to it — with the task's owner as the small counterpart avatar over the corner of its own, as on the Team and Me boards, and is not dragged: its place is its task's.
 - **Taking one** is the card's owner picker with a person — `own` on the
@@ -354,10 +316,10 @@ parked tasks reachable, so nothing the migration parks is lost.
 | K7 | A task has no week: the API, the MCP and the codec refuse or drop `week` on a task; deadline stubs keep theirs. |
 | K8 | Schema 3 parks the tasks planned for a week ahead and the strip, keeps a task whose week has come in work on that week's dates and its team's current sprint, and strips every task week, in one idempotent pass. |
 | K9 | The Triage view, the `place` and `untriage` gestures and the `triage`/`triageWeek`/`due` status fields are gone from the API, the MCP and the SPA. |
-| K10 | Putting a task on review always makes its review card; without a reviewer it is made with nobody on it, parked in the team's backlog — first in its task's priority group (K14, K15), placed by its task and never dragged — and a person picked there takes it into work. |
+| K10 | Putting a task on review always makes its review card; without a reviewer it is made with nobody on it, parked in the team's backlog — first, in its task's Roadmap order (K14), placed by its task and never dragged — and a person picked there takes it into work. |
 | K11 | Take is the backlog's gesture: the card becomes the actor's, on its own team, and leaves the backlog; refused where there is nothing to take. |
 | K12 | The × on a review somebody has offers "back to backlog": the reviewer is taken off and the review waits, nobody on it, at the top of the reviewed task's team backlog; the task stays on review. |
 | K13 | The insert "+" in a gap of the list creates a task parked on the chosen team and placed there by the create itself (`after`/`before`), in one request. |
-| K14 | Within each priority the backlog reads in the Roadmap's order — the path of board-order places from the root plan item down; loose tasks after the planned ones; a review nobody has taken first in its task's priority, placed by its task and never dragged — and a drag moves a task among its siblings in the same priority only, which moves it on the Roadmap too. |
-| K15 | Any card carries a priority, P0 to P4 or none; it counts under its effective priority (its own, else the nearest ancestor's), and the backlog reads P0 first and none last; nothing clears a priority on its own. A Me, Team or Backlog card with one wears a stripe down its left edge in its full colour, a review card its yellow one instead; the drawer's Priority row shows it own or inherited and sets the own value. |
+| K14 | The backlog reads in the Roadmap's order — the path of board-order places from the root plan item down; loose tasks after the planned ones; the reviews nobody has taken first, placed by their tasks and never dragged — and a drag moves a task among its siblings only, which moves it on the Roadmap too. |
+| K15 | ~~Any card carries a priority, P0 to P4 or none; it counts under its effective priority (its own, else the nearest ancestor's), and the backlog reads P0 first and none last; nothing clears a priority on its own.~~ **Removed** (2026-11-08): order or priorities, not both; a `priority:` key in a file is an unknown key, kept and ignored. |
 | K16 | UNASSIGNED takes an open task in work (or every one under a plan item) back to its backlog, the ×'s unassign way, after a confirm that counts them; finished work is untouched. |

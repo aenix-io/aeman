@@ -15,10 +15,10 @@ export type ColumnWidths = Record<RoadmapColumn, number>;
 export const COLUMN_DEFAULTS: ColumnWidths = { title: 290, owner: 150, start: 64, end: 64, status: 144 };
 
 /** COLUMN_MINS are the floors: no column collapses, and Status keeps room
- *  for its widest badge — the two-part "P0 | IN PROGRESS" (K15), 116px in
- *  the browser, plus the cell's padding before the timeline — with some to
- *  spare for a wider font. A width stored before (the single pill's 112) is
- *  clamped up to it on reading. */
+ *  for its widest badge — "IN PROGRESS", or "LOCKED" with the badge's menu
+ *  arrow — plus the cell's padding before the timeline, with room to spare
+ *  for a wider font. The floor was set for a two-part badge that is gone;
+ *  it is kept so a width a person chose then is not clamped down now. */
 export const COLUMN_MINS: ColumnWidths = { title: 120, owner: 60, start: 48, end: 48, status: 140 };
 
 /** COLUMN_MAX is the ceiling of any column. */

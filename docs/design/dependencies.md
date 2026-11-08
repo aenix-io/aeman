@@ -57,8 +57,7 @@ direct writer left cyclic.
   no tasks is not done, so a dependency on it is unsatisfied.
 - A card's BLOCKERS are its own unsatisfied dependencies plus those of
   every ancestor (any level: goal, initiative, epic, a subtask's task) —
-  the wait is inherited down the tree like the effective team and
-  priority. Each blocker carries the card whose `dependsOn` names it
+  the wait is inherited down the tree like the effective team. Each blocker carries the card whose `dependsOn` names it
   (`via`): the card itself, or the ancestor.
 - A card is LOCKED when it has at least one blocker. LOCKED is derived on
   every read and never written. It is independent of the manual
