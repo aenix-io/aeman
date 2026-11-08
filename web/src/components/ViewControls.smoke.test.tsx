@@ -15,17 +15,16 @@ describe("the board controls of the top bar", () => {
     expect(html).toMatch(/segment segment-active"[^>]*>1Y</);
   });
 
-  it("draws the Hierarchy range and the window it shows at the left, the zoom apart in the middle", () => {
+  it("draws the Hierarchy range at the left and the zoom apart in the middle, and no date range", () => {
     const html = renderToStaticMarkup(
-      <StrategyControls depth={{ from: "initiative", to: "task" }} onDepth={vi.fn()} zoom="3m" onZoom={vi.fn()} range="19 Oct – 18 Jan 2027" />,
+      <StrategyControls depth={{ from: "initiative", to: "task" }} onDepth={vi.fn()} zoom="3m" onZoom={vi.fn()} />,
     );
-    const at = (t: string) => html.indexOf(t);
-    expect(at("Hierarchy")).toBeLessThan(at("19 Oct – 18 Jan 2027"));
     expect(html).toContain('class="topbar-controls"');
-    // The zoom is its own block, centred in the bar, not in the left group.
     expect(html).toMatch(/class="topbar-center"[^>]*>.*>3M</s);
     const left = html.slice(html.indexOf('class="topbar-controls"'), html.indexOf('class="topbar-center"'));
+    expect(left).toContain("Hierarchy");
     expect(left).not.toContain(">3M<");
+    expect(html).not.toContain("strategy-range");
   });
 
   it("draws Tasks | Epics, the chosen one pressed", () => {

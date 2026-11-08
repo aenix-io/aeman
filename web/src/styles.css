@@ -3709,13 +3709,6 @@ button.card-age {
   padding: 3px 6px;
 }
 
-.strategy-range {
-  font-size: 12px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
 .strategy-empty {
   padding: 24px;
   text-align: center;

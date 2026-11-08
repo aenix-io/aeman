@@ -133,9 +133,6 @@ interface StrategyBoardProps {
    *  remembered ones itself. */
   depth?: DepthRange;
   zoom?: Zoom;
-  /** Told the window the timeline shows ("19 Oct – 18 Jan 2027"), which
-   *  the app draws in its top bar after the zoom. */
-  onRange?: (label: string) => void;
 }
 
 const LS_FOLDED = "aeman.strategy.folded";
@@ -385,7 +382,6 @@ export function StrategyBoard({
   onManageCustomers,
   depth: depthProp,
   zoom: zoomProp,
-  onRange,
 }: StrategyBoardProps) {
   const today = todayIso();
   // The table's column widths (strategycolumns.ts), the reader's own. A drag
@@ -625,12 +621,6 @@ export function StrategyBoard({
   // has no bar and an empty lane.
   const bars = useMemo(() => shownLines.map((l) => (l.kind === "row" ? barOf(l.row.node.card) : null)), [shownLines]);
   const range = useMemo(() => rangeFor(zoom, today, bars), [zoom, today, bars]);
-  // The window the timeline shows is drawn in the app's top bar, beside the
-  // zoom that sets it.
-  const rangeLabel = `${shortDate(range.from, today)} – ${shortDate(range.to, today)}`;
-  useEffect(() => {
-    onRange?.(rangeLabel);
-  }, [rangeLabel, onRange]);
   const days = daysBetween(range.from, range.to) + 1;
   const trackW = days * pxPerDay(zoom, days);
   const ticks = useMemo(() => ticksOf(range), [range]);

@@ -17,14 +17,11 @@ export function StrategyControls({
   onDepth,
   zoom,
   onZoom,
-  range,
 }: {
   depth: DepthRange;
   onDepth: (d: DepthRange) => void;
   zoom: Zoom;
   onZoom: (z: Zoom) => void;
-  /** The window the timeline shows, the board's answer to the zoom. */
-  range?: string;
 }) {
   const options = LEVELS.map((k) => (
     <option key={k} value={k}>
@@ -56,11 +53,6 @@ export function StrategyControls({
           {options}
         </select>
       </label>
-      {range && (
-        <span className="strategy-range" title="The window the timeline shows">
-          {range}
-        </span>
-      )}
     </div>
     {/* The zoom stands apart, in the middle of the bar. */}
     <div className="topbar-center">
