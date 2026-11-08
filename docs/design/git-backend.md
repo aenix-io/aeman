@@ -243,7 +243,6 @@ assignees: [kitsunoff]
 author: kvaps
 team: portal
 zone: yellow
-priority: P1
 stage: locked
 progress: 40
 doneFrom: 0
@@ -293,17 +292,12 @@ Rules:
   sprint clears `parked`. Every team has a backlog and nothing declares it
   anywhere, which is what makes it safe: there is no list to create,
   rename or remove, so nothing can be taken from under a card.
-- `priority: P0`…`P4` is how much a card matters now, said by a person
-  (`docs/design/backlog.md`, K15) — on any card, a task or a plan item;
-  absent when it has none. Written right after `size`. What a card counts
-  under is its effective priority — its own, else the nearest ancestor's —
-  which is computed and never written down: a writer setting a plan
-  item's priority writes that file alone. Nothing clears it on its own. A
-  value other than P0…P4 (`p1`, `high`) is read as an unknown key — kept,
-  written back as it was, and no priority: it neither shadows what the card
-  inherits nor reaches a status. A review card's priority is its task's and
-  is not written on the review card. A `todo:` key (an unreleased flag it
-  replaced) is an unknown key, kept and ignored.
+- There is NO `priority` (removed 2026-11-08, `docs/design/backlog.md`):
+  the backlog's order is the place in the Roadmap tree. A `priority:` key
+  a file still carries — written while priorities existed — is an unknown
+  key: kept, written back as it was, and meaning nothing; a writer must not
+  expect it to order anything. A `todo:` key (an unreleased flag) is an
+  unknown key too, kept and ignored.
 - A card has NO `week` (schema 3, K7): the key is read on a pre-schema-3
   file into the file's own record (`CardFile.Week`) — for the schema-3
   bump and the importer, which place a task by it — never onto the card,
@@ -519,12 +513,11 @@ neighbour lives in.
 - **K1** — an open task is IN WORK (a `start`/`day` or a `sprint`) or
   `parked: true`, never both and never neither; parking clears
   `assignees`, `start`, `day`, `sprint` and sets `zone: gray`.
-- **K14/K15** — a backlog reads by effective priority (P0 first, none
-  last), each priority in the Roadmap's order: the path of board-order
-  places (rank, then id) from the root plan item down to the task, so a
-  writer reorders a task in its backlog by moving it among its siblings
-  under the same parent, and moves it to another group by its
-  `priority`.
+- **K14** — a backlog reads in the Roadmap's order: the path of
+  board-order places (rank, then id) from the root plan item down to the
+  task, the tasks with no plan item last, the reviews nobody has taken
+  first (K10), so a writer reorders a task in its backlog by moving it
+  among its siblings under the same parent.
 - **K10** — a task with `stage: review` has a review card (`reviewOf`
   naming it). With a reviewer it is theirs, in work. With nobody it is
   `parked: true`, `assignees` empty, of the reviewed task's `team`,

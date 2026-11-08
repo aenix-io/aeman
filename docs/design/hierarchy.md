@@ -109,7 +109,7 @@ every level — four words: *no items* when nothing is under it; *done*
 when every leaf task is complete; *in progress* when any open leaf task
 is in work (a date or a sprint, not parked); *backlog* when there are open
 ones and none is in work (amended with K16, 2026-11-07: progress, a
-person, a stage or a priority do not count by themselves — a parked task
+person or a stage do not count by themselves — a parked task
 at 49% is waiting). Progress is the share of leaf tasks complete, served
 beside the counts (`3/7`). This is the subtask rule (`DerivedProgress`)
 applied up the tree, and like it, it is never stored. It is a walk over the
@@ -316,18 +316,16 @@ subtask — the same mark wherever the
 hierarchy is drawn), the card's title, its **owner** (a task's team and
 the person on it — the cell opens the owner picker, below; a planning
 card has none and an empty cell), its start, its end
-(`day`) and its badge — ONE pill in two parts (K15): the card's effective
-priority on the left when it has one (P0…P4; inherited drawn lighter,
-naming the ancestor), and its work status on the right — derived for a
+(`day`) and its badge — its work status (priorities were removed
+2026-11-08, `docs/design/backlog.md`) — derived for a
 planning card (`hierarchy.status`, with `done/total` beside it: no items,
 backlog, in progress, done), and for a task its own: done when complete;
 else the stage that holds it — review, locked, refused — which says who it
 waits on; else in progress while it is in work, started or not; else
 backlog, whatever its bar says. The drawer's Status row reads the same
-answer. The badge of every row is a menu — the card's own priority (P0…P4,
-No priority) and Unassign (take the work in hand under it back to its
-backlog, after a confirm that counts the tasks) — whose rules are
-`docs/design/backlog.md`'s (K15, K16). Right, a timeline: one bar per card from
+answer. The badge of every row is a menu — Unassign (take the work in
+hand under it back to its backlog, after a confirm that counts the tasks)
+— whose rules are `docs/design/backlog.md`'s (K16). Right, a timeline: one bar per card from
 `start` to `day`, every type by the same rule; a card with one date is a
 point, with none a row without a bar; a done bar is drawn distinct, and a
 bar that runs past the window is cut square at its edge. Rows and lanes
