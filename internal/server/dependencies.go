@@ -19,6 +19,15 @@ import (
 // that each read the board before the other's write cannot close a cycle
 // between them (N2).
 func (b *storeBackend) SetDependsOn(ctx context.Context, bd board.Board, card board.Card, ids []string) error {
+	return b.setDependsOnKeeping(ctx, bd, card, ids, nil)
+}
+
+// setDependsOnKeeping is SetDependsOn for a visitor's list: when hidden is
+// set, the dependencies of the card AS THE CACHE HOLDS IT NOW that the
+// visitor cannot read are kept where they stand (keepHidden), merged under
+// the same lock the check and the edit take — a hidden dependency another
+// request added after the visitor's board was read is not lost.
+func (b *storeBackend) setDependsOnKeeping(ctx context.Context, bd board.Board, card board.Card, ids []string, hidden func(string) bool) error {
 	db, ok := b.inner.(boardservice.DependencyBackend)
 	if !ok {
 		return boardservice.ErrDependenciesUnsupported
@@ -34,6 +43,13 @@ func (b *storeBackend) SetDependsOn(ctx context.Context, bd board.Board, card bo
 		}
 	}
 	e.mu.Lock()
+	if hidden != nil {
+		now := card.DependsOn
+		if c, found := board.Find(e.board, card.ItemID); found {
+			now = c.DependsOn
+		}
+		ids = keepHidden(now, ids, hidden)
+	}
 	if e.loaded {
 		if problem, _ := board.CheckDependsOn(e.board, card.ItemID, ids); problem != board.DependencyFine {
 			e.mu.Unlock()
@@ -83,10 +99,16 @@ func (v *visibleBackend) SetDependsOn(ctx context.Context, bd board.Board, card 
 			t, held := ix.Find(id)
 			return held && !r.canRead(t.Domain)
 		}
-		ids = keepHidden(card.DependsOn, ids, hidden)
-		if problem, _ := board.CheckDependsOn(whole, card.ItemID, ids); problem != board.DependencyFine {
+		merged := keepHidden(card.DependsOn, ids, hidden)
+		if problem, _ := board.CheckDependsOn(whole, card.ItemID, merged); problem != board.DependencyFine {
 			return boardservice.DependencyRefusal(problem)
 		}
+		// The cache merges again under its write lock, with the card as it
+		// stands then; a backend without one takes this snapshot's merge.
+		if sb, ok := v.Backend.(*storeBackend); ok {
+			return sb.setDependsOnKeeping(ctx, bd, card, ids, hidden)
+		}
+		ids = merged
 	}
 	return db.SetDependsOn(ctx, bd, card, ids)
 }

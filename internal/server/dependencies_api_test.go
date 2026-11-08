@@ -177,3 +177,32 @@ func TestTwoDependencyWritesCannotCloseACycleBetweenThem(t *testing.T) {
 		t.Fatalf("b → a after a → b = %v, want a cycle", err)
 	}
 }
+
+// A visitor's list is merged with the hidden dependencies the card has NOW,
+// under the write lock — not with a snapshot read before it: a hidden
+// dependency another request added in between stays on the card.
+func TestAVisitorsDependencyMergeReadsTheCardUnderTheLock(t *testing.T) {
+	store := newBoardStore()
+	inner := boardservicetest.New(nil, nil)
+	be := &storeBackend{inner: inner, store: store}
+	bd := board.NewBoard([]board.Card{
+		{ItemID: "api", Title: "API", Team: "alpha", Parked: true, DependsOn: []string{"secret", "db"}},
+		{ItemID: "db", Title: "DB", Team: "alpha", Parked: true},
+		{ItemID: "auth", Title: "Auth", Team: "alpha", Parked: true},
+		{ItemID: "secret", Title: "Secret", Team: "alpha", Parked: true, Domain: "closed"},
+	})
+	bd.Board = "acme"
+	e := seedEntry(store, "acme", bd)
+	// The visitor's copy was read before `secret` was added.
+	stale := board.Card{ItemID: "api", Title: "API", Team: "alpha", Parked: true, DependsOn: []string{"db"}}
+	hidden := func(id string) bool { return id == "secret" }
+	if err := be.setDependsOnKeeping(t.Context(), bd, stale, []string{"auth"}, hidden); err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	got, _ := board.Find(e.board, "api")
+	e.mu.Unlock()
+	if len(got.DependsOn) != 2 || got.DependsOn[0] != "secret" || got.DependsOn[1] != "auth" {
+		t.Fatalf("dependsOn = %v, want the hidden secret kept where it stands now, and auth", got.DependsOn)
+	}
+}
