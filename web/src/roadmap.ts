@@ -7,6 +7,7 @@
 import { keepPlaced, type PlaceFields } from "./backlog";
 import { addDays, mondayOf } from "./date";
 import { isComplete } from "./stages";
+import { workStatus } from "./workstatus";
 import { isPlanning, isSubtask } from "./subtasks";
 import type { Card, CardPatch, CardType, HierarchyStatus, LineageRef, Priority } from "./providers/types";
 
@@ -338,18 +339,20 @@ export function pickerMatches(c: Card, cards: readonly Card[], query: string): b
 export type RoadmapStatus = "no-items" | "backlog" | "in-progress" | "done" | "review" | "locked" | "refused";
 
 /** statusOf is a row's work status: for a planning card the server's
- *  derived one (`hierarchy.status`, H5); for a task, in this order: done when
- *  complete; else the stage it is held in — review, locked, refused — which
- *  says who it waits on; else in progress while it is in work (a date or a
- *  sprint, not parked), started or not; else backlog — waiting, whatever its
- *  bar says. The drawer and the Roadmap column read the same answer. */
+ *  derived one (`hierarchy.status`, H5); for a task, its work status
+ *  (workStatus — what the Status filter reads, by placement), except that a
+ *  card not done that is held in a stage — review, locked, refused — names
+ *  the stage, which says who it waits on. The badge may say "Review" on a
+ *  parked card the filter counts as backlog; everywhere else the two agree.
+ *  The drawer and the Roadmap column read the same answer. */
 export function statusOf(
   c: Pick<Card, "type" | "hierarchy" | "stage" | "progress"> & Partial<Pick<Card, "parked" | "startDate" | "day" | "sprintStart">>,
 ): RoadmapStatus {
   if (isPlanning(c)) {
     return c.hierarchy?.status ?? "no-items";
   }
-  if (isComplete(c)) {
+  const placed = workStatus(c);
+  if (placed === "done") {
     return "done";
   }
   if (c.stage === "review") {
@@ -361,10 +364,7 @@ export function statusOf(
   if (c.stage === "refuse") {
     return "refused";
   }
-  if (!c.parked && !!(c.startDate || c.day || c.sprintStart)) {
-    return "in-progress";
-  }
-  return "backlog";
+  return placed;
 }
 
 export const STATUS_LABEL: Record<RoadmapStatus, string> = {
