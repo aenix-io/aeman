@@ -6,7 +6,7 @@
 // new place in the epic order, its parked tasks gathered into one block in
 // every team's backlog. The list and what a drop means are backlogboard.ts's
 // (epicRows, epicDrop); switching to it writes nothing.
-import { useState, type DragEvent } from "react";
+import { useState, type DragEvent, type ReactNode } from "react";
 import { epicDrop, type EpicRow } from "../backlogboard";
 import { KindIcon } from "./KindIcon";
 import { ParentChain } from "./BacklogBoard";
@@ -34,6 +34,7 @@ export function BacklogEpics({
   onOpenParent,
   avatars,
   names,
+  ownerPicker,
 }: {
   rows: readonly EpicRow[];
   loading: boolean;
@@ -43,6 +44,8 @@ export function BacklogEpics({
   onOpenParent: (uid: string) => void;
   avatars?: Avatars;
   names?: Names;
+  /** Wraps the epic's badge in the picker that sets its team and owner. */
+  ownerPicker?: (epic: EpicRow["epic"], badge: ReactNode) => ReactNode;
 }) {
   const [carried, setCarried] = useState<string | null>(null);
   const [over, setOver] = useState<number | null>(null);
@@ -124,8 +127,16 @@ export function BacklogEpics({
               const inherited = !own.team && !!r.epic.effectiveTeam;
               const owner = inherited ? { ...own, team: r.epic.effectiveTeam ?? "" } : own;
               return (
-                <span className={`backlog-epic-owner${inherited ? " backlog-epic-owner-inherited" : ""}`}>
-                  {(owner.team || owner.person) && <OwnerBadge owner={owner} avatars={avatars} names={names} label={false} />}
+                <span
+                  className={`backlog-epic-owner${inherited ? " backlog-epic-owner-inherited" : ""}`}
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  draggable={false}
+                >
+                  {(() => {
+                    const badge = <OwnerBadge owner={owner} avatars={avatars} names={names} label={false} />;
+                    return ownerPicker ? ownerPicker(r.epic, badge) : owner.team || owner.person ? badge : null;
+                  })()}
                 </span>
               );
             })()}

@@ -98,10 +98,10 @@ describe("the Backlog board", () => {
     expect(html).toContain('title="The goal «Grow revenue across every market we serve»"');
   });
 
-  it("keeps the due date the server sends (its nearest planning card's end), and the size", () => {
+  it("keeps the due date the server sends (its nearest planning card's end), and no size (the drawer has it)", () => {
     const html = draw(board([first]));
     expect(html).toContain("due 18 Dec");
-    expect(html).toContain(">L</button>");
+    expect(html).not.toContain("size-chip");
   });
 
   // TAKE is a button of its own, the RIGHT-MOST of a card nobody has, after
@@ -133,8 +133,7 @@ describe("the Backlog board", () => {
     expect(remove).toBeGreaterThan(row.indexOf('class="backlog-row-remove-slot"'));
     expect(remove).toBeGreaterThan(row.indexOf("Rotate the certificates"));
     expect(remove).toBeLessThan(row.indexOf('class="backlog-row-chain"'));
-    expect(row.indexOf('class="backlog-row-chain"')).toBeLessThan(row.indexOf(">L</button>"));
-    expect(row.indexOf(">L</button>")).toBeLessThan(row.indexOf('class="backlog-row-owner"'));
+    expect(row.indexOf('class="backlog-row-chain"')).toBeLessThan(row.indexOf('class="backlog-row-owner"'));
     expect(row.indexOf('class="backlog-row-owner"')).toBeLessThan(row.indexOf('class="backlog-take-btn"'));
     const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
     const slot = css.match(/\.backlog-row-remove-slot \{[^}]*\}/)?.[0] ?? "";

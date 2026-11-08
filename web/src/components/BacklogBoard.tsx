@@ -9,7 +9,7 @@
 // listing fills and the watch keeps current (K6). A card taken into work, finished or re-teamed out of
 // the selection by anybody simply stops being one of them.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Board, Card as CardModel, Provider, SizeKey } from "../providers/types";
+import type { Board, Card as CardModel, Provider } from "../providers/types";
 import {
   insertSpot,
   byReadiness,
@@ -38,7 +38,7 @@ import type { LineageRef } from "../providers/types";
 import { BacklogEpics } from "./BacklogEpics";
 import { readMode } from "../viewprefs";
 import { justMade, noteMade } from "../justmade";
-import { ownerOf, type Owner } from "../owner";
+import { ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
 import {
   asksFirst,
   freeSubtasks,
@@ -48,7 +48,6 @@ import {
   withdrawPatch,
   type RemoveChoice,
 } from "../removal";
-import { SIZES, SIZE_ORDER } from "../size";
 import { currentSprint, previousSprint } from "../sprint";
 import { todayIso } from "../date";
 import type { Avatars, Names } from "../users";
@@ -59,13 +58,11 @@ import { clickOn, selectedByOf, type PresenceMap } from "../presence";
 import { Avatar } from "./Avatar";
 import { displayName } from "../users";
 import { InsertGap } from "./InsertGap";
-import { Dropdown } from "./Dropdown";
 import { KindIcon } from "./KindIcon";
 import { markOf } from "../placements";
 import { OwnerBadge } from "./OwnerBadge";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
-import { SizeChip } from "./SizeChip";
 import { FilterSelect } from "./FilterSelect";
 import { customerOptions, teamOptions } from "../filteroptions";
 import { bornCustomers, customerPasses, sprintTeamOf } from "../ownership";
@@ -495,30 +492,25 @@ export function BacklogBoard({
   };
 
 
+  // ---- an epic's team and owner, set from the Epics mode (ownership.md, O9):
+  // the Strategy board's gesture; the list is read again after the answer ----
+  const ownEpic = (epic: CardModel, next: Owner) => {
+    const change = planOwnPatch(planOwnerOf(epic), next);
+    if (!change) {
+      return;
+    }
+    setScope((cur) => cur && cur.map((c) => (c.itemId === epic.itemId ? { ...c, team: next.team || undefined, owner: next.person || undefined } : c)));
+    void provider
+      .patchCard(epic.itemId, change)
+      .catch((err: unknown) => onError(errText(err)))
+      .finally(() => setScopeTick((n) => n + 1));
+  };
+
   // ---- a parent in a card's chain: that planning card's drawer ----
   const openParent = useCallback(
     (uid: string) => void openPlanning(provider, uid, onOpen, onError),
     [provider, onOpen, onError],
   );
-
-  // ---- the size: weighed where the work is being weighed up ----
-  const [sizing, setSizing] = useState<CardModel | null>(null);
-  const sizeAnchor = useRef<HTMLElement | null>(null);
-  const openSizer = useCallback((card: CardModel, anchor: HTMLElement) => {
-    sizeAnchor.current = anchor;
-    setSizing((cur) => (cur?.itemId === card.itemId ? null : card));
-  }, []);
-  const setSize = (card: CardModel, size: SizeKey | "") => {
-    setSizing(null);
-    if ((card.size ?? "") === size) {
-      return;
-    }
-    patchCard(card.itemId, { size: size || undefined });
-    void provider.patchCard(card.itemId, { size }).catch((err: unknown) => {
-      patchCard(card.itemId, { size: card.size });
-      onError(errText(err));
-    });
-  };
 
   // ---- the ×: the same × as everywhere else (removal.ts) ----
   // On a card in its backlog the one answer it has is "off the board"; the
@@ -662,6 +654,22 @@ export function BacklogBoard({
           onOpenParent={openParent}
           avatars={avatars}
           names={names}
+          ownerPicker={(epic, badge) => (
+            <OwnerPicker
+              planning
+              current={planOwnerOf(epic)}
+              teams={roster}
+              people={members}
+              cards={board.cards}
+              avatars={avatars}
+              names={names}
+              onPick={(o) => ownEpic(epic, o)}
+              className="backlog-row-badge"
+              title={`Who carries «${epic.title}» out (a team) and who answers for it (its owner)`}
+            >
+              {badge}
+            </OwnerPicker>
+          )}
         />
       )}
       {mode === "tasks" && (
@@ -684,7 +692,6 @@ export function BacklogBoard({
                       names={names}
                       onPointerDown={beginDrag(c)}
                       onRemove={() => remove(c)}
-                      onPickSize={openSizer}
                       onOpenParent={openParent}
                       owner={
                         counterpart(c) ? (
@@ -712,20 +719,6 @@ export function BacklogBoard({
         </div>
       </section>
       )}
-      <Dropdown open={!!sizing} anchorRef={sizeAnchor} onClose={() => setSizing(null)} className="backlog-size-menu">
-        {SIZE_ORDER.map((sz) => (
-          <button
-            key={sz}
-            type="button"
-            className={`backlog-size-item${sizing?.size === sz ? " backlog-size-item-on" : ""}`}
-            title={SIZES[sz].hint}
-            onClick={() => sizing && setSize(sizing, sizing.size === sz ? "" : sz)}
-          >
-            <span className="backlog-size-key">{sz}</span>
-            <span className="backlog-size-pts">{SIZES[sz].points}</span>
-          </button>
-        ))}
-      </Dropdown>
       {taking && (
         <TakeDialog
           title={taking.title}
@@ -760,7 +753,6 @@ interface BacklogRowProps {
   owner: React.ReactNode;
   onPointerDown: (e: React.PointerEvent) => void;
   onRemove: () => void;
-  onPickSize: (card: CardModel, anchor: HTMLElement) => void;
   onOpenParent: (uid: string) => void;
   /** Take, while nobody has the card: asks first (TakeDialog). */
   onTake?: () => void;
@@ -781,7 +773,6 @@ function BacklogRow({
   owner,
   onPointerDown,
   onRemove,
-  onPickSize,
   onOpenParent,
   onTake,
 }: BacklogRowProps) {
@@ -814,7 +805,6 @@ function BacklogRow({
           due {dueLabel(due)}
         </span>
       )}
-      <SizeChip card={card} onPick={onPickSize} />
       <span className="backlog-row-owner">{owner}</span>
       {onTake && (
         <button
