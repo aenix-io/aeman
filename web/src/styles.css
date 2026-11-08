@@ -3687,7 +3687,7 @@ button.card-age {
   row-gap: 6px;
 }
 
-.strategy-toolbar .segmented {
+.strategy-toolbar .segmented:not(.strategy-fold) {
   margin-left: 0;
 }
 
@@ -5749,4 +5749,25 @@ button.card-age {
 
 .backlog-epic-drop-below {
   box-shadow: inset 0 -2px 0 var(--accent, #6af);
+}
+
+/* A board's own controls in the app's top bar, at its LEFT edge — the
+   Strategy board's Hierarchy range, zoom and window, the Backlog's Tasks |
+   Epics — the view tabs still pushed to the right. */
+.topbar-controls {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 10px;
+  margin-right: auto;
+}
+
+.topbar-controls .segmented {
+  margin-left: 0;
+}
+
+/* The Strategy board's own toolbar: the filters at the left, the folding at
+   the right. */
+.strategy-toolbar .strategy-fold {
+  margin-left: auto;
 }

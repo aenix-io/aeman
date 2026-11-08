@@ -15,6 +15,16 @@ describe("the board controls of the top bar", () => {
     expect(html).toMatch(/segment segment-active"[^>]*>1Y</);
   });
 
+  it("draws the Hierarchy range, then the zoom, then the window it shows", () => {
+    const html = renderToStaticMarkup(
+      <StrategyControls depth={{ from: "initiative", to: "task" }} onDepth={vi.fn()} zoom="3m" onZoom={vi.fn()} range="19 Oct – 18 Jan 2027" />,
+    );
+    const at = (t: string) => html.indexOf(t);
+    expect(at("Hierarchy")).toBeLessThan(at(">3M<"));
+    expect(at(">3M<")).toBeLessThan(at("19 Oct – 18 Jan 2027"));
+    expect(html).toContain('class="topbar-controls"');
+  });
+
   it("draws Tasks | Epics, the chosen one pressed", () => {
     const html = renderToStaticMarkup(<BacklogModeSwitch mode="epics" onMode={vi.fn()} />);
     expect(html).toMatch(/aria-pressed="true"[^>]*>Epics</);

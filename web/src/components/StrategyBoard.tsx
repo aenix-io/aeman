@@ -133,6 +133,9 @@ interface StrategyBoardProps {
    *  remembered ones itself. */
   depth?: DepthRange;
   zoom?: Zoom;
+  /** Told the window the timeline shows ("19 Oct – 18 Jan 2027"), which
+   *  the app draws in its top bar after the zoom. */
+  onRange?: (label: string) => void;
 }
 
 const LS_FOLDED = "aeman.strategy.folded";
@@ -382,6 +385,7 @@ export function StrategyBoard({
   onManageCustomers,
   depth: depthProp,
   zoom: zoomProp,
+  onRange,
 }: StrategyBoardProps) {
   const today = todayIso();
   // The table's column widths (strategycolumns.ts), the reader's own. A drag
@@ -621,6 +625,12 @@ export function StrategyBoard({
   // has no bar and an empty lane.
   const bars = useMemo(() => shownLines.map((l) => (l.kind === "row" ? barOf(l.row.node.card) : null)), [shownLines]);
   const range = useMemo(() => rangeFor(zoom, today, bars), [zoom, today, bars]);
+  // The window the timeline shows is drawn in the app's top bar, beside the
+  // zoom that sets it.
+  const rangeLabel = `${shortDate(range.from, today)} – ${shortDate(range.to, today)}`;
+  useEffect(() => {
+    onRange?.(rangeLabel);
+  }, [rangeLabel, onRange]);
   const days = daysBetween(range.from, range.to) + 1;
   const trackW = days * pxPerDay(zoom, days);
   const ticks = useMemo(() => ticksOf(range), [range]);
@@ -941,22 +951,6 @@ export function StrategyBoard({
   return (
     <div className="strategy" ref={rootRef} style={columnVars(widths) as CSSProperties}>
       <div className="board-toolbar strategy-toolbar">
-        <div className="segmented strategy-fold" role="group" aria-label="Folding">
-          <button
-            type="button"
-            className="segment"
-            title="Fold every row that has rows under it (the order does not change)"
-            onClick={() => setFolded(foldableIds(shown, depth))}
-          >
-            Collapse all
-          </button>
-          <button type="button" className="segment" title="Unfold every row" onClick={() => setFolded(new Set())}>
-            Expand all
-          </button>
-        </div>
-        <span className="strategy-range" title="The window the timeline shows">
-          {shortDate(range.from, today)} – {shortDate(range.to, today)}
-        </span>
         {/* What the plan is for, who carries it out, who answers for it
             (ownership.md, O7, O8): the server's filters, remembered. */}
         <FilterSelect
@@ -996,6 +990,19 @@ export function StrategyBoard({
           }}
           title="Show only work in progress, in a backlog, locked by a dependency, plan items with no items, or done"
         />
+        <div className="segmented strategy-fold" role="group" aria-label="Folding">
+          <button
+            type="button"
+            className="segment"
+            title="Fold every row that has rows under it (the order does not change)"
+            onClick={() => setFolded(foldableIds(shown, depth))}
+          >
+            Collapse all
+          </button>
+          <button type="button" className="segment" title="Unfold every row" onClick={() => setFolded(new Set())}>
+            Expand all
+          </button>
+        </div>
       </div>
 
       {shownLines.length === 0 ? (

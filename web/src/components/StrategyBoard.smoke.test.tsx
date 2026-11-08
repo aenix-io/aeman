@@ -436,3 +436,14 @@ describe("folding and Split on the Strategy board", () => {
     expect(draw(board([goal, ini, epic, e2, p1, p2, x1]))).not.toContain('class="split-badge"');
   });
 });
+
+// The lower toolbar keeps the filters at the left and the folding at the
+// right; the timeline's window is the top bar's now.
+describe("the Strategy board's own toolbar", () => {
+  it("draws the filters first, the folding after them, and no window", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    const bar = html.slice(html.indexOf("strategy-toolbar"), html.indexOf("strategy-head"));
+    expect(bar.indexOf("Team")).toBeLessThan(bar.indexOf("Collapse all"));
+    expect(bar).not.toContain("strategy-range");
+  });
+});

@@ -260,6 +260,7 @@ export function App() {
   const [strategyDepth, setStrategyDepth] = useState<DepthRange>(readDepth);
   const [strategyZoom, setStrategyZoom] = useState<Zoom>(readZoom);
   const [backlogMode, setBacklogMode] = useState<BacklogMode>(readMode);
+  const [strategyRange, setStrategyRange] = useState<string>("");
   // While a sign-out is being confirmed (see onSignedOut) the messages the
   // failing calls produce — every one of them "not signed in" — are held
   // back: the sign-in gate is the answer, not a banner. The last one held is
@@ -1610,6 +1611,7 @@ export function App() {
               setStrategyZoom(z);
               storeZoom(z);
             }}
+            range={strategyRange}
           />
         )}
         {view === "backlog" && (
@@ -1766,6 +1768,7 @@ export function App() {
             onManageCustomers={() => setManagingCustomers(true)}
             depth={strategyDepth}
             zoom={strategyZoom}
+            onRange={setStrategyRange}
           />
         )}
         {board && view === "backlog" && (
