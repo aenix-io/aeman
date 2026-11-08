@@ -906,6 +906,11 @@ export function placementFor(
     const own = cards.find((c) => c.itemId === draggedId);
     return { parent: own ? parentOf(own) : null, index: -1, flat: zone === "before" ? { before: overId } : { after: overId } };
   }
+  if (flat && dragged?.node.kind === "epic") {
+    // In the flat range an epic moves among the epics only: by any other
+    // row it would take that row's parent, and a flat drop never re-parents.
+    return null;
+  }
   const overParent = parentOf(over.node.card);
   const siblings = siblingsUnder(cards, overParent, draggedId);
   const index = siblings.findIndex((c) => c.itemId === overId);

@@ -1133,3 +1133,20 @@ describe("folding every row", () => {
     expect(foldableIds([goal, ini, epic, task], { from: "epic", to: "epic" }).size).toBe(0);
   });
 });
+
+// Q7 — in a FLAT range an epic's drop never re-parents it: next to a row
+// that is no epic (a task straight under an initiative, drawn after the
+// epics) it is no place at all.
+describe("an epic dropped by a loose row in the flat range", () => {
+  const i2 = card({ itemId: "i2", type: "initiative" });
+  const eA = card({ itemId: "eA", type: "epic", parent: "i" });
+  const loose = card({ itemId: "lt", title: "straight under i2", parent: "i2", lineage: [{ uid: "i2", type: "initiative", title: "i2" }] });
+  const cards = [ini, i2, eA, loose];
+  const flat = { from: "epic" as const, to: "task" as const };
+  it("is no placement, so the epic keeps its parent", () => {
+    const drawn = rows(buildTree(cards), flat, () => true);
+    expect(drawn.map((r) => r.node.card.itemId)).toContain("lt");
+    expect(placementFor(cards, drawn, "eA", "lt", "before", true)).toBeNull();
+    expect(placementFor(cards, drawn, "eA", "lt", "after", true)).toBeNull();
+  });
+});
