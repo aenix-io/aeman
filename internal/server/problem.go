@@ -146,6 +146,11 @@ var sentinels = []struct {
 	{boardservice.ErrEmptyNote, http.StatusUnprocessableEntity, "emptyNote"},
 	{boardservice.ErrEndBeforeStart, http.StatusUnprocessableEntity, "endBeforeStart"},
 	{boardservice.ErrCrossDomain, http.StatusUnprocessableEntity, "crossDomain"},
+	// A dependency on a card that cannot be waited for, or one that would
+	// close a cycle (docs/design/dependencies.md).
+	{boardservice.ErrDependencyTarget, http.StatusUnprocessableEntity, "dependencyTarget"},
+	{boardservice.ErrDependencyCycle, http.StatusUnprocessableEntity, "dependencyCycle"},
+	{boardservice.ErrDependenciesUnsupported, http.StatusNotImplemented, "dependenciesUnsupported"},
 }
 
 // problemFor answers a service error. One the table does not name is not a

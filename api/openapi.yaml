@@ -1365,6 +1365,7 @@ components:
             - customerName
             - customerNotFound
             - dayIsARecord
+            - dependenciesUnsupported
             - dependencyCycle
             - dependencyTarget
             - descriptionTooLong

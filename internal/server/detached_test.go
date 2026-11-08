@@ -19,6 +19,7 @@ func fullBoard() board.Board {
 			Title:     id,
 			Assignees: []string{"ann"},
 			Customers: []string{"cu1"},
+			DependsOn: []string{"c0"},
 			Notes:     []board.Note{{ID: "n1", Body: "first"}},
 		}
 	}
@@ -31,6 +32,7 @@ func fullBoard() board.Board {
 		Domains:        map[string]string{"s1": "primary"},
 		DroppedParents: map[string]string{"c1": "gone"},
 		Customers:      []board.Customer{{ID: "cu1", Name: "Hidora"}},
+		BlockerTotals:  map[string]int{"c1": 1},
 	}
 }
 

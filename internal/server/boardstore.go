@@ -81,6 +81,12 @@ func (sub *subscription) seen(res apiserver.Card, ix *board.Index) apiserver.Car
 			}
 		}
 	}
+	// What the card waits for, what waits for it and whom it is for through
+	// that work are derived from other cards too (N4, N5).
+	depsRedacted := false
+	if c, ok := find(res.Metadata.UID); ok {
+		depsRedacted = seenDependencies(&res, ix, c, readable)
+	}
 	can := func(uid string) bool {
 		c, ok := find(uid)
 		return !ok || sub.rights.canRead(c.Domain)
@@ -135,7 +141,16 @@ func (sub *subscription) seen(res apiserver.Card, ix *board.Index) apiserver.Car
 			}
 		}
 	}
+	depCustomers := out.Status.EffectiveCustomers
 	out.Status.EffectiveTeam, out.Status.EffectiveCustomers = inheritedFromReadable(res, find, readable)
+	if depsRedacted {
+		// The readable waiting work's customers ride on top of the chain's.
+		for _, dc := range out.Status.DependentCustomers {
+			if !slices.Contains(out.Status.EffectiveCustomers, dc.Customer) && slices.Contains(depCustomers, dc.Customer) {
+				out.Status.EffectiveCustomers = append(out.Status.EffectiveCustomers, dc.Customer)
+			}
+		}
+	}
 	out.Status.EffectivePriority, out.Status.EffectivePriorityFrom = priorityFromReadable(res, find, readable)
 	return out
 }
@@ -468,6 +483,12 @@ type boardEntry struct {
 	// part re-sends those review cards, which no write touches.
 	reviewShown map[string]string
 	reviewsOf   map[string][]string
+	// depOf is each card's dependency list, whether it is done and its
+	// customers as last announced, kept only once some card depends on
+	// another (anyDeps): a change to any of them re-sends the cards whose
+	// lock, blockers or inherited customers it moves (dependencyFanout, N8).
+	depOf   map[string]string
+	anyDeps bool
 	// planning is which cards are goals, initiatives or epics, kept beside
 	// parentOf: with the two the walk to a card's planning ancestors costs
 	// the depth of its chain, never an index of the whole board.
@@ -696,6 +717,7 @@ func detached(b board.Board) board.Board {
 	b.People = maps.Clone(b.People)
 	b.Domains = maps.Clone(b.Domains)
 	b.DroppedParents = maps.Clone(b.DroppedParents)
+	b.BlockerTotals = maps.Clone(b.BlockerTotals)
 	b.Customers = slices.Clone(b.Customers)
 	return b
 }
@@ -709,6 +731,7 @@ func detachedCards(cards []board.Card) []board.Card {
 		out[i].Assignees = slices.Clone(out[i].Assignees)
 		out[i].Notes = slices.Clone(out[i].Notes)
 		out[i].Customers = slices.Clone(out[i].Customers)
+		out[i].DependsOn = slices.Clone(out[i].DependsOn)
 	}
 	return out
 }
@@ -740,6 +763,10 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	// And every card below one whose team or customers moved: they take both
 	// as their effective team and customers, at any depth (O3, O4).
 	descendants = unionIDs(descendants, e.subtreeOwning(c, verb))
+	// And every card whose lock, blockers or inherited customers this change
+	// moved: what waits for it, what it waits for, and the cards under them
+	// (N8).
+	descendants = unionIDs(descendants, e.dependencyFanout(c, verb))
 	ancestors = append(ancestors, descendants...)
 	// And the review cards of a card whose title, type, people, customers or
 	// chain moved (status.reviewed, status.lineage, effectiveCustomers), and
@@ -1414,6 +1441,7 @@ func (e *boardEntry) rememberParents() {
 			e.reviewsOf[c.ReviewOf] = append(e.reviewsOf[c.ReviewOf], c.ItemID)
 		}
 	}
+	e.rememberDependencies()
 	for _, c := range e.board.Cards {
 		if len(e.reviewsOf[c.ItemID]) > 0 {
 			e.reviewShown[c.ItemID] = shownInReview(c)
