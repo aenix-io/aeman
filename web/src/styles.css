@@ -5665,3 +5665,10 @@ button.card-age {
 .backlog-epic-cluster {
   display: contents;
 }
+
+/* Take that is not the viewer's to press (an epic somebody owns): drawn,
+   greyed, its tooltip saying who does. */
+.backlog-take-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

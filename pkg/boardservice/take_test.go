@@ -73,7 +73,6 @@ func TestTakeIsRefusedWhereThereIsNothingToTake(t *testing.T) {
 	for id, want := range map[string]error{
 		"w":  ErrAlreadyInWork,
 		"r2": ErrOwnerFollowsLink,
-		"e":  ErrPlanningCard,
 		"k":  ErrOwnerFollowsLink,
 		"d":  ErrAlreadyFinished,
 		"h":  ErrSomebodysCard,
@@ -108,5 +107,34 @@ func TestTakeIsTheBacklogsGesture(t *testing.T) {
 		if Offers(v, GestureTake) {
 			t.Errorf("%s offers take; it is the backlog's", v)
 		}
+	}
+}
+
+// TAKE ON A PLAN ITEM (the Backlog's Epics mode): "I answer for this" — the
+// actor becomes the goal's, initiative's or epic's OWNER, its team kept,
+// nothing else written. One somebody already owns is not the actor's to
+// take from them: refused (ErrSomebodysCard), changing hands is the owner
+// picker's.
+func TestTakeOnAPlanItemMakesTheActorItsOwner(t *testing.T) {
+	me := WithActor(ctx, "kvaps")
+	f := newFake([]board.Card{
+		{ItemID: "e", Title: "epic", Type: board.TypeEpic, Team: "alpha"},
+		{ItemID: "o", Title: "owned", Type: board.TypeEpic, Team: "alpha", Owner: "ann"},
+	}, map[string]board.SprintState{"alpha": {ItemID: "sa"}})
+	if err := New(f).Take(me, "acme", "e"); err != nil {
+		t.Fatal(err)
+	}
+	if c := f.get("e"); c.Owner != "kvaps" || c.Team != "alpha" {
+		t.Fatalf("taken epic = owner %q, team %q; want kvaps on alpha", c.Owner, c.Team)
+	}
+	if err := New(f).Take(me, "acme", "o"); !errors.Is(err, ErrSomebodysCard) {
+		t.Fatalf("take of an epic ann owns = %v, want ErrSomebodysCard", err)
+	}
+	if c := f.get("o"); c.Owner != "ann" {
+		t.Fatalf("the refused take wrote the owner: %q", c.Owner)
+	}
+	// Taking what is already one's own is no change.
+	if err := New(f).Take(me, "acme", "e"); err != nil {
+		t.Fatalf("take of my own epic = %v", err)
 	}
 }

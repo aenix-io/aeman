@@ -7,7 +7,7 @@
 // every team's backlog. The list and what a drop means are backlogboard.ts's
 // (epicRows, epicDrop); switching to it writes nothing.
 import { useState, type DragEvent, type ReactNode } from "react";
-import { epicDrop, offersEpicTake, type EpicRow } from "../backlogboard";
+import { epicDrop, epicTake, type EpicRow } from "../backlogboard";
 import { KindIcon } from "./KindIcon";
 import { ParentChain } from "./BacklogBoard";
 import { OwnerBadge } from "./OwnerBadge";
@@ -147,20 +147,27 @@ export function BacklogEpics({
                 </span>
               );
             })()}
-            {onTake && offersEpicTake(r.epic) && (
-              <button
-                type="button"
-                className="backlog-take-btn"
-                aria-haspopup="dialog"
-                title="Take this epic yourself: you become its owner"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onTake(r.epic);
-                }}
-              >
-                Take
-              </button>
-            )}
+            {onTake &&
+              (() => {
+                const t = epicTake(r.epic);
+                return (
+                  <button
+                    type="button"
+                    className="backlog-take-btn"
+                    aria-haspopup="dialog"
+                    disabled={!t.enabled}
+                    title={t.title}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (t.enabled) {
+                        onTake(r.epic);
+                      }
+                    }}
+                  >
+                    Take
+                  </button>
+                );
+              })()}
           </div>
         ))}
       </div>

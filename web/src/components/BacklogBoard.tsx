@@ -504,6 +504,21 @@ export function BacklogBoard({
       .finally(() => setScopeTick((n) => n + 1));
   };
 
+  // ---- Take on an epic: the viewer becomes its owner through the take
+  // door, which refuses an epic somebody else owns (somebodysCard) ----
+  const takeEpic = (epic: CardModel) => {
+    const before = epic.owner;
+    const mine = epicTakeOwner(epic, me ?? "");
+    setScope((cur) => cur && cur.map((c) => (c.itemId === epic.itemId ? { ...c, owner: mine.person } : c)));
+    void provider
+      .takePlanItem(epic.itemId)
+      .catch((err: unknown) => {
+        setScope((cur) => cur && cur.map((c) => (c.itemId === epic.itemId ? { ...c, owner: before } : c)));
+        onError(errText(err));
+      })
+      .finally(() => setScopeTick((n) => n + 1));
+  };
+
   // ---- a parent in a card's chain: that planning card's drawer ----
   const openParent = useCallback(
     (uid: string) => void openPlanning(provider, uid, onOpen, onError),
@@ -726,7 +741,7 @@ export function BacklogBoard({
           heading="Take this epic?"
           text={`«${takingEpic.title}»: you become its owner. Its team stays as it is.`}
           onClose={() => setTakingEpic(null)}
-          onTake={() => ownEpic(takingEpic, epicTakeOwner(takingEpic, me ?? ""))}
+          onTake={() => takeEpic(takingEpic)}
         />
       )}
       {taking && (

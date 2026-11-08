@@ -510,6 +510,17 @@ export function offersEpicTake(epic: Pick<Card, "owner">): boolean {
   return !epic.owner;
 }
 
+/** epicTake is how an Epics row draws its Take: enabled while nobody owns
+ *  the epic; DISABLED, saying who does, once somebody owns it — changing
+ *  hands is the owner picker's (the avatar). The server refuses the same
+ *  (somebodysCard). */
+export function epicTake(epic: Pick<Card, "owner" | "title">): { enabled: boolean; title: string } {
+  if (epic.owner) {
+    return { enabled: false, title: `${epic.owner} already owns «${epic.title}» — change the owner with the avatar` };
+  }
+  return { enabled: true, title: "Take this epic yourself: you become its owner" };
+}
+
 /** epicTakeOwner is what Take leaves on an epic: its own team, the viewer
  *  as its owner. */
 export function epicTakeOwner(epic: Pick<Card, "team">, viewer: string): Owner {

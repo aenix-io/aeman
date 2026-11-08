@@ -537,6 +537,17 @@ export const apiProvider: Provider = {
     await client.POST("/teams/actions/capacity", { body: { team, points } });
   },
 
+  async takePlanItem(uid: string): Promise<Card> {
+    uid = await resolveCardId(uid);
+    // The `all` board: a plan item stands on no backlog listing, and `take`
+    // is offered there for any card.
+    return cardFrom(
+      client.POST("/views/{view}/cards/{uid}/actions/take", {
+        params: { path: { view: "all", uid } },
+      }),
+    );
+  },
+
   async takeCard(uid: string): Promise<Card> {
     uid = await resolveCardId(uid);
     return cardFrom(

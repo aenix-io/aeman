@@ -403,6 +403,9 @@ export interface Provider {
    *  the epic move that gathers its tasks. Answers how many cards took a key
    *  and the action they were written under. */
   moveTo(uid: string, place: { after?: string | null; before?: string | null; parent?: string }): Promise<MoveResult>;
+  /** Take on a goal, an initiative or an epic: the caller becomes its owner,
+   *  its team kept; refused (somebodysCard) when somebody else owns it. */
+  takePlanItem(uid: string): Promise<Card>;
   /** A task moved within its epic over the epic's queue slots (Q6). */
   reorderInEpic(uid: string, place: { after?: string; before?: string }): Promise<MoveResult>;
   /** Reorder to sit right before another card: the server resolves the true

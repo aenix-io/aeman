@@ -96,6 +96,7 @@ SPA's tabs are **Me, Team, Backlog, Strategy, Project**.
   the create names its place — `after` the card above, or `before` the
   card below at the top — and the server places it in the same request
   (MCP `create_card` takes the same two).
+- **Taking an epic.** In the Epics mode every row draws Take: while nobody owns the epic it makes the viewer its owner (the same `take` gesture on a plan item; its team is kept); once somebody does, it is drawn disabled, its tooltip naming the owner — changing the owner is the avatar's.
 - **Taking.** **Take** is the backlog's own gesture (`take`, MCP
   `take_card`): the card's right-most button asks "Take this card into
   work?" and makes it the viewer's, on the card's own team — today, the

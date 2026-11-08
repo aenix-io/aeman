@@ -264,3 +264,22 @@ func TestAMoveToWhereTheCardStandsMovesNothing(t *testing.T) {
 		t.Fatalf("answer = %s, want nothing moved and no action", body)
 	}
 }
+
+// Take on an epic over the wire (the Backlog's Epics mode): the caller
+// becomes its owner; an epic somebody else owns is refused with
+// somebodysCard and keeps its owner.
+func TestTakeOnAnEpicOverTheWire(t *testing.T) {
+	srv, ids := orderingBoard(t)
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/all/cards/"+ids["a"]+"/actions/take", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("take: %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"owner":"tester"`) {
+		t.Fatalf("the taken epic: %s", rec.Body.String())
+	}
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "", "ann", nil }
+	rec = do(t, srv, http.MethodPost, "/api/v1/views/all/cards/"+ids["a"]+"/actions/take", "")
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "somebodysCard") {
+		t.Fatalf("take of an epic tester owns = %d %s", rec.Code, rec.Body.String())
+	}
+}

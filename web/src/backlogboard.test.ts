@@ -32,6 +32,7 @@ import {
   readBacklogMode,
   epicsByReadiness,
   offersEpicTake,
+  epicTake,
   epicTakeOwner,
 } from "./backlogboard";
 import type { Card, LineageRef } from "./providers/types";
@@ -702,5 +703,21 @@ describe("Take on an epic", () => {
   it("makes the viewer its owner and keeps its team", () => {
     expect(epicTakeOwner(card({ type: "epic", team: "portal" }), "kvaps")).toEqual({ team: "portal", person: "kvaps" });
     expect(epicTakeOwner(card({ type: "epic" }), "kvaps")).toEqual({ team: "", person: "kvaps" });
+  });
+});
+
+// Take on an epic is always drawn: enabled while nobody owns it, disabled —
+// naming who does — once somebody does.
+describe("an Epics row's Take", () => {
+  it("is enabled while the epic has no owner", () => {
+    expect(epicTake(card({ type: "epic", title: "S3" }))).toEqual({
+      enabled: true,
+      title: "Take this epic yourself: you become its owner",
+    });
+  });
+  it("is disabled, saying who owns it, once somebody does", () => {
+    const t = epicTake(card({ type: "epic", title: "S3", owner: "ann" }));
+    expect(t.enabled).toBe(false);
+    expect(t.title).toBe("ann already owns «S3» — change the owner with the avatar");
   });
 });

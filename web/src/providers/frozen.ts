@@ -49,6 +49,7 @@ const CARD_WRITES = new Set([
   "moveCard",
   "moveCardBefore",
   "moveTo",
+  "takePlanItem",
   "reorderInEpic",
   "deferCard",
   "setInProgress",
