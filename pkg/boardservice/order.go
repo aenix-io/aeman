@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -31,6 +32,13 @@ var ErrNotUnderAnEpic = errors.New("the card is under no epic")
 // from its own record or from the action's commits.
 type ActionRanker interface {
 	ActionRanks(ctx context.Context, actionID string) ([]board.RankChange, time.Time, error)
+}
+
+// ActionParenter is a backend that can also say which PARENT links an
+// ordering action changed (the Strategy drop into another epic), in the
+// RankChange shape: Before and After are the parent ids.
+type ActionParenter interface {
+	ActionParents(ctx context.Context, actionID string) ([]board.RankChange, error)
 }
 
 // Move is the move gesture (Q4, Q5, Q7): a card put right after spot.After,
@@ -125,21 +133,51 @@ type UndoResult struct {
 }
 
 // UndoAction reverts an ordering action (Q13): every card whose key is
-// still the one the action wrote gets its old key back; a card moved since
-// is skipped and reported. The changes come from the backend — its own
-// record, or the action's commits — within the undo window.
+// still the one the action wrote gets its old key back, and a card the
+// action RE-PARENTED (a Strategy drop into another epic) its old parent,
+// through the parent door; a card moved or re-parented since is skipped and
+// reported. The changes come from the backend — its own record, or the
+// action's commits — within the undo window.
 func (s *Service) UndoAction(ctx context.Context, boardID, actionID string) (UndoResult, error) {
 	ar, ok := s.backend.(ActionRanker)
 	if !ok {
 		return UndoResult{}, ErrNoSuchAction
 	}
 	record, _, err := ar.ActionRanks(ctx, actionID)
-	if err != nil || len(record) == 0 {
+	if err != nil {
+		record = nil // no rank changes found: the parents may still name the action
+	}
+	var parents []board.RankChange
+	if ap, ok := s.backend.(ActionParenter); ok {
+		if parents, err = ap.ActionParents(ctx, actionID); err != nil {
+			return UndoResult{}, err
+		}
+	}
+	if len(record) == 0 && len(parents) == 0 {
 		return UndoResult{}, fmt.Errorf("%w: %s", ErrNoSuchAction, actionID)
 	}
 	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return UndoResult{}, err
+	}
+	var parentsSkipped, parentsDone []string
+	{
+		for _, ch := range parents {
+			c, ok := findCard(b, ch.ID)
+			if !ok || c.Parent != ch.After {
+				parentsSkipped = append(parentsSkipped, ch.ID)
+				continue
+			}
+			if err := s.SetParent(ctx, boardID, ch.ID, ch.Before); err != nil {
+				return UndoResult{}, err
+			}
+			parentsDone = append(parentsDone, ch.ID)
+		}
+		if len(parents) > 0 {
+			if b, err = s.backend.LoadBoard(ctx, boardID); err != nil {
+				return UndoResult{}, err
+			}
+		}
 	}
 	var res UndoResult
 	_, err = s.backend.Reorder(ctx, b, func(cur board.Board) ([]board.RankChange, error) {
@@ -160,6 +198,16 @@ func (s *Service) UndoAction(ctx context.Context, boardID, actionID string) (Und
 		}
 		return plan, nil
 	})
+	for _, id := range parentsSkipped {
+		if !slices.Contains(res.Skipped, id) {
+			res.Skipped = append(res.Skipped, id)
+		}
+	}
+	for _, id := range parentsDone {
+		if !slices.Contains(res.Reverted, id) && !slices.Contains(res.Skipped, id) {
+			res.Reverted = append(res.Reverted, id)
+		}
+	}
 	return res, err
 }
 

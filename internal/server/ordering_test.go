@@ -253,3 +253,46 @@ func TestARestCreateUnderAnEpicLandsInItsArea(t *testing.T) {
 		t.Fatalf("backlog = %s", got)
 	}
 }
+
+// Q6, Q13 — A DROP INTO ANOTHER EPIC IS UNDONE WHOLE: the re-parent and the
+// place were one action, and its Undo puts back both the parent and the key
+// — from the process's record and, after a restart, from the commit.
+func TestUndoOfADropIntoAnotherEpicRestoresTheParent(t *testing.T) {
+	for _, fromCommits := range []bool{false, true} {
+		srv, ids := orderingBoard(t)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		rec := do(t, srv, http.MethodPost, "/api/v1/cards/"+ids["a1"]+"/actions/move", `{"parent":"`+ids["b"]+`"}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("move: %d %s", rec.Code, rec.Body.String())
+		}
+		var res struct {
+			ActionID string `json:"actionId"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &res)
+		if res.ActionID == "" {
+			t.Fatalf("no action in %s", rec.Body.String())
+		}
+		if got := backlogOf(t, srv, ids); got != "B2 A2 B1 A1" {
+			t.Fatalf("after the drop into B: %s", got)
+		}
+		srv.store.waitDrained(ctx)
+		if fromCommits {
+			processActions.mu.Lock()
+			delete(processActions.byID, res.ActionID)
+			processActions.mu.Unlock()
+		}
+		undo := do(t, srv, http.MethodPost, "/api/v1/actions/"+res.ActionID+"/undo", "")
+		if undo.Code != http.StatusOK {
+			t.Fatalf("undo: %d %s", undo.Code, undo.Body.String())
+		}
+		srv.store.waitDrained(ctx)
+		cancel()
+		if got := backlogOf(t, srv, ids); got != "A1 B2 A2 B1" {
+			t.Fatalf("after the undo (from commits %v): %s", fromCommits, got)
+		}
+		r := do(t, srv, http.MethodGet, "/api/v1/cards/"+ids["a1"], "")
+		if !strings.Contains(r.Body.String(), `"parent":"`+ids["a"]+`"`) {
+			t.Fatalf("the parent is not back (from commits %v): %s", fromCommits, r.Body.String())
+		}
+	}
+}

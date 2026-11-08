@@ -24,6 +24,7 @@ import (
 // when, so an Undo pressed before the commit has drained still finds it.
 type actionRecord struct {
 	changes []board.RankChange
+	parents []board.RankChange
 	at      time.Time
 }
 
@@ -61,6 +62,24 @@ func (r *recentActions) remember(id string, changes []board.RankChange, now time
 			rec.changes = append(rec.changes, ch)
 		}
 	}
+	if rec.at.IsZero() {
+		rec.at = now
+	}
+	r.byID[id] = rec
+}
+
+// rememberParent records a parent link an action changed.
+func (r *recentActions) rememberParent(id string, ch board.RankChange, now time.Time) {
+	if id == "" || ch.Before == ch.After {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.byID == nil {
+		r.byID = map[string]actionRecord{}
+	}
+	rec := r.byID[id]
+	rec.parents = append(rec.parents, ch)
 	if rec.at.IsZero() {
 		rec.at = now
 	}
@@ -120,7 +139,7 @@ func (b *storeBackend) Reorder(ctx context.Context, bd board.Board, plan board.P
 // ActionRanks is an ordering action's changes: this process's record when it
 // made the action, else what the repositories' commits say.
 func (b *storeBackend) ActionRanks(ctx context.Context, id string) ([]board.RankChange, time.Time, error) {
-	if rec, ok := processActions.lookup(id); ok {
+	if rec, ok := processActions.lookup(id); ok && len(rec.changes) > 0 {
 		return append([]board.RankChange(nil), rec.changes...), rec.at, nil
 	}
 	if ar, ok := b.inner.(interface {
@@ -139,4 +158,24 @@ func (v *visibleBackend) ActionRanks(ctx context.Context, id string) ([]board.Ra
 		return ar.ActionRanks(ctx, id)
 	}
 	return nil, time.Time{}, gitstore.ErrActionNotFound
+}
+
+// ActionParents is the parent links an action changed: this process's
+// record, else the action's commits.
+func (b *storeBackend) ActionParents(ctx context.Context, id string) ([]board.RankChange, error) {
+	if rec, ok := processActions.lookup(id); ok && len(rec.changes) > 0 {
+		return append([]board.RankChange(nil), rec.parents...), nil
+	}
+	if ap, ok := b.inner.(boardservice.ActionParenter); ok {
+		return ap.ActionParents(ctx, id)
+	}
+	return nil, nil
+}
+
+// ActionParents forwards to the store behind the rights check.
+func (v *visibleBackend) ActionParents(ctx context.Context, id string) ([]board.RankChange, error) {
+	if ap, ok := v.Backend.(boardservice.ActionParenter); ok {
+		return ap.ActionParents(ctx, id)
+	}
+	return nil, nil
 }

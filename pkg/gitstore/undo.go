@@ -27,11 +27,28 @@ var ErrActionNotFound = errors.New("gitstore: no such action in the last 24 hour
 // repository, newest commit last, and when the action was made; ok is false
 // when no commit of the window carries the id.
 func (r *Repo) ActionRanks(id string, now time.Time) (changes []board.RankChange, at time.Time, ok bool, err error) {
+	return r.actionField(id, now, func(f CardFile) string { return f.Card.Rank })
+}
+
+// ActionParents is the PARENT links the commits of one action changed in
+// this repository, in the same shape (Before and After are parent ids, ""
+// for none): a Strategy drop into another epic re-parents and places in one
+// action, and its Undo puts both back.
+func (r *Repo) ActionParents(id string, now time.Time) ([]board.RankChange, bool, error) {
+	changes, _, ok, err := r.actionField(id, now, func(f CardFile) string { return f.Card.Parent })
+	return changes, ok, err
+}
+
+// actionField is one front-matter field of every card the action's commits
+// touched, at the commit and at its parent: the change, per card, first
+// Before and last After. A card the action created or deleted is no change
+// of a field.
+func (r *Repo) actionField(id string, now time.Time, field func(CardFile) string) ([]board.RankChange, time.Time, bool, error) {
 	if id == "" || r.Head().IsZero() {
 		return nil, time.Time{}, false, nil
 	}
 	var commits []*object.Commit
-	err = r.Walk(r.Head(), func(c *object.Commit) (bool, error) {
+	err := r.Walk(r.Head(), func(c *object.Commit) (bool, error) {
 		if now.Sub(c.Committer.When) > UndoWindow {
 			return false, nil
 		}
@@ -43,7 +60,7 @@ func (r *Repo) ActionRanks(id string, now time.Time) (changes []board.RankChange
 	if err != nil || len(commits) == 0 {
 		return nil, time.Time{}, false, err
 	}
-	at = commits[len(commits)-1].Committer.When
+	at := commits[len(commits)-1].Committer.When
 	var out []board.RankChange
 	for i := len(commits) - 1; i >= 0; i-- { // oldest first
 		c := commits[i]
@@ -55,20 +72,18 @@ func (r *Repo) ActionRanks(id string, now time.Time) (changes []board.RankChange
 		}
 		for _, cardID := range ParseTrailers(c.Message).Cards {
 			p, perr := CardPath(cardID)
-			if perr != nil {
+			if perr != nil || parent == nil {
 				continue
 			}
-			after, aerr := rankIn(c, cardID, p)
+			after, okAfter, aerr := fieldIn(c, cardID, p, field)
 			if aerr != nil {
 				return nil, time.Time{}, false, aerr
 			}
-			before := ""
-			if parent != nil {
-				if before, err = rankIn(parent, cardID, p); err != nil {
-					return nil, time.Time{}, false, err
-				}
+			before, okBefore, berr := fieldIn(parent, cardID, p, field)
+			if berr != nil {
+				return nil, time.Time{}, false, berr
 			}
-			if before != after && after != "" {
+			if okAfter && okBefore && before != after {
 				out = mergeRank(out, board.RankChange{ID: cardID, Before: before, After: after})
 			}
 		}
@@ -76,17 +91,18 @@ func (r *Repo) ActionRanks(id string, now time.Time) (changes []board.RankChange
 	return out, at, true, nil
 }
 
-// rankIn is a card's rank in a commit's tree, "" when the file is not there.
-func rankIn(c *object.Commit, id, p string) (string, error) {
+// fieldIn is a card field in a commit's tree; ok is false when the file is
+// not there or cannot be read.
+func fieldIn(c *object.Commit, id, p string, field func(CardFile) string) (string, bool, error) {
 	data, err := blobAt(c, p)
 	if err != nil || data == nil {
-		return "", err
+		return "", false, err
 	}
 	f, err := DecodeCard(id, data)
 	if err != nil {
-		return "", nil //nolint:nilerr // an unreadable file has no rank to restore
+		return "", false, nil //nolint:nilerr // an unreadable file has nothing to restore
 	}
-	return f.Card.Rank, nil
+	return field(f), true, nil
 }
 
 // mergeRank folds a later commit's change of a card into the list: one
@@ -136,4 +152,25 @@ func (mb *MultiBackend) ActionRanks(_ context.Context, id string) ([]board.RankC
 		return nil, time.Time{}, ErrActionNotFound
 	}
 	return out, at, nil
+}
+
+// ActionParents is the parent links one action changed on this repository.
+func (b *Backend) ActionParents(_ context.Context, id string) ([]board.RankChange, error) {
+	changes, _, err := b.repo.ActionParents(id, b.now())
+	return changes, err
+}
+
+// ActionParents is the parent links one action changed across every domain.
+func (mb *MultiBackend) ActionParents(_ context.Context, id string) ([]board.RankChange, error) {
+	var out []board.RankChange
+	for _, d := range mb.domainList() {
+		changes, _, err := d.Repo.ActionParents(id, time.Now())
+		if err != nil {
+			return nil, err
+		}
+		for _, ch := range changes {
+			out = mergeRank(out, ch)
+		}
+	}
+	return out, nil
 }

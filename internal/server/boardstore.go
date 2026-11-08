@@ -2566,6 +2566,9 @@ func (b *storeBackend) SetAssignee(ctx context.Context, bd board.Board, card boa
 }
 
 func (b *storeBackend) SetParent(ctx context.Context, bd board.Board, card board.Card, parent string) error {
+	// Remembered with the request's action: a Strategy drop into another
+	// epic re-parents and places in one action, and its Undo puts both back.
+	processActions.rememberParent(actionFrom(ctx).ID, board.RankChange{ID: card.ItemID, Before: card.Parent, After: parent}, time.Now())
 	b.mutateCard(ctx, bd, card.ItemID, "parent", "regroup "+cardRef(card), func(c *board.Card) {
 		c.Parent = parent
 	}, func(ctx context.Context) error {
