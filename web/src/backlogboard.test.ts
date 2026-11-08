@@ -26,6 +26,10 @@ import {
   insertSpot,
   insertedOrder,
   byReadiness,
+  splitEpics,
+  epicRows,
+  epicDrop,
+  readBacklogMode,
 } from "./backlogboard";
 import type { Card, LineageRef } from "./providers/types";
 
@@ -612,5 +616,63 @@ describe("the readiness filter", () => {
   it("shows the ready ones or the blocked ones, the order kept", () => {
     expect(byReadiness(list, "ready").map((c) => c.itemId)).toEqual(["a", "c"]);
     expect(byReadiness(list, "blocked").map((c) => c.itemId)).toEqual(["b"]);
+  });
+});
+
+// The Epics mode (ordering.md, "Backlog Epics mode"): the epics of the
+// shown teams in the EPIC ORDER, empty ones included, done ones not, each
+// with its goal/initiative, its waiting tasks and whether they are scattered.
+describe("the Epics mode", () => {
+  const I = { uid: "i", type: "initiative" as const, title: "Kubernetes и S3" };
+  const ep = (itemId: string, over: Partial<Card> = {}) =>
+    card({ itemId, title: itemId, type: "epic", parked: false, team: "portal", lineage: [I], ...over });
+  const under = (itemId: string, epic: string, over: Partial<Card> = {}) =>
+    card({ itemId, team: "portal", parent: epic, lineage: [I, { uid: epic, type: "epic", title: epic }], ...over });
+  const A = ep("A");
+  const B = ep("B");
+  const C = ep("C"); // empty
+  const done = ep("D", { hierarchy: { status: "done", done: 1, total: 1 } } as Partial<Card>);
+  const other = ep("O", { team: "beta" });
+  const a1 = under("a1", "A");
+  const b1 = under("b1", "B");
+  const a2 = under("a2", "A");
+  const scope = [A, B, C, done, other, a1, b1, a2];
+  const list = [a1, b1, a2];
+
+  it("lists the team's epics in the epic order, empty ones in, done ones out", () => {
+    const order = ["B", "A", "C", "D", "O", "a1", "b1", "a2"];
+    expect(epicRows(scope, list, ["portal"], order).map((r) => r.epic.itemId)).toEqual(["B", "A", "C"]);
+  });
+
+  it("counts the waiting tasks, marks a scattered epic Split, and carries the plan above", () => {
+    const rows = epicRows(scope, list, ["portal"]);
+    const byId = new Map(rows.map((r) => [r.epic.itemId, r]));
+    expect(byId.get("A")?.parked).toBe(2);
+    expect(byId.get("A")?.split).toBe(true); // b1 stands inside A's area
+    expect(byId.get("B")?.split).toBe(false);
+    expect(byId.get("C")?.parked).toBe(0);
+    expect(byId.get("A")?.chain.map((r) => r.uid)).toEqual(["i"]);
+  });
+
+  it("takes in another team's epic that has a task standing under a shown team", () => {
+    const o1 = under("o1", "O");
+    expect(epicRows([...scope, o1], [...list, o1], ["portal"]).map((r) => r.epic.itemId)).toContain("O");
+  });
+
+  it("reads Split per team: two teams' tasks of one epic interleaved are no split", () => {
+    const x1 = under("x1", "A", { team: "beta" });
+    expect(splitEpics([a1, x1, a2], (c) => c.team ?? "").has("A")).toBe(false);
+  });
+
+  it("drops an epic beside another — the epic move — and nothing where it was", () => {
+    expect(epicDrop(["A", "B", "C"], "C", 0)).toEqual({ order: ["C", "A", "B"], anchor: { before: "A" } });
+    expect(epicDrop(["A", "B", "C"], "A", 1)).toEqual({ order: ["B", "A", "C"], anchor: { after: "B" } });
+    expect(epicDrop(["A", "B", "C"], "B", 1)).toBeNull();
+  });
+
+  it("remembers the mode, Tasks by default — switching it writes nothing", () => {
+    expect(readBacklogMode(null)).toBe("tasks");
+    expect(readBacklogMode("epics")).toBe("epics");
+    expect(readBacklogMode("nonsense")).toBe("tasks");
   });
 });

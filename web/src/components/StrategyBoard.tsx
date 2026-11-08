@@ -12,6 +12,8 @@ import {
 import { registerPendingCard } from "../api/pending";
 import { todayIso } from "../date";
 import type { Board, Card as CardModel, CardType, Provider } from "../providers/types";
+import { backlogList, splitEpics } from "../backlogboard";
+import { placerOf } from "../ownership";
 import {
   DEFAULT_DEPTH,
   DELETE_INTENT,
@@ -24,6 +26,7 @@ import {
   daysBetween,
   dropCommit,
   dropRequest,
+  foldableIds,
   isFlatRange,
   dropShown,
   statusMenu,
@@ -242,6 +245,9 @@ interface RowProps {
   onStatus: ((badge: HTMLElement) => void) | null;
   /** The status menu stands open on this row (aria-expanded). */
   menuOpen: boolean;
+  /** An epic whose parked tasks are scattered in a team's backlog: another
+   *  task stands inside its area (board.Index.Split). */
+  split?: boolean;
   rowRef: (el: HTMLDivElement | null) => void;
 }
 
@@ -250,7 +256,7 @@ interface RowProps {
  *  worth of hit area, the kind by its pictogram. While a drag runs the rows
  *  stay where they are — the dragged rows dimmed in place — and where it
  *  would land is a mark over the row (strategy.dropMark). */
-function StrategyRow({ row, today, open, focus, ghost, forbid, mark, dragging, onToggle, onOpen, onAdd, onRemove, owner, onStatus, menuOpen, rowRef }: RowProps) {
+function StrategyRow({ row, today, open, focus, ghost, forbid, mark, dragging, onToggle, onOpen, onAdd, onRemove, owner, onStatus, menuOpen, split, rowRef }: RowProps) {
   const card = row.node.card;
   const id = card.itemId;
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id });
@@ -281,6 +287,11 @@ function StrategyRow({ row, today, open, focus, ghost, forbid, mark, dragging, o
       <span className="strategy-cell strategy-cell-date">{shortDate(card.startDate, today)}</span>
       <span className="strategy-cell strategy-cell-date">{shortDate(card.day, today)}</span>
       <span className="strategy-cell strategy-cell-status">
+        {split && (
+          <span className="split-badge" title="Its tasks are scattered in a team's backlog: moving the epic gathers them">
+            Split
+          </span>
+        )}
         <StatusPill card={card} onMenu={onStatus ?? undefined} expanded={menuOpen} />
       </span>
     </div>
@@ -515,6 +526,13 @@ export function StrategyBoard({
   const shownLines = useMemo(() => strategyLines(shown, { depth, expanded }), [shown, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
   // The tree's rows alone, which is what a drop is read against: a section
   // row is dropped on by nothing.
+  // The epics whose tasks are scattered in a team's backlog (Split): read off
+  // the backlog cards this listing holds, each team's queue apart.
+  const split = useMemo(() => {
+    const placed = placerOf(shown);
+    const teams = [...new Set(shown.map((c) => placed(c)))];
+    return splitEpics(backlogList(shown, teams), placed);
+  }, [shown]);
   const baseRows = useMemo(() => shownLines.filter((l) => l.kind === "row" && l.section === "tree").map((l) => (l as RowLine).row), [shownLines]);
   const rows = useMemo(() => shownLines.filter((l): l is RowLine => l.kind === "row").map((l) => l.row), [shownLines]);
   // The rows a drag carries — the dragged card and everything under it —
@@ -985,6 +1003,19 @@ export function StrategyBoard({
             {levelOptions()}
           </select>
         </label>
+        <div className="segmented strategy-fold" role="group" aria-label="Folding">
+          <button
+            type="button"
+            className="segment"
+            title="Fold every row that has rows under it (the order does not change)"
+            onClick={() => setFolded(foldableIds(shown, depth))}
+          >
+            Collapse all
+          </button>
+          <button type="button" className="segment" title="Unfold every row" onClick={() => setFolded(new Set())}>
+            Expand all
+          </button>
+        </div>
         <div className="segmented strategy-zoom" role="group" aria-label="Zoom">
           {(["3m", "1y", "fit"] as Zoom[]).map((z) => (
             <button
@@ -1126,6 +1157,7 @@ export function StrategyBoard({
                         setStatusFor(card);
                       }}
                       menuOpen={statusFor?.itemId === card.itemId}
+                      split={r.node.kind === "epic" && split.has(card.itemId)}
                       rowRef={(el) => {
                         if (el) {
                           rowRefs.current.set(card.itemId, el);

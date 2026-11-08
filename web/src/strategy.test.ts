@@ -14,6 +14,7 @@ import {
   daysBetween,
   dropRequest,
   isFlatRange,
+  foldableIds,
   dropCommit,
   droppable,
   hierarchyChoices,
@@ -1121,3 +1122,14 @@ describe("the latest choice wins", () => {
 });
 
 
+
+// Collapse all / Expand all: folding is the reader's view, never the order.
+describe("folding every row", () => {
+  it("folds every row that has rows under it at this depth", () => {
+    const ids = foldableIds([goal, ini, epic, task, sub, slot], { from: "goal", to: "task" });
+    expect([...ids].sort()).toEqual(["e", "g", "i"]);
+  });
+  it("folds nothing that has nothing under it at this depth", () => {
+    expect(foldableIds([goal, ini, epic, task], { from: "epic", to: "epic" }).size).toBe(0);
+  });
+});

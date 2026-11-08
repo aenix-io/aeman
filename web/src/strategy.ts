@@ -1127,7 +1127,7 @@ export function dropRequest(
 }
 
 /** writeDrop sends a drop's one request and answers what it moved — the
- *  action an Undo reverts. One request is one action on the server: there
+ *  action. One request is one action on the server: there
  *  is no half-written drop to roll back. */
 export async function writeDrop(
   id: string,
@@ -1392,3 +1392,16 @@ export function workPatchOf(c: Card): Partial<Card> {
   };
 }
 
+
+/** foldableIds is every row of the board that has rows under it at this
+ *  depth — what "Collapse all" folds. "Expand all" folds none. Neither
+ *  changes the order: folding is the reader's own view. */
+export function foldableIds(cards: readonly Card[], depth: DepthRange): Set<string> {
+  const out = new Set<string>();
+  for (const line of strategyLines(cards, { depth, expanded: () => true })) {
+    if (line.kind === "row" && line.row.foldable > 0) {
+      out.add(line.row.node.card.itemId);
+    }
+  }
+  return out;
+}

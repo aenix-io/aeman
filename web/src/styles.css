@@ -5665,3 +5665,18 @@ button.card-age {
   background: var(--accent, #6af);
   color: var(--bg, #fff);
 }
+
+/* An epic whose tasks are scattered in a team's backlog (ordering.md):
+   moving the epic gathers them. */
+.split-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 8px;
+  border: 1px solid var(--warn, #c90);
+  color: var(--warn, #c90);
+  font-size: 10px;
+  line-height: 15px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
