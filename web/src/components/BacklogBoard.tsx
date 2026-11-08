@@ -13,6 +13,7 @@ import type { Board, Card as CardModel, Provider } from "../providers/types";
 import {
   insertSpot,
   byReadiness,
+  epicTakeOwner,
   type Readiness,
   epicRows,
   epicsByReadiness,
@@ -610,6 +611,8 @@ export function BacklogBoard({
     );
   };
   const [taking, setTaking] = useState<CardModel | null>(null);
+  // Take on an epic (Epics mode): the viewer becomes its owner.
+  const [takingEpic, setTakingEpic] = useState<CardModel | null>(null);
 
   return (
     <div className="backlog-board">
@@ -654,6 +657,7 @@ export function BacklogBoard({
           onOpenParent={openParent}
           avatars={avatars}
           names={names}
+          onTake={(epic) => setTakingEpic(epic)}
           ownerPicker={(epic, badge) => (
             <OwnerPicker
               planning
@@ -718,6 +722,15 @@ export function BacklogBoard({
           })()}
         </div>
       </section>
+      )}
+      {takingEpic && (
+        <TakeDialog
+          title={takingEpic.title}
+          heading="Take this epic?"
+          text={`«${takingEpic.title}»: you become its owner. Its team stays as it is.`}
+          onClose={() => setTakingEpic(null)}
+          onTake={() => ownEpic(takingEpic, epicTakeOwner(takingEpic, me ?? ""))}
+        />
       )}
       {taking && (
         <TakeDialog
@@ -823,14 +836,26 @@ function BacklogRow({
 
 /** TakeDialog asks before TAKE makes a card the viewer's and takes it into
  *  work. */
-export function TakeDialog({ title, onClose, onTake }: { title: string; onClose: () => void; onTake: () => void }) {
+export function TakeDialog({
+  title,
+  onClose,
+  onTake,
+  heading = "Take this card into work?",
+  text,
+}: {
+  title: string;
+  onClose: () => void;
+  onTake: () => void;
+  heading?: string;
+  text?: string;
+}) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal modal-narrow"
         role="dialog"
         aria-modal="true"
-        aria-label="Take this card into work?"
+        aria-label={heading}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if (e.key === "Escape") {
@@ -839,13 +864,13 @@ export function TakeDialog({ title, onClose, onTake }: { title: string; onClose:
         }}
       >
         <div className="modal-header">
-          <h2 className="modal-title">Take this card into work?</h2>
+          <h2 className="modal-title">{heading}</h2>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
         <div className="modal-body">
-          <p className="take-dialog-text">«{title}» becomes yours, today, and leaves the backlog.</p>
+          <p className="take-dialog-text">{text ?? `«${title}» becomes yours, today, and leaves the backlog.`}</p>
           <div className="take-dialog-actions">
             <button type="button" className="btn" onClick={onClose}>
               Cancel

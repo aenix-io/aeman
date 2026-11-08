@@ -62,7 +62,7 @@ describe("the Epics rows' layout", () => {
         onOpenParent={vi.fn()}
       />,
     );
-    expect(html).toMatch(/<span class="backlog-epic-count"[^>]*>1 waiting<\/span><span class="backlog-epic-ctx backlog-epic-ctx-goal"><\/span><span class="backlog-epic-ctx backlog-epic-ctx-initiative"><button/);
+    expect(html).toMatch(/<span class="backlog-epic-count"[^>]*>1 waiting<\/span><span class="backlog-epic-chain"><nav class="backlog-row-chain"/);
     expect(html).toContain('title="The initiative «ТС2-7 · Kubernetes и S3»"');
   });
 });

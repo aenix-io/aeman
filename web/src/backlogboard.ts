@@ -500,3 +500,18 @@ export function epicsByReadiness(rows: readonly EpicRow[], mode: Readiness): Epi
   const keep = new Set(byReadiness(rows.map((r) => r.epic), mode).map((c) => c.itemId));
   return rows.filter((r) => keep.has(r.epic.itemId));
 }
+
+/** offersEpicTake reports whether an epic's row in the Epics mode offers
+ *  TAKE: while nobody answers for it (no owner). Take on an epic is the plan
+ *  item's analogue of a task's: the viewer becomes its OWNER and its team
+ *  stays as it is; once somebody owns it, changing hands is the owner
+ *  picker's. */
+export function offersEpicTake(epic: Pick<Card, "owner">): boolean {
+  return !epic.owner;
+}
+
+/** epicTakeOwner is what Take leaves on an epic: its own team, the viewer
+ *  as its owner. */
+export function epicTakeOwner(epic: Pick<Card, "team">, viewer: string): Owner {
+  return { team: epic.team ?? "", person: viewer };
+}

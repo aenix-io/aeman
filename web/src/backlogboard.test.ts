@@ -31,6 +31,8 @@ import {
   epicDrop,
   readBacklogMode,
   epicsByReadiness,
+  offersEpicTake,
+  epicTakeOwner,
 } from "./backlogboard";
 import type { Card, LineageRef } from "./providers/types";
 
@@ -687,5 +689,18 @@ describe("the readiness filter on the Epics mode", () => {
     expect(epicsByReadiness(rows, "all").map((r) => r.epic.itemId)).toEqual(["A", "B", "C"]);
     expect(epicsByReadiness(rows, "blocked").map((r) => r.epic.itemId)).toEqual(["B"]);
     expect(epicsByReadiness(rows, "ready").map((r) => r.epic.itemId)).toEqual(["A", "C"]);
+  });
+});
+
+// Take on an epic (the Epics mode): offered while nobody owns it; it makes
+// the viewer the epic's owner and keeps its team.
+describe("Take on an epic", () => {
+  it("is offered while the epic has no owner, and not once somebody owns it", () => {
+    expect(offersEpicTake(card({ type: "epic" }))).toBe(true);
+    expect(offersEpicTake(card({ type: "epic", owner: "ann" }))).toBe(false);
+  });
+  it("makes the viewer its owner and keeps its team", () => {
+    expect(epicTakeOwner(card({ type: "epic", team: "portal" }), "kvaps")).toEqual({ team: "portal", person: "kvaps" });
+    expect(epicTakeOwner(card({ type: "epic" }), "kvaps")).toEqual({ team: "", person: "kvaps" });
   });
 });

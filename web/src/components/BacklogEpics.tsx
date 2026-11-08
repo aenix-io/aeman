@@ -7,8 +7,9 @@
 // every team's backlog. The list and what a drop means are backlogboard.ts's
 // (epicRows, epicDrop); switching to it writes nothing.
 import { useState, type DragEvent, type ReactNode } from "react";
-import { epicDrop, type EpicRow } from "../backlogboard";
+import { epicDrop, offersEpicTake, type EpicRow } from "../backlogboard";
 import { KindIcon } from "./KindIcon";
+import { ParentChain } from "./BacklogBoard";
 import { OwnerBadge } from "./OwnerBadge";
 import { planOwnerOf } from "../owner";
 import type { Avatars, Names } from "../users";
@@ -34,6 +35,7 @@ export function BacklogEpics({
   avatars,
   names,
   ownerPicker,
+  onTake,
 }: {
   rows: readonly EpicRow[];
   loading: boolean;
@@ -45,6 +47,9 @@ export function BacklogEpics({
   names?: Names;
   /** Wraps the epic's badge in the picker that sets its team and owner. */
   ownerPicker?: (epic: EpicRow["epic"], badge: ReactNode) => ReactNode;
+  /** Take, while nobody owns the epic: asks first, then makes the viewer
+   *  its owner (backlogboard.offersEpicTake). */
+  onTake?: (epic: EpicRow["epic"]) => void;
 }) {
   const [carried, setCarried] = useState<string | null>(null);
   const [over, setOver] = useState<number | null>(null);
@@ -116,28 +121,12 @@ export function BacklogEpics({
             <span className="backlog-epic-count" title="Its tasks waiting in these backlogs">
               {r.parked === 0 ? "empty" : `${r.parked} waiting`}
             </span>
-            {/* The plan above, as a table: the goal in one column, the
-                initiative in the next, each chip starting at the same x on
-                every row; a level the epic has none of leaves its cell
-                empty. */}
-            {(["goal", "initiative"] as const).map((level) => {
-              const ref = r.chain.find((c) => c.type === level);
-              return (
-                <span key={level} className={`backlog-epic-ctx backlog-epic-ctx-${level}`} onClick={(e) => e.stopPropagation()}>
-                  {ref && (
-                    <button
-                      type="button"
-                      className="backlog-row-chain-link"
-                      title={`The ${level} «${ref.title}»`}
-                      onClick={() => onOpenParent(ref.uid)}
-                    >
-                      <KindIcon kind={level} size={12} />
-                      <span className="backlog-row-chain-text">{ref.title}</span>
-                    </button>
-                  )}
-                </span>
-              );
-            })}
+            {/* The plan above, drawn as the Tasks rows draw it: the same
+                chain, hugging the right, ending at the same x on every row
+                right before the owner. */}
+            <span className="backlog-epic-chain" onClick={(e) => e.stopPropagation()}>
+              <ParentChain chain={r.chain} onOpen={onOpenParent} />
+            </span>
             {(() => {
               // Whose the epic is: its team and owner; with no team of its
               // own, the team it counts under, drawn like its own.
@@ -158,6 +147,19 @@ export function BacklogEpics({
                 </span>
               );
             })()}
+            <span className="backlog-epic-take" onClick={(e) => e.stopPropagation()}>
+              {onTake && offersEpicTake(r.epic) && (
+                <button
+                  type="button"
+                  className="backlog-take-btn"
+                  aria-haspopup="dialog"
+                  title="Take this epic yourself: you become its owner"
+                  onClick={() => onTake(r.epic)}
+                >
+                  Take
+                </button>
+              )}
+            </span>
           </div>
         ))}
       </div>

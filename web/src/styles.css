@@ -5574,9 +5574,9 @@ button.card-age {
    own — the Tasks rows' chain, its chips cut with an ellipsis. */
 .card.backlog-epic-row {
   display: grid;
-  /* title | count | goal | initiative | owner: fixed tracks, so every
-     row's context chips start at the same x and read as a table. */
-  grid-template-columns: minmax(0, 1fr) 88px minmax(0, 180px) minmax(0, 240px) 40px;
+  /* title | count | chain | owner: the chain is the Tasks rows' own,
+     flush right against the owner on every row. */
+  grid-template-columns: minmax(40%, 1fr) 88px minmax(0, 45%) 40px 52px;
   align-items: center;
   column-gap: 12px;
   cursor: grab;
@@ -5667,14 +5667,21 @@ button.card-age {
   margin-left: auto;
 }
 
-/* A context cell of the Epics mode: the chip LEFT-aligned in its track,
-   cut with an ellipsis, the whole name in its tooltip. */
-.backlog-epic-ctx {
+/* The Epics row's chain cell: the Tasks rows' chain, its end flush with the
+   cell's right edge, nothing of its own added. */
+.backlog-epic-chain {
   display: flex;
-  justify-content: flex-start;
+  justify-content: flex-end;
   min-width: 0;
 }
 
-.backlog-epic-ctx .backlog-row-chain-link {
+.backlog-epic-chain .backlog-row-chain {
   max-width: 100%;
+}
+
+/* The Epics row's Take, in its own cell so the rows stay aligned whether a
+   row offers it or not. */
+.backlog-epic-take {
+  display: flex;
+  justify-content: flex-end;
 }
