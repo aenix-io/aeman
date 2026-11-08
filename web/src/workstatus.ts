@@ -37,17 +37,6 @@ export function workStatus(
 /** HIDE_DONE is the one-click "Hide done": every status but done. */
 export const HIDE_DONE: string[] = ["backlog", "in-progress"];
 
-/** hidesDone reports a selection that is exactly HIDE_DONE. */
-export function hidesDone(selected: readonly string[]): boolean {
-  return selected.length === HIDE_DONE.length && HIDE_DONE.every((s) => selected.includes(s));
-}
-
-/** toggledHideDone is the selection after the toggle is pressed: Hide done,
- *  or — when it already is — no filter at all. */
-export function toggledHideDone(selected: readonly string[]): string[] {
-  return hidesDone(selected) ? [] : [...HIDE_DONE];
-}
-
 /** statusSet writes a selection as the selector's set: known values,
  *  sorted, comma-joined. */
 export function statusSet(selected: readonly string[]): string {

@@ -5412,19 +5412,6 @@ button.card-age {
   margin-top: 1px;
 }
 
-/* A board's quick choice ("Hide done") sits at the foot of the menu, drawn
-   like the way back to "all" (.card-stage-clear); the check shows it holds.
-   Beside the "all" entry that follows it, only the first keeps the rule. */
-.filter-select-quick {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.filter-select-quick + .card-stage-clear {
-  border-top: 0;
-  margin-top: 0;
-}
 
 /* The Me board's "N more tasks": what the filters hide, and the way back. */
 .filter-hidden-btn {

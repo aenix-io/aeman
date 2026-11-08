@@ -18,18 +18,18 @@ export function toggled(selected: readonly string[], v: string): string[] {
   return selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v];
 }
 
-/** QuickChoice is a board's one-click selection at the foot of its
- *  filter's menu, drawn like the way back to "all" beside it — the
- *  Roadmap's "Hide done" — checked while the selection is it. */
+/** QuickChoice is a board's one-click shortcut — the Roadmap's "Hide
+ *  done" — offered at the foot of its filter's menu in the place and the
+ *  look of the way back to "all" while nothing is chosen; once something is,
+ *  "all" stands there instead. */
 export interface QuickChoice {
   label: string;
-  on: boolean;
   onClick: () => void;
 }
 
 /** FilterSelectMenu is the open menu: a checkbox per option (several are
- *  OR), then at its foot a board's quick choice where it offers one and a
- *  way back to "any" when something is chosen, and the roster's "Manage…" entry at
+ *  OR), then at its foot the way back to "any" when something is chosen —
+ *  or, while nothing is, a board's quick choice where it offers one — and the roster's "Manage…" entry at
  *  the bottom where the board offers one. */
 export function FilterSelectMenu({
   options,
@@ -69,17 +69,8 @@ export function FilterSelectMenu({
           </button>
         );
       })}
-      {quick && (
-        <button
-          type="button"
-          role="menuitemcheckbox"
-          aria-checked={quick.on}
-          className="card-stage-item card-stage-clear filter-select-quick"
-          onClick={quick.onClick}
-        >
-          <span className={`filter-select-check${quick.on ? " filter-select-check-on" : ""}`} aria-hidden="true">
-            {quick.on ? "✓" : ""}
-          </span>
+      {quick && selected.length === 0 && (
+        <button type="button" role="menuitem" className="card-stage-item card-stage-clear filter-select-quick" onClick={quick.onClick}>
           {quick.label}
         </button>
       )}

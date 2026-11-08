@@ -99,34 +99,34 @@ describe("the styles of the chip rows", () => {
 });
 
 describe("a quick choice in the filter dropdown", () => {
-  // A QUICK choice sits at the foot of the menu where a board offers one,
-  // drawn like the way back to "all" beside it — the Roadmap's Status
-  // filter has "Hide done", one click for every status but done — checked
-  // while the selection is exactly it.
-  it("puts a board's quick choice at the foot, like All, checked while it holds", () => {
+  // A QUICK choice takes the foot of the menu while nothing is chosen, in
+  // the place and the look of the way back to "all", which shows instead
+  // once something is chosen — the Roadmap's Status filter offers "Hide
+  // done", one click for every status but done. No check mark: it is a
+  // shortcut, not an option.
+  it("offers the quick choice in All's place while nothing is chosen", () => {
     const opts = [
       { value: "in-progress", label: "In progress" },
       { value: "backlog", label: "Backlog" },
       { value: "done", label: "Done" },
     ];
-    const menu = (on: boolean) =>
+    const menu = (selected: string[]) =>
       renderToStaticMarkup(
         <FilterSelectMenu
           options={opts}
-          selected={on ? ["in-progress", "backlog"] : []}
-          quick={{ label: "Hide done", on, onClick: vi.fn() }}
+          selected={selected}
+          anyLabel="all"
+          quick={{ label: "Hide done", onClick: vi.fn() }}
           onChange={vi.fn()}
           onClose={vi.fn()}
         />,
       );
-    const off = menu(false);
-    expect(off).toMatch(/role="menuitemcheckbox" aria-checked="false"[^>]*>.*Hide done/);
-    expect(off.indexOf("Hide done")).toBeGreaterThan(off.indexOf("Done<"));
-    expect(off).toMatch(/class="card-stage-item card-stage-clear filter-select-quick"[^>]*>.*Hide done/);
-    // With a selection, the way back to all follows it, both at the foot.
-    const on = menu(true);
-    expect(on.indexOf("Hide done")).toBeGreaterThan(on.indexOf("Done<"));
-    expect(on.indexOf("Hide done")).toBeLessThan(on.lastIndexOf("card-stage-clear\""));
-    expect(menu(true)).toMatch(/role="menuitemcheckbox" aria-checked="true"[^>]*>.*Hide done/);
+    const none = menu([]);
+    expect(none).toMatch(/<button[^>]*role="menuitem"[^>]*class="card-stage-item card-stage-clear filter-select-quick"[^>]*>Hide done<\/button>/);
+    expect(none.indexOf("Hide done")).toBeGreaterThan(none.indexOf("Done<"));
+    expect(none).not.toContain(">All<");
+    const some = menu(["in-progress", "backlog"]);
+    expect(some).not.toContain("Hide done");
+    expect(some).toContain(">All<");
   });
 });

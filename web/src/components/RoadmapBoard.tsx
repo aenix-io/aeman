@@ -66,7 +66,7 @@ import {
 } from "../roadmap";
 import { barColor } from "../stages";
 import { FilterSelect } from "./FilterSelect";
-import { STATUS_LABELS, WORK_STATUSES, hidesDone, toggledHideDone } from "../workstatus";
+import { HIDE_DONE, STATUS_LABELS, WORK_STATUSES } from "../workstatus";
 import { customerOptions, teamOptions } from "../filteroptions";
 import {
   COLUMN_MAX,
@@ -1062,8 +1062,7 @@ export function RoadmapBoard({
           onChange={(statuses) => onFilters({ ...filters, statuses })}
           quick={{
             label: "Hide done",
-            on: hidesDone(filters.statuses),
-            onClick: () => onFilters({ ...filters, statuses: toggledHideDone(filters.statuses) }),
+            onClick: () => onFilters({ ...filters, statuses: [...HIDE_DONE] }),
           }}
           title="Show only work in progress, in a backlog or done — a plan item by the tasks under it"
         />

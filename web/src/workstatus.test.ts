@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HIDE_DONE, hidesDone, statusSet, toggledHideDone, workStatus } from "./workstatus";
+import { HIDE_DONE, statusSet, workStatus } from "./workstatus";
 
 // The Roadmap's Status filter reads one work status per task, mirroring
 // board.WorkStatus: done when complete; else backlog when parked or placed
@@ -24,18 +24,9 @@ describe("a task's work status", () => {
 });
 
 // "Hide done" is the owner's one-click ask: exactly In progress and Backlog.
-describe("the Hide done toggle", () => {
-  it("is on for exactly in-progress and backlog, in any order", () => {
-    expect(hidesDone(["backlog", "in-progress"])).toBe(true);
-    expect(hidesDone(["in-progress", "backlog"])).toBe(true);
-    expect(hidesDone(["in-progress"])).toBe(false);
-    expect(hidesDone([])).toBe(false);
-    expect(hidesDone(["backlog", "in-progress", "done"])).toBe(false);
-  });
-  it("selects both, and pressed again clears the filter", () => {
-    expect(toggledHideDone([])).toEqual(HIDE_DONE);
-    expect(toggledHideDone(["done"])).toEqual(HIDE_DONE);
-    expect(toggledHideDone(["in-progress", "backlog"])).toEqual([]);
+describe("Hide done", () => {
+  it("is every status but done", () => {
+    expect([...HIDE_DONE].sort()).toEqual(["backlog", "in-progress"]);
   });
 });
 
