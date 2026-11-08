@@ -22,8 +22,9 @@ import {
   buildTree,
   childrenNote,
   daysBetween,
-  DropWriteError,
   dropCommit,
+  dropRequest,
+  isFlatRange,
   dropShown,
   statusMenu,
   rolledUpAfter,
@@ -585,7 +586,7 @@ export function StrategyBoard({
     if (hover && hover.target === target) {
       return;
     }
-    const placement = placementFor(shown, baseRows, dragging, target.overId, target.zone);
+    const placement = placementFor(shown, baseRows, dragging, target.overId, target.zone, isFlatRange(depth));
     const valid = !!placement && droppable(shown, dragging, placement.parent);
     setHover({ target, placement, valid });
   };
@@ -617,16 +618,47 @@ export function StrategyBoard({
       patchCard(id, now.patch);
     }
     reorderCards?.(now.order);
-    // A parent the server took stays: only a refused parent is rolled
-    // back, and the reload settles the order.
-    void writeDrop(id, commit, provider).catch((err: unknown) => {
-      const taken = err instanceof DropWriteError && err.parentWritten;
-      if (!taken) {
+    // ONE request, one action (ordering.md): a reorder within the epic, or a
+    // move — an epic's gathers its tasks, a task dropped into another epic
+    // is placed after that epic's last parked task.
+    const request = dropRequest(shown, id, commit);
+    void writeDrop(id, request, provider)
+      .then((res) => {
+        if (request.kind === "move" && request.parent !== undefined && !request.after && !request.before) {
+          // The server chose the place: read it back.
+          reload();
+        }
+        if (card.type === "epic" && res.actionId && res.moved > 1) {
+          offerUndo(res.actionId, `Epic moved · ${res.moved - 1} ${res.moved === 2 ? "task" : "tasks"}`);
+        }
+      })
+      .catch((err: unknown) => {
         patchCard(id, before);
-      }
-      onError(errText(err instanceof DropWriteError ? err.cause : err));
-      reload();
-    });
+        onError(errText(err));
+        reload();
+      });
+  };
+
+  // The Undo of a mass move (ordering.md, Q13): offered for ten seconds.
+  const [undo, setUndo] = useState<{ actionId: string; text: string } | null>(null);
+  const undoTimer = useRef<number | null>(null);
+  const offerUndo = (actionId: string, text: string) => {
+    if (undoTimer.current !== null) {
+      window.clearTimeout(undoTimer.current);
+    }
+    setUndo({ actionId, text });
+    undoTimer.current = window.setTimeout(() => setUndo(null), 10_000);
+  };
+  const pressUndo = () => {
+    const u = undo;
+    setUndo(null);
+    if (!u) {
+      return;
+    }
+    void provider
+      .undoAction(u.actionId)
+      .then(() => reload())
+      .catch((err: unknown) => onError(errText(err)));
   };
 
   // One bar (or none) per LINE, so a lane's index is its line's: a header
@@ -959,6 +991,14 @@ export function StrategyBoard({
 
   return (
     <div className="strategy" ref={rootRef} style={columnVars(widths) as CSSProperties}>
+      {undo && (
+        <div className="undo-toast" role="status">
+          <span>{undo.text}</span>
+          <button type="button" className="undo-toast-btn" onClick={pressUndo}>
+            Undo
+          </button>
+        </div>
+      )}
       <div className="board-toolbar strategy-toolbar">
         <label className="strategy-depth">
           <span className="strategy-depth-label">Hierarchy</span>

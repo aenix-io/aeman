@@ -360,6 +360,13 @@ export interface CardListing {
   asOf?: string;
 }
 
+/** MoveResult is what an ordering gesture did: how many cards took a key,
+ *  and the action that wrote them (absent when nothing was written). */
+export interface MoveResult {
+  actionId?: string;
+  moved: number;
+}
+
 export interface Provider {
   /** Board identity + per-team sprint pointers (no cards — the active view is
    *  loaded lazily via listCards). */
@@ -389,6 +396,17 @@ export interface Provider {
   removeCard(uid: string, intent?: "unassign" | "off-board", opts?: { deletes?: boolean }): Promise<void>;
   /** Reposition card after afterId in the board order (null = top). */
   moveCard(uid: string, afterId: string | null): Promise<void>;
+  /** The move gesture in full (docs/design/ordering.md): right after
+   *  `after` or right before `before`, and — with `parent` — re-parented
+   *  first ("" takes the parent off), a parked task then placed after the
+   *  new epic's last parked task when no place is named. On an EPIC it is
+   *  the epic move that gathers its tasks. Answers how many cards took a key
+   *  and the action an Undo reverts. */
+  moveTo(uid: string, place: { after?: string | null; before?: string | null; parent?: string }): Promise<MoveResult>;
+  /** A task moved within its epic over the epic's queue slots (Q6). */
+  reorderInEpic(uid: string, place: { after?: string; before?: string }): Promise<MoveResult>;
+  /** Undo an ordering action within 24 hours (Q13). */
+  undoAction(actionId: string): Promise<{ reverted: string[]; skipped: string[] }>;
   /** Reorder to sit right before another card: the server resolves the true
    *  global anchor, so callers rendering a filtered slice don't need to know
    *  the full board order. */

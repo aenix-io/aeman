@@ -12,7 +12,8 @@ import {
   buildTree,
   childrenNote,
   daysBetween,
-  DropWriteError,
+  dropRequest,
+  isFlatRange,
   dropCommit,
   droppable,
   hierarchyChoices,
@@ -467,54 +468,79 @@ describe("the sections below the tree", () => {
 // the new one again, showed the reader the opposite of what happened. The
 // writer says how far it got, and only what the server did not take is
 // rolled back.
-describe("writeDrop", () => {
-  const commit = { parent: "e", parentChanged: true, after: "t1", before: null, order: [] };
-  it("reports that the parent was written when only the move failed", async () => {
+describe("a drop is one request (ordering.md, Q6, Q7)", () => {
+  const epicA = card({ itemId: "A", type: "epic", parent: "i" });
+  const epicB = card({ itemId: "B", type: "epic", parent: "i" });
+  const a1 = card({ itemId: "a1", parent: "A", lineage: [{ uid: "A", type: "epic", title: "A" }] });
+  const a2 = card({ itemId: "a2", parent: "A", lineage: [{ uid: "A", type: "epic", title: "A" }] });
+  const cards = [ini, epicA, epicB, a1, a2];
+
+  it("reorders a task within its epic over the epic's slots", () => {
+    const commit = { parent: "A", parentChanged: false, after: "a2", before: null, order: [] };
+    expect(dropRequest(cards, "a1", commit)).toEqual({ kind: "reorder-in-epic", after: "a2" });
+  });
+
+  it("re-parents a task dropped into another epic and lets the server place it", () => {
+    const commit = { parent: "B", parentChanged: true, after: null, before: null, order: [] };
+    expect(dropRequest(cards, "a1", commit)).toEqual({ kind: "move", parent: "B" });
+  });
+
+  it("moves an epic by its anchor — the server gathers its tasks", () => {
+    const commit = { parent: "i", parentChanged: false, after: null, before: "A", order: [] };
+    expect(dropRequest(cards, "B", commit)).toEqual({ kind: "move", before: "A" });
+  });
+
+  it("sends the parent with the place when a plan item changes parent", () => {
+    const commit = { parent: "g", parentChanged: true, after: "x", before: null, order: [] };
+    expect(dropRequest(cards, "B", commit)).toEqual({ kind: "move", parent: "g", after: "x" });
+  });
+
+  it("writes the one request and answers what it moved", async () => {
     const calls: string[] = [];
     const provider = {
-      patchCard: async () => {
-        calls.push("parent");
-        return {} as never;
+      moveTo: async (uid: string, place: { after?: string | null; before?: string | null; parent?: string }) => {
+        calls.push(`move ${uid} ${JSON.stringify(place)}`);
+        return { actionId: "act", moved: 3 };
       },
-      moveCard: async () => {
-        calls.push("move");
-        throw new Error("409");
+      reorderInEpic: async (uid: string, place: { after?: string; before?: string }) => {
+        calls.push(`reorder ${uid} ${JSON.stringify(place)}`);
+        return { moved: 1 };
       },
-      moveCardBefore: async () => undefined,
     };
-    const err = await writeDrop("t2", commit, provider).catch((e: unknown) => e);
-    expect(calls).toEqual(["parent", "move"]);
-    expect(err).toBeInstanceOf(DropWriteError);
-    expect((err as DropWriteError).parentWritten).toBe(true);
-  });
-  it("reports nothing written when the parent itself was refused", async () => {
-    const provider = {
-      patchCard: async () => {
-        throw new Error("422 parentLevel");
-      },
-      moveCard: async () => undefined,
-      moveCardBefore: async () => undefined,
-    };
-    const err = await writeDrop("t2", commit, provider).catch((e: unknown) => e);
-    expect((err as DropWriteError).parentWritten).toBe(false);
-  });
-  it("writes only the move when the parent did not change", async () => {
-    const calls: string[] = [];
-    const provider = {
-      patchCard: async () => {
-        calls.push("parent");
-        return {} as never;
-      },
-      moveCard: async () => {
-        calls.push("move");
-      },
-      moveCardBefore: async () => undefined,
-    };
-    await writeDrop("t2", { ...commit, parentChanged: false }, provider);
-    expect(calls).toEqual(["move"]);
+    expect(await writeDrop("B", { kind: "move", before: "A" }, provider)).toEqual({ actionId: "act", moved: 3 });
+    await writeDrop("a1", { kind: "reorder-in-epic", after: "a2" }, provider);
+    expect(calls).toEqual(['move B {"before":"A"}', 'reorder a1 {"after":"a2"}']);
   });
 });
 
+// A range that starts at the epic level is FLAT: the epics in the board's
+// order — the epic order — whatever initiative they stand under; a drop of
+// an epic there never re-parents it (Q1, Q7).
+describe("the flat epic range", () => {
+  const g2 = card({ itemId: "g2", type: "goal" });
+  const i2 = card({ itemId: "i2", type: "initiative", parent: "g2" });
+  const eLow = card({ itemId: "eLow", type: "epic", parent: "i2" });
+  const eHigh = card({ itemId: "eHigh", type: "epic", parent: "i" });
+  // Listing order: eLow (of the lower initiative) stands FIRST by key.
+  const cards = [goal, ini, g2, i2, eLow, eHigh, epic];
+  const flat = { from: "epic" as const, to: "epic" as const };
+
+  it("draws the epics in the board's order, not grouped by initiative", () => {
+    expect(isFlatRange(flat)).toBe(true);
+    expect(isFlatRange({ from: "initiative", to: "epic" })).toBe(false);
+    expect(rows(buildTree(cards), flat, () => true).map((r) => r.node.card.itemId)).toEqual(["eLow", "eHigh", "e"]);
+  });
+
+  it("drops an epic beside another without re-parenting it", () => {
+    const drawn = rows(buildTree(cards), flat, () => true);
+    const p = placementFor(cards, drawn, "e", "eLow", "before", true)!;
+    expect(p.flat).toEqual({ before: "eLow" });
+    const commit = dropCommit(cards, "e", p);
+    expect(commit.parentChanged).toBe(false);
+    expect(commit.before).toBe("eLow");
+    expect(dropShown(cards, "e", p).order.indexOf("e")).toBe(cards.indexOf(eLow) - 0);
+  });
+});
 
 // The lines the Strategy board draws from a REAL listing: the strategy's wire cards,
 // mapped the way the board maps them — an epic and a task under it. The

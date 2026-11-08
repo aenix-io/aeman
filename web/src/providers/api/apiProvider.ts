@@ -32,6 +32,7 @@ import type {
   CardPatch,
   CarryReport,
   CustomerRef,
+  MoveResult,
   NewCardInput,
   Note,
   Provider,
@@ -434,6 +435,38 @@ export const apiProvider: Provider = {
       params: { path: { uid } },
       body: { after },
     });
+  },
+
+  async moveTo(uid, place): Promise<MoveResult> {
+    uid = await resolveCardId(uid);
+    const body: { after?: string; before?: string; parent?: string } = {};
+    if (place.before) {
+      body.before = await resolveCardId(place.before);
+    } else {
+      body.after = place.after ? await resolveCardId(place.after) : "";
+    }
+    if (place.parent !== undefined) {
+      body.parent = place.parent ? await resolveCardId(place.parent) : "";
+    }
+    const { data } = await client.POST("/cards/{uid}/actions/move", { params: { path: { uid } }, body });
+    return { actionId: data?.actionId, moved: data?.moved ?? 0 };
+  },
+
+  async reorderInEpic(uid, place): Promise<MoveResult> {
+    uid = await resolveCardId(uid);
+    const body: { after?: string; before?: string } = {};
+    if (place.before) {
+      body.before = await resolveCardId(place.before);
+    } else if (place.after) {
+      body.after = await resolveCardId(place.after);
+    }
+    const { data } = await client.POST("/cards/{uid}/actions/reorder-in-epic", { params: { path: { uid } }, body });
+    return { actionId: data?.actionId, moved: data?.moved ?? 0 };
+  },
+
+  async undoAction(actionId: string): Promise<{ reverted: string[]; skipped: string[] }> {
+    const { data } = await client.POST("/actions/{actionId}/undo", { params: { path: { actionId } } });
+    return { reverted: data?.reverted ?? [], skipped: data?.skipped ?? [] };
   },
 
   async moveCardBefore(
