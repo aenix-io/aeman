@@ -8,7 +8,8 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// the board, then the DELETED fan-out.
+// removeAndAnnounce deletes a card from the cache the way a write does — the
+// row gone from the board, then the DELETED fan-out.
 func removeAndAnnounce(t *testing.T, e *boardEntry, id string) {
 	t.Helper()
 	e.mu.Lock()
@@ -19,7 +20,8 @@ func removeAndAnnounce(t *testing.T, e *boardEntry, id string) {
 	settled(t, e)
 }
 
-// a card the cache has never seen, announced as ADDED.
+// arrive puts a card into the cache the way a fetch or a reload does: a card
+// the cache has never seen, announced as ADDED.
 func arrive(t *testing.T, e *boardEntry, c board.Card) {
 	t.Helper()
 	e.mu.Lock()
@@ -29,7 +31,8 @@ func arrive(t *testing.T, e *boardEntry, c board.Card) {
 	settled(t, e)
 }
 
-// target epic: its one open task is all that keeps the epic undone.
+// targetEpicBoard is depWatchBoard with a finished task beside the target
+// epic: its one open task is all that keeps the epic undone.
 func targetEpicBoard() board.Board {
 	b := depWatchBoard()
 	b.Cards = append(b.Cards, board.Card{ItemID: "infra-done", Title: "Cables", Parent: "infra", Team: "alpha", Progress: 100})
@@ -46,7 +49,8 @@ func wantUnlocked(t *testing.T, got map[string]apiserver.Card, ids ...string) {
 	}
 }
 
-// cards that wait for it are unlocked on the watch.
+// M6(a). Deleting the last open task of a target epic finishes the epic, so
+// the cards that wait for it are unlocked on the watch.
 func TestDeletingATargetsLastOpenTaskUnlocksItsWaiters(t *testing.T) {
 	store := newBoardStore()
 	e := seedEntry(store, "k", targetEpicBoard())
@@ -56,7 +60,8 @@ func TestDeletingATargetsLastOpenTaskUnlocksItsWaiters(t *testing.T) {
 	wantUnlocked(t, cardFrames(raw), "epic", "t", "sub")
 }
 
-// the chain it LEFT is judged, not only the one it joined.
+// M6(b). Moving that task out from under the target epic finishes the epic
+// too: the chain it LEFT is judged, not only the one it joined.
 func TestMovingATargetsLastOpenTaskOutUnlocksItsWaiters(t *testing.T) {
 	store := newBoardStore()
 	e := seedEntry(store, "k", targetEpicBoard())
@@ -66,6 +71,7 @@ func TestMovingATargetsLastOpenTaskOutUnlocksItsWaiters(t *testing.T) {
 	wantUnlocked(t, cardFrames(raw), "epic", "t", "sub")
 }
 
+// M6(c). Deleting a card that waits re-sends what it waited for: it no
 // longer blocks it, nor is it for its customers.
 func TestDeletingAWaitingCardReachesItsTargets(t *testing.T) {
 	store := newBoardStore()
@@ -86,7 +92,9 @@ func TestDeletingAWaitingCardReachesItsTargets(t *testing.T) {
 	}
 }
 
-// names it, and the waiting card renamed in the target's blocks.
+// M6(d). Renaming a target re-sends what waits for it, its blockedBy naming
+// the new title where it names it, and the waiting card renamed in the
+// target's blocks.
 func TestRenamingATargetReachesWhatWaitsForIt(t *testing.T) {
 	store := newBoardStore()
 	e := seedEntry(store, "k", depWatchBoard())
@@ -110,6 +118,7 @@ func TestRenamingATargetReachesWhatWaitsForIt(t *testing.T) {
 	}
 }
 
+// M6(e). A card that arrives already waiting — from a fetch or a reload's
 // diff) reaches its targets like a written one.
 func TestAFetchedWaitingCardReachesItsTargets(t *testing.T) {
 	store := newBoardStore()
@@ -124,6 +133,7 @@ func TestAFetchedWaitingCardReachesItsTargets(t *testing.T) {
 	}
 }
 
+// M6(f). Moving a waiting card under another parent changes its inherited
 // customers, and passes them on: its targets are re-sent.
 func TestReparentingAWaitingCardReachesItsTargets(t *testing.T) {
 	store := newBoardStore()

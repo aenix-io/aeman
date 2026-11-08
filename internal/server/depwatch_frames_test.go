@@ -8,7 +8,8 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// listing its watcher would get on their visible board.
+// restrictedFrameAgrees checks a restricted subscriber's frame for id
+// against the listing its watcher would get on their visible board.
 func restrictedFrameAgrees(t *testing.T, e *boardEntry, rights *domainRights, frames map[string]apiserver.Card, id string) apiserver.Card {
 	t.Helper()
 	e.mu.Lock()
@@ -30,7 +31,8 @@ func restrictedFrameAgrees(t *testing.T, e *boardEntry, rights *domainRights, fr
 	return got
 }
 
-// is JSON, and an empty list is left out of it).
+// sameList compares two lists as a client reads them: nil and empty are one
+// (the wire is JSON, and an empty list is left out of it).
 func sameList(a, b any) bool {
 	va, vb := reflect.ValueOf(a), reflect.ValueOf(b)
 	if va.Len() == 0 && vb.Len() == 0 {
@@ -39,7 +41,8 @@ func sameList(a, b any) bool {
 	return reflect.DeepEqual(a, b)
 }
 
-// is what their listing serves.
+// M3. A frame names in spec.dependsOn only the targets its watcher can read,
+// which is what their listing serves.
 func TestADependencyFrameNamesNoTargetItsWatcherCannotRead(t *testing.T) {
 	store := newBoardStore()
 	b := depWatchBoard()
@@ -59,7 +62,9 @@ func TestADependencyFrameNamesNoTargetItsWatcherCannotRead(t *testing.T) {
 	}
 }
 
-// nothing waits for it and nothing is a dependent customer of it.
+// m2. A frame keeps the customers a card is for through work that waits for
+// it on the watcher's board, even when nothing waits for it and nothing is a
+// dependent customer of it.
 func TestAFrameKeepsTheCustomersWaitingWorkGivesItsWatcher(t *testing.T) {
 	store := newBoardStore()
 	b := depWatchBoard()
@@ -79,6 +84,8 @@ func TestAFrameKeepsTheCustomersWaitingWorkGivesItsWatcher(t *testing.T) {
 	}
 }
 
+// m1. A target epic whose readable task is done while a hidden one is open
+// locks alike in the listing and on the frame: its done was once judged
 // not on the same basis in the listing and on the frame.
 func TestAnEpicTargetWithHiddenLeavesCountsAlikeInListingAndFrame(t *testing.T) {
 	store := newBoardStore()

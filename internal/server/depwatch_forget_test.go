@@ -6,7 +6,8 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// takes it up again with the next.
+// m3. When the last dependency on the board goes, the watch stops tracking
+// dependencies and takes it up again with the next.
 func TestTheWatchForgetsDependenciesWhenTheLastOneGoes(t *testing.T) {
 	store := newBoardStore()
 	e := seedEntry(store, "k", depWatchBoard())
