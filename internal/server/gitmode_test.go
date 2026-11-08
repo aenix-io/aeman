@@ -638,7 +638,7 @@ func TestGitModeRefusesCollidingRosterNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 3\ntitle: closed\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 4\ntitle: closed\n")},
 		{Path: gitstore.TeamPath("01JB4TEAMX"), Data: []byte("name: portal\nrank: a\ncreated: 2026-07-01T08:00:00Z\n")},
 	}); err != nil {
 		t.Fatal(err)

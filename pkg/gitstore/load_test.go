@@ -44,7 +44,7 @@ func TestLoadReadsTheWholeTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Board.Title != "aeman board" || s.Board.Schema != SchemaVersion {
+	if s.Board.Title != "aeman board" || s.Board.Schema != lastPerRepoSchema {
 		t.Fatalf("board = %+v", s.Board)
 	}
 	// Cards come back in rank order, ids from their paths, bodies parsed.

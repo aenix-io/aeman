@@ -491,7 +491,27 @@ func (b *storeBackend) adoptRemote(ctx context.Context, e *boardEntry) error {
 		e.verify()
 		return nil
 	}
-	return b.reloadFromTip(ctx, e)
+	if err := b.reloadFromTip(ctx, e); err != nil {
+		return err
+	}
+	b.normalizeAfterFetch(ctx, e)
+	return nil
+}
+
+// normalizeAfterFetch places the tasks another writer left with no valid key
+// (Q11), as one action of its own: the fetch is what brings them in. The
+// plan is deterministic over the board, so two replicas that both fetched
+// the same file write the same key.
+func (b *storeBackend) normalizeAfterFetch(ctx context.Context, e *boardEntry) {
+	e.mu.Lock()
+	boardID := e.board.Board
+	e.mu.Unlock()
+	actx := withAction(context.WithoutCancel(ctx), gitstore.NewID(time.Now()), "place")
+	if n, err := b.sweeper().Normalize(actx, boardID); err != nil {
+		b.git.log.Warn("normalise the order after a fetch", "err", err)
+	} else if n > 0 {
+		b.git.log.Info("tasks with no key placed", "count", n)
+	}
 }
 
 // reloadFromTip re-reads the board from the local branch and installs it.

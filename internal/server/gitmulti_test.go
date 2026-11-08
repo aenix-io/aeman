@@ -42,7 +42,7 @@ func seedClosedRemote(t *testing.T, remote gitstore.Remote) {
 		t.Fatal(err)
 	}
 	_, err = r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
-		{Path: gitstore.BoardPath, Data: []byte("schema: 3\ntitle: closed\n")},
+		{Path: gitstore.BoardPath, Data: []byte("schema: 4\ntitle: closed\n")},
 		{Path: gitstore.TeamPath("01JB4TEAMSECRET"), Data: []byte("name: secret\nrank: c\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n")},
 		{Path: "cards/c/3/01JB4K2E7QZMX3R8V0N5T9WYC3.md", Data: []byte("---\ntitle: three-closed\nteam: secret\nzone: yellow\nassignees:\n  - zoe\nprogress: 20\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n")},
 	})
@@ -81,13 +81,13 @@ func tornMoveRemotes(t *testing.T) (gitstore.Remote, gitstore.Remote) {
 	t.Helper()
 	shared, closed := gitRemoteN(t, "shared"), gitRemoteN(t, "closed")
 	seedRemoteFiles(t, shared, map[string]string{
-		gitstore.BoardPath:                        "schema: 3\ntitle: t\n",
+		gitstore.BoardPath:                        "schema: 4\ntitle: t\n",
 		gitstore.TeamPath("_"):                    "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		gitstore.TeamPath("01JB4TEAMNEW"):         "name: portal\nrank: b\ncreated: 2026-07-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
 		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n",
 	})
 	seedRemoteFiles(t, closed, map[string]string{
-		gitstore.BoardPath:                        "schema: 3\ntitle: closed\n",
+		gitstore.BoardPath:                        "schema: 4\ntitle: closed\n",
 		gitstore.TeamPath("01JB4TEAMOLD"):         "name: portal\nrank: z\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
 		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
 	})
@@ -218,7 +218,7 @@ func TestGitModeMigratesOlderSchemaAtStartup(t *testing.T) {
 	srv := gitModeServer(t, remote)
 	primary := srv.gitBE.git.primary()
 	data, err := primary.ReadFile(gitstore.BoardPath)
-	if err != nil || !strings.Contains(string(data), "schema: 3") || !strings.Contains(string(data), "title: old") {
+	if err != nil || !strings.Contains(string(data), "schema: 4") || !strings.Contains(string(data), "title: old") {
 		t.Fatalf("board.yaml after start-up = %q (%v)", data, err)
 	}
 	c, _ := primary.CommitObject(primary.Head())
@@ -238,13 +238,13 @@ func TestHealthzReportsAliasesAndGhosts(t *testing.T) {
 	// back: a direct push to one of its repositories.
 	shared, closed := gitRemoteN(t, "shared"), gitRemoteN(t, "closed")
 	seedRemoteFiles(t, shared, map[string]string{
-		gitstore.BoardPath:                        "schema: 3\ntitle: t\n",
+		gitstore.BoardPath:                        "schema: 4\ntitle: t\n",
 		gitstore.TeamPath("_"):                    "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
 		gitstore.TeamPath("01JB4TEAMNEW"):         "name: portal\nrank: b\ncreated: 2026-07-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
 		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n",
 	})
 	seedRemoteFiles(t, closed, map[string]string{
-		gitstore.BoardPath:                        "schema: 3\ntitle: closed\n",
+		gitstore.BoardPath:                        "schema: 4\ntitle: closed\n",
 		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
 	})
 	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"bob": rightsOn([]string{"shared", "closed"}, []string{"shared", "closed"})}}, shared, closed)
