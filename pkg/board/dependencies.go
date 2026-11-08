@@ -15,17 +15,38 @@ type Blocker struct {
 // Done reports a dependency target as satisfied: a task complete, a plan
 // item whose roll-up is done. A plan item with no tasks is not done.
 func (ix *Index) Done(c Card) bool {
-	if IsPlanning(c) {
-		st, _, _ := ix.HierarchyStatus(c)
-		return st == HierarchyDone
+	if !IsPlanning(c) {
+		return Complete(c.Stage, c.Progress)
 	}
-	return Complete(c.Stage, c.Progress)
+	// A plan item's roll-up walks its subtree; many cards ask it of the
+	// same few targets, so it is worked out once per index.
+	ix.memo.Lock()
+	d, ok := ix.done[c.ItemID]
+	ix.memo.Unlock()
+	if ok {
+		return d
+	}
+	st, _, _ := ix.HierarchyStatus(c)
+	d = st == HierarchyDone
+	ix.memo.Lock()
+	if ix.done == nil {
+		ix.done = map[string]bool{}
+	}
+	ix.done[c.ItemID] = d
+	ix.memo.Unlock()
+	return d
 }
+
+// HasDependencies reports a board on which some card waits for another.
+func (ix *Index) HasDependencies() bool { return ix.hasDeps }
 
 // Blockers are a card's unsatisfied dependencies: its own first, then each
 // ancestor's, nearest first. A target the board does not hold is dangling
 // and blocks nothing (N6).
 func (ix *Index) Blockers(c Card) []Blocker {
+	if !ix.waitsInLine(c) {
+		return nil
+	}
 	var out []Blocker
 	holders := []Card{c}
 	up := ix.Lineage(c)
@@ -44,6 +65,28 @@ func (ix *Index) Blockers(c Card) []Blocker {
 	return out
 }
 
+// waitsInLine reports a card that, or an ancestor of which, waits for
+// anything — the only cards that can have a blocker. Walked up the parents
+// without building the lineage, as bounded as Lineage is, so the cards that
+// wait for nothing (nearly all of them) cost a few lookups.
+func (ix *Index) waitsInLine(c Card) bool {
+	if !ix.hasDeps {
+		return false
+	}
+	cur := c
+	for range 7 { // the card and Lineage's six hops
+		if len(cur.DependsOn) > 0 {
+			return true
+		}
+		p, ok := ix.Find(cur.Parent)
+		if !ok {
+			return false
+		}
+		cur = p
+	}
+	return false
+}
+
 // Locked reports a card with at least one blocker (N3). Independent of the
 // manual `stage: locked`.
 func (ix *Index) Locked(c Card) bool { return len(ix.Blockers(c)) > 0 }
@@ -52,6 +95,10 @@ func (ix *Index) Locked(c Card) bool { return len(ix.Blockers(c)) > 0 }
 // the ones whose target, and every card from this one up to the card that
 // names it, the reader can read; hidden counts the rest (N4).
 func (ix *Index) BlockersAs(c Card, can func(Card) bool) (shown []Blocker, hidden int) {
+	all := ix.Blockers(c)
+	if len(all) == 0 {
+		return nil, 0
+	}
 	up := ix.Lineage(c) // root first
 	pathReadable := func(via Card) bool {
 		if via.ItemID == c.ItemID {
@@ -67,7 +114,7 @@ func (ix *Index) BlockersAs(c Card, can func(Card) bool) (shown []Blocker, hidde
 		}
 		return false
 	}
-	for _, b := range ix.Blockers(c) {
+	for _, b := range all {
 		if can(b.Target) && pathReadable(b.Via) {
 			shown = append(shown, b)
 		} else {
@@ -153,8 +200,7 @@ func (ix *Index) effectiveCustomers(c Card, visited map[string]bool, can func(Ca
 // DependentCustomers are the customers a card is for only through the work
 // that waits for it (N5), each with the nearest waiting card.
 func (ix *Index) DependentCustomers(c Card) []DependentCustomer {
-	_, from := ix.effectiveCustomers(c, map[string]bool{c.ItemID: true}, nil)
-	return from
+	return ix.customersOf(c).from
 }
 
 // EffectiveCustomersAs is EffectiveCustomers and DependentCustomers as a

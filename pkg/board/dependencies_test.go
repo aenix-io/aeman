@@ -272,3 +272,23 @@ func TestACycleThroughACardUnderTheWaitingPlanItemIsFound(t *testing.T) {
 		t.Fatal("a card that reaches nothing under E closes no cycle")
 	}
 }
+
+// N4 — Visible records each kept card's blocker count on the WHOLE board,
+// and a board on which nothing waits records none (and pays nothing).
+func TestVisibleRecordsWholeBoardBlockerCountsOnlyWhenSomethingWaits(t *testing.T) {
+	b := NewBoardIn("shared", []Card{
+		{ItemID: "E", Title: "Epic", Type: TypeEpic, Domain: "shared"},
+		{ItemID: "done", Parent: "E", Team: "x", Progress: 100, Domain: "shared"},
+		{ItemID: "open", Parent: "E", Team: "x", Domain: "closed"},
+		{ItemID: "W", Team: "x", DependsOn: []string{"E", "S"}, Domain: "shared"},
+		{ItemID: "S", Team: "x", Domain: "closed"},
+	})
+	can := func(d string) bool { return d == "shared" }
+	if got := Visible(b, "shared", can).BlockerTotals["W"]; got != 2 {
+		t.Fatalf("W's whole-board blockers = %d, want 2 (the epic still open on the whole board, and S)", got)
+	}
+	quiet := NewBoardIn("shared", []Card{{ItemID: "a", Domain: "closed"}, {ItemID: "b", Domain: "shared"}})
+	if Visible(quiet, "shared", can).BlockerTotals != nil {
+		t.Fatal("a board with no dependency records blocker counts")
+	}
+}
