@@ -606,6 +606,9 @@ type CreateCardRequest struct {
 	Customers *[]string       `json:"customers,omitempty"`
 	Dates     *CardDatesInput `json:"dates,omitempty"`
 
+	// InheritParent With `after` or `before` and no `parent`, files the new task under the EPIC of its context in its team's backlog (Q10, docs/design/ordering.md): the epic of the card above the gap (the same as below's when they agree, the card above's at a boundary), at the top of the list the card below's, none in an empty list. Default false: nothing is inherited unless asked for.
+	InheritParent *bool `json:"inheritParent,omitempty"`
+
 	// NoSprint Schedules the card for its day without joining any sprint — a "next sprint" create; the next carry-over to reach its day adopts it.
 	NoSprint *bool `json:"noSprint,omitempty"`
 

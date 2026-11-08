@@ -231,7 +231,10 @@ type createCardInput struct {
 	Customers []string `json:"customers,omitempty" jsonschema:"customer ids from get_board metadata.customers the new card is for"`
 	After     string   `json:"after,omitempty" jsonschema:"on the backlog, team and me views: uid of the card the new one is placed right AFTER, in the same create — how a person inserts a card between two in a backlog or in a Team/Me cell (the cell's person and band are the create's own fields). A list is read top-down. One of after and before, or neither (the card lands last)"`
 	Before    string   `json:"before,omitempty" jsonschema:"on the backlog, team and me views: uid of the card the new one is placed right BEFORE — the top of a list is before its first card. One of after and before, or neither"`
-	Parent    string   `json:"parent,omitempty" jsonschema:"uid of the card this one sits under — the ONE link of the hierarchy, and what it means is the parent's type. A TASK parent groups this card as a subtask (one level deep; a subtask rides its parent and is never parked, so view=backlog refuses a task parent). A goal, an initiative or an epic as parent files the card in the hierarchy: a task may sit under any of the three, an epic under an initiative or a goal, an initiative under a goal — the parent must be of a higher level (parentLevel) and in the card's own repository (crossDomain) — and nothing else about the card changes"`
+	// InheritParent is the Backlog "+"'s epic inheritance (Q10), off unless
+	// asked for: an agent never files a task under an epic it did not name.
+	InheritParent bool   `json:"inheritParent,omitempty" jsonschema:"with after or before and no parent: file the new task under the EPIC of its context in its team's backlog — the epic of the card above the gap (the card above's at a boundary between two epics), at the top of the list the card below's. Default false: nothing is inherited unless asked for"`
+	Parent        string `json:"parent,omitempty" jsonschema:"uid of the card this one sits under — the ONE link of the hierarchy, and what it means is the parent's type. A TASK parent groups this card as a subtask (one level deep; a subtask rides its parent and is never parked, so view=backlog refuses a task parent). A goal, an initiative or an epic as parent files the card in the hierarchy: a task may sit under any of the three, an epic under an initiative or a goal, an initiative under a goal — the parent must be of a higher level (parentLevel) and in the card's own repository (crossDomain) — and nothing else about the card changes"`
 }
 
 func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in createCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
@@ -315,6 +318,7 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 		Type:           in.Type,
 		After:          in.After,
 		Before:         in.Before,
+		InheritParent:  in.InheritParent,
 		Owner:          in.Owner,
 		Customers:      in.Customers,
 	})

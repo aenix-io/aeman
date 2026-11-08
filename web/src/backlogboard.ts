@@ -259,6 +259,41 @@ export type AddBox =
 export interface InsertSpot {
   anchor: Anchor;
   box: AddBox;
+  /** The epic the new task is filed under (Q10): inheritedEpic of the gap.
+   *  The form shows it as a chip with an ×, and the create names it as the
+   *  parent unless the × took it off. */
+  epic: LineageRef | null;
+}
+
+/** epicOf is a card's epic as its lineage carries it: the nearest epic
+ *  above it, or none — a NEUTRAL task. Mirrors board.Index.EpicOf. */
+export function epicOf(c: Pick<Card, "lineage">): LineageRef | null {
+  const up = c.lineage ?? [];
+  for (let i = up.length - 1; i >= 0; i--) {
+    if (up[i].type === "epic") {
+      return up[i];
+    }
+  }
+  return null;
+}
+
+/** inheritedEpic is the epic a task typed into gap `at` of the list as
+ *  drawn inherits (Q10, board.InheritedEpic): the card above's epic — the
+ *  same as below's when the two agree, the card above's at a boundary
+ *  (which may be none) — or, at the top, the card below's; none in an empty
+ *  list. A review nobody has taken is no neighbour: it is skipped. */
+export function inheritedEpic(list: readonly Card[], at: number): LineageRef | null {
+  for (let i = Math.min(at, list.length) - 1; i >= 0; i--) {
+    if (!needsReviewer(list[i])) {
+      return epicOf(list[i]);
+    }
+  }
+  for (let i = Math.max(at, 0); i < list.length; i++) {
+    if (!needsReviewer(list[i])) {
+      return epicOf(list[i]);
+    }
+  }
+  return null;
 }
 
 /** insertSpot reads the gap `at` of the list as drawn: 0 is above the
@@ -269,8 +304,9 @@ export function insertSpot(list: readonly Card[], at: number, teams: readonly st
     list.map((c) => c.itemId),
     at,
   );
+  const epic = inheritedEpic(list, at);
   if (teams.length === 1) {
-    return { anchor, box: { forcedTeam: teams[0] || null } };
+    return { anchor, box: { forcedTeam: teams[0] || null }, epic };
   }
   // The team the card above STANDS UNDER (O13); the new card is made with
   // it as its own.
@@ -279,6 +315,7 @@ export function insertSpot(list: readonly Card[], at: number, teams: readonly st
   return {
     anchor,
     box: { teams: teams.filter((t) => t !== ""), allowNoTeam: teams.includes(""), initialTeam: start || null },
+    epic,
   };
 }
 

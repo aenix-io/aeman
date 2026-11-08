@@ -296,6 +296,13 @@ type CreateCardArgs struct {
 	// anything is written.
 	After  string
 	Before string
+	// InheritParent, with a place (After or Before) and no Parent, files the
+	// new task under the EPIC of its context in its team's backlog (Q10,
+	// docs/design/ordering.md): the epic of the card above the gap — the
+	// same as below's when they agree, the card above's at a boundary — or,
+	// at the top, the card below's. Off by default, so an agent never files
+	// tasks under an epic it did not name; the Backlog's "+" asks for it.
+	InheritParent bool
 	// NoSprint schedules the card for its day without joining any sprint — a
 	// "next sprint" create: the card lives on its own day only until the first
 	// carry-over whose day has reached the card's start adopts it into the
@@ -369,6 +376,9 @@ func (s *Service) createPlaced(ctx context.Context, boardID string, args CreateC
 	if _, ok := findCard(b, anchor); !ok {
 		return board.Card{}, fmt.Errorf("%w: the place %q", ErrCardNotFound, anchor)
 	}
+	if args.InheritParent && args.Parent == "" && args.Type == board.TypeTask && args.ReviewOf == "" {
+		args.Parent = inheritedEpic(b, args.Team, args.After, args.Before)
+	}
 	card, err := s.createCard(ctx, boardID, args)
 	if err != nil {
 		return card, err
@@ -389,6 +399,38 @@ func (s *Service) createPlaced(ctx context.Context, boardID string, args CreateC
 		return card, err
 	}
 	return card, nil
+}
+
+// inheritedEpic is the epic a task made at an anchor in team's backlog
+// inherits (board.InheritedEpic): the neighbours are read off the list an
+// API caller reads — the team's queue, the anchor in it — reviews skipped.
+func inheritedEpic(b board.Board, team, after, before string) string {
+	ix := board.NewIndex(b)
+	anchor := after + before
+	var list []board.Card
+	at := -1
+	for _, c := range b.Cards {
+		if c.ItemID == anchor && !board.NeedsReviewer(c) || ix.InQueue(c) && ix.PlacedTeam(c) == team {
+			if c.ItemID == anchor {
+				at = len(list)
+			}
+			list = append(list, c)
+		}
+	}
+	if at < 0 {
+		return ""
+	}
+	above, below := at-1, at
+	if after != "" {
+		above, below = at, at+1
+	}
+	epic := func(i int) string {
+		if i < 0 || i >= len(list) {
+			return ""
+		}
+		return ix.EpicOf(list[i])
+	}
+	return board.InheritedEpic(epic(above), epic(below), above >= 0, below < len(list))
 }
 
 // ErrTwoPlaces is a create told to land both after one card and before

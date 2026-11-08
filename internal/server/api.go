@@ -471,6 +471,7 @@ func (a surface) CreateCard(ctx context.Context, req apiv1.CreateCardRequestObje
 		Parked:         boolOf(in.Parked),
 		After:          strOf(in.After),
 		Before:         strOf(in.Before),
+		InheritParent:  boolOf(in.InheritParent),
 		Owner:          strOf(in.Owner),
 		Customers:      listOf(in.Customers),
 	}

@@ -403,6 +403,39 @@ describe("the insert +", () => {
     expect(insertedOrder(["x", "a"], "n", null)).toEqual(["x", "a", "n"]);
     expect(insertedOrder(["x", "a", "n"], "n", { after: "x" })).toEqual(["x", "n", "a"]);
   });
+
+  // Q10 — the "+" between an epic's tasks makes a task of THAT epic (it used
+  // to make a loose one that sorted to the end): the epic of the card above
+  // the gap — the same as below's when they agree, the card above's at a
+  // boundary — at the top of the list the card below's, none in an empty
+  // list. Reviews nobody has taken are skipped. Mirrors board.InheritedEpic.
+  describe("inherits the epic of its context (Q10)", () => {
+    const B: LineageRef = { uid: "b", type: "epic", title: "Epic B" };
+    const a1 = card({ itemId: "a1", parent: "e", lineage: [GOAL, EPIC] });
+    const a2 = card({ itemId: "a2", parent: "e", lineage: [EPIC] });
+    const n1 = card({ itemId: "n1" });
+    const b1 = card({ itemId: "b1", parent: "b", lineage: [B] });
+    const review = card({ itemId: "r", reviewOf: "a1", lineage: [B] });
+
+    it("between two tasks of one epic: that epic", () => {
+      expect(insertSpot([a1, a2, b1], 1, ["portal"]).epic?.uid).toBe("e");
+    });
+    it("at a boundary: the card above's, none below a neutral task", () => {
+      expect(insertSpot([a1, a2, b1], 2, ["portal"]).epic?.uid).toBe("e");
+      expect(insertSpot([n1, b1], 1, ["portal"]).epic).toBeNull();
+    });
+    it("at the top the card below's, at the bottom the card above's", () => {
+      expect(insertSpot([a1, b1], 0, ["portal"]).epic?.uid).toBe("e");
+      expect(insertSpot([a1, b1], 2, ["portal"]).epic?.uid).toBe("b");
+    });
+    it("none in an empty list", () => {
+      expect(insertSpot([], 0, ["portal"]).epic).toBeNull();
+    });
+    it("skips a review nobody has taken", () => {
+      expect(insertSpot([review, a1], 1, ["portal"]).epic?.uid).toBe("e");
+      expect(insertSpot([review, a1], 0, ["portal"]).epic?.uid).toBe("e");
+    });
+  });
 });
 
 // Each card shows its PARENT CHAIN on the right: every planning card above

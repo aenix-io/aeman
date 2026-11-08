@@ -1076,6 +1076,8 @@ export interface components {
             after?: string;
             /** @description As `after`, the uid of the card the new one is placed right BEFORE — the "+" above the first card of a list. */
             before?: string;
+            /** @description With `after` or `before` and no `parent`, files the new task under the EPIC of its context in its team's backlog (Q10, docs/design/ordering.md): the epic of the card above the gap (the same as below's when they agree, the card above's at a boundary), at the top of the list the card below's, none in an empty list. Default false: nothing is inherited unless asked for. */
+            inheritParent?: boolean;
         };
         CardDatesInput: {
             start?: string;

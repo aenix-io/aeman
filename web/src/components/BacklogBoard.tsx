@@ -366,9 +366,12 @@ export function BacklogBoard({
   // card below it at the top) and the server places it in the same request;
   // the board shows it in place the moment the answer arrives.
   const [inserting, setInserting] = useState<number | null>(null);
+  // The inherited epic's × (Q10): the gap it was taken off in.
+  const [noEpicAt, setNoEpicAt] = useState<number | null>(null);
   const insertAt = useCallback(
     (at: number, team: string, title: string) => {
-      const { anchor } = insertSpot(list, at, teams);
+      const { anchor, epic } = insertSpot(list, at, teams);
+      const parent = epic && noEpicAt !== at ? epic.uid : null;
       // Typed in under the Customer filter: born for its one customer, or —
       // with several chosen — kept shown until the filter changes, so it
       // does not vanish the moment it is made (O11).
@@ -379,6 +382,7 @@ export function BacklogBoard({
           team: team || null,
           parked: true,
           customers: born ?? null,
+          parent,
           after: anchor && "after" in anchor ? anchor.after : null,
           before: anchor && "before" in anchor ? anchor.before : null,
         })
@@ -392,15 +396,25 @@ export function BacklogBoard({
         })
         .catch((err: unknown) => onError(errText(err)));
     },
-    [list, teams, provider, addCard, reorderCards, onError, customerFilter, keep],
+    [list, teams, provider, addCard, reorderCards, onError, customerFilter, keep, noEpicAt],
   );
   const gap = (at: number, empty = false) => {
-    const { box } = insertSpot(list, at, teams);
+    const { box, epic } = insertSpot(list, at, teams);
     return (
-      <InsertGap key={`gap-${at}`} at={at} open={inserting === at} always={empty} onOpen={() => setInserting(at)}>
+      <InsertGap
+        key={`gap-${at}`}
+        at={at}
+        open={inserting === at}
+        always={empty}
+        onOpen={() => {
+          setNoEpicAt(null);
+          setInserting(at);
+        }}
+      >
         <AddCard
           placeholder="Add to the backlog…"
           autoOpen
+          chip={epic && noEpicAt !== at ? { label: epic.title, onClear: () => setNoEpicAt(at) } : null}
           {...box}
           onCreate={(title, team) => insertAt(at, "forcedTeam" in box ? (box.forcedTeam ?? "") : (team ?? ""), title)}
           onClosed={() => setInserting(null)}

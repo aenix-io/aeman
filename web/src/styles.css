@@ -1220,6 +1220,37 @@ button.team-avatar {
   position: relative;
 }
 
+/* The Backlog "+"'s inherited epic (Q10): what the new task is filed under,
+   with an × that takes it off. */
+.add-card-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 40%;
+  margin: 3px 0 3px 4px;
+  padding: 0 4px 0 6px;
+  border-radius: 10px;
+  background: var(--surface-2, var(--bg));
+  border: 1px solid var(--border, var(--accent));
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.add-card-chip-x {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.6;
+}
+
+.add-card-chip-x:hover {
+  opacity: 1;
+}
+
 .add-card-form .add-card-input {
   flex: 1;
   min-width: 0;
