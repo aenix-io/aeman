@@ -287,6 +287,14 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 	if in.Assignee != "" {
 		card.Assignees = []string{in.Assignee}
 	}
+	// A new card's key is after every key on the board, as a store mints it.
+	last := ""
+	for _, c := range f.board.Cards {
+		if board.ValidRank(c.Rank) && c.Rank > last {
+			last = c.Rank
+		}
+	}
+	card.Rank, _ = board.RankBetween(last, "")
 	f.board.Cards = append(f.board.Cards, card)
 	f.creates = append(f.creates, in)
 	f.rec("CreateCard %s", card.ItemID)

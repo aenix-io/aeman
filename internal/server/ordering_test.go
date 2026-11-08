@@ -232,3 +232,24 @@ func TestAFailedGatherLeavesNoPartialMove(t *testing.T) {
 		}
 	}
 }
+
+// Q3 — THE REST DOOR: a task created under an epic over HTTP lands right
+// after that epic's last parked task (the brief's §6), in the same request.
+func TestARestCreateUnderAnEpicLandsInItsArea(t *testing.T) {
+	srv, ids := orderingBoard(t)
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/backlog/cards",
+		`{"title":"A3","team":"portal","parent":"`+ids["a"]+`"}`)
+	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Metadata struct {
+			UID string `json:"uid"`
+		} `json:"metadata"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+	ids["a3"] = created.Metadata.UID
+	if got := backlogOf(t, srv, ids); got != "A1 B2 A2 A3 B1" {
+		t.Fatalf("backlog = %s", got)
+	}
+}

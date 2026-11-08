@@ -204,6 +204,14 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 	if in.Assignee != "" {
 		card.Assignees = []string{in.Assignee}
 	}
+	// A new card's key is after every key on the board, as a store mints it.
+	last := ""
+	for _, c := range f.b.Cards {
+		if board.ValidRank(c.Rank) && c.Rank > last {
+			last = c.Rank
+		}
+	}
+	card.Rank, _ = board.RankBetween(last, "")
 	f.b.Cards = append(f.b.Cards, card)
 	f.creates = append(f.creates, in)
 	f.rec("CreateCard %s", card.ItemID)
@@ -231,6 +239,18 @@ func (f *fakeBackend) MoveCard(_ context.Context, _ board.Board, card board.Card
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("MoveCard %s after=%s", card.ItemID, afterID)
+	// On a board whose cards all have keys the move is applied as a store
+	// applies it (board.PlaceAfter); an unkeyed fixture keeps its order.
+	for _, c := range f.b.Cards {
+		if !board.IsStateTitle(c.Title) && !board.ValidRank(c.Rank) {
+			return nil
+		}
+	}
+	changes, err := board.PlaceAfter(board.RankedOf(f.b.Cards), card.ItemID, afterID)
+	if err != nil {
+		return err
+	}
+	f.b = board.ApplyRankChanges(f.b, changes)
 	return nil
 }
 
