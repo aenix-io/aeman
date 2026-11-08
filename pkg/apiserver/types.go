@@ -90,10 +90,7 @@ type CardSpec struct {
 	// Every team has one and nothing declares it. A task is in work (a date
 	// or a sprint) or parked, never both and never neither
 	// (docs/design/backlog.md, K1). A task has no week (K7).
-	Parked bool `json:"parked,omitempty"`
-	// Priority is the card's OWN priority — P0 to P4, or none (K15); what
-	// it counts under is status.effectivePriority.
-	Priority string `json:"priority,omitempty"`
+	Parked   bool   `json:"parked,omitempty"`
 	ReviewOf string `json:"reviewOf,omitempty"`
 	// Parent is the uid of the card this one sits under — the ONE link of
 	// the hierarchy. What it means is the parent's type: under a task this
@@ -203,12 +200,6 @@ type CardStatus struct {
 	// EffectiveTeam is the team the card counts under (O3): its own, else
 	// the nearest ancestor's that has one. Computed, never written.
 	EffectiveTeam string `json:"effectiveTeam,omitempty"`
-	// EffectivePriority is the priority the card counts under (K15): its
-	// own, else the nearest ancestor's that has one; a review card's is its
-	// task's. Computed, never written. EffectivePriorityFrom names the
-	// ancestor it is taken from — absent when it is the card's own.
-	EffectivePriority     string      `json:"effectivePriority,omitempty"`
-	EffectivePriorityFrom *LineageRef `json:"effectivePriorityFrom,omitempty"`
 	// EffectiveCustomers is who the card is for (O4): every ancestor's
 	// customers and its own, the ancestors' first; a review card's are its
 	// task's (O6). Computed, never written.
@@ -435,7 +426,6 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 		Recurrence:  c.Recurrence,
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
 		Parked:      c.Parked,
-		Priority:    string(c.Priority),
 		ReviewOf:    c.ReviewOf,
 		Parent:      c.Parent,
 		Type:        c.Type,
@@ -450,12 +440,6 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 	}
 	if !board.IsStateTitle(c.Title) {
 		status.EffectiveTeam = ix.EffectiveTeam(c)
-		if p, from := ix.EffectivePriority(c); p != board.PriorityNone {
-			status.EffectivePriority = string(p)
-			if from.ItemID != "" {
-				status.EffectivePriorityFrom = &LineageRef{UID: from.ItemID, Type: from.Type, Title: from.Title}
-			}
-		}
 		status.EffectiveCustomers = ix.EffectiveCustomers(c)
 		applyDependencies(&status, b, ix, c)
 	}

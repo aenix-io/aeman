@@ -138,8 +138,8 @@ func TestMCPListsTools(t *testing.T) {
 		"set_sprint_state",
 		// The Roadmap's "whose is this" (H10), and the Backlog's take (K11).
 		"own_card", "take_card",
-		// The Roadmap's status menu (K15, K16).
-		"set_priority", "unassign_work",
+		// The Roadmap's status menu (K16).
+		"unassign_work",
 		// The customer roster (docs/design/ownership.md, O9).
 		"add_customer", "rename_customer", "reorder_customers", "delete_customer",
 	}
@@ -1087,11 +1087,11 @@ func TestMCPOwnership(t *testing.T) {
 	}
 }
 
-// The Roadmap's badge menu over MCP (K15, K16, ADR 0002): set_priority sets
-// a card's own priority and unassign_work takes work in hand back to its
-// backlog — on a task, or on every task under a plan item — and each refuses
-// what it means nothing for.
-func TestAnAgentSetsAPriorityAndTakesWorkOutOfHand(t *testing.T) {
+// The Roadmap's badge menu over MCP (K16, ADR 0002): unassign_work takes
+// work in hand back to its backlog — on a task, or on every task under a plan
+// item — and refuses what it means nothing for. There is no set_priority:
+// priorities were removed (2026-11-08).
+func TestAnAgentTakesWorkOutOfHand(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "e", Title: "epic", Type: board.TypeEpic, Team: "alpha"},
@@ -1099,12 +1099,13 @@ func TestAnAgentSetsAPriorityAndTakesWorkOutOfHand(t *testing.T) {
 		{ItemID: "w", Title: "in work", Parent: "e", Team: "alpha", Assignees: []string{"ann"}, StartDate: today, Day: today, SprintStart: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	cs := connect(t, Config{Board: "acme"}, fake)
-	call(t, cs, "set_priority", map[string]any{"uid": "e", "priority": "P2"})
-	if fake.Card("e").Priority != board.PriorityP2 || fake.Card("p").Priority != board.PriorityNone {
-		t.Fatal("set_priority sets the epic's own priority, and nothing under it")
-	}
-	if msg := callErr(t, cs, "set_priority", map[string]any{"uid": "w", "priority": "urgent"}); !strings.Contains(msg, "P0, P1, P2, P3, P4 or none") {
-		t.Fatalf("set_priority with an unknown value = %q", msg)
+	for tool, err := range cs.Tools(t.Context(), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(tool.Name, "priority") {
+			t.Fatalf("tool %q survives the removal of priorities", tool.Name)
+		}
 	}
 	call(t, cs, "unassign_work", map[string]any{"uid": "e", "dry_run": true})
 	if fake.Card("w").Parked {

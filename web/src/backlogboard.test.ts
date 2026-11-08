@@ -228,22 +228,11 @@ describe("a drop moves a task among its siblings only (K14)", () => {
     expect(dropPlan("b2", list, 0)).toEqual({ kind: "forbidden" });
   });
 
-  it("keeps a task among the siblings of its own priority: the rest of its parent's tasks are another run", () => {
-    const t = under("t", "ea", { effectivePriority: "P1" });
-    const withP1 = [t, a1, a2];
-    expect(dropPlan("t", withP1, 2)).toEqual({ kind: "forbidden" });
-    expect(dropPlan("a2", withP1, 0)).toEqual({ kind: "forbidden" });
-    expect(dropPlan("a2", withP1, 1)).toEqual({ kind: "reorder", order: ["t", "a2", "a1"], anchor: { before: "a1" } });
-    // Two P1 siblings reorder among themselves.
-    const u = under("u", "ea", { effectivePriority: "P1" });
-    expect(dropPlan("u", [t, u, a1], 0)).toEqual({ kind: "reorder", order: ["u", "t", "a1"], anchor: { before: "t" } });
-  });
-
   // A review's place follows its task's (K10): dragging it is no gesture —
   // every drop of a review is forbidden and writes nothing.
   it("never moves a review nobody has taken: its place is its task's", () => {
-    const rA = card({ itemId: "rA", reviewOf: "x", effectivePriority: "P1" });
-    const rB = card({ itemId: "rB", reviewOf: "y", effectivePriority: "P1" });
+    const rA = card({ itemId: "rA", reviewOf: "x" });
+    const rB = card({ itemId: "rB", reviewOf: "y" });
     const rC = card({ itemId: "rC", reviewOf: "z" });
     const list = [rA, rB, a1, rC];
     expect(dropPlan("rB", list, 0)).toEqual({ kind: "forbidden" });
@@ -264,10 +253,10 @@ describe("a drop moves a task among its siblings only (K14)", () => {
 // The backlog reads in the ROADMAP's order (K14) — a mirror of
 // board.BacklogKey, case for case with TestABacklogReadsInTheRoadmapsOrder:
 // the path of places in the board's order from the root plan item down,
-// roots level by level, tasks with no plan item after every planned one,
-// within the effective priority's group (K15), a review nobody has taken
-// first in its task's group (K10).
-describe("the Roadmap's order in the backlog (K14, K15)", () => {
+// roots level by level, tasks with no plan item after every planned one, the
+// reviews nobody has taken in a group of their own on top (K10).
+// (Priorities were removed: the order is the place in the Roadmap tree.)
+describe("the Roadmap's order in the backlog (K14)", () => {
   const ref = (uid: string, type: "goal" | "initiative" | "epic"): LineageRef => ({ uid, type, title: uid });
   const G1 = ref("g1", "goal");
   const G2 = ref("g2", "goal");
@@ -295,45 +284,27 @@ describe("the Roadmap's order in the backlog (K14, K15)", () => {
     ]);
   });
 
-  // Mirrors TestABacklogReadsByPriorityThenInTheRoadmapsOrder: the
-  // EFFECTIVE priority (the server's status.effectivePriority) groups the
-  // list — P0, P1, P2, P3, P4, none — and the Roadmap's order runs within each group,
-  // planned before loose.
-  it("groups by effective priority, P0 first and none last, each in the Roadmap's order", () => {
-    const order = ["g1", "g2", "a", "b", "c", "d", "loose", "e", "y", "z"];
-    const G1 = ref("g1", "goal");
-    const G2 = ref("g2", "goal");
-    const list = [
-      t("a", [G1], { effectivePriority: "P2" }),
-      t("b", [G1], { priority: "P1", effectivePriority: "P1" }),
-      t("c", [G2]),
-      t("d", [G2], { priority: "P3", effectivePriority: "P3" }),
-      t("loose", [], { priority: "P1", effectivePriority: "P1" }),
-      t("e", [G1], { priority: "P1", effectivePriority: "P1" }),
-      t("y", [G2], { priority: "P4", effectivePriority: "P4" }),
-      t("z", [G2], { priority: "P0", effectivePriority: "P0" }),
-    ];
-    expect(backlogList(list, [""], order).map((c) => c.itemId)).toEqual(["z", "b", "e", "loose", "a", "d", "y", "c"]);
+  // A `priority:` a card still carries (an older file) is no part of the
+  // order: the Roadmap's order alone decides.
+  it("reads the Roadmap's order alone, whatever priority a card once had", () => {
+    const order = ["g1", "g2", "a", "b", "c", "loose"];
+    const list = [t("c", [G2]), t("b", [G1], { priority: "P0" } as Partial<Card>), t("loose", []), t("a", [G1])];
+    expect(backlogList(list, [""], order).map((c) => c.itemId)).toEqual(["a", "b", "c", "loose"]);
   });
 
-  // Mirrors TestAReviewNobodyHasTakenLeadsItsTasksPriority (K10, amended):
-  // a review nobody has taken takes its task's effective priority (the
-  // server's status.effectivePriority on the review) and stands FIRST in that
-  // group, the reviews in their tasks' Roadmap order; a review of a task with
-  // none leads the "no priority" group.
-  it("puts a review nobody has taken first in its task's priority group", () => {
-    const G1 = ref("g1", "goal");
-    const G2 = ref("g2", "goal");
-    const order = ["g1", "g2", "r-late", "r-none", "r-early", "o-early", "t1", "o-late", "t-none", "o-none", "t0"];
+  // Mirrors TestTheReviewsNobodyHasTakenStandFirst (K10): the reviews nobody
+  // has taken stand in a group of their own on top, in their tasks' Roadmap
+  // order; the tasks follow in theirs.
+  it("puts the reviews nobody has taken first, in their tasks' Roadmap order", () => {
+    const order = ["g1", "g2", "r-late", "r-loose", "r-early", "o-early", "t1", "o-late", "o-loose", "t0"];
     const list = [
-      card({ itemId: "r-late", reviewOf: "o-late", lineage: [G1], effectivePriority: "P1" }),
-      card({ itemId: "r-none", reviewOf: "o-none", lineage: [G2] }),
-      card({ itemId: "r-early", reviewOf: "o-early", lineage: [G1], effectivePriority: "P1" }),
-      t("t1", [G1], { effectivePriority: "P1" }),
-      t("t-none", [G2]),
-      t("t0", [], { priority: "P0", effectivePriority: "P0" }),
+      card({ itemId: "r-late", reviewOf: "o-late", lineage: [G1] }),
+      card({ itemId: "r-loose", reviewOf: "o-loose" }),
+      card({ itemId: "r-early", reviewOf: "o-early", lineage: [G1] }),
+      t("t1", [G1]),
+      t("t0", []),
     ];
-    expect(backlogList(list, [""], order).map((c) => c.itemId)).toEqual(["t0", "r-early", "r-late", "t1", "r-none", "t-none"]);
+    expect(backlogList(list, [""], order).map((c) => c.itemId)).toEqual(["r-early", "r-late", "r-loose", "t1", "t0"]);
   });
 
   // Mirrors TestAReviewOfASubtaskIsPlacedByThePlanningChain: a review of a
@@ -633,18 +604,17 @@ describe("a backlog by the team a task stands under", () => {
 // THE BACKLOG'S ORDER IS ONE RULE ON BOTH SIDES — the same fixture as
 // board's TestTheBacklogOrderMatchesTheSharedFixture, read from the Go
 // package's testdata. Each card carries what the server sends for it
-// (status.lineage, status.effectivePriority; apiserver's
-// TestTheBacklogFixtureWireIsTheServersAnswer holds the fixture to that), so
-// the client orders exactly the input it would get: priorities own and
-// inherited, reviews nobody has taken leading their task's group, a review
-// with a stray parent of its own, a review of a review.
+// (status.lineage; apiserver's TestTheBacklogFixtureWireIsTheServersAnswer
+// holds the fixture to that), so the client orders exactly the input it
+// would get: reviews nobody has taken in their group on top, a review with a
+// stray parent of its own, a review of a review.
 describe("the backlog's order, shared with the server", () => {
   type Raw = Partial<Card> & { itemId: string };
   const fx = JSON.parse(
     readFileSync(fileURLToPath(new URL("../../pkg/board/testdata/backlog_order.json", import.meta.url)), "utf8"),
   ) as {
     cards: Raw[];
-    wire: Record<string, { lineage?: string[]; effectivePriority?: Card["effectivePriority"]; subtask?: boolean }>;
+    wire: Record<string, { lineage?: string[]; subtask?: boolean }>;
     order: string[];
     subtask: Record<string, boolean>;
   };
@@ -658,7 +628,6 @@ describe("the backlog's order, shared with the server", () => {
       parked: false,
       ...c,
       ...(lineage?.length ? { lineage } : {}),
-      ...(w?.effectivePriority ? { effectivePriority: w.effectivePriority } : {}),
       ...(w ? { subtask: w.subtask ?? false } : {}),
     });
   });

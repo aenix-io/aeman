@@ -11,7 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { registerPendingCard } from "../api/pending";
 import { todayIso } from "../date";
-import type { Board, Card as CardModel, CardType, Priority, Provider } from "../providers/types";
+import type { Board, Card as CardModel, CardType, Provider } from "../providers/types";
 import {
   DEFAULT_DEPTH,
   DELETE_INTENT,
@@ -31,9 +31,6 @@ import {
   unassignPreview,
   unassignNotice,
   NOTHING_IN_WORK,
-  priorityAfter,
-  latestWins,
-  refusalRollback,
   unassignQuestion,
   UNASSIGNED_LOCALLY,
   droppable,
@@ -86,7 +83,7 @@ import { isPlanning } from "../subtasks";
 import { ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
 import { type Avatars, type Names } from "../users";
 import { AddCard } from "./AddCard";
-import { INDENT_PX, OwnerCell, PriorityItems, ROW_PX, StatusPill, TreeTitle } from "./PlanTree";
+import { INDENT_PX, OwnerCell, ROW_PX, StatusPill, TreeTitle } from "./PlanTree";
 import { KindIcon } from "./KindIcon";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
@@ -239,7 +236,7 @@ interface RowProps {
   /** The Owner cell's content, for a task-kind row; nothing on a planning
    *  card, which has none of a task's. */
   owner: ReactNode;
-  /** The badge's menu (priorities, UNASSIGNED; K15, K16), opened from the
+  /** The badge's menu (UNASSIGNED, K16), opened from the
    *  badge; null on a row that offers none. */
   onStatus: ((badge: HTMLElement) => void) | null;
   /** The status menu stands open on this row (aria-expanded). */
@@ -817,7 +814,7 @@ export function RoadmapBoard({
   // ---- the ×: the Team board's own question — delete it, or only unlink it ----
   const [removeChoice, setRemoveChoice] = useState<CardModel | null>(null);
 
-  // ---- the badge menu: priorities and UNASSIGNED (K15, K16) ----
+  // ---- the badge menu: UNASSIGNED (K16) ----
   // The badge of a task or a plan item opens it; what each answer reaches is
   // roadmap.statusMenu's, applied at once and settled by the server's answer.
   const [statusFor, setStatusFor] = useState<CardModel | null>(null);
@@ -852,39 +849,6 @@ export function RoadmapBoard({
         }
         for (const p of plansBefore) {
           patchCard(p.itemId, { hierarchy: p.hierarchy });
-        }
-        onError(errText(err));
-        reload();
-      });
-  };
-  // A priority is the card's own (K15); what the cards under it count under
-  // follows (roadmap.priorityAfter) — shown at once, settled by the card the
-  // server answers with and the frames it sends for the cards under it, put
-  // back on a refusal.
-  const prioritySeq = useRef(latestWins());
-  const answerPriority = (card: CardModel, value: Priority | "") => {
-    const shown = priorityAfter(board.cards, card.itemId, value);
-    const before = board.cards
-      .filter((c) => shown.has(c.itemId))
-      .map((c) => ({ id: c.itemId, patch: { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom } }));
-    patchCard(card.itemId, { priority: value || undefined });
-    for (const [id, p] of shown) {
-      patchCard(id, p);
-    }
-    const n = prioritySeq.current.next(card.itemId);
-    void provider
-      .setPriority(card.itemId, value)
-      .then((c) => {
-        // An older answer must not overwrite a newer choice.
-        if (prioritySeq.current.isLatest(card.itemId, n)) {
-          patchCard(c.itemId, { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom });
-        }
-      })
-      .catch((err: unknown) => {
-        // Put back only what THIS press changed while it is still the
-        // latest: a newer press shown since settles the card itself.
-        for (const b of refusalRollback(prioritySeq.current, card.itemId, n, before)) {
-          patchCard(b.id, b.patch);
         }
         onError(errText(err));
         reload();
@@ -1229,14 +1193,6 @@ export function RoadmapBoard({
       <Dropdown open={!!statusFor} anchorRef={statusAnchor} onClose={() => setStatusFor(null)} className="roadmap-status-menu" role="menu">
         {statusFor && menu && (
           <>
-            <PriorityItems
-              own={menu.own}
-              onPick={(value) => {
-                answerPriority(statusFor, value);
-                setStatusFor(null);
-              }}
-            />
-            <div className="roadmap-status-separator" role="separator" />
             <button
               type="button"
               role="menuitem"

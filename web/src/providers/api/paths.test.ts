@@ -110,18 +110,17 @@ describe("the board in the address", () => {
     expect(calls[0].body).toBeUndefined();
   });
 
-  // The Roadmap's badge menu (K15, K16): card actions — the card's own
-  // priority, and UNASSIGNED naming the tasks it counted.
-  it("sets a priority and takes work out of work through the card's actions", async () => {
-    await apiProvider.setPriority("c1", "P0").catch(() => undefined);
-    expect(calls[0].url).toBe("/api/v1/cards/c1/actions/priority");
-    expect(calls[0].body).toEqual({ priority: "P0" });
+  // The Roadmap's badge menu (K16): UNASSIGNED, a card action naming the
+  // tasks it counted. (There is no priority action: priorities were
+  // removed.)
+  it("takes work out of work through the card's actions", async () => {
     await apiProvider.unassignWork("c1", ["t3"]);
-    expect(calls[1].url).toBe("/api/v1/cards/c1/actions/unassign-work");
-    expect(calls[1].body).toEqual({ uids: ["t3"] });
+    expect(calls[0].url).toBe("/api/v1/cards/c1/actions/unassign-work");
+    expect(calls[0].body).toEqual({ uids: ["t3"] });
     await apiProvider.previewUnassign("c1");
-    expect(calls[2].url).toBe("/api/v1/cards/c1/actions/unassign-work");
-    expect(calls[2].body).toEqual({ dryRun: true });
+    expect(calls[1].url).toBe("/api/v1/cards/c1/actions/unassign-work");
+    expect(calls[1].body).toEqual({ dryRun: true });
+    expect("setPriority" in apiProvider).toBe(false);
   });
 
   // A create belongs to the board it was typed into: the open one, unless

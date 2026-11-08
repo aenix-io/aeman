@@ -10,7 +10,7 @@ import { isComplete } from "./stages";
 import { workStatus } from "./workstatus";
 import { lockTitle } from "./dependencies";
 import { isPlanning, isSubtask } from "./subtasks";
-import type { Card, CardPatch, CardType, HierarchyStatus, LineageRef, Priority } from "./providers/types";
+import type { Card, CardPatch, CardType, HierarchyStatus } from "./providers/types";
 
 /** RoadmapKind is what a row IS: the three planning levels, a task, or a
  *  subtask (a task under a task). */
@@ -1107,17 +1107,14 @@ export function roadmapLines(
   return out;
 }
 
-// ---- the badge and its menu: priorities and UNASSIGNED (K15, K16) ----
+// ---- the badge and its menu: UNASSIGNED (K16) ----
 //
-// The badge of a row is one pill in two parts: the card's EFFECTIVE priority
-// on the left when it has one (its own, else the nearest ancestor's — drawn
-// lighter, naming where it comes from, when it is inherited) and its work
-// status on the right. Its menu sets the card's OWN priority — P0 to P4, or
-// none — and offers UNASSIGNED, which takes the work in hand under the row
-// back to its team's backlog: on a task the task itself, on a plan item every
-// task under it at any depth (its leaf tasks: the tasks whose parent is a
-// plan item in its subtree). Mirrors board.Index.EffectivePriority and
-// board.UnassignTargets.
+// The badge of a row is its work status. Its menu offers UNASSIGNED, which
+// takes the work in hand under the row back to its team's backlog: on a task
+// the task itself, on a plan item every task under it at any depth (its leaf
+// tasks: the tasks whose parent is a plan item in its subtree). Mirrors
+// board.UnassignTargets. (Priorities were removed: the backlog's order is the
+// place in the Roadmap tree, K14.)
 
 /** leafTasks is the tasks under a plan item through every level — a subtask
  *  (its parent is a task) and a review card not among them — in board order. */
@@ -1159,99 +1156,24 @@ export function unassignTargets(cards: readonly Card[], c: Card): Card[] {
   return leafTasks(cards, c.itemId).filter(inHand);
 }
 
-/** PRIORITY_CHOICES is the menu's priorities, highest first, then "No
- *  priority" (the empty value, which clears the card's own). */
-export const PRIORITY_CHOICES: readonly { value: Priority | ""; label: string }[] = [
-  { value: "P0", label: "P0" },
-  { value: "P1", label: "P1" },
-  { value: "P2", label: "P2" },
-  { value: "P3", label: "P3" },
-  { value: "P4", label: "P4" },
-  { value: "", label: "No priority" },
-];
-
-/** StatusMenu is what a row's badge menu offers: the card's OWN priority
- *  (checked in the menu; "" when it has none of its own, even when it
- *  inherits one) and whether UNASSIGNED has anything to take. A plan item
+/** StatusMenu is what a row's badge menu offers: whether UNASSIGNED has
+ *  anything to take. A plan item
  *  says so by its SERVER roll-up — IN PROGRESS is work in hand under it —
  *  because a filtered Roadmap holds fewer of its tasks than the board does;
  *  a task by its own place. How many it would take is the server's answer
  *  too (a dry run), asked as the confirm opens. */
 export interface StatusMenu {
-  own: Priority | "";
   unassign: boolean;
 }
 
 export function statusMenu(cards: readonly Card[], c: Card): StatusMenu {
   const unassign = isPlanning(c) ? c.hierarchy?.status === "in-progress" : unassignTargets(cards, c).length > 0;
-  return { own: c.priority ?? "", unassign };
+  return { unassign };
 }
 
-/** effectivePriorityIn is the priority a card counts under — mirrors
- *  board.Index.EffectivePriority: its own, else the nearest ancestor's that
- *  has one (walked by parent links in the listing), else none; a review
- *  card's is its task's. `from` is the ancestor it comes from, absent when it
- *  is the card's own or there is none. */
-export function effectivePriorityIn(cards: readonly Card[], c: Card): { priority?: Priority; from?: Card } {
-  if (c.priority) {
-    return { priority: c.priority };
-  }
-  const byId = new Map(cards.map((x) => [x.itemId, x]));
-  // A review counts under its task's, a review of a review under the review
-  // it reviews; a cycle of reviews ends under nobody.
-  const reviewed = new Set<string>([c.itemId]);
-  for (let task = byId.get(c.reviewOf ?? ""); task; task = byId.get(c.reviewOf ?? "")) {
-    if (reviewed.has(task.itemId)) {
-      return {};
-    }
-    reviewed.add(task.itemId);
-    if (task.priority) {
-      return { priority: task.priority, from: task };
-    }
-    c = task;
-  }
-  const seen = new Set<string>([c.itemId]);
-  for (let up = byId.get(c.parent ?? ""); up && !seen.has(up.itemId); up = byId.get(up.parent ?? "")) {
-    seen.add(up.itemId);
-    if (up.priority) {
-      return { priority: up.priority, from: up };
-    }
-  }
-  return {};
-}
-
-/** PriorityShown is what the badge reads of a card's effective priority. */
-export interface PriorityShown {
-  effectivePriority?: Priority;
-  effectivePriorityFrom?: LineageRef;
-}
-
-const refOf = (c: Card): LineageRef => ({ uid: c.itemId, type: c.type, title: c.title });
-
-/** priorityAfter is the effective priority of the card whose own priority
- *  changes to `priority`, of every card under it (by parent links), and of
- *  the review cards of all of those — a review counts under its task's — as
- *  they read after the change: what the acting tab shows before the server's
- *  frames for them arrive. */
-export function priorityAfter(cards: readonly Card[], id: string, priority: Priority | ""): Map<string, PriorityShown> {
-  const after = cards.map((c) => (c.itemId === id ? { ...c, priority: priority || undefined } : c));
-  const reached = new Set(after.filter((c) => c.itemId === id || isUnder(after, c.itemId, id)).map((c) => c.itemId));
-  const out = new Map<string, PriorityShown>();
-  for (const c of after) {
-    if (!reached.has(c.itemId) && !(c.reviewOf && reached.has(c.reviewOf))) {
-      continue;
-    }
-    const { priority: p, from } = effectivePriorityIn(after, c);
-    out.set(c.itemId, { effectivePriority: p, effectivePriorityFrom: from ? refOf(from) : undefined });
-  }
-  return out;
-}
-
-/** Badge is one row's badge: its effective priority — with where it comes
- *  from when inherited — and its work status; `lock` is what a card LOCKED
- *  by its dependencies waits for, the status part's tooltip. */
+/** Badge is one row's badge: its work status; `lock` is what a card LOCKED
+ *  by its dependencies waits for, the badge's tooltip. */
 export interface Badge {
-  priority?: { value: Priority; from?: LineageRef };
   status: RoadmapStatus;
   lock?: string;
 }
@@ -1260,23 +1182,9 @@ export function badgeOf(c: Card): Badge {
   const status = statusOf(c);
   const lock = status === "locked" ? lockTitle(c, new Map((c.lineage ?? []).map((l) => [l.uid, l.title]))) : null;
   return {
-    priority: c.effectivePriority ? { value: c.effectivePriority, from: c.effectivePriorityFrom } : undefined,
     status,
     ...(lock ? { lock } : {}),
   };
-}
-
-/** inheritedTitle is the tooltip of an inherited priority. */
-export function inheritedTitle(from: LineageRef): string {
-  return `from «${from.title}»`;
-}
-
-/** priorityLabel is what a priority control says to a screen reader. */
-export function priorityLabel(value: Priority | undefined, from?: LineageRef): string {
-  if (!value) {
-    return "Set a priority";
-  }
-  return from ? `Priority ${value}, ${inheritedTitle(from)}` : `Priority ${value}`;
 }
 
 /** latestWins numbers the requests made per card, so an answer is applied
@@ -1295,7 +1203,7 @@ export function latestWins(): { next: (id: string) => number; isLatest: (id: str
   };
 }
 
-/** refusalRollback is what a refused priority press puts back: the state
+/** refusalRollback is what a refused press puts back: the state
  *  before it — but only when it is still the latest press on the card. An
  *  older press failing after a newer one was shown must not undo the newer
  *  choice; the newer press settles it with its own answer. */

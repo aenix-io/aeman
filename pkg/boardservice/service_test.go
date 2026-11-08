@@ -196,7 +196,7 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 		// Parent is deliberately NOT copied: this fake stands for a backend
 		// that cannot write the link at create, so the service's own
 		// grouping (and its compensating delete, parentErr) is exercised.
-		Parked: in.Parked, Size: in.Size, Priority: in.Priority,
+		Parked: in.Parked, Size: in.Size,
 		Recurrence:  in.Recurrence,
 		Description: in.Body,
 		Assignees:   []string{},
@@ -450,16 +450,6 @@ func (f *fakeBackend) SetBacklog(
 func (f *fakeBackend) CheckWrite(_ context.Context, _ board.Board, card board.Card) error {
 	if f.unwritable[card.ItemID] {
 		return ErrForbidden
-	}
-	return nil
-}
-
-func (f *fakeBackend) SetPriority(_ context.Context, _ board.Board, card board.Card, priority board.PriorityKey) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetPriority %s %s", card.ItemID, priority)
-	if c := f.get(card.ItemID); c != nil {
-		c.Priority = priority
 	}
 	return nil
 }
@@ -1079,7 +1069,7 @@ func TestCarryOverReseedsFinishedRecurrent(t *testing.T) {
 	old := "2026-01-01"
 	f := newFake([]board.Card{
 		{ItemID: "r1", Team: "alpha", SprintStart: old, Stage: board.StageRecurrent, Progress: 100,
-			Title: "standup", Description: "daily sync", Assignees: []string{"bob"}, Zone: board.ZoneGray, Priority: board.PriorityP2},
+			Title: "standup", Description: "daily sync", Assignees: []string{"bob"}, Zone: board.ZoneGray},
 		{ItemID: "r2", Team: "alpha", SprintStart: old, Stage: board.StageRecurrent, Progress: 40},
 	}, map[string]board.SprintState{"alpha": {Current: old}})
 	today := board.TodayIso()
@@ -1099,8 +1089,7 @@ func TestCarryOverReseedsFinishedRecurrent(t *testing.T) {
 		t.Fatalf("expected one reseed create; creates=%v log=%v", f.creates, f.log)
 	}
 	in := f.creates[0]
-	// Its priority comes with it, as its size does (K15: nothing clears it).
-	if in.Title != "standup" || in.Team != "alpha" || in.Assignee != "bob" || in.Priority != board.PriorityP2 ||
+	if in.Title != "standup" || in.Team != "alpha" || in.Assignee != "bob" ||
 		in.SprintStart != today || in.Start != today || in.Day != today {
 		t.Fatalf("reseed input = %+v", in)
 	}

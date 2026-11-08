@@ -151,12 +151,7 @@ func (h *server) takeCard(ctx context.Context, _ *mcp.CallToolRequest, in standO
 	return h.cardResource(ctx, svc, boardID, in.UID)
 }
 
-// --- The Roadmap's status menu (K15, K16) --------------------------------------
-
-type setPriorityInput struct {
-	cardRef
-	Priority string `json:"priority" jsonschema:"P0 (the highest), P1, P2, P3 or P4 — or empty to clear the card's own priority"`
-}
+// --- The Roadmap's status menu (K16) --------------------------------------
 
 type unassignWorkInput struct {
 	cardRef
@@ -168,17 +163,6 @@ type unassignWorkInput struct {
 type workChange struct {
 	Changed int      `json:"changed"`
 	UIDs    []string `json:"uids"`
-}
-
-func (h *server) setPriority(ctx context.Context, _ *mcp.CallToolRequest, in setPriorityInput) (*mcp.CallToolResult, apiserver.Card, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, apiserver.Card{}, err
-	}
-	if err := svc.SetPriority(ctx, boardID, in.UID, in.Priority); err != nil {
-		return nil, apiserver.Card{}, err
-	}
-	return h.cardResource(ctx, svc, boardID, in.UID)
 }
 
 func (h *server) unassignWork(ctx context.Context, _ *mcp.CallToolRequest, in unassignWorkInput) (*mcp.CallToolResult, workChange, error) {

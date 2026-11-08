@@ -55,7 +55,6 @@ const CARD_WRITES = new Set([
   "removeReviewer",
   "ownCard",
   "takeCard",
-  "setPriority",
   "unassignWork",
   "addNote",
   "editNote",

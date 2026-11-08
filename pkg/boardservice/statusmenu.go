@@ -9,13 +9,9 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// The Roadmap's badge menu (docs/design/backlog.md, "Priorities and
-// UNASSIGNED"): two answers a person gives about a row.
+// The Roadmap's badge menu (docs/design/backlog.md, "UNASSIGNED"): the
+// answer a person gives about a row.
 //
-//   - PRIORITY (K15) — P0 (the highest) to P4, or none — set on the card itself; what a
-//     card counts under is its effective priority, its own else the nearest
-//     ancestor's (board.Index.EffectivePriority), so a plan item's reaches
-//     every card under it without being written on them.
 //   - UNASSIGNED (K16) takes work OUT of hand: back to its team's backlog,
 //     nobody's, undated, out of every sprint — the ×'s unassign (K3) — for a
 //     task, or every task in work under a plan item at any depth
@@ -25,13 +21,6 @@ import (
 //     anything is written — reachable from the row, and the actor's to
 //     write — so it is applied whole or not at all, off one read of the
 //     board.
-
-// ErrPriorityFollowsTask is a priority set on a review card: a review's
-// priority is its task's, set on the task.
-var ErrPriorityFollowsTask = errors.New("a review's priority is its task's: set it on the task")
-
-// ErrBadPriority is a priority the board has no such thing as.
-var ErrBadPriority = errors.New("a priority is P0, P1, P2, P3, P4 or none")
 
 // ErrNotInWork is UNASSIGNED on a task that is not work in hand: there is
 // nothing to take out of work.
@@ -87,28 +76,6 @@ func (s *Service) checkWrites(ctx context.Context, b board.Board, targets []boar
 			ErrForbidden, len(refused), len(targets), strings.Join(refused, ", "))
 	}
 	return nil
-}
-
-// SetPriority sets the card's OWN priority — P0 to P4, or "" for none —
-// on any card: a task, a goal, an initiative, an epic (K15). Only the card
-// itself is written; the cards under it with none of their own count under
-// it from now on (their effective priority), which the watch carries to them.
-// Nothing else changes, and nothing clears it later on its own.
-func (s *Service) SetPriority(ctx context.Context, boardID string, itemID string, priority string) error {
-	if !board.ValidPriority(priority) {
-		return fmt.Errorf("%w: %q", ErrBadPriority, priority)
-	}
-	b, card, err := s.loadCard(ctx, boardID, itemID)
-	if err != nil {
-		return err
-	}
-	if card.ReviewOf != "" {
-		return fmt.Errorf("%w: %q", ErrPriorityFollowsTask, card.Title)
-	}
-	if card.Priority == board.PriorityKey(priority) {
-		return nil
-	}
-	return s.backend.SetPriority(ctx, b, card, board.PriorityKey(priority))
 }
 
 // UnassignPreview names the tasks UnassignWork would take from the card,

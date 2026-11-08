@@ -148,15 +148,13 @@ describe("the Roadmap's two panes", () => {
     // the Roadmap's floor.
     const drawer = css.match(/\.plan-tree \.roadmap-row\.plan-tree-row \{\s*grid-template-columns:([^;]+);/)?.[1] ?? "";
     expect(Number(/(\d+)px\s*$/.exec(drawer.trim())?.[1] ?? 0)).toBeGreaterThanOrEqual(COLUMN_MINS.status);
-    // One line, never wrapped; dragged narrower than it, the STATUS part
-    // ellipsizes and the priority part keeps its width.
+    // One line, never wrapped; dragged narrower than it, the status
+    // ellipsizes.
     const badge = css.match(/\.roadmap-badge \{[^}]*\}/)?.[0] ?? "";
     expect(badge).toMatch(/white-space: nowrap/);
     const statusPart = css.match(/\.roadmap-badge \.roadmap-status \{[^}]*\}/)?.[0] ?? "";
     expect(statusPart).toMatch(/text-overflow: ellipsis/);
     expect(statusPart).toMatch(/min-width: 0/);
-    const prio = css.match(/\.roadmap-prio \{[^}]*\}/)?.[0] ?? "";
-    expect(prio).toMatch(/flex: none/);
     const cell = css.match(/\.roadmap-cell-status \{[^}]*\}/)?.[0] ?? "";
     const right = Number(/padding-right: (\d+)px/.exec(cell)?.[1] ?? 0);
     expect(right).toBeGreaterThanOrEqual(10);
@@ -379,37 +377,21 @@ describe("the Roadmap's column handles", () => {
   });
 });
 
-// The badge is ONE pill in two parts and the row's menu (K15, K16): the
-// effective priority on the left when there is one — an inherited one drawn
-// lighter, naming where it comes from — and the work status on the right;
-// pressed, it opens P0…P4, "No priority" and UNASSIGNED, which asks first,
-// by count.
+// The badge is the row's work status and its menu (K16): pressed, it opens
+// UNASSIGNED alone, which asks first, by count. Priorities were removed.
 describe("the badge", () => {
   it("is a button opening the menu on every row of the tree", () => {
     const html = draw(board([goal, ini, epic, done, open]));
     expect(html).toMatch(/class="roadmap-badge roadmap-status-button"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"/);
-    // Finished work too: its priority can still be set.
+    // Finished work too: the menu stays, with its one item.
     expect(html).toMatch(/roadmap-status-button"[^>]*><span class="roadmap-status roadmap-status-done">/);
   });
 
-  it("draws the priority and the status as one pill, or the status alone", () => {
-    const p1 = { ...open, itemId: "p1", title: "Urgent", priority: "P1" as const, effectivePriority: "P1" as const };
-    const html = draw(board([goal, ini, epic, p1, done]));
-    expect(html).toMatch(/<span class="roadmap-prio roadmap-prio-p1">P1<\/span><span class="roadmap-status roadmap-status-backlog">Backlog<\/span>/);
-    // done has no priority: the status alone.
+  it("draws the work status alone, with no priority part", () => {
+    const html = draw(board([goal, ini, epic, open, done]));
+    expect(html).toMatch(/roadmap-status-button"[^>]*><span class="roadmap-status roadmap-status-backlog">Backlog<\/span><\/button>/);
     expect(html).toMatch(/roadmap-status-button"[^>]*><span class="roadmap-status roadmap-status-done">Done<\/span><\/button>/);
-  });
-
-  it("draws an inherited priority lighter, naming the card it comes from", () => {
-    const under = {
-      ...open,
-      itemId: "u",
-      title: "Under",
-      effectivePriority: "P0" as const,
-      effectivePriorityFrom: { uid: "e", type: "epic" as const, title: "Invoices" },
-    };
-    const html = draw(board([goal, ini, epic, under]));
-    expect(html).toContain('<span class="roadmap-prio roadmap-prio-p0 roadmap-prio-inherited" title="from «Invoices»">P0</span>');
+    expect(html).not.toMatch(/roadmap-prio/);
   });
 
   it("asks how many tasks leave Team and Me before taking them out of work", () => {

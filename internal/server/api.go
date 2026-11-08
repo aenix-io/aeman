@@ -788,17 +788,6 @@ func zoneOf[T ~string](z *T) string {
 	return string(*z)
 }
 
-// SetPriority sets the card's own priority (K15) and answers with the card.
-func (a surface) SetPriority(ctx context.Context, req apiv1.SetPriorityRequestObject) (apiv1.SetPriorityResponseObject, error) {
-	card, err := a.cardAfter(ctx, req.UID, func(svc *boardservice.Service, boardID string) error {
-		return svc.SetPriority(ctx, boardID, req.UID, string(req.Body.Priority))
-	})
-	if err != nil {
-		return nil, err
-	}
-	return apiv1.SetPriority200JSONResponse(card), nil
-}
-
 // UnassignWork is the Roadmap's UNASSIGNED (K16): on a task or every task in
 // work under a plan item.
 func (a surface) UnassignWork(ctx context.Context, req apiv1.UnassignWorkRequestObject) (apiv1.UnassignWorkResponseObject, error) {

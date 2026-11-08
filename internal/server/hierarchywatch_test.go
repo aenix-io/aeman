@@ -736,67 +736,6 @@ func TestTheRawStreamTellsTheAuthorADeletedCard(t *testing.T) {
 	}
 }
 
-// A PLAN ITEM'S PRIORITY REACHES EVERY CARD UNDER IT (K15). The effective
-// priority is computed from the nearest ancestor that has one, and no write
-// touches the cards under it, so setting a goal's priority re-sends the
-// whole subtree with the new status.effectivePriority — which is what makes
-// every open backlog re-sort without a reload.
-func TestAPlanItemsPriorityReachesTheWholeSubtree(t *testing.T) {
-	store := newBoardStore()
-	b := board.NewBoardIn("acme", []board.Card{
-		{ItemID: "goal", Title: "Grow", Type: board.TypeGoal},
-		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "goal"},
-		{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha", Parked: true},
-		{ItemID: "own", Title: "Refunds", Parent: "epic", Team: "alpha", Parked: true, Priority: board.PriorityP3},
-	})
-	e := seedEntry(store, "k", b)
-	raw, cancel := store.subscribe("k", "", nil, map[string]bool{"cards": true})
-	defer cancel()
-	e.mu.Lock()
-	c, _ := board.Find(e.board, "goal")
-	c.Priority = board.PriorityP1
-	e.upsertCard(c)
-	e.cardChanged("", c, "MODIFIED")
-	e.mu.Unlock()
-	settled(t, e)
-	got := took(t, raw, 4)
-	for _, id := range []string{"epic", "t"} {
-		st := got[id].Card.Status
-		if got[id].Type != "MODIFIED" || st.EffectivePriority != "P1" || st.EffectivePriorityFrom == nil || st.EffectivePriorityFrom.UID != "goal" {
-			t.Fatalf("%s under the goal = %+v, want MODIFIED P1 from the goal", id, st)
-		}
-	}
-	// A card with its own keeps it.
-	if st := got["own"].Card.Status; st.EffectivePriority != "P3" || st.EffectivePriorityFrom != nil {
-		t.Fatalf("the card with its own priority = %+v, want its own P3", st)
-	}
-}
-
-// A TASK'S PRIORITY REACHES ITS REVIEW CARD (K15): a review takes its task's
-// effective priority and stands by it in the backlog, so a priority set on
-// the task re-sends the review card with the new status.effectivePriority.
-func TestATasksPriorityReachesItsReviewCard(t *testing.T) {
-	store := newBoardStore()
-	b := board.NewBoardIn("acme", []board.Card{
-		{ItemID: "t", Title: "Receipts", Team: "alpha", Stage: board.StageReview, SprintStart: "2026-11-02"},
-		{ItemID: "r", Title: "review: Receipts", Team: "alpha", ReviewOf: "t", Parked: true},
-	})
-	e := seedEntry(store, "k", b)
-	raw, cancel := store.subscribe("k", "", nil, map[string]bool{"cards": true})
-	defer cancel()
-	e.mu.Lock()
-	c, _ := board.Find(e.board, "t")
-	c.Priority = board.PriorityP1
-	e.upsertCard(c)
-	e.cardChanged("", c, "MODIFIED")
-	e.mu.Unlock()
-	settled(t, e)
-	got := took(t, raw, 2)
-	if st := got["r"].Card.Status; got["r"].Type != "MODIFIED" || st.EffectivePriority != "P1" || st.EffectivePriorityFrom == nil || st.EffectivePriorityFrom.UID != "t" {
-		t.Fatalf("the review card = %+v, want MODIFIED P1 from its task", st)
-	}
-}
-
 // O14 — the Roadmap's watch narrowed by status: a task taken into work
 // enters an "in progress" Roadmap as ADDED with the plan items above it,
 // and finishing it takes all of them off as DELETED — though no write

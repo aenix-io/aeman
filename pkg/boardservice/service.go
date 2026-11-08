@@ -866,9 +866,7 @@ func (s *Service) CarryOver(ctx context.Context, boardID string, team string, dr
 			// What it weighs comes with it: a weekly card somebody sized L
 			// is L again next week, and dropping the size halved its owner's
 			// load every sprint until they set it a second time.
-			Size: c.Size,
-			// And how much it matters: nothing clears a priority (K15).
-			Priority:    c.Priority,
+			Size:        c.Size,
 			Day:         today,
 			Start:       today,
 			SprintStart: today,

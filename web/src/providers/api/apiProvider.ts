@@ -33,7 +33,6 @@ import type {
   CarryReport,
   CustomerRef,
   NewCardInput,
-  Priority,
   Note,
   Provider,
   ZoneKey,
@@ -517,11 +516,6 @@ export const apiProvider: Provider = {
         params: standingScope(uid),
       }),
     );
-  },
-
-  async setPriority(uid: string, priority: Priority | ""): Promise<Card> {
-    uid = await resolveCardId(uid);
-    return cardFrom(client.POST("/cards/{uid}/actions/priority", { params: { path: { uid } }, body: { priority } }));
   },
 
   async previewUnassign(uid: string): Promise<Card[]> {

@@ -279,7 +279,7 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Type: in.Type, Domain: in.Domain,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Team: in.Team, ReviewOf: in.ReviewOf,
-		Parked: in.Parked, Size: in.Size, Priority: in.Priority,
+		Parked: in.Parked, Size: in.Size,
 		Recurrence:  in.Recurrence,
 		Description: in.Body,
 		Parent:      in.Parent, Assignees: []string{},
@@ -568,17 +568,6 @@ func (f *Backend) SetBacklog(
 	f.rec("SetBacklog %s %t", card.ItemID, parked)
 	if c := f.card(card.ItemID); c != nil {
 		c.Parked = parked
-	}
-	return nil
-}
-
-// SetPriority sets a card's own priority.
-func (f *Backend) SetPriority(_ context.Context, _ board.Board, card board.Card, priority board.PriorityKey) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetPriority %s %s", card.ItemID, priority)
-	if c := f.card(card.ItemID); c != nil {
-		c.Priority = priority
 	}
 	return nil
 }

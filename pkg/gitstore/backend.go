@@ -451,7 +451,7 @@ func cardFromInput(in board.CreateInput, id, created, author string) board.Card 
 	c := board.Card{
 		ItemID: id, Title: in.Title, Type: in.Type, Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Team: in.Team, ReviewOf: in.ReviewOf, Parent: in.Parent,
-		Parked: in.Parked, Size: in.Size, Priority: in.Priority, Recurrence: in.Recurrence,
+		Parked: in.Parked, Size: in.Size, Recurrence: in.Recurrence,
 		Description: in.Body, CreatedAt: created, Author: author,
 	}
 	if in.Assignee != "" {
@@ -950,11 +950,6 @@ func (b *Backend) SetBacklog(
 	ctx context.Context, _ board.Board, card board.Card, parked bool,
 ) error {
 	return b.editCard(ctx, "backlog", card, func(f *CardFile) { f.Card.Parked = parked })
-}
-
-// SetPriority sets the card's own priority ("" clears it).
-func (b *Backend) SetPriority(ctx context.Context, _ board.Board, card board.Card, priority board.PriorityKey) error {
-	return b.editCard(ctx, "priority", card, func(f *CardFile) { f.Card.Priority = priority })
 }
 
 // SetRecurrence sets a recurrent card's cycle.

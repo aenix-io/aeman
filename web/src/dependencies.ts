@@ -157,7 +157,7 @@ export function withFetched(prev: readonly Card[], got: readonly (Card | null)[]
 /** dependencyRollback is what a refused dependency write puts back: the list
  *  as it stood before THAT press, or null when a newer press on the card has
  *  been shown since — the newer press settles the list with its own answer,
- *  as a refused priority press does (refusalRollback). */
+ *  as every refused press does (refusalRollback). */
 export function dependencyRollback(
   seq: { isLatest: (id: string, n: number) => boolean },
   id: string,

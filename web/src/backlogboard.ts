@@ -65,27 +65,18 @@ export function shownTeams(filter: readonly string[] | null, roster: readonly st
 }
 
 /** BacklogKey is a backlog card's place in the list — board.BacklogKey,
- *  mirrored: its group (the EFFECTIVE priority, K15 — 1 for P0 … 5 for P4,
- *  6 for none), whether it is a review nobody has taken (K10: first in its
- *  group, placed by the task it reviews), whether it is LOOSE (no plan item above it: after every
- *  planned card of its group), and its PATH — the places in the board's order
+ *  mirrored: whether it is a review nobody has taken (K10: those stand first,
+ *  as a group of their own, each placed by the task it reviews), whether it
+ *  is LOOSE (no plan item above it: after every planned card), and its PATH — the places in the board's order
  *  from the root of its tree down to the card (K14), the root's level ahead
  *  of its place, as the Roadmap draws its roots level by level. */
 export interface BacklogKey {
-  group: number;
   review: boolean;
   loose: boolean;
   path: number[];
 }
 
 const ROOT_LEVEL: Record<string, number> = { goal: 0, initiative: 1, epic: 2 };
-const PRIORITY_RANK: Record<string, number> = { P0: 1, P1: 2, P2: 3, P3: 4, P4: 5 };
-
-/** priorityRank orders the priorities for a backlog: P0 first, none last —
- *  board.priorityRank. */
-export function priorityRank(p: string | undefined): number {
-  return PRIORITY_RANK[p ?? ""] ?? 6;
-}
 const PLANNING = new Set(["goal", "initiative", "epic"]);
 /** A place nobody named: after every named one. */
 const UNNAMED = Number.MAX_SAFE_INTEGER;
@@ -94,29 +85,25 @@ const UNNAMED = Number.MAX_SAFE_INTEGER;
  *  A card or an ancestor the order does not name stands after the named ones;
  *  `fallback` is the card's own place then. */
 export function backlogKey(
-  c: Pick<Card, "itemId" | "lineage" | "effectivePriority" | "reviewOf" | "assignees" | "stage" | "progress">,
+  c: Pick<Card, "itemId" | "lineage" | "reviewOf" | "assignees" | "stage" | "progress">,
   pos: ReadonlyMap<string, number>,
   fallback = UNNAMED,
 ): BacklogKey {
-  const group = priorityRank(c.effectivePriority);
-  // A review nobody has taken (K10) leads its task's priority group, placed
-  // by the task it reviews: its lineage is the task's planning chain, and the
+  // A review nobody has taken (K10) stands in the group on top, placed by
+  // the task it reviews: its lineage is the task's planning chain, and the
   // task's own place ends the path.
   const review = needsReviewer(c);
   const own = review ? (pos.get(c.reviewOf ?? "") ?? pos.get(c.itemId) ?? fallback) : (pos.get(c.itemId) ?? fallback);
   const up = c.lineage ?? [];
   if (!up.some((a) => a.type && PLANNING.has(a.type))) {
-    return { group, review, loose: true, path: [own] };
+    return { review, loose: true, path: [own] };
   }
   const root = ROOT_LEVEL[up[0].type ?? ""] ?? 3;
-  return { group, review, loose: false, path: [root, ...up.map((a) => pos.get(a.uid) ?? UNNAMED), own] };
+  return { review, loose: false, path: [root, ...up.map((a) => pos.get(a.uid) ?? UNNAMED), own] };
 }
 
 /** compareBacklogKeys orders two keys: negative when a stands first. */
 export function compareBacklogKeys(a: BacklogKey, b: BacklogKey): number {
-  if (a.group !== b.group) {
-    return a.group - b.group;
-  }
   if (a.review !== b.review) {
     return a.review ? -1 : 1;
   }
@@ -154,16 +141,15 @@ export function backlogList(cards: readonly Card[], teams: readonly string[], or
 
 /** runOf is which cards a backlog card is a SIBLING of (K14): a review nobody
  *  has taken among the other such reviews; a task among the tasks under the
- *  same parent in the same priority group — the loose tasks, with no
- *  plan item above, being one run. */
-function runOf(c: Pick<Card, "itemId" | "parent" | "lineage" | "effectivePriority" | "reviewOf" | "assignees" | "stage" | "progress">): string {
+ *  same parent — the loose tasks, with no plan item above, being one run. */
+function runOf(c: Pick<Card, "itemId" | "parent" | "lineage" | "reviewOf" | "assignees" | "stage" | "progress">): string {
   if (needsReviewer(c)) {
     // Its place is its task's (K10): it is no one's sibling, so no drop of
     // it, or by it, is a place.
     return `review:${c.itemId}`;
   }
   const planned = (c.lineage ?? []).some((a) => a.type && PLANNING.has(a.type));
-  return `${priorityRank(c.effectivePriority)}:${planned ? (c.parent ?? "") : ""}`;
+  return planned ? (c.parent ?? "") : "";
 }
 
 /** takeOwner is what TAKE leaves on the card, the server's `take` (K11)

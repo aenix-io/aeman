@@ -51,13 +51,8 @@ import {
   rollUp,
   rolledUpAfter,
   workPatchOf,
-  PRIORITY_CHOICES,
-  effectivePriorityIn,
-  priorityAfter,
   badgeOf,
-  inheritedTitle,
   latestWins,
-  priorityLabel,
   refusalRollback,
   unassignPreview,
   unassignNotice,
@@ -915,14 +910,14 @@ describe("what a drop shows at once", () => {
   });
 });
 
-// The badge menu (K15, K16): the card's OWN priority — P0 to P4, or none —
-// and UNASSIGNED, which takes the work in hand under the row back to its
-// backlog. Mirrors board.UnassignTargets, case for case with boardservice's
+// The badge menu (K16): UNASSIGNED, which takes the work in hand under the
+// row back to its backlog — the menu's one item now priorities are gone.
+// Mirrors board.UnassignTargets, case for case with boardservice's
 // TestUnassignedOnAPlanItem…
-describe("the badge menu on the Roadmap (K15, K16)", () => {
+describe("the badge menu on the Roadmap (K16)", () => {
   const today = "2026-11-09";
   const ip = { status: "in-progress" as const, done: 0, total: 3 };
-  const g = card({ itemId: "g", type: "goal", team: "alpha", priority: "P2", hierarchy: ip });
+  const g = card({ itemId: "g", type: "goal", team: "alpha", hierarchy: ip });
   const e = card({ itemId: "e", type: "epic", parent: "g", hierarchy: ip });
   const p1 = card({ itemId: "p1", parent: "e", parked: true });
   const p2 = card({ itemId: "p2", parent: "g", parked: true });
@@ -941,13 +936,10 @@ describe("the badge menu on the Roadmap (K15, K16)", () => {
     expect(unassignTargets(all, sub)).toEqual([]);
   });
 
-  it("offers the four priorities with the card's OWN one checked, and UNASSIGNED where work is in hand", () => {
-    expect(statusMenu(all, g)).toEqual({ own: "P2", unassign: true });
-    // e has none of its own (it counts under g's P2): "No priority" is checked.
-    expect(statusMenu(all, e)).toEqual({ own: "", unassign: true });
-    expect(statusMenu(all, doneWork)).toEqual({ own: "", unassign: false });
-    expect(PRIORITY_CHOICES.map((c) => c.label)).toEqual(["P0", "P1", "P2", "P3", "P4", "No priority"]);
-    expect(PRIORITY_CHOICES.map((c) => c.value)).toEqual(["P0", "P1", "P2", "P3", "P4", ""]);
+  it("offers UNASSIGNED, enabled where work is in hand, and nothing else", () => {
+    expect(statusMenu(all, g)).toEqual({ unassign: true });
+    expect(statusMenu(all, e)).toEqual({ unassign: true });
+    expect(statusMenu(all, doneWork)).toEqual({ unassign: false });
   });
 
   it("names the tasks it counted, so the server acts on exactly those, and asks nothing of none", () => {
@@ -962,14 +954,14 @@ describe("the badge menu on the Roadmap (K15, K16)", () => {
     expect(unassignNotice(["w1"])).toBeNull();
   });
 
-  it("puts a refused priority back only when it was the latest press", () => {
+  it("puts a refused press back only when it was the latest press", () => {
     const seq = latestWins();
-    const p1 = seq.next("g");
-    const p2 = seq.next("g");
-    const before = [{ id: "g", patch: { priority: undefined } }];
-    // The older press (P1) failing must not undo the newer optimistic P2.
-    expect(refusalRollback(seq, "g", p1, before)).toEqual([]);
-    expect(refusalRollback(seq, "g", p2, before)).toEqual(before);
+    const first = seq.next("g");
+    const second = seq.next("g");
+    const before = [{ id: "g", patch: { dependsOn: undefined } }];
+    // The older press failing must not undo the newer optimistic one.
+    expect(refusalRollback(seq, "g", first, before)).toEqual([]);
+    expect(refusalRollback(seq, "g", second, before)).toEqual(before);
   });
 
   it("asks how many tasks leave Team and Me before UNASSIGNED takes them", () => {
@@ -978,83 +970,18 @@ describe("the badge menu on the Roadmap (K15, K16)", () => {
   });
 });
 
-// The effective priority (K15) — mirrors board.Index.EffectivePriority, case
-// for case with TestTheEffectivePriorityIsOwnElseTheNearestAncestors: its own
-// when it has one, else the nearest ancestor's, else none; a review card's is
-// its task's.
-describe("the effective priority", () => {
-  const g = card({ itemId: "g", type: "goal", title: "Grow", priority: "P3" });
-  const i = card({ itemId: "i", type: "initiative", title: "Portugal", parent: "g", priority: "P2" });
-  const e = card({ itemId: "e", type: "epic", title: "Billing", parent: "i" });
-  const t = card({ itemId: "t", parent: "e" });
-  const own = card({ itemId: "own", parent: "e", priority: "P1" });
-  const bare = card({ itemId: "bare", type: "goal" });
-  const u = card({ itemId: "u", parent: "bare" });
-  const o = card({ itemId: "o", parent: "e", stage: "review" });
-  const r = card({ itemId: "r", reviewOf: "o" });
-  // A review of a review counts under the review it reviews; two reviews of
-  // each other are a cycle that ends, under nobody.
-  const rr = card({ itemId: "rr", reviewOf: "r" });
-  const x = card({ itemId: "x", reviewOf: "y" });
-  const y = card({ itemId: "y", reviewOf: "x" });
-  const all = [g, i, e, t, own, bare, u, o, r, rr, x, y];
-  const read = (c: Card) => {
-    const got = effectivePriorityIn(all, c);
-    return [got.priority ?? "", got.from?.itemId ?? ""];
-  };
-
-  it("is its own, else the nearest ancestor's, else none", () => {
-    expect(read(g)).toEqual(["P3", ""]);
-    expect(read(i)).toEqual(["P2", ""]);
-    expect(read(e)).toEqual(["P2", "i"]);
-    expect(read(t)).toEqual(["P2", "i"]);
-    expect(read(own)).toEqual(["P1", ""]);
-    expect(read(bare)).toEqual(["", ""]);
-    expect(read(u)).toEqual(["", ""]);
-    expect(read(r)).toEqual(["P2", "i"]);
-    expect(read(rr)).toEqual(["P2", "i"]);
-    expect(read(x)).toEqual(["", ""]);
-  });
-
-  it("re-reads the card and every card under it when its own priority changes", () => {
-    const after = priorityAfter(all, "i", "");
-    // i has none now: it and what is under it count under the goal's P3.
-    expect(after.get("i")).toEqual({ effectivePriority: "P3", effectivePriorityFrom: { uid: "g", type: "goal", title: "Grow" } });
-    expect(after.get("t")).toEqual({ effectivePriority: "P3", effectivePriorityFrom: { uid: "g", type: "goal", title: "Grow" } });
-    // A card with its own keeps it.
-    expect(after.get("own")).toEqual({ effectivePriority: "P1", effectivePriorityFrom: undefined });
-    expect(after.has("g") || after.has("bare")).toBe(false);
-    expect(priorityAfter(all, "bare", "P1").get("u")).toEqual({ effectivePriority: "P1", effectivePriorityFrom: { uid: "bare", type: "goal", title: "a card" } });
-  });
-
-  it("re-reads the review cards of the tasks it reaches: a review counts under its task's", () => {
-    // o is under e, which counts under i's P2: its review r goes with it.
-    expect(priorityAfter(all, "i", "P0").get("r")).toEqual({ effectivePriority: "P0", effectivePriorityFrom: { uid: "i", type: "initiative", title: "Portugal" } });
-    // A task's own priority reaches its review card too.
-    expect(priorityAfter(all, "o", "P4").get("r")).toEqual({ effectivePriority: "P4", effectivePriorityFrom: { uid: "o", type: undefined, title: "a card" } });
-  });
-});
-
-// The badge is ONE pill in two parts (K15): the effective priority on the
-// left when there is one — drawn lighter, naming where it comes from, when it
-// is inherited — and the work status on the right.
+// The badge is the work status (priorities were removed); a card LOCKED by
+// its dependencies names what it waits for in the tooltip.
 describe("the badge", () => {
-  it("is the priority and the status, or the status alone", () => {
+  it("is the work status alone", () => {
     const today = "2026-11-09";
-    expect(badgeOf(card({ priority: "P1", effectivePriority: "P1", sprintStart: today }))).toEqual({
-      priority: { value: "P1", from: undefined },
-      status: "in-progress",
-    });
-    expect(
-      badgeOf(card({ effectivePriority: "P2", effectivePriorityFrom: { uid: "e", type: "epic", title: "Billing" }, parked: true })),
-    ).toEqual({ priority: { value: "P2", from: { uid: "e", type: "epic", title: "Billing" } }, status: "backlog" });
-    expect(badgeOf(card({ parked: true }))).toEqual({ priority: undefined, status: "backlog" });
-    expect(inheritedTitle({ uid: "e", type: "epic", title: "Billing" })).toBe("from «Billing»");
+    expect(badgeOf(card({ sprintStart: today }))).toEqual({ status: "in-progress" });
+    expect(badgeOf(card({ parked: true }))).toEqual({ status: "backlog" });
   });
 
-  it("names what a locked card waits for, the priority part staying as it is", () => {
-    const b = badgeOf(card({ locked: true, effectivePriority: "P1", blockedBy: [{ uid: "a", title: "Auth" }], parked: true }));
-    expect(b).toEqual({ priority: { value: "P1", from: undefined }, status: "locked", lock: "waiting for «Auth»" });
+  it("names what a locked card waits for", () => {
+    const b = badgeOf(card({ locked: true, blockedBy: [{ uid: "a", title: "Auth" }], parked: true }));
+    expect(b).toEqual({ status: "locked", lock: "waiting for «Auth»" });
     expect(badgeOf(card({ parked: true })).lock).toBeUndefined();
   });
 });
@@ -1063,7 +990,7 @@ describe("the badge", () => {
 // K16) — mirrors board.hierarchyStatus, case for case with
 // TestAPlanItemRollsUpFromWhereItsOpenTasksStand: any open task in work → in
 // progress; open tasks, none in work → backlog; all done → done; none → no
-// items. Progress, a person, a priority alone do not make it in progress.
+// items. Progress or a person alone do not make it in progress.
 describe("a plan item's roll-up", () => {
   const today = "2026-11-09";
   const inWork = card({ itemId: "w", parent: "e", sprintStart: today, day: today });
@@ -1077,7 +1004,6 @@ describe("a plan item's roll-up", () => {
     expect(st([inWork, parked])).toBe("in-progress");
     expect(st([parked])).toBe("backlog");
     expect(st([done, parked])).toBe("backlog");
-    expect(st([{ ...parked, priority: "P1" }])).toBe("backlog");
     expect(st([{ ...parked, progress: 49 }])).toBe("backlog");
     expect(st([{ ...parked, assignees: ["ann"] }])).toBe("backlog");
     expect(rollUp([done, parked])).toEqual({ status: "backlog", done: 1, total: 2 });
@@ -1153,7 +1079,7 @@ describe("UNASSIGNED under a filter", () => {
   });
 });
 
-// A later choice wins (K15): the badge applies a server answer only when it
+// A later choice wins: a control applies a server answer only when it
 // answers the latest choice made on that card, so an older response arriving
 // late cannot overwrite a newer one.
 describe("the latest choice wins", () => {
@@ -1168,13 +1094,4 @@ describe("the latest choice wins", () => {
   });
 });
 
-// What the badge says to a screen reader: the priority and where it comes
-// from, or that none is set.
-describe("the priority's label", () => {
-  it("names the priority and the card it is inherited from", () => {
-    expect(priorityLabel("P1")).toBe("Priority P1");
-    expect(priorityLabel("P2", { uid: "g", type: "goal", title: "Grow" })).toBe("Priority P2, from «Grow»");
-    expect(priorityLabel(undefined)).toBe("Set a priority");
-  });
-});
 

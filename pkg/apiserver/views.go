@@ -765,8 +765,8 @@ func contains(s []string, v string) bool {
 
 // backlogCards is the view=backlog listing (docs/design/backlog.md, K2):
 // each named team's parked open tasks — no planning card, no subtask, no review card, nothing finished (board.OnBacklog) — in the
-// order a backlog is read: by effective priority, each priority led by the
-// reviews nobody has taken, then in the Roadmap's order (board.BacklogOrder). `team` names one backlog or a comma-separated set of
+// order a backlog is read: the reviews nobody has taken first, then the
+// Roadmap's order (board.BacklogOrder). `team` names one backlog or a comma-separated set of
 // them; the Backlog board draws them as one list, in this same order.
 //
 // A review NOBODY HAS TAKEN (board.NeedsReviewer) stands in the same order

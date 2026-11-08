@@ -12,8 +12,8 @@ import "testing"
 //   - open ones, none in work → BACKLOG;
 //   - every one done → done; none at all → no items.
 //
-// The done/total counts are unchanged. Progress, a person on a task, a stage
-// and a priority do not make a plan item in progress by themselves: a parked
+// The done/total counts are unchanged. Progress, a person on a task and a
+// stage do not make a plan item in progress by themselves: a parked
 // task at 49% is waiting, not being worked.
 func TestAPlanItemRollsUpFromWhereItsOpenTasksStand(t *testing.T) {
 	today := TodayIso()
@@ -31,7 +31,6 @@ func TestAPlanItemRollsUpFromWhereItsOpenTasksStand(t *testing.T) {
 		{"one task in work", []Card{inWork, parked}, HierarchyInProgress},
 		{"waiting", []Card{parked}, HierarchyBacklog},
 		{"done and waiting: still waiting", []Card{done, parked}, HierarchyBacklog},
-		{"a P1 task waiting is waiting", []Card{with(parked, func(c *Card) { c.Priority = PriorityP1 })}, HierarchyBacklog},
 		{"a parked task at 49% is waiting, not in progress", []Card{with(parked, func(c *Card) { c.Progress = 49 })}, HierarchyBacklog},
 		{"a parked task somebody is named on is waiting", []Card{with(parked, func(c *Card) { c.Assignees = []string{"ann"} })}, HierarchyBacklog},
 		{"a task in work at 0%, nobody's, is in work", []Card{with(inWork, func(c *Card) { c.Progress = 0 })}, HierarchyInProgress},
