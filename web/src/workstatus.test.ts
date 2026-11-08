@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 import { statusOf } from "./roadmap";
 import { HIDE_DONE, statusSet, workStatus } from "./workstatus";
@@ -83,5 +86,33 @@ describe("the selector's status set", () => {
     expect(statusSet(["in-progress", "backlog"])).toBe("backlog,in-progress");
     expect(statusSet(["done", "nonsense"])).toBe("done");
     expect(statusSet([])).toBe("");
+  });
+});
+
+// The server's own table (pkg/board, TestTheWorkStatusMatchesTheSharedFixture)
+// is the contract: this copy answers every case of it the same way.
+describe("the shared work-status fixture", () => {
+  type Fixture = {
+    cases: {
+      name: string;
+      card: { stage?: string; progress?: number; parked?: boolean; start?: string; day?: string; sprint?: string };
+      status: string;
+    }[];
+  };
+  const fixture = JSON.parse(
+    readFileSync(fileURLToPath(new URL("../../pkg/board/testdata/work_status.json", import.meta.url)), "utf8"),
+  ) as Fixture;
+  it.each(fixture.cases.map((c) => [c.name, c] as const))("%s", (_name, c) => {
+    const { stage, progress, parked, start, day, sprint } = c.card;
+    expect(
+      workStatus({
+        stage: stage as Parameters<typeof workStatus>[0]["stage"],
+        progress,
+        parked,
+        startDate: start,
+        day,
+        sprintStart: sprint,
+      }),
+    ).toBe(c.status);
   });
 });
