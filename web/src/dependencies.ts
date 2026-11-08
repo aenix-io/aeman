@@ -4,7 +4,7 @@
 // item passes down — is the server's (status.locked, status.blockedBy); the
 // client never decides it, so there is no rule here to drift from Go. What
 // lives here is what the drawer offers and how it names what it shows.
-import { isUnder, parentChainOf, type ParentOption } from "./roadmap";
+import { isUnder, parentChainOf, refusalRollback, type ParentOption } from "./roadmap";
 import { isComplete } from "./stages";
 import type { Card, LineageRef } from "./providers/types";
 
@@ -143,4 +143,18 @@ export function withFetched(prev: readonly Card[], got: readonly (Card | null)[]
     }
   }
   return added.length === 0 ? prev : [...prev, ...added];
+}
+
+/** dependencyRollback is what a refused dependency write puts back: the list
+ *  as it stood before THAT press, or null when a newer press on the card has
+ *  been shown since — the newer press settles the list with its own answer,
+ *  as a refused priority press does (refusalRollback). */
+export function dependencyRollback(
+  seq: { isLatest: (id: string, n: number) => boolean },
+  id: string,
+  n: number,
+  before: readonly string[] | undefined,
+): { dependsOn: string[] | undefined } | null {
+  const [patch] = refusalRollback(seq, id, n, [{ dependsOn: before && before.length > 0 ? [...before] : undefined }]);
+  return patch ?? null;
 }

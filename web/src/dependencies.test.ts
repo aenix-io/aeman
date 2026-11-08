@@ -4,6 +4,7 @@ import {
   blocksOf,
   dependencyOptions,
   dependenciesToFetch,
+  dependencyRollback,
   derivedLockOf,
   dependencyRows,
   lockTitle,
@@ -11,6 +12,7 @@ import {
   withFetched,
   withoutDependency,
 } from "./dependencies";
+import { latestWins } from "./roadmap";
 
 const card = (c: Partial<Card> & { itemId: string }): Card => ({ title: c.itemId, assignees: [], ...c });
 
@@ -129,5 +131,27 @@ describe("the dependencies the drawer fetches", () => {
   it("adds what did come back, once", () => {
     const prev = [t1];
     expect(withFetched(prev, [t2, null, t1]).map((c) => c.itemId)).toEqual(["t1", "t2"]);
+  });
+});
+
+// A refused dependency write takes the list back to what it was before THAT
+// press — only while it is still the latest press on the card: an older
+// press refused after a newer one was shown must not undo the newer list.
+describe("a refused dependency write", () => {
+  it("rolls back the latest press", () => {
+    const seq = latestWins();
+    const n = seq.next("t1");
+    expect(dependencyRollback(seq, "t1", n, ["a"])).toEqual({ dependsOn: ["a"] });
+  });
+  it("leaves a newer press standing when an older one is refused", () => {
+    const seq = latestWins();
+    const older = seq.next("t1");
+    seq.next("t1");
+    expect(dependencyRollback(seq, "t1", older, [])).toBeNull();
+  });
+  it("puts back an empty list as no list", () => {
+    const seq = latestWins();
+    const n = seq.next("t1");
+    expect(dependencyRollback(seq, "t1", n, [])).toEqual({ dependsOn: undefined });
   });
 });

@@ -34,6 +34,7 @@ import {
   childrenNote,
   hierarchyChoices,
   kindOf,
+  latestWins,
   planningRemoval,
   cardsAfterDelete,
   statusOf,
@@ -49,7 +50,7 @@ import { placementAnswer, drawerEscapes, joinsTree } from "../detail";
 import { OwnerPicker } from "./OwnerPicker";
 import { ParentPicker } from "./ParentPicker";
 import { DependsOn } from "./DependsOn";
-import { dependenciesToFetch, withDependency, withFetched, withoutDependency } from "../dependencies";
+import { dependenciesToFetch, dependencyRollback, withDependency, withFetched, withoutDependency } from "../dependencies";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { notTombstoned, type Tombstones } from "../tombstones";
 
@@ -471,21 +472,33 @@ export function CardDetail({
   // it at once and takes it back when the server refuses (a cycle, a target
   // it may not wait for), in the server's words.
   const wantDependencyOptions = useCallback(() => setWantsOptions(true), []);
+  // Presses on the list, newest wins (latestWins): a refused or late answer
+  // from an older press leaves a newer list standing.
+  const dependencyPresses = useRef(latestWins());
   const setDependsOn = (next: string[]) => {
-    const before: Partial<CardModel> = { dependsOn: card.dependsOn };
+    const before = card.dependsOn;
+    const n = dependencyPresses.current.next(card.itemId);
     patchCard(card.itemId, { dependsOn: next.length ? next : undefined });
     void provider
       .patchCard(card.itemId, { dependsOn: next })
-      .then((updated) =>
+      .then((updated) => {
+        // An older press answering after a newer one was shown must not
+        // overwrite the newer list; the newer press brings its own answer.
+        if (!dependencyPresses.current.isLatest(card.itemId, n)) {
+          return;
+        }
         patchCard(card.itemId, {
           dependsOn: updated.dependsOn,
           locked: updated.locked,
           blockedBy: updated.blockedBy,
           hiddenBlockers: updated.hiddenBlockers,
-        }),
-      )
+        });
+      })
       .catch((err: unknown) => {
-        patchCard(card.itemId, before);
+        const back = dependencyRollback(dependencyPresses.current, card.itemId, n, before);
+        if (back) {
+          patchCard(card.itemId, back);
+        }
         onError?.(errMessage(err));
       });
   };
