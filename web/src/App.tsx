@@ -35,6 +35,7 @@ import {
   queryString,
   snapshotDay,
   storedView,
+  wireView,
   viewPath,
   viewQueries,
   watchQueries,
@@ -469,7 +470,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(LS_VIEW, view);
+    localStorage.setItem(LS_VIEW, wireView(view));
   }, [view]);
 
   // The tab is named after the board — the one thing this server serves.
@@ -1673,7 +1674,7 @@ export function App() {
             className={`segment${view === "roadmap" ? " segment-active" : ""}`}
             onClick={() => chooseView("roadmap")}
           >
-            Roadmap
+            Strategy
           </button>
         </div>
       </div>

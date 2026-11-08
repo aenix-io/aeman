@@ -131,6 +131,17 @@ describe("the board in the address", () => {
     expect(calls[0].url).toBe("/api/v1/views/me/cards");
   });
 
+  // A planning card is the Strategy board's create, addressed by the board's
+  // name; the Roadmap was its old one, and the client sends the new.
+  it("creates a planning card into the Strategy board", async () => {
+    standingOn("view=strategy");
+    await apiProvider.createCard({ title: "Grow", type: "goal", team: null });
+    expect(calls[0].url).toBe("/api/v1/views/strategy/cards");
+    standingOn("day=2026-09-11&view=me");
+    await apiProvider.createCard({ title: "Grow", type: "goal", team: null });
+    expect(calls[1].url).toBe("/api/v1/views/strategy/cards");
+  });
+
   // The Backlog's insert "+" is ONE create naming its place (K12's
   // neighbour, after/before), not a create and then a move.
   it("creates into a backlog gap in one request, naming its place", async () => {

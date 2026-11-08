@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildLink, cardLink, cardUnreadable, linkChange, parseLink, saveReturnTo, startDay, takeReturnTo } from "./deeplink";
 
 // THE BOARD'S ADDRESS IS ITS STATE. The view and the open card live in the
-// query of the root document — /?view=roadmap&card=<uid> — and a day board
+// query of the root document — /?view=strategy&card=<uid> — and a day board
 // (Me, Team) looked at on another day than today carries it too
 // (&day=YYYY-MM-DD). The query of the root and not a path, so the address is
 // always the one document the server serves uncached, nothing it routes
@@ -13,13 +13,17 @@ const TODAY = "2026-11-07";
 
 describe("reading the board's address", () => {
   it("reads the view, the card and the day", () => {
-    expect(parseLink("?view=roadmap&card=01JABC")).toEqual({ view: "roadmap", card: "01JABC", day: null });
+    expect(parseLink("?view=strategy&card=01JABC")).toEqual({ view: "roadmap", card: "01JABC", day: null });
     expect(parseLink("?view=team&day=2026-11-03")).toEqual({ view: "team", card: null, day: "2026-11-03" });
     expect(parseLink("")).toEqual({ view: null, card: null, day: null });
   });
 
   it("knows the old names of a view, and takes nothing for an unknown one", () => {
     expect(parseLink("?view=triage").view).toBe("backlog");
+    // The Strategy board was the Roadmap: an old link still opens it, and
+    // the address is written back with its new name.
+    expect(parseLink("?view=roadmap").view).toBe("roadmap");
+    expect(buildLink(parseLink("?view=roadmap&card=01JABC"), TODAY)).toBe("?view=strategy&card=01JABC");
     expect(parseLink("?view=whatever").view).toBeNull();
   });
 
@@ -45,7 +49,7 @@ describe("reading the board's address", () => {
 
 describe("writing the board's address", () => {
   it("names the view and the open card", () => {
-    expect(buildLink({ view: "roadmap", card: "01JABC", day: TODAY }, TODAY)).toBe("?view=roadmap&card=01JABC");
+    expect(buildLink({ view: "roadmap", card: "01JABC", day: TODAY }, TODAY)).toBe("?view=strategy&card=01JABC");
     expect(buildLink({ view: "me", card: null, day: TODAY }, TODAY)).toBe("?view=me");
   });
 

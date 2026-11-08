@@ -52,7 +52,7 @@ describe("the Roadmap's column widths", () => {
     const raw = JSON.stringify({ title: 400, owner: 5, status: "wide", bogus: 3 });
     expect(storedColumns(raw)).toEqual({ ...COLUMN_DEFAULTS, title: 400, owner: COLUMN_MINS.owner });
     expect(storedColumns("not json")).toEqual(COLUMN_DEFAULTS);
-    expect(ROADMAP_COLUMNS_KEY).toBe("aeman.roadmap.columns");
+    expect(ROADMAP_COLUMNS_KEY).toBe("aeman.strategy.columns");
   });
 
   it("put one column back on a double-click", () => {

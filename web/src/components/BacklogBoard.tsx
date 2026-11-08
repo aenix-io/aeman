@@ -775,7 +775,7 @@ export function Landing({ card, forbidden = false }: { card: CardModel; forbidde
   return (
     <div
       className={`card backlog-card${mark ? ` card-${mark}` : ""} backlog-card-landing${forbidden ? " backlog-card-landing-forbid" : ""}`}
-      title={forbidden ? "Only among the tasks under the same parent: the Roadmap's tree decides the order" : undefined}
+      title={forbidden ? "Only among the tasks under the same parent: the Strategy board's tree decides the order" : undefined}
     >
       <span className="card-title backlog-card-title">{card.title}</span>
     </div>

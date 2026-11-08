@@ -127,9 +127,9 @@ interface RoadmapBoardProps {
   onManageCustomers?: () => void;
 }
 
-const LS_DEPTH = "aeman.roadmap.depth";
-const LS_ZOOM = "aeman.roadmap.zoom";
-const LS_FOLDED = "aeman.roadmap.folded";
+const LS_DEPTH = "aeman.strategy.depth";
+const LS_ZOOM = "aeman.strategy.zoom";
+const LS_FOLDED = "aeman.strategy.folded";
 
 /** HEAD_PX is the height of the table's head; a row's (ROW_PX) and one
  *  level of the tree (INDENT_PX) are PlanTree's, shared with the drawer. */
@@ -1045,7 +1045,7 @@ export function RoadmapBoard({
               </button>
             </>
           ) : board.cards.length === 0 ? (
-            "Nothing on the roadmap yet: add a goal, an initiative or an epic, and file work under it from a card's pane."
+            "Nothing on the Strategy board yet: add a goal, an initiative or an epic, and file work under it from a card's pane."
           ) : (
             "Nothing to draw at this depth."
           )}

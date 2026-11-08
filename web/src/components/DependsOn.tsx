@@ -132,7 +132,7 @@ export function DependencyOptionList({
         ref={input}
         type="text"
         className="drawer-pick-search"
-        placeholder="Search the roadmap…"
+        placeholder="Search the Strategy board…"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         aria-label="Search"

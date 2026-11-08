@@ -151,13 +151,15 @@ describe("the card drawer", () => {
 // sits under, and what sits under a planning card. Mirrors what hierarchy.md
 // gives the detail pane.
 describe("the card drawer and the hierarchy", () => {
-  it("draws the ancestors root first as a breadcrumb, every crumb opening its card, planning crumbs with the Roadmap too", () => {
+  it("draws the ancestors root first as a breadcrumb, every crumb opening its card, planning crumbs with the Strategy board too", () => {
     const html = draw(card({ parent: "e", lineage }));
     expect(html).toContain("modal-crumbs");
     expect(html.indexOf("Grow")).toBeLessThan(html.indexOf("Invoices"));
     expect(html.match(/modal-crumb-link/g)?.length).toBe(2);
     expect(html).toContain('title="Open «Grow»"');
     expect(html.match(/modal-crumb-reveal/g)?.length).toBe(2);
+    expect(html).toContain('title="Show «Grow» on the Strategy board"');
+    expect(html).not.toContain("Roadmap");
     expect(html).toContain("kind-icon-goal");
     expect(html).toContain("kind-icon-epic");
   });

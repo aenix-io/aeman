@@ -26,7 +26,7 @@ export const COLUMN_MAX = 1200;
 const STEP = 8;
 const BIG_STEP = 32;
 
-export const ROADMAP_COLUMNS_KEY = "aeman.roadmap.columns";
+export const ROADMAP_COLUMNS_KEY = "aeman.strategy.columns";
 
 function clamp(col: RoadmapColumn, w: number): number {
   return Math.min(COLUMN_MAX, Math.max(COLUMN_MINS[col], Math.round(w)));

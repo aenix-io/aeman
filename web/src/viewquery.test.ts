@@ -183,7 +183,7 @@ describe("where a selector is fetched", () => {
   });
 
   it("needs no query at all", () => {
-    expect(viewPath(queryString({ view: "roadmap" }), "cards")).toBe("/views/roadmap/cards");
+    expect(viewPath(queryString({ view: "strategy" }), "cards")).toBe("/views/strategy/cards");
   });
 
   // Nothing in the app sends a selector with no board; answering "all" is what
@@ -212,6 +212,9 @@ describe("the remembered tab", () => {
   it("keeps the older renames, and falls back to Me", () => {
     expect(storedView("nixon")).toBe("team");
     expect(storedView("roadmap")).toBe("roadmap");
+    // The Strategy board is the Roadmap renamed: its own name and the old
+    // one both open it.
+    expect(storedView("strategy")).toBe("roadmap");
     expect(storedView(null)).toBe("me");
     expect(storedView("whatever")).toBe("me");
   });
@@ -220,9 +223,9 @@ describe("the remembered tab", () => {
 // The Roadmap asks for its listing with nothing more: the "Project cards"
 // toggle and its selector are gone with the Project board (H15).
 describe("the Roadmap's listing", () => {
-  it("asks for the roadmap and nothing else", () => {
-    expect(viewQueries("roadmap", TODAY, [], undefined, TODAY)).toEqual([{ view: "roadmap" }]);
-    expect(watchQuery("roadmap", TODAY, [])).toEqual({ view: "roadmap" });
+  it("asks for the Strategy board by its name and nothing else", () => {
+    expect(viewQueries("roadmap", TODAY, [], undefined, TODAY)).toEqual([{ view: "strategy" }]);
+    expect(watchQuery("roadmap", TODAY, [])).toEqual({ view: "strategy" });
   });
 });
 
@@ -232,13 +235,13 @@ describe("the Roadmap's listing", () => {
 describe("the Roadmap's filters", () => {
   it("ask nothing while none is chosen", () => {
     expect(viewQueries("roadmap", TODAY, [], undefined, TODAY, { filters: { teams: [], customers: [], owners: [], statuses: [] } })).toEqual([
-      { view: "roadmap" },
+      { view: "strategy" },
     ]);
   });
 
   it("ask the listing and the watch for the chosen ones, each a set", () => {
     const opts = { filters: { teams: ["portal", "ops"], customers: ["cu1"], owners: ["ann"], statuses: ["in-progress", "backlog"] } };
-    const want = { view: "roadmap", team: "portal,ops", customer: "cu1", owner: "ann", status: "backlog,in-progress" };
+    const want = { view: "strategy", team: "portal,ops", customer: "cu1", owner: "ann", status: "backlog,in-progress" };
     expect(viewQueries("roadmap", TODAY, [], undefined, TODAY, opts)).toEqual([want]);
     expect(watchQuery("roadmap", TODAY, [], undefined, opts)).toEqual(want);
   });
@@ -247,14 +250,14 @@ describe("the Roadmap's filters", () => {
   // sorted so the same choice is the same subscription.
   it("ask for the chosen work statuses, sorted", () => {
     expect(watchQuery("roadmap", TODAY, [], undefined, { filters: { teams: [], customers: [], owners: [], statuses: ["done"] } })).toEqual({
-      view: "roadmap",
+      view: "strategy",
       status: "done",
     });
   });
 
   it("ride the watch alone", () => {
     expect(watchQuery("roadmap", TODAY, [], undefined, { filters: { teams: [], customers: [], owners: ["ann"], statuses: [] } })).toEqual({
-      view: "roadmap",
+      view: "strategy",
       owner: "ann",
     });
   });

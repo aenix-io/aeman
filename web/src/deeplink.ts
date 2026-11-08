@@ -1,13 +1,13 @@
 // The board's address is its state (docs/api.md, "Deep links"): the view and
 // the open card live in the query of the root document —
-// /?view=roadmap&card=<uid> — and a day board (Me, Team) looked at on a day
+// /?view=strategy&card=<uid> — and a day board (Me, Team) looked at on a day
 // other than today carries it too (&day=YYYY-MM-DD).
 //
 // The query of the root rather than a path: the address is then always the
 // one document the server serves uncached (spaHandler), no board path can
 // shadow anything the server routes (/api, /auth, /oauth, /mcp), and the
 // bundle's asset paths never depend on how deep an address is.
-import { storedView, type ViewMode } from "./viewquery";
+import { storedView, wireView, type ViewMode } from "./viewquery";
 
 export interface LinkState {
   view: ViewMode | null;
@@ -28,7 +28,9 @@ function realDay(s: string): boolean {
   const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
   return d.toISOString().slice(0, 10) === s;
 }
-const VIEWS = new Set(["me", "team", "nixon", "project", "plan", "backlog", "triage", "roadmap"]);
+// "roadmap" is the Strategy board's old name: an old link still opens it, and
+// the address effect writes it back as "strategy".
+const VIEWS = new Set(["me", "team", "nixon", "project", "plan", "backlog", "triage", "roadmap", "strategy"]);
 
 /** parseLink reads the board's address. An unknown view, an id that is not
  *  one, a day that is not one: each is taken as not there. */
@@ -51,7 +53,7 @@ const hasDays = (view: ViewMode | null) => view === "me" || view === "team";
 export function buildLink(s: LinkState, today: string): string {
   const q = new URLSearchParams();
   if (s.view) {
-    q.set("view", s.view);
+    q.set("view", wireView(s.view));
   }
   if (hasDays(s.view) && s.day && s.day !== today) {
     q.set("day", s.day);

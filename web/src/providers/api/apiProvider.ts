@@ -19,7 +19,7 @@ import {
 } from "../../api/resources";
 import type { components, paths } from "../../api/schema";
 import { splitDayLogs } from "../../daylog";
-import { viewOf } from "../../viewquery";
+import { viewOf, wireView } from "../../viewquery";
 import { createView, type ViewName } from "../../views";
 import type { Member } from "../../users";
 import type {
@@ -393,7 +393,7 @@ export const apiProvider: Provider = {
       body.before = await resolveCardId(input.before);
     }
     return cardFrom(
-      client.POST("/views/{view}/cards", { params: { path: { view } }, body }),
+      client.POST("/views/{view}/cards", { params: { path: { view: wireView(view) } }, body }),
     );
   },
 

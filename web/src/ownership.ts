@@ -301,7 +301,7 @@ export interface RoadmapFilters {
 export const NO_ROADMAP_FILTERS: RoadmapFilters = { teams: [], customers: [], owners: [], statuses: [] };
 
 /** ROADMAP_FILTERS_KEY is where the viewer's choice is remembered. */
-export const ROADMAP_FILTERS_KEY = "aeman.roadmap.filters";
+export const ROADMAP_FILTERS_KEY = "aeman.strategy.filters";
 
 /** ROADMAP_FILTERS_VERSION marks a choice stored since the Status filter
  *  took Locked and No items (O14). */

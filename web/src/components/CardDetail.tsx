@@ -176,7 +176,7 @@ export function CardDetail({
     }
     let dropped = false;
     void provider
-      .listCards({ view: "roadmap" })
+      .listCards({ view: "strategy" })
       .then((l) => {
         const listed = tombstones ? notTombstoned(l.cards, tombstones) : l.cards;
         storeListing(key, listed, Date.now());
@@ -945,8 +945,8 @@ export function CardDetail({
                     <button
                       type="button"
                       className="modal-crumb-reveal"
-                      title={`Show «${up.title}» on the Roadmap`}
-                      aria-label={`Show ${up.title} on the Roadmap`}
+                      title={`Show «${up.title}» on the Strategy board`}
+                      aria-label={`Show ${up.title} on the Strategy board`}
                       onClick={() => onReveal(up.uid)}
                     >
                       ↗

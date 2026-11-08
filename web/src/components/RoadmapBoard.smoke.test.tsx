@@ -350,9 +350,9 @@ describe("ownership on the Roadmap", () => {
   it("says nothing matches the filters, and offers to clear them", () => {
     const html = draw(board([]), null, { teams: [], customers: [], owners: ["nobody"], statuses: [] });
     expect(html).toContain("Nothing matches the filters");
-    expect(html).not.toContain("Nothing on the roadmap yet");
+    expect(html).not.toContain("Nothing on the Strategy board yet");
     expect(html).toMatch(/<button[^>]*>Clear the filters<\/button>/);
-    expect(draw(board([]))).toContain("Nothing on the roadmap yet");
+    expect(draw(board([]))).toContain("Nothing on the Strategy board yet");
   });
 
   // The rosters are managed from the bottom of their filters (FilterSelect's

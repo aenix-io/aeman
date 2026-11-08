@@ -34,7 +34,7 @@ function withCustomers(q: Record<string, string>, opts: ViewOptions): Record<str
 }
 
 function roadmapQuery(opts: ViewOptions): Record<string, string> {
-  const q: Record<string, string> = { view: "roadmap" };
+  const q: Record<string, string> = { view: wireView("roadmap") };
   const f = opts.filters;
   if (f?.teams.length) {
     q.team = teamSet(f.teams);
@@ -179,7 +179,15 @@ export function viewOf(query: string): string {
   return "all";
 }
 
-/** storedView is the board a remembered tab name opens. A name a board used
+/** wireView is a board's name as the API and the address know it: the
+ *  board the code calls the roadmap is the Strategy board everywhere a
+ *  reader or a request sees it ("roadmap" is the server's deprecated alias). */
+export function wireView(view: string): string {
+  return view === "roadmap" ? "strategy" : view;
+}
+
+/** storedView is the board a remembered tab name opens. The Strategy board
+ *  was the Roadmap: both names open it. A name a board used
  *  to have still lands on the board that carries it now: "nixon" was the
  *  Team tab, "triage" was retired for the Backlog (docs/design/backlog.md,
  *  K9), and the Project board ("project", once "plan") was removed with
@@ -194,6 +202,7 @@ export function storedView(raw: string | null): ViewMode {
     case "backlog":
     case "triage":
       return "backlog";
+    case "strategy":
     case "roadmap":
     case "project":
     case "plan":
