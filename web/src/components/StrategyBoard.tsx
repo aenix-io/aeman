@@ -14,6 +14,9 @@ import { todayIso } from "../date";
 import type { Board, Card as CardModel, CardType, Provider } from "../providers/types";
 import { backlogList, splitEpics } from "../backlogboard";
 import { readDepth, readZoom } from "../viewprefs";
+import { epicSlotOrder, type SlotCard } from "../queue";
+import { onBacklog } from "../backlogboard";
+import { isPlanning as isPlanItem, isSubtask as isSubtaskCard } from "../subtasks";
 import { placerOf } from "../ownership";
 import {
   DELETE_INTENT,
@@ -178,6 +181,18 @@ function readFolded(): Set<string> {
 }
 
 const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+/** slotCards is the listing as epicSlotOrder reads it. */
+function slotCards(cards: readonly CardModel[]): SlotCard[] {
+  const team = placerOf(cards);
+  return cards.map((c) => ({
+    itemId: c.itemId,
+    parent: c.parent,
+    queued: onBacklog(c) && !c.reviewOf,
+    team: team(c),
+    task: !isPlanItem(c) && !c.reviewOf && !isSubtaskCard(c),
+  }));
+}
 
 /** A row line of the table: a row of the tree or of a section (the other
  *  line is a section's header). The timeline draws a lane per line, so the
@@ -598,11 +613,18 @@ export function StrategyBoard({
     if (now.patch) {
       patchCard(id, now.patch);
     }
-    reorderCards?.(now.order);
+    // A reorder within an epic moves the epic's parked tasks of the team over
+    // their slots (queue.ts epicSlotOrder, the server's rule mirrored): the
+    // tab shows what the server writes, since its own write is not echoed.
+    const request = dropRequest(shown, id, commit);
+    const slotted =
+      request.kind === "reorder-in-epic"
+        ? epicSlotOrder(slotCards(shown), id, { after: request.after, before: request.before })
+        : null;
+    reorderCards?.(slotted ?? now.order);
     // ONE request, one action (ordering.md): a reorder within the epic, or a
     // move — an epic's gathers its tasks, a task dropped into another epic
     // is placed after that epic's last parked task.
-    const request = dropRequest(shown, id, commit);
     void writeDrop(id, request, provider)
       .then(() => {
         if (request.kind === "move" && request.parent !== undefined && !request.after && !request.before) {

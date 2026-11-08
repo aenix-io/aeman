@@ -113,7 +113,7 @@ Unranked tasks come from direct writers; an invalid key (empty, a character outs
 
 **Concurrent changes.** Two requests on one server are serialised by the store lock: each plans over the cache as the other left it. A fetch that brings another replica's commits in between is just another state to plan over. A rejected push replays the commit field by field (`gitstore.Repo.Rebase`), rank lines included; a block that another replica broke meanwhile stays as the replay leaves it until the next gather.
 
-**What the client sees.** The acting tab shows the new order at once (the `queue.ts` mirror); the answer is `{actionId, moved}` — the action the keys were written under, and how many cards took one. Other tabs get ONE `Ordering` frame with the complete result. A refusal rolls the optimistic order back.
+**What the client sees.** The acting tab shows the new order at once — a reorder within an epic through the `queue.ts` mirror of the slot permutation (`epicSlotOrder`), since the server does not echo a tab's own write; a drop into another epic and a Backlog epic move read the board back once the server answers; the answer is `{actionId, moved}` — the action the keys were written under, and how many cards took one. Other tabs get ONE `Ordering` frame with the complete result. A refusal rolls the optimistic order back.
 
 
 **Cost.** 1 + k files (k = the epic's parked tasks out of place); one commit per repository touched, typically one or two; O(n) compute on ~3300 cards; one `Ordering` frame as before.

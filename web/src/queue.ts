@@ -138,3 +138,52 @@ export function reorderedInEpic(
 export function epicOrderOf(epicIds: readonly string[]): Map<string, number> {
   return new Map(epicIds.map((id, i) => [id, i]));
 }
+
+/** SlotCard is what epicSlotOrder reads of a card of the board's listing. */
+export interface SlotCard {
+  itemId: string;
+  parent?: string;
+  /** In its team's queue: a parked, open, own-place task (onBacklog). */
+  queued: boolean;
+  /** The team it stands under (O13). */
+  team: string;
+  /** A task of the epic as the Strategy board draws it among the epic's
+   *  children (not a plan item, a review or a subtask). */
+  task: boolean;
+}
+
+/** epicSlotOrder is the BOARD's order after a task is moved within its epic
+ *  on the Strategy board (Q6, board.ReorderInEpicPlan) — what the acting
+ *  tab shows at once, since the server does not echo its own write back:
+ *  the epic's tasks as drawn with the task put right after `after` (or
+ *  right before `before`), and then the epic's PARKED tasks of the task's
+ *  team take the places they held in the board's order, in that new order.
+ *  Every other card — another team's task of the epic, a task in work —
+ *  stays where it is. Null for a task that is in no queue: its move is an
+ *  ordinary one. `cards` is the listing in board order. */
+export function epicSlotOrder(
+  cards: readonly SlotCard[],
+  draggedId: string,
+  anchor: { after?: string; before?: string },
+): string[] | null {
+  const dragged = cards.find((c) => c.itemId === draggedId);
+  if (!dragged || !dragged.queued || !dragged.parent) {
+    return null;
+  }
+  const drawn = cards.filter((c) => c.task && c.parent === dragged.parent && c.itemId !== draggedId).map((c) => c.itemId);
+  let at = 0;
+  if (anchor.after) {
+    const i = drawn.indexOf(anchor.after);
+    at = i < 0 ? drawn.length : i + 1;
+  } else if (anchor.before) {
+    const i = drawn.indexOf(anchor.before);
+    at = i < 0 ? 0 : i;
+  }
+  const order = [...drawn.slice(0, at), draggedId, ...drawn.slice(at)];
+  const slot = new Set(
+    cards.filter((c) => c.task && c.parent === dragged.parent && c.queued && c.team === dragged.team).map((c) => c.itemId),
+  );
+  const moved = order.filter((id) => slot.has(id));
+  let k = 0;
+  return cards.map((c) => (slot.has(c.itemId) ? moved[k++] : c.itemId));
+}
