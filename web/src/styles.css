@@ -5682,6 +5682,17 @@ button.card-age {
   color: var(--muted);
 }
 
+/* The drawer's Priority row (K15): the badge's priority part on its own,
+   rounded, and where an inherited one comes from. */
+.drawer-prio .roadmap-prio {
+  border-radius: 3px;
+}
+
+.drawer-prio-from {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .roadmap-status-separator {
   height: 1px;
   margin: 3px 2px;
