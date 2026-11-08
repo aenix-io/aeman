@@ -488,14 +488,16 @@ Order is a **rank key** per file, in the LexoRank style: a string
 compared bytewise, with room to insert between any two neighbours by
 appending. Moving one card rewrites one file; nothing is renumbered;
 there is no shared index file to fight over. When two neighbours have no
-room left (the key would exceed a length cap), the mover rebalances the
-run between the nearest neighbours that have room — a rare, bounded
-rewrite in the same commit, **confined to the mover's domain**: a run
-never reaches into a repository the mover cannot write. When the only
-roomy neighbours sit in another domain (a merged roster), the cap is
-soft — the key grows past it rather than any file being written across
-the boundary. The key logic is pure and lives in `pkg/board`
-(`rank.go`).
+room left (the key would exceed a length cap), or are tied, the mover
+renumbers a **bounded window** around the place — a few neighbours on
+each side, grown until evenly spaced keys between the nearest entries
+outside it fit in half the cap — in the same action, never the whole
+list (`board.PlaceAfter`). The neighbours are read off the MERGED board:
+a window may hold cards of several domains, and each file is written in
+its own domain (one commit per repository). The key logic is pure and
+lives in `pkg/board` (`rank.go`, `placeafter.go`); what each kind's key
+means — the epic order, the team queue — is
+[ordering.md](ordering.md).
 
 The same key orders teams and customers. Because it is a plain string, roster fragments from different
 domains merge into one order.
@@ -1037,7 +1039,7 @@ The tests are the second documentation: each names its edges.
 | G9 | Deepening applies `unshallow` and lands exactly at the horizon | deepen to date T: oldest reachable commit ≤ T, all commits > T present; a second deepen further back; deepening past the root leaves no shallow entry |
 | G10 | Push rejection is detected by fetching, not by error type | rejected push whose fetch brings nothing → reported as failed, commits kept, healthz age grows; rejected push whose fetch brings new commits → re-applied and pushed |
 | G11 | Re-apply on a new tip replays the unpushed commits field by field onto the files as they now are: last write wins per field; a create is idempotent by path; the commits are found on the branch, so a restart between commit and push loses nothing | two writers, disjoint cards: both changes present; same card, different fields: both land; same field: the later re-application wins, history has both commits; two replicas creating the same path → one file, the loser's create is a no-op with no second commit; a commit made before a restart is pushed by the next run |
-| G12 | Rank insertion touches one file; rebalancing is bounded to the run and to the mover's domain | insert between neighbours: one file changes; exhausted key space: only the run between the nearest roomy neighbours is rewritten, in the same commit; a run that would cross into another domain stops at the boundary |
+| G12 | Rank insertion touches one file; rebalancing is bounded to a window around the place | insert between neighbours: one file changes; exhausted or tied key space: only a window of neighbours around the place is rewritten, in the same action, never the whole list; an anchor in another domain is a place on the merged board |
 | G13 | Roster fragments merge into one order across domains; duplicate names resolve to the oldest, the rest are aliases | interleaved ranks come out interleaved; identical ranks tie-break by id; two fragments declaring `portal` → one team, the older file's rank and sprint, both fragments' cards, healthz names the duplicate |
 | G14 | Domain follows the inheritance rule, linked cards first, and is never chosen per card | a team card → the team's domain; a review card of an original in the closed repository whose `team` lives in shared → closed, not shared (the review card carries the original's team, so the team rule would leak it); moving a card moves its review card and subtasks in the same action (the project step — a card under a closed project → closed — went with the Project board, 2026-11-07) |
 | G57 | ~~A card's COLUMN names the repository that holds its file while a link outranks its project~~ **Removed**: a card in a column carries no team, no owner, no task parent and no review link (H4, `hierarchy.md`), so no link ever outranks its project; the rest of the guard (`refileGuard`) went with the Project board itself, 2026-11-07 (H15) | — |

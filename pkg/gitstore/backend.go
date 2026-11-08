@@ -549,99 +549,50 @@ func isStub(c board.Card) bool {
 }
 
 // MoveCard gives the card (or stub) a rank between afterID and its
-// successor in its own list — one file rewritten, nothing renumbered.
+// successor in its own list — one file rewritten, nothing renumbered — or,
+// when that gap is exhausted, renumbers a bounded window around the place
+// in the same commit (board.PlaceAfter, G12).
 func (b *Backend) MoveCard(ctx context.Context, _ board.Board, card board.Card, afterID string) error {
 	s, err := b.snapshot(ctx)
 	if err != nil {
 		return err
 	}
-	ranks := b.rankedList(s, card)
-	prev, next := "", ""
-	if afterID == "" {
-		if len(ranks) > 0 && ranks[0].id != card.ItemID {
-			next = ranks[0].rank
-		} else if len(ranks) > 1 {
-			next = ranks[1].rank
-		}
-	} else {
-		for i, r := range ranks {
-			if r.id != afterID {
-				continue
-			}
-			prev = r.rank
-			for j := i + 1; j < len(ranks); j++ {
-				if ranks[j].id != card.ItemID {
-					next = ranks[j].rank
-					break
-				}
-			}
-			break
-		}
+	var list []board.Ranked
+	for _, r := range b.rankedList(s, card) {
+		list = append(list, board.Ranked{ID: r.id, Rank: r.rank})
 	}
-	if prev != "" && next != "" && prev >= next {
-		next = "" // the list's own ranks are out of order; append after prev
-	}
-	rank, err := board.RankBetween(prev, next)
+	changes, err := board.PlaceAfter(list, card.ItemID, afterID)
 	if err != nil {
 		return err
 	}
-	if board.RankTooLong(rank) {
-		return b.rebalance(ctx, card, ranks, afterID)
-	}
-	return b.setRank(ctx, card, rank)
+	return b.writeRanks(ctx, card, changes)
 }
 
-// setCardRank writes the card's rank as given — the MultiBackend's board-wide
-// top, worked out over every domain's cards.
+// setCardRank writes the card's rank as given — the MultiBackend's keys,
+// worked out over every domain's cards.
 func (b *Backend) setCardRank(ctx context.Context, card board.Card, rank string) error {
 	return b.setRank(ctx, card, rank)
 }
 
-// rebalance renumbers the card's whole list — the card placed after afterID
-// — in ONE commit (G12): the key space between two neighbours is exhausted,
-// and a run of short keys is the cure, not an ever longer key. Under the
-// caller's scope the rewrites join its commit; bare, they get their own.
-func (b *Backend) rebalance(ctx context.Context, card board.Card, ranks []ranked, afterID string) error {
-	order := make([]string, 0, len(ranks)+1)
-	if afterID == "" {
-		order = append(order, card.ItemID)
-	}
-	current := map[string]string{}
-	for _, r := range ranks {
-		current[r.id] = r.rank
-		if r.id == card.ItemID {
-			continue
-		}
-		order = append(order, r.id)
-		if r.id == afterID {
-			order = append(order, card.ItemID)
-		}
-	}
-	if !contains(order, card.ItemID) {
-		order = append(order, card.ItemID) // afterID unknown: the end of the list
-	}
-	keys, err := board.RankRebalance("", "", len(order))
-	if err != nil {
-		return err
-	}
+// writeRanks writes a move's keys: the mover's, and its window's when the
+// gap was renumbered — in ONE commit (G12). Under the caller's scope the
+// rewrites join its commit; bare, several get one of their own.
+func (b *Backend) writeRanks(ctx context.Context, card board.Card, changes []board.RankChange) error {
 	flush := func() (plumbing.Hash, error) { return plumbing.ZeroHash, nil }
-	if scopeOf(ctx) == nil {
+	if scopeOf(ctx) == nil && len(changes) > 1 {
 		ctx, flush = WithScope(ctx, Action{Name: "move", Actor: actorOf(ctx), At: b.now(), Cards: cardIDs(card),
 			Summary: "move " + card.ItemID + " (run renumbered)"})
 	}
-	for i, id := range order {
-		if id != card.ItemID && current[id] == keys[i] {
-			continue
+	for _, ch := range changes {
+		target := card
+		if ch.ID != card.ItemID {
+			target = board.Card{ItemID: ch.ID, Title: card.Title}
 		}
-		sibling := card
-		if id != card.ItemID {
-			sibling = board.Card{ItemID: id, Title: card.Title}
-		}
-		if err := b.setRank(ctx, sibling, keys[i]); err != nil {
+		if err := b.setRank(ctx, target, ch.After); err != nil {
 			return err
 		}
 	}
-	_, err = flush()
+	_, err := flush()
 	return err
 }
 
