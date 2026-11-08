@@ -287,8 +287,8 @@ export function BacklogBoard({
         return;
       }
       const plan = dropPlan(card.itemId, list, at);
-      // A place next to none of its siblings is not one it can go (K14):
-      // the drag showed it as forbidden, and nothing moves.
+      // A review nobody has taken is never dragged (K10): the drag showed
+      // it as forbidden, and nothing moves.
       if (plan.kind !== "reorder") {
         return;
       }
@@ -304,7 +304,7 @@ export function BacklogBoard({
     [list, board.cards, reorderCards, moveInBoardOrder, persistAnchor, onError, reload],
   );
   // Where the card in hand would land is not a place it may go: next to
-  // none of its siblings (K14).
+  // a review nobody has taken, whose place is its task's (K10).
   const forbidden = useMemo(
     () => !!carried && over !== null && dropPlan(carried.itemId, list, over).kind === "forbidden",
     [carried, over, list],
@@ -783,13 +783,13 @@ export function TakeDialog({ title, onClose, onTake }: { title: string; onClose:
 /** Landing is the card in hand, drawn where it would come to rest — an
  *  outline, since it is not there yet, but otherwise the card being dragged:
  *  a review keeps its review stripe. Where it may not come to rest (next to
- *  none of its siblings, K14) the outline says so. */
+ *  a review nobody has taken, K10) the outline says so. */
 export function Landing({ card, forbidden = false }: { card: CardModel; forbidden?: boolean }) {
   const mark = markOf(card);
   return (
     <div
       className={`card backlog-card${mark ? ` card-${mark}` : ""} backlog-card-landing${forbidden ? " backlog-card-landing-forbid" : ""}`}
-      title={forbidden ? "Only among the tasks under the same parent: the Strategy board's tree decides the order" : undefined}
+      title={forbidden ? "A review nobody has taken stands on top until somebody takes it" : undefined}
     >
       <span className="card-title backlog-card-title">{card.title}</span>
     </div>

@@ -64,66 +64,14 @@ export function shownTeams(filter: readonly string[] | null, roster: readonly st
   return filter ? [...filter] : [...new Set([...roster, ""])];
 }
 
-/** BacklogKey is a backlog card's place in the list — board.BacklogKey,
- *  mirrored: whether it is a review nobody has taken (K10: those stand first,
- *  as a group of their own, each placed by the task it reviews), whether it
- *  is LOOSE (no plan item above it: after every planned card), and its PATH — the places in the board's order
- *  from the root of its tree down to the card (K14), the root's level ahead
- *  of its place, as the Strategy board draws its roots level by level. */
-export interface BacklogKey {
-  review: boolean;
-  loose: boolean;
-  path: number[];
-}
-
-const ROOT_LEVEL: Record<string, number> = { goal: 0, initiative: 1, epic: 2 };
-const PLANNING = new Set(["goal", "initiative", "epic"]);
-/** A place nobody named: after every named one. */
-const UNNAMED = Number.MAX_SAFE_INTEGER;
-
-/** backlogKey reads a card's key off the board's order (`pos`, uid → place).
- *  A card or an ancestor the order does not name stands after the named ones;
- *  `fallback` is the card's own place then. */
-export function backlogKey(
-  c: Pick<Card, "itemId" | "lineage" | "reviewOf" | "assignees" | "stage" | "progress">,
-  pos: ReadonlyMap<string, number>,
-  fallback = UNNAMED,
-): BacklogKey {
-  // A review nobody has taken (K10) stands in the group on top, placed by
-  // the task it reviews: its lineage is the task's planning chain, and the
-  // task's own place ends the path.
-  const review = needsReviewer(c);
-  const own = review ? (pos.get(c.reviewOf ?? "") ?? pos.get(c.itemId) ?? fallback) : (pos.get(c.itemId) ?? fallback);
-  const up = c.lineage ?? [];
-  if (!up.some((a) => a.type && PLANNING.has(a.type))) {
-    return { review, loose: true, path: [own] };
-  }
-  const root = ROOT_LEVEL[up[0].type ?? ""] ?? 3;
-  return { review, loose: false, path: [root, ...up.map((a) => pos.get(a.uid) ?? UNNAMED), own] };
-}
-
-/** compareBacklogKeys orders two keys: negative when a stands first. */
-export function compareBacklogKeys(a: BacklogKey, b: BacklogKey): number {
-  if (a.review !== b.review) {
-    return a.review ? -1 : 1;
-  }
-  if (a.loose !== b.loose) {
-    return a.loose ? 1 : -1;
-  }
-  for (let i = 0; i < a.path.length && i < b.path.length; i++) {
-    if (a.path[i] !== b.path[i]) {
-      return a.path[i] - b.path[i];
-    }
-  }
-  return a.path.length - b.path.length;
-}
-
 /** backlogList is the board: the backlog cards of the shown teams, MIXED, in
- *  the Strategy board's order (backlogKey) read off `order` — the listing's
- *  `boardOrder`, which every Ordering frame replaces. A card the order does
- *  not name yet (one a watch frame brought in) stands after the named ones,
- *  in the order the board holds the cards; with no order at all (an older
- *  server) that is the whole list. */
+ *  the board's order (Q2, board.BacklogOrder) read off `order` — the
+ *  listing's `boardOrder`, which every Ordering frame replaces: the reviews
+ *  nobody has taken first (K10), then every task by its own place. A task's
+ *  rank IS its queue place, so the plan items above it decide nothing. A
+ *  card the order does not name yet (one a watch frame brought in) stands
+ *  after the named ones, in the order the board holds the cards; with no
+ *  order at all (an older server) that is the whole list. */
 export function backlogList(cards: readonly Card[], teams: readonly string[], order?: readonly string[]): Card[] {
   const shown = new Set(teams);
   // A backlog holds the tasks STANDING UNDER its team (O13): its own, else
@@ -134,22 +82,9 @@ export function backlogList(cards: readonly Card[], teams: readonly string[], or
   const keyed = cards
     .map((c, i) => ({ c, i }))
     .filter(({ c }) => onBacklog(c) && shown.has(place(c)))
-    .map(({ c, i }) => ({ c, key: backlogKey(c, pos, base + i) }));
-  keyed.sort((a, b) => compareBacklogKeys(a.key, b.key));
+    .map(({ c, i }) => ({ c, review: needsReviewer(c), at: pos.get(c.itemId) ?? base + i }));
+  keyed.sort((a, b) => (a.review !== b.review ? (a.review ? -1 : 1) : a.at - b.at));
   return keyed.map(({ c }) => c);
-}
-
-/** runOf is which cards a backlog card is a SIBLING of (K14): a review nobody
- *  has taken among the other such reviews; a task among the tasks under the
- *  same parent — the loose tasks, with no plan item above, being one run. */
-function runOf(c: Pick<Card, "itemId" | "parent" | "lineage" | "reviewOf" | "assignees" | "stage" | "progress">): string {
-  if (needsReviewer(c)) {
-    // Its place is its task's (K10): it is no one's sibling, so no drop of
-    // it, or by it, is a place.
-    return `review:${c.itemId}`;
-  }
-  const planned = (c.lineage ?? []).some((a) => a.type && PLANNING.has(a.type));
-  return planned ? (c.parent ?? "") : "";
 }
 
 /** takeOwner is what TAKE leaves on the card, the server's `take` (K11)
@@ -212,35 +147,41 @@ export function spliceOrder(all: readonly string[], column: readonly string[]): 
 /** BacklogDrop is what a drop means. */
 export type BacklogDrop = { kind: "none" } | { kind: "forbidden" } | { kind: "reorder"; order: string[]; anchor: Anchor };
 
-/** dropPlan reads a drop at place `at` of the list without the card (K5,
- *  K14): ONE order, decided by the tree, so the card moves among its
- *  SIBLINGS only (runOf) — anchored after the sibling just above it, else
- *  before the sibling just below — and a drop with neither neighbour a
- *  sibling is FORBIDDEN. The team does not change by a drop: handing a task
- *  to another team is the owner picker's (ownPlan). A card put back where it
- *  was writes nothing. `list` is the cards as drawn, the card included. */
+/** dropPlan reads a drop at place `at` of the list without the card (Q4,
+ *  K5): a task goes between ANY two neighbours, of whichever epic or team —
+ *  it becomes an exception to its epic's order, and the epic's key does not
+ *  change. It is anchored after the TASK above it, else before the task
+ *  below it; a review nobody has taken is no anchor (its group is pinned on
+ *  top, K10), so a drop among the reviews lands before the first task. A
+ *  review itself is never dragged: its drop is forbidden. The team does not
+ *  change by a drop: handing a task to another team is the owner picker's
+ *  (ownPlan). A card put back where it was writes nothing. `list` is the
+ *  cards as drawn, the card included. */
 export function dropPlan(id: string, list: readonly Card[], at: number): BacklogDrop {
   const ids = list.map((c) => c.itemId);
-  const order = orderWith(ids, id, at);
-  if (order.every((x, i) => x === ids[i])) {
-    return { kind: "none" };
-  }
   const byId = new Map(list.map((c) => [c.itemId, c]));
   const moved = byId.get(id);
   if (!moved) {
     return { kind: "none" };
   }
-  const run = runOf(moved);
-  const place = order.indexOf(id);
-  const above = place > 0 ? byId.get(order[place - 1]) : undefined;
-  const below = place < order.length - 1 ? byId.get(order[place + 1]) : undefined;
-  if (above && runOf(above) === run) {
-    return { kind: "reorder", order, anchor: { after: above.itemId } };
+  if (needsReviewer(moved)) {
+    return { kind: "forbidden" };
   }
-  if (below && runOf(below) === run) {
-    return { kind: "reorder", order, anchor: { before: below.itemId } };
+  const order = orderWith(ids, id, at);
+  const tasks = order.filter((x) => x === id || !needsReviewer(byId.get(x)!));
+  const reviews = order.filter((x) => x !== id && needsReviewer(byId.get(x)!));
+  const shown = [...reviews, ...tasks];
+  if (shown.every((x, i) => x === ids[i])) {
+    return { kind: "none" };
   }
-  return { kind: "forbidden" };
+  const place = tasks.indexOf(id);
+  if (place > 0) {
+    return { kind: "reorder", order: shown, anchor: { after: tasks[place - 1] } };
+  }
+  if (tasks.length > 1) {
+    return { kind: "reorder", order: shown, anchor: { before: tasks[1] } };
+  }
+  return { kind: "none" };
 }
 
 /** AddBox is what an insert "+" offers once opened: with one team shown,

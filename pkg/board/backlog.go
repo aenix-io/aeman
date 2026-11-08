@@ -78,118 +78,22 @@ func Unplaced(c Card, subtask bool) bool {
 	return !Complete(c.Stage, c.Progress)
 }
 
-// BacklogKey is a backlog card's place in the list, comparable on its own
-// (Less). The client mirrors it card by card (web/src/backlogboard.ts).
-//
-//   - Review: a review nobody has taken (K10) stands first, before every
-//     task, in its own group.
-//   - Loose: the card has no plan item above it; the loose cards come after
-//     every planned one.
-//   - Path: the places in the board's order from the root of the card's tree
-//     down to the card itself (K14) — the Strategy board's draw order, which lists a
-//     parent's children in board order. The first step is the root's level
-//     ahead of its place, as the Strategy board draws its roots level by level (goals,
-//     then initiatives with no goal, then epics with no initiative). A loose
-//     card's path is its own place alone; a review's is the reviewed task's,
-//     so the reviews read in their tasks' Strategy order.
-type BacklogKey struct {
-	Review bool
-	Loose  bool
-	Path   []int
-}
-
-// Less reports whether k stands before o.
-func (k BacklogKey) Less(o BacklogKey) bool {
-	if k.Review != o.Review {
-		return k.Review
-	}
-	if k.Loose != o.Loose {
-		return !k.Loose
-	}
-	for i := 0; i < len(k.Path) && i < len(o.Path); i++ {
-		if k.Path[i] != o.Path[i] {
-			return k.Path[i] < o.Path[i]
-		}
-	}
-	return len(k.Path) < len(o.Path)
-}
-
-// BacklogKey is the card's place in its backlog (BacklogKey).
-func (ix *Index) BacklogKey(c Card) BacklogKey {
-	if NeedsReviewer(c) {
-		k := BacklogKey{Loose: true, Path: []int{ix.pos[c.ItemID]}}
-		// Placed by the card it reviews — a review of a review (a direct
-		// writer's) by the review it reviews — as the client reads it off
-		// status.lineage.
-		if task, ok := ix.Find(c.ReviewOf); ok {
-			k = ix.reviewedKey(task)
-		}
-		k.Review = true
-		return k
-	}
-	return ix.taskKey(c)
-}
-
-// reviewedKey is where the task a review stands by is placed for that
-// review: its PLANNING chain and its own place — a subtask's parent task is
-// not on the path, as the client reads it off the review card's
-// status.lineage, which carries the planning chain alone.
-func (ix *Index) reviewedKey(task Card) BacklogKey {
-	var up []Card
-	for _, a := range ix.Lineage(task) {
-		if IsPlanning(a) {
-			up = append(up, a)
-		}
-	}
-	if len(up) == 0 {
-		return BacklogKey{Loose: true, Path: []int{ix.pos[task.ItemID]}}
-	}
-	path := []int{Level(TypeGoal) - Level(up[0].Type)}
-	for _, a := range up {
-		path = append(path, ix.pos[a.ItemID])
-	}
-	return BacklogKey{Path: append(path, ix.pos[task.ItemID])}
-}
-
-// taskKey is a task's place by its tree.
-func (ix *Index) taskKey(c Card) BacklogKey {
-	own := ix.pos[c.ItemID]
-	up := ix.Lineage(c)
-	planned := false
-	for _, a := range up {
-		if IsPlanning(a) {
-			planned = true
-			break
-		}
-	}
-	if !planned {
-		return BacklogKey{Loose: true, Path: []int{own}}
-	}
-	path := make([]int, 0, len(up)+2)
-	path = append(path, Level(TypeGoal)-Level(up[0].Type))
-	for _, a := range up {
-		path = append(path, ix.pos[a.ItemID])
-	}
-	return BacklogKey{Path: append(path, own)}
-}
-
-// BacklogOrder sorts a backlog's cards the way it is read: the reviews
-// nobody has taken (K10) first, in their tasks' Strategy order, then the
-// tasks in the STRATEGY BOARD's order across the whole hierarchy (K14), the tasks
-// with no plan item above them after — see BacklogKey.
-//
-// One order, decided by the tree: dragging a task in the backlog moves it
-// among its siblings under the same parent, which
-// moves it on the Strategy board too, and a task's place is never something the
-// backlog keeps apart from the Strategy board's. The board's order (rank, then id)
-// is where the siblings' order comes from, as on every board.
+// BacklogOrder sorts a backlog's cards the way it is read (Q2,
+// docs/design/ordering.md): the reviews nobody has taken (K10) first, in a
+// group of their own, then the tasks — both in the BOARD's order (rank,
+// then id). A task's rank IS its place in its team's queue: nothing is
+// inherited down the tree, so moving a goal or an initiative reorders no
+// backlog, and a task may stand between any two others. A mix of teams is
+// the same order over their cards.
 func BacklogOrder(ix *Index, cards []Card) []Card {
 	out := append([]Card(nil), cards...)
-	keys := make(map[string]BacklogKey, len(out))
-	for _, c := range out {
-		keys[c.ItemID] = ix.BacklogKey(c)
-	}
-	sort.SliceStable(out, func(i, j int) bool { return keys[out[i].ItemID].Less(keys[out[j].ItemID]) })
+	sort.SliceStable(out, func(i, j int) bool {
+		ri, rj := NeedsReviewer(out[i]), NeedsReviewer(out[j])
+		if ri != rj {
+			return ri
+		}
+		return ix.pos[out[i].ItemID] < ix.pos[out[j].ItemID]
+	})
 	return out
 }
 

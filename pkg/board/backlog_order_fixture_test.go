@@ -38,13 +38,12 @@ func (fx backlogFixture) board() Board {
 	return NewBoard(cards)
 }
 
-// THE BACKLOG'S ORDER IS ONE RULE ON BOTH SIDES (K14, K10). The fixture is
+// THE BACKLOG'S ORDER IS ONE RULE ON BOTH SIDES (Q2, K10). The fixture is
 // shared with the client's mirror (web/src/backlogboard.test.ts reads the
-// same file): the reviews nobody has taken first in their tasks' Strategy
-// order, one of them of a task in work, one that carries a parent
-// of its own (a direct writer's stray: it is placed by the task it reviews,
-// never by that parent) and a review of a review (placed by the review it
-// reviews) — the same cards must read in the same order.
+// same file): the reviews nobody has taken first, then the tasks, each in
+// the board's order — a review of a task in work, one that carries a parent
+// of its own (a direct writer's stray) and a review of a review among them —
+// the same cards must read in the same order.
 func TestTheBacklogOrderMatchesTheSharedFixture(t *testing.T) {
 	raw, err := os.ReadFile("testdata/backlog_order.json")
 	if err != nil {

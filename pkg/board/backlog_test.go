@@ -127,7 +127,8 @@ func TestTheBacklogListsATeamsParkedOpenTasksOnly(t *testing.T) {
 	}
 }
 
-// A backlog reads in the STRATEGY BOARD's order (K14): the path of sibling places
+// Schema 3's backlog read in the STRATEGY BOARD's order (K14, retired by
+// ordering.md; the schema-4 migration preserves exactly it): the path of sibling places
 // from the root plan item down — goal order, then initiative within its goal,
 // epic within its initiative, task within its epic — so the backlog and the
 // Strategy are one order, decided by the tree. A task with no plan item above
@@ -135,7 +136,7 @@ func TestTheBacklogListsATeamsParkedOpenTasksOnly(t *testing.T) {
 // The Strategy board draws its roots level by level (goals, then initiatives with no
 // goal, then epics with no initiative), so the first step of the path is
 // read the same way.
-func TestABacklogReadsInTheStrategysOrder(t *testing.T) {
+func TestTheSchema3BacklogReadsInTheStrategysOrder(t *testing.T) {
 	b := NewBoard([]Card{
 		// Board order (the rank order every board reads): deliberately not
 		// the tree's, so only the path can put the tasks right.
@@ -173,15 +174,15 @@ func TestABacklogReadsInTheStrategysOrder(t *testing.T) {
 		// No plan item above: after every planned task, in board order.
 		"loose-1", "loose-2",
 	}
-	if got := ids(BacklogOrder(ix, listed)); !reflect.DeepEqual(got, want) {
-		t.Fatalf("BacklogOrder = %v\nwant          %v", got, want)
+	if got := ids(Schema3BacklogOrder(ix, listed)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Schema3BacklogOrder = %v\nwant          %v", got, want)
 	}
 }
 
 // The reviews NOBODY HAS TAKEN (K10) stand FIRST in a backlog, in a group
-// of their own before every task, among themselves in the Strategy board's order
-// of the tasks they review; then the tasks in the Strategy board's order, the
-// tasks with no plan item above them last.
+// of their own before every task, among themselves in the board's order;
+// then the tasks in the board's order — a task's rank is its queue place, so
+// the plan items above them decide nothing (Q2).
 func TestTheReviewsNobodyHasTakenLeadTheBacklog(t *testing.T) {
 	today := "2026-11-02"
 	b := NewBoard([]Card{
@@ -207,18 +208,17 @@ func TestTheReviewsNobodyHasTakenLeadTheBacklog(t *testing.T) {
 		}
 	}
 	want := []string{
-		"r-early", "r-late", "r-none", // the reviews, in their tasks' Strategy order
-		"t1", "t-none", // the tasks in the Strategy board's order
-		"t0", // a task with no plan item above it, last
+		"r-late", "r-none", "r-early", // the reviews, in the board's order
+		"t1", "t-none", "t0", // then the tasks, in the board's order
 	}
 	if got := ids(BacklogOrder(ix, listed)); !reflect.DeepEqual(got, want) {
 		t.Fatalf("BacklogOrder = %v, want %v", got, want)
 	}
 }
 
-// BacklogKey is the place itself, comparable on its own: the client mirrors
-// it card by card (backlogboard.ts), so the edges are pinned here too.
-func TestTheBacklogKeyComparesPathsStepByStep(t *testing.T) {
+// Schema3BacklogKey is the old place itself, comparable on its own: the
+// migration sorts by it, so its edges are pinned here too.
+func TestTheSchema3BacklogKeyComparesPathsStepByStep(t *testing.T) {
 	b := NewBoard([]Card{
 		{ItemID: "g", Type: TypeGoal},
 		{ItemID: "under-g", Parent: "g", Parked: true},
@@ -226,7 +226,7 @@ func TestTheBacklogKeyComparesPathsStepByStep(t *testing.T) {
 		{ItemID: "under-e", Parent: "e", Parked: true},
 	})
 	ix := NewIndex(b)
-	k := func(id string) BacklogKey { c, _ := ix.Find(id); return ix.BacklogKey(c) }
+	k := func(id string) Schema3BacklogKey { c, _ := ix.Find(id); return ix.Schema3BacklogKey(c) }
 	// under-g stands before e among g's children, so before everything in e.
 	if !k("under-g").Less(k("under-e")) || k("under-e").Less(k("under-g")) {
 		t.Fatalf("under-g %v must come before under-e %v", k("under-g"), k("under-e"))
@@ -331,7 +331,34 @@ func TestAReviewOfASubtaskIsPlacedByThePlanningChain(t *testing.T) {
 			listed = append(listed, c)
 		}
 	}
-	if got, want := ids(BacklogOrder(ix, listed)), []string{"r-t2", "r-sub"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("BacklogOrder = %v, want %v (s stands after t2 in the board's order)", got, want)
+	if got, want := ids(Schema3BacklogOrder(ix, listed)), []string{"r-t2", "r-sub"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Schema3BacklogOrder = %v, want %v (s stands after t2 in the board's order)", got, want)
+	}
+}
+
+// Q2 — A BACKLOG READS IN THE BOARD'S ORDER: a task's rank is its place in
+// its team's queue, whatever plan items stand above it — the reviews nobody
+// has taken first, then every task, planned or not, by its own key. Moving a
+// goal or an initiative therefore reorders no backlog.
+func TestABacklogReadsInTheBoardsOrder(t *testing.T) {
+	b := NewBoard([]Card{
+		{ItemID: "loose-1", Parked: true},
+		{ItemID: "t-e2", Parent: "e2", Parked: true},
+		{ItemID: "g2", Type: TypeGoal},
+		{ItemID: "e2", Type: TypeEpic, Parent: "g2"},
+		{ItemID: "r", ReviewOf: "t-e1", Parked: true},
+		{ItemID: "g1", Type: TypeGoal},
+		{ItemID: "e1", Type: TypeEpic, Parent: "g1"},
+		{ItemID: "t-e1", Parent: "e1", Parked: true},
+	})
+	ix := NewIndex(b)
+	var listed []Card
+	for _, c := range b.Cards {
+		if ix.OnBacklog(c) {
+			listed = append(listed, c)
+		}
+	}
+	if got, want := ids(BacklogOrder(ix, listed)), []string{"r", "loose-1", "t-e2", "t-e1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("BacklogOrder = %v, want %v", got, want)
 	}
 }
