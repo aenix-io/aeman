@@ -225,6 +225,7 @@ const (
 	NoHistory               ProblemCode = "noHistory"
 	NoPlaceOfItsOwn         ProblemCode = "noPlaceOfItsOwn"
 	NoReviewer              ProblemCode = "noReviewer"
+	NoSuchAction            ProblemCode = "noSuchAction"
 	NoSuchView              ProblemCode = "noSuchView"
 	NobodyToTake            ProblemCode = "nobodyToTake"
 	NotATarget              ProblemCode = "notATarget"
@@ -232,6 +233,7 @@ const (
 	NotFinished             ProblemCode = "notFinished"
 	NotInWork               ProblemCode = "notInWork"
 	NotOnThisBoard          ProblemCode = "notOnThisBoard"
+	NotUnderAnEpic          ProblemCode = "notUnderAnEpic"
 	NotYoursToRefuse        ProblemCode = "notYoursToRefuse"
 	NotYoursToRemove        ProblemCode = "notYoursToRemove"
 	NoteNotFound            ProblemCode = "noteNotFound"
@@ -346,6 +348,8 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case NoReviewer:
 		return true
+	case NoSuchAction:
+		return true
 	case NoSuchView:
 		return true
 	case NobodyToTake:
@@ -359,6 +363,8 @@ func (e ProblemCode) Valid() bool {
 	case NotInWork:
 		return true
 	case NotOnThisBoard:
+		return true
+	case NotUnderAnEpic:
 		return true
 	case NotYoursToRefuse:
 		return true
@@ -725,6 +731,18 @@ type MoveCardBody struct {
 
 	// Before The card to land in front of. It wins when both are sent.
 	Before *string `json:"before,omitempty"`
+
+	// Parent Re-parents the card first (a Strategy drop under another plan item) — `""` takes the parent off — then places it: at the anchor when one is named, else a parked task by the default place in its team's queue (Q6).
+	Parent *string `json:"parent,omitempty"`
+}
+
+// MoveResult defines model for MoveResult.
+type MoveResult struct {
+	// ActionID The ordering action, for `POST /actions/{actionId}/undo`; absent when nothing was written.
+	ActionID *string `json:"actionId,omitempty"`
+
+	// Moved How many cards took a new key (an epic move counts the epic and every task it gathered).
+	Moved int `json:"moved"`
 }
 
 // Note defines model for Note.
@@ -894,6 +912,18 @@ type UnassignWorkBody struct {
 
 	// Uids Exactly the tasks to take out of work, when given — the ones the confirm counted. Each must be one the gesture reaches from the card (422 `notATarget` otherwise). Absent: every task it reaches.
 	Uids *[]string `json:"uids,omitempty"`
+}
+
+// UndoResult defines model for UndoResult.
+type UndoResult struct {
+	// ActionID The Undo's own action.
+	ActionID string `json:"actionId"`
+
+	// Reverted The cards that took their old keys back.
+	Reverted []string `json:"reverted"`
+
+	// Skipped The cards moved again since the action, left where they are.
+	Skipped []string `json:"skipped"`
 }
 
 // ViewResource One board a caller may open and the gestures it draws. It exists so a client can READ the surface instead of being told it in a description, which is how the two drifted apart in the first place.
@@ -1226,6 +1256,9 @@ type DeferCardJSONRequestBody = DeferCardBody
 // MoveCardJSONRequestBody defines body for MoveCard for application/json ContentType.
 type MoveCardJSONRequestBody = MoveCardBody
 
+// ReorderInEpicJSONRequestBody defines body for ReorderInEpic for application/json ContentType.
+type ReorderInEpicJSONRequestBody = MoveCardBody
+
 // SendToReviewJSONRequestBody defines body for SendToReview for application/json ContentType.
 type SendToReviewJSONRequestBody = SendToReviewBody
 
@@ -1285,6 +1318,9 @@ type RemoveCardJSONRequestBody = RemoveCardBody
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// UndoAction Undo an ordering action.
+	// (POST /actions/{actionId}/undo)
+	UndoAction(w http.ResponseWriter, r *http.Request, actionID string)
 	// GetBoard The board: title, the team roster, the people and the visitor's domains.
 	// (GET /board)
 	GetBoard(w http.ResponseWriter, r *http.Request, params GetBoardParams)
@@ -1312,6 +1348,9 @@ type ServerInterface interface {
 	// ReopenCard Undo a done mark, restoring the progress the card had when done was set.
 	// (POST /cards/{uid}/actions/reopen)
 	ReopenCard(w http.ResponseWriter, r *http.Request, uid UID)
+	// ReorderInEpic Move a task within its epic, over the slots its epic's tasks hold.
+	// (POST /cards/{uid}/actions/reorder-in-epic)
+	ReorderInEpic(w http.ResponseWriter, r *http.Request, uid UID)
 	// SendToReview Send the card to a reviewer, or reassign the review that exists.
 	// (POST /cards/{uid}/actions/send-to-review)
 	SendToReview(w http.ResponseWriter, r *http.Request, uid UID)
@@ -1412,6 +1451,32 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// UndoAction operation middleware
+func (siw *ServerInterfaceWrapper) UndoAction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "actionId" -------------
+	var actionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "actionId", r.PathValue("actionId"), &actionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "actionId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UndoAction(w, r, actionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetBoard operation middleware
 func (siw *ServerInterfaceWrapper) GetBoard(w http.ResponseWriter, r *http.Request) {
@@ -1671,6 +1736,32 @@ func (siw *ServerInterfaceWrapper) ReopenCard(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReopenCard(w, r, uid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReorderInEpic operation middleware
+func (siw *ServerInterfaceWrapper) ReorderInEpic(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "uid" -------------
+	var uid UID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "uid", r.PathValue("uid"), &uid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uid", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReorderInEpic(w, r, uid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3403,6 +3494,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cards/{uid}", wrapper.GetCard)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/cards/{uid}", wrapper.PatchCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/move", wrapper.MoveCard)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/reorder-in-epic", wrapper.ReorderInEpic)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/actions/{actionId}/undo", wrapper.UndoAction)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/defer", wrapper.DeferCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/in-progress", wrapper.SetInProgress)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/reopen", wrapper.ReopenCard)
@@ -3435,6 +3528,45 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 }
 
 type ProblemApplicationProblemPlusJSONResponse Problem
+
+type UndoActionRequestObject struct {
+	ActionID string `json:"actionId"`
+}
+
+type UndoActionResponseObject interface {
+	VisitUndoActionResponse(w http.ResponseWriter) error
+}
+
+type UndoAction200JSONResponse UndoResult
+
+func (response UndoAction200JSONResponse) VisitUndoActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UndoActiondefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response UndoActiondefaultApplicationProblemPlusJSONResponse) VisitUndoActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type GetBoardRequestObject struct {
 	Params GetBoardParams
@@ -3675,12 +3807,18 @@ type MoveCardResponseObject interface {
 	VisitMoveCardResponse(w http.ResponseWriter) error
 }
 
-type MoveCard204Response struct {
-}
+type MoveCard200JSONResponse MoveResult
 
-func (response MoveCard204Response) VisitMoveCardResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
+func (response MoveCard200JSONResponse) VisitMoveCardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 type MoveCarddefaultApplicationProblemPlusJSONResponse struct {
@@ -3767,6 +3905,46 @@ type ReopenCarddefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response ReopenCarddefaultApplicationProblemPlusJSONResponse) VisitReopenCardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReorderInEpicRequestObject struct {
+	UID  UID `json:"uid"`
+	Body *ReorderInEpicJSONRequestBody
+}
+
+type ReorderInEpicResponseObject interface {
+	VisitReorderInEpicResponse(w http.ResponseWriter) error
+}
+
+type ReorderInEpic200JSONResponse MoveResult
+
+func (response ReorderInEpic200JSONResponse) VisitReorderInEpicResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReorderInEpicdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ReorderInEpicdefaultApplicationProblemPlusJSONResponse) VisitReorderInEpicResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -4913,6 +5091,9 @@ func (response TakeCarddefaultApplicationProblemPlusJSONResponse) VisitTakeCardR
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// UndoAction Undo an ordering action.
+	// (POST /actions/{actionId}/undo)
+	UndoAction(ctx context.Context, request UndoActionRequestObject) (UndoActionResponseObject, error)
 	// GetBoard The board: title, the team roster, the people and the visitor's domains.
 	// (GET /board)
 	GetBoard(ctx context.Context, request GetBoardRequestObject) (GetBoardResponseObject, error)
@@ -4940,6 +5121,9 @@ type StrictServerInterface interface {
 	// ReopenCard Undo a done mark, restoring the progress the card had when done was set.
 	// (POST /cards/{uid}/actions/reopen)
 	ReopenCard(ctx context.Context, request ReopenCardRequestObject) (ReopenCardResponseObject, error)
+	// ReorderInEpic Move a task within its epic, over the slots its epic's tasks hold.
+	// (POST /cards/{uid}/actions/reorder-in-epic)
+	ReorderInEpic(ctx context.Context, request ReorderInEpicRequestObject) (ReorderInEpicResponseObject, error)
 	// SendToReview Send the card to a reviewer, or reassign the review that exists.
 	// (POST /cards/{uid}/actions/send-to-review)
 	SendToReview(ctx context.Context, request SendToReviewRequestObject) (SendToReviewResponseObject, error)
@@ -5069,6 +5253,32 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// UndoAction operation middleware
+func (sh *strictHandler) UndoAction(w http.ResponseWriter, r *http.Request, actionID string) {
+	var request UndoActionRequestObject
+
+	request.ActionID = actionID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UndoAction(ctx, request.(UndoActionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UndoAction")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UndoActionResponseObject); ok {
+		if err := validResponse.VisitUndoActionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // GetBoard operation middleware
@@ -5319,6 +5529,39 @@ func (sh *strictHandler) ReopenCard(w http.ResponseWriter, r *http.Request, uid 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReopenCardResponseObject); ok {
 		if err := validResponse.VisitReopenCardResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReorderInEpic operation middleware
+func (sh *strictHandler) ReorderInEpic(w http.ResponseWriter, r *http.Request, uid UID) {
+	var request ReorderInEpicRequestObject
+
+	request.UID = uid
+
+	var body ReorderInEpicJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReorderInEpic(ctx, request.(ReorderInEpicRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReorderInEpic")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReorderInEpicResponseObject); ok {
+		if err := validResponse.VisitReorderInEpicResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

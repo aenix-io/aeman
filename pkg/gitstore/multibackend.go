@@ -622,6 +622,33 @@ func (mb *MultiBackend) MoveCard(ctx context.Context, bd board.Board, card board
 	return mb.writeRanks(ctx, fresh, changes)
 }
 
+// Reorder runs the planner over the MERGED board and writes the keys it
+// returns, each file in its own domain: one action, one commit per
+// repository it touches (ordering.md, "Atomicity").
+func (mb *MultiBackend) Reorder(ctx context.Context, bd board.Board, plan board.Planner) ([]board.RankChange, error) {
+	fresh, err := mb.LoadBoard(ctx, bd.Board)
+	if err != nil {
+		return nil, err
+	}
+	changes, err := plan(fresh)
+	if err != nil || len(changes) == 0 {
+		return nil, err
+	}
+	if scopeOf(ctx) == nil {
+		var flush func() (plumbing.Hash, error)
+		ctx, flush = WithScope(ctx, Action{Name: "move", Actor: actorOf(ctx), At: time.Now(), Cards: rankIDs(changes),
+			Summary: fmt.Sprintf("move: %d keys", len(changes))})
+		if err := mb.writeRanks(ctx, fresh, changes); err != nil {
+			return nil, err
+		}
+		if _, err := flush(); err != nil {
+			return nil, err
+		}
+		return changes, nil
+	}
+	return changes, mb.writeRanks(ctx, fresh, changes)
+}
+
 // writeRanks writes the keys of an ordering action, each card's file in its
 // own domain. Under the caller's scope they join its commits — one per
 // repository; bare, several get a scope of their own.

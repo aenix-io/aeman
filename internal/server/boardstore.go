@@ -2140,6 +2140,15 @@ func moveNameAfter(order []string, ids map[string]string, name, afterID string) 
 // board's real order) and announces the new Ordering to other clients — the
 // originator already reordered optimistically. The GitHub write is queued.
 func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.Card, afterID string) error {
+	if !board.IsStateTitle(card.Title) {
+		// A card's place is a key on the merged board, computed over the
+		// cache and written as computed (ordering.md): the cache's keys stay
+		// the keys the repositories will hold, so the next plan reads them.
+		_, err := b.Reorder(ctx, bd, func(cur board.Board) ([]board.RankChange, error) {
+			return board.PlaceAfter(board.RankedOf(cur.Cards), card.ItemID, afterID)
+		})
+		return err
+	}
 	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	e.board.Cards = moveCardAfter(e.board.Cards, card.ItemID, afterID)

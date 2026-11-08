@@ -128,9 +128,10 @@ func TestLoadTieBreaksByID(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := []string{s.Cards[0].ItemID, s.Cards[1].ItemID, s.Cards[2].ItemID}
-	// An empty rank sorts before everything (it is the smallest string);
-	// equal ranks fall back to the id.
-	want := []string{"01JB4K2E7QZMX3R8V0N5T9WYC3", "01JB4K2E7QZMX3R8V0N5T9WYC1", "01JB4K2E7QZMX3R8V0N5T9WYC2"}
+	// Equal ranks fall back to the id; a card with no rank stands after every
+	// ranked one (ordering.md, defect 4: it used to sort first, as the
+	// smallest string) until normalisation gives it a place.
+	want := []string{"01JB4K2E7QZMX3R8V0N5T9WYC1", "01JB4K2E7QZMX3R8V0N5T9WYC2", "01JB4K2E7QZMX3R8V0N5T9WYC3"}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("order = %v, want %v", got, want)

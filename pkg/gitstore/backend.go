@@ -568,6 +568,42 @@ func (b *Backend) MoveCard(ctx context.Context, _ board.Board, card board.Card, 
 	return b.writeRanks(ctx, card, changes)
 }
 
+// Reorder runs the planner over the repository's board and writes the
+// keys it returns, in one commit (one action).
+func (b *Backend) Reorder(ctx context.Context, bd board.Board, plan board.Planner) ([]board.RankChange, error) {
+	fresh, err := b.LoadBoard(ctx, bd.Board)
+	if err != nil {
+		return nil, err
+	}
+	changes, err := plan(fresh)
+	if err != nil || len(changes) == 0 {
+		return nil, err
+	}
+	flush := func() (plumbing.Hash, error) { return plumbing.ZeroHash, nil }
+	if scopeOf(ctx) == nil {
+		ctx, flush = WithScope(ctx, Action{Name: "move", Actor: actorOf(ctx), At: b.now(), Cards: rankIDs(changes),
+			Summary: fmt.Sprintf("move: %d keys", len(changes))})
+	}
+	for _, ch := range changes {
+		if err := b.setRank(ctx, board.Card{ItemID: ch.ID}, ch.After); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := flush(); err != nil {
+		return nil, err
+	}
+	return changes, nil
+}
+
+// rankIDs is the cards an ordering action names.
+func rankIDs(changes []board.RankChange) []string {
+	ids := make([]string, 0, len(changes))
+	for _, ch := range changes {
+		ids = append(ids, ch.ID)
+	}
+	return ids
+}
+
 // setCardRank writes the card's rank as given — the MultiBackend's keys,
 // worked out over every domain's cards.
 func (b *Backend) setCardRank(ctx context.Context, card board.Card, rank string) error {

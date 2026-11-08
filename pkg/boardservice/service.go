@@ -363,7 +363,15 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 // createPlaced is the create with its place, when one was given.
 func (s *Service) createPlaced(ctx context.Context, boardID string, args CreateCardArgs) (board.Card, error) {
 	if args.After == "" && args.Before == "" {
-		return s.createCard(ctx, boardID, args)
+		card, err := s.createCard(ctx, boardID, args)
+		if err != nil {
+			return card, err
+		}
+		// No place named: a task born in a backlog — from any door, the
+		// Strategy board's "+" under an epic included — takes its DEFAULT
+		// place in its team's queue (Q3): after its epic's last parked task,
+		// or the empty epic's best gap; never "wherever the key fell".
+		return card, s.placeCreated(ctx, boardID, card, args.Parent)
 	}
 	if args.After != "" && args.Before != "" {
 		return board.Card{}, ErrTwoPlaces
@@ -431,6 +439,25 @@ func inheritedEpic(b board.Board, team, after, before string) string {
 		return ix.EpicOf(list[i])
 	}
 	return board.InheritedEpic(epic(above), epic(below), above >= 0, below < len(list))
+}
+
+// placeCreated is a new task's default place, when it was born in a queue.
+func (s *Service) placeCreated(ctx context.Context, boardID string, card board.Card, parent string) error {
+	if !card.Parked || card.ReviewOf != "" || card.Type != board.TypeTask {
+		return nil
+	}
+	b, err := s.backend.LoadBoard(ctx, boardID)
+	if err != nil {
+		return err
+	}
+	if card.Parent == "" {
+		card.Parent = parent
+	}
+	if !queued(b, card) {
+		return nil
+	}
+	_, err = s.placeIn(ctx, b, card, board.PlacedTeam(b, card))
+	return err
 }
 
 // ErrTwoPlaces is a create told to land both after one card and before
@@ -2081,10 +2108,17 @@ func (s *Service) setBacklogOn(ctx context.Context, b board.Board, card board.Ca
 		// among the parked work is not the day board's business.
 		return nil
 	}
-	// It KEEPS ITS PLACE in the board's order (B11, amended with K14). The
-	// backlog reads in the Strategy board's order — one order, decided by the tree —
-	// so moving it to the top would move it to the top of its siblings on the
-	// Strategy as well: taking work out of hand does not rearrange the plan.
+	// Coming BACK it keeps its old key only while that key is still inside
+	// its epic's area in the team's queue; else it is placed after the
+	// epic's last parked task (Q8, ordering.md) — a task once first in the
+	// whole backlog is not put back on top once another epic stands there.
+	if !card.Parked {
+		back := card
+		back.Parked = true
+		if err := s.placeReturned(ctx, b, back); err != nil {
+			return err
+		}
+	}
 	// And it becomes PLANNED work, whatever zone it was in. The other three
 	// are statements about TODAY: critical means today, unplanned means it
 	// turned up today, "if time left" is about a day's spare capacity. None of
@@ -2589,6 +2623,15 @@ func (s *Service) setTeamOne(ctx context.Context, b board.Board, card board.Card
 			return err
 		}
 		s.logEvent(ctx, b, card, board.EventTeam, card.Team, team)
+		// A parked task HANDED OVER lands in the new team's queue by Place
+		// (Q9): after its epic's last task there, else the epic's best gap.
+		handed := card
+		handed.Team = team
+		if queued(b, handed) {
+			if _, err := s.placeIn(ctx, b, handed, board.PlacedTeam(b, handed)); err != nil {
+				return err
+			}
+		}
 	}
 	if sprintStart != card.SprintStart {
 		if err := s.backend.SetSprintStart(ctx, b, card, sprintStart); err != nil {
@@ -2719,11 +2762,8 @@ func (s *Service) AddNote(ctx context.Context, boardID string, itemID, text stri
 // MoveCard reorders a card to sit after afterID ("" = top of the board). It
 // mirrors the moveCard calls behind drag-and-drop in TeamBoard.tsx.
 func (s *Service) MoveCard(ctx context.Context, boardID string, itemID, afterID string) error {
-	b, card, err := s.loadCard(ctx, boardID, itemID)
-	if err != nil {
-		return err
-	}
-	return s.backend.MoveCard(ctx, b, card, afterID)
+	_, err := s.Move(ctx, boardID, itemID, board.Spot{After: afterID})
+	return err
 }
 
 // MoveCardBefore reorders a card to sit right before beforeID. Clients that
@@ -2732,20 +2772,8 @@ func (s *Service) MoveCard(ctx context.Context, boardID string, itemID, afterID 
 // the full order, so it resolves the card just before beforeID (skipping the
 // moved card itself) and anchors there ("" = top of the board).
 func (s *Service) MoveCardBefore(ctx context.Context, boardID string, itemID, beforeID string) error {
-	b, card, err := s.loadCard(ctx, boardID, itemID)
-	if err != nil {
-		return err
-	}
-	afterID := ""
-	for _, c := range b.Cards {
-		if c.ItemID == beforeID {
-			break
-		}
-		if c.ItemID != itemID {
-			afterID = c.ItemID
-		}
-	}
-	return s.backend.MoveCard(ctx, b, card, afterID)
+	_, err := s.Move(ctx, boardID, itemID, board.Spot{Before: beforeID})
+	return err
 }
 
 // DeleteCard deletes a card, cascading to its linked review card. It mirrors

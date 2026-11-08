@@ -228,3 +228,16 @@ func ValidRank(k string) bool {
 	}
 	return true
 }
+
+// Planner computes an ordering action's keys over a board: the board is
+// the MERGED board as it stands at the moment of the write, its cards in
+// board order. A backend runs it and writes what it returns — the plan is
+// decided in one place, over the state it applies to (ordering.md).
+type Planner func(b Board) ([]RankChange, error)
+
+// Fixed is a planner that returns changes already decided — the write of a
+// plan computed elsewhere (the server's cache plans; its queued write
+// applies the same keys).
+func Fixed(changes []RankChange) Planner {
+	return func(Board) ([]RankChange, error) { return changes, nil }
+}

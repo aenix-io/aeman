@@ -373,7 +373,7 @@ type updateCardInput struct {
 	Start       *string   `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd: the card joins the sprint active on that day. A FUTURE day parks it off the board until that day arrives (this is how you schedule work ahead, and how the +1 day / +1 week buttons work). Sprints are daily and created as they start, so no sprint covers a future day yet: the card is left with NO sprint while it waits and the carry-over that reaches its day adopts it — expected, not a mis-scheduled card, and setting sprint by hand would only drag it back onto today's board. Empty clears the dates"`
 	End         *string   `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; empty clears it"`
 	Sprint      *string   `json:"sprint,omitempty" jsonschema:"sprint start day the card belongs to; empty clears it"`
-	Parked      *bool     `json:"parked,omitempty" jsonschema:"true parks the task in its TEAM's backlog: the ranked list of work the team has accepted and not taken into work. Every team has one and nothing declares it. Parking clears the person, the sprint and the dates, takes the card's subtasks off the board with it, withdraws any review of it and puts it at the top of the backlog. A task leaves its backlog by being TAKEN INTO WORK — a start date, a sprint, or own_card with a person — and each of those unparks it on its own; false alone on a parked task with no date and no sprint is refused. A REVIEW card and a SUBTASK are refused: neither has a place of its own to be parked in. A task has no week"`
+	Parked      *bool     `json:"parked,omitempty" jsonschema:"true parks the task in its TEAM's backlog: the ranked list of work the team has accepted and not taken into work. Every team has one and nothing declares it. Parking clears the person, the sprint and the dates, takes the card's subtasks off the board with it, withdraws any review of it and puts it back in its team's backlog — at its old place while that is still among its epic's tasks there, else right after its epic's last parked task. A task leaves its backlog by being TAKEN INTO WORK — a start date, a sprint, or own_card with a person — and each of those unparks it on its own; false alone on a parked task with no date and no sprint is refused. A REVIEW card and a SUBTASK are refused: neither has a place of its own to be parked in. A task has no week"`
 	ReviewOf    *string   `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews; empty breaks the link"`
 	Parent      *string   `json:"parent,omitempty" jsonschema:"uid of the card this one sits under; empty takes it out. Under a TASK it is a subtask (one level deep): it keeps its own description/notes/log, feeds the parent's derived progress and rides with it — team, person, sprint — through carry-over. Under a goal, an initiative or an epic it is filed in the hierarchy and NOTHING else changes; the parent must be of a higher level than the card (an epic may not sit under an epic) and in the card's own repository"`
 }
@@ -594,23 +594,101 @@ type moveCardInput struct {
 	cardRef
 	After  string `json:"after,omitempty" jsonschema:"uid to position after; empty moves the card to the top"`
 	Before string `json:"before,omitempty" jsonschema:"uid to position right before (the server resolves the true anchor); wins over after"`
+	// Parent is the Strategy drop under another plan item (Q6).
+	Parent *string `json:"parent,omitempty" jsonschema:"re-parent the card first (a drop under another plan item; empty takes the parent off), then place it: at after/before when given, else a parked task lands after the new epic's last parked task in its team's backlog"`
 }
 
-func (h *server) moveCard(ctx context.Context, _ *mcp.CallToolRequest, in moveCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
+// orderingOutput is an ordering gesture's answer: the card as it stands now,
+// how many cards took a new key, and the action an undo_action reverts.
+type orderingOutput struct {
+	apiserver.Card
+	ActionID string `json:"actionId,omitempty"`
+	Moved    int    `json:"moved"`
+}
+
+func (h *server) moveCard(ctx context.Context, _ *mcp.CallToolRequest, in moveCardInput) (*mcp.CallToolResult, orderingOutput, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
-		return nil, apiserver.Card{}, err
+		return nil, orderingOutput{}, err
 	}
-	move := func() error {
-		if in.Before != "" {
-			return svc.MoveCardBefore(ctx, boardID, in.UID, in.Before)
-		}
-		return svc.MoveCard(ctx, boardID, in.UID, in.After)
+	spot := board.Spot{After: in.After}
+	if in.Before != "" {
+		spot = board.Spot{Before: in.Before}
 	}
-	if err := move(); err != nil {
-		return nil, apiserver.Card{}, err
+	var res boardservice.MoveResult
+	if in.Parent != nil {
+		res, err = svc.MoveUnder(ctx, boardID, in.UID, *in.Parent, spot)
+	} else {
+		res, err = svc.Move(ctx, boardID, in.UID, spot)
 	}
-	return h.cardResource(ctx, svc, boardID, in.UID)
+	if err != nil {
+		return nil, orderingOutput{}, err
+	}
+	return h.orderingResult(ctx, svc, boardID, in.UID, res)
+}
+
+// orderingResult answers an ordering gesture with the card and the action.
+func (h *server) orderingResult(ctx context.Context, svc *boardservice.Service, boardID, uid string, res boardservice.MoveResult) (*mcp.CallToolResult, orderingOutput, error) {
+	_, card, err := h.cardResource(ctx, svc, boardID, uid)
+	if err != nil {
+		return nil, orderingOutput{}, err
+	}
+	out := orderingOutput{Card: card, Moved: res.Moved}
+	if res.Moved > 0 {
+		out.ActionID = boardservice.ActionIDFrom(ctx)
+	}
+	return nil, out, nil
+}
+
+// reorderInEpicInput moves a task within its epic (Q6).
+type reorderInEpicInput struct {
+	cardRef
+	After  string `json:"after,omitempty" jsonschema:"uid of the epic's task the moved one lands right after, among the epic's tasks as the Strategy board draws them"`
+	Before string `json:"before,omitempty" jsonschema:"uid of the epic's task the moved one lands right before; one of after and before"`
+}
+
+func (h *server) reorderInEpic(ctx context.Context, _ *mcp.CallToolRequest, in reorderInEpicInput) (*mcp.CallToolResult, orderingOutput, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, orderingOutput{}, err
+	}
+	res, err := svc.ReorderInEpic(ctx, boardID, in.UID, in.After, in.Before)
+	if err != nil {
+		return nil, orderingOutput{}, err
+	}
+	return h.orderingResult(ctx, svc, boardID, in.UID, res)
+}
+
+// undoActionInput names the ordering action to revert.
+type undoActionInput struct {
+	boardRef
+	ActionID string `json:"actionId" jsonschema:"the actionId a move_card or reorder_in_epic answered with"`
+}
+
+// undoActionOutput is what an undo put back.
+type undoActionOutput struct {
+	ActionID string   `json:"actionId"`
+	Reverted []string `json:"reverted"`
+	Skipped  []string `json:"skipped"`
+}
+
+func (h *server) undoAction(ctx context.Context, _ *mcp.CallToolRequest, in undoActionInput) (*mcp.CallToolResult, undoActionOutput, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, undoActionOutput{}, err
+	}
+	res, err := svc.UndoAction(ctx, boardID, in.ActionID)
+	if err != nil {
+		return nil, undoActionOutput{}, err
+	}
+	out := undoActionOutput{ActionID: boardservice.ActionIDFrom(ctx), Reverted: res.Reverted, Skipped: res.Skipped}
+	if out.Reverted == nil {
+		out.Reverted = []string{}
+	}
+	if out.Skipped == nil {
+		out.Skipped = []string{}
+	}
+	return nil, out, nil
 }
 
 // deferCardInput pushes a card's scheduled day ahead.

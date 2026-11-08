@@ -113,6 +113,8 @@ var sentinels = []struct {
 	{boardservice.ErrViewNeedsField, http.StatusUnprocessableEntity, "viewNeedsField"},
 	// A new card told to land in two places at once.
 	{boardservice.ErrTwoPlaces, http.StatusUnprocessableEntity, "twoPlaces"},
+	{boardservice.ErrNoSuchAction, http.StatusNotFound, "noSuchAction"},
+	{boardservice.ErrNotUnderAnEpic, http.StatusUnprocessableEntity, "notUnderAnEpic"},
 	// Work sent back to the sprint it was done in, where there is nothing
 	// to send or nowhere to send it: rules refusing a change, not a forge
 	// failure.

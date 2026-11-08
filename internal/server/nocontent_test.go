@@ -19,7 +19,6 @@ func TestNothingToReturnIs204(t *testing.T) {
 	for _, tc := range []struct{ name, method, target, body string }{
 		{"a team renamed", http.MethodPost, "/api/v1/teams/actions/rename", `{"team":"test","to":"platform"}`},
 		{"a team's capacity set", http.MethodPost, "/api/v1/teams/actions/capacity", `{"team":"platform","points":40}`},
-		{"a card moved", http.MethodPost, "/api/v1/cards/c1/actions/move", `{"after":"c2"}`},
 		{"presence told", http.MethodPost, "/api/v1/presence", `{"card":"c1"}`},
 		{"a card deleted", http.MethodDelete, "/api/v1/cards/c1", ""},
 	} {

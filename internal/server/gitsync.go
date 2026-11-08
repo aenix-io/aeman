@@ -130,6 +130,7 @@ type actionRef struct {
 // withAction stamps the request's action on the context: every write made
 // with it belongs to one commit.
 func withAction(ctx context.Context, id, name string) context.Context {
+	ctx = boardservice.WithActionID(ctx, id)
 	return context.WithValue(ctx, actionCtxKey{}, actionRef{ID: id, Name: name})
 }
 

@@ -209,9 +209,49 @@ export interface paths {
         put?: never;
         /**
          * Reorder the card after (or before) another one.
-         * @description `before` wins when both are sent; an empty `after` puts the card at the top.
+         * @description `before` wins when both are sent; an empty `after` puts the card at the top. The keys are worked out over the merged board (an anchor in another repository is a place like any other). A task, a goal or an initiative takes its own key (Q4, Q7). An EPIC is the epic move (Q5, docs/design/ordering.md) — the same operation from the Strategy board and the Backlog: the epic takes its new place in the epic order and its parked tasks are gathered into one block per team, their order kept, in ONE action; tasks in work and other epics' tasks stay. With `parent` the card is first re-parented (every rule of a parent change holds) and then placed: at the anchor when one is named, else a parked task by the default place in its team's queue — after the new epic's last parked task (Q6). The answer names the action, which `POST /actions/{actionId}/undo` reverts within 24 hours.
          */
         post: operations["moveCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cards/{uid}/actions/reorder-in-epic": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a task within its epic, over the slots its epic's tasks hold.
+         * @description The Strategy board's drag of a task among its epic's tasks (Q6, docs/design/ordering.md): the epic's PARKED tasks of the task's team keep the queue slots they hold between them, and the slots are handed out in the new order — the task right after `after`, or right before `before`, among the epic's tasks as drawn. Other epics' tasks never move. A task in work or done takes an ordinary key between its drawn neighbours. A card under no epic is 422 `notUnderAnEpic`.
+         */
+        post: operations["reorderInEpic"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/actions/{actionId}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo an ordering action.
+         * @description Reverts a move, an epic move or a reorder within an epic (Q13, docs/design/ordering.md) from the action's own commits: every card whose key is still the one the action wrote gets its old key back, as one new action; a card moved again since is left where it is and named in `skipped`. Accepted for 24 hours; an action the window does not hold is 404 `noSuchAction`.
+         */
+        post: operations["undoAction"];
         delete?: never;
         options?: never;
         head?: never;
@@ -704,7 +744,7 @@ export interface components {
              * @description The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
              * @enum {string}
              */
-            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "customerExists" | "customerName" | "customerNotFound" | "dayIsARecord" | "dependenciesUnsupported" | "dependencyCycle" | "dependencyTarget" | "descriptionTooLong" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notATarget" | "notAuthenticated" | "notFinished" | "notInWork" | "notOnThisBoard" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "ownerIsThePlans" | "ownershipUnsupported" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "reviewCardLink" | "setupRequired" | "somebodysCard" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "twoPlaces" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField";
+            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "customerExists" | "customerName" | "customerNotFound" | "dayIsARecord" | "dependenciesUnsupported" | "dependencyCycle" | "dependencyTarget" | "descriptionTooLong" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchAction" | "noSuchView" | "notATarget" | "notAuthenticated" | "notFinished" | "notInWork" | "notOnThisBoard" | "notUnderAnEpic" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "ownerIsThePlans" | "ownershipUnsupported" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "reviewCardLink" | "setupRequired" | "somebodysCard" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "twoPlaces" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField";
             /** @description Where the person can go to fix the refusal — installing the board's app — for a client to offer as a button. */
             actionUrl?: string;
         };
@@ -1131,7 +1171,23 @@ export interface components {
             /** @description The person on that team the card is handed to; needs a team. */
             person?: string;
         };
+        MoveResult: {
+            /** @description The ordering action, for `POST /actions/{actionId}/undo`; absent when nothing was written. */
+            actionId?: string;
+            /** @description How many cards took a new key (an epic move counts the epic and every task it gathered). */
+            moved: number;
+        };
+        UndoResult: {
+            /** @description The Undo's own action. */
+            actionId: string;
+            /** @description The cards that took their old keys back. */
+            reverted: string[];
+            /** @description The cards moved again since the action, left where they are. */
+            skipped: string[];
+        };
         MoveCardBody: {
+            /** @description Re-parents the card first (a Strategy drop under another plan item) — `""` takes the parent off — then places it: at the anchor when one is named, else a parked task by the default place in its team's queue (Q6). */
+            parent?: string;
             /** @description The card to land behind; empty means the top. */
             after?: string;
             /** @description The card to land in front of. It wins when both are sent. */
@@ -1870,11 +1926,64 @@ export interface operations {
         };
         responses: {
             /** @description The order is applied. */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["MoveResult"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    reorderInEpic: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card's own address, a ULID assigned at creation. */
+                uid: components["parameters"]["Uid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveCardBody"];
+            };
+        };
+        responses: {
+            /** @description The order is applied. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MoveResult"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    undoAction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                actionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What was put back. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UndoResult"];
+                };
             };
             default: components["responses"]["Problem"];
         };

@@ -433,6 +433,9 @@ func actionName(method, path string) string {
 	if method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions {
 		return ""
 	}
+	if strings.HasPrefix(path, "/api/v1/actions/") && strings.HasSuffix(path, "/undo") {
+		return "undo" // /actions/{actionId}/undo: the id is no part of the name
+	}
 	if i := strings.Index(path, "/actions/"); i >= 0 {
 		return strings.Trim(path[i+len("/actions/"):], "/")
 	}

@@ -482,7 +482,18 @@ paths:
       summary: Reorder the card after (or before) another one.
       description: >-
         `before` wins when both are sent; an empty `after` puts the card at the
-        top.
+        top. The keys are worked out over the merged board (an anchor in
+        another repository is a place like any other). A task, a goal or an
+        initiative takes its own key (Q4, Q7). An EPIC is the epic move (Q5,
+        docs/design/ordering.md) — the same operation from the Strategy board
+        and the Backlog: the epic takes its new place in the epic order and
+        its parked tasks are gathered into one block per team, their order
+        kept, in ONE action; tasks in work and other epics' tasks stay. With
+        `parent` the card is first re-parented (every rule of a parent
+        change holds) and then placed: at the anchor when one is named,
+        else a parked task by the default place in its team's queue — after
+        the new epic's last parked task (Q6). The answer names the action,
+        which `POST /actions/{actionId}/undo` reverts within 24 hours.
       parameters:
         - $ref: '#/components/parameters/Uid'
       requestBody:
@@ -492,8 +503,69 @@ paths:
             schema:
               $ref: '#/components/schemas/MoveCardBody'
       responses:
-        '204':
+        '200':
           description: The order is applied.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoveResult'
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}/actions/reorder-in-epic:
+    post:
+      operationId: reorderInEpic
+      tags: [Cards]
+      summary: Move a task within its epic, over the slots its epic's tasks hold.
+      description: >-
+        The Strategy board's drag of a task among its epic's tasks (Q6,
+        docs/design/ordering.md): the epic's PARKED tasks of the task's team
+        keep the queue slots they hold between them, and the slots are handed
+        out in the new order — the task right after `after`, or right before
+        `before`, among the epic's tasks as drawn. Other epics' tasks never
+        move. A task in work or done takes an ordinary key between its
+        drawn neighbours. A card under no epic is 422 `notUnderAnEpic`.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveCardBody'
+      responses:
+        '200':
+          description: The order is applied.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoveResult'
+        default:
+          $ref: '#/components/responses/Problem'
+  /actions/{actionId}/undo:
+    post:
+      operationId: undoAction
+      tags: [Cards]
+      summary: Undo an ordering action.
+      description: >-
+        Reverts a move, an epic move or a reorder within an epic (Q13,
+        docs/design/ordering.md) from the action's own commits: every card
+        whose key is still the one the action wrote gets its old key back,
+        as one new action; a card moved again since is left where it is and
+        named in `skipped`. Accepted for 24 hours; an action the window does
+        not hold is 404 `noSuchAction`.
+      parameters:
+        - name: actionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: What was put back.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UndoResult'
         default:
           $ref: '#/components/responses/Problem'
   /cards/{uid}/actions/defer:
@@ -1356,12 +1428,14 @@ components:
             - noHistory
             - noPlaceOfItsOwn
             - noReviewer
+            - noSuchAction
             - noSuchView
             - notATarget
             - notAuthenticated
             - notFinished
             - notInWork
             - notOnThisBoard
+            - notUnderAnEpic
             - notYoursToRefuse
             - notYoursToRemove
             - noteNotFound
@@ -2532,9 +2606,43 @@ components:
         person:
           type: string
           description: The person on that team the card is handed to; needs a team.
+    MoveResult:
+      type: object
+      required: [moved]
+      properties:
+        actionId:
+          type: string
+          description: The ordering action, for `POST /actions/{actionId}/undo`; absent when nothing was written.
+        moved:
+          type: integer
+          description: How many cards took a new key (an epic move counts the epic and every task it gathered).
+    UndoResult:
+      type: object
+      required: [actionId, reverted, skipped]
+      properties:
+        actionId:
+          type: string
+          description: The Undo's own action.
+        reverted:
+          type: array
+          items:
+            type: string
+          description: The cards that took their old keys back.
+        skipped:
+          type: array
+          items:
+            type: string
+          description: The cards moved again since the action, left where they are.
     MoveCardBody:
       type: object
       properties:
+        parent:
+          type: string
+          description: >-
+            Re-parents the card first (a Strategy drop under another plan
+            item) — `""` takes the parent off — then places it: at the anchor
+            when one is named, else a parked task by the default place in its
+            team's queue (Q6).
         after:
           type: string
           description: The card to land behind; empty means the top.
