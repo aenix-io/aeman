@@ -127,8 +127,8 @@ func TestMCPListsTools(t *testing.T) {
 	want := []string{
 		"get_board", "list_cards", "get_card", "create_card", "update_card",
 		"delete_card", "remove_card", "move_card", "defer_card", "in_progress",
-		// The ordering model (docs/design/ordering.md, Q6, Q13).
-		"reorder_in_epic", "undo_action",
+		// The ordering model (docs/design/ordering.md, Q6).
+		"reorder_in_epic",
 		"send_to_review", "remove_reviewer", "carry_over",
 		"list_links", "list_log", "list_notes", "add_note", "edit_note", "delete_note",
 		"rename_team",

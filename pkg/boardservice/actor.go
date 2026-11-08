@@ -26,7 +26,7 @@ type actionIDKey struct{}
 
 // WithActionID stamps the request's ACTION — the id its writes are committed
 // under — on the context, so a door that answers with the action (an
-// ordering gesture, for its Undo) can name it. The server stamps it on every
+// ordering gesture) can name it. The server stamps it on every
 // mutating request and MCP call.
 func WithActionID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, actionIDKey{}, id)

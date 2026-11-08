@@ -12,8 +12,8 @@ type Ranked struct {
 }
 
 // RankChange is one key an ordering action rewrites: the card, the key it
-// had and the key it gets. An action's changes are its whole plan — what
-// is written, and what an Undo puts back (docs/design/ordering.md).
+// had and the key it gets. An action's changes are its whole plan
+// (docs/design/ordering.md).
 type RankChange struct {
 	ID     string `json:"uid"`
 	Before string `json:"before,omitempty"`

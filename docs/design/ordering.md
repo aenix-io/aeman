@@ -7,7 +7,6 @@ Status: approved by the owner 2026-11-08, with the decisions recorded below. Imp
 - A card keeps ONE `rank`. On an epic it is the board-wide **epic order**; on a task, its **team queue** place. Nothing inherits through Goal→Initiative; `BacklogKey` is retired.
 - ONE function, `Place`, decides every default position: create, the Backlog "+", a team handover, a Strategy drop into another epic, a return from work whose old key is no longer valid, and the normalisation of unranked tasks.
 - Moving an epic gathers its parked tasks into one block per team. The move is ONE action: one commit per repository it touches, applied to the server's cache under one lock, so no reader ever sees half of it.
-- Undo is derived from the action's commits: the old keys are the files' `rank` lines before the commit.
 - Schema 4 preserves every backlog order and every Strategy order exactly; the order of tasks in work inside a Team cell may change where nothing else allows it, and the migration reports those cells.
 
 ## Owner decisions (2026-11-08)
@@ -16,7 +15,7 @@ Status: approved by the owner 2026-11-08, with the decisions recorded below. Imp
 2. **The migration may change the order of in-work tasks inside individual Team cells.** It reports every affected cell (`aeman ordering-report` prints the report without writing anything, so it can be read before the production run).
 3. **Mixed children (plan items and tasks) of one parent are drawn by key** on the Strategy board.
 4. **Atomicity is per repository.** There is no plan journaled in the primary's commit, no push ordering and no start-up recovery of another replica's operation. A mass move is one action through the write queue — one commit per repository it touches — and is applied to the cache under one lock.
-5. **Undo** comes from the action's commits. The UI offers it in a toast for about 10 seconds; the API accepts it for 24 hours.
+5. **Undo is dropped from this change** (owner, 2026-11-08): it will come back later as a generic revert of an action. A move still answers with the `actionId` its keys were written under, which such a revert will name.
 6. No P0/P1 priorities and no new workflow statuses.
 
 ## Why
@@ -114,9 +113,8 @@ Unranked tasks come from direct writers; an invalid key (empty, a character outs
 
 **Concurrent changes.** Two requests on one server are serialised by the store lock: each plans over the cache as the other left it. A fetch that brings another replica's commits in between is just another state to plan over. A rejected push replays the commit field by field (`gitstore.Repo.Rebase`), rank lines included; a block that another replica broke meanwhile stays as the replay leaves it until the next gather.
 
-**What the client sees.** The acting tab shows the new order at once (the `queue.ts` mirror) and a toast "Epic moved · N tasks · Undo"; the answer is `{actionId, moved}`. Other tabs get ONE `Ordering` frame with the complete result. A refusal rolls the optimistic order back.
+**What the client sees.** The acting tab shows the new order at once (the `queue.ts` mirror); the answer is `{actionId, moved}` — the action the keys were written under, and how many cards took one. Other tabs get ONE `Ordering` frame with the complete result. A refusal rolls the optimistic order back.
 
-**Undo.** An ordering action's commits are found by their `Aeman-Action-Id` among the commits of the last 24 hours; each card file the commits changed is read at the commit and at its parent, and the two `rank` lines are the change. Undo is itself an ordering action: for each change, a card whose rank is still the one the action wrote gets its old one back; a card moved since is skipped and reported (`skipped`). The server also remembers its own recent actions in memory, so an Undo that arrives before the commit has drained still finds them. `POST /actions/{actionId}/undo` and MCP `undo_action`; the UI's toast offers it for about 10 seconds.
 
 **Cost.** 1 + k files (k = the epic's parked tasks out of place); one commit per repository touched, typically one or two; O(n) compute on ~3300 cards; one `Ordering` frame as before.
 
@@ -135,11 +133,11 @@ Unranked tasks come from direct writers; an invalid key (empty, a character outs
 ## Changes by layer
 
 - **`pkg/board`** — `queue.go`: `Queue`, `EpicOf`, `Place`, `BestGap`, `ValidReturn`, `MoveEpicPlan`, `ReorderInEpicPlan`, `InheritedEpic`, `Split`, `EpicOrder`; `PlaceAfter` with a windowed rebalance; `Normalize`. `BacklogKey` goes; `BacklogOrder` is the reviews first, then board order.
-- **`pkg/boardservice`** — ordering operations through `Backend.Reorder` (a planner run over the merged board, keys written as given); `Place` at every door; `Normalize`; `UndoAction`.
-- **`pkg/gitstore`** — `Reorder` on `Backend` and `MultiBackend`; `ActionRanks` (undo from commits); `MigrateOrdering` (schema 4); defects 1–2.
-- **`internal/server`** — the planner under the store lock and one queued op per action; normalisation at start-up and after a fetch; the in-memory record of recent actions for Undo.
-- **API / OpenAPI / MCP** — `move` on an epic gathers and answers 200 `{actionId, moved}`; `reorder-in-epic`; `actions/{actionId}/undo`; `inheritParent` on create; MCP `reorder_in_epic` and `undo_action`, `inheritParent` on `create_card`; the `parked` text fixed.
-- **`web`** — `queue.ts` mirror; Backlog drops anywhere, the "+" with an epic chip, the Undo toast; Strategy's flat epic list and the drop rules above.
+- **`pkg/boardservice`** — ordering operations through `Backend.Reorder` (a planner run over the merged board, keys written as given); `Place` at every door; `Normalize`.
+- **`pkg/gitstore`** — `Reorder` on `Backend` and `MultiBackend`; `MigrateOrdering` (schema 4); defects 1–2.
+- **`internal/server`** — the planner under the store lock and one queued op per action; normalisation at start-up and after a fetch.
+- **API / OpenAPI / MCP** — `move` on an epic gathers and answers 200 `{actionId, moved}`; `reorder-in-epic`; `inheritParent` on create; MCP `reorder_in_epic`, `inheritParent` on `create_card`; the `parked` text fixed.
+- **`web`** — `queue.ts` mirror; Backlog drops anywhere, the "+" with an epic chip; Strategy's flat epic list and the drop rules above; the Backlog's Tasks | Epics switch with Split, and Split on the Strategy board's epic rows. Undo is not part of this change (owner decision, 2026-11-08): it will come back as a generic revert of an action, which the `actionId` a move answers with will name.
 
 ## Defects found by the analysis (fixed first)
 
@@ -165,7 +163,7 @@ Unranked tasks come from direct writers; an invalid key (empty, a character outs
 | Q10 | The Backlog "+" creates exactly in its gap and inherits the epic of its context (the same epic above and below; at a boundary the card above's; at an end the only neighbour's; none in an empty list) when asked to. |
 | Q11 | An unranked or invalidly ranked task is placed by Q3 by normalisation at start-up, after a fetch that changed it, and after a migration. |
 | Q12 | A multi-file ordering action is planned and applied to the cache under one lock and written as one action, one commit per repository; a failed write leaves no partial move within a repository, in the cache or in git. Across repositories the halves are separate commits (the documented limit). |
-| Q13 | Undo reverts an ordering action from its commits under compare-and-swap, within 24 h; a card moved since is skipped. |
+| Q13 | ~~Undo~~ — dropped 2026-11-08 (owner decision): a generic revert of an action will take its place. |
 | Q14 | Schema 4 preserves every team's backlog order, every Strategy range and the flat epic order exactly, resumably and idempotently, and reports the Team cells whose in-work order changed. |
 
 ## Test plan

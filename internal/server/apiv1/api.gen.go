@@ -225,7 +225,6 @@ const (
 	NoHistory               ProblemCode = "noHistory"
 	NoPlaceOfItsOwn         ProblemCode = "noPlaceOfItsOwn"
 	NoReviewer              ProblemCode = "noReviewer"
-	NoSuchAction            ProblemCode = "noSuchAction"
 	NoSuchView              ProblemCode = "noSuchView"
 	NobodyToTake            ProblemCode = "nobodyToTake"
 	NotATarget              ProblemCode = "notATarget"
@@ -347,8 +346,6 @@ func (e ProblemCode) Valid() bool {
 	case NoPlaceOfItsOwn:
 		return true
 	case NoReviewer:
-		return true
-	case NoSuchAction:
 		return true
 	case NoSuchView:
 		return true
@@ -738,7 +735,7 @@ type MoveCardBody struct {
 
 // MoveResult defines model for MoveResult.
 type MoveResult struct {
-	// ActionID The ordering action, for `POST /actions/{actionId}/undo`; absent when nothing was written.
+	// ActionID The action the keys were written under (its commits carry it as `Aeman-Action-Id`); absent when nothing was written.
 	ActionID *string `json:"actionId,omitempty"`
 
 	// Moved How many cards took a new key (an epic move counts the epic and every task it gathered).
@@ -912,18 +909,6 @@ type UnassignWorkBody struct {
 
 	// Uids Exactly the tasks to take out of work, when given — the ones the confirm counted. Each must be one the gesture reaches from the card (422 `notATarget` otherwise). Absent: every task it reaches.
 	Uids *[]string `json:"uids,omitempty"`
-}
-
-// UndoResult defines model for UndoResult.
-type UndoResult struct {
-	// ActionID The Undo's own action.
-	ActionID string `json:"actionId"`
-
-	// Reverted The cards that took their old keys back.
-	Reverted []string `json:"reverted"`
-
-	// Skipped The cards moved again since the action, left where they are.
-	Skipped []string `json:"skipped"`
 }
 
 // ViewResource One board a caller may open and the gestures it draws. It exists so a client can READ the surface instead of being told it in a description, which is how the two drifted apart in the first place.
@@ -1318,9 +1303,6 @@ type RemoveCardJSONRequestBody = RemoveCardBody
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-	// UndoAction Undo an ordering action.
-	// (POST /actions/{actionId}/undo)
-	UndoAction(w http.ResponseWriter, r *http.Request, actionID string)
 	// GetBoard The board: title, the team roster, the people and the visitor's domains.
 	// (GET /board)
 	GetBoard(w http.ResponseWriter, r *http.Request, params GetBoardParams)
@@ -1451,32 +1433,6 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
-
-// UndoAction operation middleware
-func (siw *ServerInterfaceWrapper) UndoAction(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "actionId" -------------
-	var actionID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "actionId", r.PathValue("actionId"), &actionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "actionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UndoAction(w, r, actionID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
 
 // GetBoard operation middleware
 func (siw *ServerInterfaceWrapper) GetBoard(w http.ResponseWriter, r *http.Request) {
@@ -3495,7 +3451,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/cards/{uid}", wrapper.PatchCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/move", wrapper.MoveCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/reorder-in-epic", wrapper.ReorderInEpic)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/actions/{actionId}/undo", wrapper.UndoAction)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/defer", wrapper.DeferCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/in-progress", wrapper.SetInProgress)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/reopen", wrapper.ReopenCard)
@@ -3528,45 +3483,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 }
 
 type ProblemApplicationProblemPlusJSONResponse Problem
-
-type UndoActionRequestObject struct {
-	ActionID string `json:"actionId"`
-}
-
-type UndoActionResponseObject interface {
-	VisitUndoActionResponse(w http.ResponseWriter) error
-}
-
-type UndoAction200JSONResponse UndoResult
-
-func (response UndoAction200JSONResponse) VisitUndoActionResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type UndoActiondefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response UndoActiondefaultApplicationProblemPlusJSONResponse) VisitUndoActionResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
 
 type GetBoardRequestObject struct {
 	Params GetBoardParams
@@ -5091,9 +5007,6 @@ func (response TakeCarddefaultApplicationProblemPlusJSONResponse) VisitTakeCardR
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
-	// UndoAction Undo an ordering action.
-	// (POST /actions/{actionId}/undo)
-	UndoAction(ctx context.Context, request UndoActionRequestObject) (UndoActionResponseObject, error)
 	// GetBoard The board: title, the team roster, the people and the visitor's domains.
 	// (GET /board)
 	GetBoard(ctx context.Context, request GetBoardRequestObject) (GetBoardResponseObject, error)
@@ -5253,32 +5166,6 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
-}
-
-// UndoAction operation middleware
-func (sh *strictHandler) UndoAction(w http.ResponseWriter, r *http.Request, actionID string) {
-	var request UndoActionRequestObject
-
-	request.ActionID = actionID
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.UndoAction(ctx, request.(UndoActionRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "UndoAction")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(UndoActionResponseObject); ok {
-		if err := validResponse.VisitUndoActionResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
 }
 
 // GetBoard operation middleware

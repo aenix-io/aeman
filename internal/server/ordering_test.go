@@ -88,12 +88,11 @@ func backlogOf(t *testing.T, srv *Server, ids map[string]string) string {
 	return strings.Join(got, " ")
 }
 
-// Q5, Q12, Q13 — AN EPIC MOVE IS ONE ACTION, AND ITS UNDO ANOTHER. Moving B
-// above A over the move route gathers B's scattered tasks into one block
-// ahead of A's (`A1 B2 A2 B1` → `B2 B1 A1 A2`), as ONE commit; the answer
-// names the action and how many cards took a key; the Undo of that action
-// puts every key back, as one more commit.
-func TestAnEpicMoveIsOneActionAndItsUndoAnother(t *testing.T) {
+// Q5, Q12 — AN EPIC MOVE IS ONE ACTION. Moving B above A over the move
+// route gathers B's scattered tasks into one block ahead of A's
+// (`A1 B2 A2 B1` → `B2 B1 A1 A2`), as ONE commit; the answer names the
+// action and how many cards took a key.
+func TestAnEpicMoveIsOneAction(t *testing.T) {
 	srv, ids := orderingBoard(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -122,57 +121,6 @@ func TestAnEpicMoveIsOneActionAndItsUndoAnother(t *testing.T) {
 	srv.store.waitDrained(ctx)
 	if got := headCount(t, srv) - before; got != 1 {
 		t.Fatalf("one epic move is one commit; it made %d", got)
-	}
-	undo := do(t, srv, http.MethodPost, "/api/v1/actions/"+res.ActionID+"/undo", "")
-	if undo.Code != http.StatusOK {
-		t.Fatalf("undo: %d %s", undo.Code, undo.Body.String())
-	}
-	if !strings.Contains(undo.Body.String(), `"skipped":[]`) {
-		t.Fatalf("undo answer = %s, want nothing skipped", undo.Body.String())
-	}
-	if got := backlogOf(t, srv, ids); got != "A1 B2 A2 B1" {
-		t.Fatalf("backlog after the undo = %s", got)
-	}
-	srv.store.waitDrained(ctx)
-	if got := headCount(t, srv) - before; got != 2 {
-		t.Fatalf("the undo is one more commit; %d in all", got)
-	}
-	// An action nobody made is not found.
-	if rec := do(t, srv, http.MethodPost, "/api/v1/actions/01NOSUCHACTION000000000000/undo", ""); rec.Code != http.StatusNotFound {
-		t.Fatalf("undo of no action = %d %s", rec.Code, rec.Body.String())
-	}
-}
-
-// Q13 — Undo comes from the action's COMMITS: a process that did not make
-// the action (a restart) still finds it, and a card moved since is skipped.
-func TestUndoReadsTheActionFromItsCommits(t *testing.T) {
-	srv, ids := orderingBoard(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	rec := do(t, srv, http.MethodPost, "/api/v1/cards/"+ids["b"]+"/actions/move", `{"before":"`+ids["a"]+`"}`)
-	var res struct {
-		ActionID string `json:"actionId"`
-	}
-	_ = json.Unmarshal(rec.Body.Bytes(), &res)
-	srv.store.waitDrained(ctx)
-	// Forget the process's own record: only the commits are left.
-	processActions.mu.Lock()
-	delete(processActions.byID, res.ActionID)
-	processActions.mu.Unlock()
-	// B1 is moved again since: it is the one card the undo leaves alone.
-	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/"+ids["b1"]+"/actions/move", `{"after":"`+ids["a2"]+`"}`); rec.Code != http.StatusOK {
-		t.Fatalf("move: %d %s", rec.Code, rec.Body.String())
-	}
-	srv.store.waitDrained(ctx)
-	undo := do(t, srv, http.MethodPost, "/api/v1/actions/"+res.ActionID+"/undo", "")
-	if undo.Code != http.StatusOK {
-		t.Fatalf("undo: %d %s", undo.Code, undo.Body.String())
-	}
-	if !strings.Contains(undo.Body.String(), `"skipped":["`+ids["b1"]+`"]`) {
-		t.Fatalf("undo answer = %s, want B1 skipped", undo.Body.String())
-	}
-	if got := backlogOf(t, srv, ids); got != "A1 B2 A2 B1" {
-		t.Fatalf("backlog after the undo = %s", got)
 	}
 }
 
@@ -251,48 +199,5 @@ func TestARestCreateUnderAnEpicLandsInItsArea(t *testing.T) {
 	ids["a3"] = created.Metadata.UID
 	if got := backlogOf(t, srv, ids); got != "A1 B2 A2 A3 B1" {
 		t.Fatalf("backlog = %s", got)
-	}
-}
-
-// Q6, Q13 — A DROP INTO ANOTHER EPIC IS UNDONE WHOLE: the re-parent and the
-// place were one action, and its Undo puts back both the parent and the key
-// — from the process's record and, after a restart, from the commit.
-func TestUndoOfADropIntoAnotherEpicRestoresTheParent(t *testing.T) {
-	for _, fromCommits := range []bool{false, true} {
-		srv, ids := orderingBoard(t)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		rec := do(t, srv, http.MethodPost, "/api/v1/cards/"+ids["a1"]+"/actions/move", `{"parent":"`+ids["b"]+`"}`)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("move: %d %s", rec.Code, rec.Body.String())
-		}
-		var res struct {
-			ActionID string `json:"actionId"`
-		}
-		_ = json.Unmarshal(rec.Body.Bytes(), &res)
-		if res.ActionID == "" {
-			t.Fatalf("no action in %s", rec.Body.String())
-		}
-		if got := backlogOf(t, srv, ids); got != "B2 A2 B1 A1" {
-			t.Fatalf("after the drop into B: %s", got)
-		}
-		srv.store.waitDrained(ctx)
-		if fromCommits {
-			processActions.mu.Lock()
-			delete(processActions.byID, res.ActionID)
-			processActions.mu.Unlock()
-		}
-		undo := do(t, srv, http.MethodPost, "/api/v1/actions/"+res.ActionID+"/undo", "")
-		if undo.Code != http.StatusOK {
-			t.Fatalf("undo: %d %s", undo.Code, undo.Body.String())
-		}
-		srv.store.waitDrained(ctx)
-		cancel()
-		if got := backlogOf(t, srv, ids); got != "A1 B2 A2 B1" {
-			t.Fatalf("after the undo (from commits %v): %s", fromCommits, got)
-		}
-		r := do(t, srv, http.MethodGet, "/api/v1/cards/"+ids["a1"], "")
-		if !strings.Contains(r.Body.String(), `"parent":"`+ids["a"]+`"`) {
-			t.Fatalf("the parent is not back (from commits %v): %s", fromCommits, r.Body.String())
-		}
 	}
 }

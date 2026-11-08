@@ -599,7 +599,7 @@ type moveCardInput struct {
 }
 
 // orderingOutput is an ordering gesture's answer: the card as it stands now,
-// how many cards took a new key, and the action an undo_action reverts.
+// how many cards took a new key, and the action the keys were written under.
 type orderingOutput struct {
 	apiserver.Card
 	ActionID string `json:"actionId,omitempty"`
@@ -657,38 +657,6 @@ func (h *server) reorderInEpic(ctx context.Context, _ *mcp.CallToolRequest, in r
 		return nil, orderingOutput{}, err
 	}
 	return h.orderingResult(ctx, svc, boardID, in.UID, res)
-}
-
-// undoActionInput names the ordering action to revert.
-type undoActionInput struct {
-	boardRef
-	ActionID string `json:"actionId" jsonschema:"the actionId a move_card or reorder_in_epic answered with"`
-}
-
-// undoActionOutput is what an undo put back.
-type undoActionOutput struct {
-	ActionID string   `json:"actionId"`
-	Reverted []string `json:"reverted"`
-	Skipped  []string `json:"skipped"`
-}
-
-func (h *server) undoAction(ctx context.Context, _ *mcp.CallToolRequest, in undoActionInput) (*mcp.CallToolResult, undoActionOutput, error) {
-	svc, boardID, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, undoActionOutput{}, err
-	}
-	res, err := svc.UndoAction(ctx, boardID, in.ActionID)
-	if err != nil {
-		return nil, undoActionOutput{}, err
-	}
-	out := undoActionOutput{ActionID: boardservice.ActionIDFrom(ctx), Reverted: res.Reverted, Skipped: res.Skipped}
-	if out.Reverted == nil {
-		out.Reverted = []string{}
-	}
-	if out.Skipped == nil {
-		out.Skipped = []string{}
-	}
-	return nil, out, nil
 }
 
 // deferCardInput pushes a card's scheduled day ahead.

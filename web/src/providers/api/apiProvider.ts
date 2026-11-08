@@ -464,11 +464,6 @@ export const apiProvider: Provider = {
     return { actionId: data?.actionId, moved: data?.moved ?? 0 };
   },
 
-  async undoAction(actionId: string): Promise<{ reverted: string[]; skipped: string[] }> {
-    const { data } = await client.POST("/actions/{actionId}/undo", { params: { path: { actionId } } });
-    return { reverted: data?.reverted ?? [], skipped: data?.skipped ?? [] };
-  },
-
   async moveCardBefore(
     uid: string,
     beforeId: string,

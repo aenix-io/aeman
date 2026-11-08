@@ -3,12 +3,9 @@ package server
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
-	"github.com/aenix-io/aeman/pkg/boardservice"
-	"github.com/aenix-io/aeman/pkg/gitstore"
 )
 
 // ORDERING ACTIONS ON THE CACHE (docs/design/ordering.md, "Atomicity"). The
@@ -19,83 +16,6 @@ import (
 // under one git scope, one commit per repository touched. A write that fails
 // commits nothing (the scope is never flushed) and the queue's failure path
 // reloads the cache from the branch tip.
-
-// actionRecord is an ordering action this process made: its changes and
-// when, so an Undo pressed before the commit has drained still finds it.
-type actionRecord struct {
-	changes []board.RankChange
-	parents []board.RankChange
-	at      time.Time
-}
-
-// recentActions remembers this process's ordering actions for the undo
-// window, by action id.
-type recentActions struct {
-	mu   sync.Mutex
-	byID map[string]actionRecord
-}
-
-func (r *recentActions) remember(id string, changes []board.RankChange, now time.Time) {
-	if id == "" || len(changes) == 0 {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.byID == nil {
-		r.byID = map[string]actionRecord{}
-	}
-	for k, rec := range r.byID {
-		if now.Sub(rec.at) > gitstore.UndoWindow {
-			delete(r.byID, k)
-		}
-	}
-	rec := r.byID[id]
-	for _, ch := range changes {
-		merged := false
-		for i := range rec.changes {
-			if rec.changes[i].ID == ch.ID {
-				rec.changes[i].After = ch.After
-				merged = true
-			}
-		}
-		if !merged {
-			rec.changes = append(rec.changes, ch)
-		}
-	}
-	if rec.at.IsZero() {
-		rec.at = now
-	}
-	r.byID[id] = rec
-}
-
-// rememberParent records a parent link an action changed.
-func (r *recentActions) rememberParent(id string, ch board.RankChange, now time.Time) {
-	if id == "" || ch.Before == ch.After {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.byID == nil {
-		r.byID = map[string]actionRecord{}
-	}
-	rec := r.byID[id]
-	rec.parents = append(rec.parents, ch)
-	if rec.at.IsZero() {
-		rec.at = now
-	}
-	r.byID[id] = rec
-}
-
-func (r *recentActions) lookup(id string) (actionRecord, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	rec, ok := r.byID[id]
-	return rec, ok
-}
-
-// processActions is the record of this process's ordering actions, shared
-// by every store backend of the process.
-var processActions recentActions
 
 // Reorder plans over the cache, applies and announces under one lock, and
 // queues the write of exactly those keys.
@@ -114,7 +34,6 @@ func (b *storeBackend) Reorder(ctx context.Context, bd board.Board, plan board.P
 	e.recentMove = time.Now()
 	e.orderingChanged(clientIDFrom(ctx))
 	e.mu.Unlock()
-	processActions.remember(actionFrom(ctx).ID, changes, time.Now())
 	desc := fmt.Sprintf("reorder %d cards", len(changes))
 	itemID := ""
 	if len(changes) == 1 {
@@ -134,48 +53,4 @@ func (b *storeBackend) Reorder(ctx context.Context, bd board.Board, plan board.P
 		},
 	})
 	return changes, nil
-}
-
-// ActionRanks is an ordering action's changes: this process's record when it
-// made the action, else what the repositories' commits say.
-func (b *storeBackend) ActionRanks(ctx context.Context, id string) ([]board.RankChange, time.Time, error) {
-	if rec, ok := processActions.lookup(id); ok && len(rec.changes) > 0 {
-		return append([]board.RankChange(nil), rec.changes...), rec.at, nil
-	}
-	if ar, ok := b.inner.(interface {
-		ActionRanks(context.Context, string) ([]board.RankChange, time.Time, error)
-	}); ok {
-		return ar.ActionRanks(ctx, id)
-	}
-	return nil, time.Time{}, gitstore.ErrActionNotFound
-}
-
-// ActionRanks forwards an Undo's question to the store behind the rights
-// check: the action's changes are the board's, and the Undo's own write is
-// judged card by card by Reorder.
-func (v *visibleBackend) ActionRanks(ctx context.Context, id string) ([]board.RankChange, time.Time, error) {
-	if ar, ok := v.Backend.(boardservice.ActionRanker); ok {
-		return ar.ActionRanks(ctx, id)
-	}
-	return nil, time.Time{}, gitstore.ErrActionNotFound
-}
-
-// ActionParents is the parent links an action changed: this process's
-// record, else the action's commits.
-func (b *storeBackend) ActionParents(ctx context.Context, id string) ([]board.RankChange, error) {
-	if rec, ok := processActions.lookup(id); ok && len(rec.changes) > 0 {
-		return append([]board.RankChange(nil), rec.parents...), nil
-	}
-	if ap, ok := b.inner.(boardservice.ActionParenter); ok {
-		return ap.ActionParents(ctx, id)
-	}
-	return nil, nil
-}
-
-// ActionParents forwards to the store behind the rights check.
-func (v *visibleBackend) ActionParents(ctx context.Context, id string) ([]board.RankChange, error) {
-	if ap, ok := v.Backend.(boardservice.ActionParenter); ok {
-		return ap.ActionParents(ctx, id)
-	}
-	return nil, nil
 }

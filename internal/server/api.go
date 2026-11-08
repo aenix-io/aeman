@@ -742,23 +742,6 @@ func (a surface) ReorderInEpic(ctx context.Context, req apiv1.ReorderInEpicReque
 	return apiv1.ReorderInEpic200JSONResponse(moveResultOf(ctx, res)), nil
 }
 
-// UndoAction reverts an ordering action from its commits (Q13).
-func (a surface) UndoAction(ctx context.Context, req apiv1.UndoActionRequestObject) (apiv1.UndoActionResponseObject, error) {
-	svc, boardID, err := a.s.serviceOf()
-	if err != nil {
-		return nil, err
-	}
-	res, err := svc.UndoAction(ctx, boardID, req.ActionID)
-	if err != nil {
-		return nil, err
-	}
-	return apiv1.UndoAction200JSONResponse{
-		ActionID: actionFrom(ctx).ID,
-		Reverted: nonNil(res.Reverted),
-		Skipped:  nonNil(res.Skipped),
-	}, nil
-}
-
 // moveResultOf is an ordering answer: how many cards took a key, and the
 // action that wrote them when anything was written.
 func moveResultOf(ctx context.Context, res boardservice.MoveResult) apiv1.MoveResult {
@@ -767,13 +750,6 @@ func moveResultOf(ctx context.Context, res boardservice.MoveResult) apiv1.MoveRe
 		out.ActionID = &id
 	}
 	return out
-}
-
-func nonNil(xs []string) []string {
-	if xs == nil {
-		return []string{}
-	}
-	return xs
 }
 
 // DeferCard pushes the scheduled day N days ahead of today.

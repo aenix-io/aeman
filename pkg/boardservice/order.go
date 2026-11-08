@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
-	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
 )
@@ -16,30 +14,14 @@ import (
 // action, one commit per repository touched.
 
 // MoveResult is what an ordering gesture did: how many cards it re-keyed and
-// the keys themselves (what an Undo puts back).
+// the keys themselves.
 type MoveResult struct {
 	Moved   int
 	Changes []board.RankChange
 }
 
-// ErrNoSuchAction is an Undo of an action the undo window does not hold.
-var ErrNoSuchAction = errors.New("no such ordering action in the last 24 hours")
-
 // ErrNotUnderAnEpic is a reorder-in-epic of a card that is under no epic.
 var ErrNotUnderAnEpic = errors.New("the card is under no epic")
-
-// ActionRanker is a backend that can say what an ordering action changed —
-// from its own record or from the action's commits.
-type ActionRanker interface {
-	ActionRanks(ctx context.Context, actionID string) ([]board.RankChange, time.Time, error)
-}
-
-// ActionParenter is a backend that can also say which PARENT links an
-// ordering action changed (the Strategy drop into another epic), in the
-// RankChange shape: Before and After are the parent ids.
-type ActionParenter interface {
-	ActionParents(ctx context.Context, actionID string) ([]board.RankChange, error)
-}
 
 // Move is the move gesture (Q4, Q5, Q7): a card put right after spot.After,
 // or right before spot.Before (the top of the board with neither). On a
@@ -123,92 +105,6 @@ func (s *Service) ReorderInEpic(ctx context.Context, boardID, itemID, after, bef
 		return board.ReorderInEpicPlan(cur, itemID, after, before)
 	})
 	return MoveResult{Moved: len(changes), Changes: changes}, err
-}
-
-// UndoResult is what an Undo did: the cards it put back, and the ones it
-// left because they were moved again since (compare-and-swap).
-type UndoResult struct {
-	Reverted []string
-	Skipped  []string
-}
-
-// UndoAction reverts an ordering action (Q13): every card whose key is
-// still the one the action wrote gets its old key back, and a card the
-// action RE-PARENTED (a Strategy drop into another epic) its old parent,
-// through the parent door; a card moved or re-parented since is skipped and
-// reported. The changes come from the backend — its own record, or the
-// action's commits — within the undo window.
-func (s *Service) UndoAction(ctx context.Context, boardID, actionID string) (UndoResult, error) {
-	ar, ok := s.backend.(ActionRanker)
-	if !ok {
-		return UndoResult{}, ErrNoSuchAction
-	}
-	record, _, err := ar.ActionRanks(ctx, actionID)
-	if err != nil {
-		record = nil // no rank changes found: the parents may still name the action
-	}
-	var parents []board.RankChange
-	if ap, ok := s.backend.(ActionParenter); ok {
-		if parents, err = ap.ActionParents(ctx, actionID); err != nil {
-			return UndoResult{}, err
-		}
-	}
-	if len(record) == 0 && len(parents) == 0 {
-		return UndoResult{}, fmt.Errorf("%w: %s", ErrNoSuchAction, actionID)
-	}
-	b, err := s.backend.LoadBoard(ctx, boardID)
-	if err != nil {
-		return UndoResult{}, err
-	}
-	var parentsSkipped, parentsDone []string
-	{
-		for _, ch := range parents {
-			c, ok := findCard(b, ch.ID)
-			if !ok || c.Parent != ch.After {
-				parentsSkipped = append(parentsSkipped, ch.ID)
-				continue
-			}
-			if err := s.SetParent(ctx, boardID, ch.ID, ch.Before); err != nil {
-				return UndoResult{}, err
-			}
-			parentsDone = append(parentsDone, ch.ID)
-		}
-		if len(parents) > 0 {
-			if b, err = s.backend.LoadBoard(ctx, boardID); err != nil {
-				return UndoResult{}, err
-			}
-		}
-	}
-	var res UndoResult
-	_, err = s.backend.Reorder(ctx, b, func(cur board.Board) ([]board.RankChange, error) {
-		res = UndoResult{}
-		keys := make(map[string]string, len(cur.Cards))
-		for _, c := range cur.Cards {
-			keys[c.ItemID] = c.Rank
-		}
-		var plan []board.RankChange
-		for _, ch := range record {
-			k, present := keys[ch.ID]
-			if !present || k != ch.After {
-				res.Skipped = append(res.Skipped, ch.ID)
-				continue
-			}
-			plan = append(plan, board.RankChange{ID: ch.ID, Before: ch.After, After: ch.Before})
-			res.Reverted = append(res.Reverted, ch.ID)
-		}
-		return plan, nil
-	})
-	for _, id := range parentsSkipped {
-		if !slices.Contains(res.Skipped, id) {
-			res.Skipped = append(res.Skipped, id)
-		}
-	}
-	for _, id := range parentsDone {
-		if !slices.Contains(res.Reverted, id) && !slices.Contains(res.Skipped, id) {
-			res.Reverted = append(res.Reverted, id)
-		}
-	}
-	return res, err
 }
 
 // Normalize places every open parked task with no valid key (Q11) — a
