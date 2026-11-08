@@ -253,3 +253,22 @@ func TestADependentTheReaderCannotReadPassesNoCustomer(t *testing.T) {
 		t.Fatalf("on the whole board: %v", all)
 	}
 }
+
+// N2 — a cycle closed by inheritance alone: T already waits for X, and X
+// sits under epic E. E waiting for T would hand T's wait down to X, which T
+// waits for — both locked for good. Reaching any card under c is reaching c.
+func TestACycleThroughACardUnderTheWaitingPlanItemIsFound(t *testing.T) {
+	ix := NewIndex(NewBoard([]Card{
+		{ItemID: "E", Type: TypeEpic},
+		{ItemID: "X", Parent: "E", Team: "x"},
+		{ItemID: "T", Team: "x", DependsOn: []string{"X"}},
+		{ItemID: "free", Team: "x"},
+	}))
+	e, _ := ix.Find("E")
+	if !ix.WouldCycle(e, "T") {
+		t.Fatal("E → T is accepted, and X under E would wait for T, which waits for X")
+	}
+	if ix.WouldCycle(e, "free") {
+		t.Fatal("a card that reaches nothing under E closes no cycle")
+	}
+}

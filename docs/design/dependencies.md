@@ -42,8 +42,10 @@ The graph the check walks has an edge X → Y when:
 - Y is in the `dependsOn` of an ancestor of X (X inherits that wait);
 - X is a plan item and Y is a card under it (X is done only when Y is).
 
-Adding X → T is refused when X is reachable from T in that graph (direct
-A→B→A and transitive A→B→C→A alike, and A→epic B whose task waits for A).
+Adding X → T is refused when X — or any card under X, which inherits the
+wait being added — is reachable from T in that graph (direct A→B→A and
+transitive A→B→C→A alike, A→epic B whose task waits for A, and epic E→T
+when T already waits for a task under E).
 The walk visits each card once, so it ends on any board, including one a
 direct writer left cyclic.
 

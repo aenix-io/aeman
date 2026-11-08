@@ -185,9 +185,10 @@ func (ix *Index) DependencyTargetOK(c Card, target string) bool {
 	return true
 }
 
-// WouldCycle reports whether c waiting for target closes a cycle (N2): c is
-// reachable from target through dependsOn, the waits a card inherits from
-// its ancestors, and a plan item's cards under it (its roll-up).
+// WouldCycle reports whether c waiting for target closes a cycle (N2): c —
+// or any card under c, which inherits c's wait — is reachable from target
+// through dependsOn, the waits a card inherits from its ancestors, and a
+// plan item's cards under it (its roll-up).
 func (ix *Index) WouldCycle(c Card, target string) bool {
 	visited := map[string]bool{}
 	queue := []string{target}
@@ -205,8 +206,14 @@ func (ix *Index) WouldCycle(c Card, target string) bool {
 		if !ok {
 			continue
 		}
+		up := ix.Lineage(x)
+		for _, a := range up {
+			if a.ItemID == c.ItemID {
+				return true // x is under c, and inherits the wait being added
+			}
+		}
 		queue = append(queue, x.DependsOn...)
-		for _, a := range ix.Lineage(x) {
+		for _, a := range up {
 			queue = append(queue, a.DependsOn...)
 		}
 		if IsPlanning(x) {
