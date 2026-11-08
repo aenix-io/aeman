@@ -81,6 +81,17 @@ func (sub *subscription) seen(res apiserver.Card, ix *board.Index) apiserver.Car
 			}
 		}
 	}
+	// The cards it waits for are named only when the subscriber can read
+	// them, as their listing serves spec.dependsOn (N4).
+	if len(res.Spec.DependsOn) > 0 {
+		var kept []string
+		for _, id := range res.Spec.DependsOn {
+			if d, ok := find(id); ok && readable(d) {
+				kept = append(kept, id)
+			}
+		}
+		res.Spec.DependsOn = kept
+	}
 	// What the card waits for, what waits for it and whom it is for through
 	// that work are derived from other cards too (N4, N5).
 	depsRedacted := false
