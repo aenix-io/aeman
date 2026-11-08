@@ -32,11 +32,11 @@ describe("the Roadmap's column widths", () => {
     expect(resized(COLUMN_DEFAULTS, "start", 80).owner).toBe(COLUMN_DEFAULTS.owner);
   });
 
-  // The badge is ONE pill in two parts (K15): its widest — "P0 | IN
-  // PROGRESS", 116px measured in the browser — plus the cell's 6px + 12px of
-  // padding before the timeline is 134px; the floor keeps room to spare for
-  // a wider font, and the default sits above it.
-  it("keep the Status column wide enough for the widest two-part badge, by default and at the floor", () => {
+  // The badge is the work status alone: its widest, "IN PROGRESS", plus the
+  // cell's 6px + 12px of padding before the timeline fits well under the
+  // floor, which keeps room to spare for a wider font; the default sits
+  // above it.
+  it("keep the Status column wide enough for the widest badge, by default and at the floor", () => {
     expect(COLUMN_MINS.status).toBeGreaterThanOrEqual(140);
     expect(COLUMN_DEFAULTS.status).toBeGreaterThanOrEqual(COLUMN_MINS.status);
   });
