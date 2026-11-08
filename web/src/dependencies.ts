@@ -130,6 +130,15 @@ export function dependenciesToFetch(
   return (dependsOn ?? []).filter((id) => !have.has(id) && !tried.has(id));
 }
 
+/** fetchStillAnswers reports that a dependency fetch's answer is still the
+ *  drawer's to keep: the drawer shows the card it was asked for (its tried
+ *  record is the one the fetch started with). A re-run of the effect — a
+ *  watch frame, a fresh listing — is no reason to drop it: the ids count as
+ *  asked, and a dropped answer left their rows bare uids for good. */
+export function fetchStillAnswers(current: { forCard: string }, asked: { forCard: string }): boolean {
+  return current === asked && current.forCard === asked.forCard;
+}
+
 /** withFetched adds the cards a fetch brought back to the drawer's fetched
  *  list — and hands back the SAME list when nothing new came, so a fetch that
  *  found nothing changes no state and reruns no effect. */

@@ -7,6 +7,7 @@ import {
   dependencyRollback,
   derivedLockOf,
   dependencyRows,
+  fetchStillAnswers,
   lockTitle,
   withDependency,
   withFetched,
@@ -131,6 +132,18 @@ describe("the dependencies the drawer fetches", () => {
   it("adds what did come back, once", () => {
     const prev = [t1];
     expect(withFetched(prev, [t2, null, t1]).map((c) => c.itemId)).toEqual(["t1", "t2"]);
+  });
+  // A watch frame re-runs the drawer's effect while a fetch is in flight;
+  // the answer still belongs to the card it was asked for, and dropping it
+  // left the row a bare uid for good, since the id counts as asked.
+  it("keeps an answer while the drawer still shows the card it was asked for", () => {
+    const asked = { forCard: "t1", ids: new Set(["x"]) };
+    expect(fetchStillAnswers(asked, asked)).toBe(true);
+  });
+  it("drops an answer once the drawer moved to another card", () => {
+    const asked = { forCard: "t1", ids: new Set(["x"]) };
+    const moved = { forCard: "t2", ids: new Set<string>() };
+    expect(fetchStillAnswers(moved, asked)).toBe(false);
   });
 });
 

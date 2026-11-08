@@ -50,7 +50,7 @@ import { placementAnswer, drawerEscapes, joinsTree } from "../detail";
 import { OwnerPicker } from "./OwnerPicker";
 import { ParentPicker } from "./ParentPicker";
 import { DependsOn } from "./DependsOn";
-import { dependenciesToFetch, dependencyRollback, withDependency, withFetched, withoutDependency } from "../dependencies";
+import { dependenciesToFetch, dependencyRollback, fetchStillAnswers, withDependency, withFetched, withoutDependency } from "../dependencies";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { notTombstoned, type Tombstones } from "../tombstones";
 
@@ -259,21 +259,14 @@ export function CardDetail({
     for (const id of missing) {
       tried.ids.add(id);
     }
-    let dropped = false;
+    // The answer is kept even when the effect re-ran meanwhile (a watch
+    // frame): it belongs to the card it was asked for while the drawer still
+    // shows that card (fetchStillAnswers).
     void Promise.all(missing.map((id) => provider.getCard(id).catch(() => null))).then((got) => {
-      if (!dropped) {
+      if (fetchStillAnswers(triedDeps.current, tried)) {
         setFetchedDeps((prev) => withFetched(prev, got));
-      } else {
-        // The effect was superseded before the answer came: let the next
-        // run ask again rather than lose the id for this card.
-        for (const id of missing) {
-          tried.ids.delete(id);
-        }
       }
     });
-    return () => {
-      dropped = true;
-    };
   }, [around, board.cards, card.dependsOn, fetchedDeps, provider, temp]);
 
   // The parent as the pane shows it: the last crumb of the lineage.
