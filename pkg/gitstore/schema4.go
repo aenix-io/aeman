@@ -41,6 +41,8 @@ type OrderingReport struct {
 	// Cells are the Team cells whose in-work order changes (Appendix D):
 	// the one order one key per card cannot always keep.
 	Cells []board.CellChange
+	// Titles names the cards of the cells, so the report reads as a board.
+	Titles map[string]string
 }
 
 // Total is the files re-keyed in every repository.
@@ -73,9 +75,22 @@ func (r OrderingReport) String() string {
 			person = "(unassigned)"
 		}
 		fmt.Fprintf(&b, "  %s / %s / %s\n    before: %s\n    after:  %s\n", team, person, c.Zone,
-			strings.Join(c.Before, " "), strings.Join(c.After, " "))
+			r.named(c.Before), r.named(c.After))
 	}
 	return b.String()
+}
+
+// named is a cell's cards by title (the id when the title is unknown).
+func (r OrderingReport) named(ids []string) string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		if t := r.Titles[id]; t != "" {
+			out[i] = "«" + t + "»"
+		} else {
+			out[i] = id
+		}
+	}
+	return strings.Join(out, " ")
 }
 
 // MigrateOrdering brings every repository of a board to schema 4. dryRun
@@ -132,9 +147,11 @@ func MigrateOrdering(domains []Domain, dryRun bool) (OrderingReport, error) {
 		return report, err
 	}
 	report.Cells = cells
+	report.Titles = map[string]string{}
 	domainOf := map[string]string{}
 	for _, c := range b.Cards {
 		domainOf[c.ItemID] = c.Domain
+		report.Titles[c.ItemID] = c.Title
 	}
 	byDomain := map[string][]board.RankChange{}
 	for _, ch := range changes {
