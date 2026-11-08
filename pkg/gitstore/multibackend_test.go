@@ -710,3 +710,23 @@ func TestMultiBackendMovesAfterAnAnchorInAnotherRepository(t *testing.T) {
 		t.Fatalf("board order = %v, want the closed card right after its anchor", got)
 	}
 }
+
+// A CARD ANOTHER REPLICA DELETED IS SKIPPED, NOT THE WHOLE MOVE. An ordering
+// action planned over the cache may name a card a fetch has since removed;
+// the other keys are still written.
+func TestMultiBackendReorderSkipsADeletedCard(t *testing.T) {
+	mb, _, _ := twoDomains(t)
+	ctx := ctxAs("kvaps")
+	b, _ := mb.LoadBoard(ctx, "x")
+	changes := []board.RankChange{
+		{ID: "01GONE00000000000000000000", After: "b"},
+		{ID: "01CARDB2", After: "m"},
+	}
+	if _, err := mb.Reorder(ctx, b, board.Fixed(changes)); err != nil {
+		t.Fatalf("a deleted card failed the move: %v", err)
+	}
+	b, _ = mb.LoadBoard(ctx, "x")
+	if c, _ := board.Find(b, "01CARDB2"); c.Rank != "m" {
+		t.Fatalf("the card that is there was not re-keyed: %q", c.Rank)
+	}
+}

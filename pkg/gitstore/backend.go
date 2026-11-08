@@ -586,6 +586,9 @@ func (b *Backend) Reorder(ctx context.Context, bd board.Board, plan board.Planne
 	}
 	for _, ch := range changes {
 		if err := b.setRank(ctx, board.Card{ItemID: ch.ID}, ch.After); err != nil {
+			if errors.Is(err, ErrCardNotFound) {
+				continue // deleted since the plan was made: the rest still stands
+			}
 			return nil, err
 		}
 	}

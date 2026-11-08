@@ -2,6 +2,7 @@ package gitstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -669,13 +670,18 @@ func (mb *MultiBackend) writeRanks(ctx context.Context, fresh board.Board, chang
 	for _, ch := range changes {
 		c, ok := byID[ch.ID]
 		if !ok {
-			return fmt.Errorf("%w: %s", ErrCardNotFound, ch.ID)
+			// Deleted since the plan was made (another replica, a fetch): its
+			// key is nobody's, and the rest of the move still stands.
+			continue
 		}
 		be, err := mb.route(ctx, c)
 		if err != nil {
 			return err
 		}
 		if err := be.setCardRank(ctx, c, ch.After); err != nil {
+			if errors.Is(err, ErrCardNotFound) {
+				continue
+			}
 			return err
 		}
 	}
