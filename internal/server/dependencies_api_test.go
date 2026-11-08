@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -195,8 +196,8 @@ func TestAVisitorsDependencyMergeReadsTheCardUnderTheLock(t *testing.T) {
 	e := seedEntry(store, "acme", bd)
 	// The visitor's copy was read before `secret` was added.
 	stale := board.Card{ItemID: "api", Title: "API", Team: "alpha", Parked: true, DependsOn: []string{"db"}}
-	hidden := func(id string) bool { return id == "secret" }
-	if err := be.setDependsOnKeeping(t.Context(), bd, stale, []string{"auth"}, hidden); err != nil {
+	canRead := func(c board.Card) bool { return c.Domain != "closed" }
+	if err := be.setDependsOnKeeping(t.Context(), bd, stale, []string{"auth"}, canRead); err != nil {
 		t.Fatal(err)
 	}
 	e.mu.Lock()
@@ -204,5 +205,33 @@ func TestAVisitorsDependencyMergeReadsTheCardUnderTheLock(t *testing.T) {
 	e.mu.Unlock()
 	if len(got.DependsOn) != 2 || got.DependsOn[0] != "secret" || got.DependsOn[1] != "auth" {
 		t.Fatalf("dependsOn = %v, want the hidden secret kept where it stands now, and auth", got.DependsOn)
+	}
+}
+
+// Which of the card's dependencies the visitor cannot see is judged on the
+// board under the lock too, not on the snapshot the request read: a hidden
+// target that reached the cache after that read is still hidden, and so
+// still kept, though the visitor's snapshot never held it.
+func TestAVisitorsHiddenDependencyIsJudgedUnderTheLock(t *testing.T) {
+	store := newBoardStore()
+	inner := boardservicetest.New(nil, nil)
+	be := &storeBackend{inner: inner, store: store}
+	bd := board.NewBoard([]board.Card{
+		{ItemID: "api", Title: "API", Team: "alpha", Parked: true, DependsOn: []string{"late"}},
+		{ItemID: "auth", Title: "Auth", Team: "alpha", Parked: true},
+		{ItemID: "late", Title: "Late", Team: "alpha", Parked: true, Domain: "closed"},
+	})
+	bd.Board = "acme"
+	e := seedEntry(store, "acme", bd)
+	stale := board.Card{ItemID: "api", Title: "API", Team: "alpha", Parked: true}
+	canRead := func(c board.Card) bool { return c.Domain != "closed" }
+	if err := be.setDependsOnKeeping(t.Context(), bd, stale, []string{"auth"}, canRead); err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	got, _ := board.Find(e.board, "api")
+	e.mu.Unlock()
+	if !slices.Equal(got.DependsOn, []string{"late", "auth"}) {
+		t.Fatalf("dependsOn = %v, want the hidden late kept and auth", got.DependsOn)
 	}
 }

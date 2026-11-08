@@ -22,12 +22,13 @@ func (b *storeBackend) SetDependsOn(ctx context.Context, bd board.Board, card bo
 	return b.setDependsOnKeeping(ctx, bd, card, ids, nil)
 }
 
-// setDependsOnKeeping is SetDependsOn for a visitor's list: when hidden is
+// setDependsOnKeeping is SetDependsOn for a visitor's list: when canRead is
 // set, the dependencies of the card AS THE CACHE HOLDS IT NOW that the
-// visitor cannot read are kept where they stand (keepHidden), merged under
-// the same lock the check and the edit take — a hidden dependency another
-// request added after the visitor's board was read is not lost.
-func (b *storeBackend) setDependsOnKeeping(ctx context.Context, bd board.Board, card board.Card, ids []string, hidden func(string) bool) error {
+// visitor cannot read — judged on the cache's board, under the same lock the
+// check and the edit take — are kept where they stand (keepHidden): a hidden
+// dependency another request added after the visitor's board was read is not
+// lost, nor one on a card that reached the cache since.
+func (b *storeBackend) setDependsOnKeeping(ctx context.Context, bd board.Board, card board.Card, ids []string, canRead func(board.Card) bool) error {
 	db, ok := b.inner.(boardservice.DependencyBackend)
 	if !ok {
 		return boardservice.ErrDependenciesUnsupported
@@ -43,10 +44,14 @@ func (b *storeBackend) setDependsOnKeeping(ctx context.Context, bd board.Board, 
 		}
 	}
 	e.mu.Lock()
-	if hidden != nil {
+	if canRead != nil {
 		now := card.DependsOn
 		if c, found := board.Find(e.board, card.ItemID); found {
 			now = c.DependsOn
+		}
+		hidden := func(id string) bool {
+			t, held := board.Find(e.board, id)
+			return held && !canRead(t)
 		}
 		ids = keepHidden(now, ids, hidden)
 	}
@@ -106,7 +111,7 @@ func (v *visibleBackend) SetDependsOn(ctx context.Context, bd board.Board, card 
 		// The cache merges again under its write lock, with the card as it
 		// stands then; a backend without one takes this snapshot's merge.
 		if sb, ok := v.Backend.(*storeBackend); ok {
-			return sb.setDependsOnKeeping(ctx, bd, card, ids, hidden)
+			return sb.setDependsOnKeeping(ctx, bd, card, ids, func(t board.Card) bool { return r.canRead(t.Domain) })
 		}
 		ids = merged
 	}
