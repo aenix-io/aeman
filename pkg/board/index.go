@@ -128,7 +128,7 @@ func (ix *Index) EffectiveTeam(c Card) string {
 // out: it names nobody (O5). Then the customers of the work that waits for
 // it or for an ancestor, transitively (N5).
 func (ix *Index) EffectiveCustomers(c Card) []string {
-	out, _ := ix.effectiveCustomers(c, map[string]bool{c.ItemID: true})
+	out, _ := ix.effectiveCustomers(c, map[string]bool{c.ItemID: true}, nil)
 	return out
 }
 

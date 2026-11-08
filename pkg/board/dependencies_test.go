@@ -234,3 +234,22 @@ func TestADependencyThatClosesACycleIsFound(t *testing.T) {
 		}
 	}
 }
+
+// N5 — what a reader works out: a card they cannot read passes nothing on.
+func TestADependentTheReaderCannotReadPassesNoCustomer(t *testing.T) {
+	b := NewBoard([]Card{
+		{ItemID: "a", Team: "x", Customers: []string{"acme"}, DependsOn: []string{"c"}},
+		{ItemID: "h", Team: "x", Customers: []string{"zeta"}, DependsOn: []string{"c"}},
+		{ItemID: "c", Team: "x"},
+	})
+	b.Customers = []Customer{{ID: "acme"}, {ID: "zeta"}}
+	ix := NewIndex(b)
+	c, _ := ix.Find("c")
+	got, from := ix.EffectiveCustomersAs(c, func(x Card) bool { return x.ItemID != "h" })
+	if !reflect.DeepEqual(got, []string{"acme"}) || len(from) != 1 || from[0].From.ItemID != "a" {
+		t.Fatalf("as the reader: %v %+v, want acme from a alone", got, from)
+	}
+	if all := ix.EffectiveCustomers(c); !reflect.DeepEqual(all, []string{"acme", "zeta"}) {
+		t.Fatalf("on the whole board: %v", all)
+	}
+}

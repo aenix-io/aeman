@@ -1365,6 +1365,8 @@ components:
             - customerName
             - customerNotFound
             - dayIsARecord
+            - dependencyCycle
+            - dependencyTarget
             - descriptionTooLong
             - emptyNote
             - emptyTitle
@@ -1502,6 +1504,16 @@ components:
             Ids from the board's customer roster (`metadata.customers`) that
             this card itself names. The cards below add to them
             (status.effectiveCustomers).
+          items:
+            type: string
+        dependsOn:
+          type: array
+          description: >-
+            The uids of the cards this one waits for
+            (docs/design/dependencies.md), as stored, less the ones the
+            reader's board does not hold (deleted, or in a repository the
+            reader cannot read). While one of them — or one an ancestor waits
+            for — is not done, the card is locked (status.locked).
           items:
             type: string
         zone:
@@ -1708,9 +1720,43 @@ components:
           description: >-
             The customers the card is for: every ancestor's and its own, the
             ancestors' first; a review card's are the task's it reviews.
-            Computed, never written.
+            Computed, never written. Includes the customers of the work that
+            waits for this card (status.dependentCustomers).
           items:
             type: string
+        dependentCustomers:
+          type: array
+          description: >-
+            The effective customers that come only from the work that waits
+            for this card (or for an ancestor), transitively, each with the
+            nearest card that waits — drawn "from «A»". Readable cards only.
+          items:
+            $ref: '#/components/schemas/DependentCustomerRef'
+        locked:
+          type: boolean
+          description: >-
+            Derived, never written: a dependency of the card's own or of an
+            ancestor is not done (a task complete, a plan item whose roll-up
+            is done). Independent of `stage: locked`; not a work status.
+        blockedBy:
+          type: array
+          description: >-
+            The unsatisfied dependencies the reader may read, the card's own
+            first, then its ancestors' nearest first.
+          items:
+            $ref: '#/components/schemas/BlockerRef'
+        hiddenBlockers:
+          type: integer
+          description: >-
+            Unsatisfied dependencies the reader may not read — a card in a
+            repository they cannot read, or a wait inherited through one. They
+            lock the card but are not named.
+        blocks:
+          type: array
+          description: >-
+            The readable cards whose own dependsOn names this one.
+          items:
+            $ref: '#/components/schemas/LineageRef'
         dueDate:
           type: string
           description: >-
@@ -1739,6 +1785,39 @@ components:
           type: array
           items:
             type: string
+    BlockerRef:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.BlockerRef
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: One unsatisfied dependency of a card.
+      required: [uid, title]
+      properties:
+        uid:
+          type: string
+        type:
+          type: string
+        title:
+          type: string
+        via:
+          type: string
+          description: >-
+            The ancestor whose dependsOn names this one — the wait is
+            inherited from it. Absent when it is the card's own.
+    DependentCustomerRef:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.DependentCustomerRef
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      description: A customer a card is for through the work that waits for it.
+      required: [customer, from]
+      properties:
+        customer:
+          type: string
+        from:
+          $ref: '#/components/schemas/LineageRef'
     LineageRef:
       type: object
       additionalProperties: false
@@ -2412,6 +2491,18 @@ components:
             Ids from the board's customer roster this card names, replacing
             those it named; empty takes them all off. An id the roster lacks is
             422 `customerNotFound`.
+          items:
+            type: string
+        dependsOn:
+          type: array
+          description: >-
+            The cards this one waits for, the WHOLE list, replacing the stored
+            one; empty clears it. A new id must be a card on the board, not
+            this one, not a review card, not an ancestor or descendant (422
+            `dependencyTarget`), and must close no cycle (422
+            `dependencyCycle`). A stored id the board no longer holds is
+            dropped. The lock it makes is derived, and the cards waited for
+            are for this card's customers too.
           items:
             type: string
         zone:

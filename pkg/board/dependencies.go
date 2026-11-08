@@ -89,8 +89,14 @@ type DependentCustomer struct {
 
 // effectiveCustomers is EffectiveCustomers with the cards already walked:
 // the dependency inheritance is transitive, and each card passes its
-// customers on once, so a cycle a direct writer left ends.
-func (ix *Index) effectiveCustomers(c Card, visited map[string]bool) ([]string, []DependentCustomer) {
+// customers on once, so a cycle a direct writer left ends. can, when set,
+// is what the reader may read: the chain of ancestors ends at the first one
+// they cannot (O4's readable-ancestors rule), a task they cannot read gives
+// a review card nothing, and a card they cannot read passes nothing on.
+func (ix *Index) effectiveCustomers(c Card, visited map[string]bool, can func(Card) bool) ([]string, []DependentCustomer) {
+	if can == nil {
+		can = func(Card) bool { return true }
+	}
 	var out []string
 	var from []DependentCustomer
 	seen := map[string]bool{}
@@ -103,13 +109,21 @@ func (ix *Index) effectiveCustomers(c Card, visited map[string]bool) ([]string, 
 		}
 	}
 	if c.ReviewOf != "" {
-		if task, ok := ix.Find(c.ReviewOf); ok && task.ReviewOf == "" && !visited[task.ItemID] {
+		if task, ok := ix.Find(c.ReviewOf); ok && task.ReviewOf == "" && can(task) && !visited[task.ItemID] {
 			visited[task.ItemID] = true
-			ids, _ := ix.effectiveCustomers(task, visited)
+			ids, _ := ix.effectiveCustomers(task, visited, can)
 			add(ids)
 		}
 	}
-	up := ix.Lineage(c)
+	all := ix.Lineage(c)
+	start := 0
+	for i := len(all) - 1; i >= 0; i-- {
+		if !can(all[i]) {
+			start = i + 1
+			break
+		}
+	}
+	up := all[start:]
 	for _, a := range up {
 		add(a.Customers)
 	}
@@ -119,11 +133,11 @@ func (ix *Index) effectiveCustomers(c Card, visited map[string]bool) ([]string, 
 	holders := append(append([]Card(nil), up...), c)
 	for _, h := range holders {
 		for _, d := range ix.dependents[h.ItemID] {
-			if visited[d.ItemID] {
+			if visited[d.ItemID] || !can(d) {
 				continue
 			}
 			visited[d.ItemID] = true
-			ids, _ := ix.effectiveCustomers(d, visited)
+			ids, _ := ix.effectiveCustomers(d, visited, can)
 			for _, id := range ids {
 				if !seen[id] {
 					seen[id] = true
@@ -139,8 +153,15 @@ func (ix *Index) effectiveCustomers(c Card, visited map[string]bool) ([]string, 
 // DependentCustomers are the customers a card is for only through the work
 // that waits for it (N5), each with the nearest waiting card.
 func (ix *Index) DependentCustomers(c Card) []DependentCustomer {
-	_, from := ix.effectiveCustomers(c, map[string]bool{c.ItemID: true})
+	_, from := ix.effectiveCustomers(c, map[string]bool{c.ItemID: true}, nil)
 	return from
+}
+
+// EffectiveCustomersAs is EffectiveCustomers and DependentCustomers as a
+// reader who can read only some cards works them out on their visible board
+// (N5): a watch frame counted again for its subscriber.
+func (ix *Index) EffectiveCustomersAs(c Card, can func(Card) bool) ([]string, []DependentCustomer) {
+	return ix.effectiveCustomers(c, map[string]bool{c.ItemID: true}, can)
 }
 
 // DependencyTargetOK reports whether card c may wait for the card with id

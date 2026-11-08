@@ -73,6 +73,9 @@ type CardSpec struct {
 	// written on the card itself; status.effectiveCustomers adds the
 	// ancestors'.
 	Customers []string `json:"customers,omitempty"`
+	// DependsOn are the uids of the cards this one waits for
+	// (docs/design/dependencies.md) — the ones the reader's board holds.
+	DependsOn []string `json:"dependsOn,omitempty"`
 	Zone      string   `json:"zone,omitempty"`
 	// Size is what somebody said the card weighs: S, M, L or XL, or absent.
 	Size      string   `json:"size,omitempty"`
@@ -106,6 +109,22 @@ type CardSpec struct {
 
 // LineageRef is one ancestor of a card, in status.lineage: root first, so a
 // client draws the breadcrumb straight from the list.
+// BlockerRef is one unsatisfied dependency: the card waited for, and — when
+// the wait is inherited — the uid of the ancestor whose dependsOn names it.
+type BlockerRef struct {
+	UID   string `json:"uid"`
+	Type  string `json:"type,omitempty"`
+	Title string `json:"title"`
+	Via   string `json:"via,omitempty"`
+}
+
+// DependentCustomerRef is a customer a card is for through the work that
+// waits for it, with that work's nearest card.
+type DependentCustomerRef struct {
+	Customer string     `json:"customer"`
+	From     LineageRef `json:"from"`
+}
+
 type LineageRef struct {
 	UID   string `json:"uid"`
 	Type  string `json:"type,omitempty"`
@@ -194,6 +213,18 @@ type CardStatus struct {
 	// customers and its own, the ancestors' first; a review card's are its
 	// task's (O6). Computed, never written.
 	EffectiveCustomers []string `json:"effectiveCustomers,omitempty"`
+	// DependentCustomers are the effective customers that come ONLY from the
+	// work that waits for this card (N5), each with the nearest such card.
+	DependentCustomers []DependentCustomerRef `json:"dependentCustomers,omitempty"`
+	// Locked is the DERIVED lock (N3): a dependency of the card's own or of
+	// an ancestor is not done. Independent of the manual stage.
+	Locked bool `json:"locked,omitempty"`
+	// BlockedBy are the blockers the reader may read; HiddenBlockers counts
+	// the ones they may not (N4).
+	BlockedBy      []BlockerRef `json:"blockedBy,omitempty"`
+	HiddenBlockers int          `json:"hiddenBlockers,omitempty"`
+	// Blocks are the readable cards whose own dependsOn names this one.
+	Blocks []LineageRef `json:"blocks,omitempty"`
 	// DueDate is a task's due date (named apart from the retired Triage
 	// status.due, a list of weeks): the end of its NEAREST planning card — the
 	// epic it is for — never one borrowed from a farther ancestor. Absent
@@ -395,6 +426,7 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 		Team:        c.Team,
 		Owner:       c.Owner,
 		Customers:   ix.OnRoster(c.Customers),
+		DependsOn:   heldIDs(ix, c.DependsOn),
 		Zone:        SemanticZone(board.ZoneOf(c)),
 		Size:        sizeOut(c.Size),
 		Assignees:   append([]string{}, c.Assignees...),
@@ -425,6 +457,7 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 			}
 		}
 		status.EffectiveCustomers = ix.EffectiveCustomers(c)
+		applyDependencies(&status, b, ix, c)
 	}
 	up := ix.Lineage(c)
 	// A REVIEW card hangs under nothing of its own; its chain is the
@@ -772,4 +805,44 @@ func rosterDomains(names []string, domainOf func(string) string) map[string]stri
 		out[name] = d
 	}
 	return out
+}
+
+// heldIDs are the ids of the cards the board holds, in order: a dependency
+// on a card the reader's board does not hold — gone, or unreadable — is not
+// served (N1, N4, N6).
+func heldIDs(ix *board.Index, ids []string) []string {
+	var out []string
+	for _, id := range ids {
+		if _, ok := ix.Find(id); ok {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// applyDependencies fills the derived dependency fields (N3–N5). On a
+// visitor's visible board the blockers it cannot name are the whole board's
+// count (BlockerTotals) less the ones it found.
+func applyDependencies(status *CardStatus, b board.Board, ix *board.Index, c board.Card) {
+	blockers := ix.Blockers(c)
+	for _, bl := range blockers {
+		ref := BlockerRef{UID: bl.Target.ItemID, Type: bl.Target.Type, Title: bl.Target.Title}
+		if bl.Via.ItemID != c.ItemID {
+			ref.Via = bl.Via.ItemID
+		}
+		status.BlockedBy = append(status.BlockedBy, ref)
+	}
+	if b.BlockerTotals != nil {
+		if n := b.BlockerTotals[c.ItemID] - len(blockers); n > 0 {
+			status.HiddenBlockers = n
+		}
+	}
+	status.Locked = len(status.BlockedBy) > 0 || status.HiddenBlockers > 0
+	for _, d := range ix.Blocks(c) {
+		status.Blocks = append(status.Blocks, LineageRef{UID: d.ItemID, Type: d.Type, Title: d.Title})
+	}
+	for _, dc := range ix.DependentCustomers(c) {
+		status.DependentCustomers = append(status.DependentCustomers, DependentCustomerRef{Customer: dc.Customer,
+			From: LineageRef{UID: dc.From.ItemID, Type: dc.From.Type, Title: dc.From.Title}})
+	}
 }

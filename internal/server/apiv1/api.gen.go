@@ -205,6 +205,8 @@ const (
 	CustomerName         ProblemCode = "customerName"
 	CustomerNotFound     ProblemCode = "customerNotFound"
 	DayIsARecord         ProblemCode = "dayIsARecord"
+	DependencyCycle      ProblemCode = "dependencyCycle"
+	DependencyTarget     ProblemCode = "dependencyTarget"
 	DescriptionTooLong   ProblemCode = "descriptionTooLong"
 	EmptyNote            ProblemCode = "emptyNote"
 	EmptyTitle           ProblemCode = "emptyTitle"
@@ -304,6 +306,10 @@ func (e ProblemCode) Valid() bool {
 	case CustomerNotFound:
 		return true
 	case DayIsARecord:
+		return true
+	case DependencyCycle:
+		return true
+	case DependencyTarget:
 		return true
 	case DescriptionTooLong:
 		return true
@@ -520,6 +526,9 @@ type AddCustomerBody struct {
 	Name *string `json:"name,omitempty"`
 }
 
+// BlockerRef One unsatisfied dependency of a card.
+type BlockerRef = apiserver.BlockerRef
+
 // Board defines model for Board.
 type Board = apiserver.BoardInfo
 
@@ -560,9 +569,12 @@ type CardPatch struct {
 	Assignees *[]string `json:"assignees,omitempty"`
 
 	// Customers Ids from the board's customer roster this card names, replacing those it named; empty takes them all off. An id the roster lacks is 422 `customerNotFound`.
-	Customers   *[]string       `json:"customers,omitempty"`
-	Dates       *CardDatesPatch `json:"dates,omitempty"`
-	Description *string         `json:"description,omitempty"`
+	Customers *[]string       `json:"customers,omitempty"`
+	Dates     *CardDatesPatch `json:"dates,omitempty"`
+
+	// DependsOn The cards this one waits for, the WHOLE list, replacing the stored one; empty clears it. A new id must be a card on the board, not this one, not a review card, not an ancestor or descendant (422 `dependencyTarget`), and must close no cycle (422 `dependencyCycle`). A stored id the board no longer holds is dropped. The lock it makes is derived, and the cards waited for are for this card's customers too.
+	DependsOn   *[]string `json:"dependsOn,omitempty"`
+	Description *string   `json:"description,omitempty"`
 
 	// Owner The person who answers for a goal, an initiative or an epic; empty takes them off. On any other card 422 `ownerIsThePlans`.
 	Owner *string `json:"owner,omitempty"`
@@ -674,6 +686,9 @@ type DeferCardBody struct {
 	// Days How many days ahead of today the card is pushed; must be positive.
 	Days *int `json:"days,omitempty"`
 }
+
+// DependentCustomerRef A customer a card is for through the work that waits for it.
+type DependentCustomerRef = apiserver.DependentCustomerRef
 
 // DomainInfo One readable repository of the visitor's board: whether they may write it, and which of the board's members can read it — so a reviewer picker offers only people who will see the card.
 type DomainInfo = apiserver.DomainInfo

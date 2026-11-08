@@ -724,7 +724,7 @@ export interface components {
              * @description The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
              * @enum {string}
              */
-            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "badPriority" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "customerExists" | "customerName" | "customerNotFound" | "dayIsARecord" | "descriptionTooLong" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notATarget" | "notAuthenticated" | "notFinished" | "notInWork" | "notOnThisBoard" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "ownerIsThePlans" | "ownershipUnsupported" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "priorityFollowsTask" | "reviewCardLink" | "setupRequired" | "somebodysCard" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "twoPlaces" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField";
+            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "badPriority" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "customerExists" | "customerName" | "customerNotFound" | "dayIsARecord" | "dependencyCycle" | "dependencyTarget" | "descriptionTooLong" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notATarget" | "notAuthenticated" | "notFinished" | "notInWork" | "notOnThisBoard" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "ownerIsThePlans" | "ownershipUnsupported" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "priorityFollowsTask" | "reviewCardLink" | "setupRequired" | "somebodysCard" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "twoPlaces" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField";
             /** @description Where the person can go to fix the refusal — installing the board's app — for a client to offer as a button. */
             actionUrl?: string;
         };
@@ -753,6 +753,8 @@ export interface components {
             owner?: string;
             /** @description Ids from the board's customer roster (`metadata.customers`) that this card itself names. The cards below add to them (status.effectiveCustomers). */
             customers?: string[];
+            /** @description The uids of the cards this one waits for (docs/design/dependencies.md), as stored, less the ones the reader's board does not hold (deleted, or in a repository the reader cannot read). While one of them — or one an ancestor waits for — is not done, the card is locked (status.locked). */
+            dependsOn?: string[];
             /**
              * @description The band the card stands in, by meaning rather than by colour. A card in the WORKING AREA — one carrying a sprint or dates of its own — always answers with a band: nobody having said means "planned", which is where every board draws it anyway. Absent is reserved for cards that are on no day (a parked task, a planning card), where "no band yet" is a state a client draws as one.
              * @enum {string}
@@ -825,8 +827,18 @@ export interface components {
             effectivePriority?: "" | "P0" | "P1" | "P2" | "P3" | "P4";
             /** @description The ancestor the effective priority is taken from — the Roadmap draws an inherited priority lighter, naming it. Absent when the priority is the card's own, or there is none. */
             effectivePriorityFrom?: components["schemas"]["LineageRef"];
-            /** @description The customers the card is for: every ancestor's and its own, the ancestors' first; a review card's are the task's it reviews. Computed, never written. */
+            /** @description The customers the card is for: every ancestor's and its own, the ancestors' first; a review card's are the task's it reviews. Computed, never written. Includes the customers of the work that waits for this card (status.dependentCustomers). */
             effectiveCustomers?: string[];
+            /** @description The effective customers that come only from the work that waits for this card (or for an ancestor), transitively, each with the nearest card that waits — drawn "from «A»". Readable cards only. */
+            dependentCustomers?: components["schemas"]["DependentCustomerRef"][];
+            /** @description Derived, never written: a dependency of the card's own or of an ancestor is not done (a task complete, a plan item whose roll-up is done). Independent of `stage: locked`; not a work status. */
+            locked?: boolean;
+            /** @description The unsatisfied dependencies the reader may read, the card's own first, then its ancestors' nearest first. */
+            blockedBy?: components["schemas"]["BlockerRef"][];
+            /** @description Unsatisfied dependencies the reader may not read — a card in a repository they cannot read, or a wait inherited through one. They lock the card but are not named. */
+            hiddenBlockers?: number;
+            /** @description The readable cards whose own dependsOn names this one. */
+            blocks?: components["schemas"]["LineageRef"][];
             /** @description A task's due date: the end of its NEAREST planning card (goal, initiative or epic) — never one borrowed from a farther ancestor. Absent with no planning card above it, when the nearest has no end, and on a planning card. A review card is due when the task it reviews is. */
             dueDate?: string;
             hierarchy?: components["schemas"]["Hierarchy"];
@@ -837,6 +849,19 @@ export interface components {
             type?: string;
             title: string;
             assignees?: string[];
+        };
+        /** @description One unsatisfied dependency of a card. */
+        BlockerRef: {
+            uid: string;
+            type?: string;
+            title: string;
+            /** @description The ancestor whose dependsOn names this one — the wait is inherited from it. Absent when it is the card's own. */
+            via?: string;
+        };
+        /** @description A customer a card is for through the work that waits for it. */
+        DependentCustomerRef: {
+            customer: string;
+            from: components["schemas"]["LineageRef"];
         };
         /** @description One ancestor of a card. */
         LineageRef: {
@@ -1099,6 +1124,8 @@ export interface components {
             owner?: string;
             /** @description Ids from the board's customer roster this card names, replacing those it named; empty takes them all off. An id the roster lacks is 422 `customerNotFound`. */
             customers?: string[];
+            /** @description The cards this one waits for, the WHOLE list, replacing the stored one; empty clears it. A new id must be a card on the board, not this one, not a review card, not an ancestor or descendant (422 `dependencyTarget`), and must close no cycle (422 `dependencyCycle`). A stored id the board no longer holds is dropped. The lock it makes is derived, and the cards waited for are for this card's customers too. */
+            dependsOn?: string[];
             /** @enum {string} */
             zone?: "" | "urgent" | "unplanned" | "planned" | "niceToHave";
             /** @description S, M, L or XL in any case; empty takes the size back. */
