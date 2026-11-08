@@ -1027,6 +1027,7 @@ export function RoadmapBoard({
           onChange={(statuses) => onFilters({ ...filters, statuses })}
           quick={{
             label: "Hide done",
+            values: HIDE_DONE,
             onClick: () => onFilters({ ...filters, statuses: [...HIDE_DONE] }),
           }}
           title="Show only work in progress, in a backlog, locked by a dependency, plan items with no items, or done"

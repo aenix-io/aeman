@@ -338,7 +338,7 @@ describe("ownership on the Roadmap", () => {
   // Hide done is drawn like any row, its No items badge and all.
   it("offers Locked and No items, and Hide done keeps them", () => {
     const html = draw(board([]), null, { teams: [], customers: [], owners: [], statuses: [...HIDE_DONE] });
-    expect(html).toMatch(/aria-label="Status filter"[^>]*>Status: In progress, Backlog, Locked, No items</);
+    expect(html).toMatch(/aria-label="Status filter"[^>]*>Status: Hide done</);
     const locked = draw(board([]), null, { teams: [], customers: [], owners: [], statuses: ["locked"] });
     expect(locked).toMatch(/aria-label="Status filter"[^>]*>Status: Locked</);
     const empty = card({ itemId: "client", title: "Acme rollout", type: "epic", hierarchy: { status: "no-items", done: 0, total: 0 } });
