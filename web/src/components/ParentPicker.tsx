@@ -156,7 +156,7 @@ export function ParentPicker({ kind, current, options, self, disabled, onOpen, o
         )}
         {!disabled && <span className="add-card-team-caret">▾</span>}
       </button>
-      <Dropdown open={open} anchorRef={anchor} onClose={() => setOpen(false)} className="add-card-team-menu drawer-pick-menu">
+      <Dropdown open={open} anchorRef={anchor} align="start" onClose={() => setOpen(false)} className="add-card-team-menu drawer-pick-menu">
         {open && <ParentOptionList kind={kind} current={current?.uid} options={options} self={self} onPick={pick} />}
       </Dropdown>
     </span>

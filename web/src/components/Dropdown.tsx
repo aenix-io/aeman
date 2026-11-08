@@ -10,6 +10,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { placePopup } from "../popup";
+
 interface DropdownProps {
   open: boolean;
   /** The element the menu is anchored to (its trigger / wrapper). */
@@ -18,7 +20,22 @@ interface DropdownProps {
   className?: string;
   /** The menu's role, matching the trigger's aria-haspopup. */
   role?: string;
+  /** "start" opens the menu from the pressed control's left edge — a
+   *  picker whose control sits at the start of a wide row; "end" (the
+   *  default) lines it up with the control's right edge. */
+  align?: "start" | "end";
   children: ReactNode;
+}
+
+/** triggerOf is the control a menu belongs to: the anchor itself when it is
+ *  the button, else the button inside it. A picker's anchor is often a
+ *  wrapper as wide as its row, and a menu placed by the wrapper opened at
+ *  the row's far end, away from the button that was pressed. */
+function triggerOf(anchor: HTMLElement): HTMLElement {
+  if (anchor.matches("button, [aria-haspopup]")) {
+    return anchor;
+  }
+  return anchor.querySelector<HTMLElement>("[aria-haspopup], button") ?? anchor;
 }
 
 /** closesOn reports whether a key pressed while a menu is open dismisses
@@ -29,11 +46,17 @@ export function closesOn(key: string): boolean {
 
 /**
  * Dropdown renders a menu in a body portal so it is never clipped by a
- * scrolling/overflow ancestor. It positions the menu under the anchor and
- * flips it above when it would overflow the bottom of the viewport.
+ * scrolling/overflow ancestor. It opens at the pressed control (placePopup):
+ * below it, or above when the room below is short; clamped inside the
+ * viewport and inside the box marked data-popup-bounds it was opened from
+ * (the card drawer); and no taller than the room it opened into, scrolling
+ * inside. It is placed again whenever its content or the page moves.
  */
-export function Dropdown({ open, anchorRef, onClose, className, role, children }: DropdownProps) {
+export function Dropdown({ open, anchorRef, onClose, className, role, align, children }: DropdownProps) {
   const menuRef = useRef<HTMLDivElement | null>(null);
+  // The menu's own height cap from its stylesheet, read before any inline
+  // max-height of ours hides it.
+  const capRef = useRef<number | null>(null);
   const [style, setStyle] = useState<CSSProperties>({
     position: "fixed",
     top: 0,
@@ -52,32 +75,32 @@ export function Dropdown({ open, anchorRef, onClose, className, role, children }
     if (!anchor || !menu) {
       return;
     }
-    const a = anchor.getBoundingClientRect();
-    const m = menu.getBoundingClientRect();
-    const gap = 4;
-    // Right-aligned to the anchor where there is room, but CLAMPED to the
-    // viewport: a narrow anchor near the left edge (the week column) would
-    // otherwise push the menu off-screen to the left.
-    const left = Math.min(
-      Math.max(8, a.right - m.width),
-      Math.max(8, window.innerWidth - m.width - 8),
-    );
-    let top = a.bottom + gap;
-    if (top + m.height > window.innerHeight - 8) {
-      top = Math.max(8, a.top - gap - m.height);
+    if (capRef.current === null) {
+      const css = parseFloat(getComputedStyle(menu).maxHeight);
+      capRef.current = Number.isFinite(css) ? css : Infinity;
     }
+    const a = triggerOf(anchor).getBoundingClientRect();
+    const m = menu.getBoundingClientRect();
+    const boundsEl = anchor.closest<HTMLElement>("[data-popup-bounds]");
+    const p = placePopup(
+      a,
+      { width: m.width, height: Math.min(menu.scrollHeight, capRef.current) },
+      { width: window.innerWidth, height: window.innerHeight },
+      { align, bounds: boundsEl?.getBoundingClientRect() },
+    );
     setStyle({
       position: "fixed",
-      top,
-      left,
+      top: p.top,
+      left: p.left,
       right: "auto",
+      maxHeight: Math.min(p.maxHeight, capRef.current),
       visibility: "visible",
       // The same layer the hidden state starts on: this call writes the
       // style afresh, so a lower one here puts the menu back under the card
       // modal it was opened over.
       zIndex: 200,
     });
-  }, [anchorRef]);
+  }, [anchorRef, align]);
 
   useLayoutEffect(() => {
     if (open) {
@@ -120,11 +143,23 @@ export function Dropdown({ open, anchorRef, onClose, className, role, children }
     };
     window.addEventListener("scroll", reposition, true);
     window.addEventListener("resize", reposition);
+    // A picker's list fills in after it opens (the options load, a search
+    // narrows them): the menu is placed again as its size changes, or it
+    // keeps the place it was given while empty and runs off the screen.
+    const grow = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(reposition);
+    if (menuRef.current) {
+      grow?.observe(menuRef.current);
+      const list = menuRef.current.firstElementChild;
+      if (list) {
+        grow?.observe(list);
+      }
+    }
     document.addEventListener("pointerdown", onDown, true);
     document.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("scroll", reposition, true);
       window.removeEventListener("resize", reposition);
+      grow?.disconnect();
       document.removeEventListener("pointerdown", onDown, true);
       document.removeEventListener("keydown", onKey, true);
     };

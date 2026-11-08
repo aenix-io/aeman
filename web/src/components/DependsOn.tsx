@@ -73,7 +73,7 @@ export function DependsOn({ card, known, options, readOnly, onWantOptions, onAdd
             <button type="button" className="drawer-add-open" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
               + Add dependency
             </button>
-            <Dropdown open={open} anchorRef={anchor} onClose={() => setOpen(false)} className="add-card-team-menu drawer-pick-menu">
+            <Dropdown open={open} anchorRef={anchor} align="start" onClose={() => setOpen(false)} className="add-card-team-menu drawer-pick-menu">
               {open && (
                 <DependencyOptionList
                   card={card}

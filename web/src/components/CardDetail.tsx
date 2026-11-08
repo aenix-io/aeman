@@ -905,7 +905,7 @@ export function CardDetail({
         }
       }}
     >
-      <aside className="drawer card-drawer" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+      <aside className="drawer card-drawer" role="dialog" aria-modal="true" data-popup-bounds onClick={(e) => e.stopPropagation()}>
         <header className="drawer-head">
           {/* Where this card stands in the hierarchy, root first: the goal,
               the initiative, the epic — and for a subtask, its task. A
@@ -1361,7 +1361,7 @@ export function CardDetail({
                     <span className="drawer-pick-text">{reviewer ? displayName(reviewer, names) : "Nobody yet"}</span>
                     {!isRecord && !temp && <span className="add-card-team-caret">▾</span>}
                   </button>
-                  <Dropdown open={reviewerOpen} anchorRef={reviewerRef} onClose={() => setReviewerOpen(false)} className="add-card-team-menu drawer-pick-menu">
+                  <Dropdown open={reviewerOpen} anchorRef={reviewerRef} align="start" onClose={() => setReviewerOpen(false)} className="add-card-team-menu drawer-pick-menu">
                     {reviewers.map((p) => (
                       <button
                         key={p}
@@ -1396,7 +1396,7 @@ export function CardDetail({
                     <span className="drawer-pick-text">{card.zone ? ZONES[card.zone].spine.toLowerCase() : "none"}</span>
                     {!isRecord && <span className="add-card-team-caret">▾</span>}
                   </button>
-                  <Dropdown open={zoneOpen} anchorRef={zoneRef} onClose={() => setZoneOpen(false)} className="add-card-team-menu">
+                  <Dropdown open={zoneOpen} anchorRef={zoneRef} align="start" onClose={() => setZoneOpen(false)} className="add-card-team-menu">
                     {ZONE_ORDER.map((z) => (
                       <button key={z} type="button" className="add-card-team-item" onClick={() => setZone(z)}>
                         <span className="team-dot" style={{ background: ZONES[z].accent }} />
