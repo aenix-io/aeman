@@ -40,6 +40,7 @@ type Index struct {
 	memo sync.Mutex
 	done map[string]bool
 	cust map[string]customersAnswer
+	held map[string][]Blocker
 }
 
 // customersAnswer is one card's effective and dependent customers on the
@@ -162,15 +163,153 @@ func (ix *Index) customersOf(c Card) customersAnswer {
 	if ok {
 		return a
 	}
-	ids, from := ix.effectiveCustomers(c, map[string]bool{c.ItemID: true}, nil)
+	a, _ = ix.wholeCustomers(c, map[string]bool{})
+	return a
+}
+
+// wholeCustomers is customersOf's walk on the whole board, each card's
+// answer kept as it is found: the cards that wait for a card hand it their
+// own whole answers, so a dense board works each one out once, not once per
+// card below or above it. onPath is the cards being worked out further up
+// the walk — a cycle a direct writer left. A card met there gives nothing
+// yet, and every answer that leaned on it is partial and not kept (whole is
+// false), so it is worked out again, whole, when it is asked for itself.
+func (ix *Index) wholeCustomers(c Card, onPath map[string]bool) (customersAnswer, bool) {
+	ix.memo.Lock()
+	a, ok := ix.cust[c.ItemID]
+	ix.memo.Unlock()
+	if ok {
+		return a, true
+	}
+	// A review card is for its task's customers first (O6), the task's
+	// whole answer — what waits for the task included.
+	var first []string
+	if c.ReviewOf != "" {
+		if task, ok := ix.Find(c.ReviewOf); ok && task.ReviewOf == "" && !onPath[task.ItemID] {
+			onPath[c.ItemID] = true
+			ta, tWhole := ix.wholeCustomers(task, onPath)
+			delete(onPath, c.ItemID)
+			first = ta.ids
+			if !tWhole {
+				line := ix.lineCustomers(c, first)
+				return customersAnswer{ids: line}, false
+			}
+		}
+	}
+	line := ix.lineCustomers(c, first)
+	if !ix.hasDeps {
+		a = customersAnswer{ids: line}
+		ix.keepCustomers(c.ItemID, a)
+		return a, true
+	}
+	onPath[c.ItemID] = true
+	defer delete(onPath, c.ItemID)
+	whole := true
+	ids := line
+	var from []DependentCustomer
+	has := func(id string) bool {
+		for _, x := range ids {
+			if x == id {
+				return true
+			}
+		}
+		return false
+	}
+	ix.eachHolder(c, func(h Card) {
+		for _, d := range ix.dependents[h.ItemID] {
+			if onPath[d.ItemID] {
+				whole = false
+				continue
+			}
+			da, dWhole := ix.wholeCustomers(d, onPath)
+			whole = whole && dWhole
+			for _, id := range da.ids {
+				if !has(id) {
+					ids = append(ids, id)
+					from = append(from, DependentCustomer{Customer: id, From: d})
+				}
+			}
+		}
+	})
 	a = customersAnswer{ids: ids, from: from}
+	if whole {
+		ix.keepCustomers(c.ItemID, a)
+	}
+	return a, whole
+}
+
+func (ix *Index) keepCustomers(id string, a customersAnswer) {
 	ix.memo.Lock()
 	if ix.cust == nil {
 		ix.cust = map[string]customersAnswer{}
 	}
-	ix.cust[c.ItemID] = a
+	ix.cust[id] = a
 	ix.memo.Unlock()
-	return a
+}
+
+// lineCustomers is a card's customers by its own line (O4): every
+// ancestor's and its own, ancestors first, each once, on the roster only,
+// after the ones given (a review card's task's, O6) — walked in place,
+// without a copy of a card.
+func (ix *Index) lineCustomers(c Card, first []string) []string {
+	out := append([]string(nil), first...)
+	add := func(list []string) {
+	next:
+		for _, id := range list {
+			if id == "" || !ix.customers[id] {
+				continue
+			}
+			for _, x := range out {
+				if x == id {
+					continue next
+				}
+			}
+			out = append(out, id)
+		}
+	}
+	for _, i := range ix.lineIdx(c) {
+		add(ix.cards[i].Customers)
+	}
+	add(c.Customers)
+	return out
+}
+
+// eachHolder calls fn with every ancestor of c, top first, then c itself:
+// the cards whose waiters hand c their customers (N5).
+func (ix *Index) eachHolder(c Card, fn func(Card)) {
+	for _, i := range ix.lineIdx(c) {
+		fn(ix.cards[i])
+	}
+	fn(c)
+}
+
+// lineIdx is Lineage as places in the board's order, root first — the same
+// walk, bounded the same way, without a copy of a card.
+func (ix *Index) lineIdx(c Card) []int {
+	var chain [8]int
+	n := 0
+	for cur := c; cur.Parent != "" && n < 6; {
+		i, ok := ix.pos[cur.Parent]
+		if !ok || ix.cards[i].ItemID == c.ItemID {
+			break
+		}
+		for _, j := range chain[:n] {
+			if j == i {
+				ok = false
+			}
+		}
+		if !ok {
+			break
+		}
+		chain[n] = i
+		n++
+		cur = ix.cards[i]
+	}
+	out := make([]int, n)
+	for k := range n {
+		out[k] = chain[n-1-k]
+	}
+	return out
 }
 
 // OnRoster is the ids of the given ones the board's customer roster holds,

@@ -1,5 +1,7 @@
 package board
 
+import "slices"
+
 // Card dependencies (docs/design/dependencies.md, N1–N6): a card waits for
 // other cards. The lock is derived on reading, never written; the targets
 // are for the waiting work's customers too.
@@ -47,21 +49,74 @@ func (ix *Index) Blockers(c Card) []Blocker {
 	if !ix.waitsInLine(c) {
 		return nil
 	}
+	// The card's own first, then each ancestor's, nearest first — walked up
+	// the parents in place. What one holder contributes is the same for
+	// every card under it, so it is worked out once and shared; a card whose
+	// blockers all come from one holder gets that holder's list as it is
+	// (clipped, so an append by the caller copies).
 	var out []Blocker
-	holders := []Card{c}
-	up := ix.Lineage(c)
-	for i := len(up) - 1; i >= 0; i-- {
-		holders = append(holders, up[i])
-	}
-	for _, h := range holders {
-		for _, id := range h.DependsOn {
-			t, ok := ix.Find(id)
-			if !ok || ix.Done(t) {
-				continue
+	parts := 0
+	seen := [8]string{}
+	cur := c
+	for hops := 0; hops < 7; hops++ {
+		if own := ix.holderBlockers(cur); len(own) > 0 {
+			switch parts {
+			case 0:
+				out = own
+			case 1:
+				out = append(append([]Blocker(nil), out...), own...)
+			default:
+				out = append(out, own...)
 			}
-			out = append(out, Blocker{Target: t, Via: h})
+			parts++
 		}
+		seen[hops] = cur.ItemID
+		i, ok := ix.pos[cur.Parent]
+		if !ok || cur.Parent == "" {
+			break
+		}
+		loop := false
+		for _, s := range seen[:hops+1] {
+			if s == ix.cards[i].ItemID {
+				loop = true
+			}
+		}
+		if loop {
+			break
+		}
+		cur = ix.cards[i]
 	}
+	return out
+}
+
+// holderBlockers is what one card's own dependsOn blocks the cards in its
+// line with: the targets that are on the board and not done, once per card
+// for the index's life.
+func (ix *Index) holderBlockers(h Card) []Blocker {
+	if len(h.DependsOn) == 0 {
+		return nil
+	}
+	ix.memo.Lock()
+	got, ok := ix.held[h.ItemID]
+	ix.memo.Unlock()
+	if ok {
+		return got
+	}
+	var out []Blocker
+	for _, id := range h.DependsOn {
+		t, ok := ix.Find(id)
+		if !ok || ix.Done(t) {
+			continue
+		}
+		out = append(out, Blocker{Target: t, Via: h})
+	}
+	out = slices.Clip(out)
+	ix.memo.Lock()
+	if ix.held == nil {
+		ix.held = map[string][]Blocker{}
+	}
+	ix.held[h.ItemID] = out
+	ix.memo.Unlock()
 	return out
 }
 

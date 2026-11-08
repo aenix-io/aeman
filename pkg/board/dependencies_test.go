@@ -292,3 +292,35 @@ func TestVisibleRecordsWholeBoardBlockerCountsOnlyWhenSomethingWaits(t *testing.
 		t.Fatal("a board with no dependency records blocker counts")
 	}
 }
+
+// The customer walk keeps each card's answer, so a dense board works each
+// one out once — but a cycle a direct writer left must not leave a partial
+// answer behind: whichever card is asked first, every card in the cycle
+// answers whole.
+func TestACustomerCycleAnswersTheSameWhicheverCardIsAskedFirst(t *testing.T) {
+	cards := []Card{
+		{ItemID: "a", Title: "A", Team: "t", Customers: []string{"ca"}, DependsOn: []string{"b"}},
+		{ItemID: "b", Title: "B", Team: "t", Customers: []string{"cb"}, DependsOn: []string{"c"}},
+		{ItemID: "c", Title: "C", Team: "t", Customers: []string{"cc"}, DependsOn: []string{"a"}},
+	}
+	mk := func() *Index {
+		b := NewBoard(cards)
+		b.Customers = []Customer{{ID: "ca"}, {ID: "cb"}, {ID: "cc"}}
+		return NewIndex(b)
+	}
+	want := map[string]int{}
+	ix := mk()
+	for _, id := range []string{"a", "b", "c"} {
+		c, _ := ix.Find(id)
+		want[id] = len(ix.EffectiveCustomers(c))
+	}
+	for _, order := range [][]string{{"c", "b", "a"}, {"b", "a", "c"}} {
+		ix := mk()
+		for _, id := range order {
+			c, _ := ix.Find(id)
+			if got := len(ix.EffectiveCustomers(c)); got != want[id] || got != 3 {
+				t.Fatalf("asked %v: %s has %d customers, want 3 (and %d asked first)", order, id, got, want[id])
+			}
+		}
+	}
+}
