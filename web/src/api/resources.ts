@@ -143,6 +143,28 @@ export function resourceToCard(res: CardResource): Card {
           title: res.status.effectivePriorityFrom.title,
         }
       : undefined,
+    // What the card waits for, and the lock derived from it
+    // (docs/design/dependencies.md).
+    dependsOn: spec.dependsOn?.length ? spec.dependsOn : undefined,
+    locked: res.status?.locked || undefined,
+    blockedBy: res.status?.blockedBy?.length
+      ? res.status.blockedBy.map((b) => ({
+          uid: b.uid,
+          title: b.title,
+          type: (b.type as CardType | undefined) || undefined,
+          ...(b.via ? { via: b.via } : {}),
+        }))
+      : undefined,
+    hiddenBlockers: res.status?.hiddenBlockers || undefined,
+    blocks: res.status?.blocks?.length
+      ? res.status.blocks.map((b) => ({ uid: b.uid, title: b.title, type: (b.type as CardType | undefined) || undefined }))
+      : undefined,
+    dependentCustomers: res.status?.dependentCustomers?.length
+      ? res.status.dependentCustomers.map((d) => ({
+          customer: d.customer,
+          from: { uid: d.from.uid, title: d.from.title, type: (d.from.type as CardType | undefined) || undefined },
+        }))
+      : undefined,
     size: sizeFromWire(spec.size),
     // A summary listing omits the body: description stays undefined ("not
     // loaded") and the boards fetch it on selection. A full resource with a
