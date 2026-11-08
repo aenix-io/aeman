@@ -352,6 +352,12 @@ Rules:
   `customers:` (the roster's, `customers/<id>.yaml`); `owner:` is a login
   and is read on a goal, an initiative or an epic only
   (`ownership.md`).
+- `dependsOn: [<id>, …]` are the ids of the cards this one waits for, on a
+  task or a plan item (`dependencies.md`), written after `customers:`. The
+  lock it makes, the blockers and the customers a target inherits are
+  derived on every read and never written; an id the board does not hold
+  is ignored and leaves the list the next time the server writes it.
+  Deleting a card never rewrites the cards that wait for it.
 - A task's `team:` is its OWN team; a task with none under a goal, an
   initiative or an epic that has one is drawn under that team on every day
   board and backlog, and joins that team's sprint (`ownership.md` O13). A
