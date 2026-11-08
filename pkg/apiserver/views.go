@@ -273,18 +273,24 @@ func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.
 		}
 		return out
 	}
+	// A plan item passes by ONE task under it that passes every filter —
+	// the plan item's own team, customers or owner standing in for that
+	// filter, the status always the task's (O14). Checking each filter on
+	// any task drew an epic whose team came from one task and whose status
+	// from another, with nothing under it that matched. With no status
+	// asked, a plan item that passes by its own fields alone needs no task.
 	planPasses := func(p board.Card) bool {
-		under := tasksUnder(p)
-		anyUnder := func(ok func(board.Card) bool) bool {
-			for _, t := range under {
-				if ok(t) {
-					return true
-				}
-			}
-			return false
+		ownTeam, ownCustomer, ownOwner := teamOK(p), customerOK(p), ownerOK(p)
+		if statuses == nil && ownTeam && ownCustomer && ownOwner {
+			return true
 		}
-		return (teamOK(p) || anyUnder(teamOK)) && (customerOK(p) || anyUnder(customerOK)) &&
-			(ownerOK(p) || anyUnder(ownerOK)) && (statuses == nil || anyUnder(statusOK))
+		for _, t := range tasksUnder(p) {
+			if (ownTeam || teamOK(t)) && (ownCustomer || customerOK(t)) &&
+				(ownOwner || ownerOK(t)) && statusOK(t) {
+				return true
+			}
+		}
+		return false
 	}
 	passedPlans := map[string]bool{}
 	for _, c := range cards {

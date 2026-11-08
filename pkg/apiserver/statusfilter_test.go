@@ -82,3 +82,50 @@ func TestTheStatusSelectorIsReadAndChecked(t *testing.T) {
 		t.Fatalf("an empty status is no filter: %v", err)
 	}
 }
+
+// O14 — the AND across filters is checked on ONE task. A plan item passes by
+// a task under it that passes every task-level filter itself — where the
+// plan item's own field may stand in for a filter that reads plan items too
+// (its team, its customers, its owner); the status is always the task's. It
+// used to take the team from one task and the status (or the customer) from
+// another, and drew an epic with nothing under it that matched.
+func TestTheRoadmapFiltersAreAndedOnOneTask(t *testing.T) {
+	t.Parallel()
+	const day = "2026-11-02"
+	b := board.NewBoard([]board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Owner: "zed"},
+		{ItemID: "a", Title: "A", Parent: "epic", Team: "portal", Assignees: []string{"ann"},
+			Customers: []string{"acme"}, Progress: 100, StartDate: day},
+		{ItemID: "b", Title: "B", Parent: "epic", Team: "ops", Assignees: []string{"carl"}, SprintStart: day},
+		{ItemID: "c", Title: "C", Parent: "epic", Team: "ops", Assignees: []string{"carl"}, Parked: true},
+	})
+	b.Customers = []board.Customer{{ID: "acme", Name: "Acme"}, {ID: "zeta", Name: "Zeta"}}
+	for _, tc := range []struct {
+		name string
+		sel  Selector
+		want []string
+	}{
+		// portal's task is done, the task in progress is ops'.
+		{"team and status", Selector{Team: "portal", Status: "in-progress"}, nil},
+		// ann's task is done, the backlog task is carl's.
+		{"owner and status", Selector{Owner: "ann", Status: "backlog"}, nil},
+		// The same rule mends the older pair: acme's task is portal's,
+		// ops' tasks are for nobody.
+		{"team and customer", Selector{Team: "ops", Customer: "acme"}, nil},
+		// One task passing everything draws the plan and itself.
+		{"one task passes both", Selector{Team: "ops", Status: "backlog"}, []string{"epic", "c"}},
+		// The plan item's own owner stands in for the owner filter; the
+		// status is still a task's.
+		{"own owner, a task's status", Selector{Owner: "zed", Status: "in-progress"}, []string{"epic"}},
+		{"own owner, a task done or parked", Selector{Owner: "zed", Status: "done,backlog"}, []string{"epic"}},
+	} {
+		var got []string
+		got = append(got, roadmapIDs(b, tc.sel)...)
+		if len(got) == 0 {
+			got = nil
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

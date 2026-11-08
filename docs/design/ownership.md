@@ -124,6 +124,14 @@ selectors `team`, `customer`, `owner`, `status`; the same in MCP
   Backlog hides the finished work (the owner asked for that in so many
   words), and the toolbar offers it as one press.
 
+Several filters are OR within one and AND across them — judged on ONE task
+(amended 2026-11-08): a planning card passes by a task under it that passes
+every filter chosen, the planning card's own team, customers or owner
+standing in for that filter where they apply; the status is always the
+task's. With no status chosen, a planning card whose own fields pass every
+filter is listed with no task. An epic is never drawn on a team taken from
+one task and a status (or a customer) taken from another.
+
 The Team board and the Backlog have the same Team and Customer filters
 (O11); there they narrow the day board's cards, a customer matching by
 effective customers as here. The Me board has the Team filter alone (O12).
@@ -187,4 +195,4 @@ where it sits. The choice is remembered per viewer in the browser.
 | O11 | The no-team group is a team in every team filter, and the day boards filter by customer too. |
 | O12 | Every board filters through one dropdown, with the roster's Manage inside; the Me board says what its filters hide. |
 | O13 | A task stands under its effective team on every day board, backlog, team filter and sprint; its own team is still what is stored and written. |
-| O14 | The Roadmap status filter matches a task by its work status (done, backlog when parked, in progress when in work; unplaced reads as backlog), a subtask by its parent task, a review card by its task, and a planning card by any task under it — a plan item with no tasks matches no status. |
+| O14 | The Roadmap status filter matches a task by its work status (done, backlog when parked, in progress when in work; unplaced reads as backlog), a subtask by its parent task, a review card by its task, and a planning card by a task under it — a plan item with no tasks matches no status. Across filters the AND is judged on one task. |
