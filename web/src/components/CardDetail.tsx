@@ -49,7 +49,7 @@ import { placementAnswer, drawerEscapes, joinsTree } from "../detail";
 import { OwnerPicker } from "./OwnerPicker";
 import { ParentPicker } from "./ParentPicker";
 import { DependsOn } from "./DependsOn";
-import { withDependency, withoutDependency } from "../dependencies";
+import { dependenciesToFetch, withDependency, withFetched, withoutDependency } from "../dependencies";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { notTombstoned, type Tombstones } from "../tombstones";
 
@@ -218,7 +218,13 @@ export function CardDetail({
     });
   }, [subscribeCardFrames]);
   const around = hierarchy?.forCard === card.itemId ? hierarchy.cards : null;
-  const [fetchedDeps, setFetchedDeps] = useState<CardModel[]>([]);
+  const [fetchedDeps, setFetchedDeps] = useState<readonly CardModel[]>([]);
+  // The ids this drawer card has asked for already, answered or not
+  // (dependenciesToFetch): asked once, never again for the same card.
+  const triedDeps = useRef<{ forCard: string; ids: Set<string> }>({ forCard: card.itemId, ids: new Set() });
+  if (triedDeps.current.forCard !== card.itemId) {
+    triedDeps.current = { forCard: card.itemId, ids: new Set() };
+  }
   // What the board itself holds is fresher than the fetched listing for the
   // cards it has (the watch keeps it so); the listing fills in the rest.
   const known = useMemo(() => {
@@ -244,14 +250,24 @@ export function CardDetail({
       return;
     }
     const have = new Set([...around, ...board.cards, ...fetchedDeps].map((c) => c.itemId));
-    const missing = (card.dependsOn ?? []).filter((id) => !have.has(id));
+    const tried = triedDeps.current;
+    const missing = dependenciesToFetch(card.dependsOn, have, tried.ids);
     if (missing.length === 0) {
       return;
+    }
+    for (const id of missing) {
+      tried.ids.add(id);
     }
     let dropped = false;
     void Promise.all(missing.map((id) => provider.getCard(id).catch(() => null))).then((got) => {
       if (!dropped) {
-        setFetchedDeps((prev) => [...prev, ...got.filter((c): c is CardModel => c !== null)]);
+        setFetchedDeps((prev) => withFetched(prev, got));
+      } else {
+        // The effect was superseded before the answer came: let the next
+        // run ask again rather than lose the id for this card.
+        for (const id of missing) {
+          tried.ids.delete(id);
+        }
       }
     });
     return () => {

@@ -115,3 +115,32 @@ export function derivedLockOf(c: Card): string | null {
   }
   return lockTitle(c, new Map((c.lineage ?? []).map((l) => [l.uid, l.title])));
 }
+
+/** dependenciesToFetch is the dependencies the drawer still has to fetch by
+ *  id: the ones neither held (listing, board, already fetched) nor already
+ *  asked for. An id is asked for ONCE per drawer card, whatever the answer —
+ *  a target the visitor cannot read, a deleted one, a network error: asking
+ *  again would get the same answer, and asking on every render was a request
+ *  loop. A new drawer card starts with nothing asked. */
+export function dependenciesToFetch(
+  dependsOn: readonly string[] | undefined,
+  have: ReadonlySet<string>,
+  tried: ReadonlySet<string>,
+): string[] {
+  return (dependsOn ?? []).filter((id) => !have.has(id) && !tried.has(id));
+}
+
+/** withFetched adds the cards a fetch brought back to the drawer's fetched
+ *  list — and hands back the SAME list when nothing new came, so a fetch that
+ *  found nothing changes no state and reruns no effect. */
+export function withFetched(prev: readonly Card[], got: readonly (Card | null)[]): readonly Card[] {
+  const held = new Set(prev.map((c) => c.itemId));
+  const added: Card[] = [];
+  for (const c of got) {
+    if (c && !held.has(c.itemId)) {
+      held.add(c.itemId);
+      added.push(c);
+    }
+  }
+  return added.length === 0 ? prev : [...prev, ...added];
+}

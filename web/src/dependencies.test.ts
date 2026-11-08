@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "./providers/types";
-import { blocksOf, dependencyOptions, derivedLockOf, dependencyRows, lockTitle, withDependency, withoutDependency } from "./dependencies";
+import {
+  blocksOf,
+  dependencyOptions,
+  dependenciesToFetch,
+  derivedLockOf,
+  dependencyRows,
+  lockTitle,
+  withDependency,
+  withFetched,
+  withoutDependency,
+} from "./dependencies";
 
 const card = (c: Partial<Card> & { itemId: string }): Card => ({ title: c.itemId, assignees: [], ...c });
 
@@ -94,5 +104,30 @@ describe("the day boards' lock", () => {
     expect(derivedLockOf(card({ itemId: "x", ...waiting, stage: "review" }))).toBeNull();
     expect(derivedLockOf(card({ itemId: "x", ...waiting, progress: 100 }))).toBeNull();
     expect(derivedLockOf(card({ itemId: "x" }))).toBeNull();
+  });
+});
+
+// A dependency the drawer's listing does not carry is fetched by id ONCE per
+// drawer card, whatever the answer: a hidden target, a deleted one or a
+// network error answers the same next time, and asking again on every render
+// was a request loop that never stopped.
+describe("the dependencies the drawer fetches", () => {
+  it("asks for what it neither holds nor has asked for", () => {
+    expect(dependenciesToFetch(["a", "b", "c"], new Set(["a"]), new Set(["b"]))).toEqual(["c"]);
+  });
+  it("does not ask again for an id that failed", () => {
+    expect(dependenciesToFetch(["gone"], new Set(), new Set(["gone"]))).toEqual([]);
+  });
+  it("asks nothing for a card with no dependencies", () => {
+    expect(dependenciesToFetch(undefined, new Set(), new Set())).toEqual([]);
+  });
+  it("keeps the same list when nothing came back, so no effect reruns", () => {
+    const prev = [t1];
+    expect(withFetched(prev, [null, null])).toBe(prev);
+    expect(withFetched(prev, [])).toBe(prev);
+  });
+  it("adds what did come back, once", () => {
+    const prev = [t1];
+    expect(withFetched(prev, [t2, null, t1]).map((c) => c.itemId)).toEqual(["t1", "t2"]);
   });
 });
