@@ -278,7 +278,7 @@ Rules:
   and dropped, so its next write leaves the key out. A writer emits
   neither.
 - `type` is the card's LEVEL (`hierarchy.md`): absent for a task, else
-  `goal`, `initiative` or `epic` — a planning card, drawn on the Roadmap
+  `goal`, `initiative` or `epic` — a planning card, drawn on the Strategy board
   and on no day board. It is written right after the title, and a task
   writes none. `parent` is the one link between levels, and the parent's
   type is what the link means: under a task, a subtask; under a planning
@@ -293,7 +293,7 @@ Rules:
   anywhere, which is what makes it safe: there is no list to create,
   rename or remove, so nothing can be taken from under a card.
 - There is NO `priority` (removed 2026-11-08, `docs/design/backlog.md`):
-  the backlog's order is the place in the Roadmap tree. A `priority:` key
+  the backlog's order is the place in the Strategy board tree. A `priority:` key
   a file still carries — written while priorities existed — is an unknown
   key: kept, written back as it was, and meaning nothing; a writer must not
   expect it to order anything. A `todo:` key (an unreleased flag) is an
@@ -513,7 +513,7 @@ neighbour lives in.
 - **K1** — an open task is IN WORK (a `start`/`day` or a `sprint`) or
   `parked: true`, never both and never neither; parking clears
   `assignees`, `start`, `day`, `sprint` and sets `zone: gray`.
-- **K14** — a backlog reads in the Roadmap's order: the path of
+- **K14** — a backlog reads in the Strategy board's order: the path of
   board-order places (rank, then id) from the root plan item down to the
   task, the tasks with no plan item last, the reviews nobody has taken
   first (K10), so a writer reorders a task in its backlog by moving it

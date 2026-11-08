@@ -96,7 +96,7 @@ Three consequences, each deliberate:
 A **goal** is the thing the company is trying to reach; it has no parent.
 An **initiative** is a product bet made to reach a goal — the unit that
 gets a start and an end, and the row a lead reads on the
-Roadmap. An **epic** is a body of work inside an initiative (or straight
+Strategy board. An **epic** is a body of work inside an initiative (or straight
 under a goal) that is worth tracking as one thing. A **task** is what the
 day boards have always held. (The Scope columns of the Project board
 were never a level; they went with the board, 2026-11-07.)
@@ -286,7 +286,7 @@ it). Nor is a
 review card (it follows the card it reviews, which is the work — the
 owner picker refuses it and so does the link), and a subtask follows its
 parent task in or out. The listing is the card
-listing of the view (`GET /api/v1/views/roadmap/cards`), with the same
+listing of the view (`GET /api/v1/views/strategy/cards`), with the same
 watch; the tree is assembled from `parent` on the client, and the loose
 work is grouped by what it is — in hand or parked. The
 watch keeps the tree LIVE: a planning card is never written when a task
@@ -358,7 +358,7 @@ subtasks like the tree's, and a row there **drags into the tree** under
 a planning card by the same rule and with the same landing mark — dragging
 within the sections does nothing, and nothing is dropped onto a section
 row. The filters apply to them too. (`sectionOf` / `sectionsOf`
-in `roadmap.ts`: a root with a planning crumb in its lineage stays in the
+in `strategy.ts`: a root with a planning crumb in its lineage stays in the
 tree even when its parent is not in the listing — a hole is worse than a
 flat row.)
 
@@ -438,7 +438,7 @@ along; the day is the parent's or today), from whichever board the pane
 was opened on — Team, Me, Backlog or the Strategy board, where the new row stands
 under its task at once. A planning card's pane draws what sits under it
 as the Strategy board's tree rooted one level below the card ("Under it",
-`PlanTree`, `roadmap.subtreeRows`): every level under it — plan items,
+`PlanTree`, `strategy.subtreeRows`): every level under it — plan items,
 tasks and subtasks, each marked by its kind — with the Strategy board's rows (fold, title, owner with an inherited team,
 status) and no timeline or dates. A row opens that card in the pane, by a
 click or from the keyboard; a plan item's + adds under that row (the levels
@@ -450,7 +450,7 @@ team, if it has one. A big tree starts folded below its first level. The
 Under picker shows each
 option's place — its ancestors, root first, small and muted with their
 kinds, cut when long and in full in the tooltip — and finds a plan item by
-its ancestors' titles too (`roadmap.parentOptions`). One × on every row
+its ancestors' titles too (`strategy.parentOptions`). One × on every row
 of the tree, and on the card itself,
 asks the Team board's own question in the Team board's own dialog, with
 the hierarchy's answers: delete, or only detach (ungroup, for a subtask).
@@ -458,7 +458,7 @@ The actions: mark as done and reopen (a task), delete — or
 delete-or-unlink on a card that sits under something. The options and the children come from the
 strategy listing, fetched once per card when the pane needs it: the day
 boards never deliver a planning card to look up. The rules live in
-`web/src/roadmap.ts` and `web/src/owner.ts` with their cases beside
+`web/src/strategy.ts` and `web/src/owner.ts` with their cases beside
 them; the components draw them.
 
 The Strategy board opens the drawer with a click on a card. The Me, Team and Backlog boards SELECT a card on the first
@@ -540,7 +540,7 @@ Added: `spec.type` (`goal` | `initiative` | `epic`, absent for a task),
 `strategy`; the problem codes `unknownType`, `parentLevel`, `planningCard`
 (and `crossDomain`, kept from the mirrors, for a link across a
 repository); `create_card` takes `type`, `update_card` takes `parent`,
-`list_cards view=roadmap`. No tool per level: a goal is a card. There is
+`list_cards view=strategy`. No tool per level: a goal is a card. There is
 no door that changes a card's type: the level is fixed at create, and a
 card that should be another level is made again. The gesture `own`
 (`/views/{view}/cards/{uid}/actions/own`, MCP `own_card`) with the
@@ -581,7 +581,7 @@ task.
   board `TestPlanningCardsAreOnNoDayBoardAndTasksUnderThemAre`; service
   `TestAPlanningCardHasNoDayBoardState`,
   `TestDeletingAPlanningCardReparentsItsChildren`; apiserver
-  `TestTheRoadmapListsTheHierarchy`; web `hierarchy.test.ts`.
+  `TestTheStrategyListsTheHierarchy`; web `hierarchy.test.ts`.
 - H4 — ~~a project card stands in its column alone: no team, no owner,
   no band, no size, never a subtask, no subtasks, never a review; drawn on
   the Project board and the Strategy board only~~ **Removed** 2026-11-07 with the
@@ -615,10 +615,10 @@ task.
   a team, an owner, a zone and a size are refused by name; a day-board
   create refuses `type` (`ErrNotOnThisBoard`); the Strategy board draws the ×,
   which deletes the planning card and hands its children to its parent.
-  Pinned by service `TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse`,
+  Pinned by service `TestAPlanningCardIsBornOnTheStrategyAndNowhereElse`,
   `TestDeletingAPlanningCardReparentsItsChildren`,
   `TestAGestureIsOfferedByTheBoardThatDrawsIt`; apiserver
-  `TestARoadmapBornTaskStandsInTheNoTeamBacklogAndOnTheRoadmap`; server
+  `TestAStrategyBornTaskStandsInTheNoTeamBacklogAndOnTheStrategy`; server
   `TestTheCatalogNamesTheBoardsAndTheirGestures`; web `hierarchy.test.ts`
   (`createView`).
 - H8 — schema 2: the five steps, idempotent, and what a pre-migration
@@ -628,8 +628,8 @@ task.
   planning card above it (in hand or parked); a finished one
   outside the hierarchy and a subtask whose
   parent is out stay out; the gate and the watch follow. Pinned by
-  apiserver `TestTheRoadmapListsTheHierarchy`; server
-  `TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap`.
+  apiserver `TestTheStrategyListsTheHierarchy`; server
+  `TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheStrategy`.
 - H10 — `own`: a team and a person, a team alone, or nobody; a person
   files an unplanned card like a Me-board create, a team alone parks it,
   a planned card only changes hands; a person needs a team; a subtask and a
