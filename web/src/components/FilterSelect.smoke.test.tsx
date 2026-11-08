@@ -99,10 +99,11 @@ describe("the styles of the chip rows", () => {
 });
 
 describe("a quick choice in the filter dropdown", () => {
-  // A QUICK choice sits at the top of the menu where a board offers one —
-  // the Roadmap's Status filter has "Hide done", one click for every
-  // status but done — checked while the selection is exactly it.
-  it("puts a board's quick choice at the top, checked while it holds", () => {
+  // A QUICK choice sits at the foot of the menu where a board offers one,
+  // drawn like the way back to "all" beside it — the Roadmap's Status
+  // filter has "Hide done", one click for every status but done — checked
+  // while the selection is exactly it.
+  it("puts a board's quick choice at the foot, like All, checked while it holds", () => {
     const opts = [
       { value: "in-progress", label: "In progress" },
       { value: "backlog", label: "Backlog" },
@@ -120,7 +121,12 @@ describe("a quick choice in the filter dropdown", () => {
       );
     const off = menu(false);
     expect(off).toMatch(/role="menuitemcheckbox" aria-checked="false"[^>]*>.*Hide done/);
-    expect(off.indexOf("Hide done")).toBeLessThan(off.indexOf("In progress"));
+    expect(off.indexOf("Hide done")).toBeGreaterThan(off.indexOf("Done<"));
+    expect(off).toMatch(/class="card-stage-item card-stage-clear filter-select-quick"[^>]*>.*Hide done/);
+    // With a selection, the way back to all follows it, both at the foot.
+    const on = menu(true);
+    expect(on.indexOf("Hide done")).toBeGreaterThan(on.indexOf("Done<"));
+    expect(on.indexOf("Hide done")).toBeLessThan(on.lastIndexOf("card-stage-clear\""));
     expect(menu(true)).toMatch(/role="menuitemcheckbox" aria-checked="true"[^>]*>.*Hide done/);
   });
 });

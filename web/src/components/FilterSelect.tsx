@@ -18,17 +18,18 @@ export function toggled(selected: readonly string[], v: string): string[] {
   return selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v];
 }
 
-/** QuickChoice is a board's one-click selection at the top of its filter's
- *  menu — the Roadmap's "Hide done" — checked while the selection is it. */
+/** QuickChoice is a board's one-click selection at the foot of its
+ *  filter's menu, drawn like the way back to "all" beside it — the
+ *  Roadmap's "Hide done" — checked while the selection is it. */
 export interface QuickChoice {
   label: string;
   on: boolean;
   onClick: () => void;
 }
 
-/** FilterSelectMenu is the open menu: a board's quick choice at the top
- *  where it offers one, a checkbox per option (several are OR), a way back
- *  to "any" when something is chosen, and the roster's "Manage…" entry at
+/** FilterSelectMenu is the open menu: a checkbox per option (several are
+ *  OR), then at its foot a board's quick choice where it offers one and a
+ *  way back to "any" when something is chosen, and the roster's "Manage…" entry at
  *  the bottom where the board offers one. */
 export function FilterSelectMenu({
   options,
@@ -49,20 +50,6 @@ export function FilterSelectMenu({
 }) {
   return (
     <>
-      {quick && (
-        <button
-          type="button"
-          role="menuitemcheckbox"
-          aria-checked={quick.on}
-          className="card-stage-item filter-select-item filter-select-quick"
-          onClick={quick.onClick}
-        >
-          <span className={`filter-select-check${quick.on ? " filter-select-check-on" : ""}`} aria-hidden="true">
-            {quick.on ? "✓" : ""}
-          </span>
-          {quick.label}
-        </button>
-      )}
       {options.length === 0 && <span className="card-stage-item filter-menu-hint">Nothing to choose yet</span>}
       {options.map((o) => {
         const on = selected.includes(o.value);
@@ -82,6 +69,20 @@ export function FilterSelectMenu({
           </button>
         );
       })}
+      {quick && (
+        <button
+          type="button"
+          role="menuitemcheckbox"
+          aria-checked={quick.on}
+          className="card-stage-item card-stage-clear filter-select-quick"
+          onClick={quick.onClick}
+        >
+          <span className={`filter-select-check${quick.on ? " filter-select-check-on" : ""}`} aria-hidden="true">
+            {quick.on ? "✓" : ""}
+          </span>
+          {quick.label}
+        </button>
+      )}
       {selected.length > 0 && (
         <button type="button" role="menuitem" className="card-stage-item card-stage-clear" onClick={() => onChange([])}>
           {anyLabel.charAt(0).toUpperCase() + anyLabel.slice(1)}
