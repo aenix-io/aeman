@@ -196,8 +196,7 @@ describe("what a drop does (K5)", () => {
 });
 
 // ONE ORDER, decided by the tree (K14): a drop moves a task among its
-// SIBLINGS — the tasks under the same parent, in the same priority group —
-// which moves it on the Roadmap too. A drop whose neighbours are
+// SIBLINGS — the tasks under the same parent — which moves it on the Roadmap too. A drop whose neighbours are
 // none of its siblings is not a place it can go: forbidden, nothing moves.
 describe("a drop moves a task among its siblings only (K14)", () => {
   const under = (itemId: string, parent: string, over: Partial<Card> = {}) =>
@@ -542,10 +541,9 @@ describe("the reviews nobody has taken (K10)", () => {
     expect(onBacklog(waiting({ assignees: ["bob"] }))).toBe(false);
   });
 
-  // In the same list as the tasks, first in its task's priority group (K10)
-  // — no priority here, so first among the tasks with none — and never
-  // dragged: its place is its task's.
-  it("stands first in its task's priority group, and does not move by a drop", () => {
+  // In the same list as the tasks, in the group on top of them (K10), and
+  // never dragged: its place is its task's.
+  it("stands in the group on top of the tasks, and does not move by a drop", () => {
     const t1 = card({ itemId: "t1", team: "alpha" });
     const t2 = card({ itemId: "t2", team: "beta" });
     const top = waiting({ itemId: "r-top", team: "alpha" });
