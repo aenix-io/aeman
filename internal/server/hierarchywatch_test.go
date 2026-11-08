@@ -827,6 +827,38 @@ func TestALockedRoadmapWatchSeesTheLockLift(t *testing.T) {
 	}
 }
 
+// O14 — leaving No items on a watch. The empty epic matches No items by
+// itself, and so does the goal held only by it; the first task added under
+// the epic gives both items, and the No items watch hears both leave — the
+// author's own included, since the request addressed the task, not them —
+// while the new task, parked, is no No items card and never arrives.
+func TestANoItemsRoadmapWatchSeesThePlanGainItsFirstTask(t *testing.T) {
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "goal", Title: "Operations", Type: board.TypeGoal},
+		{ItemID: "epic", Title: "Acme rollout", Type: board.TypeEpic, Parent: "goal"},
+	})
+	e := seedEntry(store, "k", b)
+	sel := func() *apiserver.Selector { return &apiserver.Selector{View: "roadmap", Status: "no-items"} }
+	author, cancel := store.subscribe("k", "lead", sel(), map[string]bool{"cards": true})
+	defer cancel()
+	other, cancel2 := store.subscribe("k", "viewer", sel(), map[string]bool{"cards": true})
+	defer cancel2()
+	e.mu.Lock()
+	task := board.Card{ItemID: "t", Title: "Plan the rollout", Parent: "epic", Team: "alpha", Parked: true}
+	e.upsertCard(task)
+	e.cardChanged("lead", task, "ADDED")
+	e.mu.Unlock()
+	settled(t, e)
+	for name, sub := range map[string]*subscription{"the author": author, "another reader": other} {
+		got := took(t, sub, 2)
+		if got["goal"].Type != "DELETED" || got["epic"].Type != "DELETED" {
+			t.Fatalf("%s heard %v, want the epic and the goal to leave No items", name, got)
+		}
+		noFrame(t, sub)
+	}
+}
+
 // O14 — under a status filter a plan item stays while ANY task under it
 // still matches: one of two tasks leaving takes no DELETED to the epic. And
 // what rides the task leaves with it — its subtask and its review card,
