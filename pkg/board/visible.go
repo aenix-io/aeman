@@ -34,7 +34,9 @@ func Visible(b Board, primary string, readable func(domain string) bool) Board {
 	// board on which nothing does pays nothing for the count.
 	v.BlockerTotals = nil
 	v.UndoneTargets = nil
+	v.JudgedWhole = false
 	if len(v.Cards) < len(b.Cards) && anyDependsOn(b.Cards) {
+		v.JudgedWhole = true
 		ix := NewIndex(b)
 		for _, c := range v.Cards {
 			if n := len(ix.Blockers(c)); n > 0 {

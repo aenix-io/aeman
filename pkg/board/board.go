@@ -268,6 +268,12 @@ type Board struct {
 	// holds, so the visitor's listing judges a blocker the way a watch frame
 	// does (N4). Nil when nothing was hidden.
 	UndoneTargets map[string]bool `json:"-"`
+	// JudgedWhole says Visible hid something on a board where something
+	// waits: the visitor's dependencies are judged on the WHOLE board
+	// (BlockerTotals, UndoneTargets), even when those maps are empty —
+	// an empty map is "nothing undone on the whole board", not "judge on the
+	// part you can see" (N4).
+	JudgedWhole bool `json:"-"`
 }
 
 // Customer is one entry of the board's customer roster: who the work is for.

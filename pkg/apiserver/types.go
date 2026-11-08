@@ -821,13 +821,13 @@ func heldIDs(ix *board.Index, ids []string) []string {
 }
 
 // applyDependencies fills the derived dependency fields (N3–N5). On a
-// visitor's visible board a target is judged done or not on the WHOLE board
-// (UndoneTargets) — the basis a watch frame uses — and the blockers it
+// visitor's visible board (JudgedWhole) a target is judged done or not on the
+// WHOLE board (UndoneTargets) — the basis a watch frame uses — and the blockers it
 // cannot name are the whole board's count (BlockerTotals) less the ones it
 // found.
 func applyDependencies(status *CardStatus, b board.Board, ix *board.Index, c board.Card) {
 	blockers := ix.Blockers(c)
-	if b.BlockerTotals != nil {
+	if b.JudgedWhole {
 		blockers = blockersJudgedWhole(b, ix, c)
 	}
 	for _, bl := range blockers {
@@ -837,7 +837,7 @@ func applyDependencies(status *CardStatus, b board.Board, ix *board.Index, c boa
 		}
 		status.BlockedBy = append(status.BlockedBy, ref)
 	}
-	if b.BlockerTotals != nil {
+	if b.JudgedWhole {
 		if n := b.BlockerTotals[c.ItemID] - len(blockers); n > 0 {
 			status.HiddenBlockers = n
 		}

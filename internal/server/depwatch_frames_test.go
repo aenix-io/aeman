@@ -97,3 +97,31 @@ func TestAnEpicTargetWithHiddenLeavesCountsAlikeInListingAndFrame(t *testing.T) 
 	change(t, e, "t", func(c *board.Card) { c.Title += "!" })
 	restrictedFrameAgrees(t, e, rights, cardFrames(narrow), "t")
 }
+
+// A target epic done only by tasks its watcher cannot read: on the whole
+// board every task under it is finished, so nothing waits on it; on the
+// watcher's board it has no task at all. The listing must judge it on the
+// whole board as the frame does — no lock — even when, on the whole board,
+// nothing the watcher can read has a blocker left to count.
+func TestATargetDoneOnlyByHiddenTasksLocksNothingInListingOrFrame(t *testing.T) {
+	store := newBoardStore()
+	b := targetEpicBoard()
+	for i := range b.Cards {
+		switch b.Cards[i].ItemID {
+		case "infra-t":
+			b.Cards[i].Domain = "closed"
+			b.Cards[i].Progress = 100
+		case "infra-done":
+			b.Cards[i].Domain = "closed"
+		}
+	}
+	e := seedEntry(store, "k", b)
+	rights := rightsOn([]string{"shared"}, nil)
+	narrow, cancel := store.subscribeAs("k", "bob", nil, map[string]bool{"cards": true}, rights)
+	defer cancel()
+	change(t, e, "t", func(c *board.Card) { c.Title += "!" })
+	got := restrictedFrameAgrees(t, e, rights, cardFrames(narrow), "t")
+	if got.Status.Locked {
+		t.Fatalf("t is locked by an epic that is done on the whole board: %+v", got.Status)
+	}
+}
