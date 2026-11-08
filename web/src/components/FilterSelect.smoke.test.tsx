@@ -97,3 +97,30 @@ describe("the styles of the chip rows", () => {
     expect(css).toMatch(/\.team-eye \{/);
   });
 });
+
+describe("a quick choice in the filter dropdown", () => {
+  // A QUICK choice sits at the top of the menu where a board offers one —
+  // the Roadmap's Status filter has "Hide done", one click for every
+  // status but done — checked while the selection is exactly it.
+  it("puts a board's quick choice at the top, checked while it holds", () => {
+    const opts = [
+      { value: "in-progress", label: "In progress" },
+      { value: "backlog", label: "Backlog" },
+      { value: "done", label: "Done" },
+    ];
+    const menu = (on: boolean) =>
+      renderToStaticMarkup(
+        <FilterSelectMenu
+          options={opts}
+          selected={on ? ["in-progress", "backlog"] : []}
+          quick={{ label: "Hide done", on, onClick: vi.fn() }}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+    const off = menu(false);
+    expect(off).toMatch(/role="menuitemcheckbox" aria-checked="false"[^>]*>.*Hide done/);
+    expect(off.indexOf("Hide done")).toBeLessThan(off.indexOf("In progress"));
+    expect(menu(true)).toMatch(/role="menuitemcheckbox" aria-checked="true"[^>]*>.*Hide done/);
+  });
+});

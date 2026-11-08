@@ -66,6 +66,7 @@ import {
 } from "../roadmap";
 import { barColor } from "../stages";
 import { FilterSelect } from "./FilterSelect";
+import { STATUS_LABELS, WORK_STATUSES, hidesDone, toggledHideDone } from "../workstatus";
 import { customerOptions, teamOptions } from "../filteroptions";
 import {
   COLUMN_MAX,
@@ -484,7 +485,8 @@ export function RoadmapBoard({
     }
     return ownerFilterOptions(board.members.map((m) => m.login), board.cards, filters.owners, seenPeople.current);
   }, [board.members, board.cards, filters.owners]);
-  const filtering = filters.teams.length > 0 || filters.customers.length > 0 || filters.owners.length > 0;
+  const filtering =
+    filters.teams.length > 0 || filters.customers.length > 0 || filters.owners.length > 0 || filters.statuses.length > 0;
   const shown = board.cards;
 
   // ---- the drag: where it stands, and the mark of where it would land ----
@@ -1048,6 +1050,22 @@ export function RoadmapBoard({
           options={owners.map((p) => ({ value: p, label: p }))}
           selected={filters.owners}
           onChange={(owners) => onFilters({ ...filters, owners })}
+        />
+        {/* What stage the work is in (workstatus.ts): a task by its own,
+            a plan item by the tasks under it — the server's filter too.
+            "Hide done" is the one click for everything still to do. */}
+        <FilterSelect
+          label="Status"
+          anyLabel="all"
+          options={WORK_STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))}
+          selected={filters.statuses}
+          onChange={(statuses) => onFilters({ ...filters, statuses })}
+          quick={{
+            label: "Hide done",
+            on: hidesDone(filters.statuses),
+            onClick: () => onFilters({ ...filters, statuses: toggledHideDone(filters.statuses) }),
+          }}
+          title="Show only work in progress, in a backlog or done — a plan item by the tasks under it"
         />
       </div>
 

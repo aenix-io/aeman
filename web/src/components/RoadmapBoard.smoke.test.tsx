@@ -81,7 +81,7 @@ const provider = {} as Provider;
 function draw(
   b: Board,
   focusId: string | null = null,
-  filters: RoadmapFilters = { teams: [], customers: [], owners: [] },
+  filters: RoadmapFilters = { teams: [], customers: [], owners: [], statuses: [] },
 ) {
   return renderToStaticMarkup(
     <RoadmapBoard
@@ -315,7 +315,7 @@ describe("ownership on the Roadmap", () => {
 
   it("offers the three filters and says what is chosen", () => {
     const b = { ...board([owned]), customers: [{ id: "cu1", name: "Hidora" }] } as unknown as Board;
-    const html = draw(b, null, { teams: ["core"], customers: ["cu1"], owners: [] });
+    const html = draw(b, null, { teams: ["core"], customers: ["cu1"], owners: [], statuses: [] });
     expect(html).toMatch(/<button[^>]*aria-label="Team filter"[^>]*>[^<]*Team: core/);
     expect(html).toMatch(/<button[^>]*aria-label="Customer filter"[^>]*>[^<]*Customer: Hidora/);
     expect(html).toMatch(/<button[^>]*aria-label="Owner filter"[^>]*>[^<]*Owner: anyone/);
@@ -323,8 +323,19 @@ describe("ownership on the Roadmap", () => {
 
   // A filter that matches nothing is not an empty roadmap: say so, and offer
   // the way out.
+  // The Status filter (In progress, Backlog, Done) stands with the other
+  // three, and a status chosen is a filter like any: the empty state says
+  // nothing matches and offers to clear it.
+  it("has a Status filter, and counts it as a filter", () => {
+    const html = draw(board([]), null, { teams: [], customers: [], owners: [], statuses: ["in-progress", "backlog"] });
+    expect(html).toMatch(/aria-label="Status filter"[^>]*>Status: In progress, Backlog</);
+    expect(html).toContain("Nothing matches the filters");
+    expect(html).toContain("Clear the filters");
+    expect(draw(board([]))).toMatch(/aria-label="Status filter"[^>]*>Status: all</);
+  });
+
   it("says nothing matches the filters, and offers to clear them", () => {
-    const html = draw(board([]), null, { teams: [], customers: [], owners: ["nobody"] });
+    const html = draw(board([]), null, { teams: [], customers: [], owners: ["nobody"], statuses: [] });
     expect(html).toContain("Nothing matches the filters");
     expect(html).not.toContain("Nothing on the roadmap yet");
     expect(html).toMatch(/<button[^>]*>Clear the filters<\/button>/);
@@ -334,7 +345,7 @@ describe("ownership on the Roadmap", () => {
   // The rosters are managed from the bottom of their filters (FilterSelect's
   // Manage entry), not from buttons of their own; and No team is a team.
   it("keeps no roster button of its own, and names No team as a team", () => {
-    const html = draw(board([owned]), null, { teams: [""], customers: [], owners: [] });
+    const html = draw(board([owned]), null, { teams: [""], customers: [], owners: [], statuses: [] });
     expect(html).not.toContain("Manage the customers");
     expect(html).not.toContain("roadmap-customers-btn");
     expect(html).toMatch(/aria-label="Team filter"[^>]*>Team: No team</);

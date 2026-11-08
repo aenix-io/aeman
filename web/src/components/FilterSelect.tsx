@@ -18,15 +18,25 @@ export function toggled(selected: readonly string[], v: string): string[] {
   return selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v];
 }
 
-/** FilterSelectMenu is the open menu: a checkbox per option (several are
- *  OR), a way back to "any" when something is chosen, and the roster's
- *  "Manage…" entry at the bottom where the board offers one. */
+/** QuickChoice is a board's one-click selection at the top of its filter's
+ *  menu — the Roadmap's "Hide done" — checked while the selection is it. */
+export interface QuickChoice {
+  label: string;
+  on: boolean;
+  onClick: () => void;
+}
+
+/** FilterSelectMenu is the open menu: a board's quick choice at the top
+ *  where it offers one, a checkbox per option (several are OR), a way back
+ *  to "any" when something is chosen, and the roster's "Manage…" entry at
+ *  the bottom where the board offers one. */
 export function FilterSelectMenu({
   options,
   selected,
   anyLabel = "anyone",
   onChange,
   manage,
+  quick,
   onClose,
 }: {
   options: readonly FilterOption[];
@@ -34,10 +44,25 @@ export function FilterSelectMenu({
   anyLabel?: string;
   onChange: (next: string[]) => void;
   manage?: { label: string; onClick: () => void };
+  quick?: QuickChoice;
   onClose: () => void;
 }) {
   return (
     <>
+      {quick && (
+        <button
+          type="button"
+          role="menuitemcheckbox"
+          aria-checked={quick.on}
+          className="card-stage-item filter-select-item filter-select-quick"
+          onClick={quick.onClick}
+        >
+          <span className={`filter-select-check${quick.on ? " filter-select-check-on" : ""}`} aria-hidden="true">
+            {quick.on ? "✓" : ""}
+          </span>
+          {quick.label}
+        </button>
+      )}
       {options.length === 0 && <span className="card-stage-item filter-menu-hint">Nothing to choose yet</span>}
       {options.map((o) => {
         const on = selected.includes(o.value);
@@ -92,6 +117,7 @@ export function FilterSelect({
   onChange,
   anyLabel = "anyone",
   manage,
+  quick,
   title,
 }: {
   label: string;
@@ -100,6 +126,7 @@ export function FilterSelect({
   onChange: (next: string[]) => void;
   anyLabel?: string;
   manage?: { label: string; onClick: () => void };
+  quick?: QuickChoice;
   title?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -125,6 +152,7 @@ export function FilterSelect({
           anyLabel={anyLabel}
           onChange={onChange}
           manage={manage}
+          quick={quick}
           onClose={() => setOpen(false)}
         />
       </Dropdown>
