@@ -5766,6 +5766,32 @@ button.card-age {
   margin-left: 0;
 }
 
+/* A control that stands in the middle of the top bar (the Strategy board's
+   zoom): centred on the bar whatever stands at its sides. On a narrow bar it
+   falls back into the row. */
+.toolbar {
+  position: relative;
+}
+
+.topbar-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.topbar-center .segmented {
+  margin-left: 0;
+}
+
+@media (max-width: 900px) {
+  .topbar-center {
+    position: static;
+    transform: none;
+    align-self: center;
+  }
+}
+
 /* The Strategy board's own toolbar: the filters at the left, the folding at
    the right. */
 .strategy-toolbar .strategy-fold {

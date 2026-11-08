@@ -32,6 +32,7 @@ export function StrategyControls({
     </option>
   ));
   return (
+    <>
     <div className="topbar-controls">
       <label className="strategy-depth">
         <span className="strategy-depth-label">Hierarchy</span>
@@ -55,7 +56,15 @@ export function StrategyControls({
           {options}
         </select>
       </label>
-      <div className="segmented strategy-zoom" role="group" aria-label="Zoom">
+      {range && (
+        <span className="strategy-range" title="The window the timeline shows">
+          {range}
+        </span>
+      )}
+    </div>
+    {/* The zoom stands apart, in the middle of the bar. */}
+    <div className="topbar-center">
+        <div className="segmented strategy-zoom" role="group" aria-label="Zoom">
         {(["3m", "1y", "fit"] as Zoom[]).map((z) => (
           <button
             key={z}
@@ -66,13 +75,9 @@ export function StrategyControls({
             {z === "3m" ? "3M" : z === "1y" ? "1Y" : "Fit"}
           </button>
         ))}
-      </div>
-      {range && (
-        <span className="strategy-range" title="The window the timeline shows">
-          {range}
-        </span>
-      )}
+        </div>
     </div>
+    </>
   );
 }
 
