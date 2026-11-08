@@ -110,7 +110,7 @@ func TestTheServerServesNoProjectBoardFiles(t *testing.T) {
 
 	// The team boards are asked for the no-team group, where a teamless
 	// card would stand; the others for every team.
-	for _, view := range []string{"all", "me", "team?team=", "backlog?team=", "roadmap"} {
+	for _, view := range []string{"all", "me", "team?team=", "backlog?team=", "strategy"} {
 		path, query, _ := strings.Cut(view, "?")
 		rec := doAs(t, srv, "kvaps", http.MethodGet, "/api/v1/views/"+path+"/cards?"+query, "")
 		if rec.Code != http.StatusOK {

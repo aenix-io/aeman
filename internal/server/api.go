@@ -788,7 +788,7 @@ func zoneOf[T ~string](z *T) string {
 	return string(*z)
 }
 
-// UnassignWork is the Roadmap's UNASSIGNED (K16): on a task or every task in
+// UnassignWork is the Strategy board's UNASSIGNED (K16): on a task or every task in
 // work under a plan item.
 func (a surface) UnassignWork(ctx context.Context, req apiv1.UnassignWorkRequestObject) (apiv1.UnassignWorkResponseObject, error) {
 	svc, boardID, err := a.s.serviceOf()

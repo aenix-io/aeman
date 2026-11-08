@@ -427,7 +427,7 @@ type boardEntry struct {
 	// parentOf is every card's parent as last announced, so a change can
 	// name the planning cards it LEFT as well as the ones it stands under
 	// now: a planning card's standing is derived from the tasks under it
-	// (H5) and never written, so nothing but this fan-out tells a Roadmap
+	// (H5) and never written, so nothing but this fan-out tells a Strategy
 	// watcher that an epic's counts moved. Seeded from each installed board
 	// and kept by cardChanged.
 	parentOf map[string]string
@@ -847,7 +847,7 @@ func (e *boardEntry) flushMembers() {
 		if sub.sel == nil || !sub.resources["cards"] {
 			continue
 		}
-		// A board with no mirror of its selection (a filtered Roadmap) cannot
+		// A board with no mirror of its selection (a filtered Strategy) cannot
 		// place its own change: its author is sent the membership changes
 		// too, and spared only the MODIFIED echo.
 		mirrored := sub.sel.Mirrored()

@@ -54,7 +54,7 @@ func ValidType(typ string) bool {
 	return false
 }
 
-// IsPlanning reports a goal, an initiative or an epic — a card the Roadmap
+// IsPlanning reports a goal, an initiative or an epic — a card the Strategy board
 // draws and no day board does (H3).
 func IsPlanning(c Card) bool { return c.Type != TypeTask }
 
@@ -125,7 +125,7 @@ func Lineage(b Board, c Card) []Card { return NewIndex(b).Lineage(c) }
 
 // HasPlanningAncestor reports a card with a goal, an initiative or an epic
 // somewhere above it — which is what puts a task or a subtask on the
-// Roadmap.
+// Strategy.
 func HasPlanningAncestor(b Board, c Card) bool { return NewIndex(b).HasPlanningAncestor(c) }
 
 // ChildrenOf is every card whose parent is the given one, planning cards and
@@ -148,7 +148,7 @@ func LeafTasks(b Board, id string) []Card { return NewIndex(b).LeafTasks(id) }
 // a sprint, not parked); BACKLOG when there are open ones and none is in
 // work (amended with K16: progress, a person or a stage alone do not count).
 // The counts are what
-// the Roadmap shows beside the word. A task answers "" — it has a stage and
+// the Strategy board shows beside the word. A task answers "" — it has a stage and
 // a progress of its own.
 func HierarchyStatus(b Board, c Card) (status string, done, total int) {
 	return NewIndex(b).HierarchyStatus(c)

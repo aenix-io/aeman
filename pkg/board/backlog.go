@@ -35,7 +35,7 @@ func InBacklog(c Card) bool { return c.Parked }
 func InWork(c Card) bool { return c.StartDate != "" || c.Day != "" || c.SprintStart != "" }
 
 // isTaskOwnPlace reports whether a card is a task that answers for its own
-// place: not the board's bookkeeping, not a planning card (the Roadmap's),
+// place: not the board's bookkeeping, not a planning card (the Strategy board's),
 // not a review card (it follows
 // the card it reviews) and not a subtask (it rides its parent).
 func isTaskOwnPlace(c Card, subtask bool) bool {
@@ -86,12 +86,12 @@ func Unplaced(c Card, subtask bool) bool {
 //   - Loose: the card has no plan item above it; the loose cards come after
 //     every planned one.
 //   - Path: the places in the board's order from the root of the card's tree
-//     down to the card itself (K14) — the Roadmap's draw order, which lists a
+//     down to the card itself (K14) — the Strategy board's draw order, which lists a
 //     parent's children in board order. The first step is the root's level
-//     ahead of its place, as the Roadmap draws its roots level by level (goals,
+//     ahead of its place, as the Strategy board draws its roots level by level (goals,
 //     then initiatives with no goal, then epics with no initiative). A loose
 //     card's path is its own place alone; a review's is the reviewed task's,
-//     so the reviews read in their tasks' Roadmap order.
+//     so the reviews read in their tasks' Strategy order.
 type BacklogKey struct {
 	Review bool
 	Loose  bool
@@ -174,14 +174,14 @@ func (ix *Index) taskKey(c Card) BacklogKey {
 }
 
 // BacklogOrder sorts a backlog's cards the way it is read: the reviews
-// nobody has taken (K10) first, in their tasks' Roadmap order, then the
-// tasks in the ROADMAP's order across the whole hierarchy (K14), the tasks
+// nobody has taken (K10) first, in their tasks' Strategy order, then the
+// tasks in the STRATEGY BOARD's order across the whole hierarchy (K14), the tasks
 // with no plan item above them after — see BacklogKey.
 //
 // One order, decided by the tree: dragging a task in the backlog moves it
 // among its siblings under the same parent, which
-// moves it on the Roadmap too, and a task's place is never something the
-// backlog keeps apart from the Roadmap's. The board's order (rank, then id)
+// moves it on the Strategy board too, and a task's place is never something the
+// backlog keeps apart from the Strategy board's. The board's order (rank, then id)
 // is where the siblings' order comes from, as on every board.
 func BacklogOrder(ix *Index, cards []Card) []Card {
 	out := append([]Card(nil), cards...)
@@ -193,7 +193,7 @@ func BacklogOrder(ix *Index, cards []Card) []Card {
 	return out
 }
 
-// UnassignTargets is what the Roadmap's UNASSIGNED means on a card (K16): on
+// UnassignTargets is what the Strategy board's UNASSIGNED means on a card (K16): on
 // a task, the task itself when it is open work in hand; on a plan item, every
 // such task under it at any depth, in board order. Work in hand is a task
 // with a date or a sprint that is not parked; finished work, a review card

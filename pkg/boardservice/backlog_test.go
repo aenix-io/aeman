@@ -140,9 +140,9 @@ func TestACardBornOnTheShelfIsPlannedWork(t *testing.T) {
 }
 
 // A card sent to the backlog KEEPS ITS PLACE in the board's order (B11,
-// amended with K14). The backlog reads in the Roadmap's order — one order,
+// amended with K14). The backlog reads in the Strategy board's order — one order,
 // decided by the tree — so moving a parked card to the top of the board's
-// order would move it to the top of its siblings on the Roadmap too: taking
+// order would move it to the top of its siblings on the Strategy board too: taking
 // work out of hand must not rearrange the plan.
 func TestParkingKeepsTheCardsPlace(t *testing.T) {
 	f := backlogBoard()

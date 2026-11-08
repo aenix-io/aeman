@@ -99,7 +99,7 @@ type CardSpec struct {
 	// (docs/design/hierarchy.md).
 	Parent string `json:"parent,omitempty"`
 	// Type is the card's level: absent for a task, else "goal",
-	// "initiative" or "epic" — a PLANNING card, drawn on the Roadmap and on
+	// "initiative" or "epic" — a PLANNING card, drawn on the Strategy board and on
 	// no day board. Fixed at create.
 	Type string `json:"type,omitempty"`
 }
@@ -127,7 +127,7 @@ type LineageRef struct {
 	Type  string `json:"type,omitempty"`
 	Title string `json:"title"`
 	// End is the ancestor's end date, when it has one: a planning card's
-	// bar ends there on the Roadmap, and the Backlog shows the nearest
+	// bar ends there on the Strategy board, and the Backlog shows the nearest
 	// planning card's end as the due date of the task under it.
 	End string `json:"end,omitempty"`
 }

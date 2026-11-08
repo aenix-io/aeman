@@ -28,7 +28,7 @@ var ErrParentLevel = errors.New("a parent is of a higher level than its child")
 var ErrReviewCardLink = errors.New("a review card follows the card it reviews and sits under nothing of its own")
 
 // ErrPlanningCard is a goal, an initiative or an epic asked to carry what a
-// TASK carries: a stage, a progress, a band, a backlog, a sprint, a review. A planning card is drawn on the Roadmap and on no day
+// TASK carries: a stage, a progress, a band, a backlog, a sprint, a review. A planning card is drawn on the Strategy board and on no day
 // board (H3), and its status is derived from the tasks under it (H5) — a
 // write of any of those would be a second answer to a question the tree
 // already answers.
@@ -119,7 +119,7 @@ func hierarchyLinkAllowed(b board.Board, child, parent board.Card) error {
 
 // createPlanningCard makes a goal, an initiative or an epic: a card with a
 // type, its dates and its owner as asked, and none of a task's day-board
-// state — no sprint, no band, no week. It is drawn on the Roadmap (H3), and
+// state — no sprint, no band, no week. It is drawn on the Strategy board (H3), and
 // its parent, when it has one, has already passed linksArePossible.
 func (s *Service) createPlanningCard(ctx context.Context, b board.Board, args CreateCardArgs, linkDescription string, pendingRef *board.Link) (board.Card, error) {
 	if err := planningCardCannotBe(args); err != nil {

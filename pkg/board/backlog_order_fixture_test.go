@@ -40,7 +40,7 @@ func (fx backlogFixture) board() Board {
 
 // THE BACKLOG'S ORDER IS ONE RULE ON BOTH SIDES (K14, K10). The fixture is
 // shared with the client's mirror (web/src/backlogboard.test.ts reads the
-// same file): the reviews nobody has taken first in their tasks' Roadmap
+// same file): the reviews nobody has taken first in their tasks' Strategy
 // order, one of them of a task in work, one that carries a parent
 // of its own (a direct writer's stray: it is placed by the task it reviews,
 // never by that parent) and a review of a review (placed by the review it

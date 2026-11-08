@@ -8,7 +8,7 @@ import (
 // The Index answers exactly what the one-card helpers answer, card for card
 // — subtasks, planning cards, a dangling parent, a review card, the counts
 // — because a listing builds one and asks it of every card, and a watcher
-// of the Roadmap must read the same standing a single GET reads.
+// of the Strategy board must read the same standing a single GET reads.
 func TestIndexAgreesWithTheLinearHelpers(t *testing.T) {
 	t.Parallel()
 	b := hierarchyBoard()

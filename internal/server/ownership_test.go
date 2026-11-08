@@ -15,7 +15,7 @@ import (
 
 // docs/design/ownership.md over HTTP (ADR 0002): the customer roster's own
 // routes, a card's owner and customers in the PATCH and the create, `own`
-// on a planning card, and the roadmap's filters.
+// on a planning card, and the strategy's filters.
 func TestOwnershipOverHTTP(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
@@ -54,7 +54,7 @@ func TestOwnershipOverHTTP(t *testing.T) {
 		!strings.Contains(rec.Body.String(), "ownerIsThePlans") {
 		t.Fatalf("an owner on a task = %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := do(t, srv, http.MethodPost, "/api/v1/views/roadmap/cards/other/actions/own", `{"team":"alpha","person":"ann"}`); rec.Code != http.StatusOK {
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/strategy/cards/other/actions/own", `{"team":"alpha","person":"ann"}`); rec.Code != http.StatusOK {
 		t.Fatalf("own a planning card = %d %s", rec.Code, rec.Body.String())
 	}
 	if o := fake.Card("other"); o.Owner != "ann" || o.Team != "alpha" {
@@ -68,16 +68,16 @@ func TestOwnershipOverHTTP(t *testing.T) {
 	if o := fake.Card("other"); o.Owner != "ann" || o.Team != "" {
 		t.Fatalf("the epic with its team off = %+v", o)
 	}
-	if rec := do(t, srv, http.MethodPost, "/api/v1/views/roadmap/cards/other/actions/own", `{"team":"alpha"}`); rec.Code != http.StatusOK {
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/strategy/cards/other/actions/own", `{"team":"alpha"}`); rec.Code != http.StatusOK {
 		t.Fatalf("a team alone on a planning card = %d %s", rec.Code, rec.Body.String())
 	}
 	if o := fake.Card("other"); o.Owner != "ann" || o.Team != "alpha" {
 		t.Fatalf("a team alone took the owner off: %+v", o)
 	}
 
-	rec = do(t, srv, http.MethodGet, "/api/v1/views/roadmap/cards?customer="+cu.ID, "")
+	rec = do(t, srv, http.MethodGet, "/api/v1/views/strategy/cards?customer="+cu.ID, "")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"uid":"task"`) || strings.Contains(rec.Body.String(), `"uid":"other"`) {
-		t.Fatalf("the roadmap for Hidora = %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("the strategy for Hidora = %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := do(t, srv, http.MethodGet, "/api/v1/board", ""); !strings.Contains(rec.Body.String(), `"name":"Hidora SA"`) {
 		t.Fatalf("the board's roster: %s", rec.Body.String())

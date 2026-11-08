@@ -24,35 +24,35 @@ func hierarchyBoard() board.Board {
 	return b
 }
 
-// The roadmap view is the hierarchy AND the work that is not in it yet: every
+// The strategy view is the hierarchy AND the work that is not in it yet: every
 // planning card and every card with one above it — a task, its subtask —
 // and, below them, every OPEN task that has no planning card
 // above it: the work in hand on the Team and Me boards, the cards parked on a
 // shelf, the strip. Those are what a lead drags INTO the tree, so the tree's
 // board lists them (H9). What stays out: a task already finished outside the
 // hierarchy (nothing to plan) and a subtask whose parent task is out.
-func TestTheRoadmapListsTheHierarchy(t *testing.T) {
+func TestTheStrategyListsTheHierarchy(t *testing.T) {
 	t.Parallel()
 	b := hierarchyBoard()
 	today := board.TodayIso()
 	b.Cards = append(b.Cards,
-		// Finished outside the hierarchy: not on the roadmap.
+		// Finished outside the hierarchy: not on the strategy.
 		board.Card{ItemID: "done-loose", Title: "Shipped", Team: "alpha", Assignees: []string{"dev"},
 			StartDate: today, Day: today, SprintStart: today, Progress: 100, DoneAt: today},
 		// Its subtask follows it out.
 		board.Card{ItemID: "done-sub", Title: "Shipped piece", Parent: "done-loose", Team: "alpha"},
-		// Parked on a shelf: the backlog is on the roadmap.
+		// Parked on a shelf: the backlog is on the strategy.
 		board.Card{ItemID: "parked", Title: "Someday", Team: "alpha", Parked: true},
 		// In the strip — nobody has said when — still work to plan.
 		board.Card{ItemID: "strip", Title: "Arrived"},
 	)
 	got := []string{}
-	for _, c := range FilterCards(b, Selector{View: "roadmap"}) {
+	for _, c := range FilterCards(b, Selector{View: "strategy"}) {
 		got = append(got, c.ItemID)
 	}
 	want := []string{"goal", "init", "epic", "t1", "t1a", "loose", "loose-sub", "parked", "strip"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("roadmap = %v, want %v", got, want)
+		t.Fatalf("strategy = %v, want %v", got, want)
 	}
 	// And the day boards never list a planning card, while the task under
 	// the epic stands on them like any task.
@@ -67,17 +67,17 @@ func TestTheRoadmapListsTheHierarchy(t *testing.T) {
 			t.Errorf("%s does not draw the task under the epic", view)
 		}
 	}
-	// The gate agrees with the listing: a gesture on the roadmap reaches a
+	// The gate agrees with the listing: a gesture on the strategy reaches a
 	// planning card, a task under one, and the loose open work below the
 	// tree — and not what the listing leaves out.
 	for _, id := range []string{"epic", "t1", "loose", "parked", "strip"} {
-		if !Drawn(b, Selector{View: "roadmap"}, id) {
-			t.Errorf("the roadmap draws %s", id)
+		if !Drawn(b, Selector{View: "strategy"}, id) {
+			t.Errorf("the strategy draws %s", id)
 		}
 	}
 	for _, id := range []string{"done-loose", "done-sub"} {
-		if Drawn(b, Selector{View: "roadmap"}, id) {
-			t.Errorf("%s is not on the roadmap", id)
+		if Drawn(b, Selector{View: "strategy"}, id) {
+			t.Errorf("%s is not on the strategy", id)
 		}
 	}
 }

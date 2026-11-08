@@ -47,7 +47,7 @@ func TestAGestureIsAnsweredOnlyByTheBoardThatDrawsIt(t *testing.T) {
 	}
 }
 
-// OWN is the Roadmap's "whose is this", offered by every board that draws a
+// OWN is the Strategy board's "whose is this", offered by every board that draws a
 // task (H10). Over HTTP it goes through the
 // gesture door like every press: the board is in the address, the card must
 // be drawn there, and the answer's effect is the service's (own_test.go).
@@ -64,13 +64,13 @@ func TestOwnIsAnsweredByTheBoardsThatDrawATask(t *testing.T) {
 		t.Fatalf("own on the retired Project board answered %d, want 404 (no such board)", rec.Code)
 	}
 	// A person without a team is the service's refusal, through the door.
-	if rec := do(t, srv, http.MethodPost, "/api/v1/views/roadmap/cards/loose/actions/own",
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/strategy/cards/loose/actions/own",
 		`{"person":"ann"}`); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "ownerNeedsTeam") {
 		t.Fatalf("a person with no team answered %d: %s", rec.Code, rec.Body.String())
 	}
-	// From the Roadmap, which lists the loose card below its tree (H9), a
+	// From the Strategy board, which lists the loose card below its tree (H9), a
 	// person takes it home: team, person, today, the unplanned band.
-	rec := do(t, srv, http.MethodPost, "/api/v1/views/roadmap/cards/loose/actions/own",
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/strategy/cards/loose/actions/own",
 		`{"team":"alpha","person":"ann"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("own answered %d: %s", rec.Code, rec.Body.String())
@@ -258,10 +258,10 @@ func TestTheCatalogNamesTheBoardsAndTheirGestures(t *testing.T) {
 	if len(got) != len(want) {
 		t.Fatalf("the catalog lists %v", got)
 	}
-	// The Strategy board's old name is an alias it answers to, not a
-	// board of its own: the catalog lists it once, by its name now.
+	// The Strategy board's old name is no board (renamed from roadmap on
+	// 2026-11-08): the catalog does not list it.
 	if _, listed := got["roadmap"]; listed {
-		t.Error("the catalog lists the deprecated roadmap beside strategy")
+		t.Error("the catalog lists the old roadmap name")
 	}
 	for name, gestures := range want {
 		if strings.Join(got[name], ",") != strings.Join(gestures, ",") {
@@ -437,7 +437,7 @@ func TestABacklogCreateTakesItsPlaceOverHTTP(t *testing.T) {
 		t.Fatalf("two places = %d %s, want 422 twoPlaces", rec.Code, rec.Body.String())
 	}
 	// A Team board cell takes a place too, keeping the cell's person and
-	// band; the Roadmap places by parent and refuses one by name.
+	// band; the Strategy board places by parent and refuses one by name.
 	rec = do(t, srv, http.MethodPost, "/api/v1/views/team/cards?team=alpha",
 		`{"title":"in a cell","team":"alpha","zone":"planned","assignees":["ann"],"before":"b"}`)
 	if rec.Code != http.StatusCreated {
@@ -451,14 +451,14 @@ func TestABacklogCreateTakesItsPlaceOverHTTP(t *testing.T) {
 		!fake.Saw("MoveCard "+cell.Metadata.UID+" after=a") {
 		t.Fatalf("the cell's card = %+v, want ann's, planned, right before «second»", cell.Spec)
 	}
-	if rec := do(t, srv, http.MethodPost, "/api/v1/views/roadmap/cards",
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/strategy/cards",
 		`{"title":"x","type":"epic","after":"a"}`); rec.Code != http.StatusUnprocessableEntity ||
 		!strings.Contains(rec.Body.String(), "notOnThisBoard") {
-		t.Fatalf("a place on the Roadmap = %d %s, want 422 notOnThisBoard", rec.Code, rec.Body.String())
+		t.Fatalf("a place on the Strategy board = %d %s, want 422 notOnThisBoard", rec.Code, rec.Body.String())
 	}
 }
 
-// The Roadmap's badge menu over HTTP (K16): UNASSIGNED answers how many
+// The Strategy board's badge menu over HTTP (K16): UNASSIGNED answers how many
 // tasks it took out of work — on a plan item, every task under it in work —
 // and refuses by name what it means nothing for. Priorities were removed
 // (2026-11-08): their route is no route at all.
@@ -498,7 +498,7 @@ func TestUnassignedOverHTTP(t *testing.T) {
 	}
 }
 
-// With a Roadmap filter on the reader sees — and the confirm counts — fewer
+// With a Strategy filter on the reader sees — and the confirm counts — fewer
 // tasks than the board holds. The request names them, and the server acts on
 // exactly those (M1); a uid the gesture cannot reach from the card is 422
 // notATarget and nothing changes.

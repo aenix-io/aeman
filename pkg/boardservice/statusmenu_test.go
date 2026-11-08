@@ -9,11 +9,11 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// The Roadmap's badge menu: UNASSIGNED, which takes work out of hand and
+// The Strategy board's badge menu: UNASSIGNED, which takes work out of hand and
 // back to its backlog (K16) — for a task, or every task in work under a plan
 // item, at any depth.
 
-func roadmapWorkBoard() *fakeBackend {
+func strategyWorkBoard() *fakeBackend {
 	today := board.TodayIso()
 	return newFake([]board.Card{
 		{ItemID: "g", Type: board.TypeGoal, Team: "alpha"},
@@ -35,7 +35,7 @@ func roadmapWorkBoard() *fakeBackend {
 }
 
 func TestUnassignedOnATaskParksIt(t *testing.T) {
-	f := roadmapWorkBoard()
+	f := strategyWorkBoard()
 	n, err := New(f).UnassignWork(ctx, "acme", "w1", nil)
 	if err != nil || len(n) != 1 {
 		t.Fatalf("UnassignWork = %v, %v; want 1", n, err)
@@ -47,7 +47,7 @@ func TestUnassignedOnATaskParksIt(t *testing.T) {
 }
 
 func TestUnassignedOnAPlanItemParksEveryOpenTaskInWorkUnderIt(t *testing.T) {
-	f := roadmapWorkBoard()
+	f := strategyWorkBoard()
 	svc := New(f)
 	g, _ := board.Find(f.b, "g")
 	if got := len(board.NewIndex(f.b).UnassignTargets(g)); got != 2 {
@@ -72,7 +72,7 @@ func TestUnassignedOnAPlanItemParksEveryOpenTaskInWorkUnderIt(t *testing.T) {
 }
 
 func TestUnassignedIsRefusedOnWorkNotInHand(t *testing.T) {
-	f := roadmapWorkBoard()
+	f := strategyWorkBoard()
 	for _, id := range []string{"p1", "done-work"} {
 		if _, err := New(f).UnassignWork(ctx, "acme", id, nil); !errors.Is(err, ErrNotInWork) {
 			t.Errorf("UNASSIGNED on %s = %v, want ErrNotInWork", id, err)
@@ -80,12 +80,12 @@ func TestUnassignedIsRefusedOnWorkNotInHand(t *testing.T) {
 	}
 }
 
-// The confirm counted what the reader could SEE: with a Roadmap filter on,
+// The confirm counted what the reader could SEE: with a Strategy filter on,
 // the plan item's tasks on screen are fewer than the board holds. The
 // gesture names them, and the server acts on exactly those — each checked
 // against what the gesture may reach — and nothing else (M1).
 func TestTheStatusMenuActsOnExactlyTheTasksItWasGiven(t *testing.T) {
-	f := roadmapWorkBoard()
+	f := strategyWorkBoard()
 	n, err := New(f).UnassignWork(ctx, "acme", "g", []string{"w1"})
 	if err != nil || len(n) != 1 {
 		t.Fatalf("UnassignWork(g, [w1]) = %v, %v; want 1", n, err)
@@ -98,7 +98,7 @@ func TestTheStatusMenuActsOnExactlyTheTasksItWasGiven(t *testing.T) {
 // A uid the gesture cannot reach from the row — not under it, not of the
 // kind it reaches — refuses the whole request before anything is written.
 func TestTheStatusMenuRefusesATaskItCannotReach(t *testing.T) {
-	f := roadmapWorkBoard()
+	f := strategyWorkBoard()
 	if _, err := New(f).UnassignWork(ctx, "acme", "g", []string{"w1", "p1"}); !errors.Is(err, ErrNotATarget) {
 		t.Fatalf("UnassignWork with a parked uid = %v, want ErrNotATarget", err)
 	}
@@ -114,7 +114,7 @@ func TestTheStatusMenuRefusesATaskItCannotReach(t *testing.T) {
 // is written, saying how many and which: half a plan taken out of work is
 // worse than none (M2).
 func TestTheStatusMenuWritesNothingWhenOneTaskIsNotTheActorsToWrite(t *testing.T) {
-	f := roadmapWorkBoard()
+	f := strategyWorkBoard()
 	f.unwritable = map[string]bool{"w2": true}
 	_, err := New(f).UnassignWork(ctx, "acme", "g", nil)
 	if !errors.Is(err, ErrForbidden) || !strings.Contains(err.Error(), "1 of 2") {
@@ -129,7 +129,7 @@ func TestTheStatusMenuWritesNothingWhenOneTaskIsNotTheActorsToWrite(t *testing.T
 // rearranged by taking work out of hand — and reads the board once for the
 // whole gesture, however many tasks it moves (M3).
 func TestUnassignedMovesNoTaskAndReadsTheBoardOnce(t *testing.T) {
-	f := roadmapWorkBoard()
+	f := strategyWorkBoard()
 	if _, err := New(f).UnassignWork(ctx, "acme", "g", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -142,11 +142,11 @@ func TestUnassignedMovesNoTaskAndReadsTheBoardOnce(t *testing.T) {
 }
 
 // The confirm asks the SERVER what UNASSIGNED would take (a dry run): the
-// reader's Roadmap may be filtered, and only the whole board says what makes
+// reader's Strategy may be filtered, and only the whole board says what makes
 // the plan item IN PROGRESS. The dry run names those tasks and writes
 // nothing; the gesture then takes exactly them.
 func TestUnassignedDryRunNamesTheTasksAndWritesNothing(t *testing.T) {
-	f := roadmapWorkBoard()
+	f := strategyWorkBoard()
 	got, err := New(f).UnassignPreview(ctx, "acme", "g")
 	if err != nil || !slices.Equal(got, []string{"w1", "w2"}) {
 		t.Fatalf("UnassignPreview(g) = %v, %v; want w1, w2", got, err)

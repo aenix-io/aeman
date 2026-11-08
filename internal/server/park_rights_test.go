@@ -51,7 +51,7 @@ func TestVisibleBackendChecksParkAndDoneAt(t *testing.T) {
 	}
 }
 
-// The Roadmap's status menu writes many cards (K15, K16): the visible backend
+// The Strategy board's status menu writes many cards (K15, K16): the visible backend
 // answers the write check for each BEFORE anything is written, so a plan item
 // with one task in a domain the visitor cannot write is refused whole — no
 // task of it is parked or marked (M2).

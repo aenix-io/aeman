@@ -6,7 +6,7 @@ import (
 )
 
 // Priorities were removed (2026-11-08, docs/design/backlog.md): the backlog's
-// order is the place in the Roadmap tree, and a priority beside it was a
+// order is the place in the Strategy board tree, and a priority beside it was a
 // second answer to the same question. A file that still says `priority:` —
 // written while they existed, or by hand — is read with the key as an
 // UNKNOWN key: kept, written back byte for byte, and meaning nothing.

@@ -178,7 +178,7 @@ func TestAPastDayIsServedAsThatDaysOwnBoard(t *testing.T) {
 	// placed by a day — a day means nothing there — so the flag is ignored
 	// and the live board answers, which is what docs/api.md, docs/dates.md
 	// and G60 all say.
-	for _, view := range []string{"roadmap", "all", "backlog"} {
+	for _, view := range []string{"strategy", "all", "backlog"} {
 		items, asOf, _ := read("view=" + view + "&day=2026-08-21&snapshot=1")
 		if asOf != "" {
 			t.Fatalf("view=%s claimed a moment (%s); only Me and Team have days", view, asOf)

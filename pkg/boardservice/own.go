@@ -11,7 +11,7 @@ import (
 
 // OWN is one question asked of a task — whose is it — with one answer: a
 // team, and a person on that team, or neither (docs/design/hierarchy.md
-// "Owner", H10). It is the Roadmap's gesture first: the loose work listed
+// "Owner", H10). It is the Strategy board's gesture first: the loose work listed
 // below the tree (H9) has no home yet, and giving it one is what a lead does
 // there. Every board that draws a task offers it as well, so the card's
 // drawer can ask the same question from wherever the card was opened.

@@ -63,26 +63,20 @@ func TestOnlySomeBoardsAreScopedByTeam(t *testing.T) {
 	}
 }
 
-// THE STRATEGY BOARD WAS THE ROADMAP. Its old address is still a door to it
-// — scripts and the stats pipeline ask by it — but only an alias: it reads
-// as `strategy`, and the boards a client is told about name it once, by its
-// name now.
-func TestTheRoadmapIsAnAliasOfTheStrategyBoard(t *testing.T) {
+// THE STRATEGY BOARD WAS RENAMED FROM ROADMAP on 2026-11-08, and the old
+// name is no board any more: it is not a view, and Views() names the board
+// once, by its name now.
+func TestTheOldRoadmapNameIsNoView(t *testing.T) {
 	t.Parallel()
-	if !KnownView("roadmap") {
-		t.Fatal("the old roadmap address is refused")
-	}
-	if got := CanonicalView("roadmap"); got != string(ViewStrategy) {
-		t.Fatalf("roadmap reads as %q, want strategy", got)
-	}
-	for _, name := range []string{"strategy", "me", "all", "", "Roadmap"} {
-		if got := CanonicalView(name); got != name {
-			t.Fatalf("CanonicalView(%q) = %q, want it unchanged", name, got)
-		}
+	if KnownView("roadmap") {
+		t.Fatal("the old roadmap name is still a view")
 	}
 	for _, v := range Views() {
 		if v == "roadmap" {
-			t.Fatal("Views() lists roadmap beside strategy")
+			t.Fatal("Views() lists roadmap")
 		}
+	}
+	if !KnownView("strategy") {
+		t.Fatal("strategy is not a view")
 	}
 }

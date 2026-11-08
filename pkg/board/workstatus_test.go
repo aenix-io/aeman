@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// O14 — a task's WORK STATUS, the Roadmap's status filter reads it: done
+// O14 — a task's WORK STATUS, the Strategy board's status filter reads it: done
 // when complete, backlog when parked, in progress when in work (a date or a
 // sprint). Review, locked and refused are in progress — the task is in
 // somebody's hands. A task nobody has placed yet (neither in work nor

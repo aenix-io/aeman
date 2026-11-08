@@ -168,7 +168,7 @@ func TestTheBacklogViewListsWhatATeamHasParked(t *testing.T) {
 }
 
 // The reviews NOBODY HAS TAKEN lead a backlog listing (K10, BacklogOrder):
-// before every task, in their tasks' Roadmap order — one dragged below a
+// before every task, in their tasks' Strategy order — one dragged below a
 // task is still above it.
 func TestTheReviewsNobodyHasTakenLeadABacklogListing(t *testing.T) {
 	b := board.NewBoard([]board.Card{

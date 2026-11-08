@@ -9,7 +9,7 @@ import (
 
 // UNASSIGNED reaches exactly the open tasks in work under a row (K16) — what
 // makes a plan item IN PROGRESS (H5). The fixture is shared with the client's
-// mirror (web/src/roadmap.test.ts reads the same file): the same cards must
+// mirror (web/src/strategy.test.ts reads the same file): the same cards must
 // give the same tasks on both sides, a task on review, one in a past sprint,
 // one in a sprint with no dates, one of another team among them; a subtask,
 // a review card and finished or parked work never.

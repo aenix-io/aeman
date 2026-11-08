@@ -50,28 +50,28 @@ func took(t *testing.T, sub *subscription, n int) map[string]struct {
 	return out
 }
 
-// THE ROADMAP UPDATES LIVE. A planning card's standing is derived from the
+// THE STRATEGY BOARD UPDATES LIVE. A planning card's standing is derived from the
 // tasks under it (H5) and never written, so no write ever touches the epic
-// when a task under it changes — and the Roadmap watcher, which draws the
+// when a task under it changes — and the Strategy board watcher, which draws the
 // epic with its counts, heard nothing. Every card change now reaches the
 // planning cards above it: the chain it LEFT and the chain it JOINED, as
 // MODIFIED frames carrying the fresh counts, to everyone who may read them
 // — the originator included, since the server alone knows the new standing.
-func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) {
+func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheStrategy(t *testing.T) {
 	today := board.TodayIso()
 	store := newBoardStore()
 	e := seedEntry(store, "k", hierarchyWatchBoard(today))
-	sel := apiserver.Selector{View: "roadmap"}
-	roadmap, cancel := store.subscribe("k", "", &sel, map[string]bool{"cards": true})
+	sel := apiserver.Selector{View: "strategy"}
+	strategy, cancel := store.subscribe("k", "", &sel, map[string]bool{"cards": true})
 	defer cancel()
 	origin, cancel2 := store.subscribe("k", "me", &sel, map[string]bool{"cards": true})
 	defer cancel2()
 	raw, cancel3 := store.subscribe("k", "", nil, map[string]bool{"cards": true})
 	defer cancel3()
-	// The open loose task is on the Roadmap from the start — below the tree,
+	// The open loose task is on the Strategy board from the start — below the tree,
 	// where it is dragged in from (H9); the finished one is not.
-	if !roadmap.members["epic"] || !roadmap.members["c1"] || roadmap.members["c2"] {
-		t.Fatalf("seeded roadmap members = %v", roadmap.members)
+	if !strategy.members["epic"] || !strategy.members["c1"] || strategy.members["c2"] {
+		t.Fatalf("seeded strategy members = %v", strategy.members)
 	}
 	find := func(id string) board.Card {
 		c, _ := board.Find(e.board, id)
@@ -88,7 +88,7 @@ func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) 
 	e.cardChanged("me", c1, "MODIFIED")
 	e.mu.Unlock()
 	settled(t, e)
-	got := took(t, roadmap, 4)
+	got := took(t, strategy, 4)
 	if got["c1"].Type != "MODIFIED" {
 		t.Fatalf("the task's own frame: %+v", got["c1"])
 	}
@@ -118,7 +118,7 @@ func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) 
 	e.cardChanged("", c1, "MODIFIED")
 	e.mu.Unlock()
 	settled(t, e)
-	got = took(t, roadmap, 4)
+	got = took(t, strategy, 4)
 	if got["c1"].Type != "MODIFIED" || got["goal"].Card.Status.Hierarchy.Status != board.HierarchyInProgress {
 		t.Fatalf("after the assignment: %+v / %+v", got["c1"].Type, got["goal"].Card.Status.Hierarchy)
 	}
@@ -133,7 +133,7 @@ func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) 
 	e.cardChanged("", c1, "MODIFIED")
 	e.mu.Unlock()
 	settled(t, e)
-	got = took(t, roadmap, 4)
+	got = took(t, strategy, 4)
 	if h := got["epic"].Card.Status.Hierarchy; got["epic"].Type != "MODIFIED" || h.Status != board.HierarchyNoItems || h.Total != 0 {
 		t.Fatalf("the epic the task left: %s %+v, want MODIFIED no-items 0/0", got["epic"].Type, h)
 	}
@@ -141,22 +141,22 @@ func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) 
 		t.Fatalf("the goal the task joined: %+v, want in-progress 0/1", h)
 	}
 
-	// Deleted: gone from the Roadmap, and the goal has no items again.
+	// Deleted: gone from the Strategy board, and the goal has no items again.
 	e.mu.Lock()
 	gone := find("c1")
 	e.removeCard("c1")
 	e.cardChanged("", gone, "DELETED")
 	e.mu.Unlock()
 	settled(t, e)
-	got = took(t, roadmap, 2)
+	got = took(t, strategy, 2)
 	if got["c1"].Type != "DELETED" {
-		t.Fatalf("the task did not leave the Roadmap: %+v", got["c1"])
+		t.Fatalf("the task did not leave the Strategy board: %+v", got["c1"])
 	}
 	if h := got["goal"].Card.Status.Hierarchy; got["goal"].Type != "MODIFIED" || h.Status != board.HierarchyNoItems {
 		t.Fatalf("the goal after the delete: %s %+v, want MODIFIED no-items", got["goal"].Type, h)
 	}
 
-	// A card the Roadmap did NOT list — the finished task — ENTERS it when it
+	// A card the Strategy board did NOT list — the finished task — ENTERS it when it
 	// is filed under the epic: an arrival for the watcher, and the chain above
 	// counts it at once (one done of one: done).
 	e.mu.Lock()
@@ -166,9 +166,9 @@ func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) 
 	e.cardChanged("", c2, "MODIFIED")
 	e.mu.Unlock()
 	settled(t, e)
-	got = took(t, roadmap, 4)
+	got = took(t, strategy, 4)
 	if got["c2"].Type != "ADDED" {
-		t.Fatalf("the finished task did not enter the Roadmap: %+v", got["c2"])
+		t.Fatalf("the finished task did not enter the Strategy board: %+v", got["c2"])
 	}
 	if h := got["goal"].Card.Status.Hierarchy; got["goal"].Type != "MODIFIED" || h.Status != board.HierarchyDone || h.Done != 1 || h.Total != 1 {
 		t.Fatalf("the goal after the finished task joined: %s %+v, want MODIFIED done 1/1", got["goal"].Type, h)
@@ -178,7 +178,7 @@ func TestAChangeUnderAPlanningCardReachesItsAncestorsOnTheRoadmap(t *testing.T) 
 // A TASK CARRIES ITS PLANNING CARD'S TITLE AND END (status.lineage), and the
 // Backlog draws both — the tag and the due date (K2, K6). The Backlog watches
 // `view=all&team=<set>`, which never holds the epic itself, so a retitled or
-// re-dated epic reached the Roadmap and not the backlog cards under it, which
+// re-dated epic reached the Strategy board and not the backlog cards under it, which
 // went on showing the old name and the old due date. A planning card whose
 // title or dates change therefore re-sends its descendant TASKS, to every
 // board whose filter holds them; a change that moves neither (a description)
@@ -410,15 +410,15 @@ func TestAnOwnershipChangeReachesTheWholeSubtree(t *testing.T) {
 	}
 }
 
-// A FILTERED ROADMAP HAS NO CLIENT MIRROR, SO ITS AUTHOR IS TOLD TOO. The
+// A FILTERED STRATEGY BOARD HAS NO CLIENT MIRROR, SO ITS AUTHOR IS TOLD TOO. The
 // team, customer and owner filters are the server's alone (O7, O8): the
 // board draws what it was sent. An author's own ADDED and DELETED used to be
 // held back — their tab was assumed to have placed the card itself — while
 // the ancestors that came along only for that card were sent as DELETED, so
-// the author's Roadmap kept the card with no chain above it. On a filtered
-// Roadmap the author is sent the membership changes like everyone else; only
+// the author's Strategy kept the card with no chain above it. On a filtered
+// Strategy the author is sent the membership changes like everyone else; only
 // the MODIFIED echo of their own write is spared.
-func TestAFilteredRoadmapTellsItsAuthorWhatLeftAndEntered(t *testing.T) {
+func TestAFilteredStrategyTellsItsAuthorWhatLeftAndEntered(t *testing.T) {
 	store := newBoardStore()
 	b := board.NewBoardIn("acme", []board.Card{
 		{ItemID: "goal", Title: "Grow", Type: board.TypeGoal},
@@ -427,7 +427,7 @@ func TestAFilteredRoadmapTellsItsAuthorWhatLeftAndEntered(t *testing.T) {
 		{ItemID: "loose", Title: "Docs", Team: "alpha", Assignees: []string{"ann"}},
 	})
 	e := seedEntry(store, "k", b)
-	sel := &apiserver.Selector{View: "roadmap", Owner: "ann"}
+	sel := &apiserver.Selector{View: "strategy", Owner: "ann"}
 	author, cancel := store.subscribe("k", "me", sel, map[string]bool{"cards": true})
 	defer cancel()
 	other, cancel2 := store.subscribe("k", "other", sel, map[string]bool{"cards": true})
@@ -465,17 +465,17 @@ func TestAFilteredRoadmapTellsItsAuthorWhatLeftAndEntered(t *testing.T) {
 	}
 }
 
-// An unfiltered Roadmap keeps sparing its author: the board places a card
-// it moved by the same rules (roadmap.ts), so an echo would only make it
+// An unfiltered Strategy keeps sparing its author: the board places a card
+// it moved by the same rules (strategy.ts), so an echo would only make it
 // jump.
-func TestAnUnfilteredRoadmapSparesItsAuthor(t *testing.T) {
+func TestAnUnfilteredStrategySparesItsAuthor(t *testing.T) {
 	store := newBoardStore()
 	b := board.NewBoardIn("acme", []board.Card{
 		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
 		{ItemID: "t", Title: "Receipts", Team: "alpha", Assignees: []string{"ann"}},
 	})
 	e := seedEntry(store, "k", b)
-	author, cancel := store.subscribe("k", "me", &apiserver.Selector{View: "roadmap"}, map[string]bool{"cards": true})
+	author, cancel := store.subscribe("k", "me", &apiserver.Selector{View: "strategy"}, map[string]bool{"cards": true})
 	defer cancel()
 	e.mu.Lock()
 	c, _ := board.Find(e.board, "t")
@@ -666,7 +666,7 @@ func TestADeletedPlanItemIsToldDeletedToItsAuthorLast(t *testing.T) {
 			cards = append(cards, board.Card{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha", Parked: true})
 		}
 		e := seedEntry(store, "k", board.NewBoardIn("acme", cards))
-		author, cancel := store.subscribe("k", "me", &apiserver.Selector{View: "roadmap"}, map[string]bool{"cards": true})
+		author, cancel := store.subscribe("k", "me", &apiserver.Selector{View: "strategy"}, map[string]bool{"cards": true})
 		if withChildren {
 			// The child moves up to the goal: a write the request did not
 			// address, so it is nobody's echo.
@@ -736,12 +736,12 @@ func TestTheRawStreamTellsTheAuthorADeletedCard(t *testing.T) {
 	}
 }
 
-// O14 — the Roadmap's watch narrowed by status: a task taken into work
-// enters an "in progress" Roadmap as ADDED with the plan items above it,
+// O14 — the Strategy board's watch narrowed by status: a task taken into work
+// enters an "in progress" Strategy as ADDED with the plan items above it,
 // and finishing it takes all of them off as DELETED — though no write
 // touched the plan items. Parked again from work, it moves to a "backlog"
-// Roadmap the same way.
-func TestAStatusFilteredRoadmapWatchSeesWorkEnterAndLeave(t *testing.T) {
+// Strategy the same way.
+func TestAStatusFilteredStrategyWatchSeesWorkEnterAndLeave(t *testing.T) {
 	today := board.TodayIso()
 	store := newBoardStore()
 	b := board.NewBoardIn("acme", []board.Card{
@@ -751,9 +751,9 @@ func TestAStatusFilteredRoadmapWatchSeesWorkEnterAndLeave(t *testing.T) {
 	})
 	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today}}
 	e := seedEntry(store, "k", b)
-	inWork, cancel := store.subscribe("k", "viewer", &apiserver.Selector{View: "roadmap", Status: "in-progress"}, map[string]bool{"cards": true})
+	inWork, cancel := store.subscribe("k", "viewer", &apiserver.Selector{View: "strategy", Status: "in-progress"}, map[string]bool{"cards": true})
 	defer cancel()
-	shelf, cancel2 := store.subscribe("k", "viewer2", &apiserver.Selector{View: "roadmap", Status: "backlog"}, map[string]bool{"cards": true})
+	shelf, cancel2 := store.subscribe("k", "viewer2", &apiserver.Selector{View: "strategy", Status: "backlog"}, map[string]bool{"cards": true})
 	defer cancel2()
 	change := func(edit func(*board.Card)) {
 		e.mu.Lock()
@@ -778,7 +778,7 @@ func TestAStatusFilteredRoadmapWatchSeesWorkEnterAndLeave(t *testing.T) {
 	if got := took(t, shelf, 3); verbs(got) != "DELETED DELETED DELETED" {
 		t.Fatalf("taken into work: the backlog watch heard %v", got)
 	}
-	// Finished: off the in-progress Roadmap, plan items and all.
+	// Finished: off the in-progress Strategy, plan items and all.
 	change(func(c *board.Card) { c.Progress = 100 })
 	if got := took(t, inWork, 3); verbs(got) != "DELETED DELETED DELETED" {
 		t.Fatalf("finished: the in-progress watch heard %v", got)
@@ -792,7 +792,7 @@ func TestAStatusFilteredRoadmapWatchSeesWorkEnterAndLeave(t *testing.T) {
 // (with the goal, which nothing else holds there), and the Hide done watch
 // hears the finished product leave while the empty client epic stays,
 // unlocked.
-func TestALockedRoadmapWatchSeesTheLockLift(t *testing.T) {
+func TestALockedStrategyWatchSeesTheLockLift(t *testing.T) {
 	today := board.TodayIso()
 	store := newBoardStore()
 	b := board.NewBoardIn("acme", []board.Card{
@@ -803,9 +803,9 @@ func TestALockedRoadmapWatchSeesTheLockLift(t *testing.T) {
 	})
 	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today}}
 	e := seedEntry(store, "k", b)
-	locked, cancel := store.subscribe("k", "viewer", &apiserver.Selector{View: "roadmap", Status: "locked"}, map[string]bool{"cards": true})
+	locked, cancel := store.subscribe("k", "viewer", &apiserver.Selector{View: "strategy", Status: "locked"}, map[string]bool{"cards": true})
 	defer cancel()
-	open, cancel2 := store.subscribe("k", "viewer2", &apiserver.Selector{View: "roadmap",
+	open, cancel2 := store.subscribe("k", "viewer2", &apiserver.Selector{View: "strategy",
 		Status: "backlog,in-progress,locked,no-items"}, map[string]bool{"cards": true})
 	defer cancel2()
 	e.mu.Lock()
@@ -832,14 +832,14 @@ func TestALockedRoadmapWatchSeesTheLockLift(t *testing.T) {
 // the epic gives both items, and the No items watch hears both leave — the
 // author's own included, since the request addressed the task, not them —
 // while the new task, parked, is no No items card and never arrives.
-func TestANoItemsRoadmapWatchSeesThePlanGainItsFirstTask(t *testing.T) {
+func TestANoItemsStrategyWatchSeesThePlanGainItsFirstTask(t *testing.T) {
 	store := newBoardStore()
 	b := board.NewBoardIn("acme", []board.Card{
 		{ItemID: "goal", Title: "Operations", Type: board.TypeGoal},
 		{ItemID: "epic", Title: "Acme rollout", Type: board.TypeEpic, Parent: "goal"},
 	})
 	e := seedEntry(store, "k", b)
-	sel := func() *apiserver.Selector { return &apiserver.Selector{View: "roadmap", Status: "no-items"} }
+	sel := func() *apiserver.Selector { return &apiserver.Selector{View: "strategy", Status: "no-items"} }
 	author, cancel := store.subscribe("k", "lead", sel(), map[string]bool{"cards": true})
 	defer cancel()
 	other, cancel2 := store.subscribe("k", "viewer", sel(), map[string]bool{"cards": true})
@@ -863,7 +863,7 @@ func TestANoItemsRoadmapWatchSeesThePlanGainItsFirstTask(t *testing.T) {
 // still matches: one of two tasks leaving takes no DELETED to the epic. And
 // what rides the task leaves with it — its subtask and its review card,
 // though neither is of that status itself (both parked).
-func TestAStatusFilteredRoadmapKeepsAPlanItemWhileATaskStillMatches(t *testing.T) {
+func TestAStatusFilteredStrategyKeepsAPlanItemWhileATaskStillMatches(t *testing.T) {
 	today := board.TodayIso()
 	store := newBoardStore()
 	b := board.NewBoardIn("acme", []board.Card{
@@ -877,7 +877,7 @@ func TestAStatusFilteredRoadmapKeepsAPlanItemWhileATaskStillMatches(t *testing.T
 	})
 	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today}}
 	e := seedEntry(store, "k", b)
-	sub, cancel := store.subscribe("k", "viewer", &apiserver.Selector{View: "roadmap", Status: "in-progress"}, map[string]bool{"cards": true})
+	sub, cancel := store.subscribe("k", "viewer", &apiserver.Selector{View: "strategy", Status: "in-progress"}, map[string]bool{"cards": true})
 	defer cancel()
 	e.mu.Lock()
 	c, _ := board.Find(e.board, "t1")

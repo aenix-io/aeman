@@ -9,14 +9,14 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// The Roadmap's badge menu (docs/design/backlog.md, "UNASSIGNED"): the
+// The Strategy board's badge menu (docs/design/backlog.md, "UNASSIGNED"): the
 // answer a person gives about a row.
 //
 //   - UNASSIGNED (K16) takes work OUT of hand: back to its team's backlog,
 //     nobody's, undated, out of every sprint — the ×'s unassign (K3) — for a
 //     task, or every task in work under a plan item at any depth
 //     (board.UnassignTargets); given uids, for exactly those of them: the
-//     confirm counted the tasks the reader could see, and a Roadmap filter
+//     confirm counted the tasks the reader could see, and a Strategy filter
 //     shows fewer than the board holds. Every task is checked before
 //     anything is written — reachable from the row, and the actor's to
 //     write — so it is applied whole or not at all, off one read of the
@@ -79,7 +79,7 @@ func (s *Service) checkWrites(ctx context.Context, b board.Board, targets []boar
 }
 
 // UnassignPreview names the tasks UnassignWork would take from the card,
-// writing nothing — what the confirm counts. The reader's Roadmap may be
+// writing nothing — what the confirm counts. The reader's Strategy may be
 // filtered and hold fewer of them; only the whole board says what makes the
 // plan item IN PROGRESS. Refused like UnassignWork on a task not in work.
 func (s *Service) UnassignPreview(ctx context.Context, boardID string, itemID string) ([]string, error) {

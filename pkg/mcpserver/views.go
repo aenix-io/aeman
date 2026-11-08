@@ -38,7 +38,7 @@ func (s boardStand) view(fallback board.View) (board.View, error) {
 	if !board.KnownView(s.View) {
 		return "", fmt.Errorf("%w: %q", boardservice.ErrNoSuchView, s.View)
 	}
-	return board.View(board.CanonicalView(s.View)), nil
+	return board.View(s.View), nil
 }
 
 // gestureOn is the gate, and it asks exactly what the HTTP door asks: does

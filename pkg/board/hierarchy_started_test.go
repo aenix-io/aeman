@@ -3,7 +3,7 @@ package board
 import "testing"
 
 // A PLAN ITEM ROLLS UP FROM WHERE ITS OPEN TASKS STAND (H5, amended with
-// K16, 2026-11-07). The Roadmap's UNASSIGNED moves tasks from work to the
+// K16, 2026-11-07). The Strategy board's UNASSIGNED moves tasks from work to the
 // backlog, and the plan item above them must show it; a roll-up read off
 // progress showed nothing (an epic whose last task was taken out of work at
 // 49% still read "in progress"). Over the plan item's leaf tasks:
