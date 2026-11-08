@@ -415,10 +415,12 @@ func (s *Service) createPlaced(ctx context.Context, boardID string, args CreateC
 func inheritedEpic(b board.Board, team, after, before string) string {
 	ix := board.NewIndex(b)
 	anchor := after + before
+	// The list as drawn: the team's backlog — its reviews nobody has taken
+	// on top, then its queue — the anchor in it wherever it stands.
 	var list []board.Card
 	at := -1
-	for _, c := range b.Cards {
-		if c.ItemID == anchor && !board.NeedsReviewer(c) || ix.InQueue(c) && ix.PlacedTeam(c) == team {
+	for _, c := range board.BacklogOrder(ix, b.Cards) {
+		if c.ItemID == anchor || ix.OnBacklog(c) && ix.PlacedTeam(c) == team {
 			if c.ItemID == anchor {
 				at = len(list)
 			}
@@ -428,9 +430,17 @@ func inheritedEpic(b board.Board, team, after, before string) string {
 	if at < 0 {
 		return ""
 	}
+	// The neighbours of the gap, a review nobody has taken skipped: the
+	// next card past it is the neighbour (Q10).
 	above, below := at-1, at
 	if after != "" {
 		above, below = at, at+1
+	}
+	for above >= 0 && board.NeedsReviewer(list[above]) {
+		above--
+	}
+	for below < len(list) && board.NeedsReviewer(list[below]) {
+		below++
 	}
 	epic := func(i int) string {
 		if i < 0 || i >= len(list) {

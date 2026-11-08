@@ -56,3 +56,23 @@ func TestABacklogPlusInheritsTheEpicOfItsContext(t *testing.T) {
 		})
 	}
 }
+
+// Q10 — a review nobody has taken is no neighbour: a "+" pressed right
+// below one (anchored on it) takes the epic of the next task instead.
+func TestABacklogPlusSkipsAReviewNobodyHasTaken(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "A", Title: "epic A", Type: board.TypeEpic},
+		{ItemID: "r", Title: "review: a1", Team: "alpha", Parked: true, ReviewOf: "a1"},
+		{ItemID: "a1", Title: "a1", Team: "alpha", Parked: true, Parent: "A"},
+	}, map[string]board.SprintState{"alpha": {Current: board.TodayIso(), ItemID: "s1"}})
+	c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewBacklog,
+		CreateCardArgs{Title: "new", Team: "alpha", After: "r", InheritParent: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if got := f.get(c.ItemID).Parent; got != "A" {
+		t.Fatalf("parent = %q, want the epic of the task below the review", got)
+	}
+}
