@@ -991,6 +991,9 @@ export function StrategyBoard({
           title="Show only work in progress, in a backlog, locked by a dependency, plan items with no items, or done"
         />
         <div className="segmented strategy-fold" role="group" aria-label="Folding">
+          <button type="button" className="segment" title="Unfold every row" onClick={() => setFolded(new Set())}>
+            Expand all
+          </button>
           <button
             type="button"
             className="segment"
@@ -998,9 +1001,6 @@ export function StrategyBoard({
             onClick={() => setFolded(foldableIds(shown, depth))}
           >
             Collapse all
-          </button>
-          <button type="button" className="segment" title="Unfold every row" onClick={() => setFolded(new Set())}>
-            Expand all
           </button>
         </div>
       </div>

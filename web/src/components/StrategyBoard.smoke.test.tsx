@@ -419,10 +419,11 @@ describe("the badge", () => {
 // The toolbar folds every row or none (the order does not change), and an
 // epic whose parked tasks are scattered in a team's backlog says Split.
 describe("folding and Split on the Strategy board", () => {
-  it("offers Collapse all and Expand all", () => {
+  it("offers Expand all, then Collapse all", () => {
     const html = draw(board([goal, ini, epic, done, open]));
     expect(html).toContain("Collapse all");
     expect(html).toContain("Expand all");
+    expect(html.indexOf("Expand all")).toBeLessThan(html.indexOf("Collapse all"));
   });
 
   it("marks an epic whose parked tasks another task stands between", () => {
@@ -443,7 +444,7 @@ describe("the Strategy board's own toolbar", () => {
   it("draws the filters first, the folding after them, and no window", () => {
     const html = draw(board([goal, ini, epic, done, open]));
     const bar = html.slice(html.indexOf("strategy-toolbar"), html.indexOf("strategy-head"));
-    expect(bar.indexOf("Team")).toBeLessThan(bar.indexOf("Collapse all"));
+    expect(bar.indexOf("Team")).toBeLessThan(bar.indexOf("Expand all"));
     expect(bar).not.toContain("strategy-range");
   });
 });
