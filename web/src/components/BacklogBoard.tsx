@@ -12,6 +12,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Board, Card as CardModel, Provider, SizeKey } from "../providers/types";
 import {
   insertSpot,
+  byReadiness,
+  type Readiness,
   insertedOrder,
   backlogList,
   dropPlan,
@@ -157,9 +159,15 @@ export function BacklogBoard({
   // The Customer filter by effective customers — the server's rule for the
   // listing and the watch (O11), applied to what the board holds.
   const { kept, keep } = useKeptCreated(customerFilter.join(","));
+  // All / Ready / Blocked: a filter, never an order (ordering.md).
+  const [readiness, setReadiness] = useState<Readiness>("all");
   const list = useMemo(
-    () => backlogList(board.cards, teams, board.boardOrder).filter((c) => customerPasses(c, board.cards, customerFilter, kept)),
-    [board.cards, board.boardOrder, teams, customerFilter, kept],
+    () =>
+      byReadiness(
+        backlogList(board.cards, teams, board.boardOrder).filter((c) => customerPasses(c, board.cards, customerFilter, kept)),
+        readiness,
+      ),
+    [board.cards, board.boardOrder, teams, customerFilter, kept, readiness],
   );
   const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
 
@@ -568,6 +576,19 @@ export function BacklogBoard({
           manage={onManageCustomers ? { label: "Manage customers", onClick: onManageCustomers } : undefined}
           title="Show only the work for these customers"
         />
+        <div className="backlog-readiness" role="group" aria-label="Readiness">
+          {(["all", "ready", "blocked"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              className={`backlog-readiness-btn${readiness === m ? " backlog-readiness-on" : ""}`}
+              aria-pressed={readiness === m}
+              onClick={() => setReadiness(m)}
+            >
+              {m === "all" ? "All" : m === "ready" ? "Ready" : "Blocked"}
+            </button>
+          ))}
+        </div>
       </div>
       <section className="backlog-list" aria-label="Backlog">
         <div className={`backlog-list-body${carried ? " backlog-list-over" : ""}${forbidden ? " backlog-list-forbid" : ""}`} data-backlog-list="">

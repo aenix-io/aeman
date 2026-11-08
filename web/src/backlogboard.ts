@@ -367,3 +367,17 @@ export function dueLabel(iso: string): string {
   const [, m, d] = iso.split("-").map(Number);
   return `${d} ${MONTHS[m - 1]}`;
 }
+
+/** Readiness is the Backlog's All / Ready / Blocked filter (ordering.md):
+ *  a dependency never changes the order — a blocked task stays where it
+ *  stands — so the filter only hides. Ready is every card that waits for
+ *  nothing (status.locked false); Blocked the ones that do. All, the
+ *  default, hides nothing. */
+export type Readiness = "all" | "ready" | "blocked";
+
+export function byReadiness<T extends Pick<Card, "locked">>(list: readonly T[], mode: Readiness): T[] {
+  if (mode === "all") {
+    return [...list];
+  }
+  return list.filter((c) => (mode === "blocked" ? !!c.locked : !c.locked));
+}

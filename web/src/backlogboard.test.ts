@@ -25,6 +25,7 @@ import {
   takenIntoWorkLocally,
   insertSpot,
   insertedOrder,
+  byReadiness,
 } from "./backlogboard";
 import type { Card, LineageRef } from "./providers/types";
 
@@ -598,5 +599,18 @@ describe("the backlog's order, shared with the server", () => {
   it("reads who rides a parent task as board.IsSubtask does", () => {
     const got = Object.fromEntries(Object.keys(fx.subtask).map((id) => [id, isSubtask(cards.find((c) => c.itemId === id)!)]));
     expect(got).toEqual(fx.subtask);
+  });
+});
+
+// The All / Ready / Blocked filter only HIDES: the order is the queue's, a
+// blocked task stays where it stands (dependencies never change the order).
+describe("the readiness filter", () => {
+  const list = [card({ itemId: "a" }), card({ itemId: "b", locked: true }), card({ itemId: "c" })];
+  it("shows everything by default, in the list's order", () => {
+    expect(byReadiness(list, "all").map((c) => c.itemId)).toEqual(["a", "b", "c"]);
+  });
+  it("shows the ready ones or the blocked ones, the order kept", () => {
+    expect(byReadiness(list, "ready").map((c) => c.itemId)).toEqual(["a", "c"]);
+    expect(byReadiness(list, "blocked").map((c) => c.itemId)).toEqual(["b"]);
   });
 });

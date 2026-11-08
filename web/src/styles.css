@@ -5671,3 +5671,25 @@ button.card-age {
   cursor: pointer;
   padding: 2px 4px;
 }
+
+/* The Backlog's All / Ready / Blocked filter: a segmented control. */
+.backlog-readiness {
+  display: inline-flex;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.backlog-readiness-btn {
+  border: none;
+  background: none;
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.backlog-readiness-on {
+  background: var(--accent, #6af);
+  color: var(--bg, #fff);
+}
