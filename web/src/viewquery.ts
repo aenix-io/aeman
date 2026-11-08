@@ -3,6 +3,7 @@
 
 import { todayIso } from "./date";
 import type { RoadmapFilters } from "./ownership";
+import { statusSet } from "./workstatus";
 
 export type ViewMode = "me" | "team" | "backlog" | "roadmap";
 
@@ -11,8 +12,8 @@ export type ViewMode = "me" | "team" | "backlog" | "roadmap";
  *  the board refetches and re-subscribes on — nothing is filtered out of
  *  what was already sent. */
 export interface ViewOptions {
-  /** The Roadmap's team, customer and owner filters (ownership.md, O7,
-   *  O8): selectors the server applies, each a comma-separated set. */
+  /** The Roadmap's team, customer, owner and status filters (ownership.md,
+   *  O7, O8): selectors the server applies, each a comma-separated set. */
   filters?: RoadmapFilters;
   /** The Team board's and the Backlog's Customer filter (O11): customer
    *  ids, matched by the server against effective customers. The Me board
@@ -43,6 +44,10 @@ function roadmapQuery(opts: ViewOptions): Record<string, string> {
   }
   if (f?.owners.length) {
     q.owner = f.owners.join(",");
+  }
+  const status = statusSet(f?.statuses ?? []);
+  if (status) {
+    q.status = status;
   }
   return q;
 }

@@ -69,6 +69,12 @@ type Selector struct {
 	// effective customers (O11).
 	Customer string
 	Owner    string
+	// Status narrows the roadmap view by work status (O14): a comma-separated
+	// set of in-progress, backlog and done (board.WorkStatus). A task matches
+	// by its own, a subtask rides its parent task, a review card follows the
+	// task it reviews, and a plan item matches when any task under it does —
+	// one with no tasks matches none. AND with team, customer and owner.
+	Status string
 }
 
 // ParseSelector reads a selector from query parameters. Unknown views error.
@@ -84,7 +90,11 @@ func ParseSelector(q url.Values) (Selector, error) {
 		IncludeReviews: q.Get("reviews") == "true" || q.Get("reviews") == "1",
 		Customer:       q.Get("customer"),
 		Owner:          q.Get("owner"),
+		Status:         q.Get("status"),
 		Fields:         q.Get("fields"),
+	}
+	if err := CheckStatus(sel.Status); err != nil {
+		return Selector{}, err
 	}
 	switch sel.Fields {
 	case "", "full", "summary":
@@ -191,7 +201,8 @@ func (sel Selector) Mirrored() bool {
 	if sel.View != "roadmap" {
 		return true
 	}
-	return teamSetOf(sel.Team) == nil && setOf(sel.Customer) == nil && setOf(sel.Owner) == nil
+	return teamSetOf(sel.Team) == nil && setOf(sel.Customer) == nil && setOf(sel.Owner) == nil &&
+		setOf(sel.Status) == nil
 }
 
 // roadmapNarrowed applies the Roadmap's team, customer and owner filters
@@ -200,16 +211,24 @@ func (sel Selector) Mirrored() bool {
 //   - a PLANNING card passes team (customer) when its own effective team
 //     (customers) or any task's under it does, and owner when its OWN owner
 //     (never inherited) or a task's under it assignee is one of them;
+//
 //   - a TASK or subtask passes team and customer by its effective values,
 //     and owner when one of its assignees is one of them;
+//
+//   - status (O14): a TASK by its work status (board.WorkStatus), a subtask
+//     by its parent task's, a review card by the status of the task it
+//     reviews; a PLANNING card when any task under it passes — never by
+//     itself, so a plan item with no tasks passes no status;
 //
 // and every card listed comes with its ancestors. With no filter the
 // listing is as it was.
 func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.Card {
 	teams, customers, owners := teamSetOf(sel.Team), setOf(sel.Customer), setOf(sel.Owner)
-	if teams == nil && customers == nil && owners == nil {
+	statuses := setOf(sel.Status)
+	if teams == nil && customers == nil && owners == nil && statuses == nil {
 		return cards
 	}
+	statusOK := func(c board.Card) bool { return statuses == nil || statuses[workStatusOf(ix, c)] }
 	teamOK := func(c board.Card) bool { return teams == nil || teams[ix.EffectiveTeam(c)] }
 	customerOK := func(c board.Card) bool { return customerOK(ix, c, customers) }
 	// A person matches a plan item they OWN (never inherited) and a task or
@@ -254,18 +273,24 @@ func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.
 		}
 		return out
 	}
+	// A plan item passes by ONE task under it that passes every filter —
+	// the plan item's own team, customers or owner standing in for that
+	// filter, the status always the task's (O14). Checking each filter on
+	// any task drew an epic whose team came from one task and whose status
+	// from another, with nothing under it that matched. With no status
+	// asked, a plan item that passes by its own fields alone needs no task.
 	planPasses := func(p board.Card) bool {
-		under := tasksUnder(p)
-		anyUnder := func(ok func(board.Card) bool) bool {
-			for _, t := range under {
-				if ok(t) {
-					return true
-				}
-			}
-			return false
+		ownTeam, ownCustomer, ownOwner := teamOK(p), customerOK(p), ownerOK(p)
+		if statuses == nil && ownTeam && ownCustomer && ownOwner {
+			return true
 		}
-		return (teamOK(p) || anyUnder(teamOK)) && (customerOK(p) || anyUnder(customerOK)) &&
-			(ownerOK(p) || anyUnder(ownerOK))
+		for _, t := range tasksUnder(p) {
+			if (ownTeam || teamOK(t)) && (ownCustomer || customerOK(t)) &&
+				(ownOwner || ownerOK(t)) && statusOK(t) {
+				return true
+			}
+		}
+		return false
 	}
 	passedPlans := map[string]bool{}
 	for _, c := range cards {
@@ -287,7 +312,7 @@ func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.
 			}
 			continue
 		}
-		if !teamOK(c) || !customerOK(c) || !ownerOK(c) {
+		if !teamOK(c) || !customerOK(c) || !ownerOK(c) || !statusOK(c) {
 			continue
 		}
 		include(c)
@@ -299,6 +324,38 @@ func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.
 		}
 	}
 	return out
+}
+
+// CheckStatus refuses a status selector naming anything but the work
+// statuses (O14): a typo is an error, never quietly no filter.
+func CheckStatus(v string) error {
+	for s := range setOf(v) {
+		if !board.ValidWorkStatus(s) {
+			return fmt.Errorf("unknown status %q (want in-progress, backlog or done)", s)
+		}
+	}
+	return nil
+}
+
+// workStatusOf is the work status a card is filtered by on the Roadmap
+// (O14): a review card's is the task's it reviews, a subtask's its parent
+// task's, every other card's its own (board.WorkStatus). Bounded, so a
+// hand-written cycle of reviews ends.
+func workStatusOf(ix *board.Index, c board.Card) string {
+	for range 6 {
+		next, ok := board.Card{}, false
+		switch {
+		case c.ReviewOf != "":
+			next, ok = ix.Find(c.ReviewOf)
+		case ix.IsSubtask(c):
+			next, ok = ix.Find(c.Parent)
+		}
+		if !ok {
+			break
+		}
+		c = next
+	}
+	return board.WorkStatus(c)
 }
 
 // setOf reads a comma-separated selector value as a set; nil when empty.

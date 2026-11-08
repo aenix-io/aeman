@@ -231,20 +231,29 @@ describe("the Roadmap's listing", () => {
 // change refetches and re-subscribes; nothing is filtered locally.
 describe("the Roadmap's filters", () => {
   it("ask nothing while none is chosen", () => {
-    expect(viewQueries("roadmap", TODAY, [], undefined, TODAY, { filters: { teams: [], customers: [], owners: [] } })).toEqual([
+    expect(viewQueries("roadmap", TODAY, [], undefined, TODAY, { filters: { teams: [], customers: [], owners: [], statuses: [] } })).toEqual([
       { view: "roadmap" },
     ]);
   });
 
   it("ask the listing and the watch for the chosen ones, each a set", () => {
-    const opts = { filters: { teams: ["portal", "ops"], customers: ["cu1"], owners: ["ann"] } };
-    const want = { view: "roadmap", team: "portal,ops", customer: "cu1", owner: "ann" };
+    const opts = { filters: { teams: ["portal", "ops"], customers: ["cu1"], owners: ["ann"], statuses: ["in-progress", "backlog"] } };
+    const want = { view: "roadmap", team: "portal,ops", customer: "cu1", owner: "ann", status: "backlog,in-progress" };
     expect(viewQueries("roadmap", TODAY, [], undefined, TODAY, opts)).toEqual([want]);
     expect(watchQuery("roadmap", TODAY, [], undefined, opts)).toEqual(want);
   });
 
+  // The Status filter (In progress, Backlog, Done) is a set like the rest,
+  // sorted so the same choice is the same subscription.
+  it("ask for the chosen work statuses, sorted", () => {
+    expect(watchQuery("roadmap", TODAY, [], undefined, { filters: { teams: [], customers: [], owners: [], statuses: ["done"] } })).toEqual({
+      view: "roadmap",
+      status: "done",
+    });
+  });
+
   it("ride the watch alone", () => {
-    expect(watchQuery("roadmap", TODAY, [], undefined, { filters: { teams: [], customers: [], owners: ["ann"] } })).toEqual({
+    expect(watchQuery("roadmap", TODAY, [], undefined, { filters: { teams: [], customers: [], owners: ["ann"], statuses: [] } })).toEqual({
       view: "roadmap",
       owner: "ann",
     });
@@ -258,7 +267,7 @@ describe("the Roadmap's filters", () => {
 // counts what its filters hide.
 describe("the day boards' team and customer sets", () => {
   it("write the Roadmap's No team alone as ',' too", () => {
-    expect(watchQuery("roadmap", TODAY, [], undefined, { filters: { teams: [""], customers: [], owners: [] } }).team).toBe(",");
+    expect(watchQuery("roadmap", TODAY, [], undefined, { filters: { teams: [""], customers: [], owners: [], statuses: [] } }).team).toBe(",");
   });
 
   it("write the no-team group alone as ','", () => {

@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { closesOn } from "./Dropdown";
-import { FilterSelect, FilterSelectMenu, filterLabel, toggled } from "./FilterSelect";
+import { FilterSelect, FilterSelectMenu, filterLabel, pressQuick, toggled } from "./FilterSelect";
 
 // THE ONE FILTER DROPDOWN every board's toolbar wears (Team, Customer,
 // Owner): a button saying what is chosen, a menu of checkboxes —
@@ -95,5 +95,49 @@ describe("the styles of the chip rows", () => {
     const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
     expect(css).not.toMatch(/\.team-chips?\b|\.team-filter-chip|\.team-chip-toggle|\.team-select\b/);
     expect(css).toMatch(/\.team-eye \{/);
+  });
+});
+
+describe("a quick choice in the filter dropdown", () => {
+  // A QUICK choice takes the foot of the menu while nothing is chosen, in
+  // the place and the look of the way back to "all", which shows instead
+  // once something is chosen — the Roadmap's Status filter offers "Hide
+  // done", one click for every status but done. No check mark: it is a
+  // shortcut, not an option.
+  it("offers the quick choice in All's place while nothing is chosen", () => {
+    const opts = [
+      { value: "in-progress", label: "In progress" },
+      { value: "backlog", label: "Backlog" },
+      { value: "done", label: "Done" },
+    ];
+    const menu = (selected: string[]) =>
+      renderToStaticMarkup(
+        <FilterSelectMenu
+          options={opts}
+          selected={selected}
+          anyLabel="all"
+          quick={{ label: "Hide done", onClick: vi.fn() }}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+    const none = menu([]);
+    expect(none).toMatch(/<button[^>]*role="menuitem"[^>]*class="card-stage-item card-stage-clear filter-select-quick"[^>]*>Hide done<\/button>/);
+    expect(none.indexOf("Hide done")).toBeGreaterThan(none.indexOf("Done<"));
+    expect(none).not.toContain(">All<");
+    const some = menu(["in-progress", "backlog"]);
+    expect(some).not.toContain("Hide done");
+    expect(some).toContain(">All<");
+  });
+});
+
+// A quick choice is a one-shot: pressing "Hide done" closes the menu, so a
+// second press on the same spot (now "All") cannot undo it straight away,
+// and focus goes back to the button the menu belongs to.
+describe("the quick choice", () => {
+  it("closes the menu before it applies", () => {
+    const order: string[] = [];
+    pressQuick({ label: "Hide done", onClick: () => order.push("apply") }, () => order.push("close"));
+    expect(order).toEqual(["close", "apply"]);
   });
 });

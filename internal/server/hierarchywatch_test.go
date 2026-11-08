@@ -796,3 +796,111 @@ func TestATasksPriorityReachesItsReviewCard(t *testing.T) {
 		t.Fatalf("the review card = %+v, want MODIFIED P1 from its task", st)
 	}
 }
+
+// O14 — the Roadmap's watch narrowed by status: a task taken into work
+// enters an "in progress" Roadmap as ADDED with the plan items above it,
+// and finishing it takes all of them off as DELETED — though no write
+// touched the plan items. Parked again from work, it moves to a "backlog"
+// Roadmap the same way.
+func TestAStatusFilteredRoadmapWatchSeesWorkEnterAndLeave(t *testing.T) {
+	today := board.TodayIso()
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "goal", Title: "Grow", Type: board.TypeGoal},
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "goal"},
+		{ItemID: "t", Title: "Receipts", Parent: "epic", Team: "alpha", Parked: true},
+	})
+	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today}}
+	e := seedEntry(store, "k", b)
+	inWork, cancel := store.subscribe("k", "viewer", &apiserver.Selector{View: "roadmap", Status: "in-progress"}, map[string]bool{"cards": true})
+	defer cancel()
+	shelf, cancel2 := store.subscribe("k", "viewer2", &apiserver.Selector{View: "roadmap", Status: "backlog"}, map[string]bool{"cards": true})
+	defer cancel2()
+	change := func(edit func(*board.Card)) {
+		e.mu.Lock()
+		c, _ := board.Find(e.board, "t")
+		edit(&c)
+		e.upsertCard(c)
+		e.cardChanged("lead", c, "MODIFIED")
+		e.mu.Unlock()
+		settled(t, e)
+	}
+	verbs := func(got map[string]struct {
+		Type string
+		Card apiserver.Card
+	}) string {
+		return got["goal"].Type + " " + got["epic"].Type + " " + got["t"].Type
+	}
+	// Taken into work.
+	change(func(c *board.Card) { c.Parked, c.SprintStart, c.StartDate = false, today, today })
+	if got := took(t, inWork, 3); verbs(got) != "ADDED ADDED ADDED" {
+		t.Fatalf("taken into work: the in-progress watch heard %v", got)
+	}
+	if got := took(t, shelf, 3); verbs(got) != "DELETED DELETED DELETED" {
+		t.Fatalf("taken into work: the backlog watch heard %v", got)
+	}
+	// Finished: off the in-progress Roadmap, plan items and all.
+	change(func(c *board.Card) { c.Progress = 100 })
+	if got := took(t, inWork, 3); verbs(got) != "DELETED DELETED DELETED" {
+		t.Fatalf("finished: the in-progress watch heard %v", got)
+	}
+	noFrame(t, shelf)
+}
+
+// O14 — under a status filter a plan item stays while ANY task under it
+// still matches: one of two tasks leaving takes no DELETED to the epic. And
+// what rides the task leaves with it — its subtask and its review card,
+// though neither is of that status itself (both parked).
+func TestAStatusFilteredRoadmapKeepsAPlanItemWhileATaskStillMatches(t *testing.T) {
+	today := board.TodayIso()
+	store := newBoardStore()
+	b := board.NewBoardIn("acme", []board.Card{
+		{ItemID: "goal", Title: "Grow", Type: board.TypeGoal},
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "goal"},
+		{ItemID: "t1", Title: "Receipts", Parent: "epic", Team: "alpha", SprintStart: today, StartDate: today},
+		{ItemID: "t2", Title: "Invoices", Parent: "epic", Team: "alpha", SprintStart: today, StartDate: today},
+		{ItemID: "kid", Title: "Receipts PDF", Parent: "t1", Team: "alpha", Parked: true},
+		{ItemID: "rev", Title: "review: Receipts", ReviewOf: "t1", Parent: "epic", Team: "alpha",
+			Assignees: []string{"bob"}, Parked: true},
+	})
+	b.SprintStates = map[string]board.SprintState{"alpha": {Current: today}}
+	e := seedEntry(store, "k", b)
+	sub, cancel := store.subscribe("k", "viewer", &apiserver.Selector{View: "roadmap", Status: "in-progress"}, map[string]bool{"cards": true})
+	defer cancel()
+	e.mu.Lock()
+	c, _ := board.Find(e.board, "t1")
+	c.Progress = 100
+	e.upsertCard(c)
+	e.cardChanged("lead", c, "MODIFIED")
+	e.mu.Unlock()
+	settled(t, e)
+	deleted := map[string]bool{}
+	for {
+		select {
+		case data := <-sub.ch:
+			var f frame
+			if err := json.Unmarshal(data, &f); err != nil {
+				t.Fatalf("bad frame: %v", err)
+			}
+			if f.Kind == "Load" {
+				continue
+			}
+			if f.Type == "DELETED" {
+				deleted[frameUID(t, f)] = true
+			}
+			continue
+		default:
+		}
+		break
+	}
+	for _, id := range []string{"t1", "kid", "rev"} {
+		if !deleted[id] {
+			t.Errorf("%s did not leave with its task: deleted %v", id, deleted)
+		}
+	}
+	for _, id := range []string{"goal", "epic", "t2"} {
+		if deleted[id] {
+			t.Errorf("%s left though t2 is still in progress: deleted %v", id, deleted)
+		}
+	}
+}

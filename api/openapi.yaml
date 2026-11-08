@@ -106,6 +106,7 @@ paths:
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/Customer'
         - $ref: '#/components/parameters/Owner'
+        - $ref: '#/components/parameters/Status'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       responses:
@@ -175,6 +176,7 @@ paths:
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/Customer'
         - $ref: '#/components/parameters/Owner'
+        - $ref: '#/components/parameters/Status'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
         - name: resources
@@ -257,6 +259,7 @@ paths:
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/Customer'
         - $ref: '#/components/parameters/Owner'
+        - $ref: '#/components/parameters/Status'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       requestBody:
@@ -314,6 +317,7 @@ paths:
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/Customer'
         - $ref: '#/components/parameters/Owner'
+        - $ref: '#/components/parameters/Status'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       requestBody:
@@ -361,6 +365,7 @@ paths:
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/Customer'
         - $ref: '#/components/parameters/Owner'
+        - $ref: '#/components/parameters/Status'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       responses:
@@ -394,6 +399,7 @@ paths:
         - $ref: '#/components/parameters/Reviews'
         - $ref: '#/components/parameters/Customer'
         - $ref: '#/components/parameters/Owner'
+        - $ref: '#/components/parameters/Status'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
       responses:
@@ -1254,6 +1260,25 @@ components:
         when one of its assignees is; each with its ancestors. A planning card
         also passes this filter by a task under it assigned to one of them.
         Several values are OR; with `team` and `customer`, AND.
+      schema:
+        type: string
+    Status:
+      name: status
+      in: query
+      required: false
+      description: >-
+        On the roadmap view, a comma-separated set of work statuses —
+        `in-progress`, `backlog`, `done` — and nothing else (anything else is
+        400 `invalidSelector`). A task's work status is `done` when it is
+        complete, `backlog` when it is parked, and `in-progress` when it is in
+        work (a date or a sprint, whatever its stage — review, locked and
+        refused are in somebody's hands); a task nobody has placed yet reads
+        as `backlog`. A task is listed by its own status, a subtask by its
+        parent task's, a review card by the status of the task it reviews,
+        and a goal, an initiative or an epic when any task under it is — a
+        plan item with no tasks matches no status. Each comes with its
+        ancestors. Several values are OR; with `team`, `customer` and
+        `owner`, AND. `in-progress,backlog` hides the finished work.
       schema:
         type: string
     Fields:

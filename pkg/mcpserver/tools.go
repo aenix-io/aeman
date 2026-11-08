@@ -115,6 +115,7 @@ type listCardsInput struct {
 	Reviews  bool   `json:"reviews,omitempty" jsonschema:"include each card's linked REVIEW card beside it (the me and team views). A review is somebody's work too — it counts in the reviewer's load — and without this it is on no listing you asked for"`
 	Customer string `json:"customer,omitempty" jsonschema:"a comma-separated set of customer ids (get_board metadata.customers), matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view: a task whose effective customers include one, a planning card that does or has such a task under it, each listed with its ancestors. On the team, backlog, all and me views: the cards whose effective customers include one, AND the team set"`
 	Owner    string `json:"owner,omitempty" jsonschema:"on the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: the goals, initiatives and epics whose OWN owner is one of them (never inherited) and the tasks and subtasks one of them is assigned to, each with its ancestors — the plan items one answers for and the work one does. team narrows the roadmap by EFFECTIVE team (own, else the nearest ancestor's) the same way; different filters are AND"`
+	Status   string `json:"status,omitempty" jsonschema:"on the roadmap view, a comma-separated set of work statuses — in-progress, backlog, done — to list only that work: a task by its own status (done when complete, backlog when parked, in-progress when in work — a date or a sprint, review/locked/refused included; a task nobody has placed reads as backlog), a subtask by its parent task's, a review card by the task it reviews, and a goal, an initiative or an epic when any task under it matches (one with no tasks matches none), each with its ancestors. in-progress shows the work in hand; in-progress,backlog hides the finished work. Several values are OR; with team, customer and owner, AND"`
 	Snapshot bool   `json:"snapshot,omitempty" jsonschema:"read a PAST day as it stood rather than today's cards filtered by that day: every field is the day's own, so a card finished since reads unfinished and one created since is absent. Needs day set to a past day; the board's history answers it, and a day it no longer reaches is an error rather than a wrong answer"`
 }
 
@@ -125,7 +126,10 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	}
 	sel := apiserver.Selector{View: in.View, Team: in.Team, Day: in.Day, User: in.User,
 		Assignee: in.Assignee, Focus: in.Focus,
-		IncludeReviews: in.Reviews, Customer: in.Customer, Owner: in.Owner}
+		IncludeReviews: in.Reviews, Customer: in.Customer, Owner: in.Owner, Status: in.Status}
+	if err := apiserver.CheckStatus(sel.Status); err != nil {
+		return nil, apiserver.CardList{}, err
+	}
 	if sel.View != "" && !board.KnownView(sel.View) {
 		return nil, apiserver.CardList{}, fmt.Errorf("%w: %q (use all, team, me, backlog or roadmap)",
 			boardservice.ErrNoSuchView, sel.View)

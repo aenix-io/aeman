@@ -1122,3 +1122,25 @@ func TestAnAgentSetsAPriorityAndTakesWorkOutOfHand(t *testing.T) {
 		t.Fatalf("unassign_work naming a parked task = %q", msg)
 	}
 }
+
+// O14 — list_cards takes the Roadmap's status filter like the HTTP listing
+// (ADR 0002): status=in-progress,backlog hides the finished work, and a
+// status the board does not have is refused, not read as no filter.
+func TestMCPListCardsRoadmapByStatus(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
+		{ItemID: "work", Title: "Receipts", Parent: "epic", Team: "alpha", SprintStart: today, StartDate: today},
+		{ItemID: "fin", Title: "Refunds", Parent: "epic", Team: "alpha", Progress: 100, StartDate: today},
+	}, nil)
+	cs := connect(t, Config{Board: "acme"}, fake)
+	got := textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap", "status": "in-progress,backlog"}))
+	if !strings.Contains(got, `"work"`) || strings.Contains(got, `"fin"`) {
+		t.Fatalf("hide done: %s", got)
+	}
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "list_cards",
+		Arguments: map[string]any{"view": "roadmap", "status": "todo"}})
+	if err == nil && !res.IsError {
+		t.Fatalf("an unknown status was read: %s", textOf(res))
+	}
+}

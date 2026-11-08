@@ -144,11 +144,15 @@ func TestTheRoadmapOwnerFilter(t *testing.T) {
 	}
 }
 
-// The combination, each filter judged on its own and AND across them. ann
-// owns the epic, whose own team is portal; only t2 under it is cozystack's
-// (and Acme's). The epic passes team (by t2) and owner (by itself), so it is
-// listed; t2 is not ann's, so it is not. bob's t1 is portal's: under
-// owner=bob AND team=portal it is drawn with its chain.
+// The combination, AND across the filters on ONE task (O14): a plan item
+// passes by a task under it that passes every filter, its own fields
+// standing in where they apply. ann owns the epic, whose own team is portal;
+// only t2 under it is cozystack's (and Acme's). The epic passes owner by
+// itself and team by t2, so it is listed; t2 is not ann's, so it is not.
+// bob's t1 is portal's: under owner=bob AND team=portal it is drawn with its
+// chain. Under owner=bob AND customer=acme nothing is: bob's t1 is not
+// Acme's, Acme's t2 is not bob's, and the epic is neither — it used to be
+// drawn, taking the owner from one task and the customer from the other.
 func TestTheRoadmapFiltersCombineOwnerWithTheWorkBelow(t *testing.T) {
 	b := ownershipBoard()
 	if got := roadmapIDs(b, Selector{Owner: "ann", Team: "cozystack"}); !reflect.DeepEqual(got, []string{"goal", "epic"}) {
@@ -160,8 +164,8 @@ func TestTheRoadmapFiltersCombineOwnerWithTheWorkBelow(t *testing.T) {
 	if got := roadmapIDs(b, Selector{Owner: "bob", Team: "portal"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t1"}) {
 		t.Fatalf("owner=bob AND team=portal = %v", got)
 	}
-	if got := roadmapIDs(b, Selector{Owner: "bob", Customer: "acme"}); !reflect.DeepEqual(got, []string{"goal", "epic"}) {
-		t.Fatalf("owner=bob AND customer=acme = %v", got)
+	if got := roadmapIDs(b, Selector{Owner: "bob", Customer: "acme"}); len(got) != 0 {
+		t.Fatalf("owner=bob AND customer=acme = %v, want nothing", got)
 	}
 	if got := roadmapIDs(b, Selector{Team: "cozystack", Customer: "hidora"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t2"}) {
 		t.Fatalf("team=cozystack AND customer=hidora = %v", got)

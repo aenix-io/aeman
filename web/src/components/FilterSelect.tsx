@@ -18,15 +18,34 @@ export function toggled(selected: readonly string[], v: string): string[] {
   return selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v];
 }
 
+/** QuickChoice is a board's one-click shortcut — the Roadmap's "Hide
+ *  done" — offered at the foot of its filter's menu in the place and the
+ *  look of the way back to "all" while nothing is chosen; once something is,
+ *  "all" stands there instead. */
+export interface QuickChoice {
+  label: string;
+  onClick: () => void;
+}
+
+/** pressQuick applies a quick choice as the one-shot it is: the menu closes
+ *  first — focus back on its button, and no second press on the same spot
+ *  (now "all") can undo it straight away — then the choice is made. */
+export function pressQuick(quick: QuickChoice, onClose: () => void): void {
+  onClose();
+  quick.onClick();
+}
+
 /** FilterSelectMenu is the open menu: a checkbox per option (several are
- *  OR), a way back to "any" when something is chosen, and the roster's
- *  "Manage…" entry at the bottom where the board offers one. */
+ *  OR), then at its foot the way back to "any" when something is chosen —
+ *  or, while nothing is, a board's quick choice where it offers one — and the roster's "Manage…" entry at
+ *  the bottom where the board offers one. */
 export function FilterSelectMenu({
   options,
   selected,
   anyLabel = "anyone",
   onChange,
   manage,
+  quick,
   onClose,
 }: {
   options: readonly FilterOption[];
@@ -34,6 +53,7 @@ export function FilterSelectMenu({
   anyLabel?: string;
   onChange: (next: string[]) => void;
   manage?: { label: string; onClick: () => void };
+  quick?: QuickChoice;
   onClose: () => void;
 }) {
   return (
@@ -57,6 +77,11 @@ export function FilterSelectMenu({
           </button>
         );
       })}
+      {quick && selected.length === 0 && (
+        <button type="button" role="menuitem" className="card-stage-item card-stage-clear filter-select-quick" onClick={() => pressQuick(quick, onClose)}>
+          {quick.label}
+        </button>
+      )}
       {selected.length > 0 && (
         <button type="button" role="menuitem" className="card-stage-item card-stage-clear" onClick={() => onChange([])}>
           {anyLabel.charAt(0).toUpperCase() + anyLabel.slice(1)}
@@ -92,6 +117,7 @@ export function FilterSelect({
   onChange,
   anyLabel = "anyone",
   manage,
+  quick,
   title,
 }: {
   label: string;
@@ -100,6 +126,7 @@ export function FilterSelect({
   onChange: (next: string[]) => void;
   anyLabel?: string;
   manage?: { label: string; onClick: () => void };
+  quick?: QuickChoice;
   title?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -125,7 +152,13 @@ export function FilterSelect({
           anyLabel={anyLabel}
           onChange={onChange}
           manage={manage}
-          onClose={() => setOpen(false)}
+          quick={quick}
+          onClose={() => {
+            setOpen(false);
+            // The menu lives in a portal: closing it from inside would drop
+            // the focus on <body>. It goes back to the button.
+            anchor.current?.querySelector<HTMLElement>("button")?.focus();
+          }}
         />
       </Dropdown>
     </span>
