@@ -5686,10 +5686,14 @@ button.card-age {
   margin-right: 8px;
 }
 
-.backlog-epic-row {
-  display: flex;
+/* Three aligned columns: the epic (and Split), the count of its waiting
+   tasks, and the Goal › Initiative chain right-aligned in a column of its
+   own — the Tasks rows' chain, its chips cut with an ellipsis. */
+.card.backlog-epic-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px minmax(0, 42%);
   align-items: center;
-  gap: 12px;
+  column-gap: 12px;
   cursor: grab;
 }
 
@@ -5697,14 +5701,42 @@ button.card-age {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  flex: 1;
   min-width: 0;
+}
+
+.backlog-epic-title .card-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .backlog-epic-count {
   font-size: 12px;
-  opacity: 0.7;
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.backlog-epic-chain {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.backlog-epic-chain .backlog-row-chain {
+  max-width: 100%;
+}
+
+/* A chip keeps a readable piece of its name however narrow the column:
+   the ellipsis cuts it, the tooltip holds the whole. */
+.backlog-epic-chain .backlog-row-chain-step {
+  flex: 0 1 auto;
+  min-width: 6em;
+}
+
+.backlog-epic-chain .backlog-row-chain-link {
+  max-width: 220px;
 }
 
 .backlog-epic-carried {

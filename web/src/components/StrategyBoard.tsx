@@ -13,12 +13,11 @@ import { registerPendingCard } from "../api/pending";
 import { todayIso } from "../date";
 import type { Board, Card as CardModel, CardType, Provider } from "../providers/types";
 import { backlogList, splitEpics } from "../backlogboard";
+import { readDepth, readZoom } from "../viewprefs";
 import { placerOf } from "../ownership";
 import {
-  DEFAULT_DEPTH,
   DELETE_INTENT,
   KIND_LABEL,
-  LEVELS,
   barOf,
   childLevels,
   buildTree,
@@ -129,10 +128,13 @@ interface StrategyBoardProps {
    *  Team and Customer filters. */
   onManageTeams?: () => void;
   onManageCustomers?: () => void;
+  /** The depth range and the zoom, the app's: drawn in its top bar
+   *  (ViewControls), remembered per viewer. Left out, the board reads the
+   *  remembered ones itself. */
+  depth?: DepthRange;
+  zoom?: Zoom;
 }
 
-const LS_DEPTH = "aeman.strategy.depth";
-const LS_ZOOM = "aeman.strategy.zoom";
 const LS_FOLDED = "aeman.strategy.folded";
 
 /** HEAD_PX is the height of the table's head; a row's (ROW_PX) and one
@@ -163,33 +165,6 @@ function shortDate(iso: string | undefined, today: string): string {
   const [y, m, d] = iso.split("-").map(Number);
   const label = `${d} ${MONTHS[m - 1]}`;
   return iso.slice(0, 4) === today.slice(0, 4) ? label : `${label} ${y}`;
-}
-
-function readDepth(): DepthRange {
-  try {
-    const raw = localStorage.getItem(LS_DEPTH);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<DepthRange>;
-      if (LEVELS.includes(parsed.from as StrategyKind) && LEVELS.includes(parsed.to as StrategyKind)) {
-        return { from: parsed.from as StrategyKind, to: parsed.to as StrategyKind };
-      }
-    }
-  } catch {
-    // no storage, or a value from another build: the default
-  }
-  return DEFAULT_DEPTH;
-}
-
-function readZoom(): Zoom {
-  try {
-    const raw = localStorage.getItem(LS_ZOOM);
-    if (raw === "3m" || raw === "1y" || raw === "fit") {
-      return raw;
-    }
-  } catch {
-    // the default
-  }
-  return "3m";
 }
 
 function readFolded(): Set<string> {
@@ -405,6 +380,8 @@ export function StrategyBoard({
   onFilters,
   onManageTeams,
   onManageCustomers,
+  depth: depthProp,
+  zoom: zoomProp,
 }: StrategyBoardProps) {
   const today = todayIso();
   // The table's column widths (strategycolumns.ts), the reader's own. A drag
@@ -439,30 +416,16 @@ export function StrategyBoard({
   const handle = (col: StrategyColumn, label: string) => (
     <ColumnHandle col={col} widths={widths} label={label} onLive={liveWidths} onCommit={commitWidths} />
   );
-  const [depth, setDepthState] = useState<DepthRange>(readDepth);
-  const [zoom, setZoomState] = useState<Zoom>(readZoom);
+  const [storedDepth] = useState<DepthRange>(readDepth);
+  const [storedZoom] = useState<Zoom>(readZoom);
+  const depth = depthProp ?? storedDepth;
+  const zoom = zoomProp ?? storedZoom;
   const [folded, setFoldedState] = useState<Set<string>>(readFolded);
   // The planning row the + was pressed on, whose create form is open.
   const [addingUnder, setAddingUnder] = useState<string | null>(null);
   const [focusRow, setFocusRow] = useState<string | null>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
 
-  const setDepth = (next: DepthRange) => {
-    setDepthState(next);
-    try {
-      localStorage.setItem(LS_DEPTH, JSON.stringify(next));
-    } catch {
-      // a preference, not state
-    }
-  };
-  const setZoom = (next: Zoom) => {
-    setZoomState(next);
-    try {
-      localStorage.setItem(LS_ZOOM, next);
-    } catch {
-      // a preference, not state
-    }
-  };
   const setFolded = (next: Set<string>) => {
     setFoldedState(next);
     try {
@@ -907,13 +870,6 @@ export function StrategyBoard({
     });
   };
 
-  const levelOptions = () =>
-    LEVELS.map((k) => (
-      <option key={k} value={k}>
-        {KIND_LABEL[k]}
-      </option>
-    ));
-
   const planningOptions = (levels: (CardType | "task")[]) => levels.map((k) => ({ key: k, label: KIND_LABEL[k] }));
 
   const draggedCard = dragging ? board.cards.find((c) => c.itemId === dragging) : null;
@@ -985,24 +941,6 @@ export function StrategyBoard({
   return (
     <div className="strategy" ref={rootRef} style={columnVars(widths) as CSSProperties}>
       <div className="board-toolbar strategy-toolbar">
-        <label className="strategy-depth">
-          <span className="strategy-depth-label">Hierarchy</span>
-          <select
-            value={depth.from}
-            onChange={(e) => setDepth({ ...depth, from: e.target.value as StrategyKind })}
-            aria-label="From level"
-          >
-            {levelOptions()}
-          </select>
-          <span className="strategy-depth-to">to</span>
-          <select
-            value={depth.to}
-            onChange={(e) => setDepth({ ...depth, to: e.target.value as StrategyKind })}
-            aria-label="To level"
-          >
-            {levelOptions()}
-          </select>
-        </label>
         <div className="segmented strategy-fold" role="group" aria-label="Folding">
           <button
             type="button"
@@ -1015,18 +953,6 @@ export function StrategyBoard({
           <button type="button" className="segment" title="Unfold every row" onClick={() => setFolded(new Set())}>
             Expand all
           </button>
-        </div>
-        <div className="segmented strategy-zoom" role="group" aria-label="Zoom">
-          {(["3m", "1y", "fit"] as Zoom[]).map((z) => (
-            <button
-              key={z}
-              type="button"
-              className={`segment${zoom === z ? " segment-active" : ""}`}
-              onClick={() => setZoom(z)}
-            >
-              {z === "3m" ? "3M" : z === "1y" ? "1Y" : "Fit"}
-            </button>
-          ))}
         </div>
         <span className="strategy-range" title="The window the timeline shows">
           {shortDate(range.from, today)} – {shortDate(range.to, today)}

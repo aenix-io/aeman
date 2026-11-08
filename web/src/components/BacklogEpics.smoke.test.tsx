@@ -48,3 +48,21 @@ describe("the Backlog's Epics mode", () => {
     expect(html.match(/draggable="true"/g)?.length).toBe(3);
   });
 });
+
+// The right side is two aligned columns, the count and the chain, the chain
+// the Tasks rows' own component.
+describe("the Epics rows' layout", () => {
+  it("puts the count and the chain in their own cells, the chain the Tasks rows' nav", () => {
+    const html = renderToStaticMarkup(
+      <BacklogEpics
+        rows={epicRows([ep("A", "Object storage"), under("a1", "A")], [under("a1", "A")], ["portal"])}
+        loading={false}
+        onMove={vi.fn()}
+        onOpen={vi.fn()}
+        onOpenParent={vi.fn()}
+      />,
+    );
+    expect(html).toMatch(/<span class="backlog-epic-count"[^>]*>1 waiting<\/span><span class="backlog-epic-chain"><nav class="backlog-row-chain"/);
+    expect(html).toContain('title="The initiative «ТС2-7 · Kubernetes и S3»"');
+  });
+});

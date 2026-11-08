@@ -492,3 +492,11 @@ export function epicDrop(ids: readonly string[], id: string, at: number): { orde
   }
   return { order, anchor: anchorFor(order, id) };
 }
+
+/** epicsByReadiness is the All / Ready / Blocked filter on the Epics mode:
+ *  Blocked is an epic locked by a dependency, its own or inherited
+ *  (status.locked), Ready one that is not — the tasks' rule. It only hides. */
+export function epicsByReadiness(rows: readonly EpicRow[], mode: Readiness): EpicRow[] {
+  const keep = new Set(byReadiness(rows.map((r) => r.epic), mode).map((c) => c.itemId));
+  return rows.filter((r) => keep.has(r.epic.itemId));
+}

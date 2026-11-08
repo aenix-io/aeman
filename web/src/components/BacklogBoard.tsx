@@ -14,9 +14,8 @@ import {
   insertSpot,
   byReadiness,
   type Readiness,
-  BACKLOG_MODE_KEY,
   epicRows,
-  readBacklogMode,
+  epicsByReadiness,
   type BacklogMode,
   insertedOrder,
   backlogList,
@@ -37,6 +36,7 @@ import {
 } from "../backlogboard";
 import type { LineageRef } from "../providers/types";
 import { BacklogEpics } from "./BacklogEpics";
+import { readMode } from "../viewprefs";
 import { justMade, noteMade } from "../justmade";
 import { ownerOf, type Owner } from "../owner";
 import {
@@ -111,6 +111,9 @@ interface BacklogBoardProps {
   presence?: PresenceMap;
   /** Broadcast this board's selection as shared presence (#290). */
   onPresence?: (card: string | null) => void;
+  /** Tasks | Epics, the app's: drawn in its top bar (ViewControls),
+   *  remembered per viewer. Left out, the board reads the remembered one. */
+  mode?: BacklogMode;
 }
 
 /** dropSpot reads the list for a point: the place among the cards drawn in
@@ -158,6 +161,7 @@ export function BacklogBoard({
   me,
   presence,
   onPresence,
+  mode: modeProp,
 }: BacklogBoardProps) {
   const today = todayIso();
   const teams = useMemo(() => shownTeams(teamFilter, roster), [teamFilter, roster]);
@@ -166,35 +170,19 @@ export function BacklogBoard({
   const { kept, keep } = useKeptCreated(customerFilter.join(","));
   // All / Ready / Blocked: a filter, never an order (ordering.md).
   const [readiness, setReadiness] = useState<Readiness>("all");
-  const list = useMemo(
-    () =>
-      byReadiness(
-        backlogList(board.cards, teams, board.boardOrder).filter((c) => customerPasses(c, board.cards, customerFilter, kept)),
-        readiness,
-      ),
-    [board.cards, board.boardOrder, teams, customerFilter, kept, readiness],
+  const whole = useMemo(
+    () => backlogList(board.cards, teams, board.boardOrder).filter((c) => customerPasses(c, board.cards, customerFilter, kept)),
+    [board.cards, board.boardOrder, teams, customerFilter, kept],
   );
+  const list = useMemo(() => byReadiness(whole, readiness), [whole, readiness]);
   const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
 
   // ---- Tasks | Epics (ordering.md): one order, two readings ----
   // The mode is the viewer's own and switching writes nothing. The Epics
   // mode reads the epics — empty ones too, which no backlog listing holds —
   // off the Strategy listing, and orders them by the board's order.
-  const [mode, setModeState] = useState<BacklogMode>(() => {
-    try {
-      return readBacklogMode(localStorage.getItem(BACKLOG_MODE_KEY));
-    } catch {
-      return "tasks";
-    }
-  });
-  const setMode = (next: BacklogMode) => {
-    setModeState(next);
-    try {
-      localStorage.setItem(BACKLOG_MODE_KEY, next);
-    } catch {
-      // a preference, not state
-    }
-  };
+  const [storedMode] = useState<BacklogMode>(readMode);
+  const mode = modeProp ?? storedMode;
   const [scope, setScope] = useState<CardModel[] | null>(null);
   const [scopeTick, setScopeTick] = useState(0);
   useEffect(() => {
@@ -220,13 +208,15 @@ export function BacklogBoard({
   }, [mode, provider, scopeTick, onError]);
   const [epicOrder, setEpicOrder] = useState<string[] | null>(null);
   const epics = useMemo(() => {
-    const rows = epicRows(scope ?? [], list, teams, board.boardOrder);
+    // The counts are of every waiting task; All / Ready / Blocked reads the
+    // epics' own lock (own or inherited), the same rule as for tasks.
+    const rows = epicsByReadiness(epicRows(scope ?? [], whole, teams, board.boardOrder), readiness);
     if (!epicOrder) {
       return rows;
     }
     const at = new Map(epicOrder.map((id, i) => [id, i]));
     return [...rows].sort((a, b) => (at.get(a.epic.itemId) ?? 1e9) - (at.get(b.epic.itemId) ?? 1e9));
-  }, [scope, list, teams, board.boardOrder, epicOrder]);
+  }, [scope, whole, teams, board.boardOrder, epicOrder, readiness]);
   const moveEpic = useCallback(
     (epicId: string, anchor: { after: string } | { before: string }, order: string[]) => {
       // Shown at once; the server gathers the epic's tasks, and the board
@@ -649,19 +639,6 @@ export function BacklogBoard({
           manage={onManageCustomers ? { label: "Manage customers", onClick: onManageCustomers } : undefined}
           title="Show only the work for these customers"
         />
-        <div className="backlog-readiness backlog-mode" role="group" aria-label="Show">
-          {(["tasks", "epics"] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              className={`backlog-readiness-btn${mode === m ? " backlog-readiness-on" : ""}`}
-              aria-pressed={mode === m}
-              onClick={() => setMode(m)}
-            >
-              {m === "tasks" ? "Tasks" : "Epics"}
-            </button>
-          ))}
-        </div>
         <div className="backlog-readiness" role="group" aria-label="Readiness">
           {(["all", "ready", "blocked"] as const).map((m) => (
             <button

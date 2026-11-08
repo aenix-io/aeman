@@ -30,6 +30,7 @@ import {
   epicRows,
   epicDrop,
   readBacklogMode,
+  epicsByReadiness,
 } from "./backlogboard";
 import type { Card, LineageRef } from "./providers/types";
 
@@ -674,5 +675,17 @@ describe("the Epics mode", () => {
     expect(readBacklogMode(null)).toBe("tasks");
     expect(readBacklogMode("epics")).toBe("epics");
     expect(readBacklogMode("nonsense")).toBe("tasks");
+  });
+});
+
+// All / Ready / Blocked applies to the Epics mode by the epics' own lock
+// (own or inherited, status.locked), and never reorders.
+describe("the readiness filter on the Epics mode", () => {
+  const ep = (itemId: string, locked = false) => card({ itemId, type: "epic", team: "portal", locked });
+  const rows = epicRows([ep("A"), ep("B", true), ep("C")], [], ["portal"]);
+  it("shows the locked epics under Blocked and the others under Ready, the order kept", () => {
+    expect(epicsByReadiness(rows, "all").map((r) => r.epic.itemId)).toEqual(["A", "B", "C"]);
+    expect(epicsByReadiness(rows, "blocked").map((r) => r.epic.itemId)).toEqual(["B"]);
+    expect(epicsByReadiness(rows, "ready").map((r) => r.epic.itemId)).toEqual(["A", "C"]);
   });
 });

@@ -107,7 +107,7 @@ export function BacklogEpics({
             <span className="backlog-epic-count" title="Its tasks waiting in these backlogs">
               {r.parked === 0 ? "empty" : `${r.parked} waiting`}
             </span>
-            <span onClick={(e) => e.stopPropagation()}>
+            <span className="backlog-epic-chain" onClick={(e) => e.stopPropagation()}>
               <ParentChain chain={r.chain} onOpen={onOpenParent} />
             </span>
           </div>
