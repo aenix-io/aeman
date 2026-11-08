@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -199,5 +200,54 @@ func TestARestCreateUnderAnEpicLandsInItsArea(t *testing.T) {
 	ids["a3"] = created.Metadata.UID
 	if got := backlogOf(t, srv, ids); got != "A1 B2 A2 A3 B1" {
 		t.Fatalf("backlog = %s", got)
+	}
+}
+
+// Q12 — CONCURRENT ORDERING ACTIONS REACH GIT IN THE ORDER THE CACHE TOOK
+// THEM. Keys are absolute: if two moves of one card were queued in the
+// other order than they were planned, git would end with the earlier key
+// while the cache shows the later one. Planning, the cache and the queue
+// position are taken under one lock; after a burst of concurrent moves
+// the repository holds exactly the keys the cache shows.
+func TestConcurrentMovesLeaveGitAndTheCacheAgreeing(t *testing.T) {
+	srv, ids := orderingBoard(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	anchors := []string{ids["a1"], ids["b2"], ids["a2"], ""}
+	var wg sync.WaitGroup
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			card := []string{ids["b1"], ids["a1"]}[i%2]
+			after := anchors[i%len(anchors)]
+			if after == card {
+				after = ""
+			}
+			do(t, srv, http.MethodPost, "/api/v1/cards/"+card+"/actions/move", `{"after":"`+after+`"}`)
+		}(i)
+	}
+	wg.Wait()
+	srv.store.waitDrained(ctx)
+	cached := map[string]string{}
+	var e *boardEntry
+	srv.store.mu.Lock()
+	for _, x := range srv.store.entries {
+		e = x
+	}
+	srv.store.mu.Unlock()
+	e.mu.Lock()
+	for _, c := range e.board.Cards {
+		cached[c.ItemID] = c.Rank
+	}
+	e.mu.Unlock()
+	s, err := gitstore.Load(srv.gitBE.git.domains[0].Repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range s.Cards {
+		if cached[c.ItemID] != c.Rank {
+			t.Fatalf("%s: the cache holds %q, git %q", c.ItemID, cached[c.ItemID], c.Rank)
+		}
 	}
 }

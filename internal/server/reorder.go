@@ -33,14 +33,15 @@ func (b *storeBackend) Reorder(ctx context.Context, bd board.Board, plan board.P
 	e.board = board.ApplyRankChanges(cur, changes)
 	e.recentMove = time.Now()
 	e.orderingChanged(clientIDFrom(ctx))
-	e.mu.Unlock()
 	desc := fmt.Sprintf("reorder %d cards", len(changes))
 	itemID := ""
 	if len(changes) == 1 {
 		desc, itemID = "move "+changes[0].ID, changes[0].ID
 	}
 	written := append([]board.RankChange(nil), changes...)
-	b.enqueue(ctx, e, pendingOp{
+	// Queued under the same lock as the plan: keys are absolute, so two
+	// plans must reach git in the order the cache took them.
+	start := b.enqueueLocked(ctx, e, pendingOp{
 		itemID: itemID,
 		kind:   "move",
 		desc:   desc,
@@ -52,5 +53,7 @@ func (b *storeBackend) Reorder(ctx context.Context, bd board.Board, plan board.P
 			return err
 		},
 	})
+	e.mu.Unlock()
+	start()
 	return changes, nil
 }
