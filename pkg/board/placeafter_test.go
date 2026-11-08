@@ -13,8 +13,8 @@ func ranked(pairs ...string) []Ranked {
 	return out
 }
 
-// applyChanges is the list once the changes are written, in key order.
-func applyChanges(list []Ranked, changes []RankChange) []string {
+// applyRanked is the list once the changes are written, in key order.
+func applyRanked(list []Ranked, changes []RankChange) []string {
 	keys := map[string]string{}
 	for _, r := range list {
 		keys[r.ID] = r.Rank
@@ -45,8 +45,8 @@ func TestPlaceAfterWritesOneKeyWhenThereIsRoom(t *testing.T) {
 	if len(got) != 1 || got[0].ID != "x" || got[0].Before != "f" || got[0].After <= "b" || got[0].After >= "d" {
 		t.Fatalf("changes = %+v, want x alone between b and d", got)
 	}
-	if strings.Join(applyChanges(list, got), " ") != "a x c" {
-		t.Fatalf("order = %v", applyChanges(list, got))
+	if strings.Join(applyRanked(list, got), " ") != "a x c" {
+		t.Fatalf("order = %v", applyRanked(list, got))
 	}
 }
 
@@ -55,12 +55,12 @@ func TestPlaceAfterWritesOneKeyWhenThereIsRoom(t *testing.T) {
 func TestPlaceAfterTheTopAndAnUnknownAnchor(t *testing.T) {
 	list := ranked("a", "b", "c", "d", "x", "f")
 	top, _ := PlaceAfter(list, "x", "")
-	if strings.Join(applyChanges(list, top), " ") != "x a c" {
-		t.Fatalf("top = %v", applyChanges(list, top))
+	if strings.Join(applyRanked(list, top), " ") != "x a c" {
+		t.Fatalf("top = %v", applyRanked(list, top))
 	}
 	end, _ := PlaceAfter(list, "a", "nobody")
-	if strings.Join(applyChanges(list, end), " ") != "c x a" {
-		t.Fatalf("unknown anchor = %v", applyChanges(list, end))
+	if strings.Join(applyRanked(list, end), " ") != "c x a" {
+		t.Fatalf("unknown anchor = %v", applyRanked(list, end))
 	}
 }
 
@@ -72,8 +72,8 @@ func TestPlaceAfterRenumbersTiedNeighbours(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(applyChanges(list, got), " ") != "a c x d e" {
-		t.Fatalf("order = %v (%+v)", applyChanges(list, got), got)
+	if strings.Join(applyRanked(list, got), " ") != "a c x d e" {
+		t.Fatalf("order = %v (%+v)", applyRanked(list, got), got)
 	}
 	for _, c := range got {
 		if c.ID == "a" {
@@ -107,7 +107,7 @@ func TestPlaceAfterRebalancesABoundedWindow(t *testing.T) {
 			t.Fatalf("key %q still exhausted", c.After)
 		}
 	}
-	order := strings.Join(applyChanges(list, got), " ")
+	order := strings.Join(applyRanked(list, got), " ")
 	if !strings.Contains(order, "k0 lb k1") {
 		t.Fatalf("order = %s", order)
 	}

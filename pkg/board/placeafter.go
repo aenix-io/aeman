@@ -64,6 +64,9 @@ func PlaceAfter(list []Ranked, id, afterID string) ([]RankChange, error) {
 			mover, found = r, true
 			continue
 		}
+		if !ValidRank(r.Rank) {
+			continue // an unplaced card is no neighbour: normalisation places it
+		}
 		rest = append(rest, r)
 	}
 	if !found {
@@ -79,22 +82,33 @@ func PlaceAfter(list []Ranked, id, afterID string) ([]RankChange, error) {
 			}
 		}
 	}
-	return placeAt(rest, mover, at)
+	return placeAt(rest, []Ranked{mover}, at)
 }
 
 // PlaceAt is PlaceAfter by position: the mover lands at index at of rest
 // (the list without it).
 func PlaceAt(rest []Ranked, mover Ranked, at int) ([]RankChange, error) {
+	return PlaceRunAt(rest, []Ranked{mover}, at)
+}
+
+// PlaceRunAt puts a RUN of movers, in the order given, at index at of rest
+// (the list without them): evenly spaced keys between the two neighbours
+// when they fit, else a bounded window renumbered around the place, as
+// PlaceAfter does for one. A run already in place writes nothing.
+func PlaceRunAt(rest []Ranked, movers []Ranked, at int) ([]RankChange, error) {
 	if at < 0 {
 		at = 0
 	}
 	if at > len(rest) {
 		at = len(rest)
 	}
-	return placeAt(rest, mover, at)
+	if len(movers) == 0 {
+		return nil, nil
+	}
+	return placeAt(rest, movers, at)
 }
 
-func placeAt(rest []Ranked, mover Ranked, at int) ([]RankChange, error) {
+func placeAt(rest []Ranked, movers []Ranked, at int) ([]RankChange, error) {
 	prev, next := "", ""
 	if at > 0 {
 		prev = rest[at-1].Rank
@@ -103,14 +117,18 @@ func placeAt(rest []Ranked, mover Ranked, at int) ([]RankChange, error) {
 		next = rest[at].Rank
 	}
 	if validNeighbours(prev, next, at > 0, at < len(rest)) {
-		if k, err := RankBetween(prev, next); err == nil && !RankTooLong(k) {
-			if k == mover.Rank {
-				return nil, nil
+		if inPlace(movers, prev, next) {
+			return nil, nil
+		}
+		if len(movers) == 1 {
+			if k, err := RankBetween(prev, next); err == nil && !RankTooLong(k) {
+				return []RankChange{{ID: movers[0].ID, Before: movers[0].Rank, After: k}}, nil
 			}
-			return []RankChange{{ID: mover.ID, Before: mover.Rank, After: k}}, nil
+		} else if keys, err := RankRebalance(prev, next, len(movers)); err == nil && shortEnough(keys) {
+			return changesFor(movers, keys), nil
 		}
 	}
-	// The window: w entries on each side of the place, the mover between.
+	// The window: w entries on each side of the place, the movers between.
 	for w := 1; ; w *= 2 {
 		lo, hi := at-w, at+w
 		if lo < 0 {
@@ -127,11 +145,11 @@ func placeAt(rest []Ranked, mover Ranked, at int) ([]RankChange, error) {
 		if hi < len(rest) {
 			ceil = rest[hi].Rank
 		}
-		run := make([]Ranked, 0, hi-lo+1)
+		run := make([]Ranked, 0, hi-lo+len(movers))
 		run = append(run, rest[lo:at]...)
-		run = append(run, mover)
+		run = append(run, movers...)
 		run = append(run, rest[at:hi]...)
-		if floor == "" && lo > 0 || ceil != "" && floor >= ceil {
+		if lo > 0 && !ValidRank(floor) || hi < len(rest) && !ValidRank(ceil) || ceil != "" && floor >= ceil {
 			if whole {
 				return nil, errNoRoom
 			}
@@ -139,13 +157,7 @@ func placeAt(rest []Ranked, mover Ranked, at int) ([]RankChange, error) {
 		}
 		keys, err := RankRebalance(floor, ceil, len(run))
 		if err == nil && (whole || shortEnough(keys)) {
-			var out []RankChange
-			for i, r := range run {
-				if r.Rank != keys[i] {
-					out = append(out, RankChange{ID: r.ID, Before: r.Rank, After: keys[i]})
-				}
-			}
-			return out, nil
+			return changesFor(run, keys), nil
 		}
 		if whole {
 			if err == nil {
@@ -154,6 +166,31 @@ func placeAt(rest []Ranked, mover Ranked, at int) ([]RankChange, error) {
 			return nil, err
 		}
 	}
+}
+
+// inPlace reports a run whose keys already stand, in order, strictly
+// between prev and next: nothing to write.
+func inPlace(movers []Ranked, prev, next string) bool {
+	last := prev
+	for i, m := range movers {
+		if !ValidRank(m.Rank) || (i > 0 || prev != "") && m.Rank <= last || next != "" && m.Rank >= next {
+			return false
+		}
+		last = m.Rank
+	}
+	return true
+}
+
+// changesFor pairs a run with its new keys, keeping only the keys that
+// change.
+func changesFor(run []Ranked, keys []string) []RankChange {
+	var out []RankChange
+	for i, r := range run {
+		if r.Rank != keys[i] {
+			out = append(out, RankChange{ID: r.ID, Before: r.Rank, After: keys[i]})
+		}
+	}
+	return out
 }
 
 // validNeighbours reports whether a key can go between prev and next: both
