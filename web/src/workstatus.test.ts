@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 import { statusOf } from "./roadmap";
-import { HIDE_DONE, statusSet, workStatus } from "./workstatus";
+import { HIDE_DONE, planStatuses, STATUS_FILTERS, STATUS_LABELS, statusSet, taskStatuses, workStatus } from "./workstatus";
 
 // The Roadmap's Status filter reads one work status per task, mirroring
 // board.WorkStatus: done when complete; else backlog when parked or placed
@@ -74,10 +74,24 @@ describe("the row badge against the filter", () => {
   });
 });
 
-// "Hide done" is the owner's one-click ask: exactly In progress and Backlog.
+// The filter offers five values: the three work statuses, Locked (a
+// dependency holds the card, status.locked) and No items (a plan item with
+// nothing under it) — in the toolbar's order, Done last.
+describe("the status filter's values", () => {
+  it("are offered in order, each with its label", () => {
+    expect(STATUS_FILTERS).toEqual(["in-progress", "backlog", "locked", "no-items", "done"]);
+    expect(STATUS_FILTERS.map((s) => STATUS_LABELS[s])).toEqual(["In progress", "Backlog", "Locked", "No items", "Done"]);
+  });
+});
+
+// "Hide done" is the owner's one-click ask: everything but done. A plan item
+// with no tasks and a card waiting on a dependency are not done, so it keeps
+// them — it used to be In progress and Backlog only, which an empty epic
+// never matches.
 describe("Hide done", () => {
   it("is every status but done", () => {
-    expect([...HIDE_DONE].sort()).toEqual(["backlog", "in-progress"]);
+    expect([...HIDE_DONE].sort()).toEqual(["backlog", "in-progress", "locked", "no-items"]);
+    expect(HIDE_DONE).not.toContain("done");
   });
 });
 
@@ -85,6 +99,8 @@ describe("the selector's status set", () => {
   it("is sorted and comma-joined, unknown values dropped", () => {
     expect(statusSet(["in-progress", "backlog"])).toBe("backlog,in-progress");
     expect(statusSet(["done", "nonsense"])).toBe("done");
+    expect(statusSet([...HIDE_DONE])).toBe("backlog,in-progress,locked,no-items");
+    expect(statusSet(["no items", "blocked"])).toBe("");
     expect(statusSet([])).toBe("");
   });
 });
@@ -95,9 +111,11 @@ describe("the shared work-status fixture", () => {
   type Fixture = {
     cases: {
       name: string;
-      card: { stage?: string; progress?: number; parked?: boolean; start?: string; day?: string; sprint?: string };
+      card: { stage?: string; progress?: number; parked?: boolean; start?: string; day?: string; sprint?: string; locked?: boolean };
       status: string;
+      matches?: string[];
     }[];
+    plans: { name: string; hierarchy: "no-items" | "backlog" | "in-progress" | "done"; locked?: boolean; matches: string[] }[];
   };
   const fixture = JSON.parse(
     readFileSync(fileURLToPath(new URL("../../pkg/board/testdata/work_status.json", import.meta.url)), "utf8"),
@@ -114,5 +132,28 @@ describe("the shared work-status fixture", () => {
         sprintStart: sprint,
       }),
     ).toBe(c.status);
+  });
+  // Every value a task answers: its work status, and locked while a
+  // dependency holds it and it is not done. Hide done keeps it exactly when
+  // it is not done.
+  it.each(fixture.cases.map((c) => [c.name, c] as const))("%s: the filter values", (_name, c) => {
+    const { stage, progress, parked, start, day, sprint, locked } = c.card;
+    const got = taskStatuses(
+      { stage: stage as Parameters<typeof workStatus>[0]["stage"], progress, parked, startDate: start, day, sprintStart: sprint },
+      !!locked,
+    );
+    expect([...got].sort()).toEqual([...(c.matches ?? [c.status])].sort());
+    expect(got.some((s) => HIDE_DONE.includes(s))).toBe(c.status !== "done");
+  });
+  // What a plan item answers by itself: no-items, locked — never when done.
+  it.each(fixture.plans.map((p) => [p.name, p] as const))("plan %s", (_name, p) => {
+    const got = planStatuses(p.hierarchy, !!p.locked);
+    expect([...got].sort()).toEqual([...p.matches].sort());
+    if (p.hierarchy === "done") {
+      expect(got.some((s) => HIDE_DONE.includes(s))).toBe(false);
+    }
+    if (p.hierarchy === "no-items") {
+      expect(got.some((s) => HIDE_DONE.includes(s))).toBe(true);
+    }
   });
 });

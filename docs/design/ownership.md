@@ -112,24 +112,38 @@ selectors `team`, `customer`, `owner`, `status`; the same in MCP
   It replaced the Roadmap's earlier client-side assignee filter, so the
   toolbar asks "whose" once. Its options are the board's members, the plan
   items' owners, the tasks' assignees and whoever is already selected.
-- **Status** (added 2026-11-08, O14) — by work status: In progress, Backlog,
-  Done (`in-progress`, `backlog`, `done`). A task's is `done` when it is
-  complete, `backlog` when it is parked, `in-progress` when it is in work —
-  a date or a sprint, whatever its stage (review, locked and refused are in
-  somebody's hands); a task nobody has placed yet reads as `backlog`. A
-  subtask goes by its parent task, a review card by the task it reviews,
-  and a planning card matches when any task under it does — never by
-  itself, so a plan item with no tasks matches no status. "In progress"
-  shows the work in hand with the plan items above it; In progress +
-  Backlog hides the finished work (the owner asked for that in so many
-  words), and the toolbar offers it as one press.
+- **Status** (added 2026-11-08, O14) — In progress, Backlog, Locked, No
+  items, Done (`in-progress`, `backlog`, `locked`, `no-items`, `done`). A
+  task's work status is `done` when it is complete, `backlog` when it is
+  parked, `in-progress` when it is in work — a date or a sprint, whatever
+  its stage (review, locked and refused are in somebody's hands); a task
+  nobody has placed yet reads as `backlog`. A task is also **Locked** while
+  a dependency holds it (`status.locked`, its own or an ancestor's — not
+  the manual stage) and it is not done. A subtask goes by its parent task,
+  a review card by the task it reviews — Locked included: a subtask that
+  waits for something itself shows LOCKED on its badge, but the Locked
+  filter goes by its parent, and leaves it out while the parent waits for
+  nothing. A planning card is **Locked** by
+  itself while a dependency holds it and its tasks are not all done, and
+  **No items** by itself when nothing is under it; it matches In progress,
+  Backlog or Done when a task under it does. "In progress" shows the work
+  in hand with the plan items above it. **Hide done** — one press on the
+  toolbar — is every value but Done, so it hides exactly the finished work
+  and keeps everything else: an epic with no tasks yet, one waiting for
+  another, open work (the owner asked for "hide done" in so many words).
+  Until Locked and No items were added (amended 2026-11-08) a plan item
+  matched nothing by itself, Hide done was In progress + Backlog, and it
+  hid every empty epic — the client epics in Operations that wait for the
+  product epics among them. A Hide done remembered from then reads back as
+  the new one.
 
 Several filters are OR within one and AND across them — judged on ONE task
 (amended 2026-11-08): a planning card passes by a task under it that passes
 every filter chosen, the planning card's own team, customers or owner
-standing in for that filter where they apply; the status is always the
-task's. With no status chosen, a planning card whose own fields pass every
-filter is listed with no task. An epic is never drawn on a team taken from
+standing in for that filter where they apply; the work status is always the
+task's. With no status chosen, or with Locked or No items chosen and the
+planning card answering it itself, a planning card whose own fields pass
+every filter is listed with no task. An epic is never drawn on a team taken from
 one task and a status (or a customer) taken from another.
 
 The Team board and the Backlog have the same Team and Customer filters
@@ -195,4 +209,4 @@ where it sits. The choice is remembered per viewer in the browser.
 | O11 | The no-team group is a team in every team filter, and the day boards filter by customer too. |
 | O12 | Every board filters through one dropdown, with the roster's Manage inside; the Me board says what its filters hide. |
 | O13 | A task stands under its effective team on every day board, backlog, team filter and sprint; its own team is still what is stored and written. |
-| O14 | The Roadmap status filter matches a task by its work status (done, backlog when parked, in progress when in work; unplaced reads as backlog), a subtask by its parent task, a review card by its task, and a planning card by a task under it — a plan item with no tasks matches no status. Across filters the AND is judged on one task. |
+| O14 | The Roadmap status filter matches a task by its work status (done, backlog when parked, in progress when in work; unplaced reads as backlog), a subtask by its parent task, a review card by its task, and a planning card by itself for Locked and No items, otherwise by a task under it. Across filters the AND is judged on one task. |

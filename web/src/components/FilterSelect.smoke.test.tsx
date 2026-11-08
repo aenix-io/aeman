@@ -25,6 +25,18 @@ describe("the filter dropdown", () => {
     expect(html).toContain("filter-select-on");
   });
 
+  // A selection that IS a board's quick choice is named by it: "Status:
+  // Hide done", not the four values it stands for — in any order, and only
+  // while it is exactly that set.
+  it("names a selection that is the quick choice by the quick choice", () => {
+    const opts = ["a", "b", "c"].map((v) => ({ value: v, label: v.toUpperCase() }));
+    const quick = { label: "Hide done", values: ["a", "b"], onClick: vi.fn() };
+    expect(filterLabel("Status", opts, ["b", "a"], "all", quick)).toBe("Status: Hide done");
+    expect(filterLabel("Status", opts, ["a"], "all", quick)).toBe("Status: A");
+    expect(filterLabel("Status", opts, ["a", "b", "c"], "all", quick)).toBe("Status: A, B, C");
+    expect(filterLabel("Status", opts, [], "all", quick)).toBe("Status: all");
+  });
+
   it("ticks and unticks one value, keeping the rest", () => {
     expect(toggled(["a"], "b")).toEqual(["a", "b"]);
     expect(toggled(["a", "b"], "a")).toEqual(["b"]);
@@ -108,6 +120,8 @@ describe("a quick choice in the filter dropdown", () => {
     const opts = [
       { value: "in-progress", label: "In progress" },
       { value: "backlog", label: "Backlog" },
+      { value: "locked", label: "Locked" },
+      { value: "no-items", label: "No items" },
       { value: "done", label: "Done" },
     ];
     const menu = (selected: string[]) =>
@@ -124,6 +138,8 @@ describe("a quick choice in the filter dropdown", () => {
     const none = menu([]);
     expect(none).toMatch(/<button[^>]*role="menuitem"[^>]*class="card-stage-item card-stage-clear filter-select-quick"[^>]*>Hide done<\/button>/);
     expect(none.indexOf("Hide done")).toBeGreaterThan(none.indexOf("Done<"));
+    expect(none.indexOf("Locked<")).toBeLessThan(none.indexOf("No items<"));
+    expect(none.indexOf("No items<")).toBeLessThan(none.indexOf("Done<"));
     expect(none).not.toContain(">All<");
     const some = menu(["in-progress", "backlog"]);
     expect(some).not.toContain("Hide done");

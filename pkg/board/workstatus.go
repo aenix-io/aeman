@@ -37,3 +37,52 @@ func ValidWorkStatus(s string) bool {
 	}
 	return false
 }
+
+// The values the Roadmap's status filter takes beyond the work statuses
+// (O14): a card a dependency holds (the derived lock, N3 — status.locked,
+// never the manual stage) and a planning card with nothing under it (its
+// roll-up is HierarchyNoItems). Mirrored by web/src/workstatus.ts.
+const (
+	StatusFilterLocked  = "locked"
+	StatusFilterNoItems = HierarchyNoItems
+)
+
+// StatusFilters are the status filter's values in the order a toolbar
+// offers them. Every one but done is what "Hide done" asks for.
+var StatusFilters = []string{
+	WorkStatusInProgress, WorkStatusBacklog, StatusFilterLocked, StatusFilterNoItems, WorkStatusDone,
+}
+
+// ValidStatusFilter reports whether a name is one of the status filter's
+// values: a work status, locked or no-items.
+func ValidStatusFilter(s string) bool {
+	return ValidWorkStatus(s) || s == StatusFilterLocked || s == StatusFilterNoItems
+}
+
+// TaskStatuses are the status filter values a task answers (O14): its work
+// status, and locked while a dependency holds it (locked — Index.Locked, own
+// or inherited) and it is not done. Done wins: a finished task that still
+// waits is done, so "Hide done" — every value but done — hides exactly the
+// finished work.
+func TaskStatuses(c Card, locked bool) []string {
+	ws := WorkStatus(c)
+	if locked && ws != WorkStatusDone {
+		return []string{ws, StatusFilterLocked}
+	}
+	return []string{ws}
+}
+
+// PlanStatuses are the status filter values a planning card answers BY
+// ITSELF, from its roll-up (Index.HierarchyStatus) and its lock: no-items
+// when nothing is under it, locked while a dependency holds it and its
+// roll-up is not done. The other values it answers by a task under it.
+func PlanStatuses(rollUp string, locked bool) []string {
+	var out []string
+	if locked && rollUp != HierarchyDone {
+		out = append(out, StatusFilterLocked)
+	}
+	if rollUp == HierarchyNoItems {
+		out = append(out, StatusFilterNoItems)
+	}
+	return out
+}

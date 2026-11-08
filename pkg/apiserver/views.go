@@ -69,11 +69,13 @@ type Selector struct {
 	// effective customers (O11).
 	Customer string
 	Owner    string
-	// Status narrows the roadmap view by work status (O14): a comma-separated
-	// set of in-progress, backlog and done (board.WorkStatus). A task matches
-	// by its own, a subtask rides its parent task, a review card follows the
-	// task it reviews, and a plan item matches when any task under it does —
-	// one with no tasks matches none. AND with team, customer and owner.
+	// Status narrows the roadmap view by status (O14): a comma-separated set
+	// of in-progress, backlog, done (board.WorkStatus), locked and no-items
+	// (board.StatusFilters). A task matches by its own work status and lock,
+	// a subtask rides its parent task, a review card follows the task it
+	// reviews, and a plan item matches by itself for locked and no-items and
+	// otherwise when any task under it does. AND with team, customer and
+	// owner.
 	Status string
 }
 
@@ -215,20 +217,22 @@ func (sel Selector) Mirrored() bool {
 //   - a TASK or subtask passes team and customer by its effective values,
 //     and owner when one of its assignees is one of them;
 //
-//   - status (O14): a TASK by its work status (board.WorkStatus), a subtask
-//     by its parent task's, a review card by the status of the task it
-//     reviews; a PLANNING card when any task under it passes — never by
-//     itself, so a plan item with no tasks passes no status;
+//   - status (O14): a TASK by its work status and its lock
+//     (board.TaskStatuses), a subtask by its parent task's, a review card by
+//     the task it reviews; a PLANNING card by itself for locked and
+//     no-items (board.PlanStatuses, its own fields passing the other
+//     filters) and otherwise when a task under it passes;
 //
 // and every card listed comes with its ancestors. With no filter the
 // listing is as it was.
-func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.Card {
+func roadmapNarrowed(b board.Board, ix *board.Index, cards []board.Card, sel Selector) []board.Card {
 	teams, customers, owners := teamSetOf(sel.Team), setOf(sel.Customer), setOf(sel.Owner)
 	statuses := setOf(sel.Status)
 	if teams == nil && customers == nil && owners == nil && statuses == nil {
 		return cards
 	}
-	statusOK := func(c board.Card) bool { return statuses == nil || statuses[workStatusOf(ix, c)] }
+	status := roadmapStatus{b: b, ix: ix, set: statuses}
+	statusOK, planStatusOK := status.task, status.plan
 	teamOK := func(c board.Card) bool { return teams == nil || teams[ix.EffectiveTeam(c)] }
 	customerOK := func(c board.Card) bool { return customerOK(ix, c, customers) }
 	// A person matches a plan item they OWN (never inherited) and a task or
@@ -275,13 +279,14 @@ func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.
 	}
 	// A plan item passes by ONE task under it that passes every filter —
 	// the plan item's own team, customers or owner standing in for that
-	// filter, the status always the task's (O14). Checking each filter on
-	// any task drew an epic whose team came from one task and whose status
-	// from another, with nothing under it that matched. With no status
-	// asked, a plan item that passes by its own fields alone needs no task.
+	// filter, the work status always the task's (O14). Checking each filter
+	// on any task drew an epic whose team came from one task and whose
+	// status from another, with nothing under it that matched. A plan item
+	// that passes by its own fields alone needs no task when no status is
+	// asked, or when it answers the status by itself (locked, no-items).
 	planPasses := func(p board.Card) bool {
 		ownTeam, ownCustomer, ownOwner := teamOK(p), customerOK(p), ownerOK(p)
-		if statuses == nil && ownTeam && ownCustomer && ownOwner {
+		if ownTeam && ownCustomer && ownOwner && planStatusOK(p) {
 			return true
 		}
 		for _, t := range tasksUnder(p) {
@@ -326,22 +331,81 @@ func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.
 	return out
 }
 
-// CheckStatus refuses a status selector naming anything but the work
-// statuses (O14): a typo is an error, never quietly no filter.
+// roadmapStatus is the Roadmap's status filter (O14) over one listing; a
+// nil set passes everything.
+type roadmapStatus struct {
+	b   board.Board
+	ix  *board.Index
+	set map[string]bool
+}
+
+// anyOf reports whether one of the values is asked for.
+func (f roadmapStatus) anyOf(values []string) bool {
+	for _, v := range values {
+		if f.set[v] {
+			return true
+		}
+	}
+	return false
+}
+
+// locked is the card's lock when the filter asks for it, false otherwise:
+// most boards wait for nothing, and most filters do not name it.
+func (f roadmapStatus) locked(c board.Card) bool {
+	return f.set[board.StatusFilterLocked] && lockedOn(f.b, f.ix, c)
+}
+
+// task reports a task, subtask or review card that answers the filter by
+// its work status or its lock (board.TaskStatuses), a subtask going by its
+// parent task and a review card by the task it reviews.
+func (f roadmapStatus) task(c board.Card) bool {
+	if f.set == nil {
+		return true
+	}
+	t := workTaskOf(f.ix, c)
+	return f.anyOf(board.TaskStatuses(t, f.locked(t)))
+}
+
+// plan reports a planning card that answers the filter BY ITSELF — no-items,
+// locked (board.PlanStatuses); the work statuses it answers by its tasks.
+func (f roadmapStatus) plan(p board.Card) bool {
+	if f.set == nil {
+		return true
+	}
+	if !f.set[board.StatusFilterLocked] && !f.set[board.StatusFilterNoItems] {
+		return false
+	}
+	rollUp, _, _ := f.ix.HierarchyStatus(p)
+	return f.anyOf(board.PlanStatuses(rollUp, f.locked(p)))
+}
+
+// CheckStatus refuses a status selector naming anything but the status
+// filter's values (O14): a typo is an error, never quietly no filter.
 func CheckStatus(v string) error {
 	for s := range setOf(v) {
-		if !board.ValidWorkStatus(s) {
-			return fmt.Errorf("unknown status %q (want in-progress, backlog or done)", s)
+		if !board.ValidStatusFilter(s) {
+			return fmt.Errorf("unknown status %q (want %s)", s, strings.Join(board.StatusFilters, ", "))
 		}
 	}
 	return nil
 }
 
-// workStatusOf is the work status a card is filtered by on the Roadmap
-// (O14): a review card's is the task's it reviews, a subtask's its parent
-// task's, every other card's its own (board.WorkStatus). Bounded, so a
-// hand-written cycle of reviews ends.
-func workStatusOf(ix *board.Index, c board.Card) string {
+// lockedOn is the derived lock (N3) as the card's resource reports it
+// (status.locked, applyDependencies): on a visitor's board that hid
+// something, a target is judged on the whole board and a blocker the
+// visitor cannot read still counts.
+func lockedOn(b board.Board, ix *board.Index, c board.Card) bool {
+	if !b.JudgedWhole {
+		return ix.Locked(c)
+	}
+	return b.BlockerTotals[c.ItemID] > 0 || len(blockersJudgedWhole(b, ix, c)) > 0
+}
+
+// workTaskOf is the card whose status a card is filtered by on the Roadmap
+// (O14): a review card goes by the task it reviews, a subtask by its parent
+// task, every other card by itself. Bounded, so a hand-written cycle of
+// reviews ends.
+func workTaskOf(ix *board.Index, c board.Card) board.Card {
 	for range 6 {
 		next, ok := board.Card{}, false
 		switch {
@@ -355,7 +419,7 @@ func workStatusOf(ix *board.Index, c board.Card) string {
 		}
 		c = next
 	}
-	return board.WorkStatus(c)
+	return c
 }
 
 // setOf reads a comma-separated selector value as a set; nil when empty.
@@ -431,7 +495,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		base = backlogCards(b, index(), sel)
 	case "roadmap":
 		ix := index()
-		base = roadmapNarrowed(ix, roadmapCards(b, ix), sel)
+		base = roadmapNarrowed(b, ix, roadmapCards(b, ix), sel)
 	default:
 		base = b.Cards
 	}

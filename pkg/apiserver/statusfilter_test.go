@@ -3,6 +3,7 @@ package apiserver
 import (
 	"net/url"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -46,12 +47,18 @@ func TestTheRoadmapStatusFilter(t *testing.T) {
 		{"in-progress", []string{"goal", "epic", "work", "kid", "rev", "loose"}},
 		{"backlog", []string{"goal", "epic", "shelf"}},
 		{"done", []string{"goal", "epic", "fin"}},
-		// Hide done: everything but the finished task — and the plan item
-		// with no tasks, which matches no status.
+		// In progress and Backlog alone: everything but the finished task —
+		// and the plan item with no tasks, which neither names.
 		{"in-progress,backlog", []string{"goal", "epic", "work", "kid", "rev", "shelf", "loose"}},
+		// Hide done is every value but done: the empty epic is not done, so
+		// it stays (no-items).
+		{"backlog,in-progress,locked,no-items", []string{"goal", "epic", "work", "kid", "rev", "shelf", "empty", "loose"}},
+		{"no-items", []string{"goal", "empty"}},
+		// Nothing on this board waits for anything.
+		{"locked", nil},
 		{"in-progress,backlog,done", []string{"goal", "epic", "work", "kid", "rev", "shelf", "fin", "loose"}},
 	} {
-		if got := roadmapIDs(b, Selector{Status: tc.status}); !reflect.DeepEqual(got, tc.want) {
+		if got := roadmapIDs(b, Selector{Status: tc.status}); !slices.Equal(got, tc.want) {
 			t.Errorf("status=%q = %v, want %v", tc.status, got, tc.want)
 		}
 	}
@@ -80,6 +87,142 @@ func TestTheStatusSelectorIsReadAndChecked(t *testing.T) {
 	}
 	if _, err := ParseSelector(url.Values{"view": {"roadmap"}, "status": {""}}); err != nil {
 		t.Fatalf("an empty status is no filter: %v", err)
+	}
+	// locked and no-items are values of the filter too, the whole of Hide
+	// done among them.
+	if _, err := ParseSelector(url.Values{"view": {"roadmap"}, "status": {"backlog,in-progress,locked,no-items"}}); err != nil {
+		t.Fatalf("Hide done was refused: %v", err)
+	}
+	for _, bad := range []string{"no items", "blocked", "review"} {
+		if _, err := ParseSelector(url.Values{"view": {"roadmap"}, "status": {bad}}); err == nil {
+			t.Errorf("status %q was accepted", bad)
+		}
+	}
+}
+
+// hideDone is the toolbar's one press: every status filter value but done.
+const hideDone = "backlog,in-progress,locked,no-items"
+
+// O14 — Locked and No items, and what Hide done keeps. The client epics wait
+// for the product epic (N3) and have no tasks yet: neither is done, so Hide
+// done keeps them — it used to name only In progress and Backlog, which a
+// plan item with no tasks never matches, and they vanished. A plan item
+// answers Locked and No items BY ITSELF (its own lock, its own roll-up); a
+// task answers Locked by its lock, the inherited one included. Done wins: a
+// finished card that still waits is done, not locked.
+func dependencyBoard() board.Board {
+	const day = "2026-11-02"
+	return board.NewBoard([]board.Card{
+		{ItemID: "ops", Title: "Operations", Type: board.TypeGoal},
+		{ItemID: "prod", Title: "Product", Type: board.TypeEpic, Parent: "ops", Team: "cozystack"},
+		{ItemID: "pwork", Title: "Build it", Parent: "prod", SprintStart: day},
+		// Empty and waiting for the product epic.
+		{ItemID: "client", Title: "Acme rollout", Type: board.TypeEpic, Parent: "ops", Team: "portal", DependsOn: []string{"prod"}},
+		// Empty, waiting for nothing.
+		{ItemID: "empty", Title: "Docs", Type: board.TypeEpic, Parent: "ops"},
+		// Every task finished.
+		{ItemID: "shipped", Title: "Shipped", Type: board.TypeEpic, Parent: "ops"},
+		{ItemID: "sdone", Title: "Shipped task", Parent: "shipped", Progress: 100, StartDate: day},
+		// Waiting, with a parked task under it that inherits the wait.
+		{ItemID: "held", Title: "Held", Type: board.TypeEpic, Parent: "ops", Team: "cozystack", DependsOn: []string{"prod"}},
+		{ItemID: "hwork", Title: "Held task", Parent: "held", Parked: true},
+		// Waiting, yet every task finished: done, not locked.
+		{ItemID: "closed", Title: "Closed", Type: board.TypeEpic, Parent: "ops", DependsOn: []string{"prod"}},
+		{ItemID: "cdone", Title: "Closed task", Parent: "closed", Progress: 100, StartDate: day},
+		// A loose task in hand that waits itself.
+		{ItemID: "wait", Title: "Waits", SprintStart: day, DependsOn: []string{"pwork"}},
+	})
+}
+
+func TestTheRoadmapStatusFilterKeepsWhatIsNotDone(t *testing.T) {
+	t.Parallel()
+	b := dependencyBoard()
+	for _, tc := range []struct {
+		name string
+		sel  Selector
+		want []string
+	}{
+		{"hide done keeps the empty and the waiting epics, drops the finished ones",
+			Selector{Status: hideDone}, []string{"ops", "prod", "pwork", "client", "empty", "held", "hwork", "wait"}},
+		{"locked: the waiting epics by themselves, the task by its inherited wait, the loose task by its own",
+			Selector{Status: "locked"}, []string{"ops", "client", "held", "hwork", "wait"}},
+		{"no-items: the plan items with nothing under them, waiting or not",
+			Selector{Status: "no-items"}, []string{"ops", "client", "empty"}},
+		{"done: the finished epics and their tasks, the waiting one included",
+			Selector{Status: "done"}, []string{"ops", "shipped", "sdone", "closed", "cdone"}},
+		{"locked or no-items is the union",
+			Selector{Status: "locked,no-items"}, []string{"ops", "client", "empty", "held", "hwork", "wait"}},
+		// A plan item matching by itself still needs its own fields to pass
+		// the other filters: the waiting portal epic, not cozystack's.
+		{"locked of portal", Selector{Status: "locked", Team: "portal"}, []string{"ops", "client"}},
+		{"locked of cozystack", Selector{Status: "locked", Team: "cozystack"}, []string{"ops", "held", "hwork"}},
+		{"no-items of cozystack", Selector{Status: "no-items", Team: "cozystack"}, nil},
+	} {
+		if got := roadmapIDs(b, tc.sel); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	// The lock lifts when the product epic is done: the client epic is no
+	// longer locked, and still has no items.
+	for i := range b.Cards {
+		if b.Cards[i].ItemID == "pwork" {
+			b.Cards[i].Progress = 100
+		}
+	}
+	if got := roadmapIDs(b, Selector{Status: "locked"}); got != nil {
+		t.Errorf("nothing waits once the product is done, got %v", got)
+	}
+	if got := roadmapIDs(b, Selector{Status: "no-items"}); !slices.Equal(got, []string{"ops", "client", "empty"}) {
+		t.Errorf("no-items after the product shipped: %v", got)
+	}
+}
+
+// O14 — a SUBTASK is filtered by its parent task, its own lock included: a
+// subtask that waits for something itself (a direct writer's dependsOn) is
+// LOCKED on its badge, yet the Locked filter goes by the parent, which waits
+// for nothing, and leaves it out — and keeps it where the parent matches.
+// It rides its parent on the Roadmap; it is not a filter's match of its own.
+func TestALockedSubtaskFollowsItsUnlockedParentTask(t *testing.T) {
+	t.Parallel()
+	const day = "2026-11-02"
+	b := board.NewBoard([]board.Card{
+		{ItemID: "goal", Title: "Grow", Type: board.TypeGoal},
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "goal"},
+		{ItemID: "work", Title: "Receipts", Parent: "epic", SprintStart: day, StartDate: day},
+		{ItemID: "kid", Title: "Receipts PDF", Parent: "work", SprintStart: day, DependsOn: []string{"other"}},
+		{ItemID: "other", Title: "Fonts", Parent: "epic", Parked: true},
+	})
+	ix := board.NewIndex(b)
+	kid, _ := ix.Find("kid")
+	if !CardResource(b, kid).Status.Locked {
+		t.Fatal("the subtask's own wait does not lock its badge")
+	}
+	if got := roadmapIDs(b, Selector{Status: "locked"}); slices.Contains(got, "kid") {
+		t.Errorf("locked = %v: the subtask goes by its parent, which waits for nothing", got)
+	}
+	if got := roadmapIDs(b, Selector{Status: "in-progress"}); !slices.Contains(got, "kid") {
+		t.Errorf("in-progress = %v: the subtask rides its parent task in", got)
+	}
+}
+
+// O14 with N4 — Locked agrees with status.locked on a visitor's board: a
+// card waiting for one the visitor cannot read is locked to them (the
+// resource counts the blocker as hidden), and the filter finds it.
+func TestTheLockedFilterCountsABlockerTheVisitorCannotRead(t *testing.T) {
+	t.Parallel()
+	whole := board.NewBoard([]board.Card{
+		{ItemID: "secret", Title: "Internal", Type: board.TypeEpic, Domain: "private"},
+		{ItemID: "sw", Title: "Internal work", Parent: "secret", Domain: "private", SprintStart: "2026-11-02"},
+		{ItemID: "client", Title: "Acme rollout", Type: board.TypeEpic, DependsOn: []string{"secret"}},
+	})
+	v := board.Visible(whole, "main", func(d string) bool { return d == "main" })
+	if got := roadmapIDs(v, Selector{Status: "locked"}); !slices.Equal(got, []string{"client"}) {
+		t.Fatalf("locked on the visitor's board = %v, want [client]", got)
+	}
+	ix := board.NewIndex(v)
+	c, _ := ix.Find("client")
+	if !CardResource(v, c).Status.Locked {
+		t.Fatal("the resource does not call the client epic locked")
 	}
 }
 

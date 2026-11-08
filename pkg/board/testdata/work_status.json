@@ -1,5 +1,5 @@
 {
-  "comment": "O14 — a task's work status, the Roadmap status filter's reading. Shared by pkg/board (TestTheWorkStatusMatchesTheSharedFixture) and web/src/workstatus.test.ts: the filter follows PLACEMENT — done when complete (board.Complete), else backlog when parked or placed nowhere (no date, no sprint), whatever the stage says, else in progress. A card's stage badge may still show its stage.",
+  "comment": "O14 — a task's work status, the Roadmap status filter's reading. Shared by pkg/board (TestTheWorkStatusMatchesTheSharedFixture) and web/src/workstatus.test.ts: the filter follows PLACEMENT — done when complete (board.Complete), else backlog when parked or placed nowhere (no date, no sprint), whatever the stage says, else in progress. A card's stage badge may still show its stage. The filter also offers locked and no-items (board.TaskStatuses, board.PlanStatuses): `matches`, where a case gives it, is every value a task answers — its work status, and locked while a dependency holds it (`locked`, the derived status.locked, not the stage) and it is not done; a case without it answers its status alone. `plans` are what a planning card answers BY ITSELF from its roll-up (status.hierarchy) and its lock: no-items when nothing is under it, locked while held and not done; it answers the rest by the tasks under it. Hide done is every value but done, so it keeps exactly what is not done.",
   "cases": [
     {"name": "finished at 100", "card": {"progress": 100, "start": "2026-11-02"}, "status": "done"},
     {"name": "done stage", "card": {"stage": "done"}, "status": "done"},
@@ -17,7 +17,21 @@
     {"name": "end date alone", "card": {"day": "2026-11-02"}, "status": "in-progress"},
     {"name": "in a sprint", "card": {"sprint": "2026-11-02"}, "status": "in-progress"},
     {"name": "on review in work", "card": {"sprint": "2026-11-02", "stage": "review", "progress": 50}, "status": "in-progress"},
-    {"name": "locked in work", "card": {"sprint": "2026-11-02", "stage": "locked", "progress": 50}, "status": "in-progress"},
-    {"name": "refused in work", "card": {"sprint": "2026-11-02", "stage": "refuse"}, "status": "in-progress"}
+    {"name": "locked in work", "card": {"sprint": "2026-11-02", "stage": "locked", "progress": 50}, "status": "in-progress", "matches": ["in-progress"]},
+    {"name": "refused in work", "card": {"sprint": "2026-11-02", "stage": "refuse"}, "status": "in-progress"},
+    {"name": "waiting on a dependency in work", "card": {"sprint": "2026-11-02", "progress": 50, "locked": true}, "status": "in-progress", "matches": ["in-progress", "locked"]},
+    {"name": "waiting on a dependency, parked", "card": {"parked": true, "locked": true}, "status": "backlog", "matches": ["backlog", "locked"]},
+    {"name": "waiting on a dependency, placed nowhere", "card": {"locked": true}, "status": "backlog", "matches": ["backlog", "locked"]},
+    {"name": "finished while still waiting", "card": {"progress": 100, "start": "2026-11-02", "locked": true}, "status": "done", "matches": ["done"]},
+    {"name": "stage locked and waiting", "card": {"sprint": "2026-11-02", "stage": "locked", "progress": 100, "locked": true}, "status": "in-progress", "matches": ["in-progress", "locked"]}
+  ],
+  "plans": [
+    {"name": "nothing under it", "hierarchy": "no-items", "matches": ["no-items"]},
+    {"name": "nothing under it, waiting", "hierarchy": "no-items", "locked": true, "matches": ["locked", "no-items"]},
+    {"name": "work in hand", "hierarchy": "in-progress", "matches": []},
+    {"name": "work in hand, waiting", "hierarchy": "in-progress", "locked": true, "matches": ["locked"]},
+    {"name": "work parked, waiting", "hierarchy": "backlog", "locked": true, "matches": ["locked"]},
+    {"name": "every task done", "hierarchy": "done", "matches": []},
+    {"name": "every task done, still waiting", "hierarchy": "done", "locked": true, "matches": []}
   ]
 }

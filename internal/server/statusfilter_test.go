@@ -32,8 +32,43 @@ func TestTheRoadmapStatusFilterOverHTTP(t *testing.T) {
 	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `"uid":"fin"`) || strings.Contains(body, `"uid":"work"`) {
 		t.Fatalf("done = %d %s", rec.Code, body)
 	}
+	// Hide done is every value but done: the empty epic is not done and
+	// stays (no-items), the finished task goes.
+	rec = do(t, srv, http.MethodGet, "/api/v1/views/roadmap/cards?status=backlog,in-progress,locked,no-items", "")
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `"uid":"docs"`) ||
+		!strings.Contains(body, `"uid":"work"`) || strings.Contains(body, `"uid":"fin"`) {
+		t.Fatalf("hide done with locked and no-items = %d %s", rec.Code, body)
+	}
+	rec = do(t, srv, http.MethodGet, "/api/v1/views/roadmap/cards?status=no-items", "")
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `"uid":"docs"`) ||
+		strings.Contains(body, `"uid":"epic"`) {
+		t.Fatalf("no-items = %d %s", rec.Code, body)
+	}
 	if rec := do(t, srv, http.MethodGet, "/api/v1/views/roadmap/cards?status=todo", ""); rec.Code != http.StatusBadRequest ||
 		!strings.Contains(rec.Body.String(), "invalidSelector") {
 		t.Fatalf("an unknown status = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// O14 over HTTP: an empty epic waiting for another is listed under Locked
+// with status.locked, and under Hide done.
+func TestTheLockedFilterOverHTTP(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "prod", Title: "Product", Type: board.TypeEpic},
+		{ItemID: "work", Title: "Build", Parent: "prod", Team: "alpha", SprintStart: today, StartDate: today},
+		{ItemID: "client", Title: "Acme rollout", Type: board.TypeEpic, DependsOn: []string{"prod"}},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+	for _, q := range []string{"locked", "backlog,in-progress,locked,no-items"} {
+		rec := do(t, srv, http.MethodGet, "/api/v1/views/roadmap/cards?status="+q, "")
+		body := rec.Body.String()
+		if rec.Code != http.StatusOK || !strings.Contains(body, `"uid":"client"`) || !strings.Contains(body, `"locked":true`) {
+			t.Fatalf("status=%s = %d %s", q, rec.Code, body)
+		}
+		if q == "locked" && strings.Contains(body, `"metadata":{"uid":"prod"}`) {
+			t.Fatalf("the epic waited for is not locked: %s", body)
+		}
 	}
 }

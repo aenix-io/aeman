@@ -13,7 +13,7 @@ import { cardIsGone, followFrame, followPatch, withoutDeleted } from "./detail";
 import { applyOrder, type OrderArg } from "./cardorder";
 import { insertedOrder, type Anchor } from "./backlogboard";
 import { presenceAfter, type PresenceMap } from "./presence";
-import { ROADMAP_FILTERS_KEY, sprintTeamOf, storedRoadmapFilters, type RoadmapFilters } from "./ownership";
+import { ROADMAP_FILTERS_KEY, sprintTeamOf, storeRoadmapFilters, storedRoadmapFilters, type RoadmapFilters } from "./ownership";
 import { TeamsModal } from "./components/TeamsModal";
 import { CustomersModal } from "./components/CustomersModal";
 import {
@@ -362,7 +362,7 @@ export function App() {
     forgetMade();
     setRoadmapFiltersState(next);
     try {
-      localStorage.setItem(ROADMAP_FILTERS_KEY, JSON.stringify(next));
+      localStorage.setItem(ROADMAP_FILTERS_KEY, storeRoadmapFilters(next));
     } catch {
       // a preference, not state
     }

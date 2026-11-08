@@ -7,8 +7,19 @@ export interface FilterOption {
 }
 
 /** filterLabel is what the button says: the chosen values by their labels,
- *  or `anyLabel` when nothing narrows the board. */
-export function filterLabel(label: string, options: readonly FilterOption[], selected: readonly string[], anyLabel = "anyone"): string {
+ *  or `anyLabel` when nothing narrows the board — or the board's quick
+ *  choice by its own name when the selection is exactly the set it picks
+ *  ("Status: Hide done", not the four values it stands for). */
+export function filterLabel(
+  label: string,
+  options: readonly FilterOption[],
+  selected: readonly string[],
+  anyLabel = "anyone",
+  quick?: Pick<QuickChoice, "label" | "values">,
+): string {
+  if (quick?.values && isQuick(selected, quick.values)) {
+    return `${label}: ${quick.label}`;
+  }
   const names = selected.map((v) => options.find((o) => o.value === v)?.label ?? v);
   return `${label}: ${names.length ? names.join(", ") : anyLabel}`;
 }
@@ -24,7 +35,16 @@ export function toggled(selected: readonly string[], v: string): string[] {
  *  "all" stands there instead. */
 export interface QuickChoice {
   label: string;
+  /** values is the selection the choice makes, when it makes one: the
+   *  button then names such a selection by the choice's label. */
+  values?: readonly string[];
   onClick: () => void;
+}
+
+/** isQuick reports a selection that is exactly a quick choice's set, in
+ *  any order. */
+function isQuick(selected: readonly string[], values: readonly string[]): boolean {
+  return selected.length === values.length && values.every((v) => selected.includes(v));
 }
 
 /** pressQuick applies a quick choice as the one-shot it is: the menu closes
@@ -140,10 +160,10 @@ export function FilterSelect({
         aria-haspopup="menu"
         aria-expanded={open}
         // What is chosen, in full, once something is — the button may cut it.
-        title={selected.length ? filterLabel(label, options, selected, anyLabel) : (title ?? `Show only what these ${label.toLowerCase()}s answer for or carry`)}
+        title={selected.length ? filterLabel(label, options, selected, anyLabel, quick) : (title ?? `Show only what these ${label.toLowerCase()}s answer for or carry`)}
         onClick={() => setOpen((o) => !o)}
       >
-        {filterLabel(label, options, selected, anyLabel)}
+        {filterLabel(label, options, selected, anyLabel, quick)}
       </button>
       <Dropdown open={open} anchorRef={anchor} onClose={() => setOpen(false)} className="card-stage-menu filter-select-menu" role="menu">
         <FilterSelectMenu

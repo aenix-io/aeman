@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { COLUMN_DEFAULTS, COLUMN_MAX, COLUMN_MINS } from "../roadmapcolumns";
 import { RoadmapBoard, UnassignDialog } from "./RoadmapBoard";
 import type { RoadmapFilters } from "../ownership";
+import { HIDE_DONE } from "../workstatus";
 import type { Board, Card, Provider } from "../providers/types";
 import { addDays, todayIso } from "../date";
 
@@ -330,6 +331,20 @@ describe("ownership on the Roadmap", () => {
     expect(html).toContain("Nothing matches the filters");
     expect(html).toContain("Clear the filters");
     expect(draw(board([]))).toMatch(/aria-label="Status filter"[^>]*>Status: all</);
+  });
+
+  // O14 — Locked and No items are values of the Status filter, and Hide done
+  // names them: everything but Done. An empty epic the server keeps under
+  // Hide done is drawn like any row, its No items badge and all.
+  it("offers Locked and No items, and Hide done keeps them", () => {
+    const html = draw(board([]), null, { teams: [], customers: [], owners: [], statuses: [...HIDE_DONE] });
+    expect(html).toMatch(/aria-label="Status filter"[^>]*>Status: Hide done</);
+    const locked = draw(board([]), null, { teams: [], customers: [], owners: [], statuses: ["locked"] });
+    expect(locked).toMatch(/aria-label="Status filter"[^>]*>Status: Locked</);
+    const empty = card({ itemId: "client", title: "Acme rollout", type: "epic", hierarchy: { status: "no-items", done: 0, total: 0 } });
+    const drawn = draw(board([empty]), null, { teams: [], customers: [], owners: [], statuses: [...HIDE_DONE] });
+    expect(drawn).toContain(">Acme rollout<");
+    expect(drawn).toContain("roadmap-status roadmap-status-no-items");
   });
 
   it("says nothing matches the filters, and offers to clear them", () => {

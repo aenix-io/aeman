@@ -3,7 +3,7 @@
 // / effectiveCustomers, board.Index); the board works them out the same way
 // from the cards it holds, so an edit to an ancestor shows below at once,
 // and falls back to the server's where the ancestors are not on the board.
-import { WORK_STATUSES } from "./workstatus";
+import { HIDE_DONE, isStatusFilter } from "./workstatus";
 import type { Card } from "./providers/types";
 
 type Held = readonly Pick<Card, "itemId" | "title" | "parent" | "team" | "customers" | "reviewOf" | "effectiveTeam" | "type">[];
@@ -289,7 +289,8 @@ export function peopleOf(cards: readonly Pick<Card, "owner" | "assignees">[]): s
 
 /** RoadmapFilters are the Roadmap's team, customer, owner and status
  *  filters (O7, O8), passed to the server's listing and watch. Statuses are
- *  work statuses (workstatus.ts): in-progress, backlog, done. */
+ *  the Status filter's values (workstatus.ts): in-progress, backlog,
+ *  locked, no-items, done. */
 export interface RoadmapFilters {
   teams: string[];
   customers: string[];
@@ -302,16 +303,31 @@ export const NO_ROADMAP_FILTERS: RoadmapFilters = { teams: [], customers: [], ow
 /** ROADMAP_FILTERS_KEY is where the viewer's choice is remembered. */
 export const ROADMAP_FILTERS_KEY = "aeman.roadmap.filters";
 
+/** ROADMAP_FILTERS_VERSION marks a choice stored since the Status filter
+ *  took Locked and No items (O14). */
+const ROADMAP_FILTERS_VERSION = 2;
+
+/** storeRoadmapFilters writes the choice to remember, versioned. */
+export function storeRoadmapFilters(f: RoadmapFilters): string {
+  return JSON.stringify({ ...f, v: ROADMAP_FILTERS_VERSION });
+}
+
 /** storedRoadmapFilters reads the remembered choice; anything else is no
- *  filter. */
+ *  filter. A Hide done stored before Locked and No items existed — In
+ *  progress + Backlog, then the only way to say "everything but done" —
+ *  reads as today's Hide done. */
 export function storedRoadmapFilters(raw: string | null): RoadmapFilters {
   if (!raw) {
     return { ...NO_ROADMAP_FILTERS };
   }
   try {
-    const v = JSON.parse(raw) as Partial<RoadmapFilters>;
+    const v = JSON.parse(raw) as Partial<RoadmapFilters> & { v?: unknown };
     const list = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
-    const statuses = list(v.statuses).filter((s) => (WORK_STATUSES as readonly string[]).includes(s));
+    let statuses: string[] = list(v.statuses).filter(isStatusFilter);
+    const oldHideDone = statuses.length === 2 && statuses.includes("backlog") && statuses.includes("in-progress");
+    if (v.v !== ROADMAP_FILTERS_VERSION && oldHideDone) {
+      statuses = [...HIDE_DONE];
+    }
     return { teams: list(v.teams), customers: list(v.customers), owners: list(v.owners), statuses };
   } catch {
     return { ...NO_ROADMAP_FILTERS };

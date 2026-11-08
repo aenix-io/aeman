@@ -1133,17 +1133,45 @@ func TestMCPListCardsRoadmapByStatus(t *testing.T) {
 		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
 		{ItemID: "work", Title: "Receipts", Parent: "epic", Team: "alpha", SprintStart: today, StartDate: today},
 		{ItemID: "fin", Title: "Refunds", Parent: "epic", Team: "alpha", Progress: 100, StartDate: today},
+		// Empty, waiting for the billing epic.
+		{ItemID: "client", Title: "Acme rollout", Type: board.TypeEpic, DependsOn: []string{"epic"}},
+		// Every task finished.
+		{ItemID: "old", Title: "Old", Type: board.TypeEpic},
+		{ItemID: "oldt", Title: "Old task", Parent: "old", Team: "alpha", Progress: 100, StartDate: today},
 	}, nil)
 	cs := connect(t, Config{Board: "acme"}, fake)
 	got := textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap", "status": "in-progress,backlog"}))
-	if !strings.Contains(got, `"work"`) || strings.Contains(got, `"fin"`) {
+	if !listed(got, "work") || listed(got, "fin") || listed(got, "client") {
+		t.Fatalf("in progress and backlog: %s", got)
+	}
+	// Hide done is every value but done: the empty waiting epic stays, the
+	// finished one goes.
+	got = textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap", "status": "in-progress,backlog,locked,no-items"}))
+	if !listed(got, "work") || !listed(got, "client") || listed(got, "fin") ||
+		listed(got, "old") || listed(got, "oldt") {
 		t.Fatalf("hide done: %s", got)
+	}
+	got = textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap", "status": "locked"}))
+	if !listed(got, "client") || listed(got, "work") {
+		t.Fatalf("locked: %s", got)
+	}
+	surface := toolSurface(t, "list_cards")
+	for _, want := range []string{"locked", "no-items"} {
+		if !strings.Contains(surface, want) {
+			t.Errorf("list_cards does not offer status %q", want)
+		}
 	}
 	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "list_cards",
 		Arguments: map[string]any{"view": "roadmap", "status": "todo"}})
 	if err == nil && !res.IsError {
 		t.Fatalf("an unknown status was read: %s", textOf(res))
 	}
+}
+
+// listed reports a card a list_cards answer holds as an item (not one it
+// names in another card's status).
+func listed(got, uid string) bool {
+	return strings.Contains(got, `"metadata":{"uid":"`+uid+`"}`)
 }
 
 // N7 — update_card takes the dependency list as the PATCH does (ADR 0002),
