@@ -8,6 +8,7 @@ import type {
   CustomerRef,
   LineageRef,
   Note,
+  Priority,
   Provider,
   SizeKey,
   ZoneKey,
@@ -40,11 +41,12 @@ import {
   statusOf,
   type RoadmapKind,
 } from "../roadmap";
+import { pressPriority } from "../priorityset";
 import { isPlanning, isSubtask, subtaskParent } from "../subtasks";
 import { Avatar } from "./Avatar";
 import { DescriptionEditor } from "./DescriptionEditor";
 import { KindIcon } from "./KindIcon";
-import { PlanTree, type PendingAdd } from "./PlanTree";
+import { PlanTree, PriorityItems, PriorityPart, type PendingAdd } from "./PlanTree";
 import { CardIdentity } from "./CardIdentity";
 import { placementAnswer, drawerEscapes, joinsTree } from "../detail";
 import { OwnerPicker } from "./OwnerPicker";
@@ -708,6 +710,24 @@ export function CardDetail({
     });
   };
 
+  // The card's priority (K15): the Roadmap badge's menu, setting its OWN
+  // value; what is under it follows at once (priorityset.pressPriority). A
+  // review's priority is its task's and only reads here.
+  const prioRef = useRef<HTMLSpanElement | null>(null);
+  const [prioOpen, setPrioOpen] = useState(false);
+  const prioritySeq = useRef(latestWins());
+  const setPriority = (value: Priority | "") => {
+    setPrioOpen(false);
+    if (value === (card.priority ?? "")) {
+      return;
+    }
+    void pressPriority(
+      { cards: board.cards, patchCard, provider, seq: prioritySeq.current, onError: (m) => onError?.(m), reload },
+      card,
+      value,
+    );
+  };
+
   // What the card WEIGHS — the decision a daily sync makes so the person
   // leaves with a plan that fits. The same letter again takes it back.
   const setSize = (size: SizeKey) => {
@@ -1291,6 +1311,40 @@ export function CardDetail({
                 )}
                 {!planning && stageLabel && <span className="drawer-chip">{stageLabel}</span>}
               </>,
+            )}
+            {/* Its priority, as the Roadmap's badge draws it: its own solid, an
+                inherited one faded and saying where from; the menu sets its
+                OWN value (K15). A review's is its task's: shown, not set. */}
+            {row(
+              "Priority",
+              card.reviewOf ? (
+                <span className="drawer-prio" title="A review's priority is its task's">
+                  {card.effectivePriority ? <PriorityPart value={card.effectivePriority} /> : <span className="roadmap-prio-none">No priority</span>}
+                </span>
+              ) : (
+                <span className="drawer-picker drawer-prio" ref={prioRef}>
+                  <button
+                    type="button"
+                    className={`drawer-pick${card.effectivePriority ? "" : " drawer-pick-empty"}`}
+                    disabled={isRecord || temp}
+                    aria-haspopup="menu"
+                    aria-expanded={prioOpen}
+                    title="Set its priority"
+                    onClick={() => setPrioOpen((o) => !o)}
+                  >
+                    {card.effectivePriority ? (
+                      <PriorityPart value={card.effectivePriority} from={card.effectivePriorityFrom} />
+                    ) : (
+                      <span className="drawer-pick-text">No priority</span>
+                    )}
+                    {card.effectivePriorityFrom && <span className="drawer-prio-from">from «{card.effectivePriorityFrom.title}»</span>}
+                    {!isRecord && !temp && <span className="add-card-team-caret">▾</span>}
+                  </button>
+                  <Dropdown open={prioOpen} anchorRef={prioRef} onClose={() => setPrioOpen(false)} className="roadmap-status-menu" role="menu">
+                    <PriorityItems own={card.priority ?? ""} onPick={setPriority} />
+                  </Dropdown>
+                </span>
+              ),
             )}
             {/* The bar a task carries on its board, with its handle: drag it
                 here as there. A planning card's progress is derived and has

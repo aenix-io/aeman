@@ -31,9 +31,7 @@ import {
   unassignPreview,
   unassignNotice,
   NOTHING_IN_WORK,
-  priorityAfter,
   latestWins,
-  refusalRollback,
   unassignQuestion,
   UNASSIGNED_LOCALLY,
   droppable,
@@ -91,6 +89,7 @@ import { KindIcon } from "./KindIcon";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { Dropdown } from "./Dropdown";
+import { pressPriority } from "../priorityset";
 
 // The Roadmap: the hierarchy as a tree of rows on the left and a timeline
 // of bars on the right, one row per card from a goal down to a subtask
@@ -863,32 +862,7 @@ export function RoadmapBoard({
   // back on a refusal.
   const prioritySeq = useRef(latestWins());
   const answerPriority = (card: CardModel, value: Priority | "") => {
-    const shown = priorityAfter(board.cards, card.itemId, value);
-    const before = board.cards
-      .filter((c) => shown.has(c.itemId))
-      .map((c) => ({ id: c.itemId, patch: { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom } }));
-    patchCard(card.itemId, { priority: value || undefined });
-    for (const [id, p] of shown) {
-      patchCard(id, p);
-    }
-    const n = prioritySeq.current.next(card.itemId);
-    void provider
-      .setPriority(card.itemId, value)
-      .then((c) => {
-        // An older answer must not overwrite a newer choice.
-        if (prioritySeq.current.isLatest(card.itemId, n)) {
-          patchCard(c.itemId, { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom });
-        }
-      })
-      .catch((err: unknown) => {
-        // Put back only what THIS press changed while it is still the
-        // latest: a newer press shown since settles the card itself.
-        for (const b of refusalRollback(prioritySeq.current, card.itemId, n, before)) {
-          patchCard(b.id, b.patch);
-        }
-        onError(errText(err));
-        reload();
-      });
+    void pressPriority({ cards: board.cards, patchCard, provider, seq: prioritySeq.current, onError, reload }, card, value);
   };
   const answerUnassign = (card: CardModel, uids: string[]) => {
     // Exactly the tasks the confirm counted.

@@ -324,7 +324,8 @@ backlog, in progress, done), and for a task its own: done when complete;
 else the stage that holds it — review, locked, refused — which says who it
 waits on; else in progress while it is in work, started or not; else
 backlog, whatever its bar says. The drawer's Status row reads the same
-answer. The badge of every row is a menu — the card's own priority (P0…P4,
+answer, and its Priority row the same priority part, opening the same
+priorities. The badge of every row is a menu — the card's own priority (P0…P4,
 No priority) and Unassign (take the work in hand under it back to its
 backlog, after a confirm that counts the tasks) — whose rules are
 `docs/design/backlog.md`'s (K15, K16). Right, a timeline: one bar per card from
