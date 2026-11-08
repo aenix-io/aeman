@@ -27,6 +27,14 @@ export interface QuickChoice {
   onClick: () => void;
 }
 
+/** pressQuick applies a quick choice as the one-shot it is: the menu closes
+ *  first — focus back on its button, and no second press on the same spot
+ *  (now "all") can undo it straight away — then the choice is made. */
+export function pressQuick(quick: QuickChoice, onClose: () => void): void {
+  onClose();
+  quick.onClick();
+}
+
 /** FilterSelectMenu is the open menu: a checkbox per option (several are
  *  OR), then at its foot the way back to "any" when something is chosen —
  *  or, while nothing is, a board's quick choice where it offers one — and the roster's "Manage…" entry at
@@ -70,7 +78,7 @@ export function FilterSelectMenu({
         );
       })}
       {quick && selected.length === 0 && (
-        <button type="button" role="menuitem" className="card-stage-item card-stage-clear filter-select-quick" onClick={quick.onClick}>
+        <button type="button" role="menuitem" className="card-stage-item card-stage-clear filter-select-quick" onClick={() => pressQuick(quick, onClose)}>
           {quick.label}
         </button>
       )}
@@ -145,7 +153,12 @@ export function FilterSelect({
           onChange={onChange}
           manage={manage}
           quick={quick}
-          onClose={() => setOpen(false)}
+          onClose={() => {
+            setOpen(false);
+            // The menu lives in a portal: closing it from inside would drop
+            // the focus on <body>. It goes back to the button.
+            anchor.current?.querySelector<HTMLElement>("button")?.focus();
+          }}
         />
       </Dropdown>
     </span>

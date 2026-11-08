@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { closesOn } from "./Dropdown";
-import { FilterSelect, FilterSelectMenu, filterLabel, toggled } from "./FilterSelect";
+import { FilterSelect, FilterSelectMenu, filterLabel, pressQuick, toggled } from "./FilterSelect";
 
 // THE ONE FILTER DROPDOWN every board's toolbar wears (Team, Customer,
 // Owner): a button saying what is chosen, a menu of checkboxes —
@@ -128,5 +128,16 @@ describe("a quick choice in the filter dropdown", () => {
     const some = menu(["in-progress", "backlog"]);
     expect(some).not.toContain("Hide done");
     expect(some).toContain(">All<");
+  });
+});
+
+// A quick choice is a one-shot: pressing "Hide done" closes the menu, so a
+// second press on the same spot (now "All") cannot undo it straight away,
+// and focus goes back to the button the menu belongs to.
+describe("the quick choice", () => {
+  it("closes the menu before it applies", () => {
+    const order: string[] = [];
+    pressQuick({ label: "Hide done", onClick: () => order.push("apply") }, () => order.push("close"));
+    expect(order).toEqual(["close", "apply"]);
   });
 });
