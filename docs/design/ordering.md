@@ -1,6 +1,6 @@
 # Ordering: the epic order and the team queue
 
-Status: approved by the owner 2026-11-08, with the decisions recorded below. Implemented on `feat/ordering-model` except the Backlog's Epics mode and its Split indicator in the SPA (`board.Index.Split` exists server-side): an epic is moved from the Strategy board, and every open Backlog takes the gathered order from the move's `Ordering` frame. This document is the source of truth for how cards are ordered; its rules are rows Q1–Q14 of [behavior-matrix.md](behavior-matrix.md). It supersedes K14 and amends K5, K10's ordering clause and K13 of [backlog.md](backlog.md).
+Status: approved by the owner 2026-11-08, with the decisions recorded below; implemented on `feat/ordering-model` (without Undo — decision 5). This document is the source of truth for how cards are ordered; its rules are rows Q1–Q14 of [behavior-matrix.md](behavior-matrix.md). It supersedes K14 and amends K5, K10's ordering clause and K13 of [backlog.md](backlog.md).
 
 ## Summary
 
@@ -102,7 +102,7 @@ Unranked tasks come from direct writers; an invalid key (empty, a character outs
 
 ### Backlog Epics mode, dependencies
 
-- **Epics mode** lists the selected teams' epics (by effective team, or by an open task standing under the team), empty ones included; epics with no team appear under "No team", and done epics are hidden. Each row shows the epic in the epic order, Goal/Initiative context, and its count of parked tasks. **Split** means another task stands inside the epic's area. Tasks ↔ Epics writes nothing.
+- **Epics mode** (the Backlog's Tasks | Epics switch, remembered per viewer; built from the Strategy listing, so empty epics are there) lists the selected teams' epics (by effective team, or by an open task standing under the team), empty ones included; epics with no team appear under "No team", and done epics are hidden. Each row shows the epic in the epic order, Goal/Initiative context, and its count of parked tasks. **Split** means another task stands inside the epic's area, in some team's queue (`board.Index.Split`, mirrored as `splitEpics`); the Strategy board marks its epic rows the same way. Dragging a row is the epic move. Tasks ↔ Epics writes nothing. The Strategy board's Collapse all / Expand all only fold.
 - **Dependencies** never change the order. The All / Ready / Blocked filter reads `status.locked`, default All.
 
 ## Atomicity of the mass move

@@ -86,6 +86,7 @@ SPA's tabs are **Me, Team, Backlog, Strategy, Project**.
   change. A review nobody has taken is never dragged. A drag does not change the team: the card's team
   chip is its owner picker, and `own` with a team alone hands it to that
   team, still parked; the owner badge is that picker.
+- **Tasks | Epics** ([ordering.md](ordering.md)). The Epics mode lists the shown teams' epics in the epic order — empty ones too — with the goal and initiative above, the count of waiting tasks and Split for a scattered one; dragging an epic is the epic move, which gathers its tasks. Switching writes nothing; the mode is the viewer's own. All / Ready / Blocked only hides: a blocked task keeps its place.
 - **Adding.** No add box at the foot of the list: every gap — above the
   first card, between two, below the last — shows a round "+" at its left
   edge on hover, and an empty backlog shows one always. Pressed, it opens

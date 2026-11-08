@@ -14,6 +14,10 @@ import {
   insertSpot,
   byReadiness,
   type Readiness,
+  BACKLOG_MODE_KEY,
+  epicRows,
+  readBacklogMode,
+  type BacklogMode,
   insertedOrder,
   backlogList,
   dropPlan,
@@ -32,6 +36,7 @@ import {
   type Anchor,
 } from "../backlogboard";
 import type { LineageRef } from "../providers/types";
+import { BacklogEpics } from "./BacklogEpics";
 import { justMade, noteMade } from "../justmade";
 import { ownerOf, type Owner } from "../owner";
 import {
@@ -170,6 +175,74 @@ export function BacklogBoard({
     [board.cards, board.boardOrder, teams, customerFilter, kept, readiness],
   );
   const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
+
+  // ---- Tasks | Epics (ordering.md): one order, two readings ----
+  // The mode is the viewer's own and switching writes nothing. The Epics
+  // mode reads the epics — empty ones too, which no backlog listing holds —
+  // off the Strategy listing, and orders them by the board's order.
+  const [mode, setModeState] = useState<BacklogMode>(() => {
+    try {
+      return readBacklogMode(localStorage.getItem(BACKLOG_MODE_KEY));
+    } catch {
+      return "tasks";
+    }
+  });
+  const setMode = (next: BacklogMode) => {
+    setModeState(next);
+    try {
+      localStorage.setItem(BACKLOG_MODE_KEY, next);
+    } catch {
+      // a preference, not state
+    }
+  };
+  const [scope, setScope] = useState<CardModel[] | null>(null);
+  const [scopeTick, setScopeTick] = useState(0);
+  useEffect(() => {
+    if (mode !== "epics") {
+      return;
+    }
+    let live = true;
+    provider
+      .listCards({ view: "strategy" })
+      .then((l) => {
+        if (live) {
+          setScope(l.cards);
+        }
+      })
+      .catch((err: unknown) => {
+        if (live) {
+          onError(err instanceof Error ? err.message : String(err));
+        }
+      });
+    return () => {
+      live = false;
+    };
+  }, [mode, provider, scopeTick, onError]);
+  const [epicOrder, setEpicOrder] = useState<string[] | null>(null);
+  const epics = useMemo(() => {
+    const rows = epicRows(scope ?? [], list, teams, board.boardOrder);
+    if (!epicOrder) {
+      return rows;
+    }
+    const at = new Map(epicOrder.map((id, i) => [id, i]));
+    return [...rows].sort((a, b) => (at.get(a.epic.itemId) ?? 1e9) - (at.get(b.epic.itemId) ?? 1e9));
+  }, [scope, list, teams, board.boardOrder, epicOrder]);
+  const moveEpic = useCallback(
+    (epicId: string, anchor: { after: string } | { before: string }, order: string[]) => {
+      // Shown at once; the server gathers the epic's tasks, and the board
+      // reads back both the epics and the tasks once it has.
+      setEpicOrder(order);
+      void provider
+        .moveTo(epicId, anchor)
+        .catch((err: unknown) => onError(errText(err)))
+        .finally(() => {
+          setEpicOrder(null);
+          setScopeTick((n) => n + 1);
+          reload();
+        });
+    },
+    [provider, onError, reload],
+  );
 
   // ---- writing a place: a move by its neighbour ----
   const persistAnchor = useCallback(
@@ -576,6 +649,19 @@ export function BacklogBoard({
           manage={onManageCustomers ? { label: "Manage customers", onClick: onManageCustomers } : undefined}
           title="Show only the work for these customers"
         />
+        <div className="backlog-readiness backlog-mode" role="group" aria-label="Show">
+          {(["tasks", "epics"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              className={`backlog-readiness-btn${mode === m ? " backlog-readiness-on" : ""}`}
+              aria-pressed={mode === m}
+              onClick={() => setMode(m)}
+            >
+              {m === "tasks" ? "Tasks" : "Epics"}
+            </button>
+          ))}
+        </div>
         <div className="backlog-readiness" role="group" aria-label="Readiness">
           {(["all", "ready", "blocked"] as const).map((m) => (
             <button
@@ -590,6 +676,16 @@ export function BacklogBoard({
           ))}
         </div>
       </div>
+      {mode === "epics" && (
+        <BacklogEpics
+          rows={epics}
+          loading={scope === null}
+          onMove={moveEpic}
+          onOpen={(uid) => openParent(uid)}
+          onOpenParent={openParent}
+        />
+      )}
+      {mode === "tasks" && (
       <section className="backlog-list" aria-label="Backlog">
         <div className={`backlog-list-body${carried ? " backlog-list-over" : ""}${forbidden ? " backlog-list-forbid" : ""}`} data-backlog-list="">
           {(() => {
@@ -636,6 +732,7 @@ export function BacklogBoard({
           })()}
         </div>
       </section>
+      )}
       <Dropdown open={!!sizing} anchorRef={sizeAnchor} onClose={() => setSizing(null)} className="backlog-size-menu">
         {SIZE_ORDER.map((sz) => (
           <button
