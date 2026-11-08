@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -362,8 +363,12 @@ func setKnown(f *CardFile, key string, val *yaml.Node) bool {
 			c.Customers = append(c.Customers, it.Value)
 		}
 	case "dependsOn":
+		// Each id once, first seen first: a list a direct writer left with
+		// an id twice must not count one blocker twice (N6).
 		for _, it := range val.Content {
-			c.DependsOn = append(c.DependsOn, it.Value)
+			if it.Value != "" && !slices.Contains(c.DependsOn, it.Value) {
+				c.DependsOn = append(c.DependsOn, it.Value)
+			}
 		}
 	case "zone":
 		c.Zone = board.ZoneKey(val.Value)

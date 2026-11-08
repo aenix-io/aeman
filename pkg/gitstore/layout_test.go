@@ -280,3 +280,15 @@ func TestACardsDependenciesRoundTripAsAList(t *testing.T) {
 		t.Fatalf("an empty list is written:\n%s", out)
 	}
 }
+
+// N6 — a list a direct writer left with an id twice (or an empty item)
+// reads with each id once, in first-seen order, and is written back that way.
+func TestADependencyListReadsEachIDOnce(t *testing.T) {
+	f, err := DecodeCard("01X", []byte("---\ntitle: x\ndependsOn: [01A, 01B, 01A, \"\", 01B]\n---\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(f.Card.DependsOn, ","); got != "01A,01B" {
+		t.Fatalf("dependsOn = %q, want 01A,01B", got)
+	}
+}
