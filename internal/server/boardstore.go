@@ -492,12 +492,15 @@ type boardEntry struct {
 	// part re-sends those review cards, which no write touches.
 	reviewShown map[string]string
 	reviewsOf   map[string][]string
-	// depOf is each card's dependency list, whether it is done and its
-	// customers as last announced, kept only once some card depends on
-	// another (anyDeps): a change to any of them re-sends the cards whose
-	// lock, blockers or inherited customers it moves (dependencyFanout, N8).
-	depOf   map[string]string
-	anyDeps bool
+	// depOf is each card's part other cards derive from it (depShown: its
+	// list, customers, parent, title and type, and — for a target in
+	// depTargets — whether it is done) as last announced, kept only once
+	// some card depends on another (anyDeps): a change to any of them
+	// re-sends the cards whose lock, blockers or inherited customers it
+	// moves (dependencyFanout, N8).
+	depOf      map[string]depShown
+	depTargets map[string]bool
+	anyDeps    bool
 	// planning is which cards are goals, initiatives or epics, kept beside
 	// parentOf: with the two the walk to a card's planning ancestors costs
 	// the depth of its chain, never an index of the whole board.

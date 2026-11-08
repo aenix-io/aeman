@@ -2,7 +2,6 @@ package server
 
 import (
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/aenix-io/aeman/pkg/apiserver"
@@ -15,16 +14,27 @@ import (
 // unlocks the cards that wait for it, and a card's dependency list moves
 // what its targets block and whom they are for.
 
-// shownDependency is what other cards derive from this one: whom it waits
-// for, whether it is done, and its customers.
-func shownDependency(ix *board.Index, c board.Card) string {
-	return strings.Join(c.DependsOn, ",") + "\x00" + strconv.FormatBool(ix.Done(c)) + "\x00" + strings.Join(c.Customers, ",")
+// depShown is what other cards derive from this one: whom it waits for,
+// its customers and the chain it hangs from (whom it passes them on to, and
+// whose waits it inherits), and its title and type (named in the blockers of
+// what waits for it, and in the blocks and dependent customers of what it
+// waits for). Done is recorded for the cards something waits for — the
+// targets — alone: the only ones whose done unlocks anything.
+type depShown struct {
+	deps, customers, parent, title, typ string
+	done                                bool
 }
 
-// rememberDependencies records every card's shownDependency, once some card
-// depends on another. The caller holds e.mu.
+func shownDependency(c board.Card) depShown {
+	return depShown{deps: strings.Join(c.DependsOn, ","), customers: strings.Join(c.Customers, ","),
+		parent: c.Parent, title: c.Title, typ: c.Type}
+}
+
+// rememberDependencies records every card's depShown and every target's
+// done, once some card depends on another. The caller holds e.mu.
 func (e *boardEntry) rememberDependencies() {
 	e.depOf = nil
+	e.depTargets = nil
 	e.anyDeps = false
 	for _, c := range e.board.Cards {
 		if len(c.DependsOn) > 0 {
@@ -36,19 +46,34 @@ func (e *boardEntry) rememberDependencies() {
 		return
 	}
 	ix := board.NewIndex(e.board)
-	e.depOf = make(map[string]string, len(e.board.Cards))
+	e.depOf = make(map[string]depShown, len(e.board.Cards))
+	e.depTargets = map[string]bool{}
 	for _, c := range e.board.Cards {
-		e.depOf[c.ItemID] = shownDependency(ix, c)
+		e.depOf[c.ItemID] = shownDependency(c)
+		for _, t := range c.DependsOn {
+			e.depTargets[t] = true
+		}
+	}
+	for t := range e.depTargets {
+		if tc, ok := ix.Find(t); ok {
+			sh := e.depOf[t]
+			sh.done = ix.Done(tc)
+			e.depOf[t] = sh
+		}
 	}
 }
 
 // dependencyFanout is the ids of the cards to re-send after c changed (N8):
 //
-//   - c's own list or customers moved: the cards under it, and every target
-//     it — or a card under it — waits for, before or after, with the cards
-//     under those and, transitively, what they wait for (customers);
-//   - c, or a plan item above it, became done or undone: every card that
-//     waits for it and the cards under those.
+//   - c's own list, customers or parent moved — c arriving or leaving
+//     included: the cards under it, and every target it — or a card under
+//     it — waits for, before or after, with the cards under those and,
+//     transitively, what they wait for (customers);
+//   - c renamed or re-typed: what waits for it (their blockers name it) and
+//     what it waits for (their blocks and dependent customers name it);
+//   - a target became done or undone — c itself, or a plan item whose roll-up
+//     c moved by finishing, reopening, arriving, leaving or moving out from
+//     under it: every card that waits for it and the cards under those.
 //
 // The caller holds e.mu with the cache already updated.
 func (e *boardEntry) dependencyFanout(c board.Card, verb string) []string {
@@ -57,10 +82,11 @@ func (e *boardEntry) dependencyFanout(c board.Card, verb string) []string {
 			return nil
 		}
 		// The first dependency on the board: what it is measured against
-		// from now on.
+		// from now on, with c's own list as it was before — none.
 		e.rememberDependencies()
-		was := e.depOf[c.ItemID]
-		e.depOf[c.ItemID] = "\x00" + strings.SplitN(was, "\x00", 2)[1]
+		sh := e.depOf[c.ItemID]
+		sh.deps = ""
+		e.depOf[c.ItemID] = sh
 	}
 	ix := board.NewIndex(e.board)
 	out := map[string]bool{}
@@ -115,39 +141,52 @@ func (e *boardEntry) dependencyFanout(c board.Card, verb string) []string {
 			withSubtree(d.ItemID)
 		}
 	}
+	was, known := e.depOf[c.ItemID]
 	if verb == "DELETED" {
 		delete(e.depOf, c.ItemID)
+		// What it waited for no longer blocks it nor is for its customers;
+		// what waited for it waits for nothing now.
+		reach(c.DependsOn)
 		waiters(c.ItemID)
 	} else {
-		was, known := e.depOf[c.ItemID]
-		now := shownDependency(ix, c)
+		now := shownDependency(c)
+		now.done = was.done
 		e.depOf[c.ItemID] = now
-		if known && was != now {
-			old := strings.SplitN(was, "\x00", 3)
-			cur := strings.SplitN(now, "\x00", 3)
-			if old[0] != cur[0] || old[2] != cur[2] {
-				targets := append(splitIDs(old[0]), c.DependsOn...)
-				for _, k := range subtree(c.ItemID) {
-					out[k] = true
-					if kc, ok := ix.Find(k); ok {
-						targets = append(targets, kc.DependsOn...)
-					}
+		for _, t := range c.DependsOn {
+			e.depTargets[t] = true
+		}
+		// A card the cache has not seen — written, fetched, reloaded — moved
+		// from waiting for nothing.
+		if !known || was.deps != now.deps || was.customers != now.customers || was.parent != now.parent {
+			targets := append(splitIDs(was.deps), c.DependsOn...)
+			for _, k := range subtree(c.ItemID) {
+				out[k] = true
+				if kc, ok := ix.Find(k); ok {
+					targets = append(targets, kc.DependsOn...)
 				}
-				reach(targets)
 			}
-			if old[1] != cur[1] {
-				waiters(c.ItemID)
-			}
+			reach(targets)
 		}
-		// A plan item above it may have become done or undone with it.
-		for _, a := range ix.Lineage(c) {
-			was, known := e.depOf[a.ItemID]
-			now := shownDependency(ix, a)
-			e.depOf[a.ItemID] = now
-			if known && strings.SplitN(was, "\x00", 3)[1] != strings.SplitN(now, "\x00", 3)[1] {
-				waiters(a.ItemID)
-			}
+		if known && (was.title != now.title || was.typ != now.typ) {
+			waiters(c.ItemID)
+			reach(c.DependsOn)
 		}
+	}
+	// Every target judged again: whatever this change did to a roll-up —
+	// the chain c joined, the chain it left, a task deleted from under a
+	// plan item — shows as a target's done moving.
+	for t := range e.depTargets {
+		tc, ok := ix.Find(t)
+		if !ok {
+			continue
+		}
+		sh, known := e.depOf[t]
+		done := ix.Done(tc)
+		if known && sh.done != done {
+			waiters(t)
+		}
+		sh.done = done
+		e.depOf[t] = sh
 	}
 	delete(out, c.ItemID)
 	ids := make([]string, 0, len(out))
