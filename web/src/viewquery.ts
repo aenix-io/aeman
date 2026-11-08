@@ -2,19 +2,19 @@
 // scoped watch so both cover exactly what the active board shows.
 
 import { todayIso } from "./date";
-import type { RoadmapFilters } from "./ownership";
+import type { StrategyFilters } from "./ownership";
 import { statusSet } from "./workstatus";
 
-export type ViewMode = "me" | "team" | "backlog" | "roadmap";
+export type ViewMode = "me" | "team" | "backlog" | "strategy";
 
 /** ViewOptions are the board's own filters that the SERVER answers. They
  *  ride the listing and the watch alike, so changing one changes the keys
  *  the board refetches and re-subscribes on — nothing is filtered out of
  *  what was already sent. */
 export interface ViewOptions {
-  /** The Roadmap's team, customer, owner and status filters (ownership.md,
+  /** The Strategy board's team, customer, owner and status filters (ownership.md,
    *  O7, O8): selectors the server applies, each a comma-separated set. */
-  filters?: RoadmapFilters;
+  filters?: StrategyFilters;
   /** The Team board's and the Backlog's Customer filter (O11): customer
    *  ids, matched by the server against effective customers. The Me board
    *  filters what it holds itself — it counts what its filters hide. */
@@ -33,8 +33,8 @@ function withCustomers(q: Record<string, string>, opts: ViewOptions): Record<str
   return opts.customers?.length ? { ...q, customer: opts.customers.join(",") } : q;
 }
 
-function roadmapQuery(opts: ViewOptions): Record<string, string> {
-  const q: Record<string, string> = { view: "roadmap" };
+function strategyQuery(opts: ViewOptions): Record<string, string> {
+  const q: Record<string, string> = { view: "strategy" };
   const f = opts.filters;
   if (f?.teams.length) {
     q.team = teamSet(f.teams);
@@ -80,11 +80,11 @@ export function viewQueries(
     }
     return [q];
   }
-  if (view === "roadmap") {
+  if (view === "strategy") {
     // The hierarchy: every planning card and every card under one, board-
     // wide. The tree is assembled client-side from `parent`; never a
     // snapshot — it is not a day board (docs/design/hierarchy.md).
-    return [roadmapQuery(opts)];
+    return [strategyQuery(opts)];
   }
   const team = teamSet(teams);
   if (view === "backlog") {
@@ -98,7 +98,7 @@ export function viewQueries(
 
 // snapshotDay reports that a day is one the board can be shown AS IT WAS: a
 // past day on a daily board (Me or Team). Today is live, tomorrow has not
-// happened, and the Backlog and the Roadmap are not day boards at all.
+// happened, and the Backlog and the Strategy board are not day boards at all.
 // Mirrors the server's own condition (boardOfRequest, internal/server/api.go).
 export function snapshotDay(view: ViewMode, day: string, today = todayIso()): boolean {
   return (view === "me" || view === "team") && day !== "" && day < today;
@@ -116,8 +116,8 @@ export function watchQuery(
   viewAs?: string,
   opts: ViewOptions = {},
 ): Record<string, string> {
-  if (view === "roadmap") {
-    return roadmapQuery(opts);
+  if (view === "strategy") {
+    return strategyQuery(opts);
   }
   if (view === "me") {
     const q: Record<string, string> = { view: "me", day, reviews: "true" };
@@ -183,7 +183,7 @@ export function viewOf(query: string): string {
  *  to have still lands on the board that carries it now: "nixon" was the
  *  Team tab, "triage" was retired for the Backlog (docs/design/backlog.md,
  *  K9), and the Project board ("project", once "plan") was removed with
- *  project cards (H15) — the plan lives on the Roadmap — so a browser that
+ *  project cards (H15) — the plan lives on the Strategy board — so a browser that
  *  remembered one lands on the board that carries its work rather than
  *  silently on Me. */
 export function storedView(raw: string | null): ViewMode {
@@ -194,10 +194,10 @@ export function storedView(raw: string | null): ViewMode {
     case "backlog":
     case "triage":
       return "backlog";
-    case "roadmap":
+    case "strategy":
     case "project":
     case "plan":
-      return "roadmap";
+      return "strategy";
     default:
       return "me";
   }

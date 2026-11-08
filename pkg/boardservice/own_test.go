@@ -7,10 +7,10 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// OWN is the Roadmap's one answer to "whose is this": a team, and a person on
+// OWN is the Strategy board's one answer to "whose is this": a team, and a person on
 // that team, or neither (docs/design/hierarchy.md "Owner", H10). What the
 // answer DOES depends on whether the card is in work — a date or a sprint —
-// because the Roadmap is where loose work gets a home, and a home
+// because the Strategy board is where loose work gets a home, and a home
 // is somewhere the day boards draw.
 
 func ownSeed(today string) *fakeBackend {
@@ -179,17 +179,17 @@ func TestOwnGivesLooseWorkAHome(t *testing.T) {
 	})
 }
 
-// The gesture is a BOARD's: the Roadmap's first, and every board that draws
+// The gesture is a BOARD's: the Strategy board's first, and every board that draws
 // a task offers it too, so the drawer can ask the same question from
 // wherever the card was opened.
 func TestOwnIsOfferedWhereATaskIsDrawn(t *testing.T) {
 	t.Parallel()
-	for _, v := range []board.View{board.ViewRoadmap, board.ViewMe, board.ViewTeam, board.ViewBacklog, board.ViewAll} {
+	for _, v := range []board.View{board.ViewStrategy, board.ViewMe, board.ViewTeam, board.ViewBacklog, board.ViewAll} {
 		if !Offers(v, GestureOwn) {
 			t.Errorf("%s does not offer own", v)
 		}
 	}
-	if got := Gestures(board.ViewRoadmap); len(got) != 2 || got[0] != GestureRemove || got[1] != GestureOwn {
-		t.Fatalf("the Roadmap draws %v, want remove, own", got)
+	if got := Gestures(board.ViewStrategy); len(got) != 2 || got[0] != GestureRemove || got[1] != GestureOwn {
+		t.Fatalf("the Strategy board draws %v, want remove, own", got)
 	}
 }

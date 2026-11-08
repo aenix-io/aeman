@@ -12,7 +12,7 @@ import (
 // out of the group by the ungroup gesture it takes that person with it
 // (S8), or it stands in Unassigned and on nobody's Me board, which from the
 // person who pulled it looks like the card vanishing. Dragged from its task
-// to an EPIC on the Roadmap it leaves the group the same way, and the
+// to an EPIC on the Strategy board it leaves the group the same way, and the
 // hand-over has to be the same.
 func TestASubtaskLeavingForAnEpicTakesItsTasksPerson(t *testing.T) {
 	ctx := WithActor(ctx, "kvaps")
@@ -46,7 +46,7 @@ func TestASubtaskLeavingForAnEpicTakesItsTasksPerson(t *testing.T) {
 // that card for review, it stands where the original stands and goes when
 // the original goes. It sits under nothing of its own — filed under an epic
 // it would count as one more task of the epic (done/total off by one) while
-// the Roadmap draws it beside the original it is a copy of.
+// the Strategy board draws it beside the original it is a copy of.
 func TestAReviewCardSitsUnderNothingOfItsOwn(t *testing.T) {
 	ctx := WithActor(ctx, "kvaps")
 	f := newFake([]board.Card{
@@ -63,7 +63,7 @@ func TestAReviewCardSitsUnderNothingOfItsOwn(t *testing.T) {
 }
 
 // A planning card is in no sprint (H3): its dates are its bar on the
-// Roadmap. Deferring one made today moved a SPRINT onto it, the "a card
+// Strategy. Deferring one made today moved a SPRINT onto it, the "a card
 // created today relocates fully" branch meant for a task — a sprint every
 // other door refuses on a planning card and the reading strips again.
 func TestDeferringAPlanningCardWritesNoSprint(t *testing.T) {

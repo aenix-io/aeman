@@ -27,7 +27,7 @@ export function onMyDay(
   today: string,
   place: (c: Card) => string = placerOf(board.cards ?? []),
 ): boolean {
-  // A planning card is the Roadmap's, not a person's day (H3).
+  // A planning card is the Strategy board's, not a person's day (H3).
   if (isPlanning(c)) {
     return false;
   }

@@ -62,7 +62,7 @@ direct writer left cyclic.
 - A card is LOCKED when it has at least one blocker. LOCKED is derived on
   every read and never written. It is independent of the manual
   `stage: locked`, which stays what it was (a person's stage).
-- LOCKED is a badge, not a work status: the Roadmap's status filter (O14)
+- LOCKED is a badge, not a work status: the Strategy board's status filter (O14)
   keeps reading placement for In progress, Backlog and Done, the plan
   roll-up (`status.hierarchy`) counts a locked task by its placement, and
   every board still lets the card be planned, moved and taken. The status
@@ -104,7 +104,7 @@ A dependency TARGET is for the customers of the work that waits for it:
   to the tasks under it.
 - Only readable cards pass customers on (the visible board, as O4's
   readable-ancestors rule): a hidden dependent passes nothing.
-- The customer filters (Roadmap O7/O14, day boards O11) read
+- The customer filters (Strategy O7/O14, day boards O11) read
   `effectiveCustomers`, so they include these.
 - Wire: `status.effectiveCustomers` includes them; `status.dependentCustomers`
   names the ones that arrive ONLY through a dependency, with where from:

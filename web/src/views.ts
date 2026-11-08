@@ -10,7 +10,7 @@ export type ViewName =
   | "me"
   | "team"
   | "backlog"
-  | "roadmap"
+  | "strategy"
   | "all";
 
 /** createView is the board a create belongs to: the one the reader is STANDING
@@ -32,14 +32,14 @@ export function createView(input: {
   type?: string | null;
   underPlanning?: boolean | null;
 }, standing?: ViewName): ViewName {
-  // A TYPE is the Roadmap's whole gesture: a goal, an initiative or an epic
+  // A TYPE is the Strategy board's whole gesture: a goal, an initiative or an epic
   // is a planning card, and no other board makes one (H7). A TASK born
   // under a planning card — the "add" in an epic's own pane — is the
-  // Roadmap's too: it is parked in the no-team backlog until somebody takes
+  // Strategy's too: it is parked in the no-team backlog until somebody takes
   // it into work (K3), and no day board would accept a create with no day
   // and a parent of that kind.
   if (input.type || input.underPlanning) {
-    return "roadmap";
+    return "strategy";
   }
   // Typed into a Backlog column, or born parked wherever it was typed: the
   // Backlog board's create — parked on its team, last.

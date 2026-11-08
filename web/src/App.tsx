@@ -8,12 +8,12 @@ import type { Board, Card as CardModel, SprintState } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { BacklogBoard } from "./components/BacklogBoard";
-import { RoadmapBoard } from "./components/RoadmapBoard";
+import { StrategyBoard } from "./components/StrategyBoard";
 import { cardIsGone, followFrame, followPatch, withoutDeleted } from "./detail";
 import { applyOrder, type OrderArg } from "./cardorder";
 import { insertedOrder, type Anchor } from "./backlogboard";
 import { presenceAfter, type PresenceMap } from "./presence";
-import { ROADMAP_FILTERS_KEY, sprintTeamOf, storeRoadmapFilters, storedRoadmapFilters, type RoadmapFilters } from "./ownership";
+import { STRATEGY_FILTERS_KEY, sprintTeamOf, storeStrategyFilters, storedStrategyFilters, type StrategyFilters } from "./ownership";
 import { TeamsModal } from "./components/TeamsModal";
 import { CustomersModal } from "./components/CustomersModal";
 import {
@@ -67,7 +67,7 @@ const LS_VIEW = "aeman.view";
 const LS_TEAM_FILTER = "aeman.teamFilter";
 // The Team board's and the Backlog's Customer filter (O11): one selection the
 // two share, as they share the team one with the Me board, which has no
-// Customer filter. The Roadmap keeps its own (ROADMAP_FILTERS_KEY).
+// Customer filter. The Strategy board keeps its own (STRATEGY_FILTERS_KEY).
 const LS_CUSTOMER_FILTER = "aeman.customerFilter";
 const LS_VIEW_AS = "aeman.viewAs";
 
@@ -315,13 +315,13 @@ export function App() {
     pendingCard.current = null;
     setView(v);
   };
-  // A card the Roadmap is asked to REVEAL — a breadcrumb followed from a
+  // A card the Strategy board is asked to REVEAL — a breadcrumb followed from a
   // detail pane: the tab switches and the row is unfolded and marked.
-  const [roadmapFocus, setRoadmapFocus] = useState<string | null>(null);
-  const revealOnRoadmap = (uid: string) => {
+  const [strategyFocus, setStrategyFocus] = useState<string | null>(null);
+  const revealOnStrategy = (uid: string) => {
     closeDetail();
-    setRoadmapFocus(uid);
-    chooseView("roadmap");
+    setStrategyFocus(uid);
+    chooseView("strategy");
   };
 
   // Teams are the server's (board.teams). The only team state here is the
@@ -347,22 +347,22 @@ export function App() {
       // a preference, not state
     }
   }, []);
-  // The Roadmap's Team, Customer and Owner filters (ownership.md, O7, O8):
+  // The Strategy board's Team, Customer and Owner filters (ownership.md, O7, O8):
   // the listing's selectors; remembered per viewer.
-  const [roadmapFilters, setRoadmapFiltersState] = useState<RoadmapFilters>(() => {
+  const [strategyFilters, setStrategyFiltersState] = useState<StrategyFilters>(() => {
     try {
-      return storedRoadmapFilters(localStorage.getItem(ROADMAP_FILTERS_KEY));
+      return storedStrategyFilters(localStorage.getItem(STRATEGY_FILTERS_KEY));
     } catch {
-      return storedRoadmapFilters(null);
+      return storedStrategyFilters(null);
     }
   });
-  const setRoadmapFilters = useCallback((next: RoadmapFilters) => {
+  const setStrategyFilters = useCallback((next: StrategyFilters) => {
     // Another filter is another question: what was made under the last one
     // is no longer kept drawn (justmade.ts, staysOnLeave).
     forgetMade();
-    setRoadmapFiltersState(next);
+    setStrategyFiltersState(next);
     try {
-      localStorage.setItem(ROADMAP_FILTERS_KEY, storeRoadmapFilters(next));
+      localStorage.setItem(STRATEGY_FILTERS_KEY, storeStrategyFilters(next));
     } catch {
       // a preference, not state
     }
@@ -803,9 +803,9 @@ export function App() {
         teamFilter ?? [...new Set([...roster, ""])],
         viewAs ?? undefined,
         undefined,
-        { filters: roadmapFilters, customers: customerFilter },
+        { filters: strategyFilters, customers: customerFilter },
       ),
-    [view, selectedDate, teamFilter, roster, viewAs, roadmapFilters, customerFilter],
+    [view, selectedDate, teamFilter, roster, viewAs, strategyFilters, customerFilter],
   );
   const activeKey = activeQueries.map(queryString).join("|");
   // Which BOARD the reader is standing on, for the gestures made on it: the ×,
@@ -847,9 +847,9 @@ export function App() {
         selectedDate,
         teamFilter ?? [...new Set([...roster, ""])],
         viewAs ?? undefined,
-        { filters: roadmapFilters, customers: customerFilter },
+        { filters: strategyFilters, customers: customerFilter },
       ).map(queryString),
-    [view, selectedDate, teamFilter, roster, viewAs, roadmapFilters, customerFilter],
+    [view, selectedDate, teamFilter, roster, viewAs, strategyFilters, customerFilter],
   );
   // One string for the watch effect's dep: the sockets are rebuilt only when
   // the selections actually change.
@@ -1376,7 +1376,7 @@ export function App() {
       if (frame.kind === "Ordering") {
         reorderCards(frame.object.spec.uids);
         // The whole board's order: what the Backlog sorts by (K14) — a plan
-        // item moved on the Roadmap takes its tasks with it.
+        // item moved on the Strategy board takes its tasks with it.
         const uids = frame.object.spec.uids;
         setBoard((cur) => (cur?.boardOrder ? { ...cur, boardOrder: uids } : cur));
         return;
@@ -1588,7 +1588,7 @@ export function App() {
         {/* The day belongs to the app, not to a board: it is the same value
             whichever day board is open, so the control that moves it stands
             with the view tabs rather than being drawn again inside each. The
-            boards that are not of a day (Backlog, Roadmap) have no
+            boards that are not of a day (Backlog, Strategy) have no
             day to show. */}
         {(view === "me" || view === "team") && (
           <DayNav
@@ -1669,11 +1669,11 @@ export function App() {
           <button
             type="button"
             role="tab"
-            aria-selected={view === "roadmap"}
-            className={`segment${view === "roadmap" ? " segment-active" : ""}`}
-            onClick={() => chooseView("roadmap")}
+            aria-selected={view === "strategy"}
+            className={`segment${view === "strategy" ? " segment-active" : ""}`}
+            onClick={() => chooseView("strategy")}
           >
-            Roadmap
+            Strategy
           </button>
         </div>
       </div>
@@ -1712,8 +1712,8 @@ export function App() {
             presence={presence}
           />
         )}
-        {board && view === "roadmap" && (
-          <RoadmapBoard
+        {board && view === "strategy" && (
+          <StrategyBoard
             board={board}
             provider={provider}
             roster={roster}
@@ -1727,10 +1727,10 @@ export function App() {
             reload={reload}
             onError={onError}
             onOpen={openCard}
-            focusId={roadmapFocus}
-            onFocused={() => setRoadmapFocus(null)}
-            filters={roadmapFilters}
-            onFilters={setRoadmapFilters}
+            focusId={strategyFocus}
+            onFocused={() => setStrategyFocus(null)}
+            filters={strategyFilters}
+            onFilters={setStrategyFilters}
             onManageTeams={() => setManagingTeams(true)}
             onManageCustomers={() => setManagingCustomers(true)}
           />
@@ -1835,7 +1835,7 @@ export function App() {
           patchCard={patchCard}
           addCard={addCard}
           removeCard={removeCard}
-          onReveal={revealOnRoadmap}
+          onReveal={revealOnStrategy}
           onOpenCard={openWithin}
           onBack={detailStack.length > 0 ? backInDetail : undefined}
           subscribeCardFrames={subscribeCardFrames}

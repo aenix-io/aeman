@@ -7,13 +7,13 @@ import {
   placedTeamOf,
   placerOf,
   sprintTeamOf,
-  roadmapOwnerCell,
+  strategyOwnerCell,
   effectiveCustomersOf,
   effectiveTeamOf,
   inheritedTeamOf,
   ownerFilterOptions,
-  storedRoadmapFilters,
-  storeRoadmapFilters,
+  storedStrategyFilters,
+  storeStrategyFilters,
 } from "./ownership";
 import type { Card } from "./providers/types";
 import { HIDE_DONE } from "./workstatus";
@@ -115,24 +115,24 @@ describe("the customer chips", () => {
   });
 });
 
-// The Roadmap's filters are remembered per viewer: what was stored reads
+// The Strategy board's filters are remembered per viewer: what was stored reads
 // back, and anything else is no filter.
-describe("the remembered Roadmap filters", () => {
+describe("the remembered Strategy filters", () => {
   it("reads back what was stored, and nothing else", () => {
-    expect(storedRoadmapFilters('{"v":2,"teams":["portal"],"customers":["acme"],"owners":["ann"],"statuses":["backlog","in-progress"]}')).toEqual({
+    expect(storedStrategyFilters('{"v":2,"teams":["portal"],"customers":["acme"],"owners":["ann"],"statuses":["backlog","in-progress"]}')).toEqual({
       teams: ["portal"],
       customers: ["acme"],
       owners: ["ann"],
       statuses: ["backlog", "in-progress"],
     });
     // A choice remembered before the Status filter existed reads with none.
-    expect(storedRoadmapFilters('{"teams":["portal"],"customers":[],"owners":[]}').statuses).toEqual([]);
+    expect(storedStrategyFilters('{"teams":["portal"],"customers":[],"owners":[]}').statuses).toEqual([]);
     // A status this client does not know is no filter, not a filter on nothing.
-    expect(storedRoadmapFilters('{"statuses":["in-progress","later"]}').statuses).toEqual(["in-progress"]);
+    expect(storedStrategyFilters('{"statuses":["in-progress","later"]}').statuses).toEqual(["in-progress"]);
     // The new values read back like the old.
-    expect(storedRoadmapFilters('{"v":2,"statuses":["locked","no-items"]}').statuses).toEqual(["locked", "no-items"]);
-    expect(storedRoadmapFilters(null)).toEqual({ teams: [], customers: [], owners: [], statuses: [] });
-    expect(storedRoadmapFilters("not json")).toEqual({ teams: [], customers: [], owners: [], statuses: [] });
+    expect(storedStrategyFilters('{"v":2,"statuses":["locked","no-items"]}').statuses).toEqual(["locked", "no-items"]);
+    expect(storedStrategyFilters(null)).toEqual({ teams: [], customers: [], owners: [], statuses: [] });
+    expect(storedStrategyFilters("not json")).toEqual({ teams: [], customers: [], owners: [], statuses: [] });
   });
 });
 
@@ -143,28 +143,28 @@ describe("the remembered Roadmap filters", () => {
 // pair included.
 describe("a Hide done remembered from before Locked and No items", () => {
   it("reads back as today's Hide done", () => {
-    expect(storedRoadmapFilters('{"teams":["portal"],"customers":[],"owners":[],"statuses":["backlog","in-progress"]}')).toEqual({
+    expect(storedStrategyFilters('{"teams":["portal"],"customers":[],"owners":[],"statuses":["backlog","in-progress"]}')).toEqual({
       teams: ["portal"],
       customers: [],
       owners: [],
       statuses: [...HIDE_DONE],
     });
-    expect(storedRoadmapFilters('{"statuses":["in-progress","backlog"]}').statuses).toEqual([...HIDE_DONE]);
+    expect(storedStrategyFilters('{"statuses":["in-progress","backlog"]}').statuses).toEqual([...HIDE_DONE]);
   });
   it("leaves any other old choice, and every versioned one, as it was", () => {
-    expect(storedRoadmapFilters('{"statuses":["in-progress"]}').statuses).toEqual(["in-progress"]);
-    expect(storedRoadmapFilters('{"statuses":["backlog","done","in-progress"]}').statuses).toEqual(["backlog", "done", "in-progress"]);
-    expect(storedRoadmapFilters('{"v":2,"statuses":["backlog","in-progress"]}').statuses).toEqual(["backlog", "in-progress"]);
+    expect(storedStrategyFilters('{"statuses":["in-progress"]}').statuses).toEqual(["in-progress"]);
+    expect(storedStrategyFilters('{"statuses":["backlog","done","in-progress"]}').statuses).toEqual(["backlog", "done", "in-progress"]);
+    expect(storedStrategyFilters('{"v":2,"statuses":["backlog","in-progress"]}').statuses).toEqual(["backlog", "in-progress"]);
   });
   it("is stored versioned, and reads back unchanged", () => {
     const f = { teams: ["ops"], customers: [], owners: ["ann"], statuses: ["backlog", "in-progress"] };
-    const raw = storeRoadmapFilters(f);
+    const raw = storeStrategyFilters(f);
     expect(JSON.parse(raw)).toMatchObject({ v: 2 });
-    expect(storedRoadmapFilters(raw)).toEqual(f);
+    expect(storedStrategyFilters(raw)).toEqual(f);
   });
 });
 
-// O8 — the Owner filter is the Roadmap's one person filter: it offers the
+// O8 — the Owner filter is the Strategy board's one person filter: it offers the
 // board's people, every plan item's owner, every task's assignee and
 // whoever is already chosen (a person who left the board stays choosable to
 // be taken off), once each, sorted.
@@ -177,7 +177,7 @@ describe("the owner filter's options", () => {
     expect(ownerFilterOptions(["ann", "carl"], held, ["zed"])).toEqual(["ann", "bob", "carl", "gwen", "zed"]);
   });
 
-  // The listing a filtered Roadmap holds is the filter's answer, so the
+  // The listing a filtered Strategy holds is the filter's answer, so the
   // people on it shrink to the ones chosen; the options must not shrink with
   // it, or the filter could only ever be narrowed.
   it("keep the people the board has shown before, though the filtered listing no longer holds them", () => {
@@ -204,31 +204,31 @@ describe("the day boards' customer filter", () => {
   });
 });
 
-// O3 on the Roadmap's Owner column: a card with no team of its own shows the
+// O3 on the Strategy board's Owner column: a card with no team of its own shows the
 // team it takes from above, greyed, saying where from — the drawer's
 // inherited value. A task someone holds, or one with its own team, shows
 // what it has; a plan item's owner is its own only (O2), never inherited.
-describe("the Roadmap's Owner cell", () => {
+describe("the Strategy board's Owner cell", () => {
   it("shows a task's inherited team when it has no team and nobody", () => {
     const loose = card({ itemId: "x", title: "Task", parent: "e" });
-    expect(roadmapOwnerCell(loose, [...cards, loose], false)).toEqual({ owner: { team: "portal", person: "" }, from: "Grow" });
+    expect(strategyOwnerCell(loose, [...cards, loose], false)).toEqual({ owner: { team: "portal", person: "" }, from: "Grow" });
   });
 
   it("keeps a task's own team or person as they are", () => {
-    expect(roadmapOwnerCell(cards[3], cards, false)).toEqual({ owner: { team: "cozystack", person: "" } });
+    expect(strategyOwnerCell(cards[3], cards, false)).toEqual({ owner: { team: "cozystack", person: "" } });
     const held = card({ itemId: "h", parent: "e", assignees: ["ann"] });
-    expect(roadmapOwnerCell(held, [...cards, held], false)).toEqual({ owner: { team: "", person: "ann" } });
+    expect(strategyOwnerCell(held, [...cards, held], false)).toEqual({ owner: { team: "", person: "ann" } });
   });
 
   it("shows a plan item's inherited team beside its own owner, never an inherited owner", () => {
     const epic = card({ ...cards[1], owner: "bob" });
-    expect(roadmapOwnerCell(epic, cards, true)).toEqual({ owner: { team: "portal", person: "bob" }, from: "Grow" });
-    expect(roadmapOwnerCell(cards[0], cards, true)).toEqual({ owner: { team: "portal", person: "" } });
+    expect(strategyOwnerCell(epic, cards, true)).toEqual({ owner: { team: "portal", person: "bob" }, from: "Grow" });
+    expect(strategyOwnerCell(cards[0], cards, true)).toEqual({ owner: { team: "portal", person: "" } });
   });
 
   it("falls back to the server's effective team when the ancestors are not held", () => {
     const lonely = card({ itemId: "l", parent: "gone", effectiveTeam: "ops" });
-    expect(roadmapOwnerCell(lonely, cards, false)).toEqual({ owner: { team: "ops", person: "" }, from: "" });
+    expect(strategyOwnerCell(lonely, cards, false)).toEqual({ owner: { team: "ops", person: "" }, from: "" });
   });
 });
 

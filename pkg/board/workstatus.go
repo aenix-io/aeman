@@ -1,6 +1,6 @@
 package board
 
-// The work statuses the Roadmap's status filter reads (O14). Mirrored by
+// The work statuses the Strategy board's status filter reads (O14). Mirrored by
 // workStatus in web/src/workstatus.ts; both read testdata/work_status.json.
 const (
 	WorkStatusInProgress = "in-progress"
@@ -38,7 +38,7 @@ func ValidWorkStatus(s string) bool {
 	return false
 }
 
-// The values the Roadmap's status filter takes beyond the work statuses
+// The values the Strategy board's status filter takes beyond the work statuses
 // (O14): a card a dependency holds (the derived lock, N3 — status.locked,
 // never the manual stage) and a planning card with nothing under it (its
 // roll-up is HierarchyNoItems). Mirrored by web/src/workstatus.ts.

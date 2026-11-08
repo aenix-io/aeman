@@ -18,7 +18,7 @@ import (
 
 // boardStand is where a gesture is made from.
 type boardStand struct {
-	View string `json:"view,omitempty" jsonschema:"the BOARD you are acting from, when you are acting AS one: me (your own day board), team (the lead's grid — say team too), backlog (a team's ranked parked tasks — say team too), roadmap (the hierarchy: goals, initiatives, epics and the cards under them), or all when you have no board at all. Left out, nothing is assumed — you are not standing anywhere. Naming a board is how you ask to be held to it: a gesture that board does not draw, or one on a card it does not show, is then refused the way it would be refused of a person looking at that screen"`
+	View string `json:"view,omitempty" jsonschema:"the BOARD you are acting from, when you are acting AS one: me (your own day board), team (the lead's grid — say team too), backlog (a team's ranked parked tasks — say team too), strategy (the hierarchy: goals, initiatives, epics and the cards under them), or all when you have no board at all. Left out, nothing is assumed — you are not standing anywhere. Naming a board is how you ask to be held to it: a gesture that board does not draw, or one on a card it does not show, is then refused the way it would be refused of a person looking at that screen"`
 	Team string `json:"team,omitempty" jsonschema:"the team whose board you are acting from (team and backlog); the card's own team by default"`
 	Day  string `json:"day,omitempty" jsonschema:"the day of the day board you are acting from; today by default"`
 	User string `json:"user,omitempty" jsonschema:"whose me board you are acting from; yourself by default"`
@@ -68,7 +68,7 @@ func (h *server) gestureOn(ctx context.Context, svc *boardservice.Service, board
 		}
 	}
 	// The card's own team, but only where the LISTING names one: the Me board
-	// and the Roadmap list every team, so filling it there would ask a
+	// and the Strategy board list every team, so filling it there would ask a
 	// stricter question than the board answered (board.ScopedByTeam,
 	// which is the same fact both doors read rather than two copies of it).
 	if sel.Team == "" && board.ScopedByTeam(view) {
@@ -151,7 +151,7 @@ func (h *server) takeCard(ctx context.Context, _ *mcp.CallToolRequest, in standO
 	return h.cardResource(ctx, svc, boardID, in.UID)
 }
 
-// --- The Roadmap's status menu (K16) --------------------------------------
+// --- The Strategy board's status menu (K16) --------------------------------------
 
 type unassignWorkInput struct {
 	cardRef

@@ -54,13 +54,13 @@ import {
   type RowBox,
   type HierarchyChoice,
   type Placement,
-  type RoadmapKind,
+  type StrategyKind,
   type Row,
   type Zoom,
   writeDrop,
-  roadmapLines,
-  type RoadmapLine,
-} from "../roadmap";
+  strategyLines,
+  type StrategyLine,
+} from "../strategy";
 import { barColor } from "../stages";
 import { FilterSelect } from "./FilterSelect";
 import { HIDE_DONE, STATUS_FILTERS, STATUS_LABELS } from "../workstatus";
@@ -68,7 +68,7 @@ import { customerOptions, teamOptions } from "../filteroptions";
 import {
   COLUMN_MAX,
   COLUMN_MINS,
-  ROADMAP_COLUMNS_KEY,
+  STRATEGY_COLUMNS_KEY,
   columnVars,
   draggedWidths,
   resetColumn,
@@ -76,9 +76,9 @@ import {
   steppedWidth,
   storedColumns,
   type ColumnWidths,
-  type RoadmapColumn,
-} from "../roadmapcolumns";
-import { NO_ROADMAP_FILTERS, ownerFilterOptions, peopleOf, roadmapOwnerCell, type RoadmapFilters } from "../ownership";
+  type StrategyColumn,
+} from "../strategycolumns";
+import { NO_STRATEGY_FILTERS, ownerFilterOptions, peopleOf, strategyOwnerCell, type StrategyFilters } from "../ownership";
 import { isPlanning } from "../subtasks";
 import { ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
 import { type Avatars, type Names } from "../users";
@@ -89,17 +89,17 @@ import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { Dropdown } from "./Dropdown";
 
-// The Roadmap: the hierarchy as a tree of rows on the left and a timeline
+// The Strategy board: the hierarchy as a tree of rows on the left and a timeline
 // of bars on the right, one row per card from a goal down to a subtask
-// (docs/design/hierarchy.md, "The Roadmap tab"). What a row IS, which rows a
+// (docs/design/hierarchy.md, "The Strategy board tab"). What a row IS, which rows a
 // depth range draws, what a row's status is, where its bar lands, and what
-// a drag may do are roadmap.ts's answers; this component draws them and
+// a drag may do are strategy.ts's answers; this component draws them and
 // makes the board's gestures — a create under a row, its ×, and the drag.
 
-interface RoadmapBoardProps {
+interface StrategyBoardProps {
   board: Board;
   provider: Provider;
-  /** The board's teams: what the Owner column offers. The Roadmap filters by
+  /** The board's teams: what the Owner column offers. The Strategy board filters by
    *  nobody's team, since a planning card has none. */
   roster: string[];
   avatars?: Avatars;
@@ -119,17 +119,17 @@ interface RoadmapBoardProps {
   onFocused?: () => void;
   /** The Team, Customer and Owner filters (ownership.md, O7, O8): the
    *  listing's selectors, held and remembered by the app. */
-  filters: RoadmapFilters;
-  onFilters: (next: RoadmapFilters) => void;
+  filters: StrategyFilters;
+  onFilters: (next: StrategyFilters) => void;
   /** Open the team and customer rosters' dialogs, from the bottom of the
    *  Team and Customer filters. */
   onManageTeams?: () => void;
   onManageCustomers?: () => void;
 }
 
-const LS_DEPTH = "aeman.roadmap.depth";
-const LS_ZOOM = "aeman.roadmap.zoom";
-const LS_FOLDED = "aeman.roadmap.folded";
+const LS_DEPTH = "aeman.strategy.depth";
+const LS_ZOOM = "aeman.strategy.zoom";
+const LS_FOLDED = "aeman.strategy.folded";
 
 /** HEAD_PX is the height of the table's head; a row's (ROW_PX) and one
  *  level of the tree (INDENT_PX) are PlanTree's, shared with the drawer. */
@@ -166,8 +166,8 @@ function readDepth(): DepthRange {
     const raw = localStorage.getItem(LS_DEPTH);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<DepthRange>;
-      if (LEVELS.includes(parsed.from as RoadmapKind) && LEVELS.includes(parsed.to as RoadmapKind)) {
-        return { from: parsed.from as RoadmapKind, to: parsed.to as RoadmapKind };
+      if (LEVELS.includes(parsed.from as StrategyKind) && LEVELS.includes(parsed.to as StrategyKind)) {
+        return { from: parsed.from as StrategyKind, to: parsed.to as StrategyKind };
       }
     }
   } catch {
@@ -203,10 +203,10 @@ const errText = (err: unknown) => (err instanceof Error ? err.message : String(e
 /** A row line of the table: a row of the tree or of a section (the other
  *  line is a section's header). The timeline draws a lane per line, so the
  *  two panes stay in step whatever stands between the rows. */
-type RowLine = Extract<RoadmapLine, { kind: "row" }>;
+type RowLine = Extract<StrategyLine, { kind: "row" }>;
 
 /** Hover is where the drag stands: the row and zone under the pointer
- *  (roadmap.dropTargetAt), the placement that reads as, and whether the
+ *  (strategy.dropTargetAt), the placement that reads as, and whether the
  *  level rule allows it. */
 interface Hover {
   target: DropTarget;
@@ -244,22 +244,22 @@ interface RowProps {
   rowRef: (el: HTMLDivElement | null) => void;
 }
 
-/** RoadmapRow is one line of the table: draggable, and the row's own
+/** StrategyRow is one line of the table: draggable, and the row's own
  *  controls. The tree is drawn by indent guides and a chevron with a hand's
  *  worth of hit area, the kind by its pictogram. While a drag runs the rows
  *  stay where they are — the dragged rows dimmed in place — and where it
- *  would land is a mark over the row (roadmap.dropMark). */
-function RoadmapRow({ row, today, open, focus, ghost, forbid, mark, dragging, onToggle, onOpen, onAdd, onRemove, owner, onStatus, menuOpen, rowRef }: RowProps) {
+ *  would land is a mark over the row (strategy.dropMark). */
+function StrategyRow({ row, today, open, focus, ghost, forbid, mark, dragging, onToggle, onOpen, onAdd, onRemove, owner, onStatus, menuOpen, rowRef }: RowProps) {
   const card = row.node.card;
   const id = card.itemId;
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id });
   const cls = [
-    "roadmap-row",
-    focus ? "roadmap-row-focus" : "",
-    ghost || isDragging ? "roadmap-row-ghost" : "",
-    forbid ? "roadmap-row-forbid" : "",
-    mark ? `roadmap-row-drop-${mark.edge}` : "",
-    dragging ? "roadmap-row-while-drag" : "",
+    "strategy-row",
+    focus ? "strategy-row-focus" : "",
+    ghost || isDragging ? "strategy-row-ghost" : "",
+    forbid ? "strategy-row-forbid" : "",
+    mark ? `strategy-row-drop-${mark.edge}` : "",
+    dragging ? "strategy-row-while-drag" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -276,10 +276,10 @@ function RoadmapRow({ row, today, open, focus, ghost, forbid, mark, dragging, on
       {...listeners}
     >
       <TreeTitle row={row} open={open} onToggle={onToggle} onAdd={onAdd} onRemove={onRemove} />
-      <span className="roadmap-cell roadmap-cell-owner">{owner}</span>
-      <span className="roadmap-cell roadmap-cell-date">{shortDate(card.startDate, today)}</span>
-      <span className="roadmap-cell roadmap-cell-date">{shortDate(card.day, today)}</span>
-      <span className="roadmap-cell roadmap-cell-status">
+      <span className="strategy-cell strategy-cell-owner">{owner}</span>
+      <span className="strategy-cell strategy-cell-date">{shortDate(card.startDate, today)}</span>
+      <span className="strategy-cell strategy-cell-date">{shortDate(card.day, today)}</span>
+      <span className="strategy-cell strategy-cell-status">
         <StatusPill card={card} onMenu={onStatus ?? undefined} expanded={menuOpen} />
       </span>
     </div>
@@ -289,7 +289,7 @@ function RoadmapRow({ row, today, open, focus, ghost, forbid, mark, dragging, on
 /** OwnerCell is what a task row shows in its Owner column: the owner badge
  *  (the team's avatar, the person's over it, one label) — and the picker
  *  behind it. */
-/** ColumnHandle is one boundary of the table's header (roadmapcolumns.ts):
+/** ColumnHandle is one boundary of the table's header (strategycolumns.ts):
  *  a pointer drag sizes the column on its left — the last one, the table
  *  against the timeline — a double-click puts it back, and the arrow keys
  *  step it on a focused handle. While a drag runs only the board's CSS
@@ -301,7 +301,7 @@ function ColumnHandle({
   onLive,
   onCommit,
 }: {
-  col: RoadmapColumn;
+  col: StrategyColumn;
   widths: ColumnWidths;
   label: string;
   onLive: (next: ColumnWidths) => void;
@@ -344,7 +344,7 @@ function ColumnHandle({
   };
   return (
     <span
-      className="roadmap-col-handle"
+      className="strategy-col-handle"
       role="separator"
       aria-orientation="vertical"
       aria-label={label}
@@ -373,7 +373,7 @@ function ColumnHandle({
   );
 }
 
-export function RoadmapBoard({
+export function StrategyBoard({
   board,
   provider,
   roster,
@@ -393,15 +393,15 @@ export function RoadmapBoard({
   onFilters,
   onManageTeams,
   onManageCustomers,
-}: RoadmapBoardProps) {
+}: StrategyBoardProps) {
   const today = todayIso();
-  // The table's column widths (roadmapcolumns.ts), the reader's own. A drag
+  // The table's column widths (strategycolumns.ts), the reader's own. A drag
   // moves only the CSS variables on the board (rootRef); the state and the
   // remembered value follow when it ends.
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [widths, setWidthsState] = useState<ColumnWidths>(() => {
     try {
-      return storedColumns(localStorage.getItem(ROADMAP_COLUMNS_KEY));
+      return storedColumns(localStorage.getItem(STRATEGY_COLUMNS_KEY));
     } catch {
       return storedColumns(null);
     }
@@ -419,12 +419,12 @@ export function RoadmapBoard({
     liveWidths(next);
     setWidthsState(next);
     try {
-      localStorage.setItem(ROADMAP_COLUMNS_KEY, JSON.stringify(next));
+      localStorage.setItem(STRATEGY_COLUMNS_KEY, JSON.stringify(next));
     } catch {
       // a preference, not state
     }
   };
-  const handle = (col: RoadmapColumn, label: string) => (
+  const handle = (col: StrategyColumn, label: string) => (
     <ColumnHandle col={col} widths={widths} label={label} onLive={liveWidths} onCommit={commitWidths} />
   );
   const [depth, setDepthState] = useState<DepthRange>(readDepth);
@@ -469,7 +469,7 @@ export function RoadmapBoard({
     setFolded(next);
   };
 
-  // Whom the Owner filter offers — the Roadmap's one person filter (O8):
+  // Whom the Owner filter offers — the Strategy board's one person filter (O8):
   // the board's people, the plan items' owners, the tasks' assignees and
   // whoever is chosen. The filters are the server's (O7, O8), so what was
   // sent is what is drawn.
@@ -492,8 +492,8 @@ export function RoadmapBoard({
   const justDropped = useRef(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   // The tree's rows as they stand during the drag, in the list's content
-  // frame (roadmap.boxesInContent) — what every reading of the drag is made
-  // against (roadmap.dropTargetAt). Nothing the drag draws moves a row, so
+  // frame (strategy.boxesInContent) — what every reading of the drag is made
+  // against (strategy.dropTargetAt). Nothing the drag draws moves a row, so
   // the snapshot is the list the reader sees; it is re-taken when the rows
   // themselves change under the drag (a watch frame), in the same frame.
   const boxes = useRef<RowBox[] | null>(null);
@@ -509,9 +509,9 @@ export function RoadmapBoard({
   const scrolled = () => (bodyRef.current?.scrollTop ?? 0) + window.scrollY;
 
   const expanded = (id: string) => !folded.has(id);
-  // The lines of the table (roadmap.roadmapLines), keyed on everything that
+  // The lines of the table (strategy.strategyLines), keyed on everything that
   // decides them. What arrives is what is drawn.
-  const shownLines = useMemo(() => roadmapLines(shown, { depth, expanded }), [shown, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shownLines = useMemo(() => strategyLines(shown, { depth, expanded }), [shown, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
   // The tree's rows alone, which is what a drop is read against: a section
   // row is dropped on by nothing.
   const baseRows = useMemo(() => shownLines.filter((l) => l.kind === "row" && l.section === "tree").map((l) => (l as RowLine).row), [shownLines]);
@@ -610,7 +610,7 @@ export function RoadmapBoard({
     }
     const commit = dropCommit(shown, id, h.placement);
     const before = { parent: card.parent, lineage: card.lineage };
-    // Shown at once, filter or no filter (roadmap.dropShown): the watch
+    // Shown at once, filter or no filter (strategy.dropShown): the watch
     // does not echo this tab's own move, so nothing else would show it.
     const now = dropShown(shown, id, h.placement);
     if (now.patch) {
@@ -661,7 +661,7 @@ export function RoadmapBoard({
     // Unfolding is a preference write, not a dependency of the reveal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusId, board.cards]);
-  // The followed row is scrolled to ONCE (roadmap.revealStep): it stays
+  // The followed row is scrolled to ONCE (strategy.revealStep): it stays
   // marked, but a later change of the rows — a watch frame, a drop — does
   // not pull the list back to it, and nothing scrolls while a drag runs.
   useEffect(() => {
@@ -764,10 +764,10 @@ export function RoadmapBoard({
         onError(errText(err));
       });
   };
-  const ownerCell = (card: CardModel, kind: RoadmapKind) => {
+  const ownerCell = (card: CardModel, kind: StrategyKind) => {
     if (kind === "goal" || kind === "initiative" || kind === "epic") {
       const owner = planOwnerOf(card);
-      const shown = roadmapOwnerCell(card, board.cards, true);
+      const shown = strategyOwnerCell(card, board.cards, true);
       return (
         <OwnerPicker
           planning
@@ -788,7 +788,7 @@ export function RoadmapBoard({
       return null;
     }
     const owner = ownerOf(card);
-    const shown = roadmapOwnerCell(card, board.cards, false);
+    const shown = strategyOwnerCell(card, board.cards, false);
     const cell = <OwnerCell owner={shown.owner} from={shown.from} avatars={avatars} names={names} />;
     // A subtask's owner is its task's (the server cascades it); the cell
     // reads and does not offer the menu.
@@ -816,13 +816,13 @@ export function RoadmapBoard({
 
   // ---- the badge menu: UNASSIGNED (K16) ----
   // The badge of a task or a plan item opens it; what each answer reaches is
-  // roadmap.statusMenu's, applied at once and settled by the server's answer.
+  // strategy.statusMenu's, applied at once and settled by the server's answer.
   const [statusFor, setStatusFor] = useState<CardModel | null>(null);
   const statusAnchor = useRef<HTMLElement | null>(null);
   const [unassigning, setUnassigning] = useState<{ card: CardModel; uids: string[] } | null>(null);
   const menu = statusFor ? statusMenu(board.cards, statusFor) : null;
   // A status gesture is shown at once — the tasks it reaches and the plan
-  // items above them, re-rolled-up (roadmap.rolledUpAfter) — then settled by
+  // items above them, re-rolled-up (strategy.rolledUpAfter) — then settled by
   // the server's answer, which names the tasks it changed as they stand now:
   // the watch does not echo the tab's own write. A refusal puts back what
   // was there.
@@ -903,19 +903,19 @@ export function RoadmapBoard({
     return (
       <div
         key={card.itemId}
-        className={`roadmap-lane${ghosts.has(card.itemId) ? " roadmap-lane-ghost" : ""}`}
+        className={`strategy-lane${ghosts.has(card.itemId) ? " strategy-lane-ghost" : ""}`}
         style={{ height: ROW_PX }}
         onClick={() => onOpen(card)}
       >
         {placed && bar && (
           <div
             className={[
-              "roadmap-bar",
-              `roadmap-bar-${r.node.kind}`,
-              done ? "roadmap-bar-done" : "",
-              bar.point ? "roadmap-bar-point" : "",
-              placed.clippedLeft ? "roadmap-bar-clip-l" : "",
-              placed.clippedRight ? "roadmap-bar-clip-r" : "",
+              "strategy-bar",
+              `strategy-bar-${r.node.kind}`,
+              done ? "strategy-bar-done" : "",
+              bar.point ? "strategy-bar-point" : "",
+              placed.clippedLeft ? "strategy-bar-clip-l" : "",
+              placed.clippedRight ? "strategy-bar-clip-r" : "",
             ]
               .filter(Boolean)
               .join(" ")}
@@ -941,7 +941,7 @@ export function RoadmapBoard({
   const rootLevels: CardType[] = ["goal", "initiative", "epic"];
   const rootInitial: CardType = rootLevels.includes(depth.from as CardType) ? (depth.from as CardType) : "goal";
   const addRoot = (
-    <div className="roadmap-row roadmap-row-form roadmap-row-addroot" style={{ minHeight: ROW_PX }}>
+    <div className="strategy-row strategy-row-form strategy-row-addroot" style={{ minHeight: ROW_PX }}>
       <AddCard
         placeholder="Add a goal, an initiative or an epic…"
         forcedTeam={null}
@@ -958,27 +958,27 @@ export function RoadmapBoard({
   const addRootAt = firstSection < 0 ? shownLines.length : firstSection;
 
   return (
-    <div className="roadmap" ref={rootRef} style={columnVars(widths) as CSSProperties}>
-      <div className="board-toolbar roadmap-toolbar">
-        <label className="roadmap-depth">
-          <span className="roadmap-depth-label">Hierarchy</span>
+    <div className="strategy" ref={rootRef} style={columnVars(widths) as CSSProperties}>
+      <div className="board-toolbar strategy-toolbar">
+        <label className="strategy-depth">
+          <span className="strategy-depth-label">Hierarchy</span>
           <select
             value={depth.from}
-            onChange={(e) => setDepth({ ...depth, from: e.target.value as RoadmapKind })}
+            onChange={(e) => setDepth({ ...depth, from: e.target.value as StrategyKind })}
             aria-label="From level"
           >
             {levelOptions()}
           </select>
-          <span className="roadmap-depth-to">to</span>
+          <span className="strategy-depth-to">to</span>
           <select
             value={depth.to}
-            onChange={(e) => setDepth({ ...depth, to: e.target.value as RoadmapKind })}
+            onChange={(e) => setDepth({ ...depth, to: e.target.value as StrategyKind })}
             aria-label="To level"
           >
             {levelOptions()}
           </select>
         </label>
-        <div className="segmented roadmap-zoom" role="group" aria-label="Zoom">
+        <div className="segmented strategy-zoom" role="group" aria-label="Zoom">
           {(["3m", "1y", "fit"] as Zoom[]).map((z) => (
             <button
               key={z}
@@ -990,7 +990,7 @@ export function RoadmapBoard({
             </button>
           ))}
         </div>
-        <span className="roadmap-range" title="The window the timeline shows">
+        <span className="strategy-range" title="The window the timeline shows">
           {shortDate(range.from, today)} – {shortDate(range.to, today)}
         </span>
         {/* What the plan is for, who carries it out, who answers for it
@@ -1036,16 +1036,16 @@ export function RoadmapBoard({
 
       {shownLines.length === 0 ? (
         <>
-        <p className="placeholder roadmap-empty">
+        <p className="placeholder strategy-empty">
           {filtering ? (
             <>
               {board.cards.length === 0 ? "Nothing matches the filters." : "Nothing to draw at this depth and filter."}{" "}
-              <button type="button" className="btn roadmap-clear-filters" onClick={() => onFilters(NO_ROADMAP_FILTERS)}>
+              <button type="button" className="btn strategy-clear-filters" onClick={() => onFilters(NO_STRATEGY_FILTERS)}>
                 Clear the filters
               </button>
             </>
           ) : board.cards.length === 0 ? (
-            "Nothing on the roadmap yet: add a goal, an initiative or an epic, and file work under it from a card's pane."
+            "Nothing on the Strategy board yet: add a goal, an initiative or an epic, and file work under it from a card's pane."
           ) : (
             "Nothing to draw at this depth."
           )}
@@ -1060,22 +1060,22 @@ export function RoadmapBoard({
           onDragEnd={onDragEnd}
           onDragCancel={settle}
         >
-          <div ref={bodyRef} className={`roadmap-body${dragging ? " roadmap-body-dragging" : ""}`}>
-            <div className="roadmap-table">
-              <div ref={headRef} className="roadmap-head" style={{ height: HEAD_PX }}>
-                <span className="roadmap-cell roadmap-cell-title roadmap-head-cell">
+          <div ref={bodyRef} className={`strategy-body${dragging ? " strategy-body-dragging" : ""}`}>
+            <div className="strategy-table">
+              <div ref={headRef} className="strategy-head" style={{ height: HEAD_PX }}>
+                <span className="strategy-cell strategy-cell-title strategy-head-cell">
                   Card{handle("title", "Resize the Card column")}
                 </span>
-                <span className="roadmap-cell roadmap-cell-owner roadmap-head-cell">
+                <span className="strategy-cell strategy-cell-owner strategy-head-cell">
                   Owner{handle("owner", "Resize the Owner column")}
                 </span>
-                <span className="roadmap-cell roadmap-cell-date roadmap-head-cell">
+                <span className="strategy-cell strategy-cell-date strategy-head-cell">
                   Start{handle("start", "Resize the Start column")}
                 </span>
-                <span className="roadmap-cell roadmap-cell-date roadmap-head-cell">
+                <span className="strategy-cell strategy-cell-date strategy-head-cell">
                   End{handle("end", "Resize the End column")}
                 </span>
-                <span className="roadmap-cell roadmap-cell-status roadmap-head-cell">
+                <span className="strategy-cell strategy-cell-status strategy-head-cell">
                   Status{handle("status", "Resize the table against the timeline")}
                 </span>
               </div>
@@ -1084,8 +1084,8 @@ export function RoadmapBoard({
                 if (line.kind === "header") {
                   return [
                     before,
-                    <div key={line.key} className="roadmap-row roadmap-section" style={{ height: ROW_PX }} aria-hidden="false">
-                      <span className="roadmap-cell roadmap-cell-title roadmap-section-label">{line.label}</span>
+                    <div key={line.key} className="strategy-row strategy-section" style={{ height: ROW_PX }} aria-hidden="false">
+                      <span className="strategy-cell strategy-cell-title strategy-section-label">{line.label}</span>
                     </div>,
                   ];
                 }
@@ -1095,8 +1095,8 @@ export function RoadmapBoard({
                 const kids = childLevels(r.node.kind);
                 const isOver = !!hover && hover.target.overId === card.itemId;
                 return (
-                  <div key={card.itemId} className="roadmap-rowgroup">
-                    <RoadmapRow
+                  <div key={card.itemId} className="strategy-rowgroup">
+                    <StrategyRow
                       row={r}
                       today={today}
                       open={!folded.has(card.itemId)}
@@ -1128,7 +1128,7 @@ export function RoadmapBoard({
                       }}
                     />
                     {addingRow && addingRow.node.card.itemId === card.itemId && (
-                      <div className="roadmap-row roadmap-row-form" style={{ paddingLeft: 30 + (r.depth + 1) * INDENT_PX }}>
+                      <div className="strategy-row strategy-row-form" style={{ paddingLeft: 30 + (r.depth + 1) * INDENT_PX }}>
                         <AddCard
                           autoOpen
                           compact
@@ -1151,59 +1151,59 @@ export function RoadmapBoard({
               })}
               {addRootAt === shownLines.length && addRoot}
             </div>
-            <div className="roadmap-timeline">
-              <div className="roadmap-track" style={{ width: trackW }}>
-                <div className="roadmap-ticks" style={{ height: HEAD_PX }}>
+            <div className="strategy-timeline">
+              <div className="strategy-track" style={{ width: trackW }}>
+                <div className="strategy-ticks" style={{ height: HEAD_PX }}>
                   {ticks.map((t) => (
-                    <span key={t.date} className="roadmap-tick" style={{ left: `${fractionOf(t.date, range) * 100}%` }}>
+                    <span key={t.date} className="strategy-tick" style={{ left: `${fractionOf(t.date, range) * 100}%` }}>
                       {t.label}
                     </span>
                   ))}
                 </div>
                 {todayAt !== null && (
-                  <div className="roadmap-today" style={{ left: `${todayAt * 100}%` }} title={`Today, ${today}`} />
+                  <div className="strategy-today" style={{ left: `${todayAt * 100}%` }} title={`Today, ${today}`} />
                 )}
                 {shownLines.map((line, i) =>
                   line.kind === "header" ? (
                     [
-                      i === addRootAt ? <div key="addroot-lane" className="roadmap-lane roadmap-lane-addroot" style={{ height: ROW_PX }} /> : null,
-                      <div key={line.key} className="roadmap-lane roadmap-lane-section" style={{ height: ROW_PX }} />,
+                      i === addRootAt ? <div key="addroot-lane" className="strategy-lane strategy-lane-addroot" style={{ height: ROW_PX }} /> : null,
+                      <div key={line.key} className="strategy-lane strategy-lane-section" style={{ height: ROW_PX }} />,
                     ]
                   ) : (
-                    <div key={line.row.node.card.itemId} className="roadmap-lanegroup">
+                    <div key={line.row.node.card.itemId} className="strategy-lanegroup">
                       {lane(line.row, i)}
                       {addingRow && addingRow.node.card.itemId === line.row.node.card.itemId && (
-                        <div className="roadmap-lane" style={{ height: ROW_PX }} />
+                        <div className="strategy-lane" style={{ height: ROW_PX }} />
                       )}
                     </div>
                   ),
                 )}
-                {addRootAt === shownLines.length && <div className="roadmap-lane roadmap-lane-addroot" style={{ height: ROW_PX }} />}
+                {addRootAt === shownLines.length && <div className="strategy-lane strategy-lane-addroot" style={{ height: ROW_PX }} />}
               </div>
             </div>
           </div>
           <DragOverlay dropAnimation={null}>
             {draggedCard && (
-              <div className={`roadmap-drag-overlay${hover && !hover.valid ? " roadmap-drag-overlay-forbid" : ""}`}>
+              <div className={`strategy-drag-overlay${hover && !hover.valid ? " strategy-drag-overlay-forbid" : ""}`}>
                 <KindIcon kind={buildTree([draggedCard])[0].kind} size={15} />
-                <span className="roadmap-title">{draggedCard.title}</span>
+                <span className="strategy-title">{draggedCard.title}</span>
               </div>
             )}
           </DragOverlay>
         </DndContext>
       )}
-      <Dropdown open={!!statusFor} anchorRef={statusAnchor} onClose={() => setStatusFor(null)} className="roadmap-status-menu" role="menu">
+      <Dropdown open={!!statusFor} anchorRef={statusAnchor} onClose={() => setStatusFor(null)} className="strategy-status-menu" role="menu">
         {statusFor && menu && (
           <>
             <button
               type="button"
               role="menuitem"
-              className="roadmap-status-item"
+              className="strategy-status-item"
               disabled={!menu.unassign}
               title={menu.unassign ? "Take out of work, back to the backlog" : NOTHING_IN_WORK}
               onClick={() => {
                 // The confirm counts what the SERVER would take: the
-                // Roadmap may be filtered, and only the whole board knows
+                // Strategy may be filtered, and only the whole board knows
                 // every task in work under the row.
                 const card = statusFor;
                 setStatusFor(null);
@@ -1223,7 +1223,7 @@ export function RoadmapBoard({
                   .catch((err: unknown) => onError(errText(err)));
               }}
             >
-              <span className="roadmap-status roadmap-status-unassigned">Unassign</span>
+              <span className="strategy-status strategy-status-unassigned">Unassign</span>
             </button>
           </>
         )}

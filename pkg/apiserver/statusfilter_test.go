@@ -9,7 +9,7 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// O14 — the Roadmap's STATUS filter, over each task's work status
+// O14 — the Strategy board's STATUS filter, over each task's work status
 // (board.WorkStatus): a task matches by its own, a subtask rides its parent
 // task, a review card follows the task it reviews, and a plan item matches
 // when any task under it does — a plan item with no tasks matches no status
@@ -22,7 +22,7 @@ func statusBoard() board.Board {
 		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "goal", Team: "portal"},
 		{ItemID: "work", Title: "Receipts", Parent: "epic", SprintStart: day, StartDate: day},
 		{ItemID: "kid", Title: "Receipts PDF", Parent: "work", Parked: true},
-		// A review filed under the epic by a direct writer (the Roadmap lists
+		// A review filed under the epic by a direct writer (the Strategy board lists
 		// it then): parked itself, it follows the task it reviews.
 		{ItemID: "rev", Title: "review: Receipts", ReviewOf: "work", Parent: "epic", Assignees: []string{"bob"}, Parked: true},
 		{ItemID: "shelf", Title: "Invoices", Parent: "epic", Team: "cozystack", Parked: true},
@@ -33,7 +33,7 @@ func statusBoard() board.Board {
 	return b
 }
 
-func TestTheRoadmapStatusFilter(t *testing.T) {
+func TestTheStrategyStatusFilter(t *testing.T) {
 	t.Parallel()
 	b := statusBoard()
 	for _, tc := range []struct {
@@ -58,43 +58,43 @@ func TestTheRoadmapStatusFilter(t *testing.T) {
 		{"locked", nil},
 		{"in-progress,backlog,done", []string{"goal", "epic", "work", "kid", "rev", "shelf", "fin", "loose"}},
 	} {
-		if got := roadmapIDs(b, Selector{Status: tc.status}); !slices.Equal(got, tc.want) {
+		if got := strategyIDs(b, Selector{Status: tc.status}); !slices.Equal(got, tc.want) {
 			t.Errorf("status=%q = %v, want %v", tc.status, got, tc.want)
 		}
 	}
 	// AND with the team filter: the epic's own team draws the plan, the task
 	// must be in progress.
-	if got := roadmapIDs(b, Selector{Status: "backlog", Team: "cozystack"}); !reflect.DeepEqual(got, []string{"goal", "epic", "shelf"}) {
+	if got := strategyIDs(b, Selector{Status: "backlog", Team: "cozystack"}); !reflect.DeepEqual(got, []string{"goal", "epic", "shelf"}) {
 		t.Errorf("backlog of cozystack = %v", got)
 	}
-	if got := roadmapIDs(b, Selector{Status: "done", Team: "ops"}); len(got) != 0 {
+	if got := strategyIDs(b, Selector{Status: "done", Team: "ops"}); len(got) != 0 {
 		t.Errorf("nothing of ops is done, got %v", got)
 	}
 	// A filter is the server's alone: the client cannot mirror membership.
-	if (Selector{View: "roadmap", Status: "done"}).Mirrored() {
-		t.Error("a status-filtered roadmap is mirrored by the client")
+	if (Selector{View: "strategy", Status: "done"}).Mirrored() {
+		t.Error("a status-filtered strategy is mirrored by the client")
 	}
 }
 
 func TestTheStatusSelectorIsReadAndChecked(t *testing.T) {
 	t.Parallel()
-	sel, err := ParseSelector(url.Values{"view": {"roadmap"}, "status": {"in-progress,backlog"}})
+	sel, err := ParseSelector(url.Values{"view": {"strategy"}, "status": {"in-progress,backlog"}})
 	if err != nil || sel.Status != "in-progress,backlog" {
 		t.Fatalf("parsed %+v, %v", sel, err)
 	}
-	if _, err := ParseSelector(url.Values{"view": {"roadmap"}, "status": {"in-progress,todo"}}); err == nil {
+	if _, err := ParseSelector(url.Values{"view": {"strategy"}, "status": {"in-progress,todo"}}); err == nil {
 		t.Fatal("an unknown status was accepted")
 	}
-	if _, err := ParseSelector(url.Values{"view": {"roadmap"}, "status": {""}}); err != nil {
+	if _, err := ParseSelector(url.Values{"view": {"strategy"}, "status": {""}}); err != nil {
 		t.Fatalf("an empty status is no filter: %v", err)
 	}
 	// locked and no-items are values of the filter too, the whole of Hide
 	// done among them.
-	if _, err := ParseSelector(url.Values{"view": {"roadmap"}, "status": {"backlog,in-progress,locked,no-items"}}); err != nil {
+	if _, err := ParseSelector(url.Values{"view": {"strategy"}, "status": {"backlog,in-progress,locked,no-items"}}); err != nil {
 		t.Fatalf("Hide done was refused: %v", err)
 	}
 	for _, bad := range []string{"no items", "blocked", "review"} {
-		if _, err := ParseSelector(url.Values{"view": {"roadmap"}, "status": {bad}}); err == nil {
+		if _, err := ParseSelector(url.Values{"view": {"strategy"}, "status": {bad}}); err == nil {
 			t.Errorf("status %q was accepted", bad)
 		}
 	}
@@ -134,7 +134,7 @@ func dependencyBoard() board.Board {
 	})
 }
 
-func TestTheRoadmapStatusFilterKeepsWhatIsNotDone(t *testing.T) {
+func TestTheStrategyStatusFilterKeepsWhatIsNotDone(t *testing.T) {
 	t.Parallel()
 	b := dependencyBoard()
 	for _, tc := range []struct {
@@ -158,7 +158,7 @@ func TestTheRoadmapStatusFilterKeepsWhatIsNotDone(t *testing.T) {
 		{"locked of cozystack", Selector{Status: "locked", Team: "cozystack"}, []string{"ops", "held", "hwork"}},
 		{"no-items of cozystack", Selector{Status: "no-items", Team: "cozystack"}, nil},
 	} {
-		if got := roadmapIDs(b, tc.sel); !slices.Equal(got, tc.want) {
+		if got := strategyIDs(b, tc.sel); !slices.Equal(got, tc.want) {
 			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
 		}
 	}
@@ -169,10 +169,10 @@ func TestTheRoadmapStatusFilterKeepsWhatIsNotDone(t *testing.T) {
 			b.Cards[i].Progress = 100
 		}
 	}
-	if got := roadmapIDs(b, Selector{Status: "locked"}); got != nil {
+	if got := strategyIDs(b, Selector{Status: "locked"}); got != nil {
 		t.Errorf("nothing waits once the product is done, got %v", got)
 	}
-	if got := roadmapIDs(b, Selector{Status: "no-items"}); !slices.Equal(got, []string{"ops", "client", "empty"}) {
+	if got := strategyIDs(b, Selector{Status: "no-items"}); !slices.Equal(got, []string{"ops", "client", "empty"}) {
 		t.Errorf("no-items after the product shipped: %v", got)
 	}
 }
@@ -181,7 +181,7 @@ func TestTheRoadmapStatusFilterKeepsWhatIsNotDone(t *testing.T) {
 // subtask that waits for something itself (a direct writer's dependsOn) is
 // LOCKED on its badge, yet the Locked filter goes by the parent, which waits
 // for nothing, and leaves it out — and keeps it where the parent matches.
-// It rides its parent on the Roadmap; it is not a filter's match of its own.
+// It rides its parent on the Strategy board; it is not a filter's match of its own.
 func TestALockedSubtaskFollowsItsUnlockedParentTask(t *testing.T) {
 	t.Parallel()
 	const day = "2026-11-02"
@@ -197,10 +197,10 @@ func TestALockedSubtaskFollowsItsUnlockedParentTask(t *testing.T) {
 	if !CardResource(b, kid).Status.Locked {
 		t.Fatal("the subtask's own wait does not lock its badge")
 	}
-	if got := roadmapIDs(b, Selector{Status: "locked"}); slices.Contains(got, "kid") {
+	if got := strategyIDs(b, Selector{Status: "locked"}); slices.Contains(got, "kid") {
 		t.Errorf("locked = %v: the subtask goes by its parent, which waits for nothing", got)
 	}
-	if got := roadmapIDs(b, Selector{Status: "in-progress"}); !slices.Contains(got, "kid") {
+	if got := strategyIDs(b, Selector{Status: "in-progress"}); !slices.Contains(got, "kid") {
 		t.Errorf("in-progress = %v: the subtask rides its parent task in", got)
 	}
 }
@@ -216,7 +216,7 @@ func TestTheLockedFilterCountsABlockerTheVisitorCannotRead(t *testing.T) {
 		{ItemID: "client", Title: "Acme rollout", Type: board.TypeEpic, DependsOn: []string{"secret"}},
 	})
 	v := board.Visible(whole, "main", func(d string) bool { return d == "main" })
-	if got := roadmapIDs(v, Selector{Status: "locked"}); !slices.Equal(got, []string{"client"}) {
+	if got := strategyIDs(v, Selector{Status: "locked"}); !slices.Equal(got, []string{"client"}) {
 		t.Fatalf("locked on the visitor's board = %v, want [client]", got)
 	}
 	ix := board.NewIndex(v)
@@ -232,7 +232,7 @@ func TestTheLockedFilterCountsABlockerTheVisitorCannotRead(t *testing.T) {
 // (its team, its customers, its owner); the status is always the task's. It
 // used to take the team from one task and the status (or the customer) from
 // another, and drew an epic with nothing under it that matched.
-func TestTheRoadmapFiltersAreAndedOnOneTask(t *testing.T) {
+func TestTheStrategyFiltersAreAndedOnOneTask(t *testing.T) {
 	t.Parallel()
 	const day = "2026-11-02"
 	b := board.NewBoard([]board.Card{
@@ -263,7 +263,7 @@ func TestTheRoadmapFiltersAreAndedOnOneTask(t *testing.T) {
 		{"own owner, a task done or parked", Selector{Owner: "zed", Status: "done,backlog"}, []string{"epic"}},
 	} {
 		var got []string
-		got = append(got, roadmapIDs(b, tc.sel)...)
+		got = append(got, strategyIDs(b, tc.sel)...)
 		if len(got) == 0 {
 			got = nil
 		}

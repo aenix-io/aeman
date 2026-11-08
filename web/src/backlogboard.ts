@@ -30,7 +30,7 @@ import type { Card, LineageRef, Provider } from "./providers/types";
 
 /** onBacklog reports whether a card is listed in its team's backlog (K2): a
  *  PARKED task that answers for its own place — not a planning card (the
- *  Roadmap's), not a review card (it follows the card it reviews), not a subtask (it rides its parent) —
+ *  Strategy's), not a review card (it follows the card it reviews), not a subtask (it rides its parent) —
  *  and not finished: the backlog never shows work that is over. Mirrors
  *  board.OnBacklog.
  *
@@ -69,7 +69,7 @@ export function shownTeams(filter: readonly string[] | null, roster: readonly st
  *  as a group of their own, each placed by the task it reviews), whether it
  *  is LOOSE (no plan item above it: after every planned card), and its PATH — the places in the board's order
  *  from the root of its tree down to the card (K14), the root's level ahead
- *  of its place, as the Roadmap draws its roots level by level. */
+ *  of its place, as the Strategy board draws its roots level by level. */
 export interface BacklogKey {
   review: boolean;
   loose: boolean;
@@ -119,7 +119,7 @@ export function compareBacklogKeys(a: BacklogKey, b: BacklogKey): number {
 }
 
 /** backlogList is the board: the backlog cards of the shown teams, MIXED, in
- *  the Roadmap's order (backlogKey) read off `order` — the listing's
+ *  the Strategy board's order (backlogKey) read off `order` — the listing's
  *  `boardOrder`, which every Ordering frame replaces. A card the order does
  *  not name yet (one a watch frame brought in) stands after the named ones,
  *  in the order the board holds the cards; with no order at all (an older

@@ -98,7 +98,7 @@ func TestEveryTeamHasABacklogWithoutDeclaringOne(t *testing.T) {
 }
 
 // The backlog lists a team's PARKED OPEN TASKS and nothing else (K2): no
-// planning card (the Roadmap's), no
+// planning card (the Strategy board's), no
 // subtask (it rides its parent), no review card with a reviewer (it follows
 // the card it reviews) and nothing finished — the backlog never shows work
 // that is over. The one review card it does list is a review nobody has
@@ -127,15 +127,15 @@ func TestTheBacklogListsATeamsParkedOpenTasksOnly(t *testing.T) {
 	}
 }
 
-// A backlog reads in the ROADMAP's order (K14): the path of sibling places
+// A backlog reads in the STRATEGY BOARD's order (K14): the path of sibling places
 // from the root plan item down — goal order, then initiative within its goal,
 // epic within its initiative, task within its epic — so the backlog and the
-// Roadmap are one order, decided by the tree. A task with no plan item above
+// Strategy are one order, decided by the tree. A task with no plan item above
 // it comes after every planned one, in its own place in the board's order.
-// The Roadmap draws its roots level by level (goals, then initiatives with no
+// The Strategy board draws its roots level by level (goals, then initiatives with no
 // goal, then epics with no initiative), so the first step of the path is
 // read the same way.
-func TestABacklogReadsInTheRoadmapsOrder(t *testing.T) {
+func TestABacklogReadsInTheStrategysOrder(t *testing.T) {
 	b := NewBoard([]Card{
 		// Board order (the rank order every board reads): deliberately not
 		// the tree's, so only the path can put the tasks right.
@@ -151,7 +151,7 @@ func TestABacklogReadsInTheRoadmapsOrder(t *testing.T) {
 		{ItemID: "t-e1-b", Parent: "e1", Parked: true},
 		{ItemID: "t-e1-a", Parent: "e1", Parked: true},
 		{ItemID: "t-i1", Parent: "i1", Parked: true},
-		// A root initiative: the Roadmap draws it after every goal.
+		// A root initiative: the Strategy board draws it after every goal.
 		{ItemID: "i-root", Type: TypeInitiative},
 		{ItemID: "t-iroot", Parent: "i-root", Parked: true},
 	})
@@ -179,8 +179,8 @@ func TestABacklogReadsInTheRoadmapsOrder(t *testing.T) {
 }
 
 // The reviews NOBODY HAS TAKEN (K10) stand FIRST in a backlog, in a group
-// of their own before every task, among themselves in the Roadmap's order
-// of the tasks they review; then the tasks in the Roadmap's order, the
+// of their own before every task, among themselves in the Strategy board's order
+// of the tasks they review; then the tasks in the Strategy board's order, the
 // tasks with no plan item above them last.
 func TestTheReviewsNobodyHasTakenLeadTheBacklog(t *testing.T) {
 	today := "2026-11-02"
@@ -207,8 +207,8 @@ func TestTheReviewsNobodyHasTakenLeadTheBacklog(t *testing.T) {
 		}
 	}
 	want := []string{
-		"r-early", "r-late", "r-none", // the reviews, in their tasks' Roadmap order
-		"t1", "t-none", // the tasks in the Roadmap's order
+		"r-early", "r-late", "r-none", // the reviews, in their tasks' Strategy order
+		"t1", "t-none", // the tasks in the Strategy board's order
 		"t0", // a task with no plan item above it, last
 	}
 	if got := ids(BacklogOrder(ix, listed)); !reflect.DeepEqual(got, want) {

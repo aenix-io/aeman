@@ -42,7 +42,7 @@ func TeamGridIn(b Board, ix *Index, team, day string) []Card {
 	planning := ix.planning
 	for _, c := range b.Cards {
 		// The day boards draw TASKS: a goal, an initiative or an epic is the
-		// Roadmap's (H3), and a subtask rides its parent. A task under an
+		// Strategy's (H3), and a subtask rides its parent. A task under an
 		// epic is neither — it stands here like any task (H1).
 		// A task stands under its EFFECTIVE team (O13): its own, else the
 		// plan item's above it.
@@ -204,7 +204,7 @@ func MeViewIn(b Board, ix *Index, user, day string) []Card {
 	out := []Card{}
 	planning := ix.planning
 	for _, c := range b.Cards {
-		// A planning card is the Roadmap's, not a person's day (H3).
+		// A planning card is the Strategy board's, not a person's day (H3).
 		if IsPlanning(c) {
 			continue
 		}

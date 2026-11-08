@@ -21,7 +21,7 @@ var ErrNoSuchView = errors.New("no such board")
 var ErrNotOnThisBoard = errors.New("this board does not make cards like that")
 
 // ErrViewNeedsField is the other half: a board whose whole gesture is one
-// field, asked to make a card without it — a Roadmap card that is neither a
+// field, asked to make a card without it — a Strategy card that is neither a
 // plan item nor a task under one.
 var ErrViewNeedsField = errors.New("this board needs it to mean anything")
 
@@ -58,7 +58,7 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 	dated := args.Day != "" || args.Start != "" || args.SprintStart != ""
 	// A place among the cards is the Backlog's and the day boards': a
 	// backlog and a Team or Me cell are slices of the board's order, and the
-	// insert "+" in a gap names its neighbour. The Roadmap places a card by
+	// insert "+" in a gap names its neighbour. The Strategy board places a card by
 	// its parent.
 	placed := args.After != "" || args.Before != ""
 	var refusals []viewRefusal
@@ -66,18 +66,18 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 	case board.ViewAll:
 		// No board at all: the caller said so, and gets the raw door.
 		return args, nil
-	case board.ViewRoadmap:
-		// A card made on the Roadmap is a PLANNING card — a goal, an
+	case board.ViewStrategy:
+		// A card made on the Strategy board is a PLANNING card — a goal, an
 		// initiative or an epic — and the type is the whole gesture (H7). It
 		// takes its dates and a parent, and none of a task's day-board state,
-		// nor an owner or a team (H3). The one task the Roadmap makes is a
+		// nor an owner or a team (H3). The one task the Strategy board makes is a
 		// task UNDER a planning card — the epic's + — born with a title, a
 		// parent and, when given, dates: no team, no owner, no band, no
 		// size, no sprint. With no dates it is parked in the no-team
-		// group's backlog (K3), and it stands on the Roadmap under its
-		// parent. A task with no parent is not the Roadmap's.
+		// group's backlog (K3), and it stands on the Strategy board under its
+		// parent. A task with no parent is not the Strategy board's.
 		if args.Type == board.TypeTask && args.Parent == "" {
-			return args, fmt.Errorf("%w: a card of the Roadmap is a goal, an initiative or an epic, or a task under one", ErrViewNeedsField)
+			return args, fmt.Errorf("%w: a card of the Strategy board is a goal, an initiative or an epic, or a task under one", ErrViewNeedsField)
 		}
 		if args.Type == board.TypeTask {
 			args.Undated = true
@@ -87,7 +87,7 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 			{args.ReviewOf != "", "reviewOf"},
 			{args.SprintStart != "", "sprintStart"},
 			// A planning card may be born with its team, its owner and its
-			// customers (O1); the Roadmap's task under one is born with
+			// customers (O1); the Strategy board's task under one is born with
 			// none of a team or an owner.
 			{args.Team != "" && args.Type == board.TypeTask, "team"},
 			{args.Owner != "" && args.Type == board.TypeTask, "owner"},
@@ -156,7 +156,7 @@ const (
 	// GestureFinishedEarlier is the day boards': work done in the sprint
 	// before this one and only marked done now.
 	GestureFinishedEarlier Gesture = "finished-earlier"
-	// GestureOwn is the Roadmap's "whose is this": a team and a person, a
+	// GestureOwn is the Strategy board's "whose is this": a team and a person, a
 	// team alone, or nobody — and what that does to a card with no plan yet
 	// (own.go, H10). Every board that draws a task offers it, so the drawer
 	// asks the same question from wherever the card was opened.
@@ -170,11 +170,11 @@ const (
 // list: a caller that said "all" has no board to be refused by.
 var gestureBoards = map[Gesture][]board.View{
 	GestureRemove: {board.ViewMe, board.ViewTeam, board.ViewBacklog,
-		board.ViewRoadmap, board.ViewAll},
+		board.ViewStrategy, board.ViewAll},
 	GestureFinishedEarlier: {board.ViewMe, board.ViewTeam, board.ViewAll},
 	// The Backlog's owner picker is how a task is taken into work from
 	// there (K4).
-	GestureOwn: {board.ViewRoadmap, board.ViewMe, board.ViewTeam,
+	GestureOwn: {board.ViewStrategy, board.ViewMe, board.ViewTeam,
 		board.ViewBacklog, board.ViewAll},
 	GestureTake: {board.ViewBacklog, board.ViewAll},
 }

@@ -116,7 +116,7 @@ which is the escape hatch and refuses nothing.
 
 **`Service.CreateInView(ctx, boardID, view, args)`** is the create beside it:
 the board says what the card MEANS (the Me board files it on the caller, in
-the unplanned band; the backlog parks it on the team, last; the Roadmap makes
+the unplanned band; the backlog parks it on the team, last; the Strategy board makes
 a goal, an initiative or an epic, or a task under one) and refuses the fields it does not own
 (`ErrNotOnThisBoard`, `ErrViewNeedsField`). `CreateCard` is unchanged and
 takes anything, which is what an embedder with no board keeps using.

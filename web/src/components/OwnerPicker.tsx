@@ -28,7 +28,7 @@ interface OwnerPickerProps {
 }
 
 /** OwnerPicker is the Team board's "whose is this?" menu — a team column
- *  on the left, a person column on the right — asked the Roadmap's way: a
+ *  on the left, a person column on the right — asked the Strategy board's way: a
  *  team is picked first and the menu stays open on it, the people come up
  *  on the right (those with work on the team first), a person cannot be
  *  picked before a team, and a team with "No person" is an answer of its

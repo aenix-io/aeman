@@ -442,7 +442,7 @@ func (ix *Index) ReviewedBy(c Card) string { return ix.reviewedBy[c.ItemID] }
 // one is complete; IN PROGRESS when any open one is in work (a date or a
 // sprint, not parked); BACKLOG when there are open ones and none is in work.
 // Progress, a person or a stage do not count by themselves: a
-// parked task at 49% is waiting, not being worked — and the Roadmap's
+// parked task at 49% is waiting, not being worked — and the Strategy board's
 // UNASSIGNED, which takes tasks out of work, shows on the plan item above
 // them.
 func hierarchyStatus(leaves []Card) (status string, done, total int) {

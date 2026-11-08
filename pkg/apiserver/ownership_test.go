@@ -7,7 +7,7 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// docs/design/ownership.md on the wire and in the Roadmap's listing.
+// docs/design/ownership.md on the wire and in the Strategy board's listing.
 
 func ownershipBoard() board.Board {
 	b := board.NewBoard([]board.Card{
@@ -63,13 +63,13 @@ func TestADanglingCustomerReachesNoReader(t *testing.T) {
 	if !reflect.DeepEqual(res.Spec.Customers, []string{"acme"}) || !reflect.DeepEqual(res.Status.EffectiveCustomers, []string{"hidora", "acme"}) {
 		t.Fatalf("t2 = customers %v effective %v, want the dangling id nowhere", res.Spec.Customers, res.Status.EffectiveCustomers)
 	}
-	if got := roadmapIDs(b, Selector{Customer: "gone"}); len(got) != 0 {
+	if got := strategyIDs(b, Selector{Customer: "gone"}); len(got) != 0 {
 		t.Fatalf("customer=gone = %v, want nothing", got)
 	}
 }
 
-func roadmapIDs(b board.Board, sel Selector) []string {
-	sel.View = "roadmap"
+func strategyIDs(b board.Board, sel Selector) []string {
+	sel.View = "strategy"
 	var out []string
 	for _, c := range FilterCards(b, sel) {
 		out = append(out, c.ItemID)
@@ -81,64 +81,64 @@ func roadmapIDs(b board.Board, sel Selector) []string {
 // card by itself or any task under it; every match comes with its
 // ancestors. An epic of portal holding a cozystack task shows under
 // cozystack with that task only.
-func TestTheRoadmapTeamFilter(t *testing.T) {
+func TestTheStrategyTeamFilter(t *testing.T) {
 	b := ownershipBoard()
-	if got := roadmapIDs(b, Selector{Team: "cozystack"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t2"}) {
+	if got := strategyIDs(b, Selector{Team: "cozystack"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t2"}) {
 		t.Fatalf("team=cozystack = %v", got)
 	}
-	if got := roadmapIDs(b, Selector{Team: "portal"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t1"}) {
+	if got := strategyIDs(b, Selector{Team: "portal"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t1"}) {
 		t.Fatalf("team=portal = %v", got)
 	}
 	// Several values are OR.
-	if got := roadmapIDs(b, Selector{Team: "docs,ops"}); !reflect.DeepEqual(got, []string{"other", "loose"}) {
+	if got := strategyIDs(b, Selector{Team: "docs,ops"}); !reflect.DeepEqual(got, []string{"other", "loose"}) {
 		t.Fatalf("team=docs,ops = %v", got)
 	}
 	// And the gate agrees with the listing.
-	if Drawn(b, Selector{View: "roadmap", Team: "cozystack"}, "t1") {
+	if Drawn(b, Selector{View: "strategy", Team: "cozystack"}, "t1") {
 		t.Fatal("the gate draws t1 under cozystack")
 	}
 }
 
 // O7 — the customer filter, over effective customers.
-func TestTheRoadmapCustomerFilter(t *testing.T) {
+func TestTheStrategyCustomerFilter(t *testing.T) {
 	b := ownershipBoard()
-	if got := roadmapIDs(b, Selector{Customer: "acme"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t2"}) {
+	if got := strategyIDs(b, Selector{Customer: "acme"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t2"}) {
 		t.Fatalf("customer=acme = %v", got)
 	}
-	if got := roadmapIDs(b, Selector{Customer: "hidora"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t1", "t2"}) {
+	if got := strategyIDs(b, Selector{Customer: "hidora"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t1", "t2"}) {
 		t.Fatalf("customer=hidora = %v", got)
 	}
 }
 
-// O8 — the Owner filter is the Roadmap's one person filter: a person in it
+// O8 — the Owner filter is the Strategy board's one person filter: a person in it
 // matches a plan item whose OWN owner they are (never inherited) and a task
 // or subtask they are assigned to, each drawn with its ancestors. Several
 // people are OR.
-func TestTheRoadmapOwnerFilter(t *testing.T) {
+func TestTheStrategyOwnerFilter(t *testing.T) {
 	b := ownershipBoard()
 	// ann owns the epic and is on the loose task; the tasks under her epic
 	// are not hers, so they are not drawn.
-	if got := roadmapIDs(b, Selector{Owner: "ann"}); !reflect.DeepEqual(got, []string{"goal", "epic", "loose"}) {
+	if got := strategyIDs(b, Selector{Owner: "ann"}); !reflect.DeepEqual(got, []string{"goal", "epic", "loose"}) {
 		t.Fatalf("owner=ann = %v", got)
 	}
 	// gwen owns the goal alone: the epic below is not hers by inheritance.
-	if got := roadmapIDs(b, Selector{Owner: "gwen"}); !reflect.DeepEqual(got, []string{"goal"}) {
+	if got := strategyIDs(b, Selector{Owner: "gwen"}); !reflect.DeepEqual(got, []string{"goal"}) {
 		t.Fatalf("owner=gwen = %v", got)
 	}
 	// bob is on t1: the task, with the epic and the goal above it.
-	if got := roadmapIDs(b, Selector{Owner: "bob"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t1"}) {
+	if got := strategyIDs(b, Selector{Owner: "bob"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t1"}) {
 		t.Fatalf("owner=bob = %v", got)
 	}
-	if got := roadmapIDs(b, Selector{Owner: "ann,bob"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t1", "loose"}) {
+	if got := strategyIDs(b, Selector{Owner: "ann,bob"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t1", "loose"}) {
 		t.Fatalf("owner=ann,bob = %v", got)
 	}
-	if got := roadmapIDs(b, Selector{Owner: "nobody"}); len(got) != 0 {
+	if got := strategyIDs(b, Selector{Owner: "nobody"}); len(got) != 0 {
 		t.Fatalf("owner=nobody = %v", got)
 	}
-	if got := roadmapIDs(b, Selector{Owner: "ann", Team: "docs"}); len(got) != 0 {
+	if got := strategyIDs(b, Selector{Owner: "ann", Team: "docs"}); len(got) != 0 {
 		t.Fatalf("owner=ann AND team=docs = %v, want nothing", got)
 	}
-	sel, err := ParseViewSelector("roadmap", map[string][]string{"owner": {"ann"}, "customer": {"acme,hidora"}, "team": {"portal"}})
+	sel, err := ParseViewSelector("strategy", map[string][]string{"owner": {"ann"}, "customer": {"acme,hidora"}, "team": {"portal"}})
 	if err != nil || sel.Owner != "ann" || sel.Customer != "acme,hidora" || sel.Team != "portal" {
 		t.Fatalf("parsed %+v %v", sel, err)
 	}
@@ -153,31 +153,31 @@ func TestTheRoadmapOwnerFilter(t *testing.T) {
 // chain. Under owner=bob AND customer=acme nothing is: bob's t1 is not
 // Acme's, Acme's t2 is not bob's, and the epic is neither — it used to be
 // drawn, taking the owner from one task and the customer from the other.
-func TestTheRoadmapFiltersCombineOwnerWithTheWorkBelow(t *testing.T) {
+func TestTheStrategyFiltersCombineOwnerWithTheWorkBelow(t *testing.T) {
 	b := ownershipBoard()
-	if got := roadmapIDs(b, Selector{Owner: "ann", Team: "cozystack"}); !reflect.DeepEqual(got, []string{"goal", "epic"}) {
+	if got := strategyIDs(b, Selector{Owner: "ann", Team: "cozystack"}); !reflect.DeepEqual(got, []string{"goal", "epic"}) {
 		t.Fatalf("owner=ann AND team=cozystack = %v", got)
 	}
-	if got := roadmapIDs(b, Selector{Owner: "ann", Customer: "acme"}); !reflect.DeepEqual(got, []string{"goal", "epic"}) {
+	if got := strategyIDs(b, Selector{Owner: "ann", Customer: "acme"}); !reflect.DeepEqual(got, []string{"goal", "epic"}) {
 		t.Fatalf("owner=ann AND customer=acme = %v", got)
 	}
-	if got := roadmapIDs(b, Selector{Owner: "bob", Team: "portal"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t1"}) {
+	if got := strategyIDs(b, Selector{Owner: "bob", Team: "portal"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t1"}) {
 		t.Fatalf("owner=bob AND team=portal = %v", got)
 	}
-	if got := roadmapIDs(b, Selector{Owner: "bob", Customer: "acme"}); len(got) != 0 {
+	if got := strategyIDs(b, Selector{Owner: "bob", Customer: "acme"}); len(got) != 0 {
 		t.Fatalf("owner=bob AND customer=acme = %v, want nothing", got)
 	}
-	if got := roadmapIDs(b, Selector{Team: "cozystack", Customer: "hidora"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t2"}) {
+	if got := strategyIDs(b, Selector{Team: "cozystack", Customer: "hidora"}); !reflect.DeepEqual(got, []string{"goal", "epic", "t2"}) {
 		t.Fatalf("team=cozystack AND customer=hidora = %v", got)
 	}
 }
 
-// With no filter the Roadmap is listed as it always was.
-func TestTheUnfilteredRoadmapIsUnchanged(t *testing.T) {
+// With no filter the Strategy board is listed as it always was.
+func TestTheUnfilteredStrategyIsUnchanged(t *testing.T) {
 	b := ownershipBoard()
 	want := []string{"goal", "epic", "t1", "t2", "other", "loose"}
-	if got := roadmapIDs(b, Selector{}); !reflect.DeepEqual(got, want) {
-		t.Fatalf("the unfiltered roadmap = %v, want %v", got, want)
+	if got := strategyIDs(b, Selector{}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("the unfiltered strategy = %v, want %v", got, want)
 	}
 }
 
@@ -204,11 +204,11 @@ func TestATeamListingHoldsNoPlanningCard(t *testing.T) {
 	}
 }
 
-// O7 — the no-team group is a team like any other in the Roadmap's Team
+// O7 — the no-team group is a team like any other in the Strategy board's Team
 // filter: the empty member of the set, written alone as "," (a set holding
 // only the empty key, as on every other board). Choosing real teams leaves
 // the no-team work out; choosing No team keeps what has no effective team.
-func TestTheRoadmapTeamFilterHasNoTeamAsATeam(t *testing.T) {
+func TestTheStrategyTeamFilterHasNoTeamAsATeam(t *testing.T) {
 	b := board.NewBoard([]board.Card{
 		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Team: "portal"},
 		{ItemID: "t1", Title: "Receipts", Parent: "epic", Parked: true},
@@ -216,16 +216,16 @@ func TestTheRoadmapTeamFilterHasNoTeamAsATeam(t *testing.T) {
 		{ItemID: "t2", Title: "Guides", Parent: "plan", Parked: true},
 		{ItemID: "loose", Title: "Loose", Parked: true},
 	})
-	if got := roadmapIDs(b, Selector{Team: "portal"}); !reflect.DeepEqual(got, []string{"epic", "t1"}) {
+	if got := strategyIDs(b, Selector{Team: "portal"}); !reflect.DeepEqual(got, []string{"epic", "t1"}) {
 		t.Fatalf("team=portal = %v, want no no-team work", got)
 	}
-	if got := roadmapIDs(b, Selector{Team: ","}); !reflect.DeepEqual(got, []string{"plan", "t2", "loose"}) {
+	if got := strategyIDs(b, Selector{Team: ","}); !reflect.DeepEqual(got, []string{"plan", "t2", "loose"}) {
 		t.Fatalf("team=, (No team) = %v", got)
 	}
-	if got := roadmapIDs(b, Selector{Team: "portal,"}); !reflect.DeepEqual(got, []string{"epic", "t1", "plan", "t2", "loose"}) {
+	if got := strategyIDs(b, Selector{Team: "portal,"}); !reflect.DeepEqual(got, []string{"epic", "t1", "plan", "t2", "loose"}) {
 		t.Fatalf("team=portal, = %v", got)
 	}
-	if got := roadmapIDs(b, Selector{Team: ""}); len(got) != 5 {
+	if got := strategyIDs(b, Selector{Team: ""}); len(got) != 5 {
 		t.Fatalf("no team filter = %v, want everything", got)
 	}
 }

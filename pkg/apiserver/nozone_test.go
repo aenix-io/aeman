@@ -8,7 +8,7 @@ import (
 
 // A planning card carries no band and no size on the wire, whatever the file
 // says: the board strips both on read, so the resource never shows a band
-// the Roadmap would not draw. A task's own stay.
+// the Strategy board would not draw. A task's own stay.
 func TestAPlanningCardCarriesNoZoneOrSize(t *testing.T) {
 	t.Parallel()
 	b := board.NewBoard([]board.Card{

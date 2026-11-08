@@ -2,7 +2,7 @@ package board
 
 // Reachable is every card some board still shows: the day boards for the days
 // a person opens (today, and each team's current and previous sprint day), the
-// Roadmap and every team's backlog, plus the
+// Strategy and every team's backlog, plus the
 // cards that ride one of those — a subtask under its parent, a review card
 // beside its original.
 //
@@ -39,7 +39,7 @@ func Reachable(b Board, today string) map[string]bool {
 		switch {
 		// A state card is the roster.
 		case IsStateTitle(c.Title):
-		// A goal, an initiative or an epic: the Roadmap draws it (H3).
+		// A goal, an initiative or an epic: the Strategy board draws it (H3).
 		case IsPlanning(c):
 		// A team's BACKLOG, which is a board — the whole point of parking is
 		// that the card waits somewhere a person opens. The day boards

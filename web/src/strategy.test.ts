@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_DEPTH,
-  roadmapLines,
+  strategyLines,
   dropShown,
   DELETE_INTENT,
   allowedParentKinds,
@@ -59,11 +59,11 @@ import {
   NOTHING_IN_WORK,
   unassignQuestion,
   STATUS_LABEL,
-} from "./roadmap";
+} from "./strategy";
 import type { Card } from "./providers/types";
 import { resourceToCard, type CardResource } from "./api/resources";
 
-// The Roadmap's rule file, case by case: the tree the listing makes, the
+// The Strategy board's rule file, case by case: the tree the listing makes, the
 // rows a depth range draws, a row's status, a card's bar and where it lands.
 // Mirrors the server's HasPlanningAncestor / HierarchyStatus for what it
 // draws and what it says (hierarchy.md H3, H5); the geometry is the
@@ -240,7 +240,7 @@ describe("the window", () => {
   });
 });
 
-describe("the rest of the Roadmap's rules", () => {
+describe("the rest of the Strategy board's rules", () => {
   it("moves a deleted planning card's children up to its own parent, or to the top", () => {
     expect(planningRemoval([goal, ini, epic, task, slot], "i")).toEqual([
       { itemId: "e", parent: "g" },
@@ -305,7 +305,7 @@ describe("the hierarchy's × and its two answers", () => {
 // the listing as it would read after the drop (previewCards), which is what
 // the drop commits. The level rule holds throughout: a
 // card never changes its type by being dragged (H2).
-describe("dragging a row on the Roadmap", () => {
+describe("dragging a row on the Strategy board", () => {
   const all = [goal, ini, epic, task, sub, slot];
   const goal2 = card({ itemId: "g2", title: "Retain", type: "goal" });
   const ini2 = card({ itemId: "i2", title: "Support", type: "initiative", parent: "g2" });
@@ -362,7 +362,7 @@ describe("dragging a row on the Roadmap", () => {
     expect(droppable(wide, "e", "t")).toBe(false);
     expect(droppable(wide, "t2", "i2")).toBe(true);
     expect(droppable(wide, "t2", "g2")).toBe(true);
-    expect(droppable(wide, "t2", null)).toBe(false); // a task at the top would leave the Roadmap
+    expect(droppable(wide, "t2", null)).toBe(false); // a task at the top would leave the Strategy board
     expect(droppable(wide, "p", "e")).toBe(true);
     expect(droppable(wide, "p", "s")).toBe(false); // s is a subtask: one level deep
   });
@@ -516,11 +516,11 @@ describe("writeDrop", () => {
 });
 
 
-// The lines the Roadmap draws from a REAL listing: the roadmap's wire cards,
+// The lines the Strategy board draws from a REAL listing: the strategy's wire cards,
 // mapped the way the board maps them — an epic and a task under it. The
 // lines are one pure function of the listing, the depth and the folds
-// (roadmapLines), and they draw what the listing holds.
-describe("the lines the Roadmap draws", () => {
+// (strategyLines), and they draw what the listing holds.
+describe("the lines the Strategy board draws", () => {
   const wire = (uid: string, spec: Partial<CardResource["spec"]>, lineage?: { uid: string; type: string; title: string }[]): CardResource =>
     ({
       kind: "Card",
@@ -535,7 +535,7 @@ describe("the lines the Roadmap draws", () => {
   ].map(resourceToCard);
 
   it("draws the task under its epic", () => {
-    const titles = roadmapLines(listing, { depth: DEFAULT_DEPTH, expanded: () => true })
+    const titles = strategyLines(listing, { depth: DEFAULT_DEPTH, expanded: () => true })
       .filter((l) => l.kind === "row")
       .map((l) => (l.kind === "row" ? `${l.row.depth}:${l.row.node.card.title}` : ""));
     expect(titles).toEqual(["0:Billing v2", "1:Render PDF"]);
@@ -547,7 +547,7 @@ describe("the lines the Roadmap draws", () => {
 // landing place is a mark drawn over it — and the pointer has to go a little
 // past a boundary before the target changes, so a slow aim does not flicker
 // between two readings.
-describe("aiming a drag on the Roadmap", () => {
+describe("aiming a drag on the Strategy board", () => {
   const g = card({ itemId: "g", title: "Grow", type: "goal" });
   const i = card({ itemId: "i", title: "Billing", type: "initiative", parent: "g" });
   const e1 = card({ itemId: "e1", title: "Invoices", type: "epic", parent: "i" });
@@ -668,7 +668,7 @@ describe("aiming a drag on the Roadmap", () => {
 // place however the board or the page scrolls, and a snapshot re-taken in
 // the middle of a drag (a watch frame changed the rows) lands in the same
 // frame as the one it replaces.
-describe("the frame a Roadmap drag is read in", () => {
+describe("the frame a Strategy drag is read in", () => {
   it("shifts the reading by N px when the container is scrolled N px", () => {
     const still = pointerContentY(300, 0, 40)!;
     expect(pointerContentY(300, 120, 40)).toBe(still + 120);
@@ -703,10 +703,10 @@ describe("the frame a Roadmap drag is read in", () => {
   });
 });
 
-// A breadcrumb followed to the Roadmap scrolls its row into view ONCE: the
+// A breadcrumb followed to the Strategy board scrolls its row into view ONCE: the
 // row stays marked, but later re-renders (a watch frame, a drag) do not pull
 // the list back to it, and nothing scrolls while a drag runs.
-describe("revealing a row followed to the Roadmap", () => {
+describe("revealing a row followed to the Strategy board", () => {
   it("scrolls once the row is drawn, then is done", () => {
     expect(revealStep("t", false, true)).toEqual({ scroll: true, pending: null });
     expect(revealStep(null, false, true)).toEqual({ scroll: false, pending: null });
@@ -721,7 +721,7 @@ describe("revealing a row followed to the Roadmap", () => {
   });
 });
 
-// The drawer's "Under it" is the Roadmap's tree rooted one level below the
+// The drawer's "Under it" is the Strategy board's tree rooted one level below the
 // card the drawer shows: every level under it — plan items, tasks,
 // subtasks — folded as the reader folds it, with
 // no depth range (the drawer shows all there is under the card).
@@ -858,7 +858,7 @@ describe("what a drop shows at once", () => {
   // The listing as the server sends it: board order, children interleaved.
   const listed = [i1, g2, g1, i2, g3, i3, e1, e2];
   const drawnAfter = (cards: Card[], from: "goal" | "initiative" = "goal") =>
-    roadmapLines(cards, { depth: { from, to: "task" }, expanded: () => true })
+    strategyLines(cards, { depth: { from, to: "task" }, expanded: () => true })
       .filter((l) => l.kind === "row")
       .map((l) => (l.kind === "row" ? l.row.node.card.itemId : ""));
   const apply = (cards: Card[], id: string, placement: { parent: string | null; index: number }) => {
@@ -914,7 +914,7 @@ describe("what a drop shows at once", () => {
 // row back to its backlog — the menu's one item now priorities are gone.
 // Mirrors board.UnassignTargets, case for case with boardservice's
 // TestUnassignedOnAPlanItem…
-describe("the badge menu on the Roadmap (K16)", () => {
+describe("the badge menu on the Strategy board (K16)", () => {
   const today = "2026-11-09";
   const ip = { status: "in-progress" as const, done: 0, total: 3 };
   const g = card({ itemId: "g", type: "goal", team: "alpha", hierarchy: ip });
@@ -1061,7 +1061,7 @@ describe("UNASSIGNED's reach, shared with the server", () => {
   });
 });
 
-// The Roadmap may be filtered: the cards it holds are fewer than the board's,
+// The Strategy board may be filtered: the cards it holds are fewer than the board's,
 // and only the server knows every task in work under a plan item. So a plan
 // item offers UNASSIGNED by its server roll-up — IN PROGRESS means there is
 // work in hand under it — and the confirm asks the server (a dry run) what it

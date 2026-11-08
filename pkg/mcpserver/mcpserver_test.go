@@ -136,9 +136,9 @@ func TestMCPListsTools(t *testing.T) {
 		"finished_earlier", "list_sprints",
 		"list_day_logs", "reorder_teams", "delete_team",
 		"set_sprint_state",
-		// The Roadmap's "whose is this" (H10), and the Backlog's take (K11).
+		// The Strategy board's "whose is this" (H10), and the Backlog's take (K11).
 		"own_card", "take_card",
-		// The Roadmap's status menu (K16).
+		// The Strategy board's status menu (K16).
 		"unassign_work",
 		// The customer roster (docs/design/ownership.md, O9).
 		"add_customer", "rename_customer", "reorder_customers", "delete_customer",
@@ -587,7 +587,7 @@ func TestTheToolSetHoldsWhatTheBoardsDo(t *testing.T) {
 	for _, name := range []string{
 		// The day boards' own answers.
 		"finished_earlier",
-		// The Roadmap's: whose is this, and where loose work goes when told.
+		// The Strategy board's: whose is this, and where loose work goes when told.
 		"own_card",
 		// The Backlog's: I take this into work (K11).
 		"take_card",
@@ -1052,7 +1052,7 @@ func TestAnAgentTakesABacklogCardAsItsPerson(t *testing.T) {
 
 // docs/design/ownership.md through MCP (O9, ADR 0002): an agent keeps the
 // customer roster, names a plan item's owner and team, a card's customers,
-// and filters the Roadmap the way a person does.
+// and filters the Strategy board the way a person does.
 func TestMCPOwnership(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
@@ -1068,17 +1068,17 @@ func TestMCPOwnership(t *testing.T) {
 	if e := fake.Card("epic"); e.Owner != "ann" || len(e.Customers) != 1 {
 		t.Fatalf("the epic = %+v", e)
 	}
-	call(t, cs, "own_card", map[string]any{"uid": "other", "view": "roadmap", "person": "bob"})
+	call(t, cs, "own_card", map[string]any{"uid": "other", "view": "strategy", "person": "bob"})
 	if o := fake.Card("other"); o.Owner != "bob" {
 		t.Fatalf("own_card on an epic = %+v", o)
 	}
-	out := textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap", "customer": cu.ID}))
+	out := textOf(call(t, cs, "list_cards", map[string]any{"view": "strategy", "customer": cu.ID}))
 	if !strings.Contains(out, "task1") || strings.Contains(out, `"other"`) {
-		t.Fatalf("the roadmap for Hidora: %s", out)
+		t.Fatalf("the strategy for Hidora: %s", out)
 	}
-	out = textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap", "owner": "bob"}))
+	out = textOf(call(t, cs, "list_cards", map[string]any{"view": "strategy", "owner": "bob"}))
 	if !strings.Contains(out, `"other"`) || strings.Contains(out, "task1") {
-		t.Fatalf("the roadmap of bob's plan items: %s", out)
+		t.Fatalf("the strategy of bob's plan items: %s", out)
 	}
 	call(t, cs, "rename_customer", map[string]any{"customer": cu.ID, "name": "Hidora SA"})
 	call(t, cs, "delete_customer", map[string]any{"customer": cu.ID})
@@ -1087,7 +1087,7 @@ func TestMCPOwnership(t *testing.T) {
 	}
 }
 
-// The Roadmap's badge menu over MCP (K16, ADR 0002): unassign_work takes
+// The Strategy board's badge menu over MCP (K16, ADR 0002): unassign_work takes
 // work in hand back to its backlog — on a task, or on every task under a plan
 // item — and refuses what it means nothing for. There is no set_priority:
 // priorities were removed (2026-11-08).
@@ -1124,10 +1124,10 @@ func TestAnAgentTakesWorkOutOfHand(t *testing.T) {
 	}
 }
 
-// O14 — list_cards takes the Roadmap's status filter like the HTTP listing
+// O14 — list_cards takes the Strategy board's status filter like the HTTP listing
 // (ADR 0002): status=in-progress,backlog hides the finished work, and a
 // status the board does not have is refused, not read as no filter.
-func TestMCPListCardsRoadmapByStatus(t *testing.T) {
+func TestMCPListCardsStrategyByStatus(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
@@ -1140,18 +1140,18 @@ func TestMCPListCardsRoadmapByStatus(t *testing.T) {
 		{ItemID: "oldt", Title: "Old task", Parent: "old", Team: "alpha", Progress: 100, StartDate: today},
 	}, nil)
 	cs := connect(t, Config{Board: "acme"}, fake)
-	got := textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap", "status": "in-progress,backlog"}))
+	got := textOf(call(t, cs, "list_cards", map[string]any{"view": "strategy", "status": "in-progress,backlog"}))
 	if !listed(got, "work") || listed(got, "fin") || listed(got, "client") {
 		t.Fatalf("in progress and backlog: %s", got)
 	}
 	// Hide done is every value but done: the empty waiting epic stays, the
 	// finished one goes.
-	got = textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap", "status": "in-progress,backlog,locked,no-items"}))
+	got = textOf(call(t, cs, "list_cards", map[string]any{"view": "strategy", "status": "in-progress,backlog,locked,no-items"}))
 	if !listed(got, "work") || !listed(got, "client") || listed(got, "fin") ||
 		listed(got, "old") || listed(got, "oldt") {
 		t.Fatalf("hide done: %s", got)
 	}
-	got = textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap", "status": "locked"}))
+	got = textOf(call(t, cs, "list_cards", map[string]any{"view": "strategy", "status": "locked"}))
 	if !listed(got, "client") || listed(got, "work") {
 		t.Fatalf("locked: %s", got)
 	}
@@ -1162,7 +1162,7 @@ func TestMCPListCardsRoadmapByStatus(t *testing.T) {
 		}
 	}
 	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "list_cards",
-		Arguments: map[string]any{"view": "roadmap", "status": "todo"}})
+		Arguments: map[string]any{"view": "strategy", "status": "todo"}})
 	if err == nil && !res.IsError {
 		t.Fatalf("an unknown status was read: %s", textOf(res))
 	}
@@ -1195,6 +1195,31 @@ func TestMCPUpdateCardSetsWhatACardWaitsFor(t *testing.T) {
 	for _, want := range []string{"LOCKED", "dependentCustomers", "dependencyCycle", "dependencyTarget"} {
 		if !strings.Contains(surface, want) {
 			t.Errorf("update_card does not say %q", want)
+		}
+	}
+}
+
+// The Strategy board is listed by its name; the old `roadmap` is refused as
+// any unknown view, and no tool speaks of the Roadmap any more.
+func TestMCPListCardsStrategyAndRefusesTheOldName(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
+		{ItemID: "work", Title: "Receipts", Parent: "epic", Team: "alpha", SprintStart: today, StartDate: today},
+		{ItemID: "loose", Title: "Elsewhere", Team: "alpha", Progress: 100},
+	}, nil)
+	cs := connect(t, Config{Board: "acme"}, fake)
+	strategy := textOf(call(t, cs, "list_cards", map[string]any{"view": "strategy"}))
+	if !listed(strategy, "work") || !listed(strategy, "epic") || listed(strategy, "loose") {
+		t.Fatalf("strategy: %s", strategy)
+	}
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "list_cards", Arguments: map[string]any{"view": "roadmap"}})
+	if err == nil && !res.IsError {
+		t.Fatalf("view=roadmap still lists: %s", textOf(res))
+	}
+	for _, tool := range []string{"list_cards", "create_card", "own_card", "remove_card"} {
+		if d := toolSurface(t, tool); strings.Contains(d, "Roadmap") || strings.Contains(d, "roadmap") {
+			t.Errorf("%s still speaks of the Roadmap", tool)
 		}
 	}
 }

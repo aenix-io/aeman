@@ -110,7 +110,7 @@ describe("the board in the address", () => {
     expect(calls[0].body).toBeUndefined();
   });
 
-  // The Roadmap's badge menu (K16): UNASSIGNED, a card action naming the
+  // The Strategy board's badge menu (K16): UNASSIGNED, a card action naming the
   // tasks it counted. (There is no priority action: priorities were
   // removed.)
   it("takes work out of work through the card's actions", async () => {
@@ -129,6 +129,17 @@ describe("the board in the address", () => {
     standingOn("day=2026-09-11&view=me");
     await apiProvider.createCard({ title: "came up", zone: "yellow", team: null });
     expect(calls[0].url).toBe("/api/v1/views/me/cards");
+  });
+
+  // A planning card is the Strategy board's create, addressed by the board's
+  // name; the Strategy board was its old one, and the client sends the new.
+  it("creates a planning card into the Strategy board", async () => {
+    standingOn("view=strategy");
+    await apiProvider.createCard({ title: "Grow", type: "goal", team: null });
+    expect(calls[0].url).toBe("/api/v1/views/strategy/cards");
+    standingOn("day=2026-09-11&view=me");
+    await apiProvider.createCard({ title: "Grow", type: "goal", team: null });
+    expect(calls[1].url).toBe("/api/v1/views/strategy/cards");
   });
 
   // The Backlog's insert "+" is ONE create naming its place (K12's

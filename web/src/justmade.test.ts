@@ -57,7 +57,7 @@ describe("when the × asks first", () => {
   });
 });
 
-// A card made under a filter that does not take it — the Roadmap's task is
+// A card made under a filter that does not take it — the Strategy board's task is
 // born parked, and "In progress" leaves it out — would leave the board the
 // moment the server answers, as a membership DELETED. Made here, it stays
 // until the filter (or the view) changes; one deleted outright still goes.

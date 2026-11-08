@@ -130,7 +130,7 @@ func TestParentOfAndChildrenOf(t *testing.T) {
 
 // The breadcrumb: every ancestor, root first, a task parent included. It is
 // what the detail pane draws above a card, and what says whether a card is on
-// the Roadmap at all (a planning card somewhere above it).
+// the Strategy board at all (a planning card somewhere above it).
 func TestLineageIsEveryAncestorRootFirst(t *testing.T) {
 	t.Parallel()
 	b := hierarchyBoard()
@@ -242,7 +242,7 @@ func TestHierarchyStatusIsDerivedFromTheLeafTasks(t *testing.T) {
 	}
 }
 
-// A planning card has no band and no size — the Roadmap draws neither,
+// A planning card has no band and no size — the Strategy board draws neither,
 // and a file that still carries
 // the keys (a repository migrated before the rule, a direct writer) must not
 // put them back on the wire. They are taken off on READ, where every other
@@ -276,7 +276,7 @@ func TestACardOfALevelReadsWithNoZoneOrSize(t *testing.T) {
 // deleted TASK could leave one behind, and the × never did without freeing
 // its children. Now an epic or a goal deleted by a direct writer (or a torn
 // cross-replica move) would take its whole subtree off Me, Team, Triage and
-// the Roadmap with nothing to bring it back. Read as a root, the card stands
+// the Strategy board with nothing to bring it back. Read as a root, the card stands
 // where its own dates and team put it, and its next rewrite drops the key.
 func TestADanglingParentIsDroppedOnLoad(t *testing.T) {
 	t.Parallel()
@@ -338,7 +338,7 @@ func TestAPlanningCardReadsWithNoAssigneeAndKeepsItsTeam(t *testing.T) {
 }
 
 // A task taken into work is work in progress before the first percent is
-// typed: an initiative with a task in hand is being worked, and the Roadmap
+// typed: an initiative with a task in hand is being worked, and the Strategy board
 // must say so. With nothing in work it is waiting (backlog); and a card that
 // is a subtask's parent counts once.
 func TestALeafTaskInWorkPutsItsPlanningCardInProgress(t *testing.T) {
@@ -414,7 +414,7 @@ func TestPlanningCardsAreOnNoDayBoardAndTasksUnderThemAre(t *testing.T) {
 	if got := CarryingNow(b, today)["u"]; got != 2 {
 		t.Errorf("CarryingNow = %d, want 2 (under, loose)", got)
 	}
-	// Reachable: a planning card is reachable (the Roadmap draws it); a task
+	// Reachable: a planning card is reachable (the Strategy board draws it); a task
 	// under one by its own day; a subtask through its parent.
 	r := Reachable(b, today)
 	for _, id := range []string{"epic", "under", "sub", "loose", "unscheduled"} {
@@ -474,12 +474,12 @@ func TestAHierarchyLinkDoesNotPlaceTheChild(t *testing.T) {
 	}
 }
 
-func TestTheRoadmapIsAView(t *testing.T) {
+func TestTheStrategyIsAView(t *testing.T) {
 	t.Parallel()
-	if !KnownView("roadmap") {
-		t.Fatal("roadmap is a board a person opens")
+	if !KnownView("strategy") {
+		t.Fatal("strategy is a board a person opens")
 	}
-	if ScopedByTeam(ViewRoadmap) {
-		t.Fatal("the Roadmap is board-wide")
+	if ScopedByTeam(ViewStrategy) {
+		t.Fatal("the Strategy board is board-wide")
 	}
 }

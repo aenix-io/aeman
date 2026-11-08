@@ -3640,27 +3640,27 @@ button.card-age {
   opacity: 1;
 }
 
-/* ---- Roadmap ----
+/* ---- Strategy ----
    The hierarchy as a table on the left and a timeline on the right. The two
    never measure each other: every row is ROW_PX tall on both sides, so a
    lane lines up with its row by construction. */
-.roadmap {
+.strategy {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
-.roadmap-toolbar {
+.strategy-toolbar {
   flex-wrap: wrap;
   row-gap: 6px;
 }
 
-.roadmap-toolbar .segmented {
+.strategy-toolbar .segmented {
   margin-left: 0;
 }
 
-.roadmap-depth {
+.strategy-depth {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -3668,7 +3668,7 @@ button.card-age {
   color: var(--muted);
 }
 
-.roadmap-depth select {
+.strategy-depth select {
   font: inherit;
   font-size: 12px;
   color: var(--fg);
@@ -3678,20 +3678,20 @@ button.card-age {
   padding: 3px 6px;
 }
 
-.roadmap-range {
+.strategy-range {
   font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.roadmap-empty {
+.strategy-empty {
   padding: 24px;
   text-align: center;
   max-width: 48ch;
 }
 
-.roadmap-body {
+.strategy-body {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -3702,9 +3702,9 @@ button.card-age {
   background: var(--bg);
 }
 
-.roadmap-table {
+.strategy-table {
   flex: none;
-  /* As wide as its columns add up (roadmapcolumns.ts): the last column's
+  /* As wide as its columns add up (strategycolumns.ts): the last column's
      handle is the split between the table and the timeline. */
   width: var(--rm-table, 680px);
   border-right: 1px solid var(--line);
@@ -3714,8 +3714,8 @@ button.card-age {
   background: var(--bg);
 }
 
-.roadmap-head,
-.roadmap-row {
+.strategy-head,
+.strategy-row {
   display: grid;
   grid-template-columns:
     var(--rm-title, 290px) var(--rm-owner, 150px) var(--rm-start, 64px)
@@ -3725,7 +3725,7 @@ button.card-age {
   font-size: 12.5px;
 }
 
-.roadmap-head {
+.strategy-head {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -3737,20 +3737,20 @@ button.card-age {
   color: var(--muted);
 }
 
-.roadmap-row {
+.strategy-row {
   cursor: pointer;
 }
 
 /* A boundary of the header the reader drags to size the column on its left
-   (roadmapcolumns.ts); focusable, the arrow keys step it. */
-.roadmap-head-cell {
+   (strategycolumns.ts); focusable, the arrow keys step it. */
+.strategy-head-cell {
   position: relative;
   height: 100%;
   display: flex;
   align-items: center;
 }
 
-.roadmap-col-handle {
+.strategy-col-handle {
   position: absolute;
   top: 0;
   right: 0;
@@ -3761,37 +3761,37 @@ button.card-age {
   z-index: 1;
 }
 
-.roadmap-col-handle:hover,
-.roadmap-col-handle:focus-visible {
+.strategy-col-handle:hover,
+.strategy-col-handle:focus-visible {
   background: var(--accent);
   opacity: 0.5;
   outline: none;
 }
 
-.roadmap-row:hover {
+.strategy-row:hover {
   background: var(--hover-overlay-soft);
 }
 
-.roadmap-row-focus {
+.strategy-row-focus {
   box-shadow: inset 3px 0 0 var(--accent);
   background: var(--accent-glow);
 }
 
-.roadmap-cell {
+.strategy-cell {
   padding: 0 6px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.roadmap-cell-date {
+.strategy-cell-date {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
 /* The Owner column: a task's team and person, and the menu that sets them
    (OwnerPicker). */
-.roadmap-cell-owner {
+.strategy-cell-owner {
   overflow: visible;
 }
 
@@ -3799,7 +3799,7 @@ button.card-age {
    without the trigger's -6px pull and cut every name 6px short however wide
    the column was. Filling the cell, a name is cut only when the column is
    narrower than it. */
-.roadmap-cell-owner .owner-picker {
+.strategy-cell-owner .owner-picker {
   display: flex;
 }
 
@@ -3833,7 +3833,7 @@ button.card-age {
   cursor: default;
 }
 
-.roadmap-owner {
+.strategy-owner {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -3841,11 +3841,11 @@ button.card-age {
   max-width: 100%;
 }
 
-.roadmap-owner-none {
+.strategy-owner-none {
   color: var(--faint);
 }
 
-.roadmap-owner-avatar {
+.strategy-owner-avatar {
   width: 16px;
   height: 16px;
   flex: none;
@@ -3905,7 +3905,7 @@ button.card-age {
   border-top: 1px solid var(--line-soft);
 }
 
-.roadmap-cell-title {
+.strategy-cell-title {
   position: relative;
   display: flex;
   align-items: center;
@@ -3914,7 +3914,7 @@ button.card-age {
   height: 100%;
 }
 
-.roadmap-toggle {
+.strategy-toggle {
   flex: none;
   width: 22px;
   height: 22px;
@@ -3929,23 +3929,23 @@ button.card-age {
   padding: 0;
 }
 
-.roadmap-toggle:hover {
+.strategy-toggle:hover {
   background: var(--hover-overlay);
   color: var(--fg);
 }
 
-.roadmap-toggle svg {
+.strategy-toggle svg {
   transition: transform 120ms ease;
 }
 
-.roadmap-toggle-open svg {
+.strategy-toggle-open svg {
   transform: rotate(90deg);
 }
 
 /* A leaf's stand-in for the chevron: the same width, so the indent lines
    up, and no button — nothing lights up on hover where there is nothing to
    unfold. */
-.roadmap-toggle-spacer {
+.strategy-toggle-spacer {
   flex: none;
   width: 22px;
   height: 22px;
@@ -3954,16 +3954,16 @@ button.card-age {
 
 /* The sections below the tree: in work, then each team's backlog. A header
    line names each; its lane on the timeline is empty. */
-.roadmap-section {
+.strategy-section {
   cursor: default;
   background: var(--bg-soft);
 }
 
-.roadmap-section:hover {
+.strategy-section:hover {
   background: var(--bg-soft);
 }
 
-.roadmap-section-label {
+.strategy-section-label {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -3972,18 +3972,18 @@ button.card-age {
   padding-left: 10px;
 }
 
-.roadmap-lane-section {
+.strategy-lane-section {
   background: var(--bg-soft);
   cursor: default;
 }
 
-.roadmap-lane-section:hover {
+.strategy-lane-section:hover {
   background: var(--bg-soft);
 }
 
 /* The tree's guides: one thin line per level of depth, drawn from the row's
    left edge so a reader can follow a branch down the list. */
-.roadmap-guide {
+.strategy-guide {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -3992,21 +3992,21 @@ button.card-age {
   pointer-events: none;
 }
 
-.roadmap-title {
+.strategy-title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.roadmap-count {
+.strategy-count {
   flex: none;
   font-size: 11px;
   color: var(--faint);
   font-variant-numeric: tabular-nums;
 }
 
-.roadmap-row-add,
-.roadmap-row-x {
+.strategy-row-add,
+.strategy-row-x {
   flex: none;
   border: none;
   background: transparent;
@@ -4018,25 +4018,25 @@ button.card-age {
   opacity: 0;
 }
 
-.roadmap-row:hover .roadmap-row-add,
-.roadmap-row:hover .roadmap-row-x,
-.roadmap-row-add:focus-visible,
-.roadmap-row-x:focus-visible {
+.strategy-row:hover .strategy-row-add,
+.strategy-row:hover .strategy-row-x,
+.strategy-row-add:focus-visible,
+.strategy-row-x:focus-visible {
   opacity: 1;
 }
 
-.roadmap-row-add:hover {
+.strategy-row-add:hover {
   color: var(--accent);
 }
 
-.roadmap-row-x:hover {
+.strategy-row-x:hover {
   color: var(--danger);
 }
 
 /* The inline create under a planning row. Its OWN class: the + button's
-   (.roadmap-row-add) hides until the row is hovered, and a form that shared
+   (.strategy-row-add) hides until the row is hovered, and a form that shared
    it opened an invisible row — "the + makes an empty space". */
-.roadmap-row-form {
+.strategy-row-form {
   display: block;
   cursor: default;
   padding-right: 6px;
@@ -4044,7 +4044,7 @@ button.card-age {
 
 /* The add row under the tree is one line of the table, as tall as a row,
    so the timeline's lane for it keeps the two panes in step. */
-.roadmap-row-addroot {
+.strategy-row-addroot {
   display: flex;
   align-items: center;
   padding-left: 6px;
@@ -4054,11 +4054,11 @@ button.card-age {
    table's own right border: the column is wide enough for IN PROGRESS, and
    its cell — header and rows — keeps real space before the divider. The
    cell clips, so a margin on the pill inside it never made that space. */
-.roadmap-cell-status {
+.strategy-cell-status {
   padding-right: 12px;
 }
 
-.roadmap-status {
+.strategy-status {
   display: inline-block;
   padding: 1px 7px;
   border-radius: 3px;
@@ -4070,45 +4070,45 @@ button.card-age {
   color: var(--muted);
 }
 
-.roadmap-status-in-progress {
+.strategy-status-in-progress {
   background: var(--accent-glow);
   color: var(--accent-emphasis);
 }
 
-.roadmap-status-done {
+.strategy-status-done {
   background: var(--stage-done);
   color: var(--on-accent);
 }
 
 /* A stage that holds a task wears the stage's own colour, the same the bar
    wears on the boards. */
-.roadmap-status-review {
+.strategy-status-review {
   background: var(--stage-review);
   color: var(--on-accent);
 }
 
-.roadmap-status-locked {
+.strategy-status-locked {
   background: var(--stage-locked);
   color: var(--on-accent);
 }
 
-.roadmap-status-refused {
+.strategy-status-refused {
   background: var(--stage-refuse);
   color: var(--on-accent);
 }
 
-.roadmap-timeline {
+.strategy-timeline {
   flex: 1;
   min-width: 0;
   position: relative;
 }
 
-.roadmap-track {
+.strategy-track {
   position: relative;
   min-height: 100%;
 }
 
-.roadmap-ticks {
+.strategy-ticks {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -4116,7 +4116,7 @@ button.card-age {
   border-bottom: 1px solid var(--line-soft);
 }
 
-.roadmap-tick {
+.strategy-tick {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -4127,7 +4127,7 @@ button.card-age {
   white-space: nowrap;
 }
 
-.roadmap-today {
+.strategy-today {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -4136,17 +4136,17 @@ button.card-age {
   pointer-events: none;
 }
 
-.roadmap-lane {
+.strategy-lane {
   position: relative;
   border-bottom: 1px solid var(--line-soft);
   cursor: pointer;
 }
 
-.roadmap-lane:hover {
+.strategy-lane:hover {
   background: var(--hover-overlay-soft);
 }
 
-.roadmap-bar {
+.strategy-bar {
   position: absolute;
   top: 7px;
   height: 14px;
@@ -4155,38 +4155,38 @@ button.card-age {
   background: var(--bar-default);
 }
 
-.roadmap-bar-goal {
+.strategy-bar-goal {
   background: var(--accent-emphasis);
   opacity: 0.55;
 }
 
-.roadmap-bar-initiative {
+.strategy-bar-initiative {
   background: var(--accent);
   opacity: 0.7;
 }
 
-.roadmap-bar-epic {
+.strategy-bar-epic {
   background: var(--project-mark);
   opacity: 0.8;
 }
 
-.roadmap-bar-done {
+.strategy-bar-done {
   opacity: 0.55;
 }
 
-.roadmap-bar-point {
+.strategy-bar-point {
   width: 10px;
   height: 10px;
   top: 9px;
   border-radius: 50%;
 }
 
-.roadmap-bar-clip-l {
+.strategy-bar-clip-l {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
 }
 
-.roadmap-bar-clip-r {
+.strategy-bar-clip-r {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
 }
@@ -4226,7 +4226,7 @@ button.card-age {
   text-decoration: underline;
 }
 
-/* A planning crumb's second answer: the Roadmap, which draws it. */
+/* A planning crumb's second answer: the Strategy board, which draws it. */
 .modal-crumb-reveal {
   border: none;
   background: transparent;
@@ -4399,8 +4399,8 @@ button.card-age {
 
 /* ---- kind pictograms ----
    One mark per level of the hierarchy, drawn wherever it is (KindIcon):
-   a Roadmap row, a crumb, a parent picker, a child row. The colour is the
-   kind's, the same as the Roadmap's bars. */
+   a Strategy row, a crumb, a parent picker, a child row. The colour is the
+   kind's, the same as the Strategy board's bars. */
 .kind-icon {
   flex: none;
   vertical-align: -2px;
@@ -5085,7 +5085,7 @@ button.card-age {
 
 /* The standings a planning card can have (H5); a task's own read the same
    way. */
-.roadmap-status-no-items {
+.strategy-status-no-items {
   background: transparent;
   color: var(--faint);
   border: 1px dashed var(--line);
@@ -5112,42 +5112,42 @@ button.card-age {
   }
 }
 
-/* ---- Roadmap: the drag ----
+/* ---- Strategy: the drag ----
    A row is dragged onto another (it goes under it) or into the gap before
    or after it. Nothing moves while it is dragged: the dragged rows are
    dimmed in place, and where the card would land is a mark drawn over the
    rows that takes no room — a line in the gap, indented to the depth it
-   would land at, or the row it would go under (roadmap.dropMark). Over a
+   would land at, or the row it would go under (strategy.dropMark). Over a
    place it may not land, the cursor says so and there is no mark. */
-.roadmap-row {
+.strategy-row {
   position: relative;
   touch-action: none;
 }
 
-.roadmap-body-dragging .roadmap-row {
+.strategy-body-dragging .strategy-row {
   cursor: grabbing;
 }
 
-.roadmap-row-ghost,
-.roadmap-lane-ghost {
+.strategy-row-ghost,
+.strategy-lane-ghost {
   opacity: 0.45;
 }
 
-.roadmap-row-ghost {
+.strategy-row-ghost {
   background: var(--accent-glow);
 }
 
-.roadmap-row-forbid {
+.strategy-row-forbid {
   cursor: not-allowed;
 }
 
-.roadmap-row-drop-inside {
+.strategy-row-drop-inside {
   box-shadow: inset 0 0 0 2px var(--accent);
   background: var(--accent-glow);
 }
 
-.roadmap-row-drop-top::after,
-.roadmap-row-drop-bottom::after {
+.strategy-row-drop-top::after,
+.strategy-row-drop-bottom::after {
   content: "";
   position: absolute;
   left: var(--drop-indent, 6px);
@@ -5159,15 +5159,15 @@ button.card-age {
   z-index: 1; /* under the sticky header (z-index 2) */
 }
 
-.roadmap-row-drop-top::after {
+.strategy-row-drop-top::after {
   top: -1px;
 }
 
-.roadmap-row-drop-bottom::after {
+.strategy-row-drop-bottom::after {
   bottom: -1px;
 }
 
-.roadmap-drag-overlay {
+.strategy-drag-overlay {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -5181,7 +5181,7 @@ button.card-age {
   cursor: grabbing;
 }
 
-.roadmap-drag-overlay-forbid {
+.strategy-drag-overlay-forbid {
   border-color: var(--danger);
 }
 
@@ -5290,7 +5290,7 @@ button.card-age {
 }
 
 /* A team the drawer's Owner takes from above (O3): translucent, as the
-   Roadmap's Owner cell draws it; a person of the card's own stays as is. */
+   Strategy's Owner cell draws it; a person of the card's own stays as is. */
 .drawer-owner-inherited .drawer-owner-team {
   opacity: 0.45;
 }
@@ -5300,15 +5300,15 @@ button.card-age {
   font-style: italic;
 }
 
-/* A team the Roadmap's Owner cell takes from above (O3): greyed, as the
+/* A team the Strategy board's Owner cell takes from above (O3): greyed, as the
    drawer's inherited value is. */
-.roadmap-owner-inherited .owner-badge-team {
+.strategy-owner-inherited .owner-badge-team {
   opacity: 0.45;
 }
 
 /* The label is the team's name only when nobody is named; a plan item's
    own owner stays as it is. */
-.roadmap-owner-inherited:not(:has(.owner-badge-person)) .owner-badge-label {
+.strategy-owner-inherited:not(:has(.owner-badge-person)) .owner-badge-label {
   color: var(--muted);
   font-style: italic;
 }
@@ -5425,14 +5425,14 @@ button.card-age {
   border: 0;
 }
 
-/* The card drawer's "Under it": the Roadmap's rows (PlanTree) without the
+/* The card drawer's "Under it": the Strategy board's rows (PlanTree) without the
    date columns — title, owner, status. */
 .plan-tree {
   margin-top: 4px;
   border-top: 1px solid var(--line-soft);
 }
 
-.plan-tree .roadmap-row.plan-tree-row {
+.plan-tree .strategy-row.plan-tree-row {
   grid-template-columns: minmax(0, 1fr) 140px 144px;
 }
 
@@ -5483,14 +5483,14 @@ button.card-age {
 }
 
 /* The drawer's tree is no drag surface: a swipe scrolls the drawer. */
-.plan-tree .roadmap-row {
+.plan-tree .strategy-row {
   touch-action: auto;
 }
 
 /* With no hover to reveal them, a row's + and × stand shown in the drawer. */
 @media (hover: none) {
-  .plan-tree .roadmap-row-add,
-  .plan-tree .roadmap-row-x {
+  .plan-tree .strategy-row-add,
+  .plan-tree .strategy-row-x {
     opacity: 1;
   }
 }
@@ -5512,24 +5512,24 @@ button.card-age {
   outline-offset: -2px;
 }
 
-/* ---- Roadmap: the badge menu (K16) ----
+/* ---- Strategy: the badge menu (K16) ----
    The badge of a row is a button opening its menu: Unassign. */
-.roadmap-status-button {
+.strategy-status-button {
   border: none;
   font-family: inherit;
   cursor: pointer;
 }
 
-.roadmap-status-button:hover {
+.strategy-status-button:hover {
   outline: 1px solid var(--line);
 }
 
-.roadmap-status-unassigned {
+.strategy-status-unassigned {
   background: var(--bg-soft);
   color: var(--fg);
 }
 
-.roadmap-status-menu {
+.strategy-status-menu {
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -5540,7 +5540,7 @@ button.card-age {
   gap: 1px;
 }
 
-.roadmap-status-item {
+.strategy-status-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -5556,16 +5556,16 @@ button.card-age {
   text-align: left;
 }
 
-.roadmap-status-item:hover:not(:disabled) {
+.strategy-status-item:hover:not(:disabled) {
   background: var(--bg-soft);
 }
 
-.roadmap-status-item:disabled {
+.strategy-status-item:disabled {
   opacity: 0.45;
   cursor: default;
 }
 
-.roadmap-status-count {
+.strategy-status-count {
   margin-left: auto;
   color: var(--muted);
   font-size: 11px;
@@ -5573,14 +5573,14 @@ button.card-age {
 
 /* BACKLOG: waiting, in nobody's hands — an outlined badge, set apart from
    IN PROGRESS (filled). Theme variables only, so both themes draw it. */
-.roadmap-status-backlog {
+.strategy-status-backlog {
   background: transparent;
   color: var(--muted);
   box-shadow: inset 0 0 0 1px var(--line);
 }
 
 /* ---- The badge: the work status in one pill ---- */
-.roadmap-badge {
+.strategy-badge {
   display: inline-flex;
   align-items: stretch;
   border-radius: 3px;
@@ -5594,7 +5594,7 @@ button.card-age {
 
 /* Dragged narrower than the badge, the status is cut short with an
    ellipsis. */
-.roadmap-badge .roadmap-status {
+.strategy-badge .strategy-status {
   border-radius: 0;
   min-width: 0;
   overflow: hidden;
@@ -5602,12 +5602,12 @@ button.card-age {
   white-space: nowrap;
 }
 
-.roadmap-badge > :first-child {
+.strategy-badge > :first-child {
   border-top-left-radius: 3px;
   border-bottom-left-radius: 3px;
 }
 
-.roadmap-badge > :last-child {
+.strategy-badge > :last-child {
   border-top-right-radius: 3px;
   border-bottom-right-radius: 3px;
 }

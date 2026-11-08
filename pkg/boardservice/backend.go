@@ -15,7 +15,7 @@ import (
 // WriteChecker is a backend that can say, before anything is written,
 // whether the actor may write a card (ErrForbidden when not). A gesture that
 // writes many cards asks it of every one first, so it is applied whole or not
-// at all rather than refused half-way (the Roadmap's status menu, K15/K16).
+// at all rather than refused half-way (the Strategy board's status menu, K15/K16).
 // A backend without it lets each write answer for itself.
 type WriteChecker interface {
 	CheckWrite(ctx context.Context, b board.Board, card board.Card) error

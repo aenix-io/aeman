@@ -128,7 +128,7 @@ func TestABacklogCreateIsBornWhereItWasTyped(t *testing.T) {
 	})
 
 	t.Run("a board that is not a ranked list refuses a place by name", func(t *testing.T) {
-		for _, view := range []board.View{board.ViewRoadmap} {
+		for _, view := range []board.View{board.ViewStrategy} {
 			f := seed()
 			_, err := f2svc(f).CreateInView(ctx, "acme", view,
 				CreateCardArgs{Title: "x", After: "a", Type: board.TypeEpic})

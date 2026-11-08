@@ -1,6 +1,6 @@
 // The board's address is its state (docs/api.md, "Deep links"): the view and
 // the open card live in the query of the root document —
-// /?view=roadmap&card=<uid> — and a day board (Me, Team) looked at on a day
+// /?view=strategy&card=<uid> — and a day board (Me, Team) looked at on a day
 // other than today carries it too (&day=YYYY-MM-DD).
 //
 // The query of the root rather than a path: the address is then always the
@@ -28,7 +28,7 @@ function realDay(s: string): boolean {
   const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
   return d.toISOString().slice(0, 10) === s;
 }
-const VIEWS = new Set(["me", "team", "nixon", "project", "plan", "backlog", "triage", "roadmap"]);
+const VIEWS = new Set(["me", "team", "nixon", "project", "plan", "backlog", "triage", "strategy"]);
 
 /** parseLink reads the board's address. An unknown view, an id that is not
  *  one, a day that is not one: each is taken as not there. */

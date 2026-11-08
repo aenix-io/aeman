@@ -103,7 +103,7 @@ func TestTakeIsTheBacklogsGesture(t *testing.T) {
 			t.Errorf("%s does not offer take", v)
 		}
 	}
-	for _, v := range []board.View{board.ViewMe, board.ViewTeam, board.ViewRoadmap} {
+	for _, v := range []board.View{board.ViewMe, board.ViewTeam, board.ViewStrategy} {
 		if Offers(v, GestureTake) {
 			t.Errorf("%s offers take; it is the backlog's", v)
 		}

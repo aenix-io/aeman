@@ -202,10 +202,10 @@ func TestTheCustomerRosterActions(t *testing.T) {
 }
 
 // And a planning card is born with its owner, team and customers when the
-// Roadmap's create says them.
+// Strategy's create says them.
 func TestAPlanningCardIsBornWithItsOwnership(t *testing.T) {
 	f := ownershipSeed()
-	c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewRoadmap,
+	c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewStrategy,
 		CreateCardArgs{Title: "Grow", Type: board.TypeGoal, Team: "alpha", Owner: "ann", Customers: []string{"acme"}})
 	if err != nil {
 		t.Fatal(err)
@@ -219,7 +219,7 @@ func TestAPlanningCardIsBornWithItsOwnership(t *testing.T) {
 // O11 — a card typed into a day board while its Customer filter names one
 // customer is born for that customer, so it stays on the board it was typed
 // into: the create on the Team board, the Backlog and the Me board takes
-// `customers` as the Roadmap's does.
+// `customers` as the Strategy board's does.
 func TestADayBoardCreateIsBornForItsCustomer(t *testing.T) {
 	for _, view := range []board.View{board.ViewTeam, board.ViewBacklog, board.ViewMe} {
 		f := ownershipSeed()

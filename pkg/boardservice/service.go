@@ -249,7 +249,7 @@ func (s *Service) MeView(ctx context.Context, boardID string, user, day string) 
 // pointer on the day, false = same as auto (start one only when there is none).
 type CreateCardArgs struct {
 	// Type is the card's level: "" (a task), "goal", "initiative" or "epic".
-	// A planning card is drawn on the Roadmap and on no day board; it is
+	// A planning card is drawn on the Strategy board and on no day board; it is
 	// born with no sprint, band, backlog or review
 	// (docs/design/hierarchy.md). Fixed at create.
 	Type string
@@ -277,7 +277,7 @@ type CreateCardArgs struct {
 	// Parent groups the new card as a subtask of the given item on create.
 	Parent         string
 	StartNewSprint *bool
-	// Undated leaves the card on NO day: the Roadmap's task, born under a
+	// Undated leaves the card on NO day: the Strategy board's task, born under a
 	// planning card with nothing but a title (and dates, when given). With
 	// no dates it is PARKED in the no-team group's backlog (K3) — a day it
 	// was not given must not be invented for it, or it would land on today's
@@ -440,12 +440,12 @@ func (s *Service) createCard(ctx context.Context, boardID string, args CreateCar
 		return board.Card{}, err
 	}
 
-	// A goal, an initiative or an epic is the Roadmap's: a type, its dates
+	// A goal, an initiative or an epic is the Strategy board's: a type, its dates
 	// and its owner, and none of a task's day-board state.
 	if args.Type != board.TypeTask {
 		return s.createPlanningCard(ctx, b, args, linkDescription, pendingRef)
 	}
-	// A card born in a BACKLOG is on no day. So is the Roadmap's task when it
+	// A card born in a BACKLOG is on no day. So is the Strategy board's task when it
 	// was given no dates: it has no place but its backlog (K3), and the
 	// no-team group's is the one it has, since it has no team either.
 	if args.Parked || (args.Undated && args.Start == "" && args.Day == "") {
@@ -458,7 +458,7 @@ func (s *Service) createCard(ctx context.Context, boardID string, args CreateCar
 	start := args.Start
 	switch {
 	case args.Undated:
-		// Born on no day (the Roadmap's task): the dates stay exactly as
+		// Born on no day (the Strategy board's task): the dates stay exactly as
 		// given, empty included — a one-sided pair still closes below.
 		if start != "" && day == "" {
 			day = start
@@ -625,7 +625,7 @@ func (s *Service) createParkedCard(ctx context.Context, b board.Board, args Crea
 	s.resolveTitleAsync(ctx, b, card, pendingRef)
 	s.logEvent(ctx, b, card, board.EventCreated, "", "")
 	s.logEvent(ctx, b, card, board.EventBacklog, "", backlogLabel(card))
-	// Born under a parent — the Roadmap's task under its epic — it is linked
+	// Born under a parent — the Strategy board's task under its epic — it is linked
 	// the way every create is, through the one grouping door.
 	if args.Parent != "" {
 		if perr := s.groupOrUndo(ctx, b, card, args.Parent); perr != nil {
@@ -1021,7 +1021,7 @@ func (s *Service) Defer(ctx context.Context, boardID string, itemID string, days
 	}
 	// A card created today has no history to keep: its sprint moves with it.
 	// A PLANNING card is in no sprint to begin with (H3): its dates are its
-	// bar on the Roadmap, and deferring moves the bar and nothing else.
+	// bar on the Strategy board, and deferring moves the bar and nothing else.
 	if !board.IsPlanning(c) && board.LocalDateIso(c.CreatedAt) == today {
 		if err := s.backend.SetSprintStart(ctx, b, c, target); err != nil {
 			return err
@@ -1080,7 +1080,7 @@ func (s *Service) SetDates(ctx context.Context, boardID string, itemID, start, e
 			}
 		}
 	}
-	// A PLANNING card's dates are its bar on the Roadmap, and it is in no
+	// A PLANNING card's dates are its bar on the Strategy board, and it is in no
 	// sprint, since no team's day board draws it (H3).
 	if board.IsPlanning(c) {
 		sprint = ""
@@ -1165,7 +1165,7 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, vie
 		return err
 	}
 	// A PLANNING card has no working area to be emptied: the × on the
-	// Roadmap takes it off the board, and what sat under it moves up to its
+	// Strategy takes it off the board, and what sat under it moves up to its
 	// parent (reparentChildren). "Back to its backlog" means nothing here.
 	if board.IsPlanning(c) {
 		if intent != OffBoard {
@@ -2040,9 +2040,9 @@ func (s *Service) setBacklogOn(ctx context.Context, b board.Board, card board.Ca
 		return nil
 	}
 	// It KEEPS ITS PLACE in the board's order (B11, amended with K14). The
-	// backlog reads in the Roadmap's order — one order, decided by the tree —
+	// backlog reads in the Strategy board's order — one order, decided by the tree —
 	// so moving it to the top would move it to the top of its siblings on the
-	// Roadmap as well: taking work out of hand does not rearrange the plan.
+	// Strategy as well: taking work out of hand does not rearrange the plan.
 	// And it becomes PLANNED work, whatever zone it was in. The other three
 	// are statements about TODAY: critical means today, unplanned means it
 	// turned up today, "if time left" is about a day's spare capacity. None of
@@ -2887,12 +2887,12 @@ func linksArePossible(b board.Board, args CreateCardArgs) error {
 		if args.Assignee != "" {
 			asked.Assignees = []string{args.Assignee}
 		}
-		// A task born on the ROADMAP sits under a goal, an initiative or an
+		// A task born on the STRATEGY BOARD sits under a goal, an initiative or an
 		// epic — the epic's +. Under a task it would be a subtask, which is
 		// the gesture of the parent's own board, not of a board that draws
 		// no subtask of nobody's.
 		if args.Undated && !board.IsPlanning(p) {
-			return fmt.Errorf("%w: a task of the Roadmap sits under a goal, an initiative or an epic; a subtask is made from its parent's own board", ErrNotOnThisBoard)
+			return fmt.Errorf("%w: a task of the Strategy board sits under a goal, an initiative or an epic; a subtask is made from its parent's own board", ErrNotOnThisBoard)
 		}
 		// Nor is a subtask born in a backlog: it rides its parent's sprint
 		// and stands where its parent does, so parked as well it would be in

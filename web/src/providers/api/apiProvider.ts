@@ -363,7 +363,7 @@ export const apiProvider: Provider = {
       parent: input.parent ? await resolveCardId(input.parent) : "",
     };
     if (input.type) {
-      body.type = input.type; // a planning card: the Roadmap's create
+      body.type = input.type; // a planning card: the Strategy board's create
     }
     // A day card passes its start/end and the server joins (or records) the
     // sprint itself.

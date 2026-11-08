@@ -13,7 +13,8 @@ import (
 // exactly what the UI renders (the Team grid, the Me day board, the
 // backlogs); the plain field selectors compose with no view.
 type Selector struct {
-	// View is "", "all", "team", "me", "backlog" or "roadmap". ""
+	// View is "", "all", "team", "me", "backlog" or "strategy" (the
+	// deprecated "strategy" reads as "strategy"). ""
 	// and "all" both list every card (the HTTP/MCP layer defaults an
 	// unspecified view to the caller's "me").
 	View string
@@ -59,9 +60,9 @@ type Selector struct {
 	// badge has it on hand without a second request. Off by default: agents
 	// listing a Me board do not want them mixed in.
 	IncludeReviews bool
-	// Customer and Owner narrow the roadmap view (docs/design/ownership.md,
+	// Customer and Owner narrow the strategy view (docs/design/ownership.md,
 	// O7, O8), each a comma-separated set: Customer by effective customers
-	// (customer ids), Owner by a planning card's own owner. On the roadmap
+	// (customer ids), Owner by a planning card's own owner. On the strategy
 	// Team narrows by EFFECTIVE team the same way, the no-team group being
 	// its empty member (alone, the set ","). Several values in one are OR,
 	// different ones AND; every match comes with its ancestors. Customer
@@ -69,7 +70,7 @@ type Selector struct {
 	// effective customers (O11).
 	Customer string
 	Owner    string
-	// Status narrows the roadmap view by status (O14): a comma-separated set
+	// Status narrows the strategy view by status (O14): a comma-separated set
 	// of in-progress, backlog, done (board.WorkStatus), locked and no-items
 	// (board.StatusFilters). A task matches by its own work status and lock,
 	// a subtask rides its parent task, a review card follows the task it
@@ -115,7 +116,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		sel.Zone = &v
 	}
 	switch sel.View {
-	case "", "all", "team", "me", "backlog", "roadmap":
+	case "", "all", "team", "me", "backlog", "strategy":
 	default:
 		return Selector{}, fmt.Errorf("unknown view %q", sel.View)
 	}
@@ -149,21 +150,21 @@ func (s Selector) normalized() Selector {
 	return s
 }
 
-// roadmapCards is the Roadmap's listing (H9): the hierarchy — every goal,
+// strategyCards is the Strategy board's listing (H9): the hierarchy — every goal,
 // initiative and epic, and every card with one of those above it: a task,
 // its subtasks (docs/design/hierarchy.md) — and, below it,
 // every OPEN task that has no planning card above it yet: the work in hand
 // on the Team and Me boards and the cards parked in a backlog. The
-// loose work is listed because the Roadmap is where a lead drags it INTO the
+// loose work is listed because the Strategy board is where a lead drags it INTO the
 // tree, and a board cannot offer a drag of a card it does not draw.
 //
 // What stays out: a task already FINISHED outside the hierarchy — there is
-// nothing left to plan on it, and a roadmap of every card ever closed is a
+// nothing left to plan on it, and a Strategy board of every card ever closed is a
 // log; and a subtask whose parent task is out, since a subtask rides its
 // parent. The
 // tree is the client's to assemble from `parent`; the listing is the cards
 // that make it up.
-func roadmapCards(b board.Board, ix *board.Index) []board.Card {
+func strategyCards(b board.Board, ix *board.Index) []board.Card {
 	in := map[string]bool{}
 	for _, c := range b.Cards {
 		if board.IsStateTitle(c.Title) {
@@ -196,18 +197,18 @@ func roadmapCards(b board.Board, ix *board.Index) []board.Card {
 
 // Mirrored reports whether a client can work out this selection's membership
 // itself — mirror it — so a watch may spare it the ADDED and DELETED of its
-// own changes. The Roadmap's team, customer and owner filters are the
-// server's alone (roadmapNarrowed): a board filtered by them draws what it
+// own changes. The Strategy board's team, customer and owner filters are the
+// server's alone (strategyNarrowed): a board filtered by them draws what it
 // was sent, and must be sent what its own change put in or took out.
 func (sel Selector) Mirrored() bool {
-	if sel.View != "roadmap" {
+	if sel.View != string(board.ViewStrategy) {
 		return true
 	}
 	return teamSetOf(sel.Team) == nil && setOf(sel.Customer) == nil && setOf(sel.Owner) == nil &&
 		setOf(sel.Status) == nil
 }
 
-// roadmapNarrowed applies the Roadmap's team, customer and owner filters
+// strategyNarrowed applies the Strategy board's team, customer and owner filters
 // (O7, O8) to its listing, each judged on its own and AND across them:
 //
 //   - a PLANNING card passes team (customer) when its own effective team
@@ -225,13 +226,13 @@ func (sel Selector) Mirrored() bool {
 //
 // and every card listed comes with its ancestors. With no filter the
 // listing is as it was.
-func roadmapNarrowed(b board.Board, ix *board.Index, cards []board.Card, sel Selector) []board.Card {
+func strategyNarrowed(b board.Board, ix *board.Index, cards []board.Card, sel Selector) []board.Card {
 	teams, customers, owners := teamSetOf(sel.Team), setOf(sel.Customer), setOf(sel.Owner)
 	statuses := setOf(sel.Status)
 	if teams == nil && customers == nil && owners == nil && statuses == nil {
 		return cards
 	}
-	status := roadmapStatus{b: b, ix: ix, set: statuses}
+	status := strategyStatus{b: b, ix: ix, set: statuses}
 	statusOK, planStatusOK := status.task, status.plan
 	teamOK := func(c board.Card) bool { return teams == nil || teams[ix.EffectiveTeam(c)] }
 	customerOK := func(c board.Card) bool { return customerOK(ix, c, customers) }
@@ -331,16 +332,16 @@ func roadmapNarrowed(b board.Board, ix *board.Index, cards []board.Card, sel Sel
 	return out
 }
 
-// roadmapStatus is the Roadmap's status filter (O14) over one listing; a
+// strategyStatus is the Strategy board's status filter (O14) over one listing; a
 // nil set passes everything.
-type roadmapStatus struct {
+type strategyStatus struct {
 	b   board.Board
 	ix  *board.Index
 	set map[string]bool
 }
 
 // anyOf reports whether one of the values is asked for.
-func (f roadmapStatus) anyOf(values []string) bool {
+func (f strategyStatus) anyOf(values []string) bool {
 	for _, v := range values {
 		if f.set[v] {
 			return true
@@ -351,14 +352,14 @@ func (f roadmapStatus) anyOf(values []string) bool {
 
 // locked is the card's lock when the filter asks for it, false otherwise:
 // most boards wait for nothing, and most filters do not name it.
-func (f roadmapStatus) locked(c board.Card) bool {
+func (f strategyStatus) locked(c board.Card) bool {
 	return f.set[board.StatusFilterLocked] && lockedOn(f.b, f.ix, c)
 }
 
 // task reports a task, subtask or review card that answers the filter by
 // its work status or its lock (board.TaskStatuses), a subtask going by its
 // parent task and a review card by the task it reviews.
-func (f roadmapStatus) task(c board.Card) bool {
+func (f strategyStatus) task(c board.Card) bool {
 	if f.set == nil {
 		return true
 	}
@@ -368,7 +369,7 @@ func (f roadmapStatus) task(c board.Card) bool {
 
 // plan reports a planning card that answers the filter BY ITSELF — no-items,
 // locked (board.PlanStatuses); the work statuses it answers by its tasks.
-func (f roadmapStatus) plan(p board.Card) bool {
+func (f strategyStatus) plan(p board.Card) bool {
 	if f.set == nil {
 		return true
 	}
@@ -401,7 +402,7 @@ func lockedOn(b board.Board, ix *board.Index, c board.Card) bool {
 	return b.BlockerTotals[c.ItemID] > 0 || len(blockersJudgedWhole(b, ix, c)) > 0
 }
 
-// workTaskOf is the card whose status a card is filtered by on the Roadmap
+// workTaskOf is the card whose status a card is filtered by on the Strategy board
 // (O14): a review card goes by the task it reviews, a subtask by its parent
 // task, every other card by itself. Bounded, so a hand-written cycle of
 // reviews ends.
@@ -473,7 +474,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	sel = sel.normalized()
 	// One index for the listing, built on first use and shared by every
 	// rule below that reads the hierarchy — placement (O13), customers,
-	// the roadmap's tree.
+	// the strategy's tree.
 	index := lazyIndex(b)
 	var base []board.Card
 	switch sel.View {
@@ -493,18 +494,18 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		base = board.MeViewIn(b, index(), sel.User, sel.Day)
 	case "backlog":
 		base = backlogCards(b, index(), sel)
-	case "roadmap":
+	case string(board.ViewStrategy):
 		ix := index()
-		base = roadmapNarrowed(b, ix, roadmapCards(b, ix), sel)
+		base = strategyNarrowed(b, ix, strategyCards(b, ix), sel)
 	default:
 		base = b.Cards
 	}
 	out := make([]board.Card, 0, len(base))
-	// The day boards' Customer filter (O11): the roadmap applies its own
-	// (roadmapNarrowed).
+	// The day boards' Customer filter (O11): the strategy applies its own
+	// (strategyNarrowed).
 	var dayCustomers map[string]bool
 	var dayIx *board.Index
-	if sel.View != "roadmap" {
+	if sel.View != string(board.ViewStrategy) {
 		if dayCustomers = setOf(sel.Customer); dayCustomers != nil {
 			dayIx = index()
 		}
@@ -830,7 +831,7 @@ func contains(s []string, v string) bool {
 // backlogCards is the view=backlog listing (docs/design/backlog.md, K2):
 // each named team's parked open tasks — no planning card, no subtask, no review card, nothing finished (board.OnBacklog) — in the
 // order a backlog is read: the reviews nobody has taken first, then the
-// Roadmap's order (board.BacklogOrder). `team` names one backlog or a comma-separated set of
+// Strategy's order (board.BacklogOrder). `team` names one backlog or a comma-separated set of
 // them; the Backlog board draws them as one list, in this same order.
 //
 // A review NOBODY HAS TAKEN (board.NeedsReviewer) stands in the same order

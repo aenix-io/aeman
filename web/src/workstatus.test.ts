@@ -2,10 +2,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
-import { statusOf } from "./roadmap";
+import { statusOf } from "./strategy";
 import { HIDE_DONE, planStatuses, STATUS_FILTERS, STATUS_LABELS, statusSet, taskStatuses, workStatus } from "./workstatus";
 
-// The Roadmap's Status filter reads one work status per task, mirroring
+// The Strategy board's Status filter reads one work status per task, mirroring
 // board.WorkStatus: done when complete; else backlog when parked or placed
 // nowhere; else in progress — in hand by a date or a sprint, review, locked
 // and refused included, since somebody holds them.
@@ -38,7 +38,7 @@ describe("a task's work status", () => {
   });
 });
 
-// The Roadmap row's BADGE may name the stage a card is held in (review,
+// The Strategy board row's BADGE may name the stage a card is held in (review,
 // locked, refused) where the filter reads placement; on everything else the
 // badge and the filter say the same thing. A held card's filter status is
 // its placement's: a parked card on review is in the backlog, badge "Review".

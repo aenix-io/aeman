@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { OwnerBadge } from "./OwnerBadge";
 
-// Whose a task is, drawn the same wherever an owner is shown (the Roadmap's
+// Whose a task is, drawn the same wherever an owner is shown (the Strategy board's
 // Owner column, the Backlog card): the TEAM's avatar as the Me and Team
 // boards draw it; with a person, the person's avatar to its right,
 // OVERLAPPING it by a quarter of its width, on top; and beside the group one label —

@@ -6,11 +6,11 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// A task born on the Roadmap under an epic with no dates is PARKED in the
+// A task born on the Strategy board under an epic with no dates is PARKED in the
 // no-team group's backlog (K3): it stands in that backlog — where a lead
-// takes it into work — and on the Roadmap under its parent, and on no day
+// takes it into work — and on the Strategy board under its parent, and on no day
 // board until somebody gives it a day, a sprint or a person.
-func TestARoadmapBornTaskStandsInTheNoTeamBacklogAndOnTheRoadmap(t *testing.T) {
+func TestAStrategyBornTaskStandsInTheNoTeamBacklogAndOnTheStrategy(t *testing.T) {
 	t.Parallel()
 	today := board.TodayIso()
 	b := board.NewBoard([]board.Card{
@@ -26,10 +26,10 @@ func TestARoadmapBornTaskStandsInTheNoTeamBacklogAndOnTheRoadmap(t *testing.T) {
 		return false
 	}
 	if !in(Selector{View: "backlog", Team: ",other"}) {
-		t.Error("the Roadmap-born task is not in the no-team group's backlog")
+		t.Error("the Strategy board-born task is not in the no-team group's backlog")
 	}
-	if !in(Selector{View: "roadmap"}) {
-		t.Error("the Roadmap-born task is not on the Roadmap under its epic")
+	if !in(Selector{View: "strategy"}) {
+		t.Error("the Strategy board-born task is not on the Strategy board under its epic")
 	}
 	if in(Selector{View: "team", Team: "", Day: today}) || in(Selector{View: "me", Day: today}) {
 		t.Error("a parked task is on no day board")

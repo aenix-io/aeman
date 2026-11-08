@@ -17,12 +17,12 @@ describe("which board a create belongs to", () => {
     expect(createView({ parked: true }, "backlog")).toBe("backlog");
   });
 
-  // A planning card is the Roadmap's whatever board is open, and so is a task
+  // A planning card is the Strategy board's whatever board is open, and so is a task
   // born under one from its parent's own pane: no day board takes a create
   // with no day and a parent of that kind (H7).
-  it("is the Roadmap for a planning card, and for a task born under one", () => {
-    expect(createView({ type: "epic" }, "me")).toBe("roadmap");
-    expect(createView({ underPlanning: true }, "team")).toBe("roadmap");
+  it("is the Strategy board for a planning card, and for a task born under one", () => {
+    expect(createView({ type: "epic" }, "me")).toBe("strategy");
+    expect(createView({ underPlanning: true }, "team")).toBe("strategy");
     expect(createView({ underPlanning: false })).toBe("team");
   });
 
@@ -46,6 +46,6 @@ describe("which board a create belongs to", () => {
   // The shape still wins where it names a board of its own.
   it("lets the shape win over the open board", () => {
     expect(createView({ parked: true }, "team")).toBe("backlog");
-    expect(createView({ type: "epic" }, "backlog")).toBe("roadmap");
+    expect(createView({ type: "epic" }, "backlog")).toBe("strategy");
   });
 });

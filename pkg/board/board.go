@@ -56,7 +56,7 @@ type Card struct {
 	Title  string `json:"title"`
 	// Type says what the card is: "" is a TASK, the day boards' own kind;
 	// "goal", "initiative" and "epic" are the PLANNING cards above it, drawn
-	// on the Roadmap and on no day board (docs/design/hierarchy.md). Fixed
+	// on the Strategy board and on no day board (docs/design/hierarchy.md). Fixed
 	// at create; a card never changes level.
 	Type string `json:"type,omitempty"`
 	// Assignees are logins; Author is the login that created the card.
@@ -345,7 +345,7 @@ func NewBoardIn(primary string, cards []Card) Board {
 // whatever the file says — the same on a full read of the board and on the
 // reload of a single card, or the two would disagree about one file.
 //
-// A planning card has no band, no size and no sprint (H3): the Roadmap draws
+// A planning card has no band, no size and no sprint (H3): the Strategy board draws
 // levels and bars, and a weight belongs to work somebody carries. A file that
 // still says otherwise — a repository migrated before the rule, a direct
 // writer — is read without them, and the card's next rewrite drops the keys;
@@ -368,7 +368,7 @@ func SettleCard(c Card) Card {
 // and names what it dropped in DroppedParents. Every rule reads a card with
 // a parent that is not a planning card as a subtask — hidden from every
 // board — so an epic deleted by a direct writer, or a torn move, would
-// otherwise take its whole subtree off Me, Team, the backlogs and the Roadmap with
+// otherwise take its whole subtree off Me, Team, the backlogs and the Strategy board with
 // nothing to bring it back. Read as a root, the card stands where its own
 // dates and team put it; its next rewrite drops the key. It needs the whole
 // board, which is why it is not part of SettleCard.

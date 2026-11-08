@@ -7,7 +7,7 @@ import (
 )
 
 // The cache's own shape of a freshly created card must carry the card's
-// TYPE, or a goal made on the Roadmap is a task to everyone who reads the
+// TYPE, or a goal made on the Strategy board is a task to everyone who reads the
 // board before the commit is reloaded: the create's own response, the
 // listing a second later, the level rule refusing an epic under "a  " (the
 // blank type of a task) — all seen in the schema-2 rehearsal. The store's

@@ -122,7 +122,7 @@ describe("the card drawer", () => {
   it("gives a planning card its level, its standing, its owner and team, its dates, what it is under and who it is for — no band, no size, no assignee", () => {
     const html = draw(card({ type: "epic", hierarchy: { status: "in-progress", done: 2, total: 5 }, startDate: "2026-02-09" }));
     expect(rows(html)).toEqual(["Level", "Status", "Owner", "Dates", "Under", "Customers"]);
-    expect(html).toContain("roadmap-status-in-progress");
+    expect(html).toContain("strategy-status-in-progress");
     expect(html).toContain(">2/5<");
     expect(html).not.toContain("modal-size-chip");
     expect(html).not.toContain("modal-zone-btn");
@@ -151,13 +151,15 @@ describe("the card drawer", () => {
 // sits under, and what sits under a planning card. Mirrors what hierarchy.md
 // gives the detail pane.
 describe("the card drawer and the hierarchy", () => {
-  it("draws the ancestors root first as a breadcrumb, every crumb opening its card, planning crumbs with the Roadmap too", () => {
+  it("draws the ancestors root first as a breadcrumb, every crumb opening its card, planning crumbs with the Strategy board too", () => {
     const html = draw(card({ parent: "e", lineage }));
     expect(html).toContain("modal-crumbs");
     expect(html.indexOf("Grow")).toBeLessThan(html.indexOf("Invoices"));
     expect(html.match(/modal-crumb-link/g)?.length).toBe(2);
     expect(html).toContain('title="Open «Grow»"');
     expect(html.match(/modal-crumb-reveal/g)?.length).toBe(2);
+    expect(html).toContain('title="Show «Grow» on the Strategy board"');
+    expect(html).not.toContain("Roadmap");
     expect(html).toContain("kind-icon-goal");
     expect(html).toContain("kind-icon-epic");
   });
@@ -296,10 +298,10 @@ describe("the drawer's card identity line", () => {
   });
 });
 
-// A plan item's "Under it" is the Roadmap's tree rooted one level below it,
+// A plan item's "Under it" is the Strategy board's tree rooted one level below it,
 // with the counts header kept.
 describe("a plan item's drawer", () => {
-  it("draws what is under it as the Roadmap's tree", () => {
+  it("draws what is under it as the Strategy board's tree", () => {
     const epic = card({ itemId: "e", title: "Invoices", type: "epic", hierarchy: { status: "backlog", done: 1, total: 3 } } as Partial<Card>);
     const t = card({ itemId: "t", title: "Render PDF", parent: "e", lineage: [{ uid: "e", type: "epic", title: "Invoices" }] });
     const b = { ...board, cards: [epic, t] } as Board;

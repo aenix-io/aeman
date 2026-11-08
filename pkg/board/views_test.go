@@ -14,7 +14,7 @@ func TestTheViewsAreTheBoardsAPersonOpens(t *testing.T) {
 		}
 	}
 	// Every board of the SPA is here, under the name the SPA uses.
-	for _, name := range []string{"me", "team", "backlog", "roadmap", "all"} {
+	for _, name := range []string{"me", "team", "backlog", "strategy", "all"} {
 		if !KnownView(name) {
 			t.Fatalf("%q is a board a person opens and the domain does not know it", name)
 		}
@@ -56,9 +56,27 @@ func TestOnlySomeBoardsAreScopedByTeam(t *testing.T) {
 			t.Errorf("%s lists one team's work and says it does not", v)
 		}
 	}
-	for _, v := range []View{ViewMe, ViewRoadmap, ViewAll} {
+	for _, v := range []View{ViewMe, ViewStrategy, ViewAll} {
 		if ScopedByTeam(v) {
 			t.Errorf("%s lists every team and says it is narrowed by one", v)
 		}
+	}
+}
+
+// THE STRATEGY BOARD WAS RENAMED FROM ROADMAP on 2026-11-08, and the old
+// name is no board any more: it is not a view, and Views() names the board
+// once, by its name now.
+func TestTheOldRoadmapNameIsNoView(t *testing.T) {
+	t.Parallel()
+	if KnownView("roadmap") {
+		t.Fatal("the old roadmap name is still a view")
+	}
+	for _, v := range Views() {
+		if v == "roadmap" {
+			t.Fatal("Views() lists roadmap")
+		}
+	}
+	if !KnownView("strategy") {
+		t.Fatal("strategy is not a view")
 	}
 }

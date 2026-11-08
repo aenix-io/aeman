@@ -127,7 +127,7 @@ paths:
         yours, today, in the sprint and in the unplanned band; into `team` it
         lands in the Unassigned column unless somebody is named; into `backlog`
         it is parked in the team's backlog, last — or right where `after` /
-        `before` place it, in the same request; into `roadmap` it is a goal, an initiative or an epic,
+        `before` place it, in the same request; into `strategy` it is a goal, an initiative or an epic,
         or a task under one — parked in the no-team group's backlog when it
         was given no dates. Each board refuses
         the fields it does not own — a parked card typed into a day, a type
@@ -279,7 +279,7 @@ paths:
       tags: [Cards]
       summary: Whose is this — a team and a person on it, a team alone, or nobody.
       description: >-
-        The Roadmap's answer for the loose work listed below its tree, offered
+        The Strategy board's answer for the loose work listed below its tree, offered
         by every board that draws a task. What the
         answer DOES depends on whether the card is in work — a date or a
         sprint. A `person` (with their `team`) takes an UNPLANNED card into
@@ -615,7 +615,7 @@ paths:
       tags: [Cards]
       summary: Take work in hand out of work, back to its team's backlog.
       description: >-
-        The Roadmap's status menu, UNASSIGNED. On a TASK it takes the task
+        The Strategy board's status menu, UNASSIGNED. On a TASK it takes the task
         itself, which must be open work in hand — a date or a sprint, not
         parked, not finished (422 `notInWork` otherwise). On a PLAN ITEM it
         takes every such task under it, at any depth. Each goes the way the
@@ -1095,14 +1095,14 @@ components:
       in: path
       required: true
       description: >-
-        The board the caller is standing on: me, team, backlog, roadmap, or
+        The board the caller is standing on: me, team, backlog, strategy, or
         all — the escape hatch, which has to be said out loud. A board nobody
         has is a route that is not there (404) — `triage`, the retired Triage
         board, and `project`, the retired Project board, among them. The
         backlog lists each named team's parked open tasks in the order the
         backlog is read: the reviews nobody has taken first, in their tasks'
-        Roadmap order, then the Roadmap's order — tasks under a plan item by
-        their place in the tree, loose tasks after them. The roadmap lists
+        Strategy order, then the Strategy board's order — tasks under a plan item by
+        their place in the tree, loose tasks after them. The Strategy board lists
         the hierarchy — every goal, initiative and epic, and every card with one
         above it — and a create there is a planning card (`type` required).
       schema:
@@ -1132,7 +1132,7 @@ components:
         no-team group is the empty member — `alpha,` is alpha and the no-team
         group, `,` the no-team group alone. Left empty it means, per view: on
         `team`, the no-team group's grid; on `backlog`, `me`, `all` and
-        `roadmap`, no team filter (every team's). On the roadmap
+        `strategy`, no team filter (every team's). On the strategy
         view it narrows by EFFECTIVE team: a task whose own or inherited team
         is among them (the no-team group: none at all), a planning card that
         is or has such a task under it, each with its ancestors.
@@ -1206,7 +1206,7 @@ components:
       required: false
       description: >-
         A comma-separated set of customer ids, matched against a card's
-        EFFECTIVE customers (its own plus every ancestor's). On the roadmap
+        EFFECTIVE customers (its own plus every ancestor's). On the strategy
         view a task is listed when one of them is among the set, a planning
         card when it is itself or any task under it is, each with its
         ancestors; with `team` and `owner`, AND. On the team, backlog, all
@@ -1219,7 +1219,7 @@ components:
       in: query
       required: false
       description: >-
-        On the roadmap view, a comma-separated set of logins — the Roadmap's
+        On the strategy view, a comma-separated set of logins — the Strategy board's
         one person filter: a goal, an initiative or an epic is listed when its
         OWN owner is among them (never inherited), and a task or a subtask
         when one of its assignees is; each with its ancestors. A planning card
@@ -1232,7 +1232,7 @@ components:
       in: query
       required: false
       description: >-
-        On the roadmap view, a comma-separated set of statuses —
+        On the strategy view, a comma-separated set of statuses —
         `in-progress`, `backlog`, `done`, `locked`, `no-items` — and nothing
         else (anything else is 400 `invalidSelector`). A task's work status
         is `done` when it is complete, `backlog` when it is parked, and
@@ -1566,7 +1566,7 @@ components:
           type: string
           description: >-
             The card's level. Absent for a task; `goal`, `initiative` or `epic`
-            for a PLANNING card, which the Roadmap draws and no day board
+            for a PLANNING card, which the Strategy board draws and no day board
             does. Fixed at create.
           enum: [goal, initiative, epic]
     CardDates:
@@ -1787,7 +1787,7 @@ components:
           type: string
           description: >-
             The ancestor's end date, when it has one — a planning card's bar
-            ends there on the Roadmap. The Backlog shows the nearest planning
+            ends there on the Strategy board. The Backlog shows the nearest planning
             card's end as the due date of the task under it.
     Hierarchy:
       type: object
@@ -1861,7 +1861,7 @@ components:
           type: array
           description: >-
             On a `backlog` listing only: the whole board's order, as every
-            `Ordering` frame carries it. A backlog reads in the Roadmap's
+            `Ordering` frame carries it. A backlog reads in the Strategy board's
             order (the path of places in this order from the root plan item
             down to the task), the reviews nobody has taken first, in their
             tasks' order; a client that
@@ -2334,7 +2334,7 @@ components:
         owner:
           type: string
           description: >-
-            On the roadmap view, the person who answers for the goal, the
+            On the strategy view, the person who answers for the goal, the
             initiative or the epic being made; refused on a task (422
             `ownerIsThePlans`).
         customers:
@@ -2376,7 +2376,7 @@ components:
         type:
           type: string
           description: >-
-            Makes a PLANNING card — on the roadmap view, where it is required;
+            Makes a PLANNING card — on the strategy view, where it is required;
             every other board refuses it (422 `notOnThisBoard`). A planning card
             takes its dates, its owner, a team and a parent, and none of a task's
             day-board state (422 `planningCard` for a column, a backlog, a
@@ -2398,7 +2398,7 @@ components:
             person and band are the create's own fields). One of `after` and
             `before`, or neither (the card lands last); both are 422
             `twoPlaces`, an anchor the board does not have is 404
-            `cardNotFound` and nothing is made. The roadmap view refuses it (422 `notOnThisBoard`); `view=all` takes it.
+            `cardNotFound` and nothing is made. The strategy view refuses it (422 `notOnThisBoard`); `view=all` takes it.
         before:
           type: string
           description: >-
@@ -2545,7 +2545,7 @@ components:
           type: boolean
           description: >-
             Name what the gesture would take — in `items`, as they stand —
-            and write nothing: what a confirm counts. The reader's Roadmap
+            and write nothing: what a confirm counts. The reader's Strategy board
             may be filtered; this answers for the whole board.
         uids:
           type: array
@@ -2559,7 +2559,7 @@ components:
       type: object
       additionalProperties: false
       required: [changed, items]
-      description: What a status gesture on the Roadmap changed.
+      description: What a status gesture on the Strategy board changed.
       properties:
         changed:
           type: integer

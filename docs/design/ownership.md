@@ -11,7 +11,7 @@ project-card clauses below are kept as history.
 
 ## Why
 
-The Roadmap shows what the company plans, but not who is answerable for each
+The Strategy board shows what the company plans, but not who is answerable for each
 part of the plan, which team is doing it, or which customer it is for. Leads
 want to see "the epics I own and have to break down", "what cozystack is
 doing", "everything for Hidora" — and the planning cards cannot say any of it.
@@ -32,7 +32,7 @@ makes a single "assignee" on a planning card wrong:
 A goal, an initiative or an epic has an optional **owner**: one person.
 
 - The owner answers for the card itself. It is **not inherited**: each level
-  has its own, and an initiative with no owner has none. (The Roadmap may
+  has its own, and an initiative with no owner has none. (The Strategy board may
   hint "goal owner: X" in grey on a card with none; that hint is not the
   card's owner and no filter matches it.)
 - An owner puts nothing on any day board: planning cards stay off Me, Team
@@ -48,7 +48,7 @@ A planning card has an optional **team**: the team that carries it out.
   ancestor's that has one. It is computed, never written down the tree.
 - A task's own team always wins over an inherited one. An epic of `portal`
   can hold tasks of `cozystack`: those tasks simply carry their own team.
-- A task with no team of its own (one born on the Roadmap, say) takes the
+- A task with no team of its own (one born on the Strategy board, say) takes the
   effective team of its planning ancestors for filtering and display, and
   — amended 2026-11-06 (O13) — **stands under it on every day board and
   backlog**: the Team board draws it in that team's grid, the Backlog lists
@@ -93,9 +93,9 @@ may name **several customers**.
   card. This is why a delete does not have to wait for the card writes
   queued before it.
 
-## Roadmap filters
+## Strategy filters
 
-The Roadmap has four filters, applied by the server (`view=roadmap`
+The Strategy board has four filters, applied by the server (`view=strategy`
 selectors `team`, `customer`, `owner`, `status`; the same in MCP
 `list_cards`):
 
@@ -106,10 +106,10 @@ selectors `team`, `customer`, `owner`, `status`; the same in MCP
   matches what has no effective team, and choosing only real teams leaves
   that work out (O11).
 - **Customer** — the same rule over effective customers.
-- **Owner** — the Roadmap's one person filter: a planning card matches by
+- **Owner** — the Strategy board's one person filter: a planning card matches by
   its own owner (no inheritance, no hint), and a task or a subtask by its
   assignees; a planning card also passes by a task under it that matches.
-  It replaced the Roadmap's earlier client-side assignee filter, so the
+  It replaced the Strategy board's earlier client-side assignee filter, so the
   toolbar asks "whose" once. Its options are the board's members, the plan
   items' owners, the tasks' assignees and whoever is already selected.
 - **Status** (added 2026-11-08, O14) — In progress, Backlog, Locked, No
@@ -184,7 +184,7 @@ where it sits. The choice is remembered per viewer in the browser.
 - One existing state changes meaning: a `team:` a planning card's file
   already carries — written by a direct writer, or left from before H3
   read it off — was ignored and now takes effect. That planning card shows
-  the team, passes the Roadmap's team filter, and the tasks under it with
+  the team, passes the Strategy board's team filter, and the tasks under it with
   no team of their own take it as their effective team. Nothing moves on a
   day board, since a planning card's team places nothing. A board with
   such files should be checked before the release; this change does not
@@ -202,11 +202,11 @@ where it sits. The choice is remembered per viewer in the browser.
 | O4 | A card's effective customers are its own plus all its ancestors'; a lower card is added to, never overwritten. |
 | O5 | Customers come from the board's roster, are referred to by id, and a rename or a delete reaches every card. |
 | O6 | A review card shows its task's customers (project cards, which carried none, were removed 2026-11-07). |
-| O7 | Roadmap team/customer filters match a task by its effective value and a planning card by itself or any task under it; matches are drawn with their ancestors. |
-| O8 | The Roadmap owner filter is its one person filter: a planning card by its own owner, a task or subtask by its assignees. |
+| O7 | Strategy team/customer filters match a task by its effective value and a planning card by itself or any task under it; matches are drawn with their ancestors. |
+| O8 | The Strategy board owner filter is its one person filter: a planning card by its own owner, a task or subtask by its assignees. |
 | O9 | `own` on a planning card sets its owner and/or team; the same fields and the customer roster are in the API and MCP. |
 | O10 | Deleting a customer needs the right to write every repository it reaches. |
 | O11 | The no-team group is a team in every team filter, and the day boards filter by customer too. |
 | O12 | Every board filters through one dropdown, with the roster's Manage inside; the Me board says what its filters hide. |
 | O13 | A task stands under its effective team on every day board, backlog, team filter and sprint; its own team is still what is stored and written. |
-| O14 | The Roadmap status filter matches a task by its work status (done, backlog when parked, in progress when in work; unplaced reads as backlog), a subtask by its parent task, a review card by its task, and a planning card by itself for Locked and No items, otherwise by a task under it. Across filters the AND is judged on one task. |
+| O14 | The Strategy board status filter matches a task by its work status (done, backlog when parked, in progress when in work; unplaced reads as backlog), a subtask by its parent task, a review card by its task, and a planning card by itself for Locked and No items, otherwise by a task under it. Across filters the AND is judged on one task. |

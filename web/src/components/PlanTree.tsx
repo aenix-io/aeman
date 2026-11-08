@@ -2,17 +2,17 @@ import { useMemo, useState, type ReactNode } from "react";
 
 import type { Card as CardModel, CardType } from "../providers/types";
 import { ownerLabel, type Owner } from "../owner";
-import { effectiveTeamOf, roadmapOwnerCell } from "../ownership";
-import { badgeOf, childLevels, KIND_LABEL, kindOf, STATUS_LABEL, subtreeRows, type Row } from "../roadmap";
+import { effectiveTeamOf, strategyOwnerCell } from "../ownership";
+import { badgeOf, childLevels, KIND_LABEL, kindOf, STATUS_LABEL, subtreeRows, type Row } from "../strategy";
 import { isPlanning } from "../subtasks";
 import { displayName, type Avatars, type Names } from "../users";
 import { AddCard } from "./AddCard";
 import { KindIcon } from "./KindIcon";
 import { OwnerBadge } from "./OwnerBadge";
 
-// The Roadmap's tree, shared: the title cell of a row (indent guides, the
+// The Strategy board's tree, shared: the title cell of a row (indent guides, the
 // fold chevron, the kind, the title, the count, the row's + and ×), its
-// status pill and its owner cell are drawn by the Roadmap (RoadmapBoard, with
+// status pill and its owner cell are drawn by the Strategy board (StrategyBoard, with
 // its timeline, dates and drag) and by the card drawer's "Under it" (PlanTree,
 // with neither) from the same pieces, so the two cannot drift apart.
 
@@ -49,14 +49,14 @@ export function TreeTitle({
     onPointerDown: (e: { stopPropagation: () => void }) => e.stopPropagation(),
   });
   return (
-    <span className="roadmap-cell roadmap-cell-title" style={{ paddingLeft: 6 + depth * INDENT_PX }}>
+    <span className="strategy-cell strategy-cell-title" style={{ paddingLeft: 6 + depth * INDENT_PX }}>
       {Array.from({ length: depth }, (_, i) => (
-        <span key={i} className="roadmap-guide" style={{ left: 6 + i * INDENT_PX + 10 }} aria-hidden="true" />
+        <span key={i} className="strategy-guide" style={{ left: 6 + i * INDENT_PX + 10 }} aria-hidden="true" />
       ))}
       {foldable > 0 ? (
         <button
           type="button"
-          className={`roadmap-toggle${open ? " roadmap-toggle-open" : ""}`}
+          className={`strategy-toggle${open ? " strategy-toggle-open" : ""}`}
           aria-label={open ? "Fold" : `Unfold ${foldable}`}
           aria-expanded={open}
           {...stop(onToggle)}
@@ -68,26 +68,26 @@ export function TreeTitle({
       ) : (
         // A leaf keeps the chevron's width so the indent lines up, and
         // nothing else: not a button, nothing to hover or focus.
-        <span className="roadmap-toggle-spacer" aria-hidden="true" />
+        <span className="strategy-toggle-spacer" aria-hidden="true" />
       )}
       <KindIcon kind={node.kind} size={15} />
-      <span className="roadmap-title" title={card.title}>
+      <span className="strategy-title" title={card.title}>
         {card.title}
       </span>
       {isPlanning(card) && card.hierarchy && card.hierarchy.total > 0 && (
-        <span className="roadmap-count" title={`${card.hierarchy.done} of ${card.hierarchy.total} tasks done`}>
+        <span className="strategy-count" title={`${card.hierarchy.done} of ${card.hierarchy.total} tasks done`}>
           {card.hierarchy.done}/{card.hierarchy.total}
         </span>
       )}
       {onAdd && (
-        <button type="button" className="roadmap-row-add" title={`Add under «${card.title}»`} aria-label={`Add under ${card.title}`} {...stop(onAdd)}>
+        <button type="button" className="strategy-row-add" title={`Add under «${card.title}»`} aria-label={`Add under ${card.title}`} {...stop(onAdd)}>
           +
         </button>
       )}
       {onRemove && (
         <button
           type="button"
-          className="roadmap-row-x"
+          className="strategy-row-x"
           title={`Delete «${card.title}», or take it out from under its parent`}
           aria-label={`Delete ${card.title}`}
           {...stop(onRemove)}
@@ -99,23 +99,23 @@ export function TreeTitle({
   );
 }
 
-/** StatusPill is a row's badge: its work status (roadmap.badgeOf, over
- *  roadmap.statusOf), its tooltip what a locked card waits for. Given onMenu
+/** StatusPill is a row's badge: its work status (strategy.badgeOf, over
+ *  strategy.statusOf), its tooltip what a locked card waits for. Given onMenu
  *  it is the button that opens the row's menu (UNASSIGNED, K16). */
 export function StatusPill({ card, onMenu, expanded = false }: { card: CardModel; onMenu?: (badge: HTMLElement) => void; expanded?: boolean }) {
   const badge = badgeOf(card);
   const parts = (
-    <span className={`roadmap-status roadmap-status-${badge.status}`} title={badge.lock}>
+    <span className={`strategy-status strategy-status-${badge.status}`} title={badge.lock}>
       {STATUS_LABEL[badge.status]}
     </span>
   );
   if (!onMenu) {
-    return <span className="roadmap-badge">{parts}</span>;
+    return <span className="strategy-badge">{parts}</span>;
   }
   return (
     <button
       type="button"
-      className="roadmap-badge roadmap-status-button"
+      className="strategy-badge strategy-status-button"
       title="Take out of work"
       aria-label={`${STATUS_LABEL[badge.status]}${badge.lock ? `; ${badge.lock}` : ""}`}
       aria-haspopup="menu"
@@ -140,7 +140,7 @@ export function OwnerCell({ owner, avatars, names, from }: { owner: Owner; avata
   const title = inherited ? `${label} — ${from ? `from «${from}»` : "inherited"}` : label;
   return (
     <span
-      className={`roadmap-owner${owner.team || owner.person ? "" : " roadmap-owner-none"}${inherited ? " roadmap-owner-inherited" : ""}`}
+      className={`strategy-owner${owner.team || owner.person ? "" : " strategy-owner-none"}${inherited ? " strategy-owner-inherited" : ""}`}
       title={title}
     >
       <OwnerBadge owner={owner} avatars={avatars} names={names} />
@@ -150,11 +150,11 @@ export function OwnerCell({ owner, avatars, names, from }: { owner: Owner; avata
 
 /** ownerOfRow is a row's owner as the Owner column reads it: a plan item's
  *  team and owner, a task's team and person, a team taken from above greyed
- *  (roadmapOwnerCell). */
+ *  (strategyOwnerCell). */
 export function ownerOfRow(card: CardModel, cards: readonly CardModel[]): { owner: Owner; from?: string } | null {
   const kind = kindOf(card);
   const planning = kind === "goal" || kind === "initiative" || kind === "epic";
-  const shown = roadmapOwnerCell(card, cards, planning);
+  const shown = strategyOwnerCell(card, cards, planning);
   return { owner: shown.owner, from: shown.from };
 }
 
@@ -169,7 +169,7 @@ export interface PendingAdd {
 }
 
 /** addPlanFor is what the add form under a plan item offers: the levels it
- *  may hold, the next first (roadmap.childLevels), and — where a task is
+ *  may hold, the next first (strategy.childLevels), and — where a task is
  *  among them — what is true of a task made there: it has no team of its
  *  own, so it stands under the plan item's team if it has one (O13) and
  *  waits in that team's backlog, else in the no-team group's. */
@@ -209,10 +209,10 @@ export function initialFolded(cards: readonly CardModel[], rootId: string): Set<
   return new Set(all.filter((r) => r.depth === 0 && r.foldable > 0).map((r) => r.node.card.itemId));
 }
 
-/** PlanTree is the card drawer's "Under it": the Roadmap's tree rooted ONE
- *  LEVEL BELOW the card the drawer shows (roadmap.subtreeRows) — every level
+/** PlanTree is the card drawer's "Under it": the Strategy board's tree rooted ONE
+ *  LEVEL BELOW the card the drawer shows (strategy.subtreeRows) — every level
  *  under it, folded as the reader folds it (a big tree starts folded below
- *  its first level) — with the Roadmap's rows (kind, fold, title, owner,
+ *  its first level) — with the Strategy board's rows (kind, fold, title, owner,
  *  status) and no timeline, no dates and no drag. A row opens its card, by
  *  a click or Enter/Space; every row has its ×; a plan item's + opens an add
  *  form under it (the levels it may hold, the next one first) that stays
@@ -262,7 +262,7 @@ export function PlanTree({
     pending
       .filter((p) => p.parent === parent)
       .map((p) => (
-        <div key={p.id} className="roadmap-row plan-tree-pending" style={{ paddingLeft: 30 + depth * INDENT_PX, height: ROW_PX }}>
+        <div key={p.id} className="strategy-row plan-tree-pending" style={{ paddingLeft: 30 + depth * INDENT_PX, height: ROW_PX }}>
           <span className="drawer-child-title">{p.title}</span>
           <span className="drawer-hint">adding…</span>
         </div>
@@ -270,7 +270,7 @@ export function PlanTree({
   const form = (parent: CardModel, depth: number, key: string) => {
     const { levels, hint } = addPlanFor(parent, cards);
     return (
-      <div className="roadmap-row roadmap-row-form plan-tree-form" style={{ paddingLeft: 30 + depth * INDENT_PX }}>
+      <div className="strategy-row strategy-row-form plan-tree-form" style={{ paddingLeft: 30 + depth * INDENT_PX }}>
         <AddCard
           key={`${key}-${adding?.round ?? 0}`}
           autoOpen
@@ -296,9 +296,9 @@ export function PlanTree({
         const rowOwner: ReactNode = owner ? <OwnerCell owner={owner.owner} from={owner.from} avatars={avatars} names={names} /> : null;
         const open = !folded.has(card.itemId);
         return (
-          <div key={card.itemId} className="roadmap-rowgroup" role="none">
+          <div key={card.itemId} className="strategy-rowgroup" role="none">
             <div
-              className="roadmap-row plan-tree-row"
+              className="strategy-row plan-tree-row"
               style={{ height: ROW_PX }}
               role="treeitem"
               tabIndex={0}
@@ -319,8 +319,8 @@ export function PlanTree({
                 onAdd={!readOnly && planning && kids.length > 0 ? () => setAdding(adding?.under === card.itemId ? null : { under: card.itemId, round: 0 }) : null}
                 onRemove={!readOnly && onRemove ? () => onRemove(card) : null}
               />
-              <span className="roadmap-cell roadmap-cell-owner">{rowOwner}</span>
-              <span className="roadmap-cell roadmap-cell-status">
+              <span className="strategy-cell strategy-cell-owner">{rowOwner}</span>
+              <span className="strategy-cell strategy-cell-status">
                 <StatusPill card={card} />
               </span>
             </div>

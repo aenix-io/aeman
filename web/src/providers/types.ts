@@ -123,7 +123,7 @@ export interface Card {
    *  epic it is filed in the hierarchy and nothing else about it changes. */
   parent?: string;
   /** The card's level. Absent for a task; a PLANNING card — drawn on the
-   *  Roadmap and on no day board — says which (docs/design/hierarchy.md). */
+   *  Strategy and on no day board — says which (docs/design/hierarchy.md). */
   type?: CardType;
   /** Every ancestor, root first: the breadcrumb. Absent on a root. The last
    *  entry is the parent itself, and its type is what tells a subtask from a
@@ -215,11 +215,11 @@ export interface NewCardInput {
    *  planning card to be filed under (the level rule, H2). */
   parent?: string | null;
   /** A PLANNING card's level — a goal, an initiative or an epic. Set, the
-   *  create is the Roadmap's (views.ts createView) whatever board is open;
+   *  create is the Strategy board's (views.ts createView) whatever board is open;
    *  absent, a task. Fixed for the card's life. */
   type?: CardType | null;
   /** A TASK made under a planning card (the add in an epic's pane): the
-   *  create is the Roadmap's, whatever board is open — the task is parked in
+   *  create is the Strategy board's, whatever board is open — the task is parked in
    *  the no-team backlog until taken into work (K3). Client-side only; never
    *  sent. */
   underPlanning?: boolean | null;
@@ -433,14 +433,14 @@ export interface Provider {
    *  today, out of the backlog; a review nobody has taken makes the caller
    *  its reviewer. A task already in work is 422 alreadyInWork. */
   takeCard(uid: string): Promise<Card>;
-  /** The Roadmap's UNASSIGNED (K16): take a task in work — or every open
+  /** The Strategy board's UNASSIGNED (K16): take a task in work — or every open
    *  task in work under a plan item — back to its team's backlog. Answers
    *  the tasks it moved, as they stand now; `uids` names exactly the tasks
    *  the confirm counted;
    *  422 notInWork on a task not in work, 403 when any is not the caller's. */
   unassignWork(uid: string, uids?: string[]): Promise<Card[]>;
   /** What UNASSIGNED would take from the card, as they stand, writing
-   *  nothing (a dry run) — for the whole board, whatever the Roadmap's
+   *  nothing (a dry run) — for the whole board, whatever the Strategy board's
    *  filter holds: what the confirm counts. */
   previewUnassign(uid: string): Promise<Card[]>;
   /** Advance a team's sprint to today and carry its unfinished cards forward.

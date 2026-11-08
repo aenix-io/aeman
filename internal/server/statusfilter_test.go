@@ -9,9 +9,9 @@ import (
 	"github.com/aenix-io/aeman/pkg/boardservice/boardservicetest"
 )
 
-// O14 over HTTP: the roadmap listing takes `status` like its other
+// O14 over HTTP: the strategy listing takes `status` like its other
 // filters, and a status the board does not have is a bad selector.
-func TestTheRoadmapStatusFilterOverHTTP(t *testing.T) {
+func TestTheStrategyStatusFilterOverHTTP(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
@@ -22,29 +22,29 @@ func TestTheRoadmapStatusFilterOverHTTP(t *testing.T) {
 	srv := apiServer(t, Options{}, fake)
 	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
 
-	rec := do(t, srv, http.MethodGet, "/api/v1/views/roadmap/cards?status=in-progress,backlog", "")
+	rec := do(t, srv, http.MethodGet, "/api/v1/views/strategy/cards?status=in-progress,backlog", "")
 	body := rec.Body.String()
 	if rec.Code != http.StatusOK || !strings.Contains(body, `"uid":"work"`) || !strings.Contains(body, `"uid":"epic"`) ||
 		strings.Contains(body, `"uid":"fin"`) || strings.Contains(body, `"uid":"docs"`) {
 		t.Fatalf("hide done = %d %s", rec.Code, body)
 	}
-	rec = do(t, srv, http.MethodGet, "/api/v1/views/roadmap/cards?status=done", "")
+	rec = do(t, srv, http.MethodGet, "/api/v1/views/strategy/cards?status=done", "")
 	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `"uid":"fin"`) || strings.Contains(body, `"uid":"work"`) {
 		t.Fatalf("done = %d %s", rec.Code, body)
 	}
 	// Hide done is every value but done: the empty epic is not done and
 	// stays (no-items), the finished task goes.
-	rec = do(t, srv, http.MethodGet, "/api/v1/views/roadmap/cards?status=backlog,in-progress,locked,no-items", "")
+	rec = do(t, srv, http.MethodGet, "/api/v1/views/strategy/cards?status=backlog,in-progress,locked,no-items", "")
 	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `"uid":"docs"`) ||
 		!strings.Contains(body, `"uid":"work"`) || strings.Contains(body, `"uid":"fin"`) {
 		t.Fatalf("hide done with locked and no-items = %d %s", rec.Code, body)
 	}
-	rec = do(t, srv, http.MethodGet, "/api/v1/views/roadmap/cards?status=no-items", "")
+	rec = do(t, srv, http.MethodGet, "/api/v1/views/strategy/cards?status=no-items", "")
 	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `"uid":"docs"`) ||
 		strings.Contains(body, `"uid":"epic"`) {
 		t.Fatalf("no-items = %d %s", rec.Code, body)
 	}
-	if rec := do(t, srv, http.MethodGet, "/api/v1/views/roadmap/cards?status=todo", ""); rec.Code != http.StatusBadRequest ||
+	if rec := do(t, srv, http.MethodGet, "/api/v1/views/strategy/cards?status=todo", ""); rec.Code != http.StatusBadRequest ||
 		!strings.Contains(rec.Body.String(), "invalidSelector") {
 		t.Fatalf("an unknown status = %d %s", rec.Code, rec.Body.String())
 	}
@@ -62,7 +62,7 @@ func TestTheLockedFilterOverHTTP(t *testing.T) {
 	srv := apiServer(t, Options{}, fake)
 	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
 	for _, q := range []string{"locked", "backlog,in-progress,locked,no-items"} {
-		rec := do(t, srv, http.MethodGet, "/api/v1/views/roadmap/cards?status="+q, "")
+		rec := do(t, srv, http.MethodGet, "/api/v1/views/strategy/cards?status="+q, "")
 		body := rec.Body.String()
 		if rec.Code != http.StatusOK || !strings.Contains(body, `"uid":"client"`) || !strings.Contains(body, `"locked":true`) {
 			t.Fatalf("status=%s = %d %s", q, rec.Code, body)

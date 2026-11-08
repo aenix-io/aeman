@@ -196,7 +196,7 @@ describe("what a drop does (K5)", () => {
 });
 
 // ONE ORDER, decided by the tree (K14): a drop moves a task among its
-// SIBLINGS — the tasks under the same parent — which moves it on the Roadmap too. A drop whose neighbours are
+// SIBLINGS — the tasks under the same parent — which moves it on the Strategy board too. A drop whose neighbours are
 // none of its siblings is not a place it can go: forbidden, nothing moves.
 describe("a drop moves a task among its siblings only (K14)", () => {
   const under = (itemId: string, parent: string, over: Partial<Card> = {}) =>
@@ -249,13 +249,13 @@ describe("a drop moves a task among its siblings only (K14)", () => {
   });
 });
 
-// The backlog reads in the ROADMAP's order (K14) — a mirror of
-// board.BacklogKey, case for case with TestABacklogReadsInTheRoadmapsOrder:
+// The backlog reads in the STRATEGY's order (K14) — a mirror of
+// board.BacklogKey, case for case with TestABacklogReadsInTheStrategysOrder:
 // the path of places in the board's order from the root plan item down,
 // roots level by level, tasks with no plan item after every planned one, the
 // reviews nobody has taken in a group of their own on top (K10).
-// (Priorities were removed: the order is the place in the Roadmap tree.)
-describe("the Roadmap's order in the backlog (K14)", () => {
+// (Priorities were removed: the order is the place in the Strategy board tree.)
+describe("the Strategy board's order in the backlog (K14)", () => {
   const ref = (uid: string, type: "goal" | "initiative" | "epic"): LineageRef => ({ uid, type, title: uid });
   const G1 = ref("g1", "goal");
   const G2 = ref("g2", "goal");
@@ -277,24 +277,24 @@ describe("the Roadmap's order in the backlog (K14)", () => {
     t("t-iroot", [IR]),
   ];
 
-  it("lists the tasks in the Roadmap's draw order, the loose ones last", () => {
+  it("lists the tasks in the Strategy board's draw order, the loose ones last", () => {
     expect(backlogList(cards, [""], boardOrder).map((c) => c.itemId)).toEqual([
       "t-g2", "t-e2", "t-e1-b", "t-e1-a", "t-i1", "t-iroot", "loose-1", "loose-2",
     ]);
   });
 
   // A `priority:` a card still carries (an older file) is no part of the
-  // order: the Roadmap's order alone decides.
-  it("reads the Roadmap's order alone, whatever priority a card once had", () => {
+  // order: the Strategy board's order alone decides.
+  it("reads the Strategy board's order alone, whatever priority a card once had", () => {
     const order = ["g1", "g2", "a", "b", "c", "loose"];
     const list = [t("c", [G2]), t("b", [G1], { priority: "P0" } as Partial<Card>), t("loose", []), t("a", [G1])];
     expect(backlogList(list, [""], order).map((c) => c.itemId)).toEqual(["a", "b", "c", "loose"]);
   });
 
   // Mirrors TestTheReviewsNobodyHasTakenStandFirst (K10): the reviews nobody
-  // has taken stand in a group of their own on top, in their tasks' Roadmap
+  // has taken stand in a group of their own on top, in their tasks' Strategy
   // order; the tasks follow in theirs.
-  it("puts the reviews nobody has taken first, in their tasks' Roadmap order", () => {
+  it("puts the reviews nobody has taken first, in their tasks' Strategy order", () => {
     const order = ["g1", "g2", "r-late", "r-loose", "r-early", "o-early", "t1", "o-late", "o-loose", "t0"];
     const list = [
       card({ itemId: "r-late", reviewOf: "o-late", lineage: [G1] }),
