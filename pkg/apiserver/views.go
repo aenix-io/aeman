@@ -93,10 +93,8 @@ func ParseSelector(q url.Values) (Selector, error) {
 		Status:         q.Get("status"),
 		Fields:         q.Get("fields"),
 	}
-	for s := range setOf(sel.Status) {
-		if !board.ValidWorkStatus(s) {
-			return Selector{}, fmt.Errorf("unknown status %q (want in-progress, backlog or done)", s)
-		}
+	if err := CheckStatus(sel.Status); err != nil {
+		return Selector{}, err
 	}
 	switch sel.Fields {
 	case "", "full", "summary":
@@ -320,6 +318,17 @@ func roadmapNarrowed(ix *board.Index, cards []board.Card, sel Selector) []board.
 		}
 	}
 	return out
+}
+
+// CheckStatus refuses a status selector naming anything but the work
+// statuses (O14): a typo is an error, never quietly no filter.
+func CheckStatus(v string) error {
+	for s := range setOf(v) {
+		if !board.ValidWorkStatus(s) {
+			return fmt.Errorf("unknown status %q (want in-progress, backlog or done)", s)
+		}
+	}
+	return nil
 }
 
 // workStatusOf is the work status a card is filtered by on the Roadmap
