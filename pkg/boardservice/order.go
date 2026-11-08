@@ -52,6 +52,14 @@ func (s *Service) Move(ctx context.Context, boardID, itemID string, spot board.S
 		})
 		return MoveResult{Moved: len(changes), Changes: changes}, err
 	}
+	if board.IsStateTitle(card.Title) {
+		return MoveResult{Moved: 1}, s.backend.MoveCard(ctx, b, card, after)
+	}
+	// A card dropped where it already stands writes nothing and answers
+	// moved = 0.
+	if changes, err := board.PlaceAfter(board.RankedOf(b.Cards), itemID, after); err == nil && len(changes) == 0 {
+		return MoveResult{}, nil
+	}
 	if err := s.backend.MoveCard(ctx, b, card, after); err != nil {
 		return MoveResult{}, err
 	}

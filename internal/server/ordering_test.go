@@ -251,3 +251,16 @@ func TestConcurrentMovesLeaveGitAndTheCacheAgreeing(t *testing.T) {
 		}
 	}
 }
+
+// A move to where the card already stands writes nothing, and says so:
+// moved 0 and no action.
+func TestAMoveToWhereTheCardStandsMovesNothing(t *testing.T) {
+	srv, ids := orderingBoard(t)
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards/"+ids["b2"]+"/actions/move", `{"after":"`+ids["a1"]+`"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("move: %d %s", rec.Code, rec.Body.String())
+	}
+	if body := strings.TrimSpace(rec.Body.String()); body != `{"moved":0}` {
+		t.Fatalf("answer = %s, want nothing moved and no action", body)
+	}
+}
