@@ -108,6 +108,8 @@ describe("a quick choice in the filter dropdown", () => {
     const opts = [
       { value: "in-progress", label: "In progress" },
       { value: "backlog", label: "Backlog" },
+      { value: "locked", label: "Locked" },
+      { value: "no-items", label: "No items" },
       { value: "done", label: "Done" },
     ];
     const menu = (selected: string[]) =>
@@ -124,6 +126,8 @@ describe("a quick choice in the filter dropdown", () => {
     const none = menu([]);
     expect(none).toMatch(/<button[^>]*role="menuitem"[^>]*class="card-stage-item card-stage-clear filter-select-quick"[^>]*>Hide done<\/button>/);
     expect(none.indexOf("Hide done")).toBeGreaterThan(none.indexOf("Done<"));
+    expect(none.indexOf("Locked<")).toBeLessThan(none.indexOf("No items<"));
+    expect(none.indexOf("No items<")).toBeLessThan(none.indexOf("Done<"));
     expect(none).not.toContain(">All<");
     const some = menu(["in-progress", "backlog"]);
     expect(some).not.toContain("Hide done");

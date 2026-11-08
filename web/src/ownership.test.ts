@@ -13,8 +13,10 @@ import {
   inheritedTeamOf,
   ownerFilterOptions,
   storedRoadmapFilters,
+  storeRoadmapFilters,
 } from "./ownership";
 import type { Card } from "./providers/types";
+import { HIDE_DONE } from "./workstatus";
 
 // docs/design/ownership.md, mirrored for what the drawer draws at once: the
 // effective team (O3) and customers (O4) are the server's
@@ -117,7 +119,7 @@ describe("the customer chips", () => {
 // back, and anything else is no filter.
 describe("the remembered Roadmap filters", () => {
   it("reads back what was stored, and nothing else", () => {
-    expect(storedRoadmapFilters('{"teams":["portal"],"customers":["acme"],"owners":["ann"],"statuses":["backlog","in-progress"]}')).toEqual({
+    expect(storedRoadmapFilters('{"v":2,"teams":["portal"],"customers":["acme"],"owners":["ann"],"statuses":["backlog","in-progress"]}')).toEqual({
       teams: ["portal"],
       customers: ["acme"],
       owners: ["ann"],
@@ -127,8 +129,38 @@ describe("the remembered Roadmap filters", () => {
     expect(storedRoadmapFilters('{"teams":["portal"],"customers":[],"owners":[]}').statuses).toEqual([]);
     // A status this client does not know is no filter, not a filter on nothing.
     expect(storedRoadmapFilters('{"statuses":["in-progress","later"]}').statuses).toEqual(["in-progress"]);
+    // The new values read back like the old.
+    expect(storedRoadmapFilters('{"v":2,"statuses":["locked","no-items"]}').statuses).toEqual(["locked", "no-items"]);
     expect(storedRoadmapFilters(null)).toEqual({ teams: [], customers: [], owners: [], statuses: [] });
     expect(storedRoadmapFilters("not json")).toEqual({ teams: [], customers: [], owners: [], statuses: [] });
+  });
+});
+
+// O14 — "Hide done" was stored as In progress + Backlog before Locked and No
+// items existed, and that was the only way to say "everything but done"; it
+// reads back as today's Hide done, so the empty and the waiting epics come
+// back. A choice stored since (versioned) reads back as it was, the same
+// pair included.
+describe("a Hide done remembered from before Locked and No items", () => {
+  it("reads back as today's Hide done", () => {
+    expect(storedRoadmapFilters('{"teams":["portal"],"customers":[],"owners":[],"statuses":["backlog","in-progress"]}')).toEqual({
+      teams: ["portal"],
+      customers: [],
+      owners: [],
+      statuses: [...HIDE_DONE],
+    });
+    expect(storedRoadmapFilters('{"statuses":["in-progress","backlog"]}').statuses).toEqual([...HIDE_DONE]);
+  });
+  it("leaves any other old choice, and every versioned one, as it was", () => {
+    expect(storedRoadmapFilters('{"statuses":["in-progress"]}').statuses).toEqual(["in-progress"]);
+    expect(storedRoadmapFilters('{"statuses":["backlog","done","in-progress"]}').statuses).toEqual(["backlog", "done", "in-progress"]);
+    expect(storedRoadmapFilters('{"v":2,"statuses":["backlog","in-progress"]}').statuses).toEqual(["backlog", "in-progress"]);
+  });
+  it("is stored versioned, and reads back unchanged", () => {
+    const f = { teams: ["ops"], customers: [], owners: ["ann"], statuses: ["backlog", "in-progress"] };
+    const raw = storeRoadmapFilters(f);
+    expect(JSON.parse(raw)).toMatchObject({ v: 2 });
+    expect(storedRoadmapFilters(raw)).toEqual(f);
   });
 });
 
