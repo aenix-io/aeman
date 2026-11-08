@@ -5550,8 +5550,10 @@ button.card-age {
 
 
 /* The Backlog's All / Ready / Blocked filter: a segmented control. */
+/* At the right edge of the Backlog's toolbar, the filters at the left. */
 .backlog-readiness {
   display: inline-flex;
+  margin-left: auto;
   border: 1px solid var(--border, #ccc);
   border-radius: 4px;
   overflow: hidden;
