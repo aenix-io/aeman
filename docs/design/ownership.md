@@ -95,8 +95,9 @@ may name **several customers**.
 
 ## Roadmap filters
 
-The Roadmap gains three filters, applied by the server (`view=roadmap`
-selectors `team`, `customer`, `owner`; the same in MCP `list_cards`):
+The Roadmap has four filters, applied by the server (`view=roadmap`
+selectors `team`, `customer`, `owner`, `status`; the same in MCP
+`list_cards`):
 
 - **Team** — a task matches when its effective team is one of those chosen; a
   planning card matches when it does itself or any task under it does. So an
@@ -111,6 +112,17 @@ selectors `team`, `customer`, `owner`; the same in MCP `list_cards`):
   It replaced the Roadmap's earlier client-side assignee filter, so the
   toolbar asks "whose" once. Its options are the board's members, the plan
   items' owners, the tasks' assignees and whoever is already selected.
+- **Status** (added 2026-11-08, O14) — by work status: In progress, Backlog,
+  Done (`in-progress`, `backlog`, `done`). A task's is `done` when it is
+  complete, `backlog` when it is parked, `in-progress` when it is in work —
+  a date or a sprint, whatever its stage (review, locked and refused are in
+  somebody's hands); a task nobody has placed yet reads as `backlog`. A
+  subtask goes by its parent task, a review card by the task it reviews,
+  and a planning card matches when any task under it does — never by
+  itself, so a plan item with no tasks matches no status. "In progress"
+  shows the work in hand with the plan items above it; In progress +
+  Backlog hides the finished work (the owner asked for that in so many
+  words), and the toolbar offers it as one press.
 
 The Team board and the Backlog have the same Team and Customer filters
 (O11); there they narrow the day board's cards, a customer matching by
@@ -175,3 +187,4 @@ where it sits. The choice is remembered per viewer in the browser.
 | O11 | The no-team group is a team in every team filter, and the day boards filter by customer too. |
 | O12 | Every board filters through one dropdown, with the roster's Manage inside; the Me board says what its filters hide. |
 | O13 | A task stands under its effective team on every day board, backlog, team filter and sprint; its own team is still what is stored and written. |
+| O14 | The Roadmap status filter matches a task by its work status (done, backlog when parked, in progress when in work; unplaced reads as backlog), a subtask by its parent task, a review card by its task, and a planning card by any task under it — a plan item with no tasks matches no status. |
