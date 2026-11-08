@@ -31,21 +31,28 @@ func shownDependency(c board.Card) depShown {
 }
 
 // rememberDependencies records every card's depShown and every target's
-// done, once some card depends on another. The caller holds e.mu.
-func (e *boardEntry) rememberDependencies() {
+// done, once some card depends on another; index, when set, is the index of
+// the board as it stands, shared with the caller. The caller holds e.mu.
+func (e *boardEntry) rememberDependencies(index func() *board.Index) {
 	e.depOf = nil
 	e.depTargets = nil
-	e.anyDeps = false
+	e.depCards = nil
 	for _, c := range e.board.Cards {
 		if len(c.DependsOn) > 0 {
-			e.anyDeps = true
-			break
+			if e.depCards == nil {
+				e.depCards = map[string]bool{}
+			}
+			e.depCards[c.ItemID] = true
 		}
 	}
+	e.anyDeps = len(e.depCards) > 0
 	if !e.anyDeps {
 		return
 	}
-	ix := board.NewIndex(e.board)
+	if index == nil {
+		index = func() *board.Index { return newIndex(e.board) }
+	}
+	ix := index()
 	e.depOf = make(map[string]depShown, len(e.board.Cards))
 	e.depTargets = map[string]bool{}
 	for _, c := range e.board.Cards {
@@ -75,20 +82,22 @@ func (e *boardEntry) rememberDependencies() {
 //     c moved by finishing, reopening, arriving, leaving or moving out from
 //     under it: every card that waits for it and the cards under those.
 //
-// The caller holds e.mu with the cache already updated.
-func (e *boardEntry) dependencyFanout(c board.Card, verb string) []string {
+// The index is the change's own (cardChanged builds one for its frames and
+// shares it): nothing here builds another. The caller holds e.mu with the
+// cache already updated.
+func (e *boardEntry) dependencyFanout(c board.Card, verb string, index func() *board.Index) []string {
 	if !e.anyDeps {
 		if verb == "DELETED" || len(c.DependsOn) == 0 {
 			return nil
 		}
 		// The first dependency on the board: what it is measured against
 		// from now on, with c's own list as it was before — none.
-		e.rememberDependencies()
+		e.rememberDependencies(index)
 		sh := e.depOf[c.ItemID]
 		sh.deps = ""
 		e.depOf[c.ItemID] = sh
 	}
-	ix := board.NewIndex(e.board)
+	ix := index()
 	out := map[string]bool{}
 	subtree := func(id string) []string {
 		var ids []string
@@ -142,6 +151,11 @@ func (e *boardEntry) dependencyFanout(c board.Card, verb string) []string {
 		}
 	}
 	was, known := e.depOf[c.ItemID]
+	if verb == "DELETED" || len(c.DependsOn) == 0 {
+		delete(e.depCards, c.ItemID)
+	} else {
+		e.depCards[c.ItemID] = true
+	}
 	if verb == "DELETED" {
 		delete(e.depOf, c.ItemID)
 		// What it waited for no longer blocks it nor is for its customers;
@@ -187,6 +201,10 @@ func (e *boardEntry) dependencyFanout(c board.Card, verb string) []string {
 		}
 		sh.done = done
 		e.depOf[t] = sh
+	}
+	if len(e.depCards) == 0 {
+		// The last dependency is gone: nothing is tracked until the next.
+		e.depOf, e.depTargets, e.depCards, e.anyDeps = nil, nil, nil, false
 	}
 	delete(out, c.ItemID)
 	ids := make([]string, 0, len(out))

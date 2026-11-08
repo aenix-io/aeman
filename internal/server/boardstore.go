@@ -500,6 +500,7 @@ type boardEntry struct {
 	// moves (dependencyFanout, N8).
 	depOf      map[string]depShown
 	depTargets map[string]bool
+	depCards   map[string]bool // the cards that wait for any
 	anyDeps    bool
 	// planning is which cards are goals, initiatives or epics, kept beside
 	// parentOf: with the two the walk to a card's planning ancestors costs
@@ -763,6 +764,20 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	// people are announced for the burst, whatever the change was: deciding
 	// here which writes matter would mean re-deriving the load to find out.
 	e.loadBroadcast()
+	// Built on demand: on a board whose tabs are all scoped — the ordinary
+	// case — a burst of changes must not pay for a resource nobody is sent.
+	// And built ONCE each: the card's resource and every ancestor's are the
+	// same for every watcher that is sent them, and an ancestor's standing
+	// is a walk over the board — built per watcher it was W × A walks under
+	// the entry lock for one change. One index serves them all, the
+	// dependency fan-out's included.
+	var ix *board.Index
+	index := func() *board.Index {
+		if ix == nil {
+			ix = newIndex(e.board)
+		}
+		return ix
+	}
 	// The planning cards above the card changed their standing with it —
 	// the chain it joined and the chain it left (H5) — and the server alone
 	// knows by how much, so they are announced to everyone who may read
@@ -778,25 +793,12 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	// And every card whose lock, blockers or inherited customers this change
 	// moved: what waits for it, what it waits for, and the cards under them
 	// (N8).
-	descendants = unionIDs(descendants, e.dependencyFanout(c, verb))
+	descendants = unionIDs(descendants, e.dependencyFanout(c, verb, index))
 	ancestors = append(ancestors, descendants...)
 	// And the review cards of a card whose title, type, people, customers or
 	// chain moved (status.reviewed, status.lineage, effectiveCustomers), and
 	// of every card re-sent above: no write touches them either.
 	ancestors = unionIDs(ancestors, e.reviewsShowingIt(c, verb, descendants))
-	// Built on demand: on a board whose tabs are all scoped — the ordinary
-	// case — a burst of changes must not pay for a resource nobody is sent.
-	// And built ONCE each: the card's resource and every ancestor's are the
-	// same for every watcher that is sent them, and an ancestor's standing
-	// is a walk over the board — built per watcher it was W × A walks under
-	// the entry lock for one change. One index serves them all.
-	var ix *board.Index
-	index := func() *board.Index {
-		if ix == nil {
-			ix = newIndex(e.board)
-		}
-		return ix
-	}
 	var res apiserver.Card
 	built := false
 	type ancestor struct {
@@ -1453,7 +1455,7 @@ func (e *boardEntry) rememberParents() {
 			e.reviewsOf[c.ReviewOf] = append(e.reviewsOf[c.ReviewOf], c.ItemID)
 		}
 	}
-	e.rememberDependencies()
+	e.rememberDependencies(nil)
 	for _, c := range e.board.Cards {
 		if len(e.reviewsOf[c.ItemID]) > 0 {
 			e.reviewShown[c.ItemID] = shownInReview(c)
