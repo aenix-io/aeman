@@ -104,6 +104,14 @@ func EncodeCard(f CardFile) ([]byte, error) {
 		}
 		b.WriteString("customers: [" + strings.Join(items, ", ") + "]\n")
 	}
+	// What the card waits for (docs/design/dependencies.md): card ids.
+	if len(c.DependsOn) > 0 {
+		items := make([]string, len(c.DependsOn))
+		for i, id := range c.DependsOn {
+			items[i] = scalar(id)
+		}
+		b.WriteString("dependsOn: [" + strings.Join(items, ", ") + "]\n")
+	}
 	w("zone", string(c.Zone))
 	w("size", string(c.Size))
 	w("priority", string(c.Priority))
@@ -352,6 +360,10 @@ func setKnown(f *CardFile, key string, val *yaml.Node) bool {
 	case "customers":
 		for _, it := range val.Content {
 			c.Customers = append(c.Customers, it.Value)
+		}
+	case "dependsOn":
+		for _, it := range val.Content {
+			c.DependsOn = append(c.DependsOn, it.Value)
 		}
 	case "zone":
 		c.Zone = board.ZoneKey(val.Value)

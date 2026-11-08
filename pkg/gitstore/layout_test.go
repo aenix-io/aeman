@@ -255,3 +255,28 @@ func TestAValidPriorityReplacesAnInvalidOneInTheFile(t *testing.T) {
 		t.Fatalf("re-read = %q, %v", again.Card.Priority, err)
 	}
 }
+
+// N1 — what a card waits for is `dependsOn`, a list of ids in order.
+func TestACardsDependenciesRoundTripAsAList(t *testing.T) {
+	f, err := DecodeCard("01X", []byte("---\ntitle: api\ndependsOn: [01DB, 01AUTH]\n---\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.Card.DependsOn; len(got) != 2 || got[0] != "01DB" || got[1] != "01AUTH" {
+		t.Fatalf("dependsOn = %v", got)
+	}
+	if len(f.Extra) != 0 {
+		t.Fatalf("dependsOn read as an unknown key: %+v", f.Extra)
+	}
+	out, err := EncodeCard(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "dependsOn: [01DB, 01AUTH]\n") {
+		t.Fatalf("encoded:\n%s", out)
+	}
+	f.Card.DependsOn = nil
+	if out, _ = EncodeCard(f); strings.Contains(string(out), "dependsOn") {
+		t.Fatalf("an empty list is written:\n%s", out)
+	}
+}

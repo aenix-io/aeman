@@ -911,6 +911,16 @@ func (mb *MultiBackend) SetCustomers(ctx context.Context, bd board.Board, card b
 	return be.SetCustomers(ctx, bd, card, ids)
 }
 
+// SetDependsOn writes a card's dependency list where the card lives: a
+// dependency places nothing.
+func (mb *MultiBackend) SetDependsOn(ctx context.Context, bd board.Board, card board.Card, ids []string) error {
+	be, err := mb.route(ctx, card)
+	if err != nil {
+		return err
+	}
+	return be.SetDependsOn(ctx, bd, card, ids)
+}
+
 // AddCustomer declares a customer in the primary, where the roster lives.
 func (mb *MultiBackend) AddCustomer(ctx context.Context, bd board.Board, name string) (board.Customer, error) {
 	be, err := mb.backend(mb.primary())

@@ -1067,6 +1067,12 @@ func (b *Backend) SetCustomers(ctx context.Context, _ board.Board, card board.Ca
 	return b.editCard(ctx, "customers", card, func(f *CardFile) { f.Card.Customers = slices.Clone(ids) })
 }
 
+// SetDependsOn writes the cards a card waits for (ids; empty takes them
+// all off).
+func (b *Backend) SetDependsOn(ctx context.Context, _ board.Board, card board.Card, ids []string) error {
+	return b.editCard(ctx, "depends-on", card, func(f *CardFile) { f.Card.DependsOn = slices.Clone(ids) })
+}
+
 // AddCustomer declares a customer, last in the roster.
 func (b *Backend) AddCustomer(ctx context.Context, _ board.Board, name string) (board.Customer, error) {
 	s, err := b.snapshot(ctx)

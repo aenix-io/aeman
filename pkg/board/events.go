@@ -50,6 +50,9 @@ const (
 	// card's customers (docs/design/ownership.md).
 	EventOwner     = "owner"
 	EventCustomers = "customers"
+	// EventDependsOn records a card's dependency list, comma-joined uids
+	// (docs/design/dependencies.md).
+	EventDependsOn = "depends-on"
 )
 
 // DateRange renders a start..end pair for a dates event value ("" parts kept
