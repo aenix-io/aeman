@@ -5549,30 +5549,6 @@ button.card-age {
 }
 
 
-/* The Backlog's All / Ready / Blocked filter: a segmented control. */
-/* At the right edge of the Backlog's toolbar, the filters at the left. */
-.backlog-readiness {
-  display: inline-flex;
-  margin-left: auto;
-  border: 1px solid var(--border, #ccc);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.backlog-readiness-btn {
-  border: none;
-  background: none;
-  padding: 2px 10px;
-  font-size: 12px;
-  cursor: pointer;
-  color: inherit;
-}
-
-.backlog-readiness-on {
-  background: var(--accent, #6af);
-  color: var(--bg, #fff);
-}
-
 /* An epic whose tasks are scattered in a team's backlog (ordering.md):
    moving the epic gathers them. */
 .split-badge {
@@ -5598,7 +5574,9 @@ button.card-age {
    own — the Tasks rows' chain, its chips cut with an ellipsis. */
 .card.backlog-epic-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 88px minmax(0, 42%) 40px;
+  /* title | count | goal | initiative | owner: fixed tracks, so every
+     row's context chips start at the same x and read as a table. */
+  grid-template-columns: minmax(0, 1fr) 88px minmax(0, 180px) minmax(0, 240px) 40px;
   align-items: center;
   column-gap: 12px;
   cursor: grab;
@@ -5628,27 +5606,6 @@ button.card-age {
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-.backlog-epic-chain {
-  display: flex;
-  justify-content: flex-end;
-  min-width: 0;
-}
-
-.backlog-epic-chain .backlog-row-chain {
-  max-width: 100%;
-}
-
-/* A chip keeps a readable piece of its name however narrow the column:
-   the ellipsis cuts it, the tooltip holds the whole. */
-.backlog-epic-chain .backlog-row-chain-step {
-  flex: 0 1 auto;
-  min-width: 6em;
-}
-
-.backlog-epic-chain .backlog-row-chain-link {
-  max-width: 220px;
 }
 
 .backlog-epic-carried {
@@ -5708,4 +5665,16 @@ button.card-age {
    the right. */
 .strategy-toolbar .strategy-fold {
   margin-left: auto;
+}
+
+/* A context cell of the Epics mode: the chip LEFT-aligned in its track,
+   cut with an ellipsis, the whole name in its tooltip. */
+.backlog-epic-ctx {
+  display: flex;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.backlog-epic-ctx .backlog-row-chain-link {
+  max-width: 100%;
 }

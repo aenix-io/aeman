@@ -9,7 +9,6 @@
 import { useState, type DragEvent, type ReactNode } from "react";
 import { epicDrop, type EpicRow } from "../backlogboard";
 import { KindIcon } from "./KindIcon";
-import { ParentChain } from "./BacklogBoard";
 import { OwnerBadge } from "./OwnerBadge";
 import { planOwnerOf } from "../owner";
 import type { Avatars, Names } from "../users";
@@ -117,12 +116,31 @@ export function BacklogEpics({
             <span className="backlog-epic-count" title="Its tasks waiting in these backlogs">
               {r.parked === 0 ? "empty" : `${r.parked} waiting`}
             </span>
-            <span className="backlog-epic-chain" onClick={(e) => e.stopPropagation()}>
-              <ParentChain chain={r.chain} onOpen={onOpenParent} />
-            </span>
+            {/* The plan above, as a table: the goal in one column, the
+                initiative in the next, each chip starting at the same x on
+                every row; a level the epic has none of leaves its cell
+                empty. */}
+            {(["goal", "initiative"] as const).map((level) => {
+              const ref = r.chain.find((c) => c.type === level);
+              return (
+                <span key={level} className={`backlog-epic-ctx backlog-epic-ctx-${level}`} onClick={(e) => e.stopPropagation()}>
+                  {ref && (
+                    <button
+                      type="button"
+                      className="backlog-row-chain-link"
+                      title={`The ${level} «${ref.title}»`}
+                      onClick={() => onOpenParent(ref.uid)}
+                    >
+                      <KindIcon kind={level} size={12} />
+                      <span className="backlog-row-chain-text">{ref.title}</span>
+                    </button>
+                  )}
+                </span>
+              );
+            })}
             {(() => {
               // Whose the epic is: its team and owner; with no team of its
-              // own, the team it counts under, drawn faded.
+              // own, the team it counts under, drawn like its own.
               const own = planOwnerOf(r.epic);
               const inherited = !own.team && !!r.epic.effectiveTeam;
               const owner = inherited ? { ...own, team: r.epic.effectiveTeam ?? "" } : own;
