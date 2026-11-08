@@ -9,9 +9,7 @@
 // listing fills and the watch keeps current (K6). A card taken into work, finished or re-teamed out of
 // the selection by anybody simply stops being one of them.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Board, Card as CardModel, Priority, Provider, SizeKey } from "../providers/types";
-import { PriorityItems, PriorityPart } from "./PlanTree";
-import { latestWins, priorityLabel, refusalRollback } from "../roadmap";
+import type { Board, Card as CardModel, Provider, SizeKey } from "../providers/types";
 import {
   insertSpot,
   insertedOrder,
@@ -56,7 +54,7 @@ import { displayName } from "../users";
 import { InsertGap } from "./InsertGap";
 import { Dropdown } from "./Dropdown";
 import { KindIcon } from "./KindIcon";
-import { markOf } from "../placements";
+import { markClass, markTitle } from "../placements";
 import { OwnerBadge } from "./OwnerBadge";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
@@ -437,53 +435,6 @@ export function BacklogBoard({
     });
   };
 
-  // ---- the priority: the Roadmap badge's priority part, on the card (K15) ----
-  // Set on the card itself; the list reads by the effective priority, so a
-  // card moves to its group at once and the server's answer settles it.
-  const [prioritizing, setPrioritizing] = useState<CardModel | null>(null);
-  const prioAnchor = useRef<HTMLElement | null>(null);
-  const openPriority = useCallback((card: CardModel, anchor: HTMLElement) => {
-    prioAnchor.current = anchor;
-    setPrioritizing((cur) => (cur?.itemId === card.itemId ? null : card));
-  }, []);
-  const prioritySeq = useRef(latestWins());
-  const setPriority = (card: CardModel, value: Priority | "") => {
-    setPrioritizing(null);
-    if ((card.priority ?? "") === value) {
-      return;
-    }
-    // Its own when set. Cleared, it counts under what it inherits — which
-    // this board does not hold, so nothing is drawn as its own until the
-    // server's answer says what that is. Its review cards count under it.
-    const shown = value ? { effectivePriority: value, effectivePriorityFrom: undefined } : { effectivePriority: undefined, effectivePriorityFrom: undefined };
-    const affected = board.cards.filter((c) => c.itemId === card.itemId || c.reviewOf === card.itemId);
-    const before = affected.map((c) => ({ id: c.itemId, patch: { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom } }));
-    patchCard(card.itemId, { priority: value || undefined, ...shown });
-    for (const r of affected) {
-      if (r.itemId !== card.itemId) {
-        patchCard(r.itemId, value ? { effectivePriority: value, effectivePriorityFrom: { uid: card.itemId, type: card.type, title: card.title } } : shown);
-      }
-    }
-    const n = prioritySeq.current.next(card.itemId);
-    void provider
-      .setPriority(card.itemId, value)
-      .then((c) => {
-        // An older answer must not overwrite a newer choice.
-        if (prioritySeq.current.isLatest(card.itemId, n)) {
-          patchCard(c.itemId, { priority: c.priority, effectivePriority: c.effectivePriority, effectivePriorityFrom: c.effectivePriorityFrom });
-        }
-      })
-      .catch((err: unknown) => {
-        // Put back only what THIS press changed while it is still the
-        // latest: a newer press shown since settles the card itself.
-        for (const b of refusalRollback(prioritySeq.current, card.itemId, n, before)) {
-          patchCard(b.id, b.patch);
-        }
-        onError(errText(err));
-        reload();
-      });
-  };
-
   // ---- the ×: the same × as everywhere else (removal.ts) ----
   // On a card in its backlog the one answer it has is "off the board"; the
   // backlog answer is withheld from a card already there. A review nobody
@@ -624,7 +575,6 @@ export function BacklogBoard({
                       onPointerDown={beginDrag(c)}
                       onRemove={() => remove(c)}
                       onPickSize={openSizer}
-                      onPickPriority={openPriority}
                       onOpenParent={openParent}
                       owner={
                         counterpart(c) ? (
@@ -651,9 +601,6 @@ export function BacklogBoard({
           })()}
         </div>
       </section>
-      <Dropdown open={!!prioritizing} anchorRef={prioAnchor} onClose={() => setPrioritizing(null)} className="roadmap-status-menu" role="menu">
-        {prioritizing && <PriorityItems own={prioritizing.priority ?? ""} onPick={(value) => setPriority(prioritizing, value)} />}
-      </Dropdown>
       <Dropdown open={!!sizing} anchorRef={sizeAnchor} onClose={() => setSizing(null)} className="backlog-size-menu">
         {SIZE_ORDER.map((sz) => (
           <button
@@ -703,8 +650,6 @@ interface BacklogRowProps {
   onPointerDown: (e: React.PointerEvent) => void;
   onRemove: () => void;
   onPickSize: (card: CardModel, anchor: HTMLElement) => void;
-  /** The priority part of the badge, opening its menu (K15). */
-  onPickPriority: (card: CardModel, anchor: HTMLElement) => void;
   onOpenParent: (uid: string) => void;
   /** Take, while nobody has the card: asks first (TakeDialog). */
   onTake?: () => void;
@@ -726,41 +671,20 @@ function BacklogRow({
   onPointerDown,
   onRemove,
   onPickSize,
-  onPickPriority,
   onOpenParent,
   onTake,
 }: BacklogRowProps) {
   const up = nearestPlanning(card);
   const due = dueOf(card);
-  const mark = markOf(card);
   return (
     <div
-      className={`card backlog-card${mark ? ` card-${mark}` : ""}${selected ? " card-selected" : ""}${(selectedBy?.length ?? 0) > 0 ? " card-peer-selected" : ""}`}
+      className={`card backlog-card${markClass(card)}${selected ? " card-selected" : ""}${(selectedBy?.length ?? 0) > 0 ? " card-peer-selected" : ""}`}
       data-card={card.itemId}
       onPointerDown={onPointerDown}
       title={card.title}
     >
       <PresenceMarks selectedBy={selectedBy} avatars={avatars} names={names} />
-      {card.reviewOf ? (
-        // A review's priority is its task's (K15): shown, not set here.
-        card.effectivePriority && (
-          <span className="backlog-row-prio backlog-row-prio-readonly">
-            <PriorityPart value={card.effectivePriority} from={card.effectivePriorityFrom} />
-          </span>
-        )
-      ) : (
-        <button
-          type="button"
-          className={`backlog-row-prio${card.effectivePriority ? "" : " backlog-row-prio-none"}`}
-          title={card.effectivePriority ? "Priority" : "Set a priority"}
-          aria-label={priorityLabel(card.effectivePriority, card.effectivePriorityFrom)}
-          aria-haspopup="menu"
-          onClick={(e) => onPickPriority(card, e.currentTarget)}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          {card.effectivePriority ? <PriorityPart value={card.effectivePriority} from={card.effectivePriorityFrom} /> : "P"}
-        </button>
-      )}
+      {markTitle(card) && <span className="card-prio-mark" title={markTitle(card)} aria-label={`Priority ${markTitle(card)}`} />}
       <span className="card-title backlog-card-title">{card.title}</span>
       <span className="backlog-row-remove-slot">
         <button
@@ -847,10 +771,9 @@ export function TakeDialog({ title, onClose, onTake }: { title: string; onClose:
  *  a review keeps its review stripe. Where it may not come to rest (next to
  *  none of its siblings, K14) the outline says so. */
 export function Landing({ card, forbidden = false }: { card: CardModel; forbidden?: boolean }) {
-  const mark = markOf(card);
   return (
     <div
-      className={`card backlog-card${mark ? ` card-${mark}` : ""} backlog-card-landing${forbidden ? " backlog-card-landing-forbid" : ""}`}
+      className={`card backlog-card${markClass(card)} backlog-card-landing${forbidden ? " backlog-card-landing-forbid" : ""}`}
       title={forbidden ? "Only among the tasks under the same parent: the Roadmap's tree decides the order" : undefined}
     >
       <span className="card-title backlog-card-title">{card.title}</span>

@@ -4,7 +4,7 @@
 // the server would accept, and mirrors its outcomes optimistically.
 
 import { parkable, parkedLocally } from "./backlog";
-import type { Card, CardPatch } from "./providers/types";
+import type { Card, CardPatch, Priority } from "./providers/types";
 
 /** CardPlacements is everything the assign menu needs to re-place one card —
  *  callbacks landing on the provider. Absent means the board offers no
@@ -53,17 +53,47 @@ export function makeCardPlacements(card: Card, deps: PlacementDeps): CardPlaceme
   };
 }
 
-/** CardMark is what a card's left stripe says about where the work came FROM:
- *  a REVIEW waiting on this person — or nothing, for the day board's own
- *  work. The stripe is worth a glance precisely because it marks what
- *  arrived from elsewhere. */
-export type CardMark = "review" | "";
+/** CardMark is what a card's left stripe says: a REVIEW waiting on this
+ *  person — what arrived from elsewhere — else the card's effective PRIORITY
+ *  (K15), in its hue; or nothing. Never two stripes: a review keeps its
+ *  yellow one whatever its priority. */
+export type CardMark = "review" | `prio-${Lowercase<Priority>}` | "";
+
+type Marked = Pick<Card, "reviewOf" | "effectivePriority" | "effectivePriorityFrom">;
 
 /** markOf answers it once, for every board that draws the mark: the day
- *  boards down a card's left edge (Card.tsx: .card-review). Two boards
- *  deciding this separately is how one of them came to draw no mark at all
- *  after the weekly plan — whose band the stripe used to be — was taken
- *  out. */
-export function markOf(c: Pick<Card, "reviewOf">): CardMark {
-  return c.reviewOf ? "review" : "";
+ *  boards and the Backlog down a card's left edge (Card.tsx, BacklogBoard).
+ *  Two boards deciding this separately is how one of them came to draw no
+ *  mark at all after the weekly plan — whose band the stripe used to be —
+ *  was taken out. */
+export function markOf(c: Partial<Marked>): CardMark {
+  if (c.reviewOf) {
+    return "review";
+  }
+  return c.effectivePriority ? (`prio-${c.effectivePriority.toLowerCase()}` as CardMark) : "";
+}
+
+/** markClass is the classes a card wears for its stripe, with a leading
+ *  space: the review's, or the priority's hue — always the full colour, own
+ *  or inherited (the drawer's and the Roadmap's badges draw that
+ *  difference; the stripe does not). */
+export function markClass(c: Partial<Marked>): string {
+  const mark = markOf(c);
+  if (mark === "review") {
+    return " card-review";
+  }
+  if (!mark) {
+    return "";
+  }
+  return ` card-prio card-${mark}`;
+}
+
+/** markTitle is what a priority stripe says to a pointer and a screen
+ *  reader: "P1", or "P1 (from «Goal»)" when inherited; nothing on a review
+ *  or a card with no priority. */
+export function markTitle(c: Partial<Marked>): string {
+  if (c.reviewOf || !c.effectivePriority) {
+    return "";
+  }
+  return c.effectivePriorityFrom ? `${c.effectivePriority} (from «${c.effectivePriorityFrom.title}»)` : c.effectivePriority;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { makeCardPlacements, markOf, type CardPlacements } from "./placements";
+import { makeCardPlacements, markClass, markOf, markTitle, type CardPlacements } from "./placements";
 import type { Card } from "./providers/types";
 import { parkedLocally } from "./backlog";
 
@@ -50,9 +50,31 @@ describe("makeCardPlacements", () => {
 });
 
 describe("markOf", () => {
-  // A review is what arrived from elsewhere — the one mark the stripe draws.
-  it("marks a review, and nothing else", () => {
+  // The stripe down a card's left edge: a REVIEW (what arrived from
+  // elsewhere), else the card's effective PRIORITY (K15) — never both: a
+  // review keeps its yellow stripe whatever its priority.
+  it("marks a review, else the effective priority, else nothing", () => {
     expect(markOf({ reviewOf: "c1" })).toBe("review");
+    expect(markOf({ reviewOf: "c1", effectivePriority: "P0" })).toBe("review");
+    expect(markOf({ effectivePriority: "P1" })).toBe("prio-p1");
+    expect(markOf({ effectivePriority: "P4", effectivePriorityFrom: { uid: "e", title: "Billing" } })).toBe("prio-p4");
     expect(markOf({})).toBe("");
+  });
+
+  // The class a card wears for its stripe: the review's, or the priority's
+  // hue — the full colour whether the priority is its own or inherited.
+  it("names the stripe's classes, the same for an inherited priority", () => {
+    expect(markClass({ reviewOf: "c1", effectivePriority: "P0" })).toBe(" card-review");
+    expect(markClass({ effectivePriority: "P2" })).toBe(" card-prio card-prio-p2");
+    expect(markClass({ effectivePriority: "P2", effectivePriorityFrom: { uid: "e", title: "Billing" } })).toBe(" card-prio card-prio-p2");
+    expect(markClass({})).toBe("");
+  });
+
+  // The stripe says what it is to a pointer and a screen reader.
+  it("titles a priority stripe, naming where an inherited one comes from", () => {
+    expect(markTitle({ effectivePriority: "P1" })).toBe("P1");
+    expect(markTitle({ effectivePriority: "P1", effectivePriorityFrom: { uid: "g", title: "Grow" } })).toBe("P1 (from «Grow»)");
+    expect(markTitle({ reviewOf: "c1", effectivePriority: "P1" })).toBe("");
+    expect(markTitle({})).toBe("");
   });
 });

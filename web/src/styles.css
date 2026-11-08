@@ -5689,39 +5689,39 @@ button.card-age {
 }
 
 
-/* The priority part of the badge on a Backlog card (K15): a button opening
-   the priority menu; with no priority, a muted "P" offers the same. */
-.backlog-row-prio {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  margin-right: 6px;
-  padding: 0;
-  border: none;
-  border-radius: 3px;
-  background: transparent;
-  font: inherit;
-  cursor: pointer;
+/* ---- The priority stripe (K15) ----
+   A card's effective priority, down its left edge in the same slot and the
+   same geometry as a review's stripe — a review keeps its yellow one and
+   gets no priority stripe (placements.markClass decides: never two). The
+   hues are the badge's tokens, always the FULL colour: own or inherited, the
+   stripe is the same (that difference is the badges', in the drawer and on
+   the Roadmap). Nothing else draws on a card's left edge: a zone's band is the
+   zone's own border, outside the card, and a drag's ghost and the selection
+   ring are the card's outline. */
+.card-prio::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 5px 0 0 5px;
 }
 
-.backlog-row-prio .roadmap-prio {
-  border-radius: 3px;
-}
+.card-prio-p0::before { background: var(--prio-p0-bg); }
+.card-prio-p1::before { background: var(--prio-p1-bg); }
+.card-prio-p2::before { background: var(--prio-p2-bg); }
+.card-prio-p3::before { background: var(--prio-p3-bg); }
+.card-prio-p4::before { background: var(--prio-p4-bg); }
 
-/* No priority: the muted text colour, AA on the card — no faded opacity. */
-.backlog-row-prio-none {
-  padding: 0 5px;
-  font-size: 10.5px;
-  font-weight: 700;
-  color: var(--muted);
-  box-shadow: inset 0 0 0 1px var(--line);
-}
 
-.backlog-row-prio-none:hover {
-  color: var(--fg);
-}
-
-/* A review's priority is its task's: shown, not a control. */
-.backlog-row-prio-readonly {
-  cursor: default;
+/* The stripe's tooltip and its name for a screen reader: a span laid over
+   it, a little wider than the stripe so a pointer can find it. */
+.card-prio-mark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  z-index: 1;
 }

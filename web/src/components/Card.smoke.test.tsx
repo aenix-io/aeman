@@ -88,3 +88,23 @@ describe("a card locked by what it waits for", () => {
     expect(draw(card({}))).not.toContain("Locked:");
   });
 });
+
+// The day boards draw a card's effective priority as the stripe down its
+// left edge (K15), the same one a review wears — a review keeps its yellow
+// stripe and gets no priority one.
+describe("the priority stripe on a day board's card", () => {
+  it("is the priority's full hue, own or inherited, titled; and not on a review", () => {
+    const own = draw(card({ priority: "P1", effectivePriority: "P1" }));
+    expect(own).toMatch(/class="card card-prio card-prio-p1[ "]/);
+    expect(own).toContain('class="card-prio-mark" title="P1" aria-label="Priority P1"');
+    const inherited = draw(card({ effectivePriority: "P3", effectivePriorityFrom: { uid: "g", title: "Grow" } }));
+    expect(inherited).toMatch(/card-prio card-prio-p3[ "]/);
+    expect(inherited).not.toContain("card-prio-inherited");
+    expect(inherited).toContain('title="P3 (from «Grow»)"');
+    const review = draw(card({ reviewOf: "x", effectivePriority: "P0" }));
+    expect(review).toContain("card-review");
+    expect(review).not.toContain("card-prio");
+    expect(draw(card())).not.toContain("card-prio");
+  });
+});
+
