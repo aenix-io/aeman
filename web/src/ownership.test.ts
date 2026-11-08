@@ -87,13 +87,18 @@ describe("the customer chips", () => {
 // back, and anything else is no filter.
 describe("the remembered Roadmap filters", () => {
   it("reads back what was stored, and nothing else", () => {
-    expect(storedRoadmapFilters('{"teams":["portal"],"customers":["acme"],"owners":["ann"]}')).toEqual({
+    expect(storedRoadmapFilters('{"teams":["portal"],"customers":["acme"],"owners":["ann"],"statuses":["backlog","in-progress"]}')).toEqual({
       teams: ["portal"],
       customers: ["acme"],
       owners: ["ann"],
+      statuses: ["backlog", "in-progress"],
     });
-    expect(storedRoadmapFilters(null)).toEqual({ teams: [], customers: [], owners: [] });
-    expect(storedRoadmapFilters("not json")).toEqual({ teams: [], customers: [], owners: [] });
+    // A choice remembered before the Status filter existed reads with none.
+    expect(storedRoadmapFilters('{"teams":["portal"],"customers":[],"owners":[]}').statuses).toEqual([]);
+    // A status this client does not know is no filter, not a filter on nothing.
+    expect(storedRoadmapFilters('{"statuses":["in-progress","later"]}').statuses).toEqual(["in-progress"]);
+    expect(storedRoadmapFilters(null)).toEqual({ teams: [], customers: [], owners: [], statuses: [] });
+    expect(storedRoadmapFilters("not json")).toEqual({ teams: [], customers: [], owners: [], statuses: [] });
   });
 });
 

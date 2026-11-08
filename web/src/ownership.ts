@@ -3,6 +3,7 @@
 // / effectiveCustomers, board.Index); the board works them out the same way
 // from the cards it holds, so an edit to an ancestor shows below at once,
 // and falls back to the server's where the ancestors are not on the board.
+import { WORK_STATUSES } from "./workstatus";
 import type { Card } from "./providers/types";
 
 type Held = readonly Pick<Card, "itemId" | "title" | "parent" | "team" | "customers" | "reviewOf" | "effectiveTeam" | "type">[];
@@ -266,15 +267,17 @@ export function peopleOf(cards: readonly Pick<Card, "owner" | "assignees">[]): s
   return [...out];
 }
 
-/** RoadmapFilters are the Roadmap's team, customer and owner filters
- *  (O7, O8), passed to the server's listing and watch. */
+/** RoadmapFilters are the Roadmap's team, customer, owner and status
+ *  filters (O7, O8), passed to the server's listing and watch. Statuses are
+ *  work statuses (workstatus.ts): in-progress, backlog, done. */
 export interface RoadmapFilters {
   teams: string[];
   customers: string[];
   owners: string[];
+  statuses: string[];
 }
 
-export const NO_ROADMAP_FILTERS: RoadmapFilters = { teams: [], customers: [], owners: [] };
+export const NO_ROADMAP_FILTERS: RoadmapFilters = { teams: [], customers: [], owners: [], statuses: [] };
 
 /** ROADMAP_FILTERS_KEY is where the viewer's choice is remembered. */
 export const ROADMAP_FILTERS_KEY = "aeman.roadmap.filters";
@@ -288,7 +291,8 @@ export function storedRoadmapFilters(raw: string | null): RoadmapFilters {
   try {
     const v = JSON.parse(raw) as Partial<RoadmapFilters>;
     const list = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
-    return { teams: list(v.teams), customers: list(v.customers), owners: list(v.owners) };
+    const statuses = list(v.statuses).filter((s) => (WORK_STATUSES as readonly string[]).includes(s));
+    return { teams: list(v.teams), customers: list(v.customers), owners: list(v.owners), statuses };
   } catch {
     return { ...NO_ROADMAP_FILTERS };
   }
