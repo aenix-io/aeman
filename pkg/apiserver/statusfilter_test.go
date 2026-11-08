@@ -177,6 +177,34 @@ func TestTheRoadmapStatusFilterKeepsWhatIsNotDone(t *testing.T) {
 	}
 }
 
+// O14 — a SUBTASK is filtered by its parent task, its own lock included: a
+// subtask that waits for something itself (a direct writer's dependsOn) is
+// LOCKED on its badge, yet the Locked filter goes by the parent, which waits
+// for nothing, and leaves it out — and keeps it where the parent matches.
+// It rides its parent on the Roadmap; it is not a filter's match of its own.
+func TestALockedSubtaskFollowsItsUnlockedParentTask(t *testing.T) {
+	t.Parallel()
+	const day = "2026-11-02"
+	b := board.NewBoard([]board.Card{
+		{ItemID: "goal", Title: "Grow", Type: board.TypeGoal},
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic, Parent: "goal"},
+		{ItemID: "work", Title: "Receipts", Parent: "epic", SprintStart: day, StartDate: day},
+		{ItemID: "kid", Title: "Receipts PDF", Parent: "work", SprintStart: day, DependsOn: []string{"other"}},
+		{ItemID: "other", Title: "Fonts", Parent: "epic", Parked: true},
+	})
+	ix := board.NewIndex(b)
+	kid, _ := ix.Find("kid")
+	if !CardResource(b, kid).Status.Locked {
+		t.Fatal("the subtask's own wait does not lock its badge")
+	}
+	if got := roadmapIDs(b, Selector{Status: "locked"}); slices.Contains(got, "kid") {
+		t.Errorf("locked = %v: the subtask goes by its parent, which waits for nothing", got)
+	}
+	if got := roadmapIDs(b, Selector{Status: "in-progress"}); !slices.Contains(got, "kid") {
+		t.Errorf("in-progress = %v: the subtask rides its parent task in", got)
+	}
+}
+
 // O14 with N4 — Locked agrees with status.locked on a visitor's board: a
 // card waiting for one the visitor cannot read is locked to them (the
 // resource counts the blocker as hidden), and the filter finds it.

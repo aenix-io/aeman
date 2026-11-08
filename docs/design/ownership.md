@@ -120,7 +120,10 @@ selectors `team`, `customer`, `owner`, `status`; the same in MCP
   nobody has placed yet reads as `backlog`. A task is also **Locked** while
   a dependency holds it (`status.locked`, its own or an ancestor's — not
   the manual stage) and it is not done. A subtask goes by its parent task,
-  a review card by the task it reviews. A planning card is **Locked** by
+  a review card by the task it reviews — Locked included: a subtask that
+  waits for something itself shows LOCKED on its badge, but the Locked
+  filter goes by its parent, and leaves it out while the parent waits for
+  nothing. A planning card is **Locked** by
   itself while a dependency holds it and its tasks are not all done, and
   **No items** by itself when nothing is under it; it matches In progress,
   Backlog or Done when a task under it does. "In progress" shows the work
@@ -206,4 +209,4 @@ where it sits. The choice is remembered per viewer in the browser.
 | O11 | The no-team group is a team in every team filter, and the day boards filter by customer too. |
 | O12 | Every board filters through one dropdown, with the roster's Manage inside; the Me board says what its filters hide. |
 | O13 | A task stands under its effective team on every day board, backlog, team filter and sprint; its own team is still what is stored and written. |
-| O14 | The Roadmap status filter matches a task by its work status (done, backlog when parked, in progress when in work; unplaced reads as backlog), a subtask by its parent task, a review card by its task, and a planning card by a task under it — a plan item with no tasks matches no status. Across filters the AND is judged on one task. |
+| O14 | The Roadmap status filter matches a task by its work status (done, backlog when parked, in progress when in work; unplaced reads as backlog), a subtask by its parent task, a review card by its task, and a planning card by itself for Locked and No items, otherwise by a task under it. Across filters the AND is judged on one task. |
