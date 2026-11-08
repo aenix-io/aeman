@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "./providers/types";
-import { blocksOf, dependencyOptions, dependencyRows, lockTitle, withDependency, withoutDependency } from "./dependencies";
+import { blocksOf, dependencyOptions, derivedLockOf, dependencyRows, lockTitle, withDependency, withoutDependency } from "./dependencies";
 
 const card = (c: Partial<Card> & { itemId: string }): Card => ({ title: c.itemId, assignees: [], ...c });
 
@@ -81,5 +81,18 @@ describe("the drawer's lists", () => {
     expect(withDependency(["a"], "a")).toEqual(["a"]);
     expect(withDependency(["a"], "b")).toEqual(["a", "b"]);
     expect(withoutDependency(["a", "b"], "a")).toEqual(["b"]);
+  });
+});
+
+// The day boards draw the derived lock with the locked stage's look — the
+// card can still be moved and planned — when no stage of a person's says
+// more and the card is not done.
+describe("the day boards' lock", () => {
+  it("shows the derived lock on an unstaged, unfinished card, with what it waits for", () => {
+    const waiting = { locked: true, blockedBy: [{ uid: "a", title: "Auth" }] };
+    expect(derivedLockOf(card({ itemId: "x", ...waiting }))).toBe("waiting for «Auth»");
+    expect(derivedLockOf(card({ itemId: "x", ...waiting, stage: "review" }))).toBeNull();
+    expect(derivedLockOf(card({ itemId: "x", ...waiting, progress: 100 }))).toBeNull();
+    expect(derivedLockOf(card({ itemId: "x" }))).toBeNull();
   });
 });

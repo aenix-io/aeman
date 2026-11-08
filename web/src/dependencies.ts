@@ -5,6 +5,7 @@
 // client never decides it, so there is no rule here to drift from Go. What
 // lives here is what the drawer offers and how it names what it shows.
 import { isUnder, parentChainOf, type ParentOption } from "./roadmap";
+import { isComplete } from "./stages";
 import type { Card, LineageRef } from "./providers/types";
 
 /** dependencyOptions is the "Depends on" picker's list for `self`: any card
@@ -102,4 +103,15 @@ export function withDependency(list: readonly string[] | undefined, id: string):
 
 export function withoutDependency(list: readonly string[] | undefined, id: string): string[] {
   return (list ?? []).filter((x) => x !== id);
+}
+
+/** derivedLockOf is what the day boards draw for the derived lock: the
+ *  locked stage's look, its tooltip naming what the card waits for — on a
+ *  card no stage of a person's says more about and that is not done; null
+ *  otherwise. It changes nothing a board lets the card do. */
+export function derivedLockOf(c: Card): string | null {
+  if (c.stage || isComplete(c)) {
+    return null;
+  }
+  return lockTitle(c, new Map((c.lineage ?? []).map((l) => [l.uid, l.title])));
 }

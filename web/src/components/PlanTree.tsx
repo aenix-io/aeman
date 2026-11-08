@@ -122,7 +122,9 @@ export function StatusPill({ card, onMenu, expanded = false }: { card: CardModel
   const parts = (
     <>
       {badge.priority && <PriorityPart value={badge.priority.value} from={badge.priority.from} />}
-      <span className={`roadmap-status roadmap-status-${badge.status}`}>{STATUS_LABEL[badge.status]}</span>
+      <span className={`roadmap-status roadmap-status-${badge.status}`} title={badge.lock}>
+        {STATUS_LABEL[badge.status]}
+      </span>
     </>
   );
   if (!onMenu) {
