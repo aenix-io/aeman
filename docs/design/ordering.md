@@ -1,6 +1,6 @@
 # Ordering: the epic order and the team queue
 
-Status: approved by the owner 2026-11-08, with the decisions recorded below. This document is the source of truth for how cards are ordered; its rules are rows Q1–Q14 of [behavior-matrix.md](behavior-matrix.md). It supersedes K14 and amends K5, K10's ordering clause and K13 of [backlog.md](backlog.md).
+Status: approved by the owner 2026-11-08, with the decisions recorded below. Implemented on `feat/ordering-model` except the Backlog's Epics mode and its Split indicator in the SPA (`board.Index.Split` exists server-side) and an optimistic order for an epic move in the Backlog (the Strategy board reloads after one). This document is the source of truth for how cards are ordered; its rules are rows Q1–Q14 of [behavior-matrix.md](behavior-matrix.md). It supersedes K14 and amends K5, K10's ordering clause and K13 of [backlog.md](backlog.md).
 
 ## Summary
 
