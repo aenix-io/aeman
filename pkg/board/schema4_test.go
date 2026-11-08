@@ -138,9 +138,12 @@ func generatedBoard(r *rand.Rand) Board {
 	var cards []Card
 	add := func(c Card) string {
 		c.ItemID = fmt.Sprintf("c%03d", len(cards))
-		if r.Intn(6) == 0 {
+		switch {
+		case r.Intn(6) == 0:
 			c.Rank = "" // a direct writer's card with no key
-		} else {
+		case r.Intn(3) == 0:
+			c.Rank = longKey(r, 22) // the "zzzz…" keys a real board grows
+		default:
 			c.Rank = key()
 		}
 		cards = append(cards, c)
