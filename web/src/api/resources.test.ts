@@ -105,3 +105,37 @@ describe("ownership survives the wire", () => {
     expect(c.customers).toBeUndefined();
   });
 });
+
+// What a card waits for (docs/design/dependencies.md) crosses the wire in
+// both halves: its own list in spec, and the derived lock, its blockers,
+// what waits for it and the customers that arrive through it in status.
+describe("dependencies survive the wire", () => {
+  it("maps the list, the lock, the blockers, the dependents and the customers they bring", () => {
+    const card = resourceToCard({
+      ...res({ dependsOn: ["a", "b"] }),
+      status: {
+        complete: false,
+        inProgress: false,
+        locked: true,
+        blockedBy: [{ uid: "a", title: "Auth", type: "epic", via: "e" }],
+        hiddenBlockers: 2,
+        blocks: [{ uid: "l", title: "Launch" }],
+        dependentCustomers: [{ customer: "acme", from: { uid: "l", title: "Launch" } }],
+      },
+    } as CardResource);
+    expect(card.dependsOn).toEqual(["a", "b"]);
+    expect(card.locked).toBe(true);
+    expect(card.blockedBy).toEqual([{ uid: "a", title: "Auth", type: "epic", via: "e" }]);
+    expect(card.hiddenBlockers).toBe(2);
+    expect(card.blocks).toEqual([{ uid: "l", title: "Launch", type: undefined }]);
+    expect(card.dependentCustomers).toEqual([{ customer: "acme", from: { uid: "l", title: "Launch", type: undefined } }]);
+  });
+
+  it("leaves a card that waits for nothing without any of it", () => {
+    const card = resourceToCard(res({}));
+    expect(card.dependsOn).toBeUndefined();
+    expect(card.locked).toBeUndefined();
+    expect(card.blockedBy).toBeUndefined();
+    expect(card.blocks).toBeUndefined();
+  });
+});

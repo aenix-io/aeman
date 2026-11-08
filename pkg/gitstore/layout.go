@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -103,6 +104,14 @@ func EncodeCard(f CardFile) ([]byte, error) {
 			items[i] = scalar(id)
 		}
 		b.WriteString("customers: [" + strings.Join(items, ", ") + "]\n")
+	}
+	// What the card waits for (docs/design/dependencies.md): card ids.
+	if len(c.DependsOn) > 0 {
+		items := make([]string, len(c.DependsOn))
+		for i, id := range c.DependsOn {
+			items[i] = scalar(id)
+		}
+		b.WriteString("dependsOn: [" + strings.Join(items, ", ") + "]\n")
 	}
 	w("zone", string(c.Zone))
 	w("size", string(c.Size))
@@ -352,6 +361,14 @@ func setKnown(f *CardFile, key string, val *yaml.Node) bool {
 	case "customers":
 		for _, it := range val.Content {
 			c.Customers = append(c.Customers, it.Value)
+		}
+	case "dependsOn":
+		// Each id once, first seen first: a list a direct writer left with
+		// an id twice must not count one blocker twice (N6).
+		for _, it := range val.Content {
+			if it.Value != "" && !slices.Contains(c.DependsOn, it.Value) {
+				c.DependsOn = append(c.DependsOn, it.Value)
+			}
 		}
 	case "zone":
 		c.Zone = board.ZoneKey(val.Value)

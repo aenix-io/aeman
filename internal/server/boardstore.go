@@ -81,6 +81,23 @@ func (sub *subscription) seen(res apiserver.Card, ix *board.Index) apiserver.Car
 			}
 		}
 	}
+	// The cards it waits for are named only when the subscriber can read
+	// them, as their listing serves spec.dependsOn (N4).
+	if len(res.Spec.DependsOn) > 0 {
+		var kept []string
+		for _, id := range res.Spec.DependsOn {
+			if d, ok := find(id); ok && readable(d) {
+				kept = append(kept, id)
+			}
+		}
+		res.Spec.DependsOn = kept
+	}
+	// What the card waits for, what waits for it and whom it is for through
+	// that work are derived from other cards too (N4, N5).
+	depsRedacted := false
+	if c, ok := find(res.Metadata.UID); ok {
+		depsRedacted = seenDependencies(&res, ix, c, readable)
+	}
 	can := func(uid string) bool {
 		c, ok := find(uid)
 		return !ok || sub.rights.canRead(c.Domain)
@@ -135,7 +152,14 @@ func (sub *subscription) seen(res apiserver.Card, ix *board.Index) apiserver.Car
 			}
 		}
 	}
-	out.Status.EffectiveTeam, out.Status.EffectiveCustomers = inheritedFromReadable(res, find, readable)
+	team, customers := inheritedFromReadable(res, find, readable)
+	out.Status.EffectiveTeam = team
+	if !depsRedacted {
+		// Worked out with the waiting work already (seenDependencies) when
+		// a dependency touches the card; the readable chain's alone when
+		// none does.
+		out.Status.EffectiveCustomers = customers
+	}
 	out.Status.EffectivePriority, out.Status.EffectivePriorityFrom = priorityFromReadable(res, find, readable)
 	return out
 }
@@ -468,6 +492,16 @@ type boardEntry struct {
 	// part re-sends those review cards, which no write touches.
 	reviewShown map[string]string
 	reviewsOf   map[string][]string
+	// depOf is each card's part other cards derive from it (depShown: its
+	// list, customers, parent, title and type, and — for a target in
+	// depTargets — whether it is done) as last announced, kept only once
+	// some card depends on another (anyDeps): a change to any of them
+	// re-sends the cards whose lock, blockers or inherited customers it
+	// moves (dependencyFanout, N8).
+	depOf      map[string]depShown
+	depTargets map[string]bool
+	depCards   map[string]bool // the cards that wait for any
+	anyDeps    bool
 	// planning is which cards are goals, initiatives or epics, kept beside
 	// parentOf: with the two the walk to a card's planning ancestors costs
 	// the depth of its chain, never an index of the whole board.
@@ -696,6 +730,8 @@ func detached(b board.Board) board.Board {
 	b.People = maps.Clone(b.People)
 	b.Domains = maps.Clone(b.Domains)
 	b.DroppedParents = maps.Clone(b.DroppedParents)
+	b.BlockerTotals = maps.Clone(b.BlockerTotals)
+	b.UndoneTargets = maps.Clone(b.UndoneTargets)
 	b.Customers = slices.Clone(b.Customers)
 	return b
 }
@@ -709,6 +745,7 @@ func detachedCards(cards []board.Card) []board.Card {
 		out[i].Assignees = slices.Clone(out[i].Assignees)
 		out[i].Notes = slices.Clone(out[i].Notes)
 		out[i].Customers = slices.Clone(out[i].Customers)
+		out[i].DependsOn = slices.Clone(out[i].DependsOn)
 	}
 	return out
 }
@@ -728,6 +765,20 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	// people are announced for the burst, whatever the change was: deciding
 	// here which writes matter would mean re-deriving the load to find out.
 	e.loadBroadcast()
+	// Built on demand: on a board whose tabs are all scoped — the ordinary
+	// case — a burst of changes must not pay for a resource nobody is sent.
+	// And built ONCE each: the card's resource and every ancestor's are the
+	// same for every watcher that is sent them, and an ancestor's standing
+	// is a walk over the board — built per watcher it was W × A walks under
+	// the entry lock for one change. One index serves them all, the
+	// dependency fan-out's included.
+	var ix *board.Index
+	index := func() *board.Index {
+		if ix == nil {
+			ix = newIndex(e.board)
+		}
+		return ix
+	}
 	// The planning cards above the card changed their standing with it —
 	// the chain it joined and the chain it left (H5) — and the server alone
 	// knows by how much, so they are announced to everyone who may read
@@ -740,24 +791,15 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	// And every card below one whose team or customers moved: they take both
 	// as their effective team and customers, at any depth (O3, O4).
 	descendants = unionIDs(descendants, e.subtreeOwning(c, verb))
+	// And every card whose lock, blockers or inherited customers this change
+	// moved: what waits for it, what it waits for, and the cards under them
+	// (N8).
+	descendants = unionIDs(descendants, e.dependencyFanout(c, verb, index))
 	ancestors = append(ancestors, descendants...)
 	// And the review cards of a card whose title, type, people, customers or
 	// chain moved (status.reviewed, status.lineage, effectiveCustomers), and
 	// of every card re-sent above: no write touches them either.
 	ancestors = unionIDs(ancestors, e.reviewsShowingIt(c, verb, descendants))
-	// Built on demand: on a board whose tabs are all scoped — the ordinary
-	// case — a burst of changes must not pay for a resource nobody is sent.
-	// And built ONCE each: the card's resource and every ancestor's are the
-	// same for every watcher that is sent them, and an ancestor's standing
-	// is a walk over the board — built per watcher it was W × A walks under
-	// the entry lock for one change. One index serves them all.
-	var ix *board.Index
-	index := func() *board.Index {
-		if ix == nil {
-			ix = newIndex(e.board)
-		}
-		return ix
-	}
 	var res apiserver.Card
 	built := false
 	type ancestor struct {
@@ -1414,6 +1456,7 @@ func (e *boardEntry) rememberParents() {
 			e.reviewsOf[c.ReviewOf] = append(e.reviewsOf[c.ReviewOf], c.ItemID)
 		}
 	}
+	e.rememberDependencies(nil)
 	for _, c := range e.board.Cards {
 		if len(e.reviewsOf[c.ItemID]) > 0 {
 			e.reviewShown[c.ItemID] = shownInReview(c)

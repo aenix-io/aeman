@@ -358,6 +358,7 @@ type updateCardInput struct {
 	Description *string   `json:"description,omitempty" jsonschema:"the card's shared free-form body (what the whole team sees; live-syncs onto the linked review card) — the right place for review or handoff context, and for reference links: include related open PRs and issues in free form as FULL URLs or owner/repo#123 shorthands (encouraged — links are extracted from anywhere in the text, surfaced on the card, and GitHub refs resolve to live titles/states; read them back with list_links); empty clears it"`
 	Owner       *string   `json:"owner,omitempty" jsonschema:"on a goal, an initiative or an epic: the ONE person who answers for it — breaks it down, triages what lands under it, keeps its status honest. Not inherited by the levels below and it puts nothing on anybody's day boards. Refused on a task (whose people are its assignees); empty takes it off"`
 	Customers   *[]string `json:"customers,omitempty" jsonschema:"customer IDS from get_board metadata.customers that this card itself is for, replacing what it named; an empty list takes them all off. The cards below inherit them (status.effectiveCustomers is a card's own plus every ancestor's). An id the roster lacks is refused — add_customer first when the user names a new customer"`
+	DependsOn   *[]string `json:"dependsOn,omitempty" jsonschema:"uids of the cards this card WAITS FOR, the whole list, replacing what it named; an empty list clears it. While one of them — or one a card above it waits for — is not done (a task complete, a goal/initiative/epic whose tasks are all complete), the card is LOCKED: status.locked, with status.blockedBy naming the blockers (via = the ancestor an inherited wait comes from) and status.hiddenBlockers counting ones you cannot read. The lock is derived, never written, and does not stop the card being planned or taken. The cards waited for are for this card's customers too (their status.dependentCustomers). A target must be another card on the board, not a review card, not this card's ancestor or descendant (dependencyTarget), and must not close a cycle (dependencyCycle)"`
 	Team        *string   `json:"team,omitempty" jsonschema:"team to move to (joins its current sprint); empty is the no-team group. On a goal, an initiative or an epic it is the team that carries the plan item out: it joins no sprint, places nothing, and the cards below with no team of their own take it as their effective team; empty takes it off. MUST be an EXISTING team key from get_board metadata.teams — map the user's wording onto an existing key, across languages and case; an unknown value silently CREATES a new team (heavyweight, unusual) — only on an explicit request for a brand-new team"`
 	Zone        *string   `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave; empty clears it"`
 	Size        *string   `json:"size,omitempty" jsonschema:"what the card weighs: S (up to ~2h, one action in one place), M (half a day to a day, one deliverable in one component), L (2–5 days, several parts or people) or XL (a week or more, epic-shaped); empty clears it. The board sums sizes as 1/2/4/8 points against each person's weekly capacity, so size the work the card asks for, consistently — not the topic's importance"`
@@ -414,6 +415,11 @@ func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, 
 	}
 	if in.Customers != nil {
 		if err := svc.SetCustomers(ctx, boardID, in.UID, *in.Customers); err != nil {
+			return err
+		}
+	}
+	if in.DependsOn != nil {
+		if err := svc.SetDependsOn(ctx, boardID, in.UID, *in.DependsOn); err != nil {
 			return err
 		}
 	}

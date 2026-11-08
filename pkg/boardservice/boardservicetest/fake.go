@@ -691,6 +691,16 @@ func (f *Backend) SetOwner(_ context.Context, _ board.Board, card board.Card, lo
 	return nil
 }
 
+func (f *Backend) SetDependsOn(_ context.Context, _ board.Board, card board.Card, ids []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetDependsOn %s %s", card.ItemID, strings.Join(ids, ","))
+	if c := f.card(card.ItemID); c != nil {
+		c.DependsOn = append([]string(nil), ids...)
+	}
+	return nil
+}
+
 func (f *Backend) SetCustomers(_ context.Context, _ board.Board, card board.Card, ids []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

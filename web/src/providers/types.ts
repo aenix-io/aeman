@@ -69,6 +69,20 @@ export interface CardEvent {
   at: string;
 }
 
+/** BlockerRef is one unsatisfied dependency: the card waited for, and —
+ *  when the wait is inherited — `via`, the uid of the ancestor whose
+ *  `dependsOn` names it. */
+export interface BlockerRef extends LineageRef {
+  via?: string;
+}
+
+/** DependentCustomer is a customer a card is for because work for that
+ *  customer waits for it, and the nearest waiting card it comes from. */
+export interface DependentCustomer {
+  customer: string;
+  from: LineageRef;
+}
+
 /** Card is a single board item. */
 export interface Card {
   itemId: string;
@@ -155,6 +169,23 @@ export interface Card {
    *  when it is the card's own. Computed by the server, never written. */
   effectivePriority?: Priority;
   effectivePriorityFrom?: LineageRef;
+  /** The cards this one WAITS for (spec.dependsOn, docs/design/
+   *  dependencies.md): its own list, minus ids the board does not hold. */
+  dependsOn?: string[];
+  /** DERIVED, never written (status.locked): an own or inherited
+   *  dependency is not done yet. Independent of the manual `stage: locked`;
+   *  a locked card can still be planned, moved and taken. */
+  locked?: boolean;
+  /** The unsatisfied dependencies the reader may see (status.blockedBy),
+   *  with `via` naming the ancestor whose list holds one, and how many more
+   *  the reader may not see (status.hiddenBlockers). */
+  blockedBy?: BlockerRef[];
+  hiddenBlockers?: number;
+  /** The cards that wait for this one directly (status.blocks). */
+  blocks?: LineageRef[];
+  /** Customers this card is for only because work for them waits for it
+   *  (status.dependentCustomers), each with the nearest card it comes from. */
+  dependentCustomers?: DependentCustomer[];
   /** The moment this card is FROM, when it is a record rather than the live
    *  card: its team's sprint has moved on past the day being looked at. The
    *  board shows it as it was and refuses to change it (G60). */
@@ -295,6 +326,9 @@ export interface CardPatch {
   owner?: string;
   /** The customer ids the card itself names (replacing what it named). */
   customers?: string[];
+  /** The cards this one waits for — the whole list, replacing the stored
+   *  one; [] clears it. Refused: 422 dependencyTarget, dependencyCycle. */
+  dependsOn?: string[];
   /** Recurrent card's reseed cycle: "" = every sprint, "week" | "month". */
   recurrence?: string;
 }

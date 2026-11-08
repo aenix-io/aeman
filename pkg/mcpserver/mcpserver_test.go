@@ -1144,3 +1144,28 @@ func TestMCPListCardsRoadmapByStatus(t *testing.T) {
 		t.Fatalf("an unknown status was read: %s", textOf(res))
 	}
 }
+
+// N7 — update_card takes the dependency list as the PATCH does (ADR 0002),
+// and says what it does: the lock and the customers that follow.
+func TestMCPUpdateCardSetsWhatACardWaitsFor(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "db", Title: "DB", Team: "alpha", Parked: true},
+		{ItemID: "api", Title: "API", Team: "alpha", Parked: true},
+	}, nil)
+	cs := connect(t, Config{Board: "acme"}, fake)
+	call(t, cs, "update_card", map[string]any{"uid": "api", "dependsOn": []string{"db"}})
+	if got := fake.Card("api").DependsOn; len(got) != 1 || got[0] != "db" {
+		t.Fatalf("dependsOn = %v", got)
+	}
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "update_card",
+		Arguments: map[string]any{"uid": "db", "dependsOn": []string{"api"}}})
+	if err == nil && !res.IsError {
+		t.Fatal("a cycle was accepted")
+	}
+	surface := toolSurface(t, "update_card")
+	for _, want := range []string{"LOCKED", "dependentCustomers", "dependencyCycle", "dependencyTarget"} {
+		if !strings.Contains(surface, want) {
+			t.Errorf("update_card does not say %q", want)
+		}
+	}
+}

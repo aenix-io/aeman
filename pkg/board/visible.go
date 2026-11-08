@@ -27,6 +27,36 @@ func Visible(b Board, primary string, readable func(domain string) bool) Board {
 
 	v := b
 	v.Cards = filterCards(b.Cards, func(c Card) bool { return can(c.Domain) })
+	// What a visitor cannot read still locks what they can (N4): the whole
+	// board's blocker count is recorded for every kept card that has any,
+	// so the resource can count the ones it cannot name.
+	// One index over the whole board, and only when something waits: a
+	// board on which nothing does pays nothing for the count.
+	v.BlockerTotals = nil
+	v.UndoneTargets = nil
+	v.JudgedWhole = false
+	if len(v.Cards) < len(b.Cards) && anyDependsOn(b.Cards) {
+		v.JudgedWhole = true
+		ix := NewIndex(b)
+		for _, c := range v.Cards {
+			if n := len(ix.Blockers(c)); n > 0 {
+				if v.BlockerTotals == nil {
+					v.BlockerTotals = map[string]int{}
+				}
+				v.BlockerTotals[c.ItemID] = n
+			}
+		}
+		for _, c := range b.Cards {
+			for _, id := range c.DependsOn {
+				if t, ok := ix.Find(id); ok && !ix.Done(t) {
+					if v.UndoneTargets == nil {
+						v.UndoneTargets = map[string]bool{}
+					}
+					v.UndoneTargets[id] = true
+				}
+			}
+		}
+	}
 
 	v.TeamOrder = nil
 	v.SprintStates = map[string]SprintState{}
@@ -103,4 +133,14 @@ func (r boardResolver) TeamDomain(name string) (string, bool) {
 		return "", false
 	}
 	return r.or(r.b.Domains[st.ItemID]), true
+}
+
+// anyDependsOn reports cards of which one at least waits for another.
+func anyDependsOn(cards []Card) bool {
+	for _, c := range cards {
+		if len(c.DependsOn) > 0 {
+			return true
+		}
+	}
+	return false
 }

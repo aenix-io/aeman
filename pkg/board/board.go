@@ -75,6 +75,11 @@ type Card struct {
 	// card is for. Any card may name several; the cards
 	// below add to them (O4).
 	Customers []string `json:"customers,omitempty"`
+	// DependsOn are the uids of the cards this one waits for
+	// (docs/design/dependencies.md): it is LOCKED while one of them, or one
+	// an ancestor waits for, is not done — derived, never written — and the
+	// targets are for this card's customers too (N1–N6).
+	DependsOn []string `json:"dependsOn,omitempty"`
 	Zone      ZoneKey  `json:"zone,omitempty"`
 	// Size is what somebody said the card weighs — S, M, L or XL — set on a
 	// daily sync or by a sizing tool; "" is unsized. The points a board sums
@@ -252,6 +257,23 @@ type Board struct {
 	// parent (NewBoardIn), and a tool that must REPORT such links — the
 	// importer's dangling references, M4 — reads them here.
 	DroppedParents map[string]string `json:"-"`
+	// BlockerTotals is how many blockers each card has on the WHOLE board,
+	// recorded by Visible when the projection hides something: the
+	// visitor's resource counts the ones it cannot name (N4). Nil when
+	// nothing was hidden.
+	BlockerTotals map[string]int `json:"-"`
+	// UndoneTargets are the cards something waits for that are NOT done on
+	// the WHOLE board, recorded by Visible beside BlockerTotals: a plan item
+	// is done by its whole roll-up, not by the part of it the visitor's board
+	// holds, so the visitor's listing judges a blocker the way a watch frame
+	// does (N4). Nil when nothing was hidden.
+	UndoneTargets map[string]bool `json:"-"`
+	// JudgedWhole says Visible hid something on a board where something
+	// waits: the visitor's dependencies are judged on the WHOLE board
+	// (BlockerTotals, UndoneTargets), even when those maps are empty —
+	// an empty map is "nothing undone on the whole board", not "judge on the
+	// part you can see" (N4).
+	JudgedWhole bool `json:"-"`
 }
 
 // Customer is one entry of the board's customer roster: who the work is for.

@@ -150,6 +150,12 @@ export function effectiveCustomersOf(c: Card, cards: Held): string[] {
     add(a.customers);
   }
   add(c.customers);
+  // And those the work waiting for it — or for an ancestor — brings
+  // (status.dependentCustomers, dependencies.md).
+  for (const a of up) {
+    add((a as Card).dependentCustomers?.map((d) => d.customer));
+  }
+  add(c.dependentCustomers?.map((d) => d.customer));
   return out;
 }
 
@@ -206,7 +212,9 @@ export interface CustomerChip {
 }
 
 /** customerChips is the drawer's Customers field: the inherited ones first,
- *  each with the nearest ancestor that names it, then the card's own. */
+ *  each with the nearest ancestor that names it, then those that arrive
+ *  through the work that waits for the card (status.dependentCustomers),
+ *  then the card's own. */
 export function customerChips(c: Card, cards: Held): CustomerChip[] {
   const own = c.customers ?? [];
   const up = ancestorsOf(c, cards) ?? [];
@@ -216,7 +224,19 @@ export function customerChips(c: Card, cards: Held): CustomerChip[] {
       continue;
     }
     const from = [...up].reverse().find((a) => (a.customers ?? []).includes(id));
-    out.push({ id, from: from?.title ?? "" });
+    // Else it arrives through the work that waits for this card or for an
+    // ancestor (dependencies.md): from the nearest card that waits.
+    const waiting = [c, ...[...up].reverse()]
+      .flatMap((a) => (a as Card).dependentCustomers ?? [])
+      .find((d) => d.customer === id);
+    out.push({ id, from: from?.title ?? waiting?.from.title ?? "" });
+  }
+  // The server's own word for one it brings that the held cards cannot
+  // place (a card off the board): once, when not already named.
+  for (const d of c.dependentCustomers ?? []) {
+    if (!own.includes(d.customer) && !out.some((x) => x.id === d.customer)) {
+      out.push({ id: d.customer, from: d.from.title });
+    }
   }
   for (const id of own) {
     out.push({ id });

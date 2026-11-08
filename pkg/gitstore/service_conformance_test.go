@@ -211,3 +211,31 @@ func TestServiceDeleteThroughTheBackend(t *testing.T) {
 		t.Fatal("deleted card still served")
 	}
 }
+
+// N7 — a dependency list goes through the service onto the card's file and
+// back, one commit.
+func TestServiceDependenciesThroughTheBackend(t *testing.T) {
+	svc, _, r := newService(t)
+	ctx := ctxAs("kvaps")
+	db, err := svc.CreateCard(ctx, "acme", boardservice.CreateCardArgs{Title: "db", Team: "portal", Start: "2026-08-24", Day: "2026-08-28"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	api, err := svc.CreateCard(ctx, "acme", boardservice.CreateCardArgs{Title: "api", Team: "portal", Start: "2026-08-24", Day: "2026-08-28"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetDependsOn(ctx, "acme", api.ItemID, []string{db.ItemID}); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range s.Cards {
+		if c.ItemID == api.ItemID && (len(c.DependsOn) != 1 || c.DependsOn[0] != db.ItemID) {
+			t.Fatalf("api dependsOn = %v", c.DependsOn)
+		}
+	}
+	var _ boardservice.DependencyBackend = NewMultiBackend(nil, BackendOptions{})
+}

@@ -540,6 +540,11 @@ func (a surface) PatchCard(ctx context.Context, req apiv1.PatchCardRequestObject
 			return nil, err
 		}
 	}
+	if p.DependsOn != nil {
+		if err := svc.SetDependsOn(ctx, boardID, uid, *p.DependsOn); err != nil {
+			return nil, err
+		}
+	}
 	if err := patchZoneAndSize(ctx, svc, boardID, uid, p); err != nil {
 		return nil, err
 	}

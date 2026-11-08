@@ -73,3 +73,18 @@ describe("what moves when a pointer crosses a card", () => {
     expect(draw(card({ size: "L" } as Partial<Card>))).not.toContain(">L<");
   });
 });
+
+// A card waiting for a dependency not done yet wears the locked look on the
+// day boards, its tooltip naming what it waits for (dependencies.md); the
+// card stays fully usable — only the mark is drawn.
+describe("a card locked by what it waits for", () => {
+  it("shows the locked mark with what it waits for", () => {
+    const html = draw(card({ locked: true, blockedBy: [{ uid: "a", title: "Auth API" }], hiddenBlockers: 1 }));
+    expect(html).toContain("Locked: waiting for «Auth API» and 1 hidden");
+    expect(html).toContain(`class="card-stage"`);
+  });
+
+  it("is unmarked when nothing it waits for is open", () => {
+    expect(draw(card({}))).not.toContain("Locked:");
+  });
+});

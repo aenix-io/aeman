@@ -22,6 +22,7 @@ import { Dropdown } from "./Dropdown";
 import { extractLinks, type CardLink } from "../links";
 import { recurrenceCycles, recurrenceLabel, recurrenceTitle } from "../recurrence";
 import { RangeCalendar } from "./RangeCalendar";
+import { derivedLockOf } from "../dependencies";
 
 // ageColor fades the age badge from light grey (fresh) to maroon-red by ~10 days.
 function ageColor(days: number): string {
@@ -323,9 +324,13 @@ export function Card({
   // hover flag BEFORE the links icon, so the always-visible links icon does
   // not jump left when the flag pops in on hover (the actions block is
   // right-anchored, so growth to its left leaves it in place).
+  // A card waiting for a dependency not done yet wears the locked stage's
+  // look (dependencies.derivedLockOf) — nothing it may do changes.
+  const waitingFor = derivedLockOf(card);
+  const shownStage: StageKey | undefined = card.stage ?? (waitingFor ? "locked" : undefined);
   const stageVisible =
     card.stage === "review" ||
-    card.stage === "locked" ||
+    shownStage === "locked" ||
     card.stage === "recurrent" ||
     card.stage === "refuse";
   const stageControl = (
@@ -348,11 +353,13 @@ export function Card({
               ? recurrenceTitle(card.recurrence)
               : card.stage === "locked"
                 ? "Locked"
+                : waitingFor
+                  ? `Locked: ${waitingFor}`
                 : card.stage === "refuse"
                   ? "Refused"
                   : "Status"
         }
-        style={card.stage ? { color: STAGES[card.stage].color } : undefined}
+        style={shownStage ? { color: STAGES[shownStage].color } : undefined}
       >
         {card.stage === "review" ? (
           <svg
@@ -394,7 +401,7 @@ export function Card({
           >
             <path d="M416 398.9c58.5-41.1 96-104.1 96-174.9C512 100.3 397.4 0 256 0S0 100.3 0 224c0 70.7 37.5 133.8 96 174.9c0 .4 0 .7 0 1.1l0 64c0 26.5 21.5 48 48 48l48 0 0-48c0-8.8 7.2-16 16-16s16 7.2 16 16l0 48 64 0 0-48c0-8.8 7.2-16 16-16s16 7.2 16 16l0 48 48 0c26.5 0 48-21.5 48-48l0-64c0-.4 0-.7 0-1.1zM96 256a64 64 0 1 1 128 0A64 64 0 1 1 96 256zm256-64a64 64 0 1 1 0 128 64 64 0 1 1 0-128z" />
           </svg>
-        ) : card.stage === "locked" ? (
+        ) : shownStage === "locked" ? (
           <svg
             width="13"
             height="13"

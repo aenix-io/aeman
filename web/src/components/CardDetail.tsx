@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   Board,
   Card as CardModel,
@@ -34,6 +34,7 @@ import {
   childrenNote,
   hierarchyChoices,
   kindOf,
+  latestWins,
   planningRemoval,
   cardsAfterDelete,
   statusOf,
@@ -48,6 +49,8 @@ import { CardIdentity } from "./CardIdentity";
 import { placementAnswer, drawerEscapes, joinsTree } from "../detail";
 import { OwnerPicker } from "./OwnerPicker";
 import { ParentPicker } from "./ParentPicker";
+import { DependsOn } from "./DependsOn";
+import { dependenciesToFetch, dependencyRollback, fetchStillAnswers, withDependency, withFetched, withoutDependency } from "../dependencies";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { notTombstoned, type Tombstones } from "../tombstones";
 
@@ -157,7 +160,8 @@ export function CardDetail({
   // card's children at once, a task's parent options when the picker opens.
   const [hierarchy, setHierarchy] = useState<{ forCard: string; cards: CardModel[] } | null>(null);
   const [wantsOptions, setWantsOptions] = useState(false);
-  const wantsHierarchy = planning || wantsOptions;
+  // A card that waits for others names them from the same listing.
+  const wantsHierarchy = planning || wantsOptions || (card.dependsOn?.length ?? 0) > 0;
   useEffect(() => {
     if (!wantsHierarchy || temp || hierarchy?.forCard === card.itemId) {
       return;
@@ -215,6 +219,13 @@ export function CardDetail({
     });
   }, [subscribeCardFrames]);
   const around = hierarchy?.forCard === card.itemId ? hierarchy.cards : null;
+  const [fetchedDeps, setFetchedDeps] = useState<readonly CardModel[]>([]);
+  // The ids this drawer card has asked for already, answered or not
+  // (dependenciesToFetch): asked once, never again for the same card.
+  const triedDeps = useRef<{ forCard: string; ids: Set<string> }>({ forCard: card.itemId, ids: new Set() });
+  if (triedDeps.current.forCard !== card.itemId) {
+    triedDeps.current = { forCard: card.itemId, ids: new Set() };
+  }
   // What the board itself holds is fresher than the fetched listing for the
   // cards it has (the watch keeps it so); the listing fills in the rest.
   const known = useMemo(() => {
@@ -222,11 +233,41 @@ export function CardDetail({
     for (const c of around ?? []) {
       byId.set(c.itemId, c);
     }
+    for (const c of fetchedDeps) {
+      if (!byId.has(c.itemId)) {
+        byId.set(c.itemId, c);
+      }
+    }
     for (const c of board.cards) {
       byId.set(c.itemId, c);
     }
     return [...byId.values()];
-  }, [around, board.cards]);
+  }, [around, board.cards, fetchedDeps]);
+  // A dependency the listing does not carry — finished work outside the
+  // tree, a card of another view — is fetched by id once, so its row has a
+  // title and a status rather than a bare uid.
+  useEffect(() => {
+    if (around === null || temp) {
+      return;
+    }
+    const have = new Set([...around, ...board.cards, ...fetchedDeps].map((c) => c.itemId));
+    const tried = triedDeps.current;
+    const missing = dependenciesToFetch(card.dependsOn, have, tried.ids);
+    if (missing.length === 0) {
+      return;
+    }
+    for (const id of missing) {
+      tried.ids.add(id);
+    }
+    // The answer is kept even when the effect re-ran meanwhile (a watch
+    // frame): it belongs to the card it was asked for while the drawer still
+    // shows that card (fetchStillAnswers).
+    void Promise.all(missing.map((id) => provider.getCard(id).catch(() => null))).then((got) => {
+      if (fetchStillAnswers(triedDeps.current, tried)) {
+        setFetchedDeps((prev) => withFetched(prev, got));
+      }
+    });
+  }, [around, board.cards, card.dependsOn, fetchedDeps, provider, temp]);
 
   // The parent as the pane shows it: the last crumb of the lineage.
   const parentCrumb = card.lineage?.[card.lineage.length - 1];
@@ -416,6 +457,41 @@ export function CardDetail({
       .then((updated) => patchCard(card.itemId, placementAnswer(updated)))
       .catch((err: unknown) => {
         patchCard(card.itemId, before);
+        onError?.(errMessage(err));
+      });
+  };
+
+  // What this card waits for: the whole list is written, the drawer shows
+  // it at once and takes it back when the server refuses (a cycle, a target
+  // it may not wait for), in the server's words.
+  const wantDependencyOptions = useCallback(() => setWantsOptions(true), []);
+  // Presses on the list, newest wins (latestWins): a refused or late answer
+  // from an older press leaves a newer list standing.
+  const dependencyPresses = useRef(latestWins());
+  const setDependsOn = (next: string[]) => {
+    const before = card.dependsOn;
+    const n = dependencyPresses.current.next(card.itemId);
+    patchCard(card.itemId, { dependsOn: next.length ? next : undefined });
+    void provider
+      .patchCard(card.itemId, { dependsOn: next })
+      .then((updated) => {
+        // An older press answering after a newer one was shown must not
+        // overwrite the newer list; the newer press brings its own answer.
+        if (!dependencyPresses.current.isLatest(card.itemId, n)) {
+          return;
+        }
+        patchCard(card.itemId, {
+          dependsOn: updated.dependsOn,
+          locked: updated.locked,
+          blockedBy: updated.blockedBy,
+          hiddenBlockers: updated.hiddenBlockers,
+        });
+      })
+      .catch((err: unknown) => {
+        const back = dependencyRollback(dependencyPresses.current, card.itemId, n, before);
+        if (back) {
+          patchCard(card.itemId, back);
+        }
         onError?.(errMessage(err));
       });
   };
@@ -829,7 +905,7 @@ export function CardDetail({
         }
       }}
     >
-      <aside className="drawer card-drawer" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+      <aside className="drawer card-drawer" role="dialog" aria-modal="true" data-popup-bounds onClick={(e) => e.stopPropagation()}>
         <header className="drawer-head">
           {/* Where this card stands in the hierarchy, root first: the goal,
               the initiative, the epic — and for a subtask, its task. A
@@ -1030,6 +1106,22 @@ export function CardDetail({
                       Save
                     </button>
                   </div>
+                )}
+
+                {/* What this card waits for, and what waits for it
+                    (dependencies.md) — above what sits under it. A review
+                    card neither waits nor is waited for. */}
+                {!card.reviewOf && (
+                  <DependsOn
+                    card={card}
+                    known={known}
+                    options={around}
+                    readOnly={isRecord || temp}
+                    onWantOptions={wantDependencyOptions}
+                    onAdd={(t) => setDependsOn(withDependency(card.dependsOn, t.itemId))}
+                    onRemove={(uid) => setDependsOn(withoutDependency(card.dependsOn, uid))}
+                    onOpen={openById}
+                  />
                 )}
 
                 {/* A task's subtasks: what rides it, each opening here, each
@@ -1269,7 +1361,7 @@ export function CardDetail({
                     <span className="drawer-pick-text">{reviewer ? displayName(reviewer, names) : "Nobody yet"}</span>
                     {!isRecord && !temp && <span className="add-card-team-caret">▾</span>}
                   </button>
-                  <Dropdown open={reviewerOpen} anchorRef={reviewerRef} onClose={() => setReviewerOpen(false)} className="add-card-team-menu drawer-pick-menu">
+                  <Dropdown open={reviewerOpen} anchorRef={reviewerRef} align="start" onClose={() => setReviewerOpen(false)} className="add-card-team-menu drawer-pick-menu">
                     {reviewers.map((p) => (
                       <button
                         key={p}
@@ -1304,7 +1396,7 @@ export function CardDetail({
                     <span className="drawer-pick-text">{card.zone ? ZONES[card.zone].spine.toLowerCase() : "none"}</span>
                     {!isRecord && <span className="add-card-team-caret">▾</span>}
                   </button>
-                  <Dropdown open={zoneOpen} anchorRef={zoneRef} onClose={() => setZoneOpen(false)} className="add-card-team-menu">
+                  <Dropdown open={zoneOpen} anchorRef={zoneRef} align="start" onClose={() => setZoneOpen(false)} className="add-card-team-menu">
                     {ZONE_ORDER.map((z) => (
                       <button key={z} type="button" className="add-card-team-item" onClick={() => setZone(z)}>
                         <span className="team-dot" style={{ background: ZONES[z].accent }} />

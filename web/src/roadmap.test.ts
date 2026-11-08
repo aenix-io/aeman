@@ -180,6 +180,20 @@ describe("statusOf", () => {
     expect(statusOf(card({ stage: "done", progress: 100 }))).toBe("done");
     expect(STATUS_LABEL.backlog).toBe("Backlog");
   });
+
+  // The DERIVED lock (docs/design/dependencies.md): a card waiting for work
+  // not done yet reads LOCKED until it is done itself; a stage a person set
+  // still says who it waits on first. The Status filter keeps reading
+  // placement (workStatus) — LOCKED is the badge's word, not a filter value.
+  it("reads LOCKED while a dependency is not done, unless the card is done or held in a stage", () => {
+    const today = "2026-11-09";
+    expect(statusOf(card({ locked: true, sprintStart: today }))).toBe("locked");
+    expect(statusOf(card({ locked: true, parked: true }))).toBe("locked");
+    expect(statusOf(card({ locked: true, progress: 100 }))).toBe("done");
+    expect(statusOf(card({ locked: true, stage: "review", sprintStart: today }))).toBe("review");
+    expect(statusOf(card({ type: "epic", locked: true, hierarchy: { status: "in-progress", done: 1, total: 3 } }))).toBe("locked");
+    expect(statusOf(card({ type: "epic", locked: true, hierarchy: { status: "done", done: 3, total: 3 } }))).toBe("done");
+  });
 });
 
 describe("barOf", () => {
@@ -1036,6 +1050,12 @@ describe("the badge", () => {
     ).toEqual({ priority: { value: "P2", from: { uid: "e", type: "epic", title: "Billing" } }, status: "backlog" });
     expect(badgeOf(card({ parked: true }))).toEqual({ priority: undefined, status: "backlog" });
     expect(inheritedTitle({ uid: "e", type: "epic", title: "Billing" })).toBe("from «Billing»");
+  });
+
+  it("names what a locked card waits for, the priority part staying as it is", () => {
+    const b = badgeOf(card({ locked: true, effectivePriority: "P1", blockedBy: [{ uid: "a", title: "Auth" }], parked: true }));
+    expect(b).toEqual({ priority: { value: "P1", from: undefined }, status: "locked", lock: "waiting for «Auth»" });
+    expect(badgeOf(card({ parked: true })).lock).toBeUndefined();
   });
 });
 

@@ -187,83 +187,86 @@ func (e NoteListKind) Valid() bool {
 
 // Defines values for ProblemCode.
 const (
-	AccessUndecided      ProblemCode = "accessUndecided"
-	AlreadyFinished      ProblemCode = "alreadyFinished"
-	AlreadyInWork        ProblemCode = "alreadyInWork"
-	AuthorizationExpired ProblemCode = "authorizationExpired"
-	BackwardsDefer       ProblemCode = "backwardsDefer"
-	BadCapacity          ProblemCode = "badCapacity"
-	BadDay               ProblemCode = "badDay"
-	BadPriority          ProblemCode = "badPriority"
-	BodyTooLarge         ProblemCode = "bodyTooLarge"
-	CapacityRequired     ProblemCode = "capacityRequired"
-	CardNotFound         ProblemCode = "cardNotFound"
-	CardNotOnBoard       ProblemCode = "cardNotOnBoard"
-	CrossDomain          ProblemCode = "crossDomain"
-	CrossSiteBlocked     ProblemCode = "crossSiteBlocked"
-	CustomerExists       ProblemCode = "customerExists"
-	CustomerName         ProblemCode = "customerName"
-	CustomerNotFound     ProblemCode = "customerNotFound"
-	DayIsARecord         ProblemCode = "dayIsARecord"
-	DescriptionTooLong   ProblemCode = "descriptionTooLong"
-	EmptyNote            ProblemCode = "emptyNote"
-	EmptyTitle           ProblemCode = "emptyTitle"
-	EndBeforeStart       ProblemCode = "endBeforeStart"
-	Forbidden            ProblemCode = "forbidden"
-	GestureNotOffered    ProblemCode = "gestureNotOffered"
-	HistoryTruncated     ProblemCode = "historyTruncated"
-	InvalidAsOf          ProblemCode = "invalidAsOf"
-	InvalidBody          ProblemCode = "invalidBody"
-	InvalidDay           ProblemCode = "invalidDay"
-	InvalidParameter     ProblemCode = "invalidParameter"
-	InvalidSelector      ProblemCode = "invalidSelector"
-	InvalidStage         ProblemCode = "invalidStage"
-	NameTaken            ProblemCode = "nameTaken"
-	NoEarlierSprint      ProblemCode = "noEarlierSprint"
-	NoHistory            ProblemCode = "noHistory"
-	NoPlaceOfItsOwn      ProblemCode = "noPlaceOfItsOwn"
-	NoReviewer           ProblemCode = "noReviewer"
-	NoSuchView           ProblemCode = "noSuchView"
-	NobodyToTake         ProblemCode = "nobodyToTake"
-	NotATarget           ProblemCode = "notATarget"
-	NotAuthenticated     ProblemCode = "notAuthenticated"
-	NotFinished          ProblemCode = "notFinished"
-	NotInWork            ProblemCode = "notInWork"
-	NotOnThisBoard       ProblemCode = "notOnThisBoard"
-	NotYoursToRefuse     ProblemCode = "notYoursToRefuse"
-	NotYoursToRemove     ProblemCode = "notYoursToRemove"
-	NoteNotFound         ProblemCode = "noteNotFound"
-	NoteTooLong          ProblemCode = "noteTooLong"
-	OpenSubtasks         ProblemCode = "openSubtasks"
-	OwnerFollowsLink     ProblemCode = "ownerFollowsLink"
-	OwnerIsThePlans      ProblemCode = "ownerIsThePlans"
-	OwnerNeedsTeam       ProblemCode = "ownerNeedsTeam"
-	OwnershipUnsupported ProblemCode = "ownershipUnsupported"
-	ParentLevel          ProblemCode = "parentLevel"
-	ParentNotFound       ProblemCode = "parentNotFound"
-	PlanningCard         ProblemCode = "planningCard"
-	PointsRequired       ProblemCode = "pointsRequired"
-	PriorityFollowsTask  ProblemCode = "priorityFollowsTask"
-	ReviewCardLink       ProblemCode = "reviewCardLink"
-	SetupRequired        ProblemCode = "setupRequired"
-	SomebodysCard        ProblemCode = "somebodysCard"
-	SubtaskDepth         ProblemCode = "subtaskDepth"
-	TakeIntoWork         ProblemCode = "takeIntoWork"
-	TeamExists           ProblemCode = "teamExists"
-	TeamInUse            ProblemCode = "teamInUse"
-	TeamNotFound         ProblemCode = "teamNotFound"
-	TitleTooLong         ProblemCode = "titleTooLong"
-	TooManyCards         ProblemCode = "tooManyCards"
-	TwoPlaces            ProblemCode = "twoPlaces"
-	UnknownDomain        ProblemCode = "unknownDomain"
-	UnknownIntent        ProblemCode = "unknownIntent"
-	UnknownRoute         ProblemCode = "unknownRoute"
-	UnknownSize          ProblemCode = "unknownSize"
-	UnknownStage         ProblemCode = "unknownStage"
-	UnknownType          ProblemCode = "unknownType"
-	UnknownZone          ProblemCode = "unknownZone"
-	UpstreamFailed       ProblemCode = "upstreamFailed"
-	ViewNeedsField       ProblemCode = "viewNeedsField"
+	AccessUndecided         ProblemCode = "accessUndecided"
+	AlreadyFinished         ProblemCode = "alreadyFinished"
+	AlreadyInWork           ProblemCode = "alreadyInWork"
+	AuthorizationExpired    ProblemCode = "authorizationExpired"
+	BackwardsDefer          ProblemCode = "backwardsDefer"
+	BadCapacity             ProblemCode = "badCapacity"
+	BadDay                  ProblemCode = "badDay"
+	BadPriority             ProblemCode = "badPriority"
+	BodyTooLarge            ProblemCode = "bodyTooLarge"
+	CapacityRequired        ProblemCode = "capacityRequired"
+	CardNotFound            ProblemCode = "cardNotFound"
+	CardNotOnBoard          ProblemCode = "cardNotOnBoard"
+	CrossDomain             ProblemCode = "crossDomain"
+	CrossSiteBlocked        ProblemCode = "crossSiteBlocked"
+	CustomerExists          ProblemCode = "customerExists"
+	CustomerName            ProblemCode = "customerName"
+	CustomerNotFound        ProblemCode = "customerNotFound"
+	DayIsARecord            ProblemCode = "dayIsARecord"
+	DependenciesUnsupported ProblemCode = "dependenciesUnsupported"
+	DependencyCycle         ProblemCode = "dependencyCycle"
+	DependencyTarget        ProblemCode = "dependencyTarget"
+	DescriptionTooLong      ProblemCode = "descriptionTooLong"
+	EmptyNote               ProblemCode = "emptyNote"
+	EmptyTitle              ProblemCode = "emptyTitle"
+	EndBeforeStart          ProblemCode = "endBeforeStart"
+	Forbidden               ProblemCode = "forbidden"
+	GestureNotOffered       ProblemCode = "gestureNotOffered"
+	HistoryTruncated        ProblemCode = "historyTruncated"
+	InvalidAsOf             ProblemCode = "invalidAsOf"
+	InvalidBody             ProblemCode = "invalidBody"
+	InvalidDay              ProblemCode = "invalidDay"
+	InvalidParameter        ProblemCode = "invalidParameter"
+	InvalidSelector         ProblemCode = "invalidSelector"
+	InvalidStage            ProblemCode = "invalidStage"
+	NameTaken               ProblemCode = "nameTaken"
+	NoEarlierSprint         ProblemCode = "noEarlierSprint"
+	NoHistory               ProblemCode = "noHistory"
+	NoPlaceOfItsOwn         ProblemCode = "noPlaceOfItsOwn"
+	NoReviewer              ProblemCode = "noReviewer"
+	NoSuchView              ProblemCode = "noSuchView"
+	NobodyToTake            ProblemCode = "nobodyToTake"
+	NotATarget              ProblemCode = "notATarget"
+	NotAuthenticated        ProblemCode = "notAuthenticated"
+	NotFinished             ProblemCode = "notFinished"
+	NotInWork               ProblemCode = "notInWork"
+	NotOnThisBoard          ProblemCode = "notOnThisBoard"
+	NotYoursToRefuse        ProblemCode = "notYoursToRefuse"
+	NotYoursToRemove        ProblemCode = "notYoursToRemove"
+	NoteNotFound            ProblemCode = "noteNotFound"
+	NoteTooLong             ProblemCode = "noteTooLong"
+	OpenSubtasks            ProblemCode = "openSubtasks"
+	OwnerFollowsLink        ProblemCode = "ownerFollowsLink"
+	OwnerIsThePlans         ProblemCode = "ownerIsThePlans"
+	OwnerNeedsTeam          ProblemCode = "ownerNeedsTeam"
+	OwnershipUnsupported    ProblemCode = "ownershipUnsupported"
+	ParentLevel             ProblemCode = "parentLevel"
+	ParentNotFound          ProblemCode = "parentNotFound"
+	PlanningCard            ProblemCode = "planningCard"
+	PointsRequired          ProblemCode = "pointsRequired"
+	PriorityFollowsTask     ProblemCode = "priorityFollowsTask"
+	ReviewCardLink          ProblemCode = "reviewCardLink"
+	SetupRequired           ProblemCode = "setupRequired"
+	SomebodysCard           ProblemCode = "somebodysCard"
+	SubtaskDepth            ProblemCode = "subtaskDepth"
+	TakeIntoWork            ProblemCode = "takeIntoWork"
+	TeamExists              ProblemCode = "teamExists"
+	TeamInUse               ProblemCode = "teamInUse"
+	TeamNotFound            ProblemCode = "teamNotFound"
+	TitleTooLong            ProblemCode = "titleTooLong"
+	TooManyCards            ProblemCode = "tooManyCards"
+	TwoPlaces               ProblemCode = "twoPlaces"
+	UnknownDomain           ProblemCode = "unknownDomain"
+	UnknownIntent           ProblemCode = "unknownIntent"
+	UnknownRoute            ProblemCode = "unknownRoute"
+	UnknownSize             ProblemCode = "unknownSize"
+	UnknownStage            ProblemCode = "unknownStage"
+	UnknownType             ProblemCode = "unknownType"
+	UnknownZone             ProblemCode = "unknownZone"
+	UpstreamFailed          ProblemCode = "upstreamFailed"
+	ViewNeedsField          ProblemCode = "viewNeedsField"
 )
 
 // Valid indicates whether the value is a known member of the ProblemCode enum.
@@ -304,6 +307,12 @@ func (e ProblemCode) Valid() bool {
 	case CustomerNotFound:
 		return true
 	case DayIsARecord:
+		return true
+	case DependenciesUnsupported:
+		return true
+	case DependencyCycle:
+		return true
+	case DependencyTarget:
 		return true
 	case DescriptionTooLong:
 		return true
@@ -520,6 +529,9 @@ type AddCustomerBody struct {
 	Name *string `json:"name,omitempty"`
 }
 
+// BlockerRef One unsatisfied dependency of a card.
+type BlockerRef = apiserver.BlockerRef
+
 // Board defines model for Board.
 type Board = apiserver.BoardInfo
 
@@ -560,9 +572,12 @@ type CardPatch struct {
 	Assignees *[]string `json:"assignees,omitempty"`
 
 	// Customers Ids from the board's customer roster this card names, replacing those it named; empty takes them all off. An id the roster lacks is 422 `customerNotFound`.
-	Customers   *[]string       `json:"customers,omitempty"`
-	Dates       *CardDatesPatch `json:"dates,omitempty"`
-	Description *string         `json:"description,omitempty"`
+	Customers *[]string       `json:"customers,omitempty"`
+	Dates     *CardDatesPatch `json:"dates,omitempty"`
+
+	// DependsOn The cards this one waits for, the WHOLE list, replacing the stored one; empty clears it. A new id must be a card on the board, not this one, not a review card, not an ancestor or descendant (422 `dependencyTarget`), and must close no cycle (422 `dependencyCycle`). A stored id the board no longer holds is dropped. The lock it makes is derived, and the cards waited for are for this card's customers too.
+	DependsOn   *[]string `json:"dependsOn,omitempty"`
+	Description *string   `json:"description,omitempty"`
 
 	// Owner The person who answers for a goal, an initiative or an epic; empty takes them off. On any other card 422 `ownerIsThePlans`.
 	Owner *string `json:"owner,omitempty"`
@@ -674,6 +689,9 @@ type DeferCardBody struct {
 	// Days How many days ahead of today the card is pushed; must be positive.
 	Days *int `json:"days,omitempty"`
 }
+
+// DependentCustomerRef A customer a card is for through the work that waits for it.
+type DependentCustomerRef = apiserver.DependentCustomerRef
 
 // DomainInfo One readable repository of the visitor's board: whether they may write it, and which of the board's members can read it — so a reviewer picker offers only people who will see the card.
 type DomainInfo = apiserver.DomainInfo

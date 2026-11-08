@@ -8,7 +8,7 @@ import { KindIcon } from "./KindIcon";
 /** ParentChain is where an option stands: its ancestors, root first, small
  *  and muted, each with its kind — cut when long, in full in the tooltip. A
  *  root has none to show. */
-function ParentChain({ chain }: { chain: Pick<CardModel, "itemId" | "title" | "type">[] }) {
+export function ParentChain({ chain }: { chain: Pick<CardModel, "itemId" | "title" | "type">[] }) {
   if (chain.length === 0) {
     return null;
   }
@@ -156,7 +156,7 @@ export function ParentPicker({ kind, current, options, self, disabled, onOpen, o
         )}
         {!disabled && <span className="add-card-team-caret">▾</span>}
       </button>
-      <Dropdown open={open} anchorRef={anchor} onClose={() => setOpen(false)} className="add-card-team-menu drawer-pick-menu">
+      <Dropdown open={open} anchorRef={anchor} align="start" onClose={() => setOpen(false)} className="add-card-team-menu drawer-pick-menu">
         {open && <ParentOptionList kind={kind} current={current?.uid} options={options} self={self} onPick={pick} />}
       </Dropdown>
     </span>

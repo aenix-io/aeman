@@ -1,5 +1,10 @@
 package board
 
+import (
+	"sort"
+	"sync"
+)
+
 // Index is a board's cards by id and by parent, built ONCE for a reading
 // that asks the hierarchy's questions of every card — a listing, a watch
 // projection — so each answer costs a lookup and not a walk over the board.
@@ -22,6 +27,27 @@ type Index struct {
 	// the roster no longer holds (a delete that raced an edit, a replayed
 	// write), and such an id is nobody's (EffectiveCustomers).
 	customers map[string]bool
+	// dependents are the cards whose dependsOn names a card, by the
+	// target's id, board order (N4, N5).
+	dependents map[string][]Card
+	// hasDeps is whether any card on the board waits for anything: a board
+	// with none answers every dependency question without a walk.
+	hasDeps bool
+
+	// Answers worked out on first asking and kept for the index's life: a
+	// listing asks them of every card, and a plan item's roll-up walks its
+	// whole subtree. Guarded, since one index may serve several readers.
+	memo sync.Mutex
+	done map[string]bool
+	cust map[string]customersAnswer
+	held map[string][]Blocker
+}
+
+// customersAnswer is one card's effective and dependent customers on the
+// whole board, as EffectiveCustomers and DependentCustomers both ask them.
+type customersAnswer struct {
+	ids  []string
+	from []DependentCustomer
 }
 
 // NewIndex reads the board once.
@@ -34,6 +60,7 @@ func NewIndex(b Board) *Index {
 		planning:   map[string]bool{},
 		reviewedBy: map[string]string{},
 		customers:  make(map[string]bool, len(b.Customers)),
+		dependents: map[string][]Card{},
 	}
 	for _, cu := range b.Customers {
 		ix.customers[cu.ID] = true
@@ -46,6 +73,10 @@ func NewIndex(b Board) *Index {
 		}
 		if IsPlanning(c) {
 			ix.planning[c.ItemID] = true
+		}
+		for _, t := range c.DependsOn {
+			ix.dependents[t] = append(ix.dependents[t], c)
+			ix.hasDeps = true
 		}
 		if c.ReviewOf != "" && len(c.Assignees) > 0 && !Complete(c.Stage, c.Progress) {
 			if _, seen := ix.reviewedBy[c.ReviewOf]; !seen {
@@ -118,27 +149,181 @@ func (ix *Index) EffectiveTeam(c Card) string {
 // EffectiveCustomers is the customers a card is for (O4): every ancestor's
 // and its own, the ancestors' first, each once — a lower card adds to them
 // and never overwrites them. A review card is for its task's (O6). An id the board's roster does not hold is left
-// out: it names nobody (O5).
+// out: it names nobody (O5). Then the customers of the work that waits for
+// it or for an ancestor, transitively (N5).
 func (ix *Index) EffectiveCustomers(c Card) []string {
-	var out []string
-	seen := map[string]bool{}
-	add := func(ids []string) {
-		for _, id := range ids {
-			if id != "" && !seen[id] && ix.customers[id] {
-				seen[id] = true
-				out = append(out, id)
+	return ix.customersOf(c).ids
+}
+
+// customersOf is one card's whole-board customer answer, worked out once.
+func (ix *Index) customersOf(c Card) customersAnswer {
+	ix.memo.Lock()
+	a, ok := ix.cust[c.ItemID]
+	ix.memo.Unlock()
+	if ok {
+		return a
+	}
+	a, whole := ix.wholeCustomers(c, map[string]bool{})
+	if !whole {
+		// A cycle a direct writer left (the server refuses one, N2): the
+		// memoizing walk gave up at the first card met again, and the
+		// linear walk — each card visited once — answers instead.
+		ids, from := ix.effectiveCustomers(c, map[string]bool{c.ItemID: true}, nil)
+		a = customersAnswer{ids: ids, from: from}
+		ix.keepCustomers(c.ItemID, a)
+	}
+	return a
+}
+
+// wholeCustomers is customersOf's walk on the whole board, each card's
+// answer kept as it is found: the cards that wait for a card hand it their
+// own whole answers, so a dense board works each one out once, not once per
+// card below or above it. onPath is the cards being worked out further up
+// the walk — a cycle a direct writer left. Meeting one there ends the walk
+// at once (whole is false) and nothing on the way is kept: going on would
+// try every order of the cycle, factorial in its size. customersOf answers
+// such a card by the linear walk instead.
+func (ix *Index) wholeCustomers(c Card, onPath map[string]bool) (customersAnswer, bool) {
+	ix.memo.Lock()
+	a, ok := ix.cust[c.ItemID]
+	ix.memo.Unlock()
+	if ok {
+		return a, true
+	}
+	// A review card is for its task's customers first (O6), the task's
+	// whole answer — what waits for the task included.
+	var first []string
+	if c.ReviewOf != "" {
+		if task, ok := ix.Find(c.ReviewOf); ok && task.ReviewOf == "" && !onPath[task.ItemID] {
+			onPath[c.ItemID] = true
+			ta, tWhole := ix.wholeCustomers(task, onPath)
+			delete(onPath, c.ItemID)
+			first = ta.ids
+			if !tWhole {
+				line := ix.lineCustomers(c, first)
+				return customersAnswer{ids: line}, false
 			}
 		}
 	}
-	if c.ReviewOf != "" {
-		if task, ok := ix.Find(c.ReviewOf); ok && task.ReviewOf == "" {
-			add(ix.EffectiveCustomers(task))
+	line := ix.lineCustomers(c, first)
+	if !ix.hasDeps {
+		a = customersAnswer{ids: line}
+		ix.keepCustomers(c.ItemID, a)
+		return a, true
+	}
+	onPath[c.ItemID] = true
+	defer delete(onPath, c.ItemID)
+	whole := true
+	ids := line
+	var from []DependentCustomer
+	has := func(id string) bool {
+		for _, x := range ids {
+			if x == id {
+				return true
+			}
+		}
+		return false
+	}
+	ix.eachHolder(c, func(h Card) {
+		for _, d := range ix.dependents[h.ItemID] {
+			if !whole {
+				return
+			}
+			if onPath[d.ItemID] {
+				whole = false
+				return
+			}
+			da, dWhole := ix.wholeCustomers(d, onPath)
+			if !dWhole {
+				whole = false
+				return
+			}
+			for _, id := range da.ids {
+				if !has(id) {
+					ids = append(ids, id)
+					from = append(from, DependentCustomer{Customer: id, From: d})
+				}
+			}
+		}
+	})
+	a = customersAnswer{ids: ids, from: from}
+	if whole {
+		ix.keepCustomers(c.ItemID, a)
+	}
+	return a, whole
+}
+
+func (ix *Index) keepCustomers(id string, a customersAnswer) {
+	ix.memo.Lock()
+	if ix.cust == nil {
+		ix.cust = map[string]customersAnswer{}
+	}
+	ix.cust[id] = a
+	ix.memo.Unlock()
+}
+
+// lineCustomers is a card's customers by its own line (O4): every
+// ancestor's and its own, ancestors first, each once, on the roster only,
+// after the ones given (a review card's task's, O6) — walked in place,
+// without a copy of a card.
+func (ix *Index) lineCustomers(c Card, first []string) []string {
+	out := append([]string(nil), first...)
+	add := func(list []string) {
+	next:
+		for _, id := range list {
+			if id == "" || !ix.customers[id] {
+				continue
+			}
+			for _, x := range out {
+				if x == id {
+					continue next
+				}
+			}
+			out = append(out, id)
 		}
 	}
-	for _, a := range ix.Lineage(c) {
-		add(a.Customers)
+	for _, i := range ix.lineIdx(c) {
+		add(ix.cards[i].Customers)
 	}
 	add(c.Customers)
+	return out
+}
+
+// eachHolder calls fn with every ancestor of c, top first, then c itself:
+// the cards whose waiters hand c their customers (N5).
+func (ix *Index) eachHolder(c Card, fn func(Card)) {
+	for _, i := range ix.lineIdx(c) {
+		fn(ix.cards[i])
+	}
+	fn(c)
+}
+
+// lineIdx is Lineage as places in the board's order, root first — the same
+// walk, bounded the same way, without a copy of a card.
+func (ix *Index) lineIdx(c Card) []int {
+	var chain [8]int
+	n := 0
+	for cur := c; cur.Parent != "" && n < 6; {
+		i, ok := ix.pos[cur.Parent]
+		if !ok || ix.cards[i].ItemID == c.ItemID {
+			break
+		}
+		for _, j := range chain[:n] {
+			if j == i {
+				ok = false
+			}
+		}
+		if !ok {
+			break
+		}
+		chain[n] = i
+		n++
+		cur = ix.cards[i]
+	}
+	out := make([]int, n)
+	for k := range n {
+		out[k] = chain[n-1-k]
+	}
 	return out
 }
 
@@ -180,25 +365,28 @@ func (ix *Index) LeafTasks(id string) []Card {
 	if !ok || !IsPlanning(root) {
 		return nil
 	}
+	// Down the planning cards only, collecting the tasks hung on each: the
+	// subtree, not the board, so a roll-up costs what is under it.
 	subtree := map[string]bool{id: true}
+	var out []Card
 	for frontier := []string{id}; len(frontier) > 0; {
 		var next []string
 		for _, pid := range frontier {
 			for _, c := range ix.ChildrenOf(pid) {
-				if IsPlanning(c) && !subtree[c.ItemID] {
-					subtree[c.ItemID] = true
-					next = append(next, c.ItemID)
+				switch {
+				case IsPlanning(c):
+					if !subtree[c.ItemID] {
+						subtree[c.ItemID] = true
+						next = append(next, c.ItemID)
+					}
+				case c.ReviewOf == "":
+					out = append(out, c)
 				}
 			}
 		}
 		frontier = next
 	}
-	var out []Card
-	for _, c := range ix.cards {
-		if !IsPlanning(c) && c.ReviewOf == "" && subtree[c.Parent] {
-			out = append(out, c)
-		}
-	}
+	sort.SliceStable(out, func(i, j int) bool { return ix.pos[out[i].ItemID] < ix.pos[out[j].ItemID] })
 	return out
 }
 

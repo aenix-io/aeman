@@ -258,6 +258,9 @@ function patchBody(patch: CardPatch): components["schemas"]["CardPatch"] {
   if (patch.customers !== undefined) {
     body.customers = patch.customers;
   }
+  if (patch.dependsOn !== undefined) {
+    body.dependsOn = patch.dependsOn;
+  }
   if (patch.zone !== undefined) {
     body.zone = semanticZone(patch.zone);
   }

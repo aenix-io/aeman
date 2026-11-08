@@ -8,6 +8,7 @@ import { keepPlaced, type PlaceFields } from "./backlog";
 import { addDays, mondayOf } from "./date";
 import { isComplete } from "./stages";
 import { workStatus } from "./workstatus";
+import { lockTitle } from "./dependencies";
 import { isPlanning, isSubtask } from "./subtasks";
 import type { Card, CardPatch, CardType, HierarchyStatus, LineageRef, Priority } from "./providers/types";
 
@@ -346,10 +347,14 @@ export type RoadmapStatus = "no-items" | "backlog" | "in-progress" | "done" | "r
  *  parked card the filter counts as backlog; everywhere else the two agree.
  *  The drawer and the Roadmap column read the same answer. */
 export function statusOf(
-  c: Pick<Card, "type" | "hierarchy" | "stage" | "progress"> & Partial<Pick<Card, "parked" | "startDate" | "day" | "sprintStart">>,
+  c: Pick<Card, "type" | "hierarchy" | "stage" | "progress"> &
+    Partial<Pick<Card, "parked" | "startDate" | "day" | "sprintStart" | "locked">>,
 ): RoadmapStatus {
   if (isPlanning(c)) {
-    return c.hierarchy?.status ?? "no-items";
+    const rolled = c.hierarchy?.status ?? "no-items";
+    // A plan item waiting for work not done yet (status.locked, derived)
+    // reads LOCKED until its own work is done.
+    return c.locked && rolled !== "done" ? "locked" : rolled;
   }
   const placed = workStatus(c);
   if (placed === "done") {
@@ -363,6 +368,12 @@ export function statusOf(
   }
   if (c.stage === "refuse") {
     return "refused";
+  }
+  // Waiting for a dependency not done yet (status.locked, derived —
+  // docs/design/dependencies.md): LOCKED, whatever its placement. The Status
+  // filter keeps reading placement.
+  if (c.locked) {
+    return "locked";
   }
   return placed;
 }
@@ -1237,16 +1248,21 @@ export function priorityAfter(cards: readonly Card[], id: string, priority: Prio
 }
 
 /** Badge is one row's badge: its effective priority — with where it comes
- *  from when inherited — and its work status. */
+ *  from when inherited — and its work status; `lock` is what a card LOCKED
+ *  by its dependencies waits for, the status part's tooltip. */
 export interface Badge {
   priority?: { value: Priority; from?: LineageRef };
   status: RoadmapStatus;
+  lock?: string;
 }
 
 export function badgeOf(c: Card): Badge {
+  const status = statusOf(c);
+  const lock = status === "locked" ? lockTitle(c, new Map((c.lineage ?? []).map((l) => [l.uid, l.title]))) : null;
   return {
     priority: c.effectivePriority ? { value: c.effectivePriority, from: c.effectivePriorityFrom } : undefined,
-    status: statusOf(c),
+    status,
+    ...(lock ? { lock } : {}),
   };
 }
 
