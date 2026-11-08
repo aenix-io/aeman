@@ -90,21 +90,6 @@ func backlogIDs(b board.Board, schema3 bool) string {
 	return strings.Join(ids, " ")
 }
 
-// schema3Sorted is the order schema 3 read cards in: raw (rank, id).
-func schema3Sorted(cards []board.Card) []board.Card {
-	out := append([]board.Card(nil), cards...)
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0; j-- {
-			a, b := out[j-1], out[j]
-			if a.Rank < b.Rank || a.Rank == b.Rank && a.ItemID < b.ItemID {
-				break
-			}
-			out[j-1], out[j] = b, a
-		}
-	}
-	return out
-}
-
 // Q14 — SCHEMA 4 KEEPS EVERY ORDER, ONE COMMIT PER REPOSITORY, ONCE. The
 // merged backlog reads as schema 3 read it (a mix of two repositories); a
 // dry run writes nothing; the bump is one commit in each repository, marker
@@ -168,7 +153,7 @@ func TestMigrateOrderingResumesToTheSameKeys(t *testing.T) {
 			primary = append(primary, ch)
 		}
 	}
-	if err := commitSchema4(torn[0], primary); err != nil {
+	if err := commitSchema4(torn[0], primary, runOf(torn)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := MigrateOrdering(torn, false); err != nil {
@@ -293,4 +278,56 @@ func teamBacklog(ix *board.Index, cards []board.Card, team string, order func(*b
 		ids = append(ids, c.ItemID)
 	}
 	return strings.Join(ids, " ")
+}
+
+// Q14 — A REPOSITORY THAT JOINS A BOARD ALREADY AT SCHEMA 4 is no resume of
+// that board's migration: its cards are not re-planned by the old tree
+// rules. Its parked tasks take their default place in the board as it
+// stands (Q3 — after their epic's last parked task in the team's queue),
+// their own order kept, and the board's own repository is not written.
+func TestARepositoryJoiningASchema4BoardGetsTheQueueRules(t *testing.T) {
+	card := func(files map[string]string, id, body string) {
+		p, err := CardPath(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[p] = "---\n" + body + "created: 2026-08-20T09:00:00Z\n---\n"
+	}
+	primary := map[string]string{
+		BoardPath:              "schema: 3\ntitle: b\n",
+		TeamPath("01T_PORTAL"): "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
+	}
+	card(primary, "01EA000000000000000000000A", "title: A\ntype: epic\nrank: a\n")
+	card(primary, "01EB000000000000000000000A", "title: B\ntype: epic\nrank: b\n")
+	card(primary, "01A1000000000000000000000A", "title: A1\nteam: portal\nparked: true\nparent: 01EA000000000000000000000A\nrank: c\n")
+	card(primary, "01B1000000000000000000000A", "title: B1\nteam: portal\nparked: true\nparent: 01EB000000000000000000000A\nrank: d\n")
+	ds := []Domain{{Name: "shared", Repo: repoWith(t, primary)}}
+	if _, err := MigrateOrdering(ds, false); err != nil {
+		t.Fatal(err)
+	}
+	joining := map[string]string{BoardPath: "schema: 3\ntitle: c\n"}
+	card(joining, "01B2000000000000000000000A", "title: B2\nteam: portal\nparked: true\nparent: 01EB000000000000000000000A\nrank: 1\n")
+	card(joining, "01A2000000000000000000000A", "title: A2\nteam: portal\nparked: true\nparent: 01EA000000000000000000000A\nrank: 2\n")
+	ds = append(ds, Domain{Name: "joined", Repo: repoWith(t, joining)})
+	head := ds[0].Repo.Head()
+	if _, err := MigrateOrdering(ds, false); err != nil {
+		t.Fatal(err)
+	}
+	if ds[0].Repo.Head() != head {
+		t.Fatal("the join wrote the board's own repository")
+	}
+	if s, _ := Load(ds[1].Repo); s.Board.Schema != 4 {
+		t.Fatalf("the joining repository is at schema %d", s.Board.Schema)
+	}
+	b := mergedBoard(t, ds)
+	var titles []string
+	for _, c := range board.NewIndex(b).Queue("portal") {
+		titles = append(titles, c.Title)
+	}
+	if got := strings.Join(titles, " "); got != "A1 A2 B1 B2" {
+		t.Fatalf("portal's queue after the join = %s", got)
+	}
+	if again, err := MigrateOrdering(ds, false); err != nil || again.Migrated {
+		t.Fatalf("a second run = %+v, %v", again, err)
+	}
 }

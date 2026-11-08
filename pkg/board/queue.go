@@ -686,3 +686,50 @@ func Normalize(b Board) ([]RankChange, error) {
 	}
 	return plan, nil
 }
+
+// PlaceInOrder places the given open parked tasks one by one, in the order
+// given, by Place on the board the previous ones left — the cards of a
+// repository that joins a board already at schema 4 (their keys meant the
+// old tree order). Cards in no queue are left alone.
+func PlaceInOrder(b Board, ids []string) ([]RankChange, error) {
+	// Their old keys mean nothing now: no neighbour may be read off them.
+	moving := map[string]bool{}
+	for _, id := range ids {
+		moving[id] = true
+	}
+	cur := b
+	cur.Cards = make([]Card, len(b.Cards))
+	copy(cur.Cards, b.Cards)
+	for i := range cur.Cards {
+		if moving[cur.Cards[i].ItemID] {
+			cur.Cards[i].Rank = ""
+		}
+	}
+	SortCards(cur.Cards)
+	var plan []RankChange
+	before := map[string]string{}
+	for _, c := range b.Cards {
+		if moving[c.ItemID] {
+			before[c.ItemID] = c.Rank
+		}
+	}
+	for _, id := range ids {
+		ix := NewIndex(cur)
+		c, ok := ix.Find(id)
+		if !ok || !ix.InQueue(c) {
+			continue
+		}
+		changes, err := SpotChanges(cur, id, ix.PlaceSpot(c, ix.PlacedTeam(c)))
+		if err != nil {
+			return nil, err
+		}
+		plan = merge(plan, changes)
+		cur = applyChanges(cur, changes)
+	}
+	for i := range plan {
+		if b, ok := before[plan[i].ID]; ok {
+			plan[i].Before = b
+		}
+	}
+	return plan, nil
+}

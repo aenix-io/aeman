@@ -3,6 +3,7 @@ package gitstore
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -126,6 +127,14 @@ func MigrateOrdering(domains []Domain, dryRun bool) (OrderingReport, error) {
 		return report, nil
 	}
 	report.Migrated = true
+	// A repository at 3 next to ones already at 4 is either the rest of an
+	// interrupted run — listed in that run's commits — or a repository that
+	// JOINED a board migrated long ago. The joiners are placed by the queue
+	// rules on the board as it stands; only a resume replans the old trees.
+	if joined := joiners(domains, todo); len(joined) > 0 {
+		return joinOrdering(domains, joined, dryRun, report)
+	}
+	run := runOf(domains)
 	var parts []Snapshot
 	for i, d := range domains {
 		if pre[i].IsZero() {
@@ -165,7 +174,7 @@ func MigrateOrdering(domains []Domain, dryRun bool) (OrderingReport, error) {
 		if dryRun {
 			continue
 		}
-		if err := commitSchema4(d, byDomain[d.Name]); err != nil {
+		if err := commitSchema4(d, byDomain[d.Name], run); err != nil {
 			return report, fmt.Errorf("%s: %w", d.Name, err)
 		}
 	}
@@ -174,7 +183,7 @@ func MigrateOrdering(domains []Domain, dryRun bool) (OrderingReport, error) {
 
 // commitSchema4 writes one repository's half: the marker and the rank line
 // of every card the plan re-keys there, in one commit.
-func commitSchema4(d Domain, changes []board.RankChange) error {
+func commitSchema4(d Domain, changes []board.RankChange, run string) error {
 	data, err := d.Repo.ReadFile(BoardPath)
 	var f BoardFile
 	switch {
@@ -214,8 +223,122 @@ func commitSchema4(d Domain, changes []board.RankChange) error {
 		writes = append(writes, FileWrite{Path: p, Data: out})
 		ids = append(ids, ch.ID)
 	}
-	_, err = d.Repo.Commit(Action{Name: "schema", Summary: schema4Summary, At: time.Now(), Cards: ids}, writes)
+	_, err = d.Repo.Commit(Action{Name: "schema", Summary: schema4Summary, At: time.Now(), Cards: ids,
+		Trailers: map[string]string{runTrailer: run}}, writes)
 	return err
+}
+
+// runTrailer names, on every schema-4 commit, the repositories the run that
+// made it migrated: a repository at 3 a run names is that run, interrupted;
+// one no run names joined the board later.
+const runTrailer = "Aeman-Ordering-Run"
+
+// runOf is a run's trailer value: the repositories it migrates.
+func runOf(domains []Domain) string {
+	names := make([]string, 0, len(domains))
+	for _, d := range domains {
+		names = append(names, d.Name)
+	}
+	return strings.Join(names, " ")
+}
+
+// joiners is the repositories at 3 that no schema-4 commit of the board's
+// other repositories names: they joined a board already migrated. A board
+// with no repository at 4 has none.
+func joiners(domains []Domain, todo []bool) []int {
+	named := map[string]bool{}
+	migrated := false
+	for i, d := range domains {
+		if todo[i] || d.Repo.Head().IsZero() {
+			continue
+		}
+		migrated = true
+		_ = d.Repo.Walk(d.Repo.Head(), func(c *object.Commit) (bool, error) {
+			if !strings.HasPrefix(c.Message, schema4Summary) {
+				return true, nil
+			}
+			run, ok := ParseTrailers(c.Message).Extra[runTrailer]
+			if !ok {
+				// A bump that named no run: an older build's. Read as
+				// naming everybody — the resume it always was.
+				for _, x := range domains {
+					named[x.Name] = true
+				}
+			}
+			for _, n := range strings.Fields(run) {
+				named[n] = true
+			}
+			return false, nil
+		})
+	}
+	if !migrated {
+		return nil
+	}
+	var out []int
+	for i, d := range domains {
+		if todo[i] && !named[d.Name] {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// joinOrdering brings joining repositories to schema 4: the board as it
+// stands now, their parked tasks placed by the queue rules (Place) in their
+// own old order, every other key left alone.
+func joinOrdering(domains []Domain, joined []int, dryRun bool, report OrderingReport) (OrderingReport, error) {
+	s, err := LoadAll(domains)
+	if err != nil {
+		return report, err
+	}
+	b := boardFromSnapshotIn(domains[0].Name, s)
+	isJoined := map[string]bool{}
+	for _, i := range joined {
+		isJoined[domains[i].Name] = true
+	}
+	var ids []string
+	for _, c := range schema3Sorted(b.Cards) {
+		if isJoined[c.Domain] {
+			ids = append(ids, c.ItemID)
+		}
+	}
+	changes, err := board.PlaceInOrder(b, ids)
+	if err != nil {
+		return report, err
+	}
+	report.Titles = map[string]string{}
+	domainOf := map[string]string{}
+	for _, c := range b.Cards {
+		domainOf[c.ItemID] = c.Domain
+		report.Titles[c.ItemID] = c.Title
+	}
+	byDomain := map[string][]board.RankChange{}
+	for _, ch := range changes {
+		byDomain[domainOf[ch.ID]] = append(byDomain[domainOf[ch.ID]], ch)
+	}
+	for _, i := range joined {
+		d := domains[i]
+		report.Files[d.Name] = len(byDomain[d.Name])
+		if dryRun {
+			continue
+		}
+		if err := commitSchema4(d, byDomain[d.Name], d.Name); err != nil {
+			return report, fmt.Errorf("%s: %w", d.Name, err)
+		}
+	}
+	return report, nil
+}
+
+// schema3Sorted is cards in the order schema 3 read them: raw (rank, id).
+func schema3Sorted(cards []board.Card) []board.Card {
+	out := append([]board.Card(nil), cards...)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Rank != out[j].Rank {
+			return out[i].Rank < out[j].Rank
+		}
+		return out[i].ItemID < out[j].ItemID
+	})
+	return out
 }
 
 // schemaAt is the board file's schema at a commit; a repository with no
