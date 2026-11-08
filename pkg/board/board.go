@@ -209,6 +209,11 @@ type SprintState struct {
 // cards (sprint-state cards excluded) and the per-team sprint pointers. It
 // mirrors the Board interface in web/src/providers/types.ts.
 type Board struct {
+	// Pinned are cards an ordering plan must not re-key: the ones the
+	// visitor it is planned for may not write. A rebalance window stops at
+	// them and an epic's gather leaves them where they stand
+	// (docs/design/ordering.md). Never serialised.
+	Pinned map[string]bool `json:"-"`
 	// Board names the board this snapshot came from — the name of its primary
 	// repository — so a backend can apply mutations against it. Empty on
 	// hand-built snapshots that never get persisted.

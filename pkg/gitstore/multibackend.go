@@ -616,7 +616,7 @@ func (mb *MultiBackend) MoveCard(ctx context.Context, bd board.Board, card board
 	if err != nil {
 		return err
 	}
-	changes, err := board.PlaceAfter(board.RankedOf(fresh.Cards), card.ItemID, afterID)
+	changes, err := board.PlaceAfter(board.RankedOfBoard(fresh), card.ItemID, afterID)
 	if err != nil {
 		return err
 	}

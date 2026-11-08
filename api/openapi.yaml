@@ -1401,6 +1401,7 @@ components:
             - noHistory
             - noPlaceOfItsOwn
             - noReviewer
+            - noRoom
             - noSuchView
             - notATarget
             - notAuthenticated

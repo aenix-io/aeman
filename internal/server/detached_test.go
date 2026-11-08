@@ -34,6 +34,7 @@ func fullBoard() board.Board {
 		Customers:      []board.Customer{{ID: "cu1", Name: "Hidora"}},
 		BlockerTotals:  map[string]int{"c1": 1},
 		UndoneTargets:  map[string]bool{"c2": true},
+		Pinned:         map[string]bool{"c1": true},
 	}
 }
 

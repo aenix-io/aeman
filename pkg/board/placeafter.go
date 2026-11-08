@@ -2,6 +2,7 @@ package board
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 )
 
@@ -9,6 +10,9 @@ import (
 type Ranked struct {
 	ID   string
 	Rank string
+	// Fixed is an entry a rebalance window must not re-key (Board.Pinned):
+	// the window stops at it, and it bounds the run instead.
+	Fixed bool
 }
 
 // RankChange is one key an ordering action rewrites: the card, the key it
@@ -43,8 +47,21 @@ func RankedOf(cards []Card) []Ranked {
 	return out
 }
 
-// errNoRoom is a window that could not be renumbered even as the whole list.
-var errNoRoom = errors.New("rank: no room to place the card")
+// RankedOfBoard is RankedOf with the board's pinned cards marked Fixed.
+func RankedOfBoard(b Board) []Ranked {
+	out := RankedOf(b.Cards)
+	if len(b.Pinned) > 0 {
+		for i := range out {
+			out[i].Fixed = b.Pinned[out[i].ID]
+		}
+	}
+	return out
+}
+
+// ErrNoRoom is a place with no key to give: the gap is exhausted and no
+// window around it can be renumbered — the whole list, or as far as the
+// cards the mover may not write let it reach.
+var ErrNoRoom = errors.New("rank: no room to place the card")
 
 // PlaceAfter is the keys that put id right after afterID in list ("" = the
 // top; an anchor the list does not hold = the end). With room between the
@@ -128,16 +145,32 @@ func placeAt(rest []Ranked, movers []Ranked, at int) ([]RankChange, error) {
 			return changesFor(movers, keys), nil
 		}
 	}
-	// The window: w entries on each side of the place, the movers between.
+	// The window: w entries on each side of the place, the movers between —
+	// never past an entry that is Fixed (one the mover may not write): that
+	// one bounds the run instead, and a gap with no room short of it is
+	// refused rather than reaching into somebody else's repository.
+	minLo, maxHi := 0, len(rest)
+	for i := at - 1; i >= 0; i-- {
+		if rest[i].Fixed {
+			minLo = i + 1
+			break
+		}
+	}
+	for i := at; i < len(rest); i++ {
+		if rest[i].Fixed {
+			maxHi = i
+			break
+		}
+	}
 	for w := 1; ; w *= 2 {
 		lo, hi := at-w, at+w
-		if lo < 0 {
-			lo = 0
+		if lo < minLo {
+			lo = minLo
 		}
-		if hi > len(rest) {
-			hi = len(rest)
+		if hi > maxHi {
+			hi = maxHi
 		}
-		whole := lo == 0 && hi == len(rest)
+		whole := lo == minLo && hi == maxHi
 		floor, ceil := "", ""
 		if lo > 0 {
 			floor = rest[lo-1].Rank
@@ -151,21 +184,32 @@ func placeAt(rest []Ranked, movers []Ranked, at int) ([]RankChange, error) {
 		run = append(run, rest[at:hi]...)
 		if lo > 0 && !ValidRank(floor) || hi < len(rest) && !ValidRank(ceil) || ceil != "" && floor >= ceil {
 			if whole {
-				return nil, errNoRoom
+				return nil, ErrNoRoom
 			}
 			continue // the bounds themselves are tied or blank: widen
 		}
 		keys, err := RankRebalance(floor, ceil, len(run))
-		if err == nil && (whole || shortEnough(keys)) {
+		if err == nil && (whole && !RankTooLong(longest(keys)) || shortEnough(keys)) {
 			return changesFor(run, keys), nil
 		}
 		if whole {
-			if err == nil {
-				err = errNoRoom
+			if err != nil {
+				return nil, fmt.Errorf("%w: %w", ErrNoRoom, err)
 			}
-			return nil, err
+			return nil, ErrNoRoom
 		}
 	}
+}
+
+// longest is the longest of some keys.
+func longest(keys []string) string {
+	out := ""
+	for _, k := range keys {
+		if len(k) > len(out) {
+			out = k
+		}
+	}
+	return out
 }
 
 // inPlace reports a run whose keys already stand, in order, strictly

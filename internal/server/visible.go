@@ -250,6 +250,27 @@ func (v *visibleBackend) Reorder(ctx context.Context, bd board.Board, plan board
 		return v.Backend.Reorder(ctx, bd, plan)
 	}
 	return v.Backend.Reorder(ctx, bd, func(whole board.Board) ([]board.RankChange, error) {
+		// Under the store's lock: the domain is read off the board in hand,
+		// never by a load (which would wait on that lock).
+		domainOf := func(c board.Card) string {
+			if c.Domain != "" {
+				return c.Domain
+			}
+			if d := board.DomainOf(c, board.Resolver(whole, v.primary)); d != "" {
+				return d
+			}
+			return v.primary
+		}
+		// The cards the visitor may not write are pinned: a rebalance window
+		// stops at them and a gather leaves them where they stand, so an
+		// ordinary move is not refused for a neighbour in another repository.
+		pinned := map[string]bool{}
+		for _, c := range whole.Cards {
+			if !r.canWrite(domainOf(c)) {
+				pinned[c.ItemID] = true
+			}
+		}
+		whole.Pinned = pinned
 		changes, err := plan(whole)
 		if err != nil {
 			return nil, err
@@ -259,15 +280,7 @@ func (v *visibleBackend) Reorder(ctx context.Context, bd board.Board, plan board
 			if !ok {
 				continue
 			}
-			// Under the store's lock: the domain is read off the board in
-			// hand, never by a load (which would wait on that lock).
-			d := c.Domain
-			if d == "" {
-				if d = board.DomainOf(c, board.Resolver(whole, v.primary)); d == "" {
-					d = v.primary
-				}
-			}
-			if !r.canWrite(d) {
+			if !r.canWrite(domainOf(c)) {
 				return nil, boardservice.ErrForbidden
 			}
 		}

@@ -686,6 +686,7 @@ func detached(b board.Board) board.Board {
 	b.DroppedParents = maps.Clone(b.DroppedParents)
 	b.BlockerTotals = maps.Clone(b.BlockerTotals)
 	b.UndoneTargets = maps.Clone(b.UndoneTargets)
+	b.Pinned = maps.Clone(b.Pinned)
 	b.Customers = slices.Clone(b.Customers)
 	return b
 }
@@ -2145,7 +2146,7 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 		// cache and written as computed (ordering.md): the cache's keys stay
 		// the keys the repositories will hold, so the next plan reads them.
 		_, err := b.Reorder(ctx, bd, func(cur board.Board) ([]board.RankChange, error) {
-			return board.PlaceAfter(board.RankedOf(cur.Cards), card.ItemID, afterID)
+			return board.PlaceAfter(board.RankedOfBoard(cur), card.ItemID, afterID)
 		})
 		return err
 	}

@@ -305,7 +305,7 @@ func keysFor(cards []Card) ([]RankChange, error) {
 				break
 			}
 			if lo == 0 && hi == len(cards) {
-				return nil, errNoRoom
+				return nil, ErrNoRoom
 			}
 			if lo > 0 {
 				lo--

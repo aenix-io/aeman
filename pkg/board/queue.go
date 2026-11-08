@@ -240,7 +240,7 @@ func spotAtGap(q []Card, g int) Spot {
 // SpotChanges is the keys that put card id at a spot in the board's order.
 // The board's cards are its order (rank, then id).
 func SpotChanges(b Board, id string, s Spot) ([]RankChange, error) {
-	list := RankedOf(b.Cards)
+	list := RankedOfBoard(b)
 	return PlaceAfter(list, id, afterFor(list, id, s))
 }
 
@@ -443,7 +443,7 @@ func MoveEpicPlan(b Board, epic, after string) ([]RankChange, error) {
 	if !ok || e.Type != TypeEpic {
 		return nil, fmt.Errorf("move epic: %q is no epic on the board", epic)
 	}
-	plan, err := PlaceAfter(RankedOf(b.Cards), epic, after)
+	plan, err := PlaceAfter(RankedOfBoard(b), epic, after)
 	if err != nil {
 		return nil, err
 	}
@@ -476,7 +476,9 @@ func GatherPlan(b Board, epic string) ([]RankChange, error) {
 		q := ix.Queue(team)
 		var block, rest []Card
 		for _, t := range q {
-			if ix.EpicOf(t) == epic {
+			// A task the mover may not write stays where it stands — an
+			// exception, like any — and the block gathers around it.
+			if ix.EpicOf(t) == epic && !b.Pinned[t.ItemID] {
 				block = append(block, t)
 			} else {
 				rest = append(rest, t)
@@ -526,7 +528,7 @@ func blockChanges(b Board, block []Card, s Spot) ([]RankChange, error) {
 		movers = append(movers, Ranked{ID: c.ItemID, Rank: c.Rank})
 	}
 	var rest []Ranked
-	for _, r := range RankedOf(b.Cards) {
+	for _, r := range RankedOfBoard(b) {
 		if !in[r.ID] && ValidRank(r.Rank) {
 			rest = append(rest, r)
 		}
@@ -598,7 +600,7 @@ func ReorderInEpicPlan(b Board, task, after, before string) ([]RankChange, error
 	slot := map[string]bool{}
 	var keys []string
 	for _, t := range ix.Queue(team) {
-		if ix.EpicOf(t) == epic {
+		if ix.EpicOf(t) == epic && !b.Pinned[t.ItemID] {
 			slot[t.ItemID] = true
 			keys = append(keys, t.Rank)
 		}
@@ -661,7 +663,7 @@ func Normalize(b Board) ([]RankChange, error) {
 	ix := NewIndex(b)
 	var todo []Card
 	for _, c := range ix.cards {
-		if ix.InQueue(c) && !ValidRank(c.Rank) {
+		if ix.InQueue(c) && !ValidRank(c.Rank) && !b.Pinned[c.ItemID] {
 			todo = append(todo, c)
 		}
 	}
