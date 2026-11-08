@@ -22,6 +22,9 @@ type Index struct {
 	// the roster no longer holds (a delete that raced an edit, a replayed
 	// write), and such an id is nobody's (EffectiveCustomers).
 	customers map[string]bool
+	// dependents are the cards whose dependsOn names a card, by the
+	// target's id, board order (N4, N5).
+	dependents map[string][]Card
 }
 
 // NewIndex reads the board once.
@@ -34,6 +37,7 @@ func NewIndex(b Board) *Index {
 		planning:   map[string]bool{},
 		reviewedBy: map[string]string{},
 		customers:  make(map[string]bool, len(b.Customers)),
+		dependents: map[string][]Card{},
 	}
 	for _, cu := range b.Customers {
 		ix.customers[cu.ID] = true
@@ -46,6 +50,9 @@ func NewIndex(b Board) *Index {
 		}
 		if IsPlanning(c) {
 			ix.planning[c.ItemID] = true
+		}
+		for _, t := range c.DependsOn {
+			ix.dependents[t] = append(ix.dependents[t], c)
 		}
 		if c.ReviewOf != "" && len(c.Assignees) > 0 && !Complete(c.Stage, c.Progress) {
 			if _, seen := ix.reviewedBy[c.ReviewOf]; !seen {
@@ -118,27 +125,10 @@ func (ix *Index) EffectiveTeam(c Card) string {
 // EffectiveCustomers is the customers a card is for (O4): every ancestor's
 // and its own, the ancestors' first, each once — a lower card adds to them
 // and never overwrites them. A review card is for its task's (O6). An id the board's roster does not hold is left
-// out: it names nobody (O5).
+// out: it names nobody (O5). Then the customers of the work that waits for
+// it or for an ancestor, transitively (N5).
 func (ix *Index) EffectiveCustomers(c Card) []string {
-	var out []string
-	seen := map[string]bool{}
-	add := func(ids []string) {
-		for _, id := range ids {
-			if id != "" && !seen[id] && ix.customers[id] {
-				seen[id] = true
-				out = append(out, id)
-			}
-		}
-	}
-	if c.ReviewOf != "" {
-		if task, ok := ix.Find(c.ReviewOf); ok && task.ReviewOf == "" {
-			add(ix.EffectiveCustomers(task))
-		}
-	}
-	for _, a := range ix.Lineage(c) {
-		add(a.Customers)
-	}
-	add(c.Customers)
+	out, _ := ix.effectiveCustomers(c, map[string]bool{c.ItemID: true})
 	return out
 }
 

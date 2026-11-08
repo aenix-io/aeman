@@ -27,6 +27,21 @@ func Visible(b Board, primary string, readable func(domain string) bool) Board {
 
 	v := b
 	v.Cards = filterCards(b.Cards, func(c Card) bool { return can(c.Domain) })
+	// What a visitor cannot read still locks what they can (N4): the whole
+	// board's blocker count is recorded for every kept card that has any,
+	// so the resource can count the ones it cannot name.
+	v.BlockerTotals = nil
+	if len(v.Cards) < len(b.Cards) {
+		ix := NewIndex(b)
+		for _, c := range v.Cards {
+			if n := len(ix.Blockers(c)); n > 0 {
+				if v.BlockerTotals == nil {
+					v.BlockerTotals = map[string]int{}
+				}
+				v.BlockerTotals[c.ItemID] = n
+			}
+		}
+	}
 
 	v.TeamOrder = nil
 	v.SprintStates = map[string]SprintState{}

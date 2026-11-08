@@ -75,6 +75,11 @@ type Card struct {
 	// card is for. Any card may name several; the cards
 	// below add to them (O4).
 	Customers []string `json:"customers,omitempty"`
+	// DependsOn are the uids of the cards this one waits for
+	// (docs/design/dependencies.md): it is LOCKED while one of them, or one
+	// an ancestor waits for, is not done — derived, never written — and the
+	// targets are for this card's customers too (N1–N6).
+	DependsOn []string `json:"dependsOn,omitempty"`
 	Zone      ZoneKey  `json:"zone,omitempty"`
 	// Size is what somebody said the card weighs — S, M, L or XL — set on a
 	// daily sync or by a sizing tool; "" is unsized. The points a board sums
@@ -252,6 +257,11 @@ type Board struct {
 	// parent (NewBoardIn), and a tool that must REPORT such links — the
 	// importer's dangling references, M4 — reads them here.
 	DroppedParents map[string]string `json:"-"`
+	// BlockerTotals is how many blockers each card has on the WHOLE board,
+	// recorded by Visible when the projection hides something: the
+	// visitor's resource counts the ones it cannot name (N4). Nil when
+	// nothing was hidden.
+	BlockerTotals map[string]int `json:"-"`
 }
 
 // Customer is one entry of the board's customer roster: who the work is for.
