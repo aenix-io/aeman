@@ -249,14 +249,19 @@ func TestTheCatalogNamesTheBoardsAndTheirGestures(t *testing.T) {
 		got[v.Name] = v.Gestures
 	}
 	want := map[string][]string{
-		"me":      {"remove", "finished-earlier", "own"},
-		"team":    {"remove", "finished-earlier", "own"},
-		"backlog": {"remove", "own", "take"},
-		"roadmap": {"remove", "own"},
-		"all":     {"remove", "finished-earlier", "own", "take"},
+		"me":       {"remove", "finished-earlier", "own"},
+		"team":     {"remove", "finished-earlier", "own"},
+		"backlog":  {"remove", "own", "take"},
+		"strategy": {"remove", "own"},
+		"all":      {"remove", "finished-earlier", "own", "take"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("the catalog lists %v", got)
+	}
+	// The Strategy board's old name is an alias it answers to, not a
+	// board of its own: the catalog lists it once, by its name now.
+	if _, listed := got["roadmap"]; listed {
+		t.Error("the catalog lists the deprecated roadmap beside strategy")
 	}
 	for name, gestures := range want {
 		if strings.Join(got[name], ",") != strings.Join(gestures, ",") {

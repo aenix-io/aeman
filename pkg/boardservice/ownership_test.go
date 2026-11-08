@@ -205,7 +205,7 @@ func TestTheCustomerRosterActions(t *testing.T) {
 // Roadmap's create says them.
 func TestAPlanningCardIsBornWithItsOwnership(t *testing.T) {
 	f := ownershipSeed()
-	c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewRoadmap,
+	c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewStrategy,
 		CreateCardArgs{Title: "Grow", Type: board.TypeGoal, Team: "alpha", Owner: "ann", Customers: []string{"acme"}})
 	if err != nil {
 		t.Fatal(err)

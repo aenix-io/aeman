@@ -479,7 +479,7 @@ func TestTheRoadmapIsAView(t *testing.T) {
 	if !KnownView("roadmap") {
 		t.Fatal("roadmap is a board a person opens")
 	}
-	if ScopedByTeam(ViewRoadmap) {
+	if ScopedByTeam(ViewStrategy) {
 		t.Fatal("the Roadmap is board-wide")
 	}
 }

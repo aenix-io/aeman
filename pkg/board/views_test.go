@@ -14,7 +14,7 @@ func TestTheViewsAreTheBoardsAPersonOpens(t *testing.T) {
 		}
 	}
 	// Every board of the SPA is here, under the name the SPA uses.
-	for _, name := range []string{"me", "team", "backlog", "roadmap", "all"} {
+	for _, name := range []string{"me", "team", "backlog", "strategy", "all"} {
 		if !KnownView(name) {
 			t.Fatalf("%q is a board a person opens and the domain does not know it", name)
 		}
@@ -56,9 +56,33 @@ func TestOnlySomeBoardsAreScopedByTeam(t *testing.T) {
 			t.Errorf("%s lists one team's work and says it does not", v)
 		}
 	}
-	for _, v := range []View{ViewMe, ViewRoadmap, ViewAll} {
+	for _, v := range []View{ViewMe, ViewStrategy, ViewAll} {
 		if ScopedByTeam(v) {
 			t.Errorf("%s lists every team and says it is narrowed by one", v)
+		}
+	}
+}
+
+// THE STRATEGY BOARD WAS THE ROADMAP. Its old address is still a door to it
+// — scripts and the stats pipeline ask by it — but only an alias: it reads
+// as `strategy`, and the boards a client is told about name it once, by its
+// name now.
+func TestTheRoadmapIsAnAliasOfTheStrategyBoard(t *testing.T) {
+	t.Parallel()
+	if !KnownView("roadmap") {
+		t.Fatal("the old roadmap address is refused")
+	}
+	if got := CanonicalView("roadmap"); got != string(ViewStrategy) {
+		t.Fatalf("roadmap reads as %q, want strategy", got)
+	}
+	for _, name := range []string{"strategy", "me", "all", "", "Roadmap"} {
+		if got := CanonicalView(name); got != name {
+			t.Fatalf("CanonicalView(%q) = %q, want it unchanged", name, got)
+		}
+	}
+	for _, v := range Views() {
+		if v == "roadmap" {
+			t.Fatal("Views() lists roadmap beside strategy")
 		}
 	}
 }

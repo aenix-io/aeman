@@ -21,7 +21,7 @@ func viewOf(name string) (board.View, error) {
 	if !board.KnownView(name) {
 		return "", problem(http.StatusNotFound, "noSuchView", "no such board: "+name)
 	}
-	return board.View(name), nil
+	return board.View(board.CanonicalView(name)), nil
 }
 
 // selectorOf is the view's scope: the segment plus the selectors that narrow

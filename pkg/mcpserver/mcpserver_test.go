@@ -1198,3 +1198,26 @@ func TestMCPUpdateCardSetsWhatACardWaitsFor(t *testing.T) {
 		}
 	}
 }
+
+// The Strategy board is view=strategy to an agent, and view=roadmap — its
+// old name, which scripts still send — lists the same cards. The tools speak
+// of the Strategy board, not the Roadmap.
+func TestMCPListCardsStrategyAndItsOldName(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "epic", Title: "Billing", Type: board.TypeEpic},
+		{ItemID: "work", Title: "Receipts", Parent: "epic", Team: "alpha", SprintStart: today, StartDate: today},
+		{ItemID: "loose", Title: "Elsewhere", Team: "alpha", Progress: 100},
+	}, nil)
+	cs := connect(t, Config{Board: "acme"}, fake)
+	strategy := textOf(call(t, cs, "list_cards", map[string]any{"view": "strategy"}))
+	roadmap := textOf(call(t, cs, "list_cards", map[string]any{"view": "roadmap"}))
+	if strategy != roadmap || !listed(strategy, "work") || !listed(strategy, "epic") || listed(strategy, "loose") {
+		t.Fatalf("strategy: %s\nroadmap: %s", strategy, roadmap)
+	}
+	for _, tool := range []string{"list_cards", "create_card", "own_card", "remove_card"} {
+		if d := toolSurface(t, tool); strings.Contains(d, "Roadmap") || strings.Contains(d, "view=roadmap") {
+			t.Errorf("%s still speaks of the Roadmap", tool)
+		}
+	}
+}

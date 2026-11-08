@@ -184,12 +184,12 @@ func TestOwnGivesLooseWorkAHome(t *testing.T) {
 // wherever the card was opened.
 func TestOwnIsOfferedWhereATaskIsDrawn(t *testing.T) {
 	t.Parallel()
-	for _, v := range []board.View{board.ViewRoadmap, board.ViewMe, board.ViewTeam, board.ViewBacklog, board.ViewAll} {
+	for _, v := range []board.View{board.ViewStrategy, board.ViewMe, board.ViewTeam, board.ViewBacklog, board.ViewAll} {
 		if !Offers(v, GestureOwn) {
 			t.Errorf("%s does not offer own", v)
 		}
 	}
-	if got := Gestures(board.ViewRoadmap); len(got) != 2 || got[0] != GestureRemove || got[1] != GestureOwn {
+	if got := Gestures(board.ViewStrategy); len(got) != 2 || got[0] != GestureRemove || got[1] != GestureOwn {
 		t.Fatalf("the Roadmap draws %v, want remove, own", got)
 	}
 }

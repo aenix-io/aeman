@@ -2892,7 +2892,7 @@ func linksArePossible(b board.Board, args CreateCardArgs) error {
 		// the gesture of the parent's own board, not of a board that draws
 		// no subtask of nobody's.
 		if args.Undated && !board.IsPlanning(p) {
-			return fmt.Errorf("%w: a task of the Roadmap sits under a goal, an initiative or an epic; a subtask is made from its parent's own board", ErrNotOnThisBoard)
+			return fmt.Errorf("%w: a task of the Strategy board sits under a goal, an initiative or an epic; a subtask is made from its parent's own board", ErrNotOnThisBoard)
 		}
 		// Nor is a subtask born in a backlog: it rides its parent's sprint
 		// and stands where its parent does, so parked as well it would be in

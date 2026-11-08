@@ -13,7 +13,8 @@ import (
 // exactly what the UI renders (the Team grid, the Me day board, the
 // backlogs); the plain field selectors compose with no view.
 type Selector struct {
-	// View is "", "all", "team", "me", "backlog" or "roadmap". ""
+	// View is "", "all", "team", "me", "backlog" or "strategy" (the
+	// deprecated "roadmap" reads as "strategy"). ""
 	// and "all" both list every card (the HTTP/MCP layer defaults an
 	// unspecified view to the caller's "me").
 	View string
@@ -114,8 +115,10 @@ func ParseSelector(q url.Values) (Selector, error) {
 		v := q.Get("zone")
 		sel.Zone = &v
 	}
+	// The Strategy board's old name reads as it (board.CanonicalView).
+	sel.View = board.CanonicalView(sel.View)
 	switch sel.View {
-	case "", "all", "team", "me", "backlog", "roadmap":
+	case "", "all", "team", "me", "backlog", "strategy":
 	default:
 		return Selector{}, fmt.Errorf("unknown view %q", sel.View)
 	}
@@ -137,12 +140,15 @@ func ParseViewSelector(view string, q url.Values) (Selector, error) {
 	if err != nil {
 		return Selector{}, err
 	}
-	sel.View = view
+	sel.View = board.CanonicalView(view)
 	return sel, nil
 }
 
-// normalized fills the selector's day default against the wall clock.
+// normalized fills the selector's day default against the wall clock, and
+// names the Strategy board as it is named now — a selector an embedder built
+// by hand with the old `roadmap` reads the same.
 func (s Selector) normalized() Selector {
+	s.View = board.CanonicalView(s.View)
 	if (s.View == "team" || s.View == "me") && s.Day == "" {
 		s.Day = board.TodayIso()
 	}
@@ -200,7 +206,7 @@ func roadmapCards(b board.Board, ix *board.Index) []board.Card {
 // server's alone (roadmapNarrowed): a board filtered by them draws what it
 // was sent, and must be sent what its own change put in or took out.
 func (sel Selector) Mirrored() bool {
-	if sel.View != "roadmap" {
+	if board.CanonicalView(sel.View) != string(board.ViewStrategy) {
 		return true
 	}
 	return teamSetOf(sel.Team) == nil && setOf(sel.Customer) == nil && setOf(sel.Owner) == nil &&
@@ -493,7 +499,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		base = board.MeViewIn(b, index(), sel.User, sel.Day)
 	case "backlog":
 		base = backlogCards(b, index(), sel)
-	case "roadmap":
+	case string(board.ViewStrategy):
 		ix := index()
 		base = roadmapNarrowed(b, ix, roadmapCards(b, ix), sel)
 	default:
@@ -504,7 +510,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	// (roadmapNarrowed).
 	var dayCustomers map[string]bool
 	var dayIx *board.Index
-	if sel.View != "roadmap" {
+	if sel.View != string(board.ViewStrategy) {
 		if dayCustomers = setOf(sel.Customer); dayCustomers != nil {
 			dayIx = index()
 		}

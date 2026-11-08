@@ -593,7 +593,7 @@ type CarryReport = boardservice.CarryReport
 
 // CreateCardRequest The card a board makes. Every field is optional here because what a board REQUIRES and what it refuses are the board's own rules, answered as a 422 that names the field.
 type CreateCardRequest struct {
-	// After On the backlog, team and me views, the uid of the card the new one is placed right AFTER, in the same request — the insert "+" between two cards of a backlog or of a Team/Me cell (the cell's person and band are the create's own fields). One of `after` and `before`, or neither (the card lands last); both are 422 `twoPlaces`, an anchor the board does not have is 404 `cardNotFound` and nothing is made. The roadmap view refuses it (422 `notOnThisBoard`); `view=all` takes it.
+	// After On the backlog, team and me views, the uid of the card the new one is placed right AFTER, in the same request — the insert "+" between two cards of a backlog or of a Team/Me cell (the cell's person and band are the create's own fields). One of `after` and `before`, or neither (the card lands last); both are 422 `twoPlaces`, an anchor the board does not have is 404 `cardNotFound` and nothing is made. The strategy view refuses it (422 `notOnThisBoard`); `view=all` takes it.
 	After *string `json:"after,omitempty"`
 
 	// Assignees Only the first is read — a card is one person's.
@@ -609,7 +609,7 @@ type CreateCardRequest struct {
 	// NoSprint Schedules the card for its day without joining any sprint — a "next sprint" create; the next carry-over to reach its day adopts it.
 	NoSprint *bool `json:"noSprint,omitempty"`
 
-	// Owner On the roadmap view, the person who answers for the goal, the initiative or the epic being made; refused on a task (422 `ownerIsThePlans`).
+	// Owner On the strategy view, the person who answers for the goal, the initiative or the epic being made; refused on a task (422 `ownerIsThePlans`).
 	Owner *string `json:"owner,omitempty"`
 
 	// Parent The card this one sits under. A TASK parent groups the card as a subtask. A goal, an initiative or an epic as parent files the card in the hierarchy; the parent must be of a higher level than the card (422 `parentLevel`) and in the card's own repository (422 `crossDomain`). A review card follows the card it reviews and sits under nothing of its own (422 `reviewCardLink`).
@@ -625,12 +625,12 @@ type CreateCardRequest struct {
 	Team           *string `json:"team,omitempty"`
 	Title          *string `json:"title,omitempty"`
 
-	// Type Makes a PLANNING card — on the roadmap view, where it is required; every other board refuses it (422 `notOnThisBoard`). A planning card takes its dates, its owner, a team and a parent, and none of a task's day-board state (422 `planningCard` for a column, a backlog, a review or a sprint).
+	// Type Makes a PLANNING card — on the strategy view, where it is required; every other board refuses it (422 `notOnThisBoard`). A planning card takes its dates, its owner, a team and a parent, and none of a task's day-board state (422 `planningCard` for a column, a backlog, a review or a sprint).
 	Type *CreateCardRequestType `json:"type,omitempty"`
 	Zone *CreateCardRequestZone `json:"zone,omitempty"`
 }
 
-// CreateCardRequestType Makes a PLANNING card — on the roadmap view, where it is required; every other board refuses it (422 `notOnThisBoard`). A planning card takes its dates, its owner, a team and a parent, and none of a task's day-board state (422 `planningCard` for a column, a backlog, a review or a sprint).
+// CreateCardRequestType Makes a PLANNING card — on the strategy view, where it is required; every other board refuses it (422 `notOnThisBoard`). A planning card takes its dates, its owner, a team and a parent, and none of a task's day-board state (422 `planningCard` for a column, a backlog, a review or a sprint).
 type CreateCardRequestType string
 
 // CreateCardRequestZone defines model for CreateCardRequest.Zone.
@@ -886,7 +886,7 @@ type TeamCapacityBody struct {
 
 // UnassignWorkBody defines model for UnassignWorkBody.
 type UnassignWorkBody struct {
-	// DryRun Name what the gesture would take — in `items`, as they stand — and write nothing: what a confirm counts. The reader's Roadmap may be filtered; this answers for the whole board.
+	// DryRun Name what the gesture would take — in `items`, as they stand — and write nothing: what a confirm counts. The reader's Strategy board may be filtered; this answers for the whole board.
 	DryRun *bool `json:"dryRun,omitempty"`
 
 	// Uids Exactly the tasks to take out of work, when given — the ones the confirm counted. Each must be one the gesture reaches from the card (422 `notATarget` otherwise). Absent: every task it reaches.
@@ -908,7 +908,7 @@ type ViewList struct {
 // ViewListKind defines model for ViewList.Kind.
 type ViewListKind string
 
-// WorkChange What a status gesture on the Roadmap changed.
+// WorkChange What a status gesture on the Strategy board changed.
 type WorkChange struct {
 	// Changed How many tasks changed — on a plan item, every task under it the gesture reached; a task already as asked is not counted.
 	Changed int `json:"changed"`
@@ -1006,7 +1006,7 @@ type ListSprintsParams struct {
 
 // ListCardsParams defines parameters for ListCards.
 type ListCardsParams struct {
-	// Team A comma-separated set of team keys; the listings union them. A task is placed by the team it stands under: its own, else the nearest ancestor's (ownership.md, O13). The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
+	// Team A comma-separated set of team keys; the listings union them. A task is placed by the team it stands under: its own, else the nearest ancestor's (ownership.md, O13). The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `strategy`, no team filter (every team's). On the strategy view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1030,13 +1030,13 @@ type ListCardsParams struct {
 	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
 
-	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
+	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the strategy view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
 
-	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
+	// Owner On the strategy view, a comma-separated set of logins — the Strategy board's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
 	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
-	// Status On the roadmap view, a comma-separated set of statuses — `in-progress`, `backlog`, `done`, `locked`, `no-items` — and nothing else (anything else is 400 `invalidSelector`). A task's work status is `done` when it is complete, `backlog` when it is parked, and `in-progress` when it is in work (a date or a sprint, whatever its stage — review, locked and refused are in somebody's hands); a task nobody has placed yet reads as `backlog`. A task also matches `locked` while a dependency holds it (`status.locked`, its own or an ancestor's) and it is not done. A task is listed by its own status, a subtask by its parent task's, a review card by the status of the task it reviews. A goal, an initiative or an epic matches `locked` by itself (`status.locked`, its roll-up not done) and `no-items` by itself (nothing under it, `status.hierarchy.status`), and any other value when a task under it does. Each comes with its ancestors. Several values are OR; with `team`, `customer` and `owner`, AND. `in-progress,backlog,locked,no-items` — every value but `done` — hides exactly the finished work.
+	// Status On the strategy view, a comma-separated set of statuses — `in-progress`, `backlog`, `done`, `locked`, `no-items` — and nothing else (anything else is 400 `invalidSelector`). A task's work status is `done` when it is complete, `backlog` when it is parked, and `in-progress` when it is in work (a date or a sprint, whatever its stage — review, locked and refused are in somebody's hands); a task nobody has placed yet reads as `backlog`. A task also matches `locked` while a dependency holds it (`status.locked`, its own or an ancestor's) and it is not done. A task is listed by its own status, a subtask by its parent task's, a review card by the status of the task it reviews. A goal, an initiative or an epic matches `locked` by itself (`status.locked`, its roll-up not done) and `no-items` by itself (nothing under it, `status.hierarchy.status`), and any other value when a task under it does. Each comes with its ancestors. Several values are OR; with `team`, `customer` and `owner`, AND. `in-progress,backlog,locked,no-items` — every value but `done` — hides exactly the finished work.
 	Status *Status `form:"status,omitempty" json:"status,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
@@ -1048,7 +1048,7 @@ type ListCardsParams struct {
 
 // FinishedEarlierParams defines parameters for FinishedEarlier.
 type FinishedEarlierParams struct {
-	// Team A comma-separated set of team keys; the listings union them. A task is placed by the team it stands under: its own, else the nearest ancestor's (ownership.md, O13). The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
+	// Team A comma-separated set of team keys; the listings union them. A task is placed by the team it stands under: its own, else the nearest ancestor's (ownership.md, O13). The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `strategy`, no team filter (every team's). On the strategy view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1072,13 +1072,13 @@ type FinishedEarlierParams struct {
 	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
 
-	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
+	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the strategy view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
 
-	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
+	// Owner On the strategy view, a comma-separated set of logins — the Strategy board's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
 	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
-	// Status On the roadmap view, a comma-separated set of statuses — `in-progress`, `backlog`, `done`, `locked`, `no-items` — and nothing else (anything else is 400 `invalidSelector`). A task's work status is `done` when it is complete, `backlog` when it is parked, and `in-progress` when it is in work (a date or a sprint, whatever its stage — review, locked and refused are in somebody's hands); a task nobody has placed yet reads as `backlog`. A task also matches `locked` while a dependency holds it (`status.locked`, its own or an ancestor's) and it is not done. A task is listed by its own status, a subtask by its parent task's, a review card by the status of the task it reviews. A goal, an initiative or an epic matches `locked` by itself (`status.locked`, its roll-up not done) and `no-items` by itself (nothing under it, `status.hierarchy.status`), and any other value when a task under it does. Each comes with its ancestors. Several values are OR; with `team`, `customer` and `owner`, AND. `in-progress,backlog,locked,no-items` — every value but `done` — hides exactly the finished work.
+	// Status On the strategy view, a comma-separated set of statuses — `in-progress`, `backlog`, `done`, `locked`, `no-items` — and nothing else (anything else is 400 `invalidSelector`). A task's work status is `done` when it is complete, `backlog` when it is parked, and `in-progress` when it is in work (a date or a sprint, whatever its stage — review, locked and refused are in somebody's hands); a task nobody has placed yet reads as `backlog`. A task also matches `locked` while a dependency holds it (`status.locked`, its own or an ancestor's) and it is not done. A task is listed by its own status, a subtask by its parent task's, a review card by the status of the task it reviews. A goal, an initiative or an epic matches `locked` by itself (`status.locked`, its roll-up not done) and `no-items` by itself (nothing under it, `status.hierarchy.status`), and any other value when a task under it does. Each comes with its ancestors. Several values are OR; with `team`, `customer` and `owner`, AND. `in-progress,backlog,locked,no-items` — every value but `done` — hides exactly the finished work.
 	Status *Status `form:"status,omitempty" json:"status,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
@@ -1090,7 +1090,7 @@ type FinishedEarlierParams struct {
 
 // OwnCardParams defines parameters for OwnCard.
 type OwnCardParams struct {
-	// Team A comma-separated set of team keys; the listings union them. A task is placed by the team it stands under: its own, else the nearest ancestor's (ownership.md, O13). The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
+	// Team A comma-separated set of team keys; the listings union them. A task is placed by the team it stands under: its own, else the nearest ancestor's (ownership.md, O13). The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `strategy`, no team filter (every team's). On the strategy view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1114,13 +1114,13 @@ type OwnCardParams struct {
 	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
 
-	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
+	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the strategy view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
 
-	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
+	// Owner On the strategy view, a comma-separated set of logins — the Strategy board's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
 	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
-	// Status On the roadmap view, a comma-separated set of statuses — `in-progress`, `backlog`, `done`, `locked`, `no-items` — and nothing else (anything else is 400 `invalidSelector`). A task's work status is `done` when it is complete, `backlog` when it is parked, and `in-progress` when it is in work (a date or a sprint, whatever its stage — review, locked and refused are in somebody's hands); a task nobody has placed yet reads as `backlog`. A task also matches `locked` while a dependency holds it (`status.locked`, its own or an ancestor's) and it is not done. A task is listed by its own status, a subtask by its parent task's, a review card by the status of the task it reviews. A goal, an initiative or an epic matches `locked` by itself (`status.locked`, its roll-up not done) and `no-items` by itself (nothing under it, `status.hierarchy.status`), and any other value when a task under it does. Each comes with its ancestors. Several values are OR; with `team`, `customer` and `owner`, AND. `in-progress,backlog,locked,no-items` — every value but `done` — hides exactly the finished work.
+	// Status On the strategy view, a comma-separated set of statuses — `in-progress`, `backlog`, `done`, `locked`, `no-items` — and nothing else (anything else is 400 `invalidSelector`). A task's work status is `done` when it is complete, `backlog` when it is parked, and `in-progress` when it is in work (a date or a sprint, whatever its stage — review, locked and refused are in somebody's hands); a task nobody has placed yet reads as `backlog`. A task also matches `locked` while a dependency holds it (`status.locked`, its own or an ancestor's) and it is not done. A task is listed by its own status, a subtask by its parent task's, a review card by the status of the task it reviews. A goal, an initiative or an epic matches `locked` by itself (`status.locked`, its roll-up not done) and `no-items` by itself (nothing under it, `status.hierarchy.status`), and any other value when a task under it does. Each comes with its ancestors. Several values are OR; with `team`, `customer` and `owner`, AND. `in-progress,backlog,locked,no-items` — every value but `done` — hides exactly the finished work.
 	Status *Status `form:"status,omitempty" json:"status,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
@@ -1132,7 +1132,7 @@ type OwnCardParams struct {
 
 // RemoveCardParams defines parameters for RemoveCard.
 type RemoveCardParams struct {
-	// Team A comma-separated set of team keys; the listings union them. A task is placed by the team it stands under: its own, else the nearest ancestor's (ownership.md, O13). The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
+	// Team A comma-separated set of team keys; the listings union them. A task is placed by the team it stands under: its own, else the nearest ancestor's (ownership.md, O13). The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `strategy`, no team filter (every team's). On the strategy view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1156,13 +1156,13 @@ type RemoveCardParams struct {
 	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
 
-	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
+	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the strategy view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
 
-	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
+	// Owner On the strategy view, a comma-separated set of logins — the Strategy board's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
 	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
-	// Status On the roadmap view, a comma-separated set of statuses — `in-progress`, `backlog`, `done`, `locked`, `no-items` — and nothing else (anything else is 400 `invalidSelector`). A task's work status is `done` when it is complete, `backlog` when it is parked, and `in-progress` when it is in work (a date or a sprint, whatever its stage — review, locked and refused are in somebody's hands); a task nobody has placed yet reads as `backlog`. A task also matches `locked` while a dependency holds it (`status.locked`, its own or an ancestor's) and it is not done. A task is listed by its own status, a subtask by its parent task's, a review card by the status of the task it reviews. A goal, an initiative or an epic matches `locked` by itself (`status.locked`, its roll-up not done) and `no-items` by itself (nothing under it, `status.hierarchy.status`), and any other value when a task under it does. Each comes with its ancestors. Several values are OR; with `team`, `customer` and `owner`, AND. `in-progress,backlog,locked,no-items` — every value but `done` — hides exactly the finished work.
+	// Status On the strategy view, a comma-separated set of statuses — `in-progress`, `backlog`, `done`, `locked`, `no-items` — and nothing else (anything else is 400 `invalidSelector`). A task's work status is `done` when it is complete, `backlog` when it is parked, and `in-progress` when it is in work (a date or a sprint, whatever its stage — review, locked and refused are in somebody's hands); a task nobody has placed yet reads as `backlog`. A task also matches `locked` while a dependency holds it (`status.locked`, its own or an ancestor's) and it is not done. A task is listed by its own status, a subtask by its parent task's, a review card by the status of the task it reviews. A goal, an initiative or an epic matches `locked` by itself (`status.locked`, its roll-up not done) and `no-items` by itself (nothing under it, `status.hierarchy.status`), and any other value when a task under it does. Each comes with its ancestors. Several values are OR; with `team`, `customer` and `owner`, AND. `in-progress,backlog,locked,no-items` — every value but `done` — hides exactly the finished work.
 	Status *Status `form:"status,omitempty" json:"status,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
@@ -1174,7 +1174,7 @@ type RemoveCardParams struct {
 
 // TakeCardParams defines parameters for TakeCard.
 type TakeCardParams struct {
-	// Team A comma-separated set of team keys; the listings union them. A task is placed by the team it stands under: its own, else the nearest ancestor's (ownership.md, O13). The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `roadmap`, no team filter (every team's). On the roadmap view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
+	// Team A comma-separated set of team keys; the listings union them. A task is placed by the team it stands under: its own, else the nearest ancestor's (ownership.md, O13). The no-team group is the empty member — `alpha,` is alpha and the no-team group, `,` the no-team group alone. Left empty it means, per view: on `team`, the no-team group's grid; on `backlog`, `me`, `all` and `strategy`, no team filter (every team's). On the strategy view it narrows by EFFECTIVE team: a task whose own or inherited team is among them (the no-team group: none at all), a planning card that is or has such a task under it, each with its ancestors.
 	Team *Team `form:"team,omitempty" json:"team,omitempty"`
 
 	// Day The day a day board is read for, yyyy-mm-dd. Empty or absent is today.
@@ -1198,13 +1198,13 @@ type TakeCardParams struct {
 	// Reviews "true" or "1" brings review cards into the view: on me and team each card's linked review is APPENDED. Off by default.
 	Reviews *Reviews `form:"reviews,omitempty" json:"reviews,omitempty"`
 
-	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the roadmap view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
+	// Customer A comma-separated set of customer ids, matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the strategy view a task is listed when one of them is among the set, a planning card when it is itself or any task under it is, each with its ancestors; with `team` and `owner`, AND. On the team, backlog, all and me views the cards listed are narrowed the same way, with the team set AND. Several values are OR.
 	Customer *Customer `form:"customer,omitempty" json:"customer,omitempty"`
 
-	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
+	// Owner On the strategy view, a comma-separated set of logins — the Strategy board's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
 	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
-	// Status On the roadmap view, a comma-separated set of statuses — `in-progress`, `backlog`, `done`, `locked`, `no-items` — and nothing else (anything else is 400 `invalidSelector`). A task's work status is `done` when it is complete, `backlog` when it is parked, and `in-progress` when it is in work (a date or a sprint, whatever its stage — review, locked and refused are in somebody's hands); a task nobody has placed yet reads as `backlog`. A task also matches `locked` while a dependency holds it (`status.locked`, its own or an ancestor's) and it is not done. A task is listed by its own status, a subtask by its parent task's, a review card by the status of the task it reviews. A goal, an initiative or an epic matches `locked` by itself (`status.locked`, its roll-up not done) and `no-items` by itself (nothing under it, `status.hierarchy.status`), and any other value when a task under it does. Each comes with its ancestors. Several values are OR; with `team`, `customer` and `owner`, AND. `in-progress,backlog,locked,no-items` — every value but `done` — hides exactly the finished work.
+	// Status On the strategy view, a comma-separated set of statuses — `in-progress`, `backlog`, `done`, `locked`, `no-items` — and nothing else (anything else is 400 `invalidSelector`). A task's work status is `done` when it is complete, `backlog` when it is parked, and `in-progress` when it is in work (a date or a sprint, whatever its stage — review, locked and refused are in somebody's hands); a task nobody has placed yet reads as `backlog`. A task also matches `locked` while a dependency holds it (`status.locked`, its own or an ancestor's) and it is not done. A task is listed by its own status, a subtask by its parent task's, a review card by the status of the task it reviews. A goal, an initiative or an epic matches `locked` by itself (`status.locked`, its roll-up not done) and `no-items` by itself (nothing under it, `status.hierarchy.status`), and any other value when a task under it does. Each comes with its ancestors. Several values are OR; with `team`, `customer` and `owner`, AND. `in-progress,backlog,locked,no-items` — every value but `done` — hides exactly the finished work.
 	Status *Status `form:"status,omitempty" json:"status,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).

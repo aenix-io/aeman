@@ -66,7 +66,7 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 	case board.ViewAll:
 		// No board at all: the caller said so, and gets the raw door.
 		return args, nil
-	case board.ViewRoadmap:
+	case board.ViewStrategy:
 		// A card made on the Roadmap is a PLANNING card — a goal, an
 		// initiative or an epic — and the type is the whole gesture (H7). It
 		// takes its dates and a parent, and none of a task's day-board state,
@@ -77,7 +77,7 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 		// group's backlog (K3), and it stands on the Roadmap under its
 		// parent. A task with no parent is not the Roadmap's.
 		if args.Type == board.TypeTask && args.Parent == "" {
-			return args, fmt.Errorf("%w: a card of the Roadmap is a goal, an initiative or an epic, or a task under one", ErrViewNeedsField)
+			return args, fmt.Errorf("%w: a card of the Strategy board is a goal, an initiative or an epic, or a task under one", ErrViewNeedsField)
 		}
 		if args.Type == board.TypeTask {
 			args.Undated = true
@@ -170,11 +170,11 @@ const (
 // list: a caller that said "all" has no board to be refused by.
 var gestureBoards = map[Gesture][]board.View{
 	GestureRemove: {board.ViewMe, board.ViewTeam, board.ViewBacklog,
-		board.ViewRoadmap, board.ViewAll},
+		board.ViewStrategy, board.ViewAll},
 	GestureFinishedEarlier: {board.ViewMe, board.ViewTeam, board.ViewAll},
 	// The Backlog's owner picker is how a task is taken into work from
 	// there (K4).
-	GestureOwn: {board.ViewRoadmap, board.ViewMe, board.ViewTeam,
+	GestureOwn: {board.ViewStrategy, board.ViewMe, board.ViewTeam,
 		board.ViewBacklog, board.ViewAll},
 	GestureTake: {board.ViewBacklog, board.ViewAll},
 }

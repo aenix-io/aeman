@@ -29,7 +29,7 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 
 	t.Run("the Roadmap makes a planning card: a type, dates, a parent — no owner, no team, no sprint", func(t *testing.T) {
 		f := hierarchySeed(today)
-		c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewRoadmap, CreateCardArgs{
+		c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewStrategy, CreateCardArgs{
 			Title: "Launch", Type: board.TypeInitiative, Parent: "goal",
 			Start: today, Day: board.AddDays(today, 60),
 		})
@@ -57,7 +57,7 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 			"an assignee": {Title: "Launch", Type: board.TypeInitiative, Assignee: "po"},
 		} {
 			svc := f2svc(hierarchySeed(today))
-			if _, err := svc.CreateInView(ctx, "acme", board.ViewRoadmap, args); !errors.Is(err, ErrNotOnThisBoard) {
+			if _, err := svc.CreateInView(ctx, "acme", board.ViewStrategy, args); !errors.Is(err, ErrNotOnThisBoard) {
 				t.Errorf("the Roadmap's add-box with %s = %v, want ErrNotOnThisBoard", what, err)
 			}
 			if _, err := svc.CreateCard(ctx, "acme", args); !errors.Is(err, ErrPlanningCard) {
@@ -68,7 +68,7 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 
 	t.Run("the Roadmap needs a type, or a parent to put a task under", func(t *testing.T) {
 		f := hierarchySeed(today)
-		_, err := f2svc(f).CreateInView(ctx, "acme", board.ViewRoadmap, CreateCardArgs{Title: "x"})
+		_, err := f2svc(f).CreateInView(ctx, "acme", board.ViewStrategy, CreateCardArgs{Title: "x"})
 		if !errors.Is(err, ErrViewNeedsField) {
 			t.Fatalf("err = %v, want ErrViewNeedsField", err)
 		}
@@ -82,7 +82,7 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 	t.Run("a task is born under a planning card from the Roadmap", func(t *testing.T) {
 		f := hierarchySeed(today)
 		svc := f2svc(f)
-		c, err := svc.CreateInView(ctx, "acme", board.ViewRoadmap, CreateCardArgs{Title: "Receipts", Parent: "epic"})
+		c, err := svc.CreateInView(ctx, "acme", board.ViewStrategy, CreateCardArgs{Title: "Receipts", Parent: "epic"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -98,7 +98,7 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 		if st := f.b.SprintStates[""]; st.Current != "" {
 			t.Fatalf("a Roadmap-born task minted a sprint for the no-team group: %+v", st)
 		}
-		dated, err := svc.CreateInView(ctx, "acme", board.ViewRoadmap, CreateCardArgs{Title: "Dated", Parent: "epic", Start: today, Day: board.AddDays(today, 3)})
+		dated, err := svc.CreateInView(ctx, "acme", board.ViewStrategy, CreateCardArgs{Title: "Dated", Parent: "epic", Start: today, Day: board.AddDays(today, 3)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -116,12 +116,12 @@ func TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse(t *testing.T) {
 		} {
 			args := CreateCardArgs{Title: "x", Parent: "epic"}
 			mutate(&args)
-			if _, err := svc.CreateInView(ctx, "acme", board.ViewRoadmap, args); !errors.Is(err, ErrNotOnThisBoard) {
+			if _, err := svc.CreateInView(ctx, "acme", board.ViewStrategy, args); !errors.Is(err, ErrNotOnThisBoard) {
 				t.Errorf("a Roadmap task with %s = %v, want ErrNotOnThisBoard", what, err)
 			}
 		}
 		// Under a TASK it would be a subtask, which is the day boards' gesture.
-		if _, err := svc.CreateInView(ctx, "acme", board.ViewRoadmap, CreateCardArgs{Title: "x", Parent: "loose"}); err == nil {
+		if _, err := svc.CreateInView(ctx, "acme", board.ViewStrategy, CreateCardArgs{Title: "x", Parent: "loose"}); err == nil {
 			t.Error("a task under a task from the Roadmap must not be born as a subtask of nobody's board")
 		}
 	})
@@ -323,7 +323,7 @@ func TestDeletingAPlanningCardReparentsItsChildren(t *testing.T) {
 	today := board.TodayIso()
 	ctx := WithActor(ctx, "kvaps")
 	f := hierarchySeed(today)
-	if err := f2svc(f).Remove(ctx, "acme", "init", board.ViewRoadmap, OffBoard); err != nil {
+	if err := f2svc(f).Remove(ctx, "acme", "init", board.ViewStrategy, OffBoard); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("init") != nil {
@@ -343,7 +343,7 @@ func TestDeletingAPlanningCardReparentsItsChildren(t *testing.T) {
 		t.Fatalf("the epic is a root now, got %q", got)
 	}
 	// Unassign means nothing on a planning card: it has no working area.
-	if err := f2svc(f).Remove(ctx, "acme", "epic", board.ViewRoadmap, Unassign); !errors.Is(err, ErrPlanningCard) {
+	if err := f2svc(f).Remove(ctx, "acme", "epic", board.ViewStrategy, Unassign); !errors.Is(err, ErrPlanningCard) {
 		t.Fatalf("unassign a planning card: %v, want ErrPlanningCard", err)
 	}
 }
