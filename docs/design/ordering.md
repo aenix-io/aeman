@@ -122,6 +122,8 @@ Unranked tasks come from direct writers; an invalid key (empty, a character outs
 
 ## Migration: schema 3 → 4
 
+**Deploying it.** Stop every old replica before the first schema-4 server starts: an older server reads a repository at schema 4 as newer than it knows and refuses to start (G18), but one already RUNNING keeps writing schema-3 ranks into a schema-4 board until it is stopped. Roll out as stop-all, then start the new version; the first one to start migrates, the others find the board at 4.
+
 **Goal.** Every backlog (and any mix of them), every Strategy display range and the flat epic order read EXACTLY as before, with as few keys rewritten as possible.
 
 **The limit.** One key per card cannot always preserve Strategy, the backlog AND the Team cells at once (the cycle in Appendix D). Backlog and Strategy are preserved exactly; the order of tasks in work inside a Team cell changes only where it is forced, and those cells are reported (owner decision 2).
