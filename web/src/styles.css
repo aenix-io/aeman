@@ -638,6 +638,14 @@ select {
   border-left: 1px solid var(--line);
 }
 
+/* A segmented group in a board's own toolbar, sized like the filter
+   buttons beside it (.btn.filter-select-btn): Expand all / Collapse all,
+   All / Ready / Blocked. */
+.segmented-compact .segment {
+  font-size: 12px;
+  padding: 4px 12px;
+}
+
 .segment-active {
   background: var(--accent-emphasis);
   color: var(--on-accent);

@@ -634,7 +634,7 @@ export function BacklogBoard({
           manage={onManageCustomers ? { label: "Manage customers", onClick: onManageCustomers } : undefined}
           title="Show only the work for these customers"
         />
-        <div className="segmented backlog-readiness" role="group" aria-label="Readiness">
+        <div className="segmented segmented-compact backlog-readiness" role="group" aria-label="Readiness">
           {(["all", "ready", "blocked"] as const).map((m) => (
             <button
               key={m}
