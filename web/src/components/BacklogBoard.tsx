@@ -660,6 +660,8 @@ export function BacklogBoard({
           onMove={moveEpic}
           onOpen={(uid) => openParent(uid)}
           onOpenParent={openParent}
+          avatars={avatars}
+          names={names}
         />
       )}
       {mode === "tasks" && (

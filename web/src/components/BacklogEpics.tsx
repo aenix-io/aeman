@@ -10,6 +10,9 @@ import { useState, type DragEvent } from "react";
 import { epicDrop, type EpicRow } from "../backlogboard";
 import { KindIcon } from "./KindIcon";
 import { ParentChain } from "./BacklogBoard";
+import { OwnerBadge } from "./OwnerBadge";
+import { planOwnerOf } from "../owner";
+import type { Avatars, Names } from "../users";
 
 /** placeAt is the gap a pointer at clientY names among the drawn rows. */
 function placeAt(list: HTMLElement | null, clientY: number): number {
@@ -29,6 +32,8 @@ export function BacklogEpics({
   onMove,
   onOpen,
   onOpenParent,
+  avatars,
+  names,
 }: {
   rows: readonly EpicRow[];
   loading: boolean;
@@ -36,6 +41,8 @@ export function BacklogEpics({
   onMove: (epicId: string, anchor: { after: string } | { before: string }, order: string[]) => void;
   onOpen: (epicId: string) => void;
   onOpenParent: (uid: string) => void;
+  avatars?: Avatars;
+  names?: Names;
 }) {
   const [carried, setCarried] = useState<string | null>(null);
   const [over, setOver] = useState<number | null>(null);
@@ -110,6 +117,18 @@ export function BacklogEpics({
             <span className="backlog-epic-chain" onClick={(e) => e.stopPropagation()}>
               <ParentChain chain={r.chain} onOpen={onOpenParent} />
             </span>
+            {(() => {
+              // Whose the epic is: its team and owner; with no team of its
+              // own, the team it counts under, drawn faded.
+              const own = planOwnerOf(r.epic);
+              const inherited = !own.team && !!r.epic.effectiveTeam;
+              const owner = inherited ? { ...own, team: r.epic.effectiveTeam ?? "" } : own;
+              return (
+                <span className={`backlog-epic-owner${inherited ? " backlog-epic-owner-inherited" : ""}`}>
+                  {(owner.team || owner.person) && <OwnerBadge owner={owner} avatars={avatars} names={names} label={false} />}
+                </span>
+              );
+            })()}
           </div>
         ))}
       </div>

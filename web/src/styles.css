@@ -5684,10 +5684,19 @@ button.card-age {
    own — the Tasks rows' chain, its chips cut with an ellipsis. */
 .card.backlog-epic-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 88px minmax(0, 42%);
+  grid-template-columns: minmax(0, 1fr) 88px minmax(0, 42%) 40px;
   align-items: center;
   column-gap: 12px;
   cursor: grab;
+}
+
+.backlog-epic-owner {
+  display: inline-flex;
+  justify-content: flex-end;
+}
+
+.backlog-epic-owner-inherited .owner-badge-team {
+  opacity: 0.45;
 }
 
 .backlog-epic-title {
