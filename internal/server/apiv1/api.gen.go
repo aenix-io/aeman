@@ -225,6 +225,7 @@ const (
 	NoHistory               ProblemCode = "noHistory"
 	NoPlaceOfItsOwn         ProblemCode = "noPlaceOfItsOwn"
 	NoReviewer              ProblemCode = "noReviewer"
+	NoRoom                  ProblemCode = "noRoom"
 	NoSuchView              ProblemCode = "noSuchView"
 	NobodyToTake            ProblemCode = "nobodyToTake"
 	NotATarget              ProblemCode = "notATarget"
@@ -346,6 +347,8 @@ func (e ProblemCode) Valid() bool {
 	case NoPlaceOfItsOwn:
 		return true
 	case NoReviewer:
+		return true
+	case NoRoom:
 		return true
 	case NoSuchView:
 		return true
