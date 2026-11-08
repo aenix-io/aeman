@@ -124,7 +124,7 @@ export function BacklogEpics({
             {/* The plan above, drawn as the Tasks rows draw it: the same
                 chain, hugging the right, ending at the same x on every row
                 right before the owner. */}
-            <span className="backlog-epic-chain" onClick={(e) => e.stopPropagation()}>
+            <span className="backlog-epic-cluster" onClick={(e) => e.stopPropagation()}>
               <ParentChain chain={r.chain} onOpen={onOpenParent} />
             </span>
             {(() => {
@@ -135,7 +135,7 @@ export function BacklogEpics({
               const owner = inherited ? { ...own, team: r.epic.effectiveTeam ?? "" } : own;
               return (
                 <span
-                  className="backlog-epic-owner"
+                  className="backlog-row-owner"
                   onClick={(e) => e.stopPropagation()}
                   onPointerDown={(e) => e.stopPropagation()}
                   draggable={false}
@@ -147,19 +147,20 @@ export function BacklogEpics({
                 </span>
               );
             })()}
-            <span className="backlog-epic-take" onClick={(e) => e.stopPropagation()}>
-              {onTake && offersEpicTake(r.epic) && (
-                <button
-                  type="button"
-                  className="backlog-take-btn"
-                  aria-haspopup="dialog"
-                  title="Take this epic yourself: you become its owner"
-                  onClick={() => onTake(r.epic)}
-                >
-                  Take
-                </button>
-              )}
-            </span>
+            {onTake && offersEpicTake(r.epic) && (
+              <button
+                type="button"
+                className="backlog-take-btn"
+                aria-haspopup="dialog"
+                title="Take this epic yourself: you become its owner"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTake(r.epic);
+                }}
+              >
+                Take
+              </button>
+            )}
           </div>
         ))}
       </div>

@@ -49,8 +49,8 @@ describe("the Backlog's Epics mode", () => {
   });
 });
 
-// The right side is two aligned columns, the count and the chain, the chain
-// the Tasks rows' own component.
+// The right side is the Tasks rows' own cluster: the count, then the same
+// chain component.
 describe("the Epics rows' layout", () => {
   it("puts the count and the chain in their own cells, the chain the Tasks rows' nav", () => {
     const html = renderToStaticMarkup(
@@ -62,7 +62,7 @@ describe("the Epics rows' layout", () => {
         onOpenParent={vi.fn()}
       />,
     );
-    expect(html).toMatch(/<span class="backlog-epic-count"[^>]*>1 waiting<\/span><span class="backlog-epic-chain"><nav class="backlog-row-chain"/);
+    expect(html).toMatch(/<span class="backlog-epic-count"[^>]*>1 waiting<\/span><span class="backlog-epic-cluster"><nav class="backlog-row-chain"/);
     expect(html).toContain('title="The initiative «ТС2-7 · Kubernetes и S3»"');
   });
 });

@@ -5580,22 +5580,14 @@ button.card-age {
 /* Three aligned columns: the epic (and Split), the count of its waiting
    tasks, and the Goal › Initiative chain right-aligned in a column of its
    own — the Tasks rows' chain, its chips cut with an ellipsis. */
+/* The Epics row is the Tasks row: the same card, its right-hand cluster —
+   chain, avatar, Take — the Tasks row's own elements and gaps. */
 .card.backlog-epic-row {
-  display: grid;
-  /* title | count | chain | owner: the chain is the Tasks rows' own,
-     flush right against the owner on every row. */
-  grid-template-columns: minmax(40%, 1fr) 88px minmax(0, 45%) 40px 52px;
-  align-items: center;
-  column-gap: 12px;
   cursor: grab;
 }
 
-.backlog-epic-owner {
-  display: inline-flex;
-  justify-content: flex-end;
-}
-
 .backlog-epic-title {
+  flex: 1;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -5609,6 +5601,7 @@ button.card-age {
 }
 
 .backlog-epic-count {
+  flex: none;
   font-size: 12px;
   color: var(--muted);
   text-align: right;
@@ -5675,21 +5668,8 @@ button.card-age {
   margin-left: auto;
 }
 
-/* The Epics row's chain cell: the Tasks rows' chain, its end flush with the
-   cell's right edge, nothing of its own added. */
-.backlog-epic-chain {
-  display: flex;
-  justify-content: flex-end;
-  min-width: 0;
-}
-
-.backlog-epic-chain .backlog-row-chain {
-  max-width: 100%;
-}
-
-/* The Epics row's Take, in its own cell so the rows stay aligned whether a
-   row offers it or not. */
-.backlog-epic-take {
-  display: flex;
-  justify-content: flex-end;
+/* The chain's clicks open a plan item, not the epic: a box that draws
+   nothing of its own, so the chain lays out as on a Tasks row. */
+.backlog-epic-cluster {
+  display: contents;
 }
