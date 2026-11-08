@@ -66,11 +66,10 @@ SPA's tabs are **Me, Team, Backlog, Roadmap, Project**.
   subtask, no review card, nothing finished. Order is
   `BacklogOrder` over the union — by **effective priority** (K15, below),
   P0 first and none last, each priority in the **Roadmap's order** (K14).
-- **The card.** One wide card per row. Down its left edge, the
-  **priority stripe** (K15, below) — the review's yellow one on a review
-  card — and no priority badge (superseded 2026-11-08: the card was plain,
-  with a priority button first; the stripe replaced both); then the
-  title; on the RIGHT its parent chain —
+- **The card.** One wide card per row, a plain card with no coloured
+  accent down its edge: its priority part first — the effective priority
+  as the Roadmap's badge draws it (inherited lighter), a button opening the
+  priority menu, a muted "P" when it has none — then the title; on the RIGHT its parent chain —
   every goal, initiative and epic it sits under, root first (all of
   `status.lineage`), each with its kind icon as the Roadmap draws it, a
   long name cut short with the whole name in its tooltip, and each
@@ -189,22 +188,8 @@ ignored). The badge on the Roadmap is ONE pill in two parts, and a menu.
 - **The menu**: P0, P1, P2, P3, P4 and "No priority" — setting the card's
   OWN value, the current own value checked (a card that only inherits one
   has "No priority" checked) — a separator, and Unassign, disabled with
-  nothing in work under the row. The card drawer's **Priority** row draws
-  the badge's priority part the same way — own solid, inherited faded with
-  "from «ancestor»", "No priority" when there is none — and opens the same
-  priorities, without Unassign; on a review card it only reads (its
-  task's).
-- **The stripe** (decided 2026-11-08 with the owner): a card on the Me,
-  Team and Backlog boards with an effective priority wears a stripe down
-  its left edge in that priority's colour — the badge's hue, ALWAYS the
-  full colour, own or inherited (that difference is the badges', in the
-  drawer and on the Roadmap) — with the same geometry as a review card's
-  stripe. A review card keeps its yellow stripe and gets no priority
-  stripe: never two. Its tooltip, and its name for a screen reader, say
-  "P1" or "P1 (from «ancestor»)". Nothing else draws on a card's left
-  edge — a zone's band is the zone's own border, outside the card; the
-  selection ring and a drag's ghost are the card's outline — so the
-  stripe takes the review stripe's slot and collides with nothing.
+  nothing in work under the row. The Backlog card's priority part opens
+  the same priorities, without Unassign.
 - **UNASSIGNED** (K16) takes work out of hand: after "Take N tasks out of
   work? They leave Team and Me and go back to their team's backlog." every
   open task in work — the task itself, or every open task in work under
@@ -359,5 +344,5 @@ parked tasks reachable, so nothing the migration parks is lost.
 | K12 | The × on a review somebody has offers "back to backlog": the reviewer is taken off and the review waits, nobody on it, at the top of the reviewed task's team backlog; the task stays on review. |
 | K13 | The insert "+" in a gap of the list creates a task parked on the chosen team and placed there by the create itself (`after`/`before`), in one request. |
 | K14 | Within each priority the backlog reads in the Roadmap's order — the path of board-order places from the root plan item down; loose tasks after the planned ones; a review nobody has taken first in its task's priority, placed by its task and never dragged — and a drag moves a task among its siblings in the same priority only, which moves it on the Roadmap too. |
-| K15 | Any card carries a priority, P0 to P4 or none; it counts under its effective priority (its own, else the nearest ancestor's), and the backlog reads P0 first and none last; nothing clears a priority on its own. A Me, Team or Backlog card with one wears a stripe down its left edge in its full colour, a review card its yellow one instead; the drawer's Priority row shows it own or inherited and sets the own value. |
+| K15 | Any card carries a priority, P0 to P4 or none; it counts under its effective priority (its own, else the nearest ancestor's), and the backlog reads P0 first and none last; nothing clears a priority on its own. |
 | K16 | UNASSIGNED takes an open task in work (or every one under a plan item) back to its backlog, the ×'s unassign way, after a confirm that counts them; finished work is untouched. |

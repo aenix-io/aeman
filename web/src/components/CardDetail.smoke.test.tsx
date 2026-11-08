@@ -86,7 +86,7 @@ describe("the card drawer", () => {
 
   it("gives a task every row: its owner, zone, size, and what it sits under", () => {
     const html = draw(card({ zone: "red", team: "core", assignees: ["ann"] }));
-    expect(rows(html)).toEqual(["Status", "Priority", "Progress", "Owner", "Zone", "Size", "Under", "Customers"]);
+    expect(rows(html)).toEqual(["Status", "Progress", "Owner", "Zone", "Size", "Under", "Customers"]);
     expect(html).toContain(">urgent<");
     // The owner is the team and the person, in one menu (OwnerPicker).
     expect(html).toContain("core · ann");
@@ -113,7 +113,7 @@ describe("the card drawer", () => {
   it("reads a subtask's owner as its task's, and names the task as a way to it", () => {
     const sub = card({ parent: "t", team: "core", assignees: ["ann"], lineage: [{ uid: "t", title: "Render PDF" }] });
     const html = draw(sub);
-    expect(rows(html)).toEqual(["Status", "Priority", "Progress", "Owner", "Zone", "Size", "Subtask of", "Customers"]);
+    expect(rows(html)).toEqual(["Status", "Progress", "Owner", "Zone", "Size", "Subtask of", "Customers"]);
     expect(html).not.toContain("owner-picker");
     expect(html).toContain('title="Open «Render PDF»"');
     expect(html).not.toContain('aria-label="Subtasks"'); // one level deep: a subtask has none
@@ -121,7 +121,7 @@ describe("the card drawer", () => {
 
   it("gives a planning card its level, its standing, its owner and team, its dates, what it is under and who it is for — no band, no size, no assignee", () => {
     const html = draw(card({ type: "epic", hierarchy: { status: "in-progress", done: 2, total: 5 }, startDate: "2026-02-09" }));
-    expect(rows(html)).toEqual(["Level", "Status", "Priority", "Owner", "Dates", "Under", "Customers"]);
+    expect(rows(html)).toEqual(["Level", "Status", "Owner", "Dates", "Under", "Customers"]);
     expect(html).toContain("roadmap-status-in-progress");
     expect(html).toContain(">2/5<");
     expect(html).not.toContain("modal-size-chip");
@@ -133,8 +133,8 @@ describe("the card drawer", () => {
   });
 
   it("gives a goal no Under row, and an initiative or an epic one", () => {
-    expect(rows(draw(card({ type: "goal" })))).toEqual(["Level", "Status", "Priority", "Owner", "Dates", "Customers"]);
-    expect(rows(draw(card({ type: "initiative" })))).toEqual(["Level", "Status", "Priority", "Owner", "Dates", "Under", "Customers"]);
+    expect(rows(draw(card({ type: "goal" })))).toEqual(["Level", "Status", "Owner", "Dates", "Customers"]);
+    expect(rows(draw(card({ type: "initiative" })))).toEqual(["Level", "Status", "Owner", "Dates", "Under", "Customers"]);
   });
 
   it("reads only on a record", () => {
@@ -355,51 +355,5 @@ describe("the drawer's dependencies", () => {
     const html = draw(card({ asOf: "2026-11-01T00:00:00Z", dependsOn: ["auth"], blockedBy: [{ uid: "auth", title: "Auth API" }] }));
     expect(html).not.toContain("+ Add dependency");
     expect(html).not.toContain("Stop waiting for");
-  });
-});
-
-// The drawer's Priority row (K15): the card's EFFECTIVE priority as the
-// Roadmap's badge draws it — its own solid, an inherited one faded and
-// saying where from — and the button opening the badge's menu, which sets
-// the card's OWN value. A review's priority is its task's: shown, not set.
-describe("the drawer's Priority row", () => {
-  const prioRow = (html: string) => {
-    const at = html.indexOf('class="drawer-label">Priority<');
-    expect(at).toBeGreaterThan(-1);
-    return html.slice(at, html.indexOf('class="drawer-label"', at + 1));
-  };
-
-  it("shows the card's own priority solid, as a button opening the menu", () => {
-    const row = prioRow(draw(card({ team: "core", priority: "P1", effectivePriority: "P1" })));
-    expect(row).toContain('class="roadmap-prio roadmap-prio-p1"');
-    expect(row).not.toContain("roadmap-prio-inherited");
-    expect(row).toMatch(/<button[^>]*aria-haspopup="menu"/);
-    expect(row).not.toContain("from «");
-  });
-
-  it("shows an inherited priority faded, saying where it comes from", () => {
-    const row = prioRow(draw(card({ team: "core", effectivePriority: "P2", effectivePriorityFrom: { uid: "g", type: "goal", title: "Grow" } })));
-    expect(row).toContain('class="roadmap-prio roadmap-prio-p2 roadmap-prio-inherited"');
-    expect(row).toContain("from «Grow»");
-    expect(row).toMatch(/<button[^>]*aria-haspopup="menu"/);
-  });
-
-  it("says No priority when there is none, still offering the menu", () => {
-    const row = prioRow(draw(card({ team: "core" })));
-    expect(row).toContain("No priority");
-    expect(row).not.toContain("roadmap-prio-p");
-    expect(row).toMatch(/<button[^>]*aria-haspopup="menu"/);
-  });
-
-  it("reads a review card's priority as its task's, with no menu", () => {
-    const row = prioRow(draw(card({ itemId: "r", reviewOf: "o", team: "core", effectivePriority: "P0" })));
-    expect(row).toContain("roadmap-prio-p0");
-    expect(row).not.toContain("<button");
-    expect(row).toContain("its task");
-  });
-
-  it("reads only on a record", () => {
-    const row = prioRow(draw(card({ team: "core", priority: "P3", effectivePriority: "P3", asOf: "2026-01-05" } as Partial<Card>)));
-    expect(row).toMatch(/<button[^>]*disabled=""/);
   });
 });

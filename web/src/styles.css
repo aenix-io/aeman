@@ -53,9 +53,6 @@
   --prio-p3-fg: #ffffff;
   --prio-p4-bg: #d0d7de;
   --prio-p4-fg: #24292f;
-  /* P4's chip colour is too pale for a 4px stripe on a card: the stripe
-     takes a darker grey that keeps 3:1 against the card (WCAG non-text). */
-  --prio-p4-stripe: #8c959f;
   /* An INHERITED priority keeps its hue, drawn lighter: a pale tint of it
      with the hue's deep ink as text — AA for small text on that tint, and
      never mistaken for the solid own badge. */
@@ -201,7 +198,6 @@
   --prio-p3-fg: #0d1117;
   --prio-p4-bg: #484f58;
   --prio-p4-fg: #e6edf3;
-  --prio-p4-stripe: #6e7681;
   /* Inherited in dark: a dim tint on the dark ground, the hue's light ink
      as text — never brighter than the own badge (P4's ink is dimmer than
      its own fill's text). */
@@ -5686,17 +5682,6 @@ button.card-age {
   color: var(--muted);
 }
 
-/* The drawer's Priority row (K15): the badge's priority part on its own,
-   rounded, and where an inherited one comes from. */
-.drawer-prio .roadmap-prio {
-  border-radius: 3px;
-}
-
-.drawer-prio-from {
-  font-size: 12px;
-  color: var(--muted);
-}
-
 .roadmap-status-separator {
   height: 1px;
   margin: 3px 2px;
@@ -5704,39 +5689,39 @@ button.card-age {
 }
 
 
-/* ---- The priority stripe (K15) ----
-   A card's effective priority, down its left edge in the same slot and the
-   same geometry as a review's stripe — a review keeps its yellow one and
-   gets no priority stripe (placements.markClass decides: never two). The
-   hues are the badge's tokens, always the FULL colour: own or inherited, the
-   stripe is the same (that difference is the badges', in the drawer and on
-   the Roadmap). Nothing else draws on a card's left edge: a zone's band is the
-   zone's own border, outside the card, and a drag's ghost and the selection
-   ring are the card's outline. */
-.card-prio::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  border-radius: 5px 0 0 5px;
+/* The priority part of the badge on a Backlog card (K15): a button opening
+   the priority menu; with no priority, a muted "P" offers the same. */
+.backlog-row-prio {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
 }
 
-.card-prio-p0::before { background: var(--prio-p0-bg); }
-.card-prio-p1::before { background: var(--prio-p1-bg); }
-.card-prio-p2::before { background: var(--prio-p2-bg); }
-.card-prio-p3::before { background: var(--prio-p3-bg); }
-.card-prio-p4::before { background: var(--prio-p4-stripe); }
+.backlog-row-prio .roadmap-prio {
+  border-radius: 3px;
+}
 
+/* No priority: the muted text colour, AA on the card — no faded opacity. */
+.backlog-row-prio-none {
+  padding: 0 5px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
 
-/* The stripe's tooltip and its name for a screen reader: a span laid over
-   it, a little wider than the stripe so a pointer can find it. */
-.card-prio-mark {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 7px;
-  z-index: 1;
+.backlog-row-prio-none:hover {
+  color: var(--fg);
+}
+
+/* A review's priority is its task's: shown, not a control. */
+.backlog-row-prio-readonly {
+  cursor: default;
 }

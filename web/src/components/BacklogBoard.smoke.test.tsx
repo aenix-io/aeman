@@ -240,29 +240,36 @@ describe("the Backlog board", () => {
   });
 
   // K9: nothing of the Triage board — no weeks, no strip, no load.
-  // The priority on a Backlog card is a STRIPE down its left edge (K15),
-  // in its full hue, own or inherited, titled "P1 (from «X»)"; no badge, no
-  // button (it is set from the drawer or the Roadmap). A review keeps its
-  // yellow stripe and gets no priority stripe: never two.
-  it("draws the card's priority as a stripe, and a review's yellow stripe alone", () => {
+  // The priority part of the Roadmap's badge (K15), on the card: its
+  // effective priority in its colour — inherited drawn lighter — as a button
+  // opening P0…P4 and "No priority"; a card with none offers the same button
+  // muted.
+  it("draws the card's priority as a button that opens the priority menu", () => {
     const own = card({ itemId: "o", title: "Own", team: "portal", priority: "P0", effectivePriority: "P0" });
     const inherited = card({ itemId: "i", title: "Inherited", team: "portal", effectivePriority: "P2", effectivePriorityFrom: { uid: "e", type: "epic", title: "Billing v2" } });
     const none = card({ itemId: "n", title: "None", team: "portal" });
-    const review = card({ itemId: "r", title: "review: Own", team: "portal", reviewOf: "o", effectivePriority: "P0", effectivePriorityFrom: { uid: "o", title: "Own" } });
-    const html = draw(board([own, inherited, none, review]));
-    expect(html).toContain('class="card backlog-card card-prio card-prio-p0"');
-    expect(html).toContain('class="card backlog-card card-prio card-prio-p2"');
-    expect(html).not.toContain("card-prio-inherited");
-    expect(html).toContain('class="card-prio-mark" role="img" title="P0" aria-label="Priority P0"');
-    expect(html).toContain('class="card-prio-mark" role="img" title="P2 (from «Billing v2»)" aria-label="Priority P2 (from «Billing v2»)"');
-    expect(html).toContain('class="card backlog-card card-review"');
-    expect(html).not.toMatch(/card-review card-prio|card-prio[^"]*card-review/);
-    expect(html).not.toContain("backlog-row-prio");
-    expect(html).not.toContain("roadmap-prio");
-    // The list still reads by priority, the review first in its group.
-    expect(html.indexOf(">review: Own<")).toBeLessThan(html.indexOf(">Own<"));
+    const html = draw(board([own, inherited, none]));
+    expect(html).toMatch(/<button[^>]*class="backlog-row-prio"[^>]*aria-haspopup="menu"[^>]*><span class="roadmap-prio roadmap-prio-p0">P0<\/span>/);
+    expect(html).toContain('<span class="roadmap-prio roadmap-prio-p2 roadmap-prio-inherited" title="from «Billing v2»">P2</span>');
+    expect(html).toMatch(/class="backlog-row-prio backlog-row-prio-none"/);
+    // P0 first: the list reads by priority.
     expect(html.indexOf(">Own<")).toBeLessThan(html.indexOf(">Inherited<"));
     expect(html.indexOf(">Inherited<")).toBeLessThan(html.indexOf(">None<"));
+  });
+
+  // A review's priority is its task's (K15): shown on the review card, read
+  // only — no control to set it there. Each control names its priority, and
+  // where it comes from, to a screen reader.
+  it("shows a review's priority read only, and labels each priority control", () => {
+    const review = card({ itemId: "r", title: "review: Rotate", team: "portal", reviewOf: "p1", effectivePriority: "P1", effectivePriorityFrom: { uid: "p1", title: "Rotate" } });
+    const own = card({ itemId: "o", title: "Own", team: "portal", priority: "P0", effectivePriority: "P0" });
+    const none = card({ itemId: "n", title: "None", team: "portal" });
+    const html = draw(board([review, own, none]));
+    const reviewCard = html.slice(html.indexOf('data-card="r"'), html.indexOf('data-card="n"'));
+    expect(reviewCard).not.toMatch(/<button[^>]*backlog-row-prio/);
+    expect(reviewCard).toContain('title="from «Rotate»">P1</span>');
+    expect(html).toContain('aria-label="Priority P0"');
+    expect(html).toContain('aria-label="Set a priority"');
   });
 
   it("draws no week, no strip and no load", () => {
