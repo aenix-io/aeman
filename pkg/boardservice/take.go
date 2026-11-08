@@ -30,7 +30,7 @@ var ErrAlreadyFinished = errors.New("this card is finished; there is nothing to 
 // docs/design/backlog.md "Taking"). The ACTOR — whoever makes the request,
 // the identity every write records as its author — gets the card on its OWN
 // team (a card of the no-team group stays in it): a parked task is taken
-// into work the way `own` with a person takes it (today, the unplanned band,
+// into work the way `own` with a person takes it (today, the planned band,
 // the team's sprint, out of the backlog), and a review nobody has taken makes
 // the actor its reviewer (K10). Every refusal fires before anything is
 // written: a planning card, a subtask, a review somebody

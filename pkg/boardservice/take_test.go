@@ -11,8 +11,9 @@ import (
 // actor is whoever makes the request — the identity every write records as
 // its author — and the card becomes theirs on its OWN team (the no-team
 // group's card stays in it): a parked task is taken into work as `own` with
-// a person takes it (today, the unplanned band, the team's sprint, out of
-// the backlog), and a review nobody has taken makes the actor its reviewer.
+// a person takes it (today, the PLANNED band, the team's sprint, out of
+// the backlog), and a review nobody has taken makes the actor its reviewer
+// (a review keeps landing in the unplanned band).
 // It is refused where there is nothing to take: a planning card, a project
 // card, a subtask, a review somebody already has, finished work, and a task
 // already in work.
@@ -50,7 +51,7 @@ func TestTakeMakesAParkedTaskTheActorsOnItsOwnTeam(t *testing.T) {
 		if len(c.Assignees) != 1 || c.Assignees[0] != "kvaps" || c.Team != was {
 			t.Fatalf("%s: taken = %s/%v, want %q/kvaps", id, c.Team, c.Assignees, was)
 		}
-		if c.Parked || c.StartDate != today || c.SprintStart == "" || c.Zone != board.ZoneYellow {
+		if c.Parked || c.StartDate != today || c.SprintStart == "" || c.Zone != board.ZoneGray {
 			t.Fatalf("%s: taken into work today in the team's sprint, out of the backlog: %+v", id, c)
 		}
 	}

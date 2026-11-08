@@ -40,7 +40,7 @@ func TestOwnGivesLooseWorkAHome(t *testing.T) {
 	today := board.TodayIso()
 	ctx := WithActor(ctx, "kvaps")
 
-	t.Run("a person on an unplanned card files it like a Me-board create", func(t *testing.T) {
+	t.Run("a person on an unplanned card takes it into work in the planned band", func(t *testing.T) {
 		f := ownSeed(today)
 		if err := f2svc(f).Own(ctx, "acme", "strip", "alpha", "ann"); err != nil {
 			t.Fatal(err)
@@ -49,9 +49,10 @@ func TestOwnGivesLooseWorkAHome(t *testing.T) {
 		if c.Team != "alpha" || len(c.Assignees) != 1 || c.Assignees[0] != "ann" {
 			t.Fatalf("owner = %s/%v", c.Team, c.Assignees)
 		}
-		// Today, in the unplanned band, in the team's sprint, off the shelf:
-		// exactly what typing it into the Me board would have made.
-		if c.StartDate != today || c.Day != today || c.SprintStart != today || c.Zone != board.ZoneYellow || c.Parked {
+		// Today, in the PLANNED band, in the team's sprint, off the shelf: work
+		// taken from the backlog is planned work, not something that turned
+		// up today (owner, 2026-11-08).
+		if c.StartDate != today || c.Day != today || c.SprintStart != today || c.Zone != board.ZoneGray || c.Parked {
 			t.Fatalf("filed as %s..%s sprint=%s zone=%s parked=%t", c.StartDate, c.Day, c.SprintStart, c.Zone, c.Parked)
 		}
 		// Its subtask follows: the team and the person, as on the Team board.
@@ -67,7 +68,7 @@ func TestOwnGivesLooseWorkAHome(t *testing.T) {
 			t.Fatal(err)
 		}
 		c := *f.get("parked")
-		if c.Parked || c.StartDate != today || c.Zone != board.ZoneYellow || c.Assignees[0] != "ann" {
+		if c.Parked || c.StartDate != today || c.Zone != board.ZoneGray || c.Assignees[0] != "ann" {
 			t.Fatalf("still shelved or not filed: %+v", c)
 		}
 	})

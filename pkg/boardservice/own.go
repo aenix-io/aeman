@@ -20,7 +20,7 @@ import (
 // sprint — because a home is somewhere a board draws:
 //
 //   - a PERSON takes an unplanned card into work the way typing it into
-//     their Me board would: on their team, today, in the unplanned band, in
+//     their Me board would: on their team, today, in the planned band, in
 //     the team's sprint, out of its backlog — so it stands on their Team and
 //     Me boards at once (K4). A planned card merely changes hands and keeps
 //     its plan.
@@ -87,11 +87,13 @@ func (s *Service) Own(ctx context.Context, boardID string, itemID, team, person 
 // and comes out of its backlog when a person takes it into work.
 func unplanned(c board.Card) bool { return !board.InWork(c) }
 
-// ownByPerson puts the card on a team and a person. Unplanned, it is filed
-// the way the Me board files a create — today, the unplanned band, the
-// team's sprint — through the same doors (SetTeam joins the sprint as the
-// Team board's team menu does, SetDates and SetZone are the pane's own), so
-// the two cannot read differently.
+// ownByPerson puts the card on a team and a person. Unplanned, it is taken
+// into work — today, the PLANNED band, the team's sprint — through the same
+// doors the boards use (SetTeam joins the sprint as the Team board's team
+// menu does, SetDates and SetZone are the pane's own). Planned, not
+// unplanned: work taken from a backlog is work somebody planned, not
+// something that turned up today (owner, 2026-11-08). A review card is
+// takeReview's and keeps the unplanned band.
 func (s *Service) ownByPerson(ctx context.Context, boardID string, b board.Board, card board.Card, team, person string) error {
 	if unplanned(card) {
 		// SetDates takes it out of its backlog on the way (takenIntoWork).
@@ -102,7 +104,7 @@ func (s *Service) ownByPerson(ctx context.Context, boardID string, b board.Board
 		if err := s.SetDates(ctx, boardID, card.ItemID, today, today); err != nil {
 			return err
 		}
-		if err := s.SetZone(ctx, boardID, card.ItemID, board.ZoneYellow); err != nil {
+		if err := s.SetZone(ctx, boardID, card.ItemID, board.ZoneGray); err != nil {
 			return err
 		}
 		return s.SetAssignee(ctx, boardID, card.ItemID, person)

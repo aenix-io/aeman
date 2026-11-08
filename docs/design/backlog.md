@@ -33,7 +33,7 @@ A task — a card with no `type`, not a subtask, not a review card — is in exa
 
 A task taken into work leaves the backlog — the backlog never shows work
 in hand. Taking a task into work is giving it a day or a sprint: the
-`own` gesture with a person (it lands today, in the unplanned band, in
+`own` gesture with a person (it lands today, in the planned band, in
 the team's sprint) — the card's owner picker in the SPA — or, over the
 API and the MCP, a date, a sprint or a defer. Each of these clears
 `parked` in the same write (`takenIntoWork`).
@@ -100,7 +100,8 @@ SPA's tabs are **Me, Team, Backlog, Strategy, Project**.
 - **Taking.** **Take** is the backlog's own gesture (`take`, MCP
   `take_card`): the card's right-most button asks "Take this card into
   work?" and makes it the viewer's, on the card's own team — today, the
-  unplanned band, the team's sprint — so it disappears from the backlog
+  planned band (since 2026-11-08; a review still lands unplanned), the
+  team's sprint — so it disappears from the backlog
   and appears on the Team and Me boards; a review nobody has taken makes
   the viewer its reviewer. A task already in work, finished work, a
   subtask, a review somebody has and a parked card somebody else is

@@ -431,17 +431,17 @@ describe("what the owner picker does on a backlog card (K3, K4, K5)", () => {
 
 // The optimistic shapes, so the board shows the server's answer before the
 // server has given it. Taking into work mirrors boardservice.ownByPerson on an
-// unplanned card: today, the unplanned band, the team's sprint, the person,
+// unplanned card: today, the PLANNED band, the team's sprint, the person,
 // and out of the backlog.
 describe("the optimistic shapes", () => {
-  it("takes a task into work today, in the unplanned band and the team's sprint (K4)", () => {
+  it("takes a task into work today, in the planned band and the team's sprint (K4)", () => {
     expect(takenIntoWorkLocally({ team: "alpha", person: "kvaps" }, "2026-11-03", "2026-11-02")).toEqual({
       team: "alpha",
       assignees: ["kvaps"],
       parked: false,
       startDate: "2026-11-03",
       day: "2026-11-03",
-      zone: "yellow",
+      zone: "gray",
       sprintStart: "2026-11-02",
     });
   });

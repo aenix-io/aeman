@@ -278,7 +278,7 @@ export function insertedOrder(all: readonly string[], id: string, anchor: Anchor
 
 /** ownPlan is what the owner picker does on a backlog card. A PERSON takes
  *  the task into work (K4): the server files it as the Me board files a
- *  create — today, the unplanned band, the team's sprint — and it leaves the
+ *  create — today, the planned band, the team's sprint — and it leaves the
  *  backlog at once. A team alone, or nobody, hands it to that team's
  *  backlog (the no-team group's for nobody), still parked (K3, K5). */
 export function ownPlan(c: Pick<Card, "team">, owner: Owner): "take" | "hand-over" | "none" {
@@ -291,7 +291,7 @@ export function ownPlan(c: Pick<Card, "team">, owner: Owner): "take" | "hand-ove
 /** takenIntoWorkLocally is the card the moment a person takes it, before the
  *  server answers — what boardservice.ownByPerson writes on an unplanned
  *  card: the team (joining its current sprint, or starting one today), the
- *  dates today, the unplanned band, the person, and out of the backlog. */
+ *  dates today, the planned band, the person, and out of the backlog. */
 export function takenIntoWorkLocally(
   owner: Owner,
   today: string,
@@ -303,7 +303,7 @@ export function takenIntoWorkLocally(
     parked: false,
     startDate: today,
     day: today,
-    zone: "yellow",
+    zone: "gray",
     sprintStart: teamSprint ?? today,
   };
 }

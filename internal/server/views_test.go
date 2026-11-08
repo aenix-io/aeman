@@ -69,7 +69,7 @@ func TestOwnIsAnsweredByTheBoardsThatDrawATask(t *testing.T) {
 		t.Fatalf("a person with no team answered %d: %s", rec.Code, rec.Body.String())
 	}
 	// From the Strategy board, which lists the loose card below its tree (H9), a
-	// person takes it home: team, person, today, the unplanned band.
+	// person takes it home: team, person, today, the planned band.
 	rec := do(t, srv, http.MethodPost, "/api/v1/views/strategy/cards/loose/actions/own",
 		`{"team":"alpha","person":"ann"}`)
 	if rec.Code != http.StatusOK {
@@ -89,7 +89,7 @@ func TestOwnIsAnsweredByTheBoardsThatDrawATask(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.Spec.Team != "alpha" || len(got.Spec.Assignees) != 1 || got.Spec.Assignees[0] != "ann" ||
-		got.Spec.Dates.Start != today || got.Spec.Zone != "unplanned" {
+		got.Spec.Dates.Start != today || got.Spec.Zone != "planned" {
 		t.Fatalf("the card after own: %+v", got.Spec)
 	}
 }
