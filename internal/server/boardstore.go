@@ -152,15 +152,13 @@ func (sub *subscription) seen(res apiserver.Card, ix *board.Index) apiserver.Car
 			}
 		}
 	}
-	depCustomers := out.Status.EffectiveCustomers
-	out.Status.EffectiveTeam, out.Status.EffectiveCustomers = inheritedFromReadable(res, find, readable)
-	if depsRedacted {
-		// The readable waiting work's customers ride on top of the chain's.
-		for _, dc := range out.Status.DependentCustomers {
-			if !slices.Contains(out.Status.EffectiveCustomers, dc.Customer) && slices.Contains(depCustomers, dc.Customer) {
-				out.Status.EffectiveCustomers = append(out.Status.EffectiveCustomers, dc.Customer)
-			}
-		}
+	team, customers := inheritedFromReadable(res, find, readable)
+	out.Status.EffectiveTeam = team
+	if !depsRedacted {
+		// Worked out with the waiting work already (seenDependencies) when
+		// a dependency touches the card; the readable chain's alone when
+		// none does.
+		out.Status.EffectiveCustomers = customers
 	}
 	out.Status.EffectivePriority, out.Status.EffectivePriorityFrom = priorityFromReadable(res, find, readable)
 	return out

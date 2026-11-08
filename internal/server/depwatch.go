@@ -169,10 +169,11 @@ func splitIDs(s string) []string {
 // listing works them out on their visible board (N4, N5): the blockers they
 // may not read counted, not named; the waiting cards they may not read left
 // out of `blocks`; and the customers only readable waiting work passes on.
-// It reports whether the card has any to redact.
+// It reports whether it worked them out — whether any dependency touches
+// the card at all; its effectiveCustomers then stand as worked out here.
 func seenDependencies(res *apiserver.Card, ix *board.Index, c board.Card, readable func(board.Card) bool) bool {
 	st := &res.Status
-	if len(st.BlockedBy) == 0 && st.HiddenBlockers == 0 && len(st.Blocks) == 0 && len(st.DependentCustomers) == 0 {
+	if !touchedByDependencies(ix, c) {
 		return false
 	}
 	shown, hidden := ix.BlockersAs(c, readable)
@@ -201,4 +202,31 @@ func seenDependencies(res *apiserver.Card, ix *board.Index, c board.Card, readab
 			From: apiserver.LineageRef{UID: dc.From.ItemID, Type: dc.From.Type, Title: dc.From.Title}})
 	}
 	return true
+}
+
+// touchedByDependencies reports whether any dependency can move a card's
+// derived fields: one the card or an ancestor names (its blockers), or one
+// naming the card or an ancestor (blocks, and the customers waiting work
+// passes down) — for a review card, its task's line too, whose customers it
+// takes. When none does, the whole board and a visitor's board agree on
+// them. Judged on the whole board: a dependency the subscriber cannot read
+// can still change what their board says (N4, N5).
+func touchedByDependencies(ix *board.Index, c board.Card) bool {
+	line := func(c board.Card) bool {
+		for _, h := range append(ix.Lineage(c), c) {
+			if len(h.DependsOn) > 0 || len(ix.Blocks(h)) > 0 {
+				return true
+			}
+		}
+		return false
+	}
+	if line(c) {
+		return true
+	}
+	if c.ReviewOf != "" {
+		if task, ok := ix.Find(c.ReviewOf); ok && line(task) {
+			return true
+		}
+	}
+	return false
 }

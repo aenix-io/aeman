@@ -58,3 +58,23 @@ func TestADependencyFrameNamesNoTargetItsWatcherCannotRead(t *testing.T) {
 		t.Fatalf("epic frame names %v", got.Spec.DependsOn)
 	}
 }
+
+// nothing waits for it and nothing is a dependent customer of it.
+func TestAFrameKeepsTheCustomersWaitingWorkGivesItsWatcher(t *testing.T) {
+	store := newBoardStore()
+	b := depWatchBoard()
+	b.Cards = append(b.Cards,
+		board.Card{ItemID: "secret", Title: "Secret", Type: board.TypeInitiative, Customers: []string{"acme"}, Domain: "closed"},
+		board.Card{ItemID: "mid", Title: "Mid", Type: board.TypeEpic, Parent: "secret"},
+		board.Card{ItemID: "kid", Title: "Kid", Parent: "mid", Team: "alpha", Parked: true},
+		board.Card{ItemID: "waiter", Title: "Waiter", Team: "alpha", Parked: true, Customers: []string{"acme"}, DependsOn: []string{"mid"}})
+	e := seedEntry(store, "k", b)
+	rights := rightsOn([]string{"shared"}, nil)
+	narrow, cancel := store.subscribeAs("k", "bob", nil, map[string]bool{"cards": true}, rights)
+	defer cancel()
+	change(t, e, "kid", func(c *board.Card) { c.Title += "!" })
+	got := restrictedFrameAgrees(t, e, rights, cardFrames(narrow), "kid")
+	if !reflect.DeepEqual(got.Status.EffectiveCustomers, []string{"acme"}) {
+		t.Fatalf("kid frame customers %v, want acme through the waiter", got.Status.EffectiveCustomers)
+	}
+}
