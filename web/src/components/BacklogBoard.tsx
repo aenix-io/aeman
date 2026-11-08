@@ -21,10 +21,7 @@ import {
   insertedOrder,
   backlogList,
   dropPlan,
-  dueLabel,
-  dueOf,
   handedOverLocally,
-  nearestPlanning,
   openPlanning,
   ownPlan,
   parentChain,
@@ -773,8 +770,8 @@ interface BacklogRowProps {
 
 /** BacklogRow is one wide card, drawn as the Me and Team boards draw a card
  *  (`card`, a review card with its review mark): the title first; on the
- *  right the planning cards it sits under, the due date when the nearest
- *  has an end, the size, its team's avatar (the owner picker) and,
+ *  right the planning cards it sits under, its team's avatar (the owner
+ *  picker) and,
  *  right-most while nobody has it, Take. The × stands left of all of that,
  *  in a slot that takes no room: it shows over the title's end on hover. */
 function BacklogRow({
@@ -789,8 +786,6 @@ function BacklogRow({
   onOpenParent,
   onTake,
 }: BacklogRowProps) {
-  const up = nearestPlanning(card);
-  const due = dueOf(card);
   const mark = markOf(card);
   return (
     <div
@@ -813,11 +808,6 @@ function BacklogRow({
         </button>
       </span>
       <ParentChain chain={parentChain(card)} onOpen={onOpenParent} />
-      {due && (
-        <span className="backlog-row-due" title={`Due ${due}: the end of «${up?.title ?? ""}»`}>
-          due {dueLabel(due)}
-        </span>
-      )}
       <span className="backlog-row-owner">{owner}</span>
       {onTake && (
         <button

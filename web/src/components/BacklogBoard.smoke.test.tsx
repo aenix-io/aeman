@@ -11,7 +11,7 @@ import type { PresenceMap } from "../presence";
 // the suite renders them. Markup only: no effect runs and no pointer moves,
 // so what this pins is the shape — ONE list of the selected teams' K2 cards
 // mixed in the board's order, each with its team chip, its parent chain on
-// the right, its due date, size and owner, and one add box — and that
+// the right, its owner, and one add box — and that
 // nothing of the day boards or the Triage board comes out. The rules
 // themselves are backlogboard.test.ts's.
 
@@ -98,9 +98,10 @@ describe("the Backlog board", () => {
     expect(html).toContain('title="The goal «Grow revenue across every market we serve»"');
   });
 
-  it("keeps the due date the server sends (its nearest planning card's end), and no size (the drawer has it)", () => {
+  it("draws no due date and no size: the drawer has both", () => {
     const html = draw(board([first]));
-    expect(html).toContain("due 18 Dec");
+    expect(html).not.toContain("due 18 Dec");
+    expect(html).not.toContain("backlog-row-due");
     expect(html).not.toContain("size-chip");
   });
 

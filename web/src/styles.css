@@ -3452,14 +3452,6 @@ button.card-age {
   white-space: nowrap;
 }
 
-.backlog-row-due {
-  flex: none;
-  color: var(--muted);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
 /* A backlog card IS a day board's card (.card, and .card-review for a review
    nobody has taken): the same look, padding and title. It only spans the
    list's width instead of the day boards' column. */

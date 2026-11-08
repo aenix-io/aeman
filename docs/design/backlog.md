@@ -73,9 +73,8 @@ SPA's tabs are **Me, Team, Backlog, Strategy, Project**.
   every goal, initiative and epic it sits under, root first (all of
   `status.lineage`), each with its kind icon as the Strategy board draws it, a
   long name cut short with the whole name in its tooltip, and each
-  opening that planning card's drawer (the one the Strategy board opens); the
-  due date — the server's `status.dueDate`: the nearest planning ancestor's end, when it has one (the size is the
-  drawer's); and whose it is — the team's avatar, the
+  opening that planning card's drawer (the one the Strategy board opens) —
+  the due date and the size are the drawer's, not the row's; and whose it is — the team's avatar, the
   person's stacked over it when somebody has it, one label (the shared
   owner badge, the Strategy board's too), with a separate Take button to its
   left while nobody has it.
