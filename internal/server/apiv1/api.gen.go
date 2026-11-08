@@ -980,6 +980,9 @@ type Snapshot = string
 // Stage defines model for Stage.
 type Stage = string
 
+// Status defines model for Status.
+type Status = string
+
 // Team defines model for Team.
 type Team = string
 
@@ -1060,6 +1063,9 @@ type ListCardsParams struct {
 	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
 	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
+	// Status On the roadmap view, a comma-separated set of work statuses — `in-progress`, `backlog`, `done` — and nothing else (anything else is 400 `invalidSelector`). A task's work status is `done` when it is complete, `backlog` when it is parked, and `in-progress` when it is in work (a date or a sprint, whatever its stage — review, locked and refused are in somebody's hands); a task nobody has placed yet reads as `backlog`. A task is listed by its own status, a subtask by its parent task's, a review card by the status of the task it reviews, and a goal, an initiative or an epic when any task under it is — a plan item with no tasks matches no status. Each comes with its ancestors. Several values are OR; with `team`, `customer` and `owner`, AND. `in-progress,backlog` hides the finished work.
+	Status *Status `form:"status,omitempty" json:"status,omitempty"`
+
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
 
@@ -1098,6 +1104,9 @@ type FinishedEarlierParams struct {
 
 	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
 	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
+
+	// Status On the roadmap view, a comma-separated set of work statuses — `in-progress`, `backlog`, `done` — and nothing else (anything else is 400 `invalidSelector`). A task's work status is `done` when it is complete, `backlog` when it is parked, and `in-progress` when it is in work (a date or a sprint, whatever its stage — review, locked and refused are in somebody's hands); a task nobody has placed yet reads as `backlog`. A task is listed by its own status, a subtask by its parent task's, a review card by the status of the task it reviews, and a goal, an initiative or an epic when any task under it is — a plan item with no tasks matches no status. Each comes with its ancestors. Several values are OR; with `team`, `customer` and `owner`, AND. `in-progress,backlog` hides the finished work.
+	Status *Status `form:"status,omitempty" json:"status,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
@@ -1138,6 +1147,9 @@ type OwnCardParams struct {
 	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
 	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
+	// Status On the roadmap view, a comma-separated set of work statuses — `in-progress`, `backlog`, `done` — and nothing else (anything else is 400 `invalidSelector`). A task's work status is `done` when it is complete, `backlog` when it is parked, and `in-progress` when it is in work (a date or a sprint, whatever its stage — review, locked and refused are in somebody's hands); a task nobody has placed yet reads as `backlog`. A task is listed by its own status, a subtask by its parent task's, a review card by the status of the task it reviews, and a goal, an initiative or an epic when any task under it is — a plan item with no tasks matches no status. Each comes with its ancestors. Several values are OR; with `team`, `customer` and `owner`, AND. `in-progress,backlog` hides the finished work.
+	Status *Status `form:"status,omitempty" json:"status,omitempty"`
+
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
 
@@ -1177,6 +1189,9 @@ type RemoveCardParams struct {
 	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
 	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
 
+	// Status On the roadmap view, a comma-separated set of work statuses — `in-progress`, `backlog`, `done` — and nothing else (anything else is 400 `invalidSelector`). A task's work status is `done` when it is complete, `backlog` when it is parked, and `in-progress` when it is in work (a date or a sprint, whatever its stage — review, locked and refused are in somebody's hands); a task nobody has placed yet reads as `backlog`. A task is listed by its own status, a subtask by its parent task's, a review card by the status of the task it reviews, and a goal, an initiative or an epic when any task under it is — a plan item with no tasks matches no status. Each comes with its ancestors. Several values are OR; with `team`, `customer` and `owner`, AND. `in-progress,backlog` hides the finished work.
+	Status *Status `form:"status,omitempty" json:"status,omitempty"`
+
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
 
@@ -1215,6 +1230,9 @@ type TakeCardParams struct {
 
 	// Owner On the roadmap view, a comma-separated set of logins — the Roadmap's one person filter: a goal, an initiative or an epic is listed when its OWN owner is among them (never inherited), and a task or a subtask when one of its assignees is; each with its ancestors. A planning card also passes this filter by a task under it assigned to one of them. Several values are OR; with `team` and `customer`, AND.
 	Owner *Owner `form:"owner,omitempty" json:"owner,omitempty"`
+
+	// Status On the roadmap view, a comma-separated set of work statuses — `in-progress`, `backlog`, `done` — and nothing else (anything else is 400 `invalidSelector`). A task's work status is `done` when it is complete, `backlog` when it is parked, and `in-progress` when it is in work (a date or a sprint, whatever its stage — review, locked and refused are in somebody's hands); a task nobody has placed yet reads as `backlog`. A task is listed by its own status, a subtask by its parent task's, a review card by the status of the task it reviews, and a goal, an initiative or an epic when any task under it is — a plan item with no tasks matches no status. Each comes with its ancestors. Several values are OR; with `team`, `customer` and `owner`, AND. `in-progress,backlog` hides the finished work.
+	Status *Status `form:"status,omitempty" json:"status,omitempty"`
 
 	// Fields The resource shape a listing delivers: "summary" (the default, a board row with no description) or "full". Anything else is refused (400).
 	Fields *Fields `form:"fields,omitempty" json:"fields,omitempty"`
@@ -2405,6 +2423,19 @@ func (siw *ServerInterfaceWrapper) ListCards(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "fields" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "fields", r.URL.Query(), &params.Fields, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -2625,6 +2656,19 @@ func (siw *ServerInterfaceWrapper) FinishedEarlier(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "fields" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "fields", r.URL.Query(), &params.Fields, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -2815,6 +2859,19 @@ func (siw *ServerInterfaceWrapper) OwnCard(w http.ResponseWriter, r *http.Reques
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "owner"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
 		}
 		return
 	}
@@ -3013,6 +3070,19 @@ func (siw *ServerInterfaceWrapper) RemoveCard(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "fields" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "fields", r.URL.Query(), &params.Fields, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -3203,6 +3273,19 @@ func (siw *ServerInterfaceWrapper) TakeCard(w http.ResponseWriter, r *http.Reque
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "owner"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
 		}
 		return
 	}
