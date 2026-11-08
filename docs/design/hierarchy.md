@@ -4,7 +4,7 @@ The day boards answer "what are these people working on". Nothing above
 them answered "why", and planning above the sprint happened in meetings
 and in people's heads. This adds the levels above the task — a **goal**,
 an **initiative**, an **epic** — as cards on the same board, linked by the
-one link the board already had, and a **Roadmap** that draws the whole
+one link the board already had, and a **Strategy board** that draws the whole
 tree on a timeline. It also retires three things that stood in the way:
 the Process board, card mirrors across projects, and the half-life a
 project card led on the day boards.
@@ -21,7 +21,7 @@ The Project board is gone, and with it every **project card** (a card
 with a `scope`, or `epic` before schema 2), the projects roster
 (`projects/<id>/project.yaml`, its `scopes/` — `epics/` before schema 2 —
 and `deadlines/`), the Scope columns, the deadline lines, "Attach to…",
-the Roadmap's "Project cards" toggle (`projectCards`), `view=project`,
+the Strategy board's "Project cards" toggle (`projectCards`), `view=project`,
 `spec.scope`/`spec.project`, `status.overdue`, the board's
 `metadata.projects`/`scopes`/`deadlines`/`projectDomains`, the
 `/scopes`, `/projects` and `/deadlines` routes, their MCP tools, the
@@ -55,10 +55,10 @@ is:
 
 | `type`       | what it is                                                | may have `parent` of                   | drawn on                       |
 | ------------ | --------------------------------------------------------- | -------------------------------------- | ------------------------------ |
-| *(absent)*   | a **task** — engineering work                             | epic, initiative, goal, or a task      | Me, Team, Backlog, Roadmap     |
-| `epic`       | a body of work worth tracking as one thing                | initiative, goal                       | Roadmap                        |
-| `initiative` | a product bet; a start and an end                         | goal                                   | Roadmap                        |
-| `goal`       | what the company is trying to reach                       | —                                      | Roadmap                        |
+| *(absent)*   | a **task** — engineering work                             | epic, initiative, goal, or a task      | Me, Team, Backlog, Strategy     |
+| `epic`       | a body of work worth tracking as one thing                | initiative, goal                       | Strategy                        |
+| `initiative` | a product bet; a start and an end                         | goal                                   | Strategy                        |
+| `goal`       | what the company is trying to reach                       | —                                      | Strategy                        |
 
 Three consequences, each deliberate:
 
@@ -79,9 +79,9 @@ Three consequences, each deliberate:
   `## Notes` section, an author, a rank, a log, a watch frame and a
   detail pane, because it is stored and served like any other card —
   nothing was added to the storage for it. Its dates are the card's own
-  `start` and `day`, which is why the Roadmap draws a goal and a task by
+  `start` and `day`, which is why the Strategy board draws a goal and a task by
   one rule. It carries **no `assignees`**: the people are on the tasks
-  under it, and the Roadmap reads them off the tree (an initiative is "in
+  under it, and the Strategy board reads them off the tree (an initiative is "in
   progress" the moment one of its tasks is somebody's). A write that sets
   one is refused; one found in a file is read off. It MAY carry a `team` —
   the team that carries it out — an `owner` — the one person who answers
@@ -117,7 +117,7 @@ board (the leaf tasks), so a listing builds one `board.Index` — the cards
 by id and by parent — and asks it of every card, and a change announces
 its ancestors with resources built once for every watcher; asked card by
 card it was a walk of the board per card, per watcher. Nobody sets a
-status by hand at this stage; the Roadmap and the card's own pane show
+status by hand at this stage; the Strategy board and the card's own pane show
 the derived one.
 
 ## Project cards lived on the Project board, and nowhere else (removed)
@@ -125,7 +125,7 @@ the derived one.
 Until 2026-11-07 a card with a `scope` was a PROJECT CARD (H4): a plan,
 not work in hand — no team, no assignees, no band, no size, done or not
 done, never a subtask and never on review, drawn on the Project board and
-under its planning parent on the Roadmap, and living and dying in its
+under its planning parent on the Strategy board, and living and dying in its
 column. It reversed the earlier slot rule, under which a project card
 with a week stood in its owner's column on the Team grid. The whole kind
 is gone now (see "Removed: the Project board" above); its files are left
@@ -264,8 +264,8 @@ it.
 
 ## Views
 
-The server's views are `me`, `team`, `backlog`, **`roadmap`** and
-`all`. The SPA shows four tabs — **Me, Team, Backlog, Roadmap** — the
+The server's views are `me`, `team`, `backlog`, **`strategy`** and
+`all`. The SPA shows four tabs — **Me, Team, Backlog, Strategy** — the
 Process tab is gone, the Triage tab with it went on 2026-11-03, and the
 Project tab on 2026-11-07: the Backlog, which used to be its drawer, is a board
 of its own ([backlog.md](backlog.md)). `all` is the escape hatch for
@@ -274,12 +274,12 @@ tools.
 **Me, Team and Backlog draw tasks.** A card with a `type` is not on
 them, whatever its dates or sprint say.
 
-**Roadmap** draws the hierarchy — every planning card, and every card that
+**Strategy** draws the hierarchy — every planning card, and every card that
 has a planning card above it, however many levels up — and, **below the
 tree, the work that is not in it yet**: every open task with no planning
 card above it, which is the work in hand on the Team and Me boards and the
 tasks parked in a team's backlog (H9). The loose work is
-listed because the Roadmap is where a lead drags it into the tree, and a
+listed because the Strategy board is where a lead drags it into the tree, and a
 board cannot offer a drag of a card it does not draw. A task already
 finished outside the hierarchy is not listed (nothing left to plan on
 it). Nor is a
@@ -293,20 +293,20 @@ watch keeps the tree LIVE: a planning card is never written when a task
 under it changes, so every card change also arrives as a `MODIFIED`
 frame for each planning card above it — the chain it stands under and
 the chain it left — with the counts the server derived, to everyone the
-Roadmap draws them for, the originator included. A
-**create** on the Roadmap is a planning card — `type` is `goal`,
+Strategy draws them for, the originator included. A
+**create** on the Strategy board is a planning card — `type` is `goal`,
 `initiative` or `epic`, `parent` optional under the level rule — or a
 **task under one**: no `type`, a `parent` naming a goal, an initiative
 or an epic (the epic's `+`). Such a task is born with a title, its
 parent and, when given, dates — no team, no owner, no day it was not
 given, no sprint — so, given no dates, it is parked in the no-team
-group's backlog (K3) and stands on the Roadmap under its parent until
+group's backlog (K3) and stands on the Strategy board under its parent until
 somebody takes it into work; under a task it would be a subtask, which is the parent's own
 board's gesture and is refused here. A task with no parent is not the
-Roadmap's, and a create on a day board refuses `type` (G67 — the board
+Strategy board's, and a create on a day board refuses `type` (G67 — the board
 a caller stands on is part of the address).
 
-## The Roadmap tab
+## The Strategy board tab
 
 Left, a tree: one row per card, indented by level with a guide line down
 each level and a chevron on a row that has rows under it, one
@@ -376,7 +376,7 @@ may land where, and a card never changes its type by being dragged: a
 goal goes nowhere but the top, an initiative under a goal, an epic under
 either, a task under any of them — or onto a task, which makes it a
 subtask, one level deep — and the top of the tree for planning cards only (a task dropped there would
-leave the Roadmap, which is the ×'s detach, not a drop). **Nothing moves
+leave the Strategy board, which is the ×'s detach, not a drop). **Nothing moves
 while a row is dragged** (H13): the dragged row and its subtree are
 dimmed where they stand, and where the card would land is a **mark drawn
 over the rows** that takes no room — a line in the gap, indented to the
@@ -394,7 +394,7 @@ nothing to unfold. The drop writes
 one parent and one ordering move, applied at once — with a filter on as
 without, since the watch does not echo the tab's own move — and undone with the
 server's own words if it refuses. Dates are changed in the card's pane;
-nothing is dragged on the timeline in this version. The Roadmap keeps
+nothing is dragged on the timeline in this version. The Strategy board keeps
 itself current from its watch like every board: a change under a
 planning card reaches the card's ancestors too (H5), so counts and
 standings move without a reload.
@@ -409,7 +409,7 @@ takes the third and never cuts a value short, and the actions that act on
 the whole card at its foot. Every crumb **opens that card** in the same
 drawer — ancestors root first, a subtask's task among them — with a way
 back to the card it was opened from (the pane keeps a stack); a planning
-crumb also offers the Roadmap, with that row unfolded and marked. A child
+crumb also offers the Strategy board, with that row unfolded and marked. A child
 row and the "Subtask of" row open their card the same way.
 
 The **description** is Markdown and is edited in place: the text reads as
@@ -435,11 +435,11 @@ goal or a subtask (a subtask's task is the group gesture's). A task's pane
 lists its **subtasks** and takes one more, grouped under it the way the
 Team and Me boards group a card (the parent's team, band and person come
 along; the day is the parent's or today), from whichever board the pane
-was opened on — Team, Me, Backlog or the Roadmap, where the new row stands
+was opened on — Team, Me, Backlog or the Strategy board, where the new row stands
 under its task at once. A planning card's pane draws what sits under it
-as the Roadmap's tree rooted one level below the card ("Under it",
+as the Strategy board's tree rooted one level below the card ("Under it",
 `PlanTree`, `roadmap.subtreeRows`): every level under it — plan items,
-tasks and subtasks, each marked by its kind — with the Roadmap's rows (fold, title, owner with an inherited team,
+tasks and subtasks, each marked by its kind — with the Strategy board's rows (fold, title, owner with an inherited team,
 status) and no timeline or dates. A row opens that card in the pane, by a
 click or from the keyboard; a plan item's + adds under that row (the levels
 it may hold, the next one first) and stays open for the next one; the add
@@ -456,12 +456,12 @@ asks the Team board's own question in the Team board's own dialog, with
 the hierarchy's answers: delete, or only detach (ungroup, for a subtask).
 The actions: mark as done and reopen (a task), delete — or
 delete-or-unlink on a card that sits under something. The options and the children come from the
-roadmap listing, fetched once per card when the pane needs it: the day
+strategy listing, fetched once per card when the pane needs it: the day
 boards never deliver a planning card to look up. The rules live in
 `web/src/roadmap.ts` and `web/src/owner.ts` with their cases beside
 them; the components draw them.
 
-The Roadmap opens the drawer with a click on a card. The Me, Team and Backlog boards SELECT a card on the first
+The Strategy board opens the drawer with a click on a card. The Me, Team and Backlog boards SELECT a card on the first
 click and open it on a click on the selected card (#290): the selection is
 shared live as presence, so a lead selecting a card on the Team board is
 seen on the person's Me board and the other way round, and each of the
@@ -470,16 +470,16 @@ three draws the others' marks on their cards.
 ## Owner
 
 A task has one owner: a **team**, and a **person** on that team — or
-neither. The Roadmap asks for it in one place (the Owner cell of a task
+neither. The Strategy board asks for it in one place (the Owner cell of a task
 row, the Owner row of the drawer) and answers it with one gesture,
 **`own`** (`POST /api/v1/views/{view}/cards/{uid}/actions/own
 {team?, person?}`, MCP `own_card`), offered by every board that draws a
-task — the Roadmap, Me, Team, Backlog, and `all`. A person is picked FROM a
+task — the Strategy board, Me, Team, Backlog, and `all`. A person is picked FROM a
 team: a person without a team is refused (`ownerNeedsTeam`), a team
 without a person is the whole answer, both empty takes the owner off.
 
 What the answer **does** depends on whether the card is in work — a date
-or a sprint — because the Roadmap lists the loose work (H9) and giving it
+or a sprint — because the Strategy board lists the loose work (H9) and giving it
 a home means putting it where a board draws it:
 
 - a **person** files an **unplanned** card the way typing it into their
@@ -537,7 +537,7 @@ Added: `spec.type` (`goal` | `initiative` | `epic`, absent for a task),
 `spec.parent` accepting a card of any type under the level rule,
 `status.lineage` (the ancestors root-first, each `{uid, type, title}`),
 `status.hierarchy` on a planning card (`{status, done, total}`), the view
-`roadmap`; the problem codes `unknownType`, `parentLevel`, `planningCard`
+`strategy`; the problem codes `unknownType`, `parentLevel`, `planningCard`
 (and `crossDomain`, kept from the mirrors, for a link across a
 repository); `create_card` takes `type`, `update_card` takes `parent`,
 `list_cards view=roadmap`. No tool per level: a goal is a card. There is
@@ -574,7 +574,7 @@ task.
   service `TestTheLevelRuleGovernsTheParent`,
   `TestAReviewCardSitsUnderNothingOfItsOwn`; apiserver
   `TestACardResourceCarriesItsLineageAndHierarchy`.
-- H3 — a planning card is drawn on the Roadmap and on no day board, is
+- H3 — a planning card is drawn on the Strategy board and on no day board, is
   never carried or weighed, and has no stage, progress, band,
   backlog, sprint or review of its own (`ErrPlanningCard`,
   422 `planningCard`); its dates are its own, and it has no assignee — the people doing the work are on the tasks under it; it may carry a team and an owner (who carries it out, who answers for it, `ownership.md`), which place nothing — so it lives in the primary repository. Pinned by
@@ -584,7 +584,7 @@ task.
   `TestTheRoadmapListsTheHierarchy`; web `hierarchy.test.ts`.
 - H4 — ~~a project card stands in its column alone: no team, no owner,
   no band, no size, never a subtask, no subtasks, never a review; drawn on
-  the Project board and the Roadmap only~~ **Removed** 2026-11-07 with the
+  the Project board and the Strategy board only~~ **Removed** 2026-11-07 with the
   Project board. What remains is H15: every reader skips a project-card
   file and `projects/`, and nothing writes them. Pinned by gitstore
   `TestTheReaderSkipsTheProjectBoardsFiles`,
@@ -609,11 +609,11 @@ task.
   `TestAHierarchyLinkDoesNotPlaceTheChild`,
   `TestSubtaskHelpersStopAtPlanningCards`; service
   `TestAHierarchyLinkStaysInsideOneRepository`.
-- H7 — a Roadmap create is a planning card (`type` required) or a task
+- H7 — a Strategy create is a planning card (`type` required) or a task
   under one (no `type`, `parent` a planning card; born undated, nobody's,
   in no sprint — parked in the no-team backlog until taken into work, K3; under a task refused);
   a team, an owner, a zone and a size are refused by name; a day-board
-  create refuses `type` (`ErrNotOnThisBoard`); the Roadmap draws the ×,
+  create refuses `type` (`ErrNotOnThisBoard`); the Strategy board draws the ×,
   which deletes the planning card and hands its children to its parent.
   Pinned by service `TestAPlanningCardIsBornOnTheRoadmapAndNowhereElse`,
   `TestDeletingAPlanningCardReparentsItsChildren`,
@@ -624,7 +624,7 @@ task.
 - H8 — schema 2: the five steps, idempotent, and what a pre-migration
   day still shows (steps 3 and 5 cut back to leave project cards and
   `projects/` untouched, 2026-11-07).
-- H9 — the Roadmap also lists, below the tree, every open task with no
+- H9 — the Strategy board also lists, below the tree, every open task with no
   planning card above it (in hand or parked); a finished one
   outside the hierarchy and a subtask whose
   parent is out stay out; the gate and the watch follow. Pinned by

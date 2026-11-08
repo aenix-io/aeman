@@ -54,7 +54,7 @@ That is also why PATCH and DELETE stay off the view. Patching a field is not a g
 | `me` | the Me day board | the caller's own cards on `day` (`user=` for a lead looking at someone else's) |
 | `team` | the lead's day grid | the cards of `team=` on `day`, everyone's |
 | `backlog` | the teams' backlogs | each named team's parked open tasks, in backlog order (`backlog.md`, K2) |
-| `roadmap` | the Roadmap | the hierarchy, board-wide: every goal, initiative and epic, and every card with one above it — and, below the tree, every open task with none above it yet: in hand or parked (`hierarchy.md`, H9) |
+| `strategy` | the Strategy board | the hierarchy, board-wide: every goal, initiative and epic, and every card with one above it — and, below the tree, every open task with none above it yet: in hand or parked (`hierarchy.md`, H9) |
 | `all` | no board | everything the caller may read — the escape hatch, and it has to be said out loud |
 
 `process` is not here: the Process board drew structure (processes and their tasks), which was view-less, and the cards it showed were the Project board's — both are gone now.
@@ -72,10 +72,10 @@ Three things, in the order they bite.
 | `me` | on the caller, `day` (today by default), the team's current sprint, in the UNPLANNED band (a subtask takes its parent's instead) | `parked`, `type`, any other band |
 | `team` | on `team=`, `day`, that team's current sprint, in any band; `assignee` optional (the Unassigned column) | `parked`, `type` |
 | `backlog` | in `team=`'s backlog: parked, last, no dates, no sprint | a `day`, `type` |
-| `roadmap` | a PLANNING card: `type`, its dates and a `parent` of a higher level — no owner, no team, no sprint, no band (H3); or a TASK under a planning `parent`, undated unless dated — parked in the no-team backlog when undated (H7, K3) | `scope`, `parked`, `reviewOf`, a sprint, a team, an assignee, a band, a size |
+| `strategy` | a PLANNING card: `type`, its dates and a `parent` of a higher level — no owner, no team, no sprint, no band (H3); or a TASK under a planning `parent`, undated unless dated — parked in the no-team backlog when undated (H7, K3) | `scope`, `parked`, `reviewOf`, a sprint, a team, an assignee, a band, a size |
 | `all` | exactly what the fields say, as today | nothing |
 
-Every board but the roadmap refuses `type`: a goal, an initiative or an epic is made on the Roadmap and nowhere else (H7).
+Every board but the Strategy board refuses `type`: a goal, an initiative or an epic is made on the Strategy board and nowhere else (H7).
 
 `parked` stops being a flag: it was a board wearing a field's clothes, and the board is now in the address. `noSprint` stays a field of the `me` and `team` creates, because it is a real question the board asks — the dialog that offers "this sprint" or "the next one" when a card is typed for a day ahead — and a question is not a board.
 
@@ -85,7 +85,7 @@ Every board but the roadmap refuses `type`: a goal, an initiative or an epic is 
 | --- | --- | --- |
 | `remove` | every board (`all` included, as all four are) | the ×, with the intents that board offers (`removal.ts` already decides this per board; the view is how it says so) |
 | `finished-earlier` | `me`, `team` | work done in the sprint before this one, marked done now |
-| `own` | `roadmap`, `me`, `team`, `backlog` — every board that draws a task | whose is this: a team and a person, a team alone, or nobody — and where an unplanned card goes when told (`hierarchy.md`, "Owner", H10) |
+| `own` | `strategy`, `me`, `team`, `backlog` — every board that draws a task | whose is this: a team and a person, a team alone, or nobody — and where an unplanned card goes when told (`hierarchy.md`, "Owner", H10) |
 
 A gesture asked of a view that does not draw it is **404** — the same answer as asking for a route that is not there, because that is what it is.
 
