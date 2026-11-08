@@ -52,6 +52,13 @@ func Schema4Plan(b Board) ([]RankChange, []CellChange, error) {
 	for _, chainIDs := range Schema4Orders(ix, old) {
 		chain(chainIDs)
 	}
+	// LAST, and so lowest: every Team cell's tasks in work in their current
+	// order. An edge that would contradict an order above is dropped (the
+	// one key per card cannot keep all of them, Appendix D); every other is
+	// kept, so a cell changes only where the backlog or Strategy forces it.
+	for _, cell := range teamCells(ix, old) {
+		chain(cell)
+	}
 	order := g.sort()
 	newOrder := make([]Card, len(order))
 	for i, p := range order {
@@ -351,17 +358,42 @@ func lisKeep(cards []Card) []bool {
 
 // cellChanges compares the Team cells — open tasks in work, by the team
 // they stand under, their first person and their zone — before and after.
-func cellChanges(ix *Index, before, after []Card) []CellChange {
-	cellOf := func(c Card) (string, bool) {
-		if !InWork(c) || c.Parked || Complete(c.Stage, c.Progress) || IsPlanning(c) || IsStateTitle(c.Title) {
-			return "", false
-		}
-		person := ""
-		if len(c.Assignees) > 0 {
-			person = c.Assignees[0]
-		}
-		return ix.PlacedTeam(c) + "\x00" + person + "\x00" + string(c.Zone), true
+// teamCellOf is the Team cell a card is drawn in — the team it stands
+// under, its first person, its zone — for an open task in work.
+func teamCellOf(ix *Index, c Card) (string, bool) {
+	if !InWork(c) || c.Parked || Complete(c.Stage, c.Progress) || IsPlanning(c) || IsStateTitle(c.Title) {
+		return "", false
 	}
+	person := ""
+	if len(c.Assignees) > 0 {
+		person = c.Assignees[0]
+	}
+	return ix.PlacedTeam(c) + "\x00" + person + "\x00" + string(c.Zone), true
+}
+
+// teamCells is every Team cell's tasks in work, in the order given, as
+// chains of ids (deterministically ordered by cell).
+func teamCells(ix *Index, cards []Card) [][]string {
+	by := map[string][]string{}
+	for _, c := range cards {
+		if k, ok := teamCellOf(ix, c); ok {
+			by[k] = append(by[k], c.ItemID)
+		}
+	}
+	keys := make([]string, 0, len(by))
+	for k := range by {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([][]string, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, by[k])
+	}
+	return out
+}
+
+func cellChanges(ix *Index, before, after []Card) []CellChange {
+	cellOf := func(c Card) (string, bool) { return teamCellOf(ix, c) }
 	group := func(cards []Card) map[string][]string {
 		out := map[string][]string{}
 		for _, c := range cards {

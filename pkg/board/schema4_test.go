@@ -201,3 +201,40 @@ func generatedBoard(r *rand.Rand) Board {
 	}
 	return NewBoard(cards)
 }
+
+// Q14 — A TEAM CELL KEEPS ITS ORDER WHEREVER NOTHING FORCES A CHANGE. The
+// tasks in work in one cell (team, person, zone) are the lowest-priority
+// chain: kept unless a backlog or Strategy order contradicts it. Here w2
+// stands before w1 by key; w2 hangs under E2 after a parked task the
+// backlog puts after E1's — so w2 must move down, and w1, free of every
+// other order, must follow it rather than overtake it.
+func TestSchema4KeepsATeamCellsOrderWhenNothingForcesIt(t *testing.T) {
+	work := func(id, parent, rank string) Card {
+		return Card{ItemID: id, Parent: parent, Team: "T", Assignees: []string{"p"}, Zone: ZoneGray,
+			StartDate: "2026-11-02", Day: "2026-11-02", Rank: rank}
+	}
+	b := NewBoard([]Card{
+		{ItemID: "E1", Type: TypeEpic, Rank: "1"},
+		{ItemID: "E2", Type: TypeEpic, Rank: "2"},
+		{ItemID: "p2", Parent: "E2", Team: "T", Parked: true, Rank: "a"},
+		work("w2", "E2", "b"),
+		work("w1", "", "c"),
+		{ItemID: "p1", Parent: "E1", Team: "T", Parked: true, Rank: "e"},
+	})
+	assertSchema4Preserves(t, b)
+	changes, cells, err := Schema4Plan(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cells) != 0 {
+		t.Fatalf("a cell was reordered though nothing forced it: %+v", cells)
+	}
+	after := ApplyRankChanges(Board{Cards: schema3Order(b)}, changes)
+	pos := map[string]int{}
+	for i, c := range after.Cards {
+		pos[c.ItemID] = i
+	}
+	if pos["w2"] > pos["w1"] {
+		t.Fatalf("w1 overtook w2: %v", after.Cards)
+	}
+}
