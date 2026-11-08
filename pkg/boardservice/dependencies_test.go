@@ -34,7 +34,8 @@ func TestADependencyListIsWrittenWhole(t *testing.T) {
 	if !f.saw("SetDependsOn api auth,db") {
 		t.Fatalf("the write: %v", f.log)
 	}
-	if !f.saw("AppendEvent api " + board.EventDependsOn + " gone->auth,db") {
+	// The event names what the board holds: the dangling id is no card.
+	if !f.saw("AppendEvent api " + board.EventDependsOn + " ->auth,db") {
 		t.Fatalf("no depends-on event: %v", f.log)
 	}
 	n := f.count("SetDependsOn")

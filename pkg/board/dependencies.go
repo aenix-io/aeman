@@ -224,3 +224,59 @@ func (ix *Index) WouldCycle(c Card, target string) bool {
 	}
 	return false
 }
+
+// DependencyProblem is why a dependency list cannot be written.
+type DependencyProblem int
+
+// The answers CheckDependsOn gives.
+const (
+	DependencyFine DependencyProblem = iota
+	// DependencyBadTarget is a target N1 refuses.
+	DependencyBadTarget
+	// DependencyClosesCycle is a target that would close a cycle (N2).
+	DependencyClosesCycle
+)
+
+// CheckDependsOn judges writing ids as the list of the card with id itemID
+// on b: each id the card's list on b does not hold yet must be a lawful
+// target (N1) and close no cycle (N2), judged on the board as the write would
+// leave it, so two new ids that close a cycle only together are found. It
+// answers the first problem and the id it is about. The board must be the
+// WHOLE board: a visitor's breaks a lineage at a card they cannot read and
+// ends a cycle's walk there.
+func CheckDependsOn(b Board, itemID string, ids []string) (DependencyProblem, string) {
+	ix := NewIndex(b)
+	card, ok := ix.Find(itemID)
+	if !ok {
+		return DependencyFine, ""
+	}
+	if len(ids) > 0 && card.ReviewOf != "" {
+		return DependencyBadTarget, ""
+	}
+	after := b
+	after.Cards = make([]Card, len(b.Cards))
+	copy(after.Cards, b.Cards)
+	for i := range after.Cards {
+		if after.Cards[i].ItemID == itemID {
+			after.Cards[i].DependsOn = ids
+		}
+	}
+	tentative := NewIndex(after)
+	self, _ := tentative.Find(itemID)
+	had := map[string]bool{}
+	for _, id := range card.DependsOn {
+		had[id] = true
+	}
+	for _, id := range ids {
+		if had[id] {
+			continue // on the list already: lawful when it was written
+		}
+		if !ix.DependencyTargetOK(card, id) {
+			return DependencyBadTarget, id
+		}
+		if tentative.WouldCycle(self, id) {
+			return DependencyClosesCycle, id
+		}
+	}
+	return DependencyFine, ""
+}

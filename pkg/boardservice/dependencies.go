@@ -34,9 +34,16 @@ var ErrDependencyCycle = errors.New("that dependency would make the cards wait f
 
 // SetDependsOn replaces the list of cards a card waits for. Each id once, in
 // the order given; an id new to the list must be a lawful target that closes
-// no cycle, checked before anything is written; an id already on the list
-// the board no longer holds is dangling and is dropped (N6). An unchanged
-// list writes nothing.
+// no cycle, checked before anything is written; an id on the list the board
+// does not hold — dangling (N6), or a card the caller cannot read — is not
+// the caller's to name, and the backend keeps what it must of it. The list is
+// compared with the card's readable part as a SET: reordering, or leaving out
+// what the caller cannot name, writes nothing. The event names only what the
+// caller's board holds.
+//
+// The check here is on the caller's board and names what it refuses; the
+// backend judges again on the whole board, and where writes are put in order
+// (DependencyBackend), and refuses there without naming anything.
 func (s *Service) SetDependsOn(ctx context.Context, boardID string, itemID string, ids []string) error {
 	db, ok := s.backend.(DependencyBackend)
 	if !ok {
@@ -47,48 +54,64 @@ func (s *Service) SetDependsOn(ctx context.Context, boardID string, itemID strin
 		return err
 	}
 	ix := board.NewIndex(b)
+	var held []string
+	for _, id := range card.DependsOn {
+		if _, ok := ix.Find(id); ok {
+			held = append(held, id)
+		}
+	}
 	var clean []string
 	for _, id := range ids {
 		id = strings.TrimSpace(id)
 		if id == "" || slices.Contains(clean, id) {
 			continue
 		}
-		if _, held := ix.Find(id); !held && slices.Contains(card.DependsOn, id) {
-			continue // dangling: the target is gone (N6)
+		if _, ok := ix.Find(id); !ok && slices.Contains(card.DependsOn, id) {
+			continue // dangling, or not the caller's to name (N6)
 		}
 		clean = append(clean, id)
 	}
-	if slices.Equal(clean, card.DependsOn) {
+	if sameSet(clean, held) {
 		return nil
 	}
-	if len(clean) > 0 && card.ReviewOf != "" {
-		return fmt.Errorf("%w: %q is a review card", ErrDependencyTarget, card.Title)
-	}
-	// Checked on the board as the write would leave it, so two new ids that
-	// close a cycle only together are found too.
-	after := b
-	after.Cards = slices.Clone(b.Cards)
-	for i := range after.Cards {
-		if after.Cards[i].ItemID == card.ItemID {
-			after.Cards[i].DependsOn = clean
+	switch problem, id := board.CheckDependsOn(b, card.ItemID, clean); problem {
+	case board.DependencyBadTarget:
+		if id == "" {
+			return fmt.Errorf("%w: %q is a review card", ErrDependencyTarget, card.Title)
 		}
-	}
-	tentative := board.NewIndex(after)
-	self, _ := tentative.Find(card.ItemID)
-	for _, id := range clean {
-		if slices.Contains(card.DependsOn, id) {
-			continue // on the list already: lawful when it was written
-		}
-		if !ix.DependencyTargetOK(card, id) {
-			return fmt.Errorf("%w: %q", ErrDependencyTarget, id)
-		}
-		if tentative.WouldCycle(self, id) {
-			return fmt.Errorf("%w: %q", ErrDependencyCycle, id)
-		}
+		return fmt.Errorf("%w: %q", ErrDependencyTarget, id)
+	case board.DependencyClosesCycle:
+		return fmt.Errorf("%w: %q", ErrDependencyCycle, id)
 	}
 	if err := db.SetDependsOn(ctx, b, card, clean); err != nil {
 		return err
 	}
-	s.logEvent(ctx, b, card, board.EventDependsOn, strings.Join(card.DependsOn, ","), strings.Join(clean, ","))
+	s.logEvent(ctx, b, card, board.EventDependsOn, strings.Join(held, ","), strings.Join(clean, ","))
+	return nil
+}
+
+// sameSet reports two id lists holding the same ids, order aside.
+func sameSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for _, id := range a {
+		if !slices.Contains(b, id) {
+			return false
+		}
+	}
+	return true
+}
+
+// DependencyRefusal turns a whole-board check's answer into the error a
+// caller gets: a backend that judged on cards the caller may not read names
+// none of them.
+func DependencyRefusal(problem board.DependencyProblem) error {
+	switch problem {
+	case board.DependencyBadTarget:
+		return ErrDependencyTarget
+	case board.DependencyClosesCycle:
+		return ErrDependencyCycle
+	}
 	return nil
 }

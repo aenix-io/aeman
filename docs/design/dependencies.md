@@ -127,6 +127,20 @@ store's field writers do not read the board).
   (target, cycle) before anything is written; ids already on the list that
   have since become invalid are kept (they were valid when written).
   Refusals: 422 `dependencyTarget`, 422 `dependencyCycle`.
+- The check runs on the WHOLE board, never on a visitor's: their board
+  breaks a lineage at a card they cannot read and ends a cycle's walk
+  there. The service checks first on the caller's board and names the id
+  it refuses; the backend checks again on the whole board and refuses
+  without naming anything, since the card that decides may be hidden. The
+  server's store makes that check against its cache under the write lock,
+  where writes are put in order, so two requests that each read the board
+  before the other's write cannot close a cycle between them.
+- A visitor's list is the readable part. A dependency on a card they
+  cannot read stays on the card in the place it held; their ids fill the
+  readable places in their order. The list is compared with the card's
+  readable part as a SET: reordering, or leaving out what they cannot
+  name, writes nothing and logs nothing. The event names only ids the
+  caller's board holds.
 - MCP: `update_card` takes `dependsOn` (array of uids, full list) with the
   same meaning; its description explains the derived lock and the customer
   inheritance. ADR 0002 parity: no separate tools.
@@ -134,7 +148,8 @@ store's field writers do not read the board).
   backend half is the optional `boardservice.DependencyBackend`
   (`SetDependsOn`), as customers are `OwnershipBackend`'s.
 - The change is one commit on the card's own file and is logged as a
-  `depends-on` event (from → to, comma-joined uids).
+  `depends-on` event (from → to, comma-joined uids the caller's board
+  holds; a dangling id is no card and is not named).
 
 ## Watch
 
