@@ -128,7 +128,7 @@ export function BacklogEpics({
               const owner = inherited ? { ...own, team: r.epic.effectiveTeam ?? "" } : own;
               return (
                 <span
-                  className={`backlog-epic-owner${inherited ? " backlog-epic-owner-inherited" : ""}`}
+                  className="backlog-epic-owner"
                   onClick={(e) => e.stopPropagation()}
                   onPointerDown={(e) => e.stopPropagation()}
                   draggable={false}

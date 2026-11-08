@@ -5609,10 +5609,6 @@ button.card-age {
   justify-content: flex-end;
 }
 
-.backlog-epic-owner-inherited .owner-badge-team {
-  opacity: 0.45;
-}
-
 .backlog-epic-title {
   display: inline-flex;
   align-items: center;
