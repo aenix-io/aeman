@@ -39,67 +39,77 @@ func TeamGrid(b Board, team, day string) []Card { return TeamGridIn(b, NewIndex(
 func TeamGridIn(b Board, ix *Index, team, day string) []Card {
 	today := TodayIso()
 	out := []Card{}
-	planning := ix.planning
 	for _, c := range b.Cards {
-		// The day boards draw TASKS: a goal, an initiative or an epic is the
-		// Strategy's (H3), and a subtask rides its parent. A task under an
-		// epic is neither — it stands here like any task (H1).
 		// A task stands under its EFFECTIVE team (O13): its own, else the
 		// plan item's above it.
-		if IsPlanning(c) || IsSubtaskIn(c, planning) || ix.PlacedTeam(c) != team || InBacklog(c) {
+		if ix.PlacedTeam(c) != team {
 			continue
 		}
-		// IN WORK: a date or a sprint (K1). A task with neither is in its
-		// team's backlog, which is not a day's work, or the backlog would
-		// land in everybody's column and stay there for good. It is also the
-		// only bound this rule has on how far back or forward a card reaches.
-		if !InWork(c) {
-			continue
-		}
-
-		// THE SPRINT'S OWN DAY IS THE WHOLE SPRINT. Every few mornings a lead
-		// opens the day the sprint began — the "current sprint" jump lands
-		// there — and goes through it with the team, so that day must hold
-		// everything the sprint has been: the work it opened with, the work
-		// typed into it on its second and third days (most of a sprint is
-		// created inside it), and the work already CLOSED. Hence this clause
-		// stands above BOTH the gate on the card's own start date and the
-		// gate on being finished — a day that showed only what is still open
-		// answered "what is left", which is not the question the meeting
-		// asks.
-		//
-		// One thing still leaves that day: work somebody DEFERRED past today
-		// goes at once. Deferring is the act of taking a card out of the
-		// sprint in progress — sent to tomorrow it leaves today's sprint and
-		// arrives tomorrow; sent three days out, the sprint that opens
-		// tomorrow starts without it.
-		if inSprintOn(b, c, team, day, today) && !deferredPast(c, today) {
+		if inHandOn(b, ix, c, team, day, today) {
 			out = append(out, c)
-			continue
 		}
-		// Finished work belongs to the day it was finished on — with one
-		// exception on TODAY's live board: a done card whose sprint the team
-		// has CARRIED PAST was left behind by Carry Over on purpose, so it
-		// does not come back to today merely because it was finished today. It
-		// still stands on the day it recorded (its sprint's own day, served as
-		// a snapshot once past). A done card of the CURRENT sprint is already
-		// kept above; one of no sprint at all (a dated card) is never
-		// closed and shows on its day as before.
-		if Complete(c.Stage, c.Progress) &&
-			(!finishedOn(c, day) || (day == today && inClosedSprint(b, c, team))) {
-			continue
-		}
-		// Put off to a later day: gone from the board until that day comes.
-		if deferredPast(c, day) {
-			continue
-		}
-		// A day still to COME is a plan, not a state (see plannedFor).
-		if day > today && !plannedFor(c, day) {
-			continue
-		}
-		out = append(out, c)
 	}
 	return out
+}
+
+// inHandOn is the day rule TeamGrid applies to one card of the team it stands
+// under; MeView applies the same rule to a person's cards, whatever their team.
+func inHandOn(b Board, ix *Index, c Card, team, day, today string) bool {
+	// The day boards draw TASKS: a goal, an initiative or an epic is the
+	// Strategy's (H3), and a subtask rides its parent. A task under an
+	// epic is neither — it stands here like any task (H1).
+	if IsPlanning(c) || IsSubtaskIn(c, ix.planning) || InBacklog(c) {
+		return false
+	}
+	// IN WORK: a date or a sprint (K1). A task with neither is in its
+	// team's backlog, which is not a day's work, or the backlog would
+	// land in everybody's column and stay there for good. It is also the
+	// only bound this rule has on how far back or forward a card reaches.
+	if !InWork(c) {
+		return false
+	}
+	// THE SPRINT'S OWN DAY IS THE WHOLE SPRINT. Every few mornings a lead
+	// opens the day the sprint began — the "current sprint" jump lands
+	// there — and goes through it with the team, so that day must hold
+	// everything the sprint has been: the work it opened with, the work
+	// typed into it on its second and third days (most of a sprint is
+	// created inside it), and the work already CLOSED. Hence this clause
+	// stands above BOTH the gate on the card's own start date and the
+	// gate on being finished — a day that showed only what is still open
+	// answered "what is left", which is not the question the meeting
+	// asks.
+	//
+	// One thing still leaves that day: work somebody DEFERRED past today
+	// goes at once. Deferring is the act of taking a card out of the
+	// sprint in progress — sent to tomorrow it leaves today's sprint and
+	// arrives tomorrow; sent three days out, the sprint that opens
+	// tomorrow starts without it.
+	if inSprintOn(b, c, team, day, today) && !deferredPast(c, today) {
+		return true
+	}
+	// Finished work belongs to the day it was finished on — while its
+	// sprint is the team's CURRENT one. A done card whose sprint the team
+	// has CARRIED PAST is that sprint's record: the leftovers a planning
+	// meeting closes before pressing Carry over, or a card left out of a
+	// carry-over and closed days later, were worked in the old sprint, and
+	// the day they were closed on — the new sprint's — does not take them
+	// (D21). Read back as a record, a day carries its own sprint pointers,
+	// so the meeting day still says the new sprint was current. A done
+	// card of the CURRENT sprint is already kept above; one of no sprint
+	// at all (a dated card) is never closed and shows on its day.
+	if Complete(c.Stage, c.Progress) &&
+		(!finishedOn(c, day) || inClosedSprint(b, c, team)) {
+		return false
+	}
+	// Put off to a later day: gone from the board until that day comes.
+	if deferredPast(c, day) {
+		return false
+	}
+	// A day still to COME is a plan, not a state (see plannedFor).
+	if day > today && !plannedFor(c, day) {
+		return false
+	}
+	return true
 }
 
 // inSprintOn reports that a day answers for the card's SPRINT — which is what
@@ -189,86 +199,30 @@ func inClosedSprint(b Board, c Card, team string) bool {
 	return c.SprintStart != "" && cur != "" && c.SprintStart != cur
 }
 
-// MeView returns the cards on a person's own day board on a given day:
-// the user's cards (user = "" means everyone) that belong to the sprint that was
-// active on the viewed day (activeSprint) and whose scheduled day has arrived
-// (startDate empty or on or before the viewed day). Today shows the current
-// sprint; rolling back into the previous sprint's days shows that sprint's cards.
-// A card whose team had no active sprint on the day, or that is deferred to the
-// future, never shows. It mirrors myCards in MeBoard.tsx.
+// MeView returns the cards on a person's own day board on a given day: the
+// Team board's rule (inHandOn) asked of the person's cards, each by the team
+// it stands under — the Me board is the Team board for one person, whatever
+// their team (D6). user = "" means everyone. A parent whose subtask is the
+// person's stands here too: the subtask rides it. It mirrors onMyDay in
+// web/src/meview.ts.
+//
+// It used to be a rule of its own — a card on the days of the sprints it
+// spanned, across its date range, and on today if open — and the two boards
+// drifted: a card closed on a day of a later sprint stood on the Team board
+// that day and on no day of its owner's board, and an open card a carry-over
+// left behind was debt on the Team board's past days and nowhere on the Me
+// board's.
 func MeView(b Board, user, day string) []Card { return MeViewIn(b, NewIndex(b), user, day) }
 
 // MeViewIn is MeView over an index built once for a listing.
 func MeViewIn(b Board, ix *Index, user, day string) []Card {
 	today := TodayIso()
 	out := []Card{}
-	planning := ix.planning
 	for _, c := range b.Cards {
-		// A planning card is the Strategy board's, not a person's day (H3).
-		if IsPlanning(c) {
-			continue
-		}
-		// Subtasks are never listed on their own; they ride with their
-		// parent. A task under an epic is not one (H1).
-		if IsSubtaskIn(c, planning) {
-			continue
-		}
 		if user != "" && !slices.Contains(c.Assignees, user) && !childAssigned(b, c.ItemID, user) {
 			continue
 		}
-		// One parked in the team's backlog is not this person's day: it is
-		// waiting to be taken into work, not being worked on (K1). A task has
-		// no week to read (K7).
-		if InBacklog(c) {
-			continue
-		}
-		// A deferred / future-scheduled card (startDate past today) is hidden
-		// until that day, then shows from it on (Carry Over re-syncs its sprint).
-		if c.StartDate != "" && c.StartDate > today {
-			if day >= c.StartDate {
-				out = append(out, c)
-			}
-			continue
-		}
-		// An OPEN card of the person's keeps standing on their LIVE board (today)
-		// even when its sprint has fallen behind the team's current one. A card
-		// left out of a carry-over is still unfinished, and this board is the one
-		// that keeps everything of theirs that is not closed — so it must not
-		// vanish the way it did when its end date passed (the range gate below
-		// stops there) and its sprint fell two carry-overs back (the sprint-span
-		// gate below wants the active sprint). It is the Me-board echo of the Team
-		// board keeping overran work. Scoped to TODAY and to a card that HAS a
-		// sprint: a day still to come is a plan, a past day reads by its own
-		// sprint, and an old sprint-LESS stray still does not resurface (below).
-		if day == today && c.SprintStart != "" && !Complete(c.Stage, c.Progress) &&
-			(c.StartDate == "" || c.StartDate <= day) {
-			out = append(out, c)
-			continue
-		}
-		// A card with an end date spans a range: it shows on every day from its
-		// start through its end regardless of sprint boundaries.
-		if c.StartDate != "" && c.Day != "" && c.Day >= c.StartDate &&
-			day >= c.StartDate && day <= c.Day {
-			out = append(out, c)
-			continue
-		}
-		// A task reads its EFFECTIVE team's sprint (O13).
-		as := ActiveSprint(b, ix.PlacedTeam(c), day)
-		// A sprint-less day card (a "next sprint" create) stays visible from its
-		// scheduled day on — the sprint gate below would otherwise hide it right
-		// when its day arrives, until a carry-over adopts it into a sprint. Only
-		// cards scheduled into the sprint active on the viewed day (or later)
-		// qualify: an old sprint-less stray stays on its own past days instead
-		// of resurfacing on today's board.
-		if c.SprintStart == "" && c.StartDate != "" &&
-			c.StartDate <= day && c.StartDate >= as {
-			out = append(out, c)
-			continue
-		}
-		// A card shows on every day of the sprints it spans — from the one it
-		// started in up to the sprint it now belongs to — so a carried-over card
-		// still appears on the previous sprint's days it came from.
-		if as != "" && as <= c.SprintStart && (c.StartDate == "" || c.StartDate <= day) {
+		if inHandOn(b, ix, c, ix.PlacedTeam(c), day, today) {
 			out = append(out, c)
 		}
 	}

@@ -344,6 +344,9 @@ export interface CardDayLog {
 export interface CarryReport {
   carried: number;
   reseeded: number;
+  /** With returnFinished: the finished cards that were in work before the
+   *  current sprint opened, handed back to the previous sprint. */
+  returned?: number;
 }
 
 /** Provider is the thin intent client of the aeman API: components state
@@ -468,6 +471,8 @@ export interface Provider {
   carryOver(
     team: string | null,
     dryRun?: boolean,
+    /** Hand the previous sprint back its finished leftovers instead (D20). */
+    returnFinished?: boolean,
   ): Promise<CarryReport>;
   /** Apply a shared team order (moves the hidden sprint-state cards). */
   reorderTeams(teams: string[]): Promise<void>;

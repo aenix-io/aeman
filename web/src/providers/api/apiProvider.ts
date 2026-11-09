@@ -584,10 +584,11 @@ export const apiProvider: Provider = {
   async carryOver(
     team: string | null,
     dryRun = false,
+    returnFinished = false,
   ): Promise<CarryReport> {
     return answered(
       client.POST("/sprints/actions/carry-over", {
-        body: { team: team ?? "", dryRun },
+        body: { team: team ?? "", dryRun, ...(returnFinished ? { returnFinished } : {}) },
       }),
     );
   },

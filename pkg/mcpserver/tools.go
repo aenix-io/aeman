@@ -731,6 +731,8 @@ type carryOverInput struct {
 	boardRef
 	Team   string `json:"team,omitempty" jsonschema:"EXISTING team key from get_board metadata.teams; empty is the no-team group. Carrying an unknown team quietly bootstraps a sprint pointer for it — never invent a key here"`
 	DryRun bool   `json:"dryRun,omitempty" jsonschema:"report the would-be counts without changing anything"`
+	// ReturnFinished is the other intent of the same tool (D20).
+	ReturnFinished bool `json:"returnFinished,omitempty" jsonschema:"instead of carrying over, hand the previous sprint back the finished cards of the current sprint that were in work before it opened (the leftovers closed after the carry-over); moves no pointer"`
 }
 
 func (h *server) carryOver(ctx context.Context, _ *mcp.CallToolRequest, in carryOverInput) (*mcp.CallToolResult, boardservice.CarryReport, error) {
@@ -738,7 +740,11 @@ func (h *server) carryOver(ctx context.Context, _ *mcp.CallToolRequest, in carry
 	if err != nil {
 		return nil, boardservice.CarryReport{}, err
 	}
-	rep, err := svc.CarryOver(ctx, boardID, in.Team, in.DryRun)
+	carry := svc.CarryOver
+	if in.ReturnFinished {
+		carry = svc.ReturnFinished
+	}
+	rep, err := carry(ctx, boardID, in.Team, in.DryRun)
 	if err != nil {
 		return nil, boardservice.CarryReport{}, err
 	}

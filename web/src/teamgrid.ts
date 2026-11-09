@@ -11,7 +11,8 @@ import type { Card } from "./providers/types";
 
 /** inHandOn reports whether a card is in hand on a day: what the person is
  *  WORKING ON then, and nothing else. Mirrors board.TeamGrid (the team gate
- *  is the caller's — a board loads the teams it draws).
+ *  is the caller's — a board loads the teams it draws) and, asked of a
+ *  person's cards, board.MeView (meview.onMyDay).
  *
  *  A card is in hand when it is not a subtask (those render nested under
  *  their parent), is IN WORK rather than parked in its team's backlog (K1:
@@ -52,14 +53,15 @@ export function inHandOn(
   if (inSprintOn(c, day, today, currentSprint) && !deferredPast(c, today)) {
     return true;
   }
-  // Finished work belongs to the day it recorded — except on TODAY, where a
-  // done card of a sprint the team has CARRIED PAST was left behind on purpose
-  // and does not cling to today even if finished today; it stays on its own
-  // sprint's day. A done card of the current sprint is kept above, and one in
-  // no sprint is never closed. Mirrors board.inClosedSprint.
+  // Finished work belongs to the day it recorded — while its sprint is the
+  // team's CURRENT one. A done card of a sprint the team has CARRIED PAST is
+  // that sprint's record: the leftovers closed before pressing Carry over, or
+  // a card left out of a carry-over and closed later, do not stand on the day
+  // they were closed on (D21). A done card of the current sprint is kept
+  // above, and one in no sprint is never closed. Mirrors board.inClosedSprint.
   const closedSprint =
     !!c.sprintStart && currentSprint !== "" && c.sprintStart !== currentSprint;
-  if (isComplete(c) && (!finishedOn(c, day) || (day === today && closedSprint))) {
+  if (isComplete(c) && (!finishedOn(c, day) || closedSprint)) {
     return false;
   }
   // Put off to a later day: gone until that day comes.

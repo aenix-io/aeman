@@ -2,6 +2,7 @@ package board
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -66,8 +67,11 @@ func TestTeamGrid(t *testing.T) {
 		// reads that day is asking exactly what became of it.
 		{"a sprint's day shows its sprint, closed work included",
 			"A", "2026-06-15", []string{"A1", "Adebt", "Alate"}},
-		{"and the day it was finished on holds it", "A", "2026-07-20",
-			[]string{"A1", "Adebt", "Alate"}},
+		// Finished a month after its sprint was carried past: that work is
+		// the 06-15 sprint's, and the day it was closed on — in a later
+		// sprint — does not take it (D21).
+		{"a card closed after its sprint was carried past is not on the day it was closed",
+			"A", "2026-07-20", []string{"A1", "Adebt"}},
 		{"the day it was finished keeps it", "A", "2026-06-22",
 			[]string{"A1", "Adebt", "Adone"}},
 		// A day far ahead is a PLAN: it holds what somebody put on it, and
@@ -119,27 +123,54 @@ func meBoard() Board {
 	})
 }
 
-func TestMeView(t *testing.T) {
-	b := meBoard()
-	cases := []struct {
-		name      string
-		user, day string
-		want      []string
-	}{
-		{"current-sprint card shows on its sprint day", "u", "2026-06-26", []string{"u1"}},
-		{"sprint-less scheduled card shows from its day on", "u", "2026-06-27", []string{"u1", "unext"}},
-		{"deferred current-sprint card appears once its day arrives", "u", "2026-06-28", []string{"u1", "ufuture", "unext"}},
-		{"rolling back shows the previous sprint, hides the current", "u", "2026-06-22", []string{"uprev"}},
-		{"an old sprint-less stray lives on its own past days only", "u", "2026-06-19", []string{"ustray"}},
-		{"before the stray's day nothing shows", "u", "2026-06-14", []string{}},
-		{"empty user sees everyone in the active sprint", "", "2026-06-26", []string{"u1", "u4"}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := ids(MeView(b, c.user, c.day)); !reflect.DeepEqual(got, c.want) {
-				t.Errorf("MeView(%q,%q) = %v, want %v", c.user, c.day, got, c.want)
+// THE ME BOARD IS THE TEAM BOARD FOR ONE PERSON (D6). Whatever day is asked,
+// a person's board holds exactly the cards of theirs the Team board draws in
+// the column of the team each stands under — the same debt, the same closed
+// work, the same plan for a day ahead — and nobody else's. It had a rule of
+// its own and the two drifted: a card closed on a day of a later sprint stood
+// on the Team board that day and on no day of its owner's board.
+func TestMeViewIsTheTeamBoardForOnePerson(t *testing.T) {
+	for name, b := range map[string]Board{"me": meBoard(), "grid": gridBoard()} {
+		ix := NewIndex(b)
+		teams := map[string]bool{}
+		for _, c := range b.Cards {
+			teams[ix.PlacedTeam(c)] = true
+		}
+		for day := "2026-05-30"; day <= "2026-07-25"; day = AddDays(day, 1) {
+			for _, user := range []string{"u", "v", ""} {
+				want := []string{}
+				onGrid := map[string]bool{}
+				for team := range teams {
+					for _, c := range TeamGrid(b, team, day) {
+						onGrid[c.ItemID] = true
+					}
+				}
+				for _, c := range b.Cards {
+					if onGrid[c.ItemID] && (user == "" || slices.Contains(c.Assignees, user)) {
+						want = append(want, c.ItemID)
+					}
+				}
+				if got := ids(MeView(b, user, day)); !reflect.DeepEqual(got, want) {
+					t.Errorf("%s: MeView(%q,%s) = %v, Team board's = %v", name, user, day, got, want)
+				}
 			}
-		})
+		}
+	}
+}
+
+// The person is the filter: their cards, and a parent whose subtask is theirs
+// (the subtask rides it); user "" is everyone.
+func TestMeViewPicksThePersonsCards(t *testing.T) {
+	b := meBoard()
+	day := "2026-06-26"
+	if got := ids(MeView(b, "v", day)); !reflect.DeepEqual(got, []string{"u4"}) {
+		t.Errorf("v's board = %v, want [u4]", got)
+	}
+	b.Cards = append(b.Cards, Card{ItemID: "kid", Parent: "u4", Assignees: []string{"w"}, Team: "A",
+		StartDate: day, SprintStart: day})
+	b = NewBoard(b.Cards)
+	if got := ids(MeView(b, "w", day)); !reflect.DeepEqual(got, []string{"u4"}) {
+		t.Errorf("w owns only a subtask of u4: board = %v, want the parent [u4]", got)
 	}
 }
 
@@ -501,8 +532,8 @@ func TestTheMeBoardReadsNoWeek(t *testing.T) {
 // the owner's LIVE board all the same, the way the Team board keeps overran
 // work. Observed in production: an open card two carry-overs behind showed in
 // Team but not in Me. Still bounded: a done card carried past stays on its own
-// sprint, an old sprint-LESS stray does not resurface, and a day still to come
-// is a plan, not a dumping ground for open work.
+// sprint, and a day still to come is a plan, not a dumping ground for open
+// work.
 func TestMeBoardKeepsStrandedOpenWork(t *testing.T) {
 	today := TodayIso()
 	stale := AddDays(today, -12) // its sprint, two carry-overs behind
@@ -519,7 +550,7 @@ func TestMeBoardKeepsStrandedOpenWork(t *testing.T) {
 			{ItemID: "stranded-done", Team: "alpha", Assignees: []string{"u"},
 				SprintStart: stale, StartDate: AddDays(today, -14), Day: AddDays(today, -10),
 				Progress: 100, DoneAt: AddDays(today, -11)},
-			// An old sprint-LESS stray must still NOT resurface on today.
+			// An old sprint-LESS card, still open.
 			{ItemID: "stray", Team: "alpha", Assignees: []string{"u"},
 				StartDate: AddDays(today, -14), Day: AddDays(today, -10)},
 		},
@@ -540,8 +571,11 @@ func TestMeBoardKeepsStrandedOpenWork(t *testing.T) {
 	if now["stranded-done"] {
 		t.Errorf("a finished card carried past belongs to its own sprint, not today: %v", now)
 	}
-	if now["stray"] {
-		t.Errorf("an old sprint-less stray must not resurface on today: %v", now)
+	// An old sprint-less card that is still open is debt, on the owner's board
+	// as on the Team board's column (D6): it used to be kept off today here
+	// alone.
+	if !now["stray"] {
+		t.Errorf("an open sprint-less card is debt on today, as on the Team board: %v", now)
 	}
 
 	// A day still to COME is a plan: the stranded card is not dumped onto it.
@@ -601,5 +635,33 @@ func TestCurrentSprintAccumulatesDoneAndCarryOverLeavesItBehind(t *testing.T) {
 	}
 	if !on2(opened)["doneToday"] {
 		t.Error("the closed sprint's own day keeps the work it finished")
+	}
+}
+
+// The leftovers a planning meeting closes BEFORE pressing Carry over belong
+// to the sprint they were worked in, not to the one the meeting opens. The
+// day of the meeting, read back later as a record (the sprint pointers as
+// they stood that evening, the new sprint current), does not hold them,
+// though it is the day they were closed on; the old sprint's days do. The
+// same holds on the Me board, which is the Team board's rule for one person
+// (D21).
+func TestLeftoversClosedBeforeTheCarryOverStayInTheirSprint(t *testing.T) {
+	old, meeting := "2026-11-02", "2026-11-06"
+	b := NewBoard([]Card{
+		{ItemID: "leftover", Team: "T", Assignees: []string{"u"}, SprintStart: old, StartDate: old,
+			Day: old, Progress: 100, DoneAt: meeting},
+		{ItemID: "carried", Team: "T", Assignees: []string{"u"}, SprintStart: meeting, StartDate: old},
+		// A card with no sprint has no sprint to belong to: it stands on the
+		// day it was closed, as every dated card does.
+		{ItemID: "dated", Team: "T", Assignees: []string{"u"}, StartDate: old, Day: old,
+			Progress: 100, DoneAt: meeting},
+	})
+	b.SprintStates = map[string]SprintState{"T": {Current: meeting, Previous: old}}
+	team := ids(TeamGrid(b, "T", meeting))
+	me := ids(MeView(b, "u", meeting))
+	for name, got := range map[string][]string{"team": team, "me": me} {
+		if !reflect.DeepEqual(got, []string{"carried", "dated"}) {
+			t.Errorf("%s on the meeting day = %v, want [carried dated]", name, got)
+		}
 	}
 }

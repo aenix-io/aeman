@@ -353,6 +353,33 @@ func TestAPICarryOverDryRun(t *testing.T) {
 	}
 }
 
+// returnFinished is its own intent on the carry-over route (D20): it hands
+// the previous sprint back the finished leftovers and reports them, where the
+// same call without it on a sprint already today's changes nothing.
+func TestAPICarryOverReturnFinished(t *testing.T) {
+	today := board.TodayIso()
+	prev := board.AddDays(today, -3)
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "c1", Team: "alpha", SprintStart: today, StartDate: prev, Progress: 100, DoneAt: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, Previous: prev, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	sprintOf := func() string {
+		return decodeCard(t, do(t, srv, http.MethodGet, "/api/v1/cards/c1", "")).Spec.Dates.Sprint
+	}
+	rec := do(t, srv, http.MethodPost, "/api/v1/sprints/actions/carry-over", `{"team":"alpha"}`)
+	if rec.Code != http.StatusOK || sprintOf() != today {
+		t.Fatalf("a repeated carry-over must change nothing: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = do(t, srv, http.MethodPost, "/api/v1/sprints/actions/carry-over", `{"team":"alpha","returnFinished":true}`)
+	var rep boardservice.CarryReport
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusOK || rep.Returned != 1 || sprintOf() != prev {
+		t.Fatalf("status = %d, report = %+v, sprint = %s", rec.Code, rep, sprintOf())
+	}
+}
+
 func TestAPISprints(t *testing.T) {
 	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", Previous: "2026-06-13", ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)

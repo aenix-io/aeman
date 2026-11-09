@@ -173,6 +173,19 @@ describe("the current sprint accumulates its finished work and carry over leaves
     expect(inHandOn(doneToday, OPENED, TODAY, TODAY)).toBe(true); // on its own sprint's day
   });
 
+  // The leftovers a planning meeting closes BEFORE pressing Carry over belong
+  // to the sprint they were worked in: read back later, the meeting day (its
+  // own pointers: the new sprint current) does not hold them though they were
+  // closed on it. A dated card with no sprint still stands on its doneAt day.
+  // Mirrors TestLeftoversClosedBeforeTheCarryOverStayInTheirSprint (D21).
+  it("leaves the leftovers closed before the carry-over off the meeting day, read back later", () => {
+    const LATER = "2026-09-30";
+    const leftover = card({ sprintStart: OPENED, startDate: OPENED, progress: 100, doneAt: TODAY });
+    expect(inHandOn(leftover, TODAY, LATER, TODAY)).toBe(false);
+    const dated = card({ startDate: OPENED, day: OPENED, progress: 100, doneAt: TODAY });
+    expect(inHandOn(dated, TODAY, LATER, TODAY)).toBe(true);
+  });
+
   it("drops a card finished earlier off today once its sprint is no longer current", () => {
     // A later sprint is current now; the done card's sprint is the previous one.
     expect(inHandOn(done(), TODAY, TODAY, TODAY)).toBe(false);

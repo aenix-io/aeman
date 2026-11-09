@@ -843,6 +843,115 @@ func TestCarryOverIdempotentWhenAlreadyToday(t *testing.T) {
 	}
 }
 
+// Returning the finished leftovers hands back to the previous sprint the
+// finished work that came from it (D20). A lead closes the old sprint's
+// leftovers during the planning meeting, often after the carry-over pulled
+// them in: done, they belong to the sprint they were worked in, not to the one
+// that opened this morning. Only work that was IN WORK before the sprint
+// opened goes back — a card created in the new sprint, or taken out of the
+// backlog into it, and already finished has nowhere to return to. A finished
+// subtask and a finished review card ride with their card (a review lives in
+// its original's sprint, R5). The pointers do not move, and doneAt stays: the
+// cards were closed when they say they were.
+func TestReturnFinishedHandsBackTheLeftovers(t *testing.T) {
+	today := board.TodayIso()
+	prev := board.AddDays(today, -4)
+	before := prev + "T09:00:00Z"
+	this := today + "T12:00:00Z"
+	f := newFake([]board.Card{
+		// Carried in this morning, closed after: back to the previous sprint.
+		{ItemID: "carried-done", Team: "alpha", SprintStart: today, StartDate: prev,
+			Stage: board.StageDone, Progress: 100, DoneAt: today, CreatedAt: before},
+		// Its finished subtask rides back with it.
+		{ItemID: "kid", Team: "alpha", Parent: "carried-done", SprintStart: today,
+			Progress: 100, DoneAt: today, CreatedAt: before},
+		// Its review, sent and passed at the meeting: created today, it rides
+		// with the card it reviews.
+		{ItemID: "rev", Team: "alpha", ReviewOf: "carried-done", SprintStart: today, StartDate: today,
+			Progress: 100, DoneAt: today, CreatedAt: this},
+		// Carried in and still open: the new sprint's work, stays.
+		{ItemID: "carried-open", Team: "alpha", SprintStart: today, StartDate: prev, CreatedAt: before},
+		// Born in the new sprint and already done: nowhere to return to.
+		{ItemID: "new-done", Team: "alpha", SprintStart: today, StartDate: today,
+			Stage: board.StageDone, Progress: 100, DoneAt: today, CreatedAt: this},
+		// Old, but parked in the backlog until this morning: taking it into
+		// work dated it today, so it was never in the previous sprint.
+		{ItemID: "taken-done", Team: "alpha", SprintStart: today, StartDate: today,
+			Stage: board.StageDone, Progress: 100, DoneAt: today, CreatedAt: before},
+		// Another team's finished carried card is not this team's business.
+		{ItemID: "beta-done", Team: "beta", SprintStart: today, Progress: 100, DoneAt: today, CreatedAt: before},
+		// A finished recurrent card keeps its own cycle.
+		{ItemID: "weekly", Team: "alpha", SprintStart: today, Stage: board.StageRecurrent,
+			Progress: 100, Recurrence: "weekly", CreatedAt: before},
+	}, map[string]board.SprintState{
+		"alpha": {Current: today, Previous: prev},
+		"beta":  {Current: today, Previous: prev},
+	})
+	dry, err := f2svc(f).ReturnFinished(ctx, "acme", "alpha", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dry.Returned != 1 || f.count("SetSprintStart") != 0 {
+		t.Fatalf("dry run = %+v, log=%v", dry, f.log)
+	}
+	rep, err := f2svc(f).ReturnFinished(ctx, "acme", "alpha", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Returned != 1 {
+		t.Fatalf("Returned = %d, want 1 (the subtask and the review ride along uncounted)", rep.Returned)
+	}
+	if f.count("SetSprintState") != 0 {
+		t.Fatalf("returning must not move the sprint pointers; log=%v", f.log)
+	}
+	for id, want := range map[string]string{
+		"carried-done": prev, "kid": prev, "rev": prev,
+		"carried-open": today, "new-done": today, "taken-done": today, "beta-done": today, "weekly": today,
+	} {
+		if got := f.get(id).SprintStart; got != want {
+			t.Errorf("%s sprint = %s, want %s", id, got, want)
+		}
+	}
+	if f.get("carried-done").DoneAt != today {
+		t.Errorf("doneAt is the day the card was closed and stays: %+v", f.get("carried-done"))
+	}
+}
+
+// A team on its very first sprint has no previous one to hand anything back
+// to.
+func TestReturnFinishedWithoutAPreviousSprintDoesNothing(t *testing.T) {
+	today := board.TodayIso()
+	f := newFake([]board.Card{{ItemID: "d", Team: "alpha", SprintStart: today, StartDate: board.AddDays(today, -3),
+		Progress: 100, DoneAt: today}},
+		map[string]board.SprintState{"alpha": {Current: today}})
+	rep, err := f2svc(f).ReturnFinished(ctx, "acme", "alpha", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Returned != 0 || f.count("SetSprintStart") != 0 || f.count("SetSprintState") != 0 {
+		t.Fatalf("rep=%+v log=%v", rep, f.log)
+	}
+}
+
+// A carry-over repeated on the day the sprint opened — a retry after a
+// timeout, a second lead racing the first — stays a no-op even with finished
+// leftovers in the sprint: handing them back is its own intent
+// (ReturnFinished), never a side effect of carrying.
+func TestCarryOverRepeatedTodayDoesNotReturnAnything(t *testing.T) {
+	today := board.TodayIso()
+	prev := board.AddDays(today, -4)
+	f := newFake([]board.Card{{ItemID: "d", Team: "alpha", SprintStart: today, StartDate: prev,
+		Progress: 100, DoneAt: today}},
+		map[string]board.SprintState{"alpha": {Current: today, Previous: prev}})
+	rep, err := f2svc(f).CarryOver(ctx, "acme", "alpha", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep != (CarryReport{}) || f.count("SetSprintStart") != 0 {
+		t.Fatalf("rep=%+v log=%v", rep, f.log)
+	}
+}
+
 func TestCarryOverWithNothingToCarryStillAdvances(t *testing.T) {
 	old := "2026-01-01"
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", SprintStart: old, Stage: board.StageDone}},
@@ -1898,15 +2007,20 @@ func TestSendToReviewUsesOriginalSprint(t *testing.T) {
 	}
 }
 
-// Carry-over leaves a completed review card behind, pinned to the closing
-// sprint's day, so it does not linger on the new sprint (and its unfinished
-// original carries).
-func TestCarryOverPinsCompletedReviewCard(t *testing.T) {
+// Carry-over leaves a completed review card behind as it leaves any finished
+// card, and no longer re-dates it (R6). It used to pin the card's dates to the
+// closing sprint's day, because the Me board read a done card by its date
+// range and drew a review created today on the new sprint's first day. The Me
+// board is the Team board's rule now (D6), which reads a done card by its
+// sprint: left on the closing sprint, it is on neither board today.
+func TestCarryOverLeavesACompletedReviewCardAsItIs(t *testing.T) {
+	today := board.TodayIso()
+	old := board.AddDays(today, -3)
 	f := newFake([]board.Card{
-		{ItemID: "orig", Team: "alpha", Progress: 50, StartDate: "2026-07-03", Day: "2026-07-03", SprintStart: "2026-07-02"},
-		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, Assignees: []string{"bob"},
-			StartDate: "2026-07-03", Day: "2026-07-03", SprintStart: "2026-07-02"},
-	}, map[string]board.SprintState{"alpha": {Current: "2026-07-02", ItemID: "s1"}})
+		{ItemID: "orig", Team: "alpha", Progress: 50, StartDate: old, Day: old, SprintStart: old},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, DoneAt: today, Assignees: []string{"bob"},
+			StartDate: today, Day: today, SprintStart: old},
+	}, map[string]board.SprintState{"alpha": {Current: old, ItemID: "s1"}})
 	rep, err := f2svc(f).CarryOver(ctx, "acme", "alpha", false)
 	if err != nil {
 		t.Fatal(err)
@@ -1915,8 +2029,16 @@ func TestCarryOverPinsCompletedReviewCard(t *testing.T) {
 		t.Fatalf("carried = %d, want 1 (only the original)", rep.Carried)
 	}
 	r := f.get("rev")
-	if r.StartDate != "2026-07-02" || r.Day != "2026-07-02" || r.SprintStart != "2026-07-02" {
-		t.Fatalf("completed review card must be pinned to the closing sprint: %+v", r)
+	if r.StartDate != today || r.Day != today || r.SprintStart != old {
+		t.Fatalf("a completed review card stays as it was: %+v", r)
+	}
+	f.mu.Lock()
+	b := f.b
+	f.mu.Unlock()
+	for _, c := range append(board.TeamGrid(b, "alpha", today), board.MeView(b, "bob", today)...) {
+		if c.ItemID == "rev" {
+			t.Fatalf("the closed sprint's review card must not stand on today's boards")
+		}
 	}
 }
 
@@ -2539,7 +2661,7 @@ func TestSetDatesIntoFutureLeavesTheSprint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	carry, _, _ := selectCarry(b, "alpha", today, future)
+	carry, _ := selectCarry(b, "alpha", today, future)
 	found := false
 	for _, c := range carry {
 		if c.ItemID == "c1" {
