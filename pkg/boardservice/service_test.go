@@ -843,6 +843,87 @@ func TestCarryOverIdempotentWhenAlreadyToday(t *testing.T) {
 	}
 }
 
+// Pressing Carry over AGAIN on the day the sprint opened hands back to the
+// previous sprint the finished work that came from it. A lead closes the old
+// sprint's leftovers during the planning meeting, often after the carry-over
+// pulled them in: done, they belong to the sprint they were worked in, not to
+// the one that opened this morning. Only work that was IN WORK before today goes
+// back — a card created in the new sprint, or taken out of the backlog today,
+// and already finished has nowhere to return to — and the pointers do not move: the second press is not a second
+// sprint.
+func TestCarryOverAgainReturnsFinishedCarriedWork(t *testing.T) {
+	today := board.TodayIso()
+	prev := board.AddDays(today, -4)
+	before := prev + "T09:00:00Z"
+	this := today + "T12:00:00Z"
+	f := newFake([]board.Card{
+		// Carried in this morning, closed after: back to the previous sprint.
+		{ItemID: "carried-done", Team: "alpha", SprintStart: today, StartDate: prev,
+			Stage: board.StageDone, Progress: 100, DoneAt: today, CreatedAt: before},
+		// Its finished subtask rides back with it.
+		{ItemID: "kid", Team: "alpha", Parent: "carried-done", SprintStart: today,
+			Progress: 100, DoneAt: today, CreatedAt: before},
+		// Carried in and still open: the new sprint's work, stays.
+		{ItemID: "carried-open", Team: "alpha", SprintStart: today, StartDate: prev, CreatedAt: before},
+		// Born in the new sprint and already done: nowhere to return to.
+		{ItemID: "new-done", Team: "alpha", SprintStart: today, StartDate: today,
+			Stage: board.StageDone, Progress: 100, DoneAt: today, CreatedAt: this},
+		// Old, but parked in the backlog until this morning: taking it into
+		// work dated it today, so it was never in the previous sprint.
+		{ItemID: "taken-done", Team: "alpha", SprintStart: today, StartDate: today,
+			Stage: board.StageDone, Progress: 100, DoneAt: today, CreatedAt: before},
+		// Another team's finished carried card is not this press's business.
+		{ItemID: "beta-done", Team: "beta", SprintStart: today, Progress: 100, DoneAt: today, CreatedAt: before},
+		// A finished recurrent card keeps its own cycle.
+		{ItemID: "weekly", Team: "alpha", SprintStart: today, Stage: board.StageRecurrent,
+			Progress: 100, Recurrence: "weekly", CreatedAt: before},
+	}, map[string]board.SprintState{
+		"alpha": {Current: today, Previous: prev},
+		"beta":  {Current: today, Previous: prev},
+	})
+	dry, err := f2svc(f).CarryOver(ctx, "acme", "alpha", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dry.Returned != 1 || dry.Carried != 0 || f.count("SetSprintStart") != 0 {
+		t.Fatalf("dry run = %+v, log=%v", dry, f.log)
+	}
+	rep, err := f2svc(f).CarryOver(ctx, "acme", "alpha", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Returned != 1 {
+		t.Fatalf("Returned = %d, want 1 (the subtask rides along uncounted)", rep.Returned)
+	}
+	if f.count("SetSprintState") != 0 {
+		t.Fatalf("a second press must not move the sprint pointers; log=%v", f.log)
+	}
+	for id, want := range map[string]string{
+		"carried-done": prev, "kid": prev,
+		"carried-open": today, "new-done": today, "taken-done": today, "beta-done": today, "weekly": today,
+	} {
+		if got := f.get(id).SprintStart; got != want {
+			t.Errorf("%s sprint = %s, want %s", id, got, want)
+		}
+	}
+}
+
+// A team on its very first sprint has no previous one to hand anything back
+// to: the second press does nothing at all.
+func TestCarryOverAgainWithoutAPreviousSprintDoesNothing(t *testing.T) {
+	today := board.TodayIso()
+	f := newFake([]board.Card{{ItemID: "d", Team: "alpha", SprintStart: today,
+		Progress: 100, DoneAt: today, CreatedAt: board.AddDays(today, -3) + "T09:00:00Z"}},
+		map[string]board.SprintState{"alpha": {Current: today}})
+	rep, err := f2svc(f).CarryOver(ctx, "acme", "alpha", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Returned != 0 || f.count("SetSprintStart") != 0 || f.count("SetSprintState") != 0 {
+		t.Fatalf("rep=%+v log=%v", rep, f.log)
+	}
+}
+
 func TestCarryOverWithNothingToCarryStillAdvances(t *testing.T) {
 	old := "2026-01-01"
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", SprintStart: old, Stage: board.StageDone}},

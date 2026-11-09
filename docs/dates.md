@@ -53,6 +53,11 @@ today while the card stays in its sprint). A "**next sprint**" create has **no
 - **Carry Over** advances the team's sprint to today (current → previous) and
   pulls its **unfinished** cards forward (sets their `sprintStart = today`). Done
   cards stay on their sprint. After it runs, the board jumps the viewed day to today.
+- **Carry Over pressed again** the same day moves no pointer and carries
+  nothing: it hands back to the previous sprint the finished cards of today's
+  sprint that were in work before today — the leftovers a planning meeting
+  closes after the carry-over (D20). A card created today, or taken out of the
+  backlog today, stays: it has no earlier sprint.
 
 ## Rules
 

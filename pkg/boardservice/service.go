@@ -735,6 +735,10 @@ type CarryReport struct {
 	// the new one; the subtasks that ride along are not counted.
 	Carried  int `json:"carried"`
 	Reseeded int `json:"reseeded"`
+	// Returned counts the finished cards a second press on the sprint's own
+	// day handed back to the previous sprint (selectReturn); their subtasks
+	// ride along and are not counted.
+	Returned int `json:"returned,omitempty"`
 }
 
 // ReorderTeams applies a shared team order by moving the hidden sprint-state
@@ -884,7 +888,8 @@ func (s *Service) CarryOver(ctx context.Context, boardID string, team string, dr
 	today := board.TodayIso()
 	if old == today {
 		// Already on today's sprint: re-advancing would overwrite previous.
-		return CarryReport{}, nil
+		// The press hands the previous sprint back its finished work instead.
+		return s.returnFinished(ctx, b, team, dryRun)
 	}
 	carry, reseed, relocate := selectCarry(b, team, old, today)
 	// Subtasks ride with their carried parent - even completed ones, and
@@ -963,6 +968,79 @@ func (s *Service) CarryOver(ctx context.Context, boardID string, team string, dr
 	if firstErr != nil {
 		return rep, fmt.Errorf("carried over %d of %d cards, %d failed: %w",
 			len(carry)-failed, len(carry), failed, firstErr)
+	}
+	return rep, nil
+}
+
+// selectReturn picks what a second Carry over on the sprint's own day hands
+// back to the previous sprint: the team's finished cards in today's sprint that
+// were IN WORK before it opened — carried in this morning and closed since, the
+// leftovers a planning meeting closes after the carry-over. A card born in the
+// new sprint, or taken out of the backlog today, has no earlier sprint to
+// return to and stays; a finished recurrent
+// card keeps its own cycle (CarryOver reseeds it). Subtasks are not picked on
+// their own: they ride with their parent (returnFollowers).
+func selectReturn(b board.Board, team, today string) []board.Card {
+	var out []board.Card
+	planning := board.PlanningIDs(b)
+	teams := board.PlacedTeams(b)
+	for _, c := range b.Cards {
+		if board.IsPlanning(c) || board.IsSubtaskIn(c, planning) || teams[c.ItemID] != team {
+			continue
+		}
+		if c.SprintStart != today || !board.Complete(c.Stage, c.Progress) || c.Stage == board.StageRecurrent {
+			continue
+		}
+		if !inWorkBefore(c, today) {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// inWorkBefore reports a card that was in work before the given day: its
+// start date is earlier. Taking a task into work dates it that day, so a task
+// pulled out of the backlog this morning reads as today's however old it is,
+// while one carried in keeps the start it was worked from. It is read off the
+// card rather than the history, which a shallow clone cuts at a horizon; a
+// card with no start date falls back to the day it was created.
+func inWorkBefore(c board.Card, day string) bool {
+	if c.StartDate != "" {
+		return c.StartDate < day
+	}
+	return c.CreatedAt != "" && board.LocalDateIso(c.CreatedAt) < day
+}
+
+// returnFinished is the second press of Carry over on the day the sprint
+// opened: it moves selectReturn's cards, and the finished subtasks under them,
+// back to the previous sprint. The sprint pointers stay as they are. A team
+// with no previous sprint has nowhere to return anything to.
+func (s *Service) returnFinished(ctx context.Context, b board.Board, team string, dryRun bool) (CarryReport, error) {
+	today := board.TodayIso()
+	prev := board.PreviousSprint(b, team)
+	if prev == "" || prev == today {
+		return CarryReport{}, nil
+	}
+	back := selectReturn(b, team, today)
+	rep := CarryReport{Returned: len(back)}
+	if dryRun || len(back) == 0 {
+		return rep, nil
+	}
+	moving := map[string]bool{}
+	for _, c := range back {
+		moving[c.ItemID] = true
+	}
+	for _, c := range b.Cards {
+		if c.Parent != "" && moving[c.Parent] && !moving[c.ItemID] && c.SprintStart == today {
+			back = append(back, c)
+		}
+	}
+	for _, c := range back {
+		if err := s.setSprintStartRetry(ctx, b, c, prev); err != nil {
+			return rep, err
+		}
+		s.logEvent(ctx, b, c, board.EventSprint, c.SprintStart, prev)
 	}
 	return rep, nil
 }

@@ -344,6 +344,9 @@ export interface CardDayLog {
 export interface CarryReport {
   carried: number;
   reseeded: number;
+  /** A second press on the sprint's own day: the finished cards that were in
+   *  work before it opened, handed back to the previous sprint. */
+  returned?: number;
 }
 
 /** Provider is the thin intent client of the aeman API: components state

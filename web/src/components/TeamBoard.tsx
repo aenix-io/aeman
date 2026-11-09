@@ -1538,16 +1538,39 @@ export function TeamBoard({
     const label = team ?? "no team";
     const old = currentSprint(board, team);
     const today = todayIso();
-    // Idempotent: if the sprint is already today's, do not re-advance — that would
-    // overwrite the previous sprint, making previous = current = today. Still land
-    // on today, so pressing Carry over always brings the current sprint into view.
-    // Nothing is SAID when the app asked rather than the reader: they pressed
-    // nothing, and being told their sprint is fine is not an answer to that.
+    // The sprint is already today's: never re-advance — that would overwrite
+    // the previous sprint, making previous = current = today. A second press
+    // hands the previous sprint back its finished work instead: the leftovers
+    // closed after the carry-over that were in work before today (the server
+    // picks them). Still land on today, so pressing Carry over always brings
+    // the current sprint into view. Nothing is SAID or asked when the app
+    // asked rather than the reader: they pressed nothing.
     if (old === today) {
       onSelectDate(today);
-      if (!asked) {
-        onError(`«${label}» is already on today's sprint.`);
+      if (asked) {
+        return;
       }
+      let back: CarryReport;
+      try {
+        back = await track(provider.carryOver(team, true));
+      } catch (err: unknown) {
+        onError(errMessage(err));
+        return;
+      }
+      const n = back.returned ?? 0;
+      if (n === 0) {
+        onError(`«${label}» is already on today's sprint; no finished card to return to the previous one.`);
+        return;
+      }
+      if (!window.confirm(`«${label}» is already on today's sprint. Return ${n} finished card(s) to the previous sprint?`)) {
+        return;
+      }
+      try {
+        await track(provider.carryOver(team));
+      } catch (err: unknown) {
+        onError(errMessage(err));
+      }
+      reload();
       return;
     }
     let rep: CarryReport;
