@@ -1540,9 +1540,10 @@ export function TeamBoard({
     const today = todayIso();
     // The sprint is already today's: never re-advance — that would overwrite
     // the previous sprint, making previous = current = today. A second press
-    // hands the previous sprint back its finished work instead: the leftovers
-    // closed after the carry-over that were in work before today (the server
-    // picks them). Still land on today, so pressing Carry over always brings
+    // asks to hand the previous sprint back its finished work instead — its
+    // own intent on the route (returnFinished, D20): the leftovers closed
+    // after the carry-over that were in work before today (the server picks
+    // them). Still land on today, so pressing Carry over always brings
     // the current sprint into view. Nothing is SAID or asked when the app
     // asked rather than the reader: they pressed nothing.
     if (old === today) {
@@ -1552,7 +1553,7 @@ export function TeamBoard({
       }
       let back: CarryReport;
       try {
-        back = await track(provider.carryOver(team, true));
+        back = await track(provider.carryOver(team, true, true));
       } catch (err: unknown) {
         onError(errMessage(err));
         return;
@@ -1566,7 +1567,7 @@ export function TeamBoard({
         return;
       }
       try {
-        await track(provider.carryOver(team));
+        await track(provider.carryOver(team, false, true));
       } catch (err: unknown) {
         onError(errMessage(err));
       }

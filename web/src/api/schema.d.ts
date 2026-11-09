@@ -509,7 +509,7 @@ export interface paths {
         put?: never;
         /**
          * Advance a team's sprint to today and carry its unfinished cards.
-         * @description Finished recurrent cards reseed as fresh copies. Pressed again on the day the sprint opened, it moves no pointer and carries nothing: it hands back to the previous sprint the finished cards that were in work before today (carried in, closed since), counted in `returned`; a card created in the new sprint or taken out of the backlog today stays. With `dryRun` the counts are reported and nothing changes, which is what backs a confirm dialog.
+         * @description Finished recurrent cards reseed as fresh copies. A team already on today's sprint is left as it is, so a repeated carry-over is a no-op. With `returnFinished` it neither advances nor carries: it hands back to the previous sprint the finished cards of the current sprint that were in work before it opened (carried in, closed since), with their finished subtasks and review cards, counted in `returned`; a card created in the new sprint or taken out of the backlog into it stays. With `dryRun` the counts are reported and nothing changes, which is what backs a confirm dialog.
          */
         post: operations["carryOver"];
         delete?: never;
@@ -1063,7 +1063,7 @@ export interface components {
             /** @description The unfinished cards of the closing sprint carried into the new one (their subtasks ride along and are not counted). */
             carried: number;
             reseeded: number;
-            /** @description A second press on the sprint's own day: the finished cards that were in work before the sprint opened, handed back to the previous sprint (their subtasks ride along and are not counted). Absent on a carry-over that advanced the sprint. */
+            /** @description With `returnFinished`: the finished cards that were in work before the current sprint opened, handed back to the previous sprint (their subtasks and review cards ride along and are not counted). Absent on a carry-over. */
             returned?: number;
         };
         /** @description The card a board makes. Every field is optional here because what a board REQUIRES and what it refuses are the board's own rules, answered as a 422 that names the field. */
@@ -1211,6 +1211,8 @@ export interface components {
             team?: string;
             /** @description Report the counts and change nothing. */
             dryRun?: boolean;
+            /** @description Hand the previous sprint back its finished leftovers instead of carrying over (D20): the pointers stay, nothing is carried. */
+            returnFinished?: boolean;
         };
         ReorderTeamsBody: {
             teams?: string[];

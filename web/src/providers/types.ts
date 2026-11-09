@@ -344,8 +344,8 @@ export interface CardDayLog {
 export interface CarryReport {
   carried: number;
   reseeded: number;
-  /** A second press on the sprint's own day: the finished cards that were in
-   *  work before it opened, handed back to the previous sprint. */
+  /** With returnFinished: the finished cards that were in work before the
+   *  current sprint opened, handed back to the previous sprint. */
   returned?: number;
 }
 
@@ -471,6 +471,8 @@ export interface Provider {
   carryOver(
     team: string | null,
     dryRun?: boolean,
+    /** Hand the previous sprint back its finished leftovers instead (D20). */
+    returnFinished?: boolean,
   ): Promise<CarryReport>;
   /** Apply a shared team order (moves the hidden sprint-state cards). */
   reorderTeams(teams: string[]): Promise<void>;

@@ -16,8 +16,8 @@ func PreviousSprint(b Board, team string) string {
 
 // ActiveSprint returns which sprint was current for a team on a given day: the
 // team's current sprint when day is on or after it, else the previous sprint when
-// day is on or after that, else "" (only the last two sprints are tracked). The
-// Me view groups a day's cards by this. It mirrors activeSprint in
+// day is on or after that, else "" (only the last two sprints are tracked). It
+// mirrors activeSprint in
 // web/src/sprint.ts. team = "" is the no-team group.
 func ActiveSprint(b Board, team, day string) string {
 	cur := CurrentSprint(b, team)

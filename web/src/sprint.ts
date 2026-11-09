@@ -18,8 +18,8 @@ export function previousSprint(
 
 /** activeSprint returns which sprint was current for a team on a given day: the
  * team's current sprint when day is on or after it, else the previous sprint when
- * day is on or after that, else "" (only the last two sprints are tracked). The
- * Me view groups a day's cards by this. It mirrors ActiveSprint in
+ * day is on or after that, else "" (only the last two sprints are tracked). It
+ * mirrors ActiveSprint in
  * internal/board/sprint.go. team = null is the no-team group. */
 export function activeSprint(
   board: Board,

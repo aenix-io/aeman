@@ -273,7 +273,7 @@ security delete-generic-password -s aeman-mcp
 | `move_card` / `defer_card` | Reorder (on an epic: the epic move, which gathers its parked tasks in every team's backlog; with `parent`: a re-parent and its place) and answer the `actionId`; push the scheduled day ahead. |
 | `reorder_in_epic` | Move a task within its epic over the epic's backlog slots (Q6). |
 | `send_to_review` / `remove_reviewer` | The review-card cycle (send reassigns when a review card exists). |
-| `carry_over` | Advance a team's sprint and carry its unfinished day cards forward (`dryRun` reports the counts). Called again on the day the sprint opened, it hands back to the previous sprint the finished cards that were in work before today (`returned`, D20). There is no weekly counterpart. |
+| `carry_over` | Advance a team's sprint and carry its unfinished day cards forward (`dryRun` reports the counts). A repeated call on a sprint already today's does nothing; with `returnFinished` it carries nothing and hands back to the previous sprint the finished cards that were in work before the current sprint opened (`returned`, D20). There is no weekly counterpart. |
 | `add_note` / `edit_note` / `delete_note` | The note thread. |
 | `add_customer` / `rename_customer` / `reorder_customers` / `delete_customer` | The customer roster (`metadata.customers`, `docs/design/ownership.md`): add one (its id comes back), rename it (cards hold the id and follow), set the order, delete it (it comes off every card that names it). Routes: `POST /customers`, `POST /customers/actions/rename`, `/reorder`, `/delete`. |
 | `rename_team` | Rename a team in place (`team`, `to`); its cards follow, a taken name is refused. |

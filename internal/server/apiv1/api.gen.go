@@ -590,8 +590,11 @@ type CardStatus = apiserver.CardStatus
 // CarryOverBody defines model for CarryOverBody.
 type CarryOverBody struct {
 	// DryRun Report the counts and change nothing.
-	DryRun *bool   `json:"dryRun,omitempty"`
-	Team   *string `json:"team,omitempty"`
+	DryRun *bool `json:"dryRun,omitempty"`
+
+	// ReturnFinished Hand the previous sprint back its finished leftovers instead of carrying over (D20): the pointers stay, nothing is carried.
+	ReturnFinished *bool   `json:"returnFinished,omitempty"`
+	Team           *string `json:"team,omitempty"`
 }
 
 // CarryReport defines model for CarryReport.

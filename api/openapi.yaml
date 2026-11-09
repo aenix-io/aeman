@@ -921,13 +921,15 @@ paths:
       tags: [Sprints]
       summary: Advance a team's sprint to today and carry its unfinished cards.
       description: >-
-        Finished recurrent cards reseed as fresh copies. Pressed again on the
-        day the sprint opened, it moves no pointer and carries nothing: it
-        hands back to the previous sprint the finished cards that were in
-        work before today (carried in, closed since), counted in
-        `returned`; a card created in the new sprint or taken out of the
-        backlog today stays. With `dryRun` the counts are reported
-        and nothing changes, which is what backs a confirm dialog.
+        Finished recurrent cards reseed as fresh copies. A team already on
+        today's sprint is left as it is, so a repeated carry-over is a no-op.
+        With `returnFinished` it neither advances nor carries: it hands back
+        to the previous sprint the finished cards of the current sprint that
+        were in work before it opened (carried in, closed since), with their
+        finished subtasks and review cards, counted in `returned`; a card
+        created in the new sprint or taken out of the backlog into it stays.
+        With `dryRun` the counts are reported and nothing changes, which is
+        what backs a confirm dialog.
       requestBody:
         required: true
         content:
@@ -2377,10 +2379,10 @@ components:
         returned:
           type: integer
           description: >-
-            A second press on the sprint's own day: the finished cards that
-            were in work before the sprint opened, handed back to the previous
-            sprint (their subtasks ride along and are not counted). Absent on
-            a carry-over that advanced the sprint.
+            With `returnFinished`: the finished cards that were in work before
+            the current sprint opened, handed back to the previous sprint
+            (their subtasks and review cards ride along and are not counted).
+            Absent on a carry-over.
     CreateCardRequest:
       type: object
       description: >-
@@ -2712,6 +2714,11 @@ components:
         dryRun:
           type: boolean
           description: Report the counts and change nothing.
+        returnFinished:
+          type: boolean
+          description: >-
+            Hand the previous sprint back its finished leftovers instead of
+            carrying over (D20): the pointers stay, nothing is carried.
     ReorderTeamsBody:
       type: object
       properties:

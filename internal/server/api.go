@@ -1049,7 +1049,12 @@ func (a surface) CarryOver(ctx context.Context, req apiv1.CarryOverRequestObject
 	// top) IS the live truth, while a blocking GitHub reload here only adds
 	// seconds of latency and a chance to read a lagging replica. Stale-window
 	// semantics apply; a cold cache still loads.
-	rep, err := svc.CarryOver(staleOK(ctx), boardID, strOf(req.Body.Team), boolOf(req.Body.DryRun))
+	team, dry := strOf(req.Body.Team), boolOf(req.Body.DryRun)
+	carry := svc.CarryOver
+	if boolOf(req.Body.ReturnFinished) {
+		carry = svc.ReturnFinished
+	}
+	rep, err := carry(staleOK(ctx), boardID, team, dry)
 	if err != nil {
 		return nil, err
 	}
