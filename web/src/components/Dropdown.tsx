@@ -7,6 +7,7 @@ import {
   type CSSProperties,
   type ReactNode,
   type RefObject,
+  type SyntheticEvent,
 } from "react";
 import { createPortal } from "react-dom";
 
@@ -36,6 +37,10 @@ function triggerOf(anchor: HTMLElement): HTMLElement {
     return anchor;
   }
   return anchor.querySelector<HTMLElement>("[aria-haspopup], button") ?? anchor;
+}
+
+function stopHere(e: SyntheticEvent): void {
+  e.stopPropagation();
 }
 
 /** closesOn reports whether a key pressed while a menu is open dismisses
@@ -178,8 +183,21 @@ export function Dropdown({ open, anchorRef, onClose, className, role, align, chi
   if (!open) {
     return null;
   }
+  // React bubbles a portal's events through the COMPONENT tree, not the DOM:
+  // a press inside the menu reached whatever the menu was opened from — the
+  // card under it, whose click selects it and on a selected card opens the
+  // drawer (picking an owner opened the card), and the sortable wrapper,
+  // whose pointerdown arms a drag. What happens in a menu stays in it.
   return createPortal(
-    <div ref={menuRef} className={className} style={style} role={role}>
+    <div
+      ref={menuRef}
+      className={className}
+      style={style}
+      role={role}
+      onClick={stopHere}
+      onDoubleClick={stopHere}
+      onPointerDown={stopHere}
+    >
       {children}
     </div>,
     document.body,
