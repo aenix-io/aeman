@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { placePopup, type Rect } from "./popup";
+import { anchorShown, placePopup, type Rect } from "./popup";
 
 const viewport = { width: 1280, height: 800 };
 const rect = (left: number, top: number, width: number, height: number): Rect => ({
@@ -59,5 +59,25 @@ describe("placePopup", () => {
     expect(inside.left).toBe(1220 - 8 - 300);
     const wide = placePopup(rect(720, 100, 60, 28), { width: 900, height: 100 }, viewport, { align: "start", bounds: drawer });
     expect(wide.left).toBe(708);
+  });
+});
+
+// A menu stays where it opened while its control is out of the layout. The
+// card's status flag shows only while the pointer is on the card, and the
+// menu lives in a portal outside it: moving onto the menu hid the flag, and
+// the next re-placement (a watch frame resizing the list, a scroll) measured
+// a zero box and threw the menu into the screen's top-left corner.
+describe("anchorShown", () => {
+  it("is true for a control with a box on the screen", () => {
+    expect(anchorShown({ ...rect(500, 100, 18, 18), width: 18, height: 18 })).toBe(true);
+  });
+
+  it("is false for a control taken out of the layout (display: none)", () => {
+    expect(anchorShown({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 })).toBe(false);
+  });
+
+  it("is true for a box only one pixel in either direction", () => {
+    expect(anchorShown({ left: 10, top: 10, right: 11, bottom: 10, width: 1, height: 0 })).toBe(true);
+    expect(anchorShown({ left: 10, top: 10, right: 10, bottom: 11, width: 0, height: 1 })).toBe(true);
   });
 });

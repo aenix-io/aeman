@@ -335,7 +335,7 @@ export function Card({
     card.stage === "refuse";
   const stageControl = (
     <div
-      className={`card-stage${stageVisible ? "" : " card-hoveronly"}`}
+      className={`card-stage${stageVisible ? "" : " card-hoveronly"}${menuOpen ? " card-stage-open" : ""}`}
       ref={menuRef}
     >
       <button
@@ -745,7 +745,7 @@ export function Card({
                 className="card-stage-item"
                 onClick={() => {
                   placements.onPark?.();
-                  setAssignOpen(false);
+                  setDatesOpen(false);
                 }}
               >
                 Send to the backlog

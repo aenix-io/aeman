@@ -25,6 +25,15 @@ export interface PopupOptions {
   margin?: number;
 }
 
+/** anchorShown reports whether a popup's control is laid out on the screen.
+ *  A control taken out of the layout (display: none — the card's hover-only
+ *  status flag once the pointer leaves the card for the menu) measures as an
+ *  empty box at 0,0, and a popup placed by it lands in the top-left corner;
+ *  such a measurement is no place to move a popup to. */
+export function anchorShown(r: Rect & { width: number; height: number }): boolean {
+  return r.width > 0 || r.height > 0;
+}
+
 /** placePopup is where a popup opens for the control that was pressed: under
  *  it, or above it when the room below is short and above there is more;
  *  never taller than the room it opened into (the list scrolls instead), and

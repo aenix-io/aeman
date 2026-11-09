@@ -1791,6 +1791,13 @@ button.card-age {
   display: inline-flex;
 }
 
+/* The status menu is drawn in a portal outside the card, so moving onto it
+   ends the card's :hover — and the flag the menu is placed by must not drop
+   out of the layout while the menu is open. */
+.card-stage.card-hoveronly.card-stage-open {
+  display: inline-flex;
+}
+
 .card-stage-menu {
   position: absolute;
   top: 100%;
