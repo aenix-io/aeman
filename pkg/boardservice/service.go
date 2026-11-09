@@ -1237,8 +1237,14 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, vie
 	if err != nil {
 		return err
 	}
-	if err := removingSomebodyElsesCard(ctx, b, c); err != nil {
-		return err
+	// The carrier's guard is the person's OWN seat, not the planning
+	// boards': on the Team board a lead plans their own column like anybody
+	// else's, and a card typed for them by somebody else is still theirs to
+	// send back to the backlog or take off (S11).
+	if !board.PlansWork(view) {
+		if err := removingSomebodyElsesCard(ctx, b, c); err != nil {
+			return err
+		}
 	}
 	if err := removingFromOnesOwnBoard(ctx, b, c, view); err != nil {
 		return err
@@ -2809,6 +2815,13 @@ func (s *Service) DeleteCard(ctx context.Context, boardID string, itemID string)
 // and their answer to it is the refused stage. A card on somebody else is
 // the lead's to remove, and a SUBTASK is a piece of its parent rather than
 // work assigned to anyone.
+//
+// It guards the person's OWN seat — DeleteCard, and Remove from the Me board
+// or from no board (ViewAll) — and not the planning boards (board.PlansWork):
+// the Team board is where the plan is made, a lead plans their own column
+// there, and a card somebody else typed for them is theirs to send back to
+// the backlog or off the board. Held on every board, it refused the lead
+// every × on such a card (reported from the live board, 2026-11-09).
 //
 // A REVIEW card is the third exception, and it was missing: it exists only
 // because somebody sent their card to this person, it is the artefact of that

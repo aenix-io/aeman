@@ -64,3 +64,13 @@ func KnownView(name string) bool {
 func ScopedByTeam(v View) bool {
 	return v == ViewTeam || v == ViewBacklog
 }
+
+// PlansWork reports the boards a plan is MADE on: the lead's grid, the
+// backlogs and the hierarchy. A person's own seat — the Me board — is not
+// one, and ViewAll is no board at all. A rule that guards somebody else's
+// plan from the person carrying it (the × on work typed for them) is a rule
+// of the seats that do not plan: on a planning board the person pressing it
+// is planning, their own column included.
+func PlansWork(v View) bool {
+	return v == ViewTeam || v == ViewBacklog || v == ViewStrategy
+}

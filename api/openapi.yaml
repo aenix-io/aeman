@@ -234,9 +234,14 @@ paths:
 
         A second, wider rule sits in front of both doors, this one and
         DELETE /cards/{uid}: a card the caller is CARRYING but did not create
-        is not theirs to take off the board, on ANY board (403). Their answer
-        to work somebody else planned for them is `spec.stage: refuse`, which
-        leaves the card standing for the person who planned it to decide.
+        is not theirs to take off the board (403) — at DELETE, and here from
+        the caller's own seat: the Me board and `all`. Their answer to work
+        somebody else planned for them is `spec.stage: refuse`, which leaves
+        the card standing for the person who planned it to decide. The
+        planning boards (`team`, `backlog`, `strategy`) keep the wide ×: they
+        are where the plan is made, and a lead planning their own column
+        there may send a card somebody else typed for them back to the
+        backlog or off the board.
         Unlike the Me-board rule above, a card with no recorded author is
         outside this one — there is nobody else it could belong to — and so
         are a subtask and a review card, which are pieces of other work rather

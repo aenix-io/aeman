@@ -109,3 +109,59 @@ func TestAPersonRemovesOnlyTheirOwnCard(t *testing.T) {
 		t.Fatalf("deleting work planned for me = %v, want ErrNotYoursToRemove", err)
 	}
 }
+
+// The PLANNING boards keep the wide ×, for the work a person carries too.
+// The rule above is about a person's own seat — the Me board, and the raw
+// doors an agent reaches without naming a board — where taking work off
+// the board unmakes somebody else's plan. The Team board is where that plan
+// is MADE: a lead plans their own column there like anybody else's, and the
+// work in it was very often typed by somebody else (the head of the team,
+// in a planning meeting). Refusing the × there left the lead nothing to do
+// with a card they carry: it could not go back to the backlog, it could not
+// go off the board, and the Me board's own refusal tells them to "use the
+// board it was planned on" — which is this one.
+//
+// Reported from the live board on 2026-11-09: the cozystack lead's team
+// planning, where cards written by somebody else and carried by the lead
+// stayed on the grid after the × (403 notYoursToRemove, rolled back).
+func TestThePlanningBoardsRemoveWorkTheActorCarries(t *testing.T) {
+	today := board.TodayIso()
+	newBoard := func() *fakeBackend {
+		return newFake([]board.Card{
+			{ItemID: "planned-for-lead", Title: "Встреча для участников воркшопа", Team: "alpha",
+				Author: "kvaps", Assignees: []string{"lead"}, Progress: 81,
+				SprintStart: today, StartDate: today},
+		}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	}
+	lead := WithActor(ctx, "lead")
+
+	// Back to the backlog: parked, nobody, no day, no sprint (K3).
+	f := newBoard()
+	if err := f2svc(f).Remove(lead, "acme", "planned-for-lead", board.ViewTeam, Unassign); err != nil {
+		t.Fatalf("the lead's × to the backlog on the Team board: %v", err)
+	}
+	if c := f.get("planned-for-lead"); c == nil || !c.Parked || len(c.Assignees) != 0 || c.SprintStart != "" {
+		t.Fatalf("the card must be parked in its backlog with nobody on it, got %+v", c)
+	}
+
+	// Off the board: deleted.
+	f = newBoard()
+	if err := f2svc(f).Remove(lead, "acme", "planned-for-lead", board.ViewTeam, OffBoard); err != nil {
+		t.Fatalf("the lead's × off the board on the Team board: %v", err)
+	}
+	if f.get("planned-for-lead") != nil {
+		t.Fatal("the card taken off the board is deleted")
+	}
+
+	// The person's OWN seat still refuses it — both of its doors: the Me
+	// board's × and the raw remove an agent makes without naming a board.
+	for _, view := range []board.View{board.ViewMe, board.ViewAll} {
+		f = newBoard()
+		if err := f2svc(f).Remove(lead, "acme", "planned-for-lead", view, Unassign); !errors.Is(err, ErrNotYoursToRemove) {
+			t.Fatalf("view %s: removing work planned for me = %v, want ErrNotYoursToRemove", view, err)
+		}
+		if c := f.get("planned-for-lead"); c == nil || c.Parked {
+			t.Fatalf("view %s: the refusal fires before the write, got %+v", view, c)
+		}
+	}
+}

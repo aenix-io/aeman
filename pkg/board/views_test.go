@@ -63,6 +63,23 @@ func TestOnlySomeBoardsAreScopedByTeam(t *testing.T) {
 	}
 }
 
+// The PLANNING boards are the ones a plan is made on — the lead's grid, the
+// backlogs, the hierarchy. A person's own seat (the Me board) is not one, and
+// neither is "all", which is no board at all: a caller there has not said it
+// is planning anything.
+func TestThePlanningBoardsAreWherePlansAreMade(t *testing.T) {
+	t.Parallel()
+	want := map[View]bool{ViewMe: false, ViewTeam: true, ViewBacklog: true, ViewStrategy: true, ViewAll: false}
+	for _, v := range Views() {
+		if got := PlansWork(v); got != want[v] {
+			t.Errorf("PlansWork(%s) = %v, want %v", v, got, want[v])
+		}
+	}
+	if PlansWork("") {
+		t.Error("an empty view is no board, and plans nothing")
+	}
+}
+
 // THE STRATEGY BOARD WAS RENAMED FROM ROADMAP on 2026-11-08, and the old
 // name is no board any more: it is not a view, and Views() names the board
 // once, by its name now.
