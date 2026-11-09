@@ -52,6 +52,7 @@ import { notTombstoned, Tombstones, withTombstones } from "./tombstones";
 import { buildLink, cardLink, cardUnreadable, linkChange, parseLink, saveReturnTo, startDay, takeReturnTo, type LinkState } from "./deeplink";
 import { openWatches } from "./watch";
 import { AppearanceMenu } from "./components/AppearanceMenu";
+import { Spotlight } from "./components/Spotlight";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
 
 // waitingAfterMs is how long a request may take before the board says it is
@@ -650,6 +651,51 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [onSignedOut],
   );
+  // ---- ⌘K search (Spotlight.tsx) ----
+  // It searches every card the visitor can read: the view=all listing,
+  // fetched when the search opens and kept for the next opening, which
+  // re-fetches it behind the cached copy once it is older than a minute.
+  const [spotlight, setSpotlight] = useState(false);
+  const [searchIndex, setSearchIndex] = useState<CardModel[] | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const searchFetched = useRef(0);
+  const openSpotlight = useCallback(() => {
+    setSpotlight(true);
+    if (Date.now() - searchFetched.current < 60_000) {
+      return;
+    }
+    searchFetched.current = Date.now();
+    setSearchError(null);
+    provider
+      .listCards({ view: "all" })
+      .then((l) => setSearchIndex(l.cards))
+      .catch((err: unknown) => {
+        searchFetched.current = 0;
+        setSearchError(errMessage(err));
+      });
+  }, [provider]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        if (spotlight) {
+          setSpotlight(false);
+        } else {
+          openSpotlight();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [spotlight, openSpotlight]);
+  const pickFromSearch = (c: CardModel) => {
+    setSpotlight(false);
+    // A listing row carries no body: the drawer opens on the whole card.
+    void provider
+      .getCard(c.itemId)
+      .then(openCard)
+      .catch((err: unknown) => setError(errMessage(err)));
+  };
 
   // The roster: the board's teams in the server-side order (the sprint-state
   // cards' positions — shared by everyone, on every device), then the ones
@@ -1528,6 +1574,17 @@ export function App() {
           </span>
         )}
         <div className="account">
+          {board && (
+            <button
+              type="button"
+              className="btn search-btn"
+              onClick={openSpotlight}
+              title="Search every card"
+            >
+              Search
+              <kbd>{/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K"}</kbd>
+            </button>
+          )}
           <AppearanceMenu
             login={config?.login ?? null}
             appearance={appearance}
@@ -1540,6 +1597,17 @@ export function App() {
           />
         </div>
       </header>
+
+      {spotlight && (
+        <Spotlight
+          cards={searchIndex}
+          error={searchError}
+          onPick={pickFromSearch}
+          onClose={() => setSpotlight(false)}
+          avatars={avatars}
+          names={names}
+        />
+      )}
 
       {staleBuild && (
         <div className="banner banner-warning" role="alert">
