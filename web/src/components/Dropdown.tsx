@@ -10,7 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { placePopup } from "../popup";
+import { anchorShown, placePopup } from "../popup";
 
 interface DropdownProps {
   open: boolean;
@@ -80,6 +80,12 @@ export function Dropdown({ open, anchorRef, onClose, className, role, align, chi
       capRef.current = Number.isFinite(css) ? css : Infinity;
     }
     const a = triggerOf(anchor).getBoundingClientRect();
+    // A control out of the layout measures as an empty box at 0,0: the menu
+    // keeps the place it has (or stays hidden until it gets one) rather than
+    // being thrown into the screen's top-left corner.
+    if (!anchorShown(a)) {
+      return;
+    }
     const m = menu.getBoundingClientRect();
     const boundsEl = anchor.closest<HTMLElement>("[data-popup-bounds]");
     const p = placePopup(
@@ -105,6 +111,10 @@ export function Dropdown({ open, anchorRef, onClose, className, role, align, chi
   useLayoutEffect(() => {
     if (open) {
       place();
+    } else {
+      // A closed menu forgets where it stood, so the next opening is never
+      // shown at the last one's place before it is given its own.
+      setStyle((s) => (s.visibility === "hidden" ? s : { ...s, visibility: "hidden" }));
     }
   }, [open, place]);
 

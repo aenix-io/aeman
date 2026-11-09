@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Card as CardView } from "./Card";
@@ -86,5 +88,22 @@ describe("a card locked by what it waits for", () => {
 
   it("is unmarked when nothing it waits for is open", () => {
     expect(draw(card({}))).not.toContain("Locked:");
+  });
+});
+
+// The status flag shows only while the pointer is on the card, but its menu
+// is drawn in a portal outside the card: moving onto the menu took the flag
+// out of the layout, and the menu, placed by it, flew to the screen's corner.
+// While the menu is open the flag stays where it is.
+describe("the status flag while its menu is open", () => {
+  it("stays laid out once the pointer leaves the card for the menu", () => {
+    const css = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
+    expect(css).toMatch(/\.card-stage\.card-hoveronly\.card-stage-open \{\s*display: inline-flex;/);
+  });
+
+  it("is drawn hover-only, without the open mark, while its menu is closed", () => {
+    const html = draw(card({}));
+    expect(html).toContain('class="card-stage card-hoveronly"');
+    expect(html).not.toContain("card-stage-open");
   });
 });
