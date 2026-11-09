@@ -1,5 +1,5 @@
 {
-  "comment": "One fixture for board.BacklogOrder (Go) and backlogboard.backlogList (TS): the same cards in the same board order must read in the same backlog order. `cards` is the board in its order; `wire` is what the server sends a client for each backlog card (status.lineage as uid/type pairs) - pkg/apiserver checks it against CardResource, so the client's input is the server's own answer; `order` is the backlog of team alpha as both sides read it; `subtask` is which cards ride a parent TASK (board.IsSubtask / subtasks.isSubtask) - a review card's own stray parent naming a plan item makes it no subtask, so a taken one stays on the day boards. A review of a SUBTASK stands by the subtask under its planning chain alone, its parent task off the path, as the client reads it off the review's status.lineage.",
+  "comment": "One fixture for board.BacklogOrder (Go) and backlogboard.backlogList (TS): the same cards in the same board order must read in the same backlog order. `cards` is the board in its order; `wire` is what the server sends a client for each backlog card (status.lineage as uid/type pairs) - pkg/apiserver checks it against CardResource, so the client's input is the server's own answer; `order` is the backlog of team alpha as both sides read it; `subtask` is which cards ride a parent TASK (board.IsSubtask / subtasks.isSubtask) - a review card's own stray parent naming a plan item makes it no subtask, so a taken one stays on the day boards. The order is the board's (Q2, docs/design/ordering.md): the reviews nobody has taken first, then the tasks, each by its own key.",
   "cards": [
     { "itemId": "g1", "type": "goal" },
     { "itemId": "e1", "type": "epic", "parent": "g1" },
@@ -36,5 +36,5 @@
     "r-kid": { "lineage": ["goal:g1", "epic:e1"] }
   },
   "subtask": { "t-a": false, "r-a": false, "r-parent": false, "rr": false, "r-taken": false, "kid": true, "r-kid": false },
-  "order": ["r-a", "r-work", "r-kid", "rr", "r-parent", "t-a", "t-b", "t-c", "t-d", "loose1", "loose2"]
+  "order": ["r-a", "r-work", "r-parent", "rr", "r-kid", "t-a", "t-b", "t-c", "t-d", "loose1", "loose2"]
 }

@@ -39,10 +39,11 @@ var upgrades = map[int]upgrade{
 	3: schema3,
 }
 
-// MigrateSchema brings board.yaml to SchemaVersion when it is older (or
-// missing), in one "schema" commit that also carries every version's
-// rewrite of the tree, and reports whether it did. A current repository is
-// left alone; a newer one is refused.
+// MigrateSchema brings board.yaml to the last schema one repository reaches
+// on its own (3) when it is older (or missing), in one "schema" commit that
+// also carries every version's rewrite of the tree, and reports whether it
+// did. A current repository is left alone; a newer one is refused. Schema 4
+// needs every repository at once: MigrateOrdering.
 func MigrateSchema(r *Repo) (bool, error) {
 	var f BoardFile
 	data, err := r.ReadFile(BoardPath)
@@ -57,11 +58,11 @@ func MigrateSchema(r *Repo) (bool, error) {
 			return false, err
 		}
 	}
-	if f.Schema >= SchemaVersion {
+	if f.Schema >= lastPerRepoSchema {
 		return false, nil
 	}
 	from := f.Schema
-	f.Schema = SchemaVersion
+	f.Schema = lastPerRepoSchema
 	out, err := EncodeBoard(f)
 	if err != nil {
 		return false, err
@@ -78,7 +79,7 @@ func MigrateSchema(r *Repo) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		for v := from + 1; v <= SchemaVersion; v++ {
+		for v := from + 1; v <= lastPerRepoSchema; v++ {
 			step, ok := upgrades[v]
 			if !ok {
 				continue
@@ -90,7 +91,7 @@ func MigrateSchema(r *Repo) (bool, error) {
 			writes = lastWriteWins(append(writes, more...))
 		}
 	}
-	_, err = r.Commit(Action{Name: "schema", Summary: fmt.Sprintf("schema: %d → %d", from, SchemaVersion), At: time.Now()},
+	_, err = r.Commit(Action{Name: "schema", Summary: fmt.Sprintf("schema: %d → %d", from, lastPerRepoSchema), At: time.Now()},
 		writes)
 	if err != nil {
 		return false, err

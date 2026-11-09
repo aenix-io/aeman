@@ -33,7 +33,7 @@ A task — a card with no `type`, not a subtask, not a review card — is in exa
 
 A task taken into work leaves the backlog — the backlog never shows work
 in hand. Taking a task into work is giving it a day or a sprint: the
-`own` gesture with a person (it lands today, in the unplanned band, in
+`own` gesture with a person (it lands today, in the planned band, in
 the team's sprint) — the card's owner picker in the SPA — or, over the
 API and the MCP, a date, a sprint or a defer. Each of these clears
 `parked` in the same write (`takenIntoWork`).
@@ -65,28 +65,27 @@ SPA's tabs are **Me, Team, Backlog, Strategy, Project**.
 - **What is listed.** The team's parked tasks: no planning card, no
   subtask, no review card, nothing finished. Order is
   `BacklogOrder` over the union — the reviews nobody has taken first
-  (K10), then the **Strategy board's order** (K14), the tasks with no plan item
-  last.
+  (K10), then the tasks in the **board's order** (Q2,
+  [ordering.md](ordering.md); it was the Strategy board's tree order,
+  K14, until 2026-11-08).
 - **The card.** One wide card per row, a plain card with no coloured
   accent down its edge: the title; on the RIGHT its parent chain —
   every goal, initiative and epic it sits under, root first (all of
   `status.lineage`), each with its kind icon as the Strategy board draws it, a
   long name cut short with the whole name in its tooltip, and each
-  opening that planning card's drawer (the one the Strategy board opens); the
-  due date — the server's `status.dueDate`: the nearest planning ancestor's end, when it has one; the
-  size when it has one; and whose it is — the team's avatar, the
+  opening that planning card's drawer (the one the Strategy board opens) —
+  the due date and the size are the drawer's, not the row's; and whose it is — the team's avatar, the
   person's stacked over it when somebody has it, one label (the shared
   owner badge, the Strategy board's too), with a separate Take button to its
   left while nobody has it.
-- **Order.** Dragging a card reorders it **among its siblings** — the
-  tasks under the same parent (the tasks with no plan item above are one
-  run): the move gesture anchored on the
-  sibling just above it (`after`), else the one just below (`before`). A
-  place next to none of its siblings is shown as forbidden and writes
-  nothing: the order is the tree's (K14), and the move changes the
-  Strategy board's order too. A drag does not change the team: the card's team
+- **Order.** Dragging a card puts it between **any two neighbours**
+  (Q4, [ordering.md](ordering.md)): the move gesture anchored on the
+  task just above it (`after`), else the one just below (`before`); it
+  becomes an exception to its epic's order and the epic's key does not
+  change. A review nobody has taken is never dragged. A drag does not change the team: the card's team
   chip is its owner picker, and `own` with a team alone hands it to that
   team, still parked; the owner badge is that picker.
+- **Tasks | Epics** ([ordering.md](ordering.md)). The Epics mode lists the shown teams' epics in the epic order — empty ones too — with the goal and initiative above, the count of waiting tasks and Split for a scattered one; dragging an epic is the epic move, which gathers its tasks. Switching writes nothing; the mode is the viewer's own. All / Ready / Blocked only hides: a blocked task keeps its place.
 - **Adding.** No add box at the foot of the list: every gap — above the
   first card, between two, below the last — shows a round "+" at its left
   edge on hover, and an empty backlog shows one always. Pressed, it opens
@@ -97,10 +96,12 @@ SPA's tabs are **Me, Team, Backlog, Strategy, Project**.
   the create names its place — `after` the card above, or `before` the
   card below at the top — and the server places it in the same request
   (MCP `create_card` takes the same two).
+- **Taking an epic.** In the Epics mode every row draws Take: while nobody owns the epic it makes the viewer its owner (the same `take` gesture on a plan item; its team is kept); once somebody does, it is drawn disabled, its tooltip naming the owner — changing the owner is the avatar's.
 - **Taking.** **Take** is the backlog's own gesture (`take`, MCP
   `take_card`): the card's right-most button asks "Take this card into
   work?" and makes it the viewer's, on the card's own team — today, the
-  unplanned band, the team's sprint — so it disappears from the backlog
+  planned band (since 2026-11-08; a review still lands unplanned), the
+  team's sprint — so it disappears from the backlog
   and appears on the Team and Me boards; a review nobody has taken makes
   the viewer its reviewer. A task already in work, finished work, a
   subtask, a review somebody has and a parked card somebody else is
@@ -112,7 +113,12 @@ SPA's tabs are **Me, Team, Backlog, Strategy, Project**.
   in every open backlog without a reload; a reorder arrives as the
   `Ordering` frame the other boards already apply.
 
-## One order with the Strategy board (K14)
+## One order with the Strategy board (K14) — superseded
+
+**Superseded 2026-11-08 by [ordering.md](ordering.md)**: the epics set the
+base order and a task's key is its place in its team's queue; the section
+below is kept for the history of the decision and for the schema-4
+migration, which preserves exactly this order once.
 
 Decided 2026-11-07 with the owner. The backlog reads in the **Strategy board's
 order**, across the whole hierarchy: goal order first, then each

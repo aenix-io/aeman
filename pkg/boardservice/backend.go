@@ -43,6 +43,13 @@ type Backend interface {
 	DeleteCard(ctx context.Context, b board.Board, card board.Card) error
 	// MoveCard reorders card to sit after afterID ("" = move to the top).
 	MoveCard(ctx context.Context, b board.Board, card board.Card, afterID string) error
+	// Reorder is an ORDERING ACTION (docs/design/ordering.md): the planner is
+	// run over the merged board as it stands when the write is decided, and
+	// the keys it returns are written as given — one action, one commit per
+	// repository it touches; a backend never decides a place of its own. A
+	// backend that caches the board plans and applies under one lock, so no
+	// reader sees half of a mass move. It returns the changes written.
+	Reorder(ctx context.Context, b board.Board, plan board.Planner) ([]board.RankChange, error)
 	// AddNote appends a work note to a card.
 	AddNote(ctx context.Context, b board.Board, card board.Card, text string) error
 	// AppendEvent records one activity event on a card (see board.Event). The

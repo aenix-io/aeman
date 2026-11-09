@@ -345,9 +345,12 @@ paths:
         person, the identity every write records as its author — gets the card
         on its OWN team (a card of the no-team group stays in it): a parked
         task is taken into work as `own` with a person takes it — today, the
-        unplanned band, the team's sprint, out of the backlog — and a review
-        nobody has taken makes the caller its reviewer. Refused where there is
-        nothing to take: a planning card (422 `planningCard`), a subtask or a review somebody already
+        planned band, the team's sprint, out of the backlog — a review
+        nobody has taken makes the caller its reviewer, and a goal, an
+        initiative or an epic (the Backlog's Epics mode) makes the caller its
+        OWNER, its team kept — one somebody else already owns is 422
+        `somebodysCard` (change the owner with `own`). Refused where there is
+        nothing to take: a subtask or a review somebody already
         has (422 `ownerFollowsLink`), finished work (422 `alreadyFinished`), a
         task already in work (422 `alreadyInWork` — hand it over with `own`),
         a parked card somebody else is named on (422 `somebodysCard`), and a
@@ -482,7 +485,18 @@ paths:
       summary: Reorder the card after (or before) another one.
       description: >-
         `before` wins when both are sent; an empty `after` puts the card at the
-        top.
+        top. The keys are worked out over the merged board (an anchor in
+        another repository is a place like any other). A task, a goal or an
+        initiative takes its own key (Q4, Q7). An EPIC is the epic move (Q5,
+        docs/design/ordering.md) — the same operation from the Strategy board
+        and the Backlog: the epic takes its new place in the epic order and
+        its parked tasks are gathered into one block per team, their order
+        kept, in ONE action; tasks in work and other epics' tasks stay. With
+        `parent` the card is first re-parented (every rule of a parent
+        change holds) and then placed: at the anchor when one is named,
+        else a parked task by the default place in its team's queue — after
+        the new epic's last parked task (Q6). The answer names the request's
+        action and how many cards took a key.
       parameters:
         - $ref: '#/components/parameters/Uid'
       requestBody:
@@ -492,8 +506,42 @@ paths:
             schema:
               $ref: '#/components/schemas/MoveCardBody'
       responses:
-        '204':
+        '200':
           description: The order is applied.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoveResult'
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/{uid}/actions/reorder-in-epic:
+    post:
+      operationId: reorderInEpic
+      tags: [Cards]
+      summary: Move a task within its epic, over the slots its epic's tasks hold.
+      description: >-
+        The Strategy board's drag of a task among its epic's tasks (Q6,
+        docs/design/ordering.md): the epic's PARKED tasks of the task's team
+        keep the queue slots they hold between them, and the slots are handed
+        out in the new order — the task right after `after`, or right before
+        `before`, among the epic's tasks as drawn. Other epics' tasks never
+        move. A task in work or done takes an ordinary key between its
+        drawn neighbours. A card under no epic is 422 `notUnderAnEpic`.
+      parameters:
+        - $ref: '#/components/parameters/Uid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveCardBody'
+      responses:
+        '200':
+          description: The order is applied.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoveResult'
         default:
           $ref: '#/components/responses/Problem'
   /cards/{uid}/actions/defer:
@@ -1356,12 +1404,14 @@ components:
             - noHistory
             - noPlaceOfItsOwn
             - noReviewer
+            - noRoom
             - noSuchView
             - notATarget
             - notAuthenticated
             - notFinished
             - notInWork
             - notOnThisBoard
+            - notUnderAnEpic
             - notYoursToRefuse
             - notYoursToRemove
             - noteNotFound
@@ -2404,6 +2454,15 @@ components:
           description: >-
             As `after`, the uid of the card the new one is placed right
             BEFORE — the "+" above the first card of a list.
+        inheritParent:
+          type: boolean
+          description: >-
+            With `after` or `before` and no `parent`, files the new task under
+            the EPIC of its context in its team's backlog (Q10,
+            docs/design/ordering.md): the epic of the card above the gap (the
+            same as below's when they agree, the card above's at a boundary),
+            at the top of the list the card below's, none in an empty list.
+            Default false: nothing is inherited unless asked for.
     CardDatesInput:
       type: object
       properties:
@@ -2523,9 +2582,26 @@ components:
         person:
           type: string
           description: The person on that team the card is handed to; needs a team.
+    MoveResult:
+      type: object
+      required: [moved]
+      properties:
+        actionId:
+          type: string
+          description: The action the keys were written under (its commits carry it as `Aeman-Action-Id`); absent when nothing was written.
+        moved:
+          type: integer
+          description: How many cards took a new key (an epic move counts the epic and every task it gathered).
     MoveCardBody:
       type: object
       properties:
+        parent:
+          type: string
+          description: >-
+            Re-parents the card first (a Strategy drop under another plan
+            item) — `""` takes the parent off — then places it: at the anchor
+            when one is named, else a parked task by the default place in its
+            team's queue (Q6).
         after:
           type: string
           description: The card to land behind; empty means the top.

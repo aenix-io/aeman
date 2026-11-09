@@ -287,6 +287,14 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 	if in.Assignee != "" {
 		card.Assignees = []string{in.Assignee}
 	}
+	// A new card's key is after every key on the board, as a store mints it.
+	last := ""
+	for _, c := range f.board.Cards {
+		if board.ValidRank(c.Rank) && c.Rank > last {
+			last = c.Rank
+		}
+	}
+	card.Rank, _ = board.RankBetween(last, "")
 	f.board.Cards = append(f.board.Cards, card)
 	f.creates = append(f.creates, in)
 	f.rec("CreateCard %s", card.ItemID)
@@ -314,6 +322,51 @@ func (f *Backend) MoveCard(_ context.Context, _ board.Board, card board.Card, af
 	defer f.mu.Unlock()
 	f.rec("MoveCard %s after=%s", card.ItemID, afterID)
 	return nil
+}
+
+// Reorder runs the planner over the board the fake hands out and writes the
+// keys: the cards take them and, once every card has a key, stand in board
+// order — the order a real store reads them back in. The call is logged as
+// "Reorder <id>:<before>><after> …".
+func (f *Backend) Reorder(ctx context.Context, b board.Board, plan board.Planner) ([]board.RankChange, error) {
+	cur, err := f.LoadBoard(ctx, b.Board)
+	if err != nil {
+		return nil, err
+	}
+	changes, err := plan(cur)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	// The planner's read is the backend's own, not the service's: it is not
+	// a board read a test counts.
+	for i := len(f.log) - 1; i >= 0; i-- {
+		if f.log[i] == "LoadBoard" {
+			f.log = append(f.log[:i], f.log[i+1:]...)
+			break
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	parts := make([]string, 0, len(changes))
+	keys := map[string]string{}
+	for _, ch := range changes {
+		keys[ch.ID] = ch.After
+		parts = append(parts, ch.ID+":"+ch.Before+">"+ch.After)
+	}
+	f.rec("Reorder %s", strings.Join(parts, " "))
+	ranked := true
+	for i := range f.board.Cards {
+		if k, ok := keys[f.board.Cards[i].ItemID]; ok {
+			f.board.Cards[i].Rank = k
+		}
+		if !board.IsStateTitle(f.board.Cards[i].Title) && !board.ValidRank(f.board.Cards[i].Rank) {
+			ranked = false
+		}
+	}
+	if ranked {
+		board.SortCards(f.board.Cards)
+	}
+	return changes, nil
 }
 
 // AppendEvent records an activity event in the card's history.

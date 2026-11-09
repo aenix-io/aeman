@@ -73,8 +73,8 @@ func TestServiceOwnThroughTheBackend(t *testing.T) {
 	if c.Team != "alpha" || !slices.Equal(c.Assignees, []string{"ann"}) {
 		t.Fatalf("owner = %s/%v, want alpha/ann", c.Team, c.Assignees)
 	}
-	if c.StartDate != today || c.Day != today || c.Zone != board.ZoneYellow || c.Parked {
-		t.Fatalf("filed as %s..%s zone=%s parked=%t, want today, unplanned, on no shelf", c.StartDate, c.Day, c.Zone, c.Parked)
+	if c.StartDate != today || c.Day != today || c.Zone != board.ZoneGray || c.Parked {
+		t.Fatalf("filed as %s..%s zone=%s parked=%t, want today, planned, on no shelf", c.StartDate, c.Day, c.Zone, c.Parked)
 	}
 	if c.SprintStart != opened {
 		t.Fatalf("sprint = %q, want alpha's current %q: a door read the committed tree, not the action's", c.SprintStart, opened)

@@ -239,6 +239,55 @@ func (v *visibleBackend) MoveCard(ctx context.Context, bd board.Board, card boar
 	return v.Backend.MoveCard(ctx, bd, card, afterID)
 }
 
+// Reorder is an ordering action as a visitor may make it: every card the
+// plan re-keys must be one they may write, or nothing is written — a mass
+// move is applied whole or refused (WriteChecker's rule). The plan runs over
+// the WHOLE board: keys interleave across repositories, hidden cards
+// included, and a key between two cards must know both.
+func (v *visibleBackend) Reorder(ctx context.Context, bd board.Board, plan board.Planner) ([]board.RankChange, error) {
+	r := rightsFrom(ctx)
+	if r == nil {
+		return v.Backend.Reorder(ctx, bd, plan)
+	}
+	return v.Backend.Reorder(ctx, bd, func(whole board.Board) ([]board.RankChange, error) {
+		// Under the store's lock: the domain is read off the board in hand,
+		// never by a load (which would wait on that lock).
+		domainOf := func(c board.Card) string {
+			if c.Domain != "" {
+				return c.Domain
+			}
+			if d := board.DomainOf(c, board.Resolver(whole, v.primary)); d != "" {
+				return d
+			}
+			return v.primary
+		}
+		// The cards the visitor may not write are pinned: a rebalance window
+		// stops at them and a gather leaves them where they stand, so an
+		// ordinary move is not refused for a neighbour in another repository.
+		pinned := map[string]bool{}
+		for _, c := range whole.Cards {
+			if !r.canWrite(domainOf(c)) {
+				pinned[c.ItemID] = true
+			}
+		}
+		whole.Pinned = pinned
+		changes, err := plan(whole)
+		if err != nil {
+			return nil, err
+		}
+		for _, ch := range changes {
+			c, ok := board.Find(whole, ch.ID)
+			if !ok {
+				continue
+			}
+			if !r.canWrite(domainOf(c)) {
+				return nil, boardservice.ErrForbidden
+			}
+		}
+		return changes, nil
+	})
+}
+
 func (v *visibleBackend) AddNote(ctx context.Context, bd board.Board, card board.Card, text string) error {
 	if err := v.write(ctx, bd, card); err != nil {
 		return err

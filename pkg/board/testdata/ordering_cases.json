@@ -1,0 +1,27 @@
+{
+  "comment": "One case table for the ordering model (docs/design/ordering.md) on both sides: pkg/board/queue_fixture_test.go (Go) and web/src/queue.test.ts (TS) read it. A task id's first letter names its epic (A, B, C, X); an id starting with L or N is neutral. `epicOrder` is the epics' order (default A < B < C < X); `queue` is one team's queue in board order. bestGap: the gap an empty epic's first task (or an epic's block) goes in. create: tasks made one by one in their epics by the default place (Q3). moveEpic: the epic moved to the place `epicOrder` gives it, its tasks gathered (Q5). reorderInEpic: a task moved within its epic, before or after another of its tasks, over the epic's slots (Q6).",
+  "bestGap": [
+    { "queue": ["L1", "L2"], "epic": "B", "want": 2 },
+    { "queue": ["A1", "L1", "L2", "C1"], "epic": "B", "want": 1 },
+    { "queue": ["L1", "L2", "C1"], "epic": "B", "want": 2 },
+    { "queue": ["C9", "A1", "A2", "C1"], "epic": "B", "want": 3 },
+    { "queue": ["A1", "C1", "A9"], "epic": "B", "want": 1 },
+    { "queue": [], "epic": "B", "want": 0 }
+  ],
+  "create": [
+    { "queue": ["A1", "B1", "A2", "C1"], "creates": ["A3"], "want": ["A1", "B1", "A2", "A3", "C1"] },
+    { "queue": ["N1", "X1"], "creates": ["B1", "A1", "C1", "A2", "B2"], "want": ["N1", "A1", "A2", "B1", "B2", "C1", "X1"] },
+    { "queue": [], "creates": ["C1", "A1", "B1"], "want": ["A1", "B1", "C1"] },
+    { "queue": ["N1"], "creates": ["N2"], "want": ["N1", "N2"] }
+  ],
+  "moveEpic": [
+    { "queue": ["A1", "B2", "A2", "B1"], "epicOrder": ["B", "A", "C", "X"], "epic": "B", "want": ["B2", "B1", "A1", "A2"] },
+    { "queue": ["C1", "A9", "C2", "B1", "A1"], "epicOrder": ["B", "A", "C", "X"], "epic": "B", "want": ["B1", "C1", "A9", "C2", "A1"] },
+    { "queue": ["A1", "B1", "A2"], "epicOrder": ["A", "B", "C", "X"], "epic": "A", "want": ["A1", "A2", "B1"] },
+    { "queue": ["B1", "L1", "L2", "A1"], "epicOrder": ["B", "A", "C", "X"], "epic": "B", "want": ["B1", "L1", "L2", "A1"] }
+  ],
+  "reorderInEpic": [
+    { "queue": ["A1", "B2", "A2", "B1", "A3"], "task": "A3", "before": "A1", "want": ["A3", "B2", "A1", "B1", "A2"] },
+    { "queue": ["A1", "B2", "A2", "B1", "A3"], "task": "A1", "after": "A3", "want": ["A2", "B2", "A3", "B1", "A1"] }
+  ]
+}

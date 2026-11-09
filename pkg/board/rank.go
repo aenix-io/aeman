@@ -3,6 +3,7 @@ package board
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 )
 
@@ -96,6 +97,11 @@ func RankTooLong(key string) bool {
 // RankRebalance returns n keys, evenly spaced, strictly between lo and hi
 // (either may be empty for an open end) and none longer than MaxRankLen.
 // The caller assigns them to the run's members in their current order.
+//
+// The arithmetic is on arbitrary-precision integers: a key of 13 base-36
+// digits already overflows 64 bits, and boards grow keys far longer than
+// that at the end of a list ("zzzzzzzzzzzzzv"). 64-bit arithmetic wrapped
+// around there and handed back keys that sorted to the FRONT of the board.
 func RankRebalance(lo, hi string, n int) ([]string, error) {
 	if n <= 0 {
 		return nil, nil
@@ -103,16 +109,20 @@ func RankRebalance(lo, hi string, n int) ([]string, error) {
 	if hi != "" && lo >= hi {
 		return nil, fmt.Errorf("%w: %q %q", ErrRankOrder, lo, hi)
 	}
-	count := uint64(n) //nolint:gosec // n > 0 was checked above
+	count := big.NewInt(int64(n))
+	gaps := new(big.Int).Add(count, big.NewInt(1))
 	// The shortest width at which lo and hi leave n+1 gaps between them.
 	for width := 1; width <= MaxRankLen; width++ {
 		l := rankValue(lo, width)
 		h := rankCeiling(hi, width)
-		if h-l > count {
-			step := (h - l) / (count + 1)
+		span := new(big.Int).Sub(h, l)
+		if span.Cmp(count) > 0 {
+			step := new(big.Int).Quo(span, gaps)
 			out := make([]string, 0, n)
-			for i := uint64(1); i <= count; i++ {
-				out = append(out, rankString(l+step*i, width))
+			v := new(big.Int).Set(l)
+			for i := 0; i < n; i++ {
+				v.Add(v, step)
+				out = append(out, rankString(v, width))
 			}
 			return out, nil
 		}
@@ -120,15 +130,16 @@ func RankRebalance(lo, hi string, n int) ([]string, error) {
 	return nil, fmt.Errorf("rank: no room for %d keys between %q and %q within %d chars", n, lo, hi, MaxRankLen)
 }
 
+var rankBase = big.NewInt(int64(len(rankAlphabet)))
+
 // rankValue maps a key to its integer at the given width, padded with the
 // floor digit; a key longer than width is truncated (rounded down).
-func rankValue(key string, width int) uint64 {
-	base := uint64(len(rankAlphabet))
-	var v uint64
+func rankValue(key string, width int) *big.Int {
+	v := new(big.Int)
 	for i := 0; i < width; i++ {
-		v *= base
+		v.Mul(v, rankBase)
 		if i < len(key) {
-			v += uint64(strings.IndexByte(rankAlphabet, key[i])) //nolint:gosec // an alphabet index, never negative
+			v.Add(v, big.NewInt(int64(strings.IndexByte(rankAlphabet, key[i]))))
 		}
 	}
 	return v
@@ -137,13 +148,9 @@ func rankValue(key string, width int) uint64 {
 // rankCeiling is the exclusive upper bound at the given width: the key's
 // own value (rounded down when longer — conservative), or one past the
 // widest key when the end is open.
-func rankCeiling(key string, width int) uint64 {
+func rankCeiling(key string, width int) *big.Int {
 	if key == "" {
-		v := uint64(1)
-		for i := 0; i < width; i++ {
-			v *= uint64(len(rankAlphabet))
-		}
-		return v
+		return new(big.Int).Exp(rankBase, big.NewInt(int64(width)), nil)
 	}
 	return rankValue(key, width)
 }
@@ -151,12 +158,13 @@ func rankCeiling(key string, width int) uint64 {
 // rankString renders an integer as a width-digit key with trailing floor
 // digits trimmed, so keys stay as short as their order allows and never
 // end in '0'.
-func rankString(v uint64, width int) string {
-	base := uint64(len(rankAlphabet))
+func rankString(v *big.Int, width int) string {
 	buf := make([]byte, width)
+	q := new(big.Int).Set(v)
+	r := new(big.Int)
 	for i := width - 1; i >= 0; i-- {
-		buf[i] = rankAlphabet[v%base]
-		v /= base
+		q.QuoRem(q, rankBase, r)
+		buf[i] = rankAlphabet[r.Int64()]
 	}
 	s := strings.TrimRight(string(buf), rankAlphabet[:1])
 	if s == "" {

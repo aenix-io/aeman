@@ -355,6 +355,10 @@ func (w *wbBackend) MoveCard(_ context.Context, _ board.Board, _ board.Card, _ s
 	return nil
 }
 
+func (w *wbBackend) Reorder(_ context.Context, _ board.Board, _ board.Planner) ([]board.RankChange, error) {
+	return nil, nil
+}
+
 // A background revalidation that reads GitHub's lagging replicas must not
 // roll back writes the queue already confirmed: within the grace window the
 // cached field values and card order outweigh the stale fresh read.

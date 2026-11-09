@@ -10,7 +10,7 @@ import { isComplete } from "./stages";
 import { workStatus } from "./workstatus";
 import { lockTitle } from "./dependencies";
 import { isPlanning, isSubtask } from "./subtasks";
-import type { Card, CardPatch, CardType, HierarchyStatus } from "./providers/types";
+import type { Card, CardType, HierarchyStatus, MoveResult, Provider } from "./providers/types";
 
 /** StrategyKind is what a row IS: the three planning levels, a task, or a
  *  subtask (a task under a task). */
@@ -40,6 +40,8 @@ export interface StrategyNode {
   card: Card;
   kind: StrategyKind;
   children: StrategyNode[];
+  /** The card's place in the listing — the board's order. */
+  at?: number;
 }
 
 /** buildTree is the forest the listing makes: a card goes under the card its
@@ -52,9 +54,9 @@ export interface StrategyNode {
  *  Roots come planning cards first, by level, then in listing order. */
 export function buildTree(cards: readonly Card[]): StrategyNode[] {
   const byId = new Map<string, StrategyNode>();
-  for (const card of cards) {
-    byId.set(card.itemId, { card, kind: kindOf(card), children: [] });
-  }
+  cards.forEach((card, at) => {
+    byId.set(card.itemId, { card, kind: kindOf(card), children: [], at });
+  });
   const roots: StrategyNode[] = [];
   for (const card of cards) {
     const node = byId.get(card.itemId)!;
@@ -175,6 +177,9 @@ export function rows(
 ): Row[] {
   const visible = visibleLevels(range);
   const lo = Math.min(levelOf(range.from), levelOf(range.to));
+  if (isFlatRange(range)) {
+    return flatRows(tree, range, expanded);
+  }
   const out: Row[] = [];
   const walk = (nodes: readonly StrategyNode[], depth: number) => {
     for (const node of nodes) {
@@ -195,6 +200,56 @@ export function rows(
     }
   };
   walk(tree, 0);
+  return out;
+}
+
+/** isFlatRange is a range that starts at the epic level: it draws the epics
+ *  FLAT, in the board-wide epic order (Q1, docs/design/ordering.md) — an
+ *  epic of a lower initiative may stand above one of a higher — rather than
+ *  grouped under the plan items it hides. Switching to it writes nothing. */
+export function isFlatRange(range: DepthRange): boolean {
+  return Math.min(levelOf(range.from), levelOf(range.to)) === levelOf("epic");
+}
+
+/** flatRows is a flat range's lines: every epic in the listing's order (the
+ *  board's), each with what is under it as the range and the folds say;
+ *  then what the grouped walk would have drawn at the top that is no epic
+ *  and stands under none (a task straight under an initiative). */
+function flatRows(tree: readonly StrategyNode[], range: DepthRange, expanded: (id: string) => boolean): Row[] {
+  const visible = visibleLevels(range);
+  const epics: StrategyNode[] = [];
+  const others: StrategyNode[] = [];
+  const collect = (nodes: readonly StrategyNode[], under: boolean) => {
+    for (const node of nodes) {
+      if (node.kind === "epic") {
+        epics.push(node);
+        continue;
+      }
+      if (levelOf(node.kind) < levelOf("epic")) {
+        collect(node.children, under);
+      } else if (!under && visible.has(node.kind)) {
+        others.push(node);
+      }
+    }
+  };
+  collect(tree, false);
+  epics.sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+  const out: Row[] = [];
+  const walk = (node: StrategyNode, depth: number) => {
+    if (!visible.has(node.kind)) {
+      return;
+    }
+    const foldable = node.children.filter((k) => visible.has(k.kind)).length;
+    out.push({ node, depth, foldable });
+    if (expanded(node.card.itemId)) {
+      for (const k of node.children) {
+        walk(k, depth + 1);
+      }
+    }
+  };
+  for (const node of [...epics, ...others]) {
+    walk(node, 0);
+  }
   return out;
 }
 
@@ -808,6 +863,11 @@ export function dropMark(drawn: readonly Row[], target: DropTarget, placement: P
 export interface Placement {
   parent: string | null;
   index: number;
+  /** A drop of an epic among the epics of a FLAT range (isFlatRange): the
+   *  epic keeps its parent and moves in the epic order, right after or
+   *  right before the epic it was dropped by (Q7: a flat drop never
+   *  re-parents). */
+  flat?: { after: string } | { before: string };
 }
 
 const parentOf = (c: Pick<Card, "parent">): string | null => c.parent || null;
@@ -834,12 +894,23 @@ export function placementFor(
   draggedId: string,
   overId: string,
   zone: DropZone,
+  flat = false,
 ): Placement | null {
   const at = rows.findIndex((r) => r.node.card.itemId === overId);
   if (at < 0 || overId === draggedId) {
     return null;
   }
   const over = rows[at];
+  const dragged = rows.find((r) => r.node.card.itemId === draggedId);
+  if (flat && zone !== "into" && over.node.kind === "epic" && dragged?.node.kind === "epic") {
+    const own = cards.find((c) => c.itemId === draggedId);
+    return { parent: own ? parentOf(own) : null, index: -1, flat: zone === "before" ? { before: overId } : { after: overId } };
+  }
+  if (flat && dragged?.node.kind === "epic") {
+    // In the flat range an epic moves among the epics only: by any other
+    // row it would take that row's parent, and a flat drop never re-parents.
+    return null;
+  }
   const overParent = parentOf(over.node.card);
   const siblings = siblingsUnder(cards, overParent, draggedId);
   const index = siblings.findIndex((c) => c.itemId === overId);
@@ -942,6 +1013,15 @@ export function previewCards(cards: readonly Card[], draggedId: string, placemen
   if (!dragged) {
     return [...cards];
   }
+  if (placement.flat) {
+    // The epic order alone: the epic beside the one it was dropped by, its
+    // parent unchanged.
+    const rest = cards.filter((c) => c.itemId !== draggedId);
+    const anchor = "after" in placement.flat ? placement.flat.after : placement.flat.before;
+    const i = rest.findIndex((c) => c.itemId === anchor);
+    const at = i < 0 ? rest.length : "after" in placement.flat ? i + 1 : i;
+    return [...rest.slice(0, at), dragged, ...rest.slice(at)];
+  }
   const rest = cards.filter((c) => c.itemId !== draggedId);
   const parent = placement.parent ? rest.find((c) => c.itemId === placement.parent) : undefined;
   const moved: Card = {
@@ -1002,6 +1082,15 @@ export function dropShown(cards: readonly Card[], draggedId: string, placement: 
 export function dropCommit(cards: readonly Card[], draggedId: string, placement: Placement): DropCommit {
   const dragged = cards.find((c) => c.itemId === draggedId);
   const after = previewCards(cards, draggedId, placement);
+  if (placement.flat) {
+    return {
+      parent: dragged ? parentOf(dragged) : null,
+      parentChanged: false,
+      after: "after" in placement.flat ? placement.flat.after : null,
+      before: "before" in placement.flat ? placement.flat.before : null,
+      order: after.map((c) => c.itemId),
+    };
+  }
   const siblings = after.filter((c) => parentOf(c) === placement.parent);
   const i = siblings.findIndex((c) => c.itemId === draggedId);
   return {
@@ -1013,49 +1102,47 @@ export function dropCommit(cards: readonly Card[], draggedId: string, placement:
   };
 }
 
-/** DropWriteError is a drop's write that failed, and how far it had got:
- *  `parentWritten` says the server took the new parent before the move
- *  among the siblings failed. */
-export class DropWriteError extends Error {
-  readonly parentWritten: boolean;
-  readonly cause: unknown;
-  constructor(cause: unknown, parentWritten: boolean) {
-    super(cause instanceof Error ? cause.message : String(cause));
-    this.name = "DropWriteError";
-    this.cause = cause;
-    this.parentWritten = parentWritten;
+/** DropRequest is the ONE request a drop is (docs/design/ordering.md, Q6,
+ *  Q7): a task moved among its EPIC's tasks is a reorder within the epic —
+ *  the epic's parked tasks of its team permute over the queue slots they
+ *  hold, so other epics' tasks never move; anything else is a move, its new
+ *  parent named when it changed. A task dropped into ANOTHER epic names the
+ *  parent and no place: the server puts it after that epic's last parked
+ *  task in its team's queue. An epic's move gathers its tasks there too. */
+export type DropRequest =
+  | { kind: "reorder-in-epic"; after?: string; before?: string }
+  | { kind: "move"; parent?: string; after?: string; before?: string };
+
+export function dropRequest(
+  cards: readonly Pick<Card, "itemId" | "parent" | "type" | "lineage">[],
+  draggedId: string,
+  commit: DropCommit,
+): DropRequest {
+  const dragged = cards.find((c) => c.itemId === draggedId);
+  const parent = commit.parent ? cards.find((c) => c.itemId === commit.parent) : undefined;
+  const place = commit.after ? { after: commit.after } : commit.before ? { before: commit.before } : {};
+  const isTask = !!dragged && !isPlanning(dragged);
+  if (isTask && parent?.type === "epic") {
+    if (!commit.parentChanged) {
+      return { kind: "reorder-in-epic", ...place };
+    }
+    return { kind: "move", parent: commit.parent ?? "" };
   }
+  return commit.parentChanged ? { kind: "move", parent: commit.parent ?? "", ...place } : { kind: "move", ...place };
 }
 
-/** writeDrop sends a drop's writes in order — the parent first, then the
- *  place among the new siblings — and, when one fails, says how far it got,
- *  so the board rolls back only what the server did not take. The two are
- *  separate requests (a card PATCH carries no position); a parent taken and
- *  a move refused leaves the card under its new parent, which is where the
- *  board must keep drawing it. */
+/** writeDrop sends a drop's one request and answers what it moved — the
+ *  action. One request is one action on the server: there
+ *  is no half-written drop to roll back. */
 export async function writeDrop(
   id: string,
-  commit: DropCommit,
-  provider: {
-    patchCard(uid: string, patch: CardPatch): Promise<unknown>;
-    moveCard(uid: string, afterId: string | null): Promise<void>;
-    moveCardBefore(uid: string, beforeId: string): Promise<void>;
-  },
-): Promise<void> {
-  let parentWritten = false;
-  try {
-    if (commit.parentChanged) {
-      await provider.patchCard(id, { parent: commit.parent ?? "" });
-      parentWritten = true;
-    }
-    if (commit.after) {
-      await provider.moveCard(id, commit.after);
-    } else if (commit.before) {
-      await provider.moveCardBefore(id, commit.before);
-    }
-  } catch (err) {
-    throw new DropWriteError(err, parentWritten);
+  request: DropRequest,
+  provider: Pick<Provider, "moveTo" | "reorderInEpic">,
+): Promise<MoveResult> {
+  if (request.kind === "reorder-in-epic") {
+    return provider.reorderInEpic(id, { after: request.after, before: request.before });
   }
+  return provider.moveTo(id, { parent: request.parent, after: request.after, before: request.before });
 }
 
 export const KIND_LABEL: Record<StrategyKind, string> = {
@@ -1310,3 +1397,16 @@ export function workPatchOf(c: Card): Partial<Card> {
   };
 }
 
+
+/** foldableIds is every row of the board that has rows under it at this
+ *  depth — what "Collapse all" folds. "Expand all" folds none. Neither
+ *  changes the order: folding is the reader's own view. */
+export function foldableIds(cards: readonly Card[], depth: DepthRange): Set<string> {
+  const out = new Set<string>();
+  for (const line of strategyLines(cards, { depth, expanded: () => true })) {
+    if (line.kind === "row" && line.row.foldable > 0) {
+      out.add(line.row.node.card.itemId);
+    }
+  }
+  return out;
+}

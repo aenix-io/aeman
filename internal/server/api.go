@@ -471,6 +471,7 @@ func (a surface) CreateCard(ctx context.Context, req apiv1.CreateCardRequestObje
 		Parked:         boolOf(in.Parked),
 		After:          strOf(in.After),
 		Before:         strOf(in.Before),
+		InheritParent:  boolOf(in.InheritParent),
 		Owner:          strOf(in.Owner),
 		Customers:      listOf(in.Customers),
 	}
@@ -704,21 +705,51 @@ func (a surface) RemoveCard(ctx context.Context, req apiv1.RemoveCardRequestObje
 	return apiv1.RemoveCard204Response{}, nil
 }
 
-// MoveCard reorders the card after (or before) another one.
+// MoveCard reorders the card after (or before) another one — on an epic,
+// the epic move that gathers its tasks (Q5); with a parent, a re-parent and
+// its place (Q6).
 func (a surface) MoveCard(ctx context.Context, req apiv1.MoveCardRequestObject) (apiv1.MoveCardResponseObject, error) {
 	svc, boardID, err := a.s.serviceOf()
 	if err != nil {
 		return nil, err
 	}
+	spot := board.Spot{After: strOf(req.Body.After)}
 	if before := strOf(req.Body.Before); before != "" {
-		err = svc.MoveCardBefore(ctx, boardID, req.UID, before)
+		spot = board.Spot{Before: before}
+	}
+	var res boardservice.MoveResult
+	if req.Body.Parent != nil {
+		res, err = svc.MoveUnder(ctx, boardID, req.UID, *req.Body.Parent, spot)
 	} else {
-		err = svc.MoveCard(ctx, boardID, req.UID, strOf(req.Body.After))
+		res, err = svc.Move(ctx, boardID, req.UID, spot)
 	}
 	if err != nil {
 		return nil, err
 	}
-	return apiv1.MoveCard204Response{}, nil
+	return apiv1.MoveCard200JSONResponse(moveResultOf(ctx, res)), nil
+}
+
+// ReorderInEpic moves a task within its epic over its epic's slots (Q6).
+func (a surface) ReorderInEpic(ctx context.Context, req apiv1.ReorderInEpicRequestObject) (apiv1.ReorderInEpicResponseObject, error) {
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, err
+	}
+	res, err := svc.ReorderInEpic(ctx, boardID, req.UID, strOf(req.Body.After), strOf(req.Body.Before))
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.ReorderInEpic200JSONResponse(moveResultOf(ctx, res)), nil
+}
+
+// moveResultOf is an ordering answer: how many cards took a key, and the
+// action that wrote them when anything was written.
+func moveResultOf(ctx context.Context, res boardservice.MoveResult) apiv1.MoveResult {
+	out := apiv1.MoveResult{Moved: res.Moved}
+	if id := actionFrom(ctx).ID; id != "" && res.Moved > 0 {
+		out.ActionID = &id
+	}
+	return out
 }
 
 // DeferCard pushes the scheduled day N days ahead of today.

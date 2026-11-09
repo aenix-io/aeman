@@ -12,18 +12,24 @@ import {
 import { registerPendingCard } from "../api/pending";
 import { todayIso } from "../date";
 import type { Board, Card as CardModel, CardType, Provider } from "../providers/types";
+import { backlogList, splitEpics } from "../backlogboard";
+import { readDepth, readZoom } from "../viewprefs";
+import { epicSlotOrder, type SlotCard } from "../queue";
+import { onBacklog } from "../backlogboard";
+import { isPlanning as isPlanItem, isSubtask as isSubtaskCard } from "../subtasks";
+import { placerOf } from "../ownership";
 import {
-  DEFAULT_DEPTH,
   DELETE_INTENT,
   KIND_LABEL,
-  LEVELS,
   barOf,
   childLevels,
   buildTree,
   childrenNote,
   daysBetween,
-  DropWriteError,
   dropCommit,
+  dropRequest,
+  foldableIds,
+  isFlatRange,
   dropShown,
   statusMenu,
   rolledUpAfter,
@@ -125,10 +131,13 @@ interface StrategyBoardProps {
    *  Team and Customer filters. */
   onManageTeams?: () => void;
   onManageCustomers?: () => void;
+  /** The depth range and the zoom, the app's: drawn in its top bar
+   *  (ViewControls), remembered per viewer. Left out, the board reads the
+   *  remembered ones itself. */
+  depth?: DepthRange;
+  zoom?: Zoom;
 }
 
-const LS_DEPTH = "aeman.strategy.depth";
-const LS_ZOOM = "aeman.strategy.zoom";
 const LS_FOLDED = "aeman.strategy.folded";
 
 /** HEAD_PX is the height of the table's head; a row's (ROW_PX) and one
@@ -161,33 +170,6 @@ function shortDate(iso: string | undefined, today: string): string {
   return iso.slice(0, 4) === today.slice(0, 4) ? label : `${label} ${y}`;
 }
 
-function readDepth(): DepthRange {
-  try {
-    const raw = localStorage.getItem(LS_DEPTH);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<DepthRange>;
-      if (LEVELS.includes(parsed.from as StrategyKind) && LEVELS.includes(parsed.to as StrategyKind)) {
-        return { from: parsed.from as StrategyKind, to: parsed.to as StrategyKind };
-      }
-    }
-  } catch {
-    // no storage, or a value from another build: the default
-  }
-  return DEFAULT_DEPTH;
-}
-
-function readZoom(): Zoom {
-  try {
-    const raw = localStorage.getItem(LS_ZOOM);
-    if (raw === "3m" || raw === "1y" || raw === "fit") {
-      return raw;
-    }
-  } catch {
-    // the default
-  }
-  return "3m";
-}
-
 function readFolded(): Set<string> {
   try {
     const raw = localStorage.getItem(LS_FOLDED);
@@ -199,6 +181,18 @@ function readFolded(): Set<string> {
 }
 
 const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+/** slotCards is the listing as epicSlotOrder reads it. */
+function slotCards(cards: readonly CardModel[]): SlotCard[] {
+  const team = placerOf(cards);
+  return cards.map((c) => ({
+    itemId: c.itemId,
+    parent: c.parent,
+    queued: onBacklog(c) && !c.reviewOf,
+    team: team(c),
+    task: !isPlanItem(c) && !c.reviewOf && !isSubtaskCard(c),
+  }));
+}
 
 /** A row line of the table: a row of the tree or of a section (the other
  *  line is a section's header). The timeline draws a lane per line, so the
@@ -241,6 +235,9 @@ interface RowProps {
   onStatus: ((badge: HTMLElement) => void) | null;
   /** The status menu stands open on this row (aria-expanded). */
   menuOpen: boolean;
+  /** An epic whose parked tasks are scattered in a team's backlog: another
+   *  task stands inside its area (board.Index.Split). */
+  split?: boolean;
   rowRef: (el: HTMLDivElement | null) => void;
 }
 
@@ -249,7 +246,7 @@ interface RowProps {
  *  worth of hit area, the kind by its pictogram. While a drag runs the rows
  *  stay where they are — the dragged rows dimmed in place — and where it
  *  would land is a mark over the row (strategy.dropMark). */
-function StrategyRow({ row, today, open, focus, ghost, forbid, mark, dragging, onToggle, onOpen, onAdd, onRemove, owner, onStatus, menuOpen, rowRef }: RowProps) {
+function StrategyRow({ row, today, open, focus, ghost, forbid, mark, dragging, onToggle, onOpen, onAdd, onRemove, owner, onStatus, menuOpen, split, rowRef }: RowProps) {
   const card = row.node.card;
   const id = card.itemId;
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id });
@@ -280,6 +277,11 @@ function StrategyRow({ row, today, open, focus, ghost, forbid, mark, dragging, o
       <span className="strategy-cell strategy-cell-date">{shortDate(card.startDate, today)}</span>
       <span className="strategy-cell strategy-cell-date">{shortDate(card.day, today)}</span>
       <span className="strategy-cell strategy-cell-status">
+        {split && (
+          <span className="split-badge" title="Its tasks are scattered in a team's backlog: moving the epic gathers them">
+            Split
+          </span>
+        )}
         <StatusPill card={card} onMenu={onStatus ?? undefined} expanded={menuOpen} />
       </span>
     </div>
@@ -393,6 +395,8 @@ export function StrategyBoard({
   onFilters,
   onManageTeams,
   onManageCustomers,
+  depth: depthProp,
+  zoom: zoomProp,
 }: StrategyBoardProps) {
   const today = todayIso();
   // The table's column widths (strategycolumns.ts), the reader's own. A drag
@@ -427,30 +431,16 @@ export function StrategyBoard({
   const handle = (col: StrategyColumn, label: string) => (
     <ColumnHandle col={col} widths={widths} label={label} onLive={liveWidths} onCommit={commitWidths} />
   );
-  const [depth, setDepthState] = useState<DepthRange>(readDepth);
-  const [zoom, setZoomState] = useState<Zoom>(readZoom);
+  const [storedDepth] = useState<DepthRange>(readDepth);
+  const [storedZoom] = useState<Zoom>(readZoom);
+  const depth = depthProp ?? storedDepth;
+  const zoom = zoomProp ?? storedZoom;
   const [folded, setFoldedState] = useState<Set<string>>(readFolded);
   // The planning row the + was pressed on, whose create form is open.
   const [addingUnder, setAddingUnder] = useState<string | null>(null);
   const [focusRow, setFocusRow] = useState<string | null>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
 
-  const setDepth = (next: DepthRange) => {
-    setDepthState(next);
-    try {
-      localStorage.setItem(LS_DEPTH, JSON.stringify(next));
-    } catch {
-      // a preference, not state
-    }
-  };
-  const setZoom = (next: Zoom) => {
-    setZoomState(next);
-    try {
-      localStorage.setItem(LS_ZOOM, next);
-    } catch {
-      // a preference, not state
-    }
-  };
   const setFolded = (next: Set<string>) => {
     setFoldedState(next);
     try {
@@ -514,6 +504,13 @@ export function StrategyBoard({
   const shownLines = useMemo(() => strategyLines(shown, { depth, expanded }), [shown, depth, folded]); // eslint-disable-line react-hooks/exhaustive-deps
   // The tree's rows alone, which is what a drop is read against: a section
   // row is dropped on by nothing.
+  // The epics whose tasks are scattered in a team's backlog (Split): read off
+  // the backlog cards this listing holds, each team's queue apart.
+  const split = useMemo(() => {
+    const placed = placerOf(shown);
+    const teams = [...new Set(shown.map((c) => placed(c)))];
+    return splitEpics(backlogList(shown, teams), placed);
+  }, [shown]);
   const baseRows = useMemo(() => shownLines.filter((l) => l.kind === "row" && l.section === "tree").map((l) => (l as RowLine).row), [shownLines]);
   const rows = useMemo(() => shownLines.filter((l): l is RowLine => l.kind === "row").map((l) => l.row), [shownLines]);
   // The rows a drag carries — the dragged card and everything under it —
@@ -585,7 +582,7 @@ export function StrategyBoard({
     if (hover && hover.target === target) {
       return;
     }
-    const placement = placementFor(shown, baseRows, dragging, target.overId, target.zone);
+    const placement = placementFor(shown, baseRows, dragging, target.overId, target.zone, isFlatRange(depth));
     const valid = !!placement && droppable(shown, dragging, placement.parent);
     setHover({ target, placement, valid });
   };
@@ -616,17 +613,30 @@ export function StrategyBoard({
     if (now.patch) {
       patchCard(id, now.patch);
     }
-    reorderCards?.(now.order);
-    // A parent the server took stays: only a refused parent is rolled
-    // back, and the reload settles the order.
-    void writeDrop(id, commit, provider).catch((err: unknown) => {
-      const taken = err instanceof DropWriteError && err.parentWritten;
-      if (!taken) {
+    // A reorder within an epic moves the epic's parked tasks of the team over
+    // their slots (queue.ts epicSlotOrder, the server's rule mirrored): the
+    // tab shows what the server writes, since its own write is not echoed.
+    const request = dropRequest(shown, id, commit);
+    const slotted =
+      request.kind === "reorder-in-epic"
+        ? epicSlotOrder(slotCards(shown), id, { after: request.after, before: request.before })
+        : null;
+    reorderCards?.(slotted ?? now.order);
+    // ONE request, one action (ordering.md): a reorder within the epic, or a
+    // move — an epic's gathers its tasks, a task dropped into another epic
+    // is placed after that epic's last parked task.
+    void writeDrop(id, request, provider)
+      .then(() => {
+        if (request.kind === "move" && request.parent !== undefined && !request.after && !request.before) {
+          // The server chose the place: read it back.
+          reload();
+        }
+      })
+      .catch((err: unknown) => {
         patchCard(id, before);
-      }
-      onError(errText(err instanceof DropWriteError ? err.cause : err));
-      reload();
-    });
+        onError(errText(err));
+        reload();
+      });
   };
 
   // One bar (or none) per LINE, so a lane's index is its line's: a header
@@ -882,13 +892,6 @@ export function StrategyBoard({
     });
   };
 
-  const levelOptions = () =>
-    LEVELS.map((k) => (
-      <option key={k} value={k}>
-        {KIND_LABEL[k]}
-      </option>
-    ));
-
   const planningOptions = (levels: (CardType | "task")[]) => levels.map((k) => ({ key: k, label: KIND_LABEL[k] }));
 
   const draggedCard = dragging ? board.cards.find((c) => c.itemId === dragging) : null;
@@ -960,39 +963,6 @@ export function StrategyBoard({
   return (
     <div className="strategy" ref={rootRef} style={columnVars(widths) as CSSProperties}>
       <div className="board-toolbar strategy-toolbar">
-        <label className="strategy-depth">
-          <span className="strategy-depth-label">Hierarchy</span>
-          <select
-            value={depth.from}
-            onChange={(e) => setDepth({ ...depth, from: e.target.value as StrategyKind })}
-            aria-label="From level"
-          >
-            {levelOptions()}
-          </select>
-          <span className="strategy-depth-to">to</span>
-          <select
-            value={depth.to}
-            onChange={(e) => setDepth({ ...depth, to: e.target.value as StrategyKind })}
-            aria-label="To level"
-          >
-            {levelOptions()}
-          </select>
-        </label>
-        <div className="segmented strategy-zoom" role="group" aria-label="Zoom">
-          {(["3m", "1y", "fit"] as Zoom[]).map((z) => (
-            <button
-              key={z}
-              type="button"
-              className={`segment${zoom === z ? " segment-active" : ""}`}
-              onClick={() => setZoom(z)}
-            >
-              {z === "3m" ? "3M" : z === "1y" ? "1Y" : "Fit"}
-            </button>
-          ))}
-        </div>
-        <span className="strategy-range" title="The window the timeline shows">
-          {shortDate(range.from, today)} – {shortDate(range.to, today)}
-        </span>
         {/* What the plan is for, who carries it out, who answers for it
             (ownership.md, O7, O8): the server's filters, remembered. */}
         <FilterSelect
@@ -1032,6 +1002,19 @@ export function StrategyBoard({
           }}
           title="Show only work in progress, in a backlog, locked by a dependency, plan items with no items, or done"
         />
+        <div className="segmented segmented-compact strategy-fold" role="group" aria-label="Folding">
+          <button type="button" className="segment" title="Unfold every row" onClick={() => setFolded(new Set())}>
+            Expand all
+          </button>
+          <button
+            type="button"
+            className="segment"
+            title="Fold every row that has rows under it (the order does not change)"
+            onClick={() => setFolded(foldableIds(shown, depth))}
+          >
+            Collapse all
+          </button>
+        </div>
       </div>
 
       {shownLines.length === 0 ? (
@@ -1119,6 +1102,7 @@ export function StrategyBoard({
                         setStatusFor(card);
                       }}
                       menuOpen={statusFor?.itemId === card.itemId}
+                      split={r.node.kind === "epic" && split.has(card.itemId)}
                       rowRef={(el) => {
                         if (el) {
                           rowRefs.current.set(card.itemId, el);

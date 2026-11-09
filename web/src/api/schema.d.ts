@@ -144,7 +144,7 @@ export interface paths {
         put?: never;
         /**
          * The Backlog's "I take this into work" — the card becomes the caller's.
-         * @description Offered by the backlog view (and `all`). The caller — the signed-in person, the identity every write records as its author — gets the card on its OWN team (a card of the no-team group stays in it): a parked task is taken into work as `own` with a person takes it — today, the unplanned band, the team's sprint, out of the backlog — and a review nobody has taken makes the caller its reviewer. Refused where there is nothing to take: a planning card (422 `planningCard`), a subtask or a review somebody already has (422 `ownerFollowsLink`), finished work (422 `alreadyFinished`), a task already in work (422 `alreadyInWork` — hand it over with `own`), a parked card somebody else is named on (422 `somebodysCard`), and a request that names nobody (422 `nobodyToTake`).
+         * @description Offered by the backlog view (and `all`). The caller — the signed-in person, the identity every write records as its author — gets the card on its OWN team (a card of the no-team group stays in it): a parked task is taken into work as `own` with a person takes it — today, the planned band, the team's sprint, out of the backlog — a review nobody has taken makes the caller its reviewer, and a goal, an initiative or an epic (the Backlog's Epics mode) makes the caller its OWNER, its team kept — one somebody else already owns is 422 `somebodysCard` (change the owner with `own`). Refused where there is nothing to take: a subtask or a review somebody already has (422 `ownerFollowsLink`), finished work (422 `alreadyFinished`), a task already in work (422 `alreadyInWork` — hand it over with `own`), a parked card somebody else is named on (422 `somebodysCard`), and a request that names nobody (422 `nobodyToTake`).
          */
         post: operations["takeCard"];
         delete?: never;
@@ -209,9 +209,29 @@ export interface paths {
         put?: never;
         /**
          * Reorder the card after (or before) another one.
-         * @description `before` wins when both are sent; an empty `after` puts the card at the top.
+         * @description `before` wins when both are sent; an empty `after` puts the card at the top. The keys are worked out over the merged board (an anchor in another repository is a place like any other). A task, a goal or an initiative takes its own key (Q4, Q7). An EPIC is the epic move (Q5, docs/design/ordering.md) — the same operation from the Strategy board and the Backlog: the epic takes its new place in the epic order and its parked tasks are gathered into one block per team, their order kept, in ONE action; tasks in work and other epics' tasks stay. With `parent` the card is first re-parented (every rule of a parent change holds) and then placed: at the anchor when one is named, else a parked task by the default place in its team's queue — after the new epic's last parked task (Q6). The answer names the request's action and how many cards took a key.
          */
         post: operations["moveCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cards/{uid}/actions/reorder-in-epic": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a task within its epic, over the slots its epic's tasks hold.
+         * @description The Strategy board's drag of a task among its epic's tasks (Q6, docs/design/ordering.md): the epic's PARKED tasks of the task's team keep the queue slots they hold between them, and the slots are handed out in the new order — the task right after `after`, or right before `before`, among the epic's tasks as drawn. Other epics' tasks never move. A task in work or done takes an ordinary key between its drawn neighbours. A card under no epic is 422 `notUnderAnEpic`.
+         */
+        post: operations["reorderInEpic"];
         delete?: never;
         options?: never;
         head?: never;
@@ -704,7 +724,7 @@ export interface components {
              * @description The rule that refused, for a program to branch on. For a rule of the board it is that rule's own name.
              * @enum {string}
              */
-            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "customerExists" | "customerName" | "customerNotFound" | "dayIsARecord" | "dependenciesUnsupported" | "dependencyCycle" | "dependencyTarget" | "descriptionTooLong" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noSuchView" | "notATarget" | "notAuthenticated" | "notFinished" | "notInWork" | "notOnThisBoard" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "ownerIsThePlans" | "ownershipUnsupported" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "reviewCardLink" | "setupRequired" | "somebodysCard" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "twoPlaces" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField";
+            code: "accessUndecided" | "alreadyFinished" | "alreadyInWork" | "authorizationExpired" | "backwardsDefer" | "badCapacity" | "badDay" | "bodyTooLarge" | "capacityRequired" | "cardNotFound" | "cardNotOnBoard" | "crossDomain" | "crossSiteBlocked" | "customerExists" | "customerName" | "customerNotFound" | "dayIsARecord" | "dependenciesUnsupported" | "dependencyCycle" | "dependencyTarget" | "descriptionTooLong" | "emptyNote" | "emptyTitle" | "endBeforeStart" | "forbidden" | "gestureNotOffered" | "historyTruncated" | "invalidAsOf" | "invalidBody" | "invalidDay" | "invalidParameter" | "invalidSelector" | "invalidStage" | "nameTaken" | "nobodyToTake" | "noEarlierSprint" | "noHistory" | "noPlaceOfItsOwn" | "noReviewer" | "noRoom" | "noSuchView" | "notATarget" | "notAuthenticated" | "notFinished" | "notInWork" | "notOnThisBoard" | "notUnderAnEpic" | "notYoursToRefuse" | "notYoursToRemove" | "noteNotFound" | "noteTooLong" | "openSubtasks" | "ownerFollowsLink" | "ownerNeedsTeam" | "ownerIsThePlans" | "ownershipUnsupported" | "parentLevel" | "parentNotFound" | "planningCard" | "pointsRequired" | "reviewCardLink" | "setupRequired" | "somebodysCard" | "subtaskDepth" | "teamExists" | "teamInUse" | "takeIntoWork" | "teamNotFound" | "titleTooLong" | "tooManyCards" | "twoPlaces" | "unknownDomain" | "unknownIntent" | "unknownRoute" | "unknownSize" | "unknownStage" | "unknownType" | "unknownZone" | "upstreamFailed" | "viewNeedsField";
             /** @description Where the person can go to fix the refusal — installing the board's app — for a client to offer as a button. */
             actionUrl?: string;
         };
@@ -1076,6 +1096,8 @@ export interface components {
             after?: string;
             /** @description As `after`, the uid of the card the new one is placed right BEFORE — the "+" above the first card of a list. */
             before?: string;
+            /** @description With `after` or `before` and no `parent`, files the new task under the EPIC of its context in its team's backlog (Q10, docs/design/ordering.md): the epic of the card above the gap (the same as below's when they agree, the card above's at a boundary), at the top of the list the card below's, none in an empty list. Default false: nothing is inherited unless asked for. */
+            inheritParent?: boolean;
         };
         CardDatesInput: {
             start?: string;
@@ -1129,7 +1151,15 @@ export interface components {
             /** @description The person on that team the card is handed to; needs a team. */
             person?: string;
         };
+        MoveResult: {
+            /** @description The action the keys were written under (its commits carry it as `Aeman-Action-Id`); absent when nothing was written. */
+            actionId?: string;
+            /** @description How many cards took a new key (an epic move counts the epic and every task it gathered). */
+            moved: number;
+        };
         MoveCardBody: {
+            /** @description Re-parents the card first (a Strategy drop under another plan item) — `""` takes the parent off — then places it: at the anchor when one is named, else a parked task by the default place in its team's queue (Q6). */
+            parent?: string;
             /** @description The card to land behind; empty means the top. */
             after?: string;
             /** @description The card to land in front of. It wins when both are sent. */
@@ -1868,11 +1898,41 @@ export interface operations {
         };
         responses: {
             /** @description The order is applied. */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["MoveResult"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    reorderInEpic: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card's own address, a ULID assigned at creation. */
+                uid: components["parameters"]["Uid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveCardBody"];
+            };
+        };
+        responses: {
+            /** @description The order is applied. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MoveResult"];
+                };
             };
             default: components["responses"]["Problem"];
         };

@@ -2,10 +2,13 @@ package gitstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/aenix-io/aeman/pkg/board"
 )
@@ -594,34 +597,96 @@ func (mb *MultiBackend) DeleteCard(ctx context.Context, bd board.Board, card boa
 	return be.DeleteCard(ctx, bd, card)
 }
 
-// MoveCard reorders within the card's domain. The TOP of the board (afterID
-// "") is the top of the merged board, not of the card's own repository: the
-// board's order is one list across the domains, and a card put first — a
-// review nobody has taken being made (K10), a card parked at the top of its
-// backlog — must rank before every domain's first card.
+// MoveCard reorders a card in the MERGED board's order: the board's order is
+// one list across the domains, so the neighbours a key goes between are
+// read off every domain's cards — an anchor another repository holds is a
+// place like any other (the TOP, afterID "", included: a review nobody has
+// taken being made, K10, ranks before every domain's first card). With room
+// only the card's own file is written; an exhausted gap renumbers a bounded
+// window (board.PlaceAfter, G12), each file in its own domain.
 func (mb *MultiBackend) MoveCard(ctx context.Context, bd board.Board, card board.Card, afterID string) error {
 	be, err := mb.route(ctx, card)
 	if err != nil {
 		return err
 	}
-	if afterID == "" && len(mb.domains) > 1 && !board.IsStateTitle(card.Title) {
-		first := ""
-		for _, c := range bd.Cards {
-			if c.ItemID == card.ItemID || c.Rank == "" || board.IsStateTitle(c.Title) {
+	if len(mb.domains) < 2 || board.IsStateTitle(card.Title) {
+		return be.MoveCard(ctx, bd, card, afterID)
+	}
+	fresh, err := mb.LoadBoard(ctx, bd.Board)
+	if err != nil {
+		return err
+	}
+	changes, err := board.PlaceAfter(board.RankedOfBoard(fresh), card.ItemID, afterID)
+	if err != nil {
+		return err
+	}
+	return mb.writeRanks(ctx, fresh, changes)
+}
+
+// Reorder runs the planner over the MERGED board and writes the keys it
+// returns, each file in its own domain: one action, one commit per
+// repository it touches (ordering.md, "Atomicity").
+func (mb *MultiBackend) Reorder(ctx context.Context, bd board.Board, plan board.Planner) ([]board.RankChange, error) {
+	fresh, err := mb.LoadBoard(ctx, bd.Board)
+	if err != nil {
+		return nil, err
+	}
+	changes, err := plan(fresh)
+	if err != nil || len(changes) == 0 {
+		return nil, err
+	}
+	if scopeOf(ctx) == nil {
+		var flush func() (plumbing.Hash, error)
+		ctx, flush = WithScope(ctx, Action{Name: "move", Actor: actorOf(ctx), At: time.Now(), Cards: rankIDs(changes),
+			Summary: fmt.Sprintf("move: %d keys", len(changes))})
+		if err := mb.writeRanks(ctx, fresh, changes); err != nil {
+			return nil, err
+		}
+		if _, err := flush(); err != nil {
+			return nil, err
+		}
+		return changes, nil
+	}
+	return changes, mb.writeRanks(ctx, fresh, changes)
+}
+
+// writeRanks writes the keys of an ordering action, each card's file in its
+// own domain. Under the caller's scope they join its commits — one per
+// repository; bare, several get a scope of their own.
+func (mb *MultiBackend) writeRanks(ctx context.Context, fresh board.Board, changes []board.RankChange) error {
+	flush := func() (plumbing.Hash, error) { return plumbing.ZeroHash, nil }
+	if scopeOf(ctx) == nil && len(changes) > 1 {
+		ids := make([]string, 0, len(changes))
+		for _, ch := range changes {
+			ids = append(ids, ch.ID)
+		}
+		ctx, flush = WithScope(ctx, Action{Name: "move", Actor: actorOf(ctx), At: time.Now(), Cards: ids,
+			Summary: fmt.Sprintf("move: %d keys", len(changes))})
+	}
+	byID := make(map[string]board.Card, len(fresh.Cards))
+	for _, c := range fresh.Cards {
+		byID[c.ItemID] = c
+	}
+	for _, ch := range changes {
+		c, ok := byID[ch.ID]
+		if !ok {
+			// Deleted since the plan was made (another replica, a fetch): its
+			// key is nobody's, and the rest of the move still stands.
+			continue
+		}
+		be, err := mb.route(ctx, c)
+		if err != nil {
+			return err
+		}
+		if err := be.setCardRank(ctx, c, ch.After); err != nil {
+			if errors.Is(err, ErrCardNotFound) {
 				continue
 			}
-			if first == "" || c.Rank < first {
-				first = c.Rank
-			}
-		}
-		if first != "" {
-			rank, err := board.RankBetween("", first)
-			if err == nil && !board.RankTooLong(rank) {
-				return be.setCardRank(ctx, card, rank)
-			}
+			return err
 		}
 	}
-	return be.MoveCard(ctx, bd, card, afterID)
+	_, err := flush()
+	return err
 }
 
 // AddNote appends a note in the card's domain.

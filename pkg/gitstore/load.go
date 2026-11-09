@@ -292,6 +292,11 @@ func (l *loader) finish() {
 }
 
 func byRank(r1, id1, r2, id2 string) bool {
+	// A card with no valid key stands after every card that has one, as
+	// the docs always said (ordering.md, defect 4): normalisation places it.
+	if v1, v2 := board.ValidRank(r1), board.ValidRank(r2); v1 != v2 {
+		return v1
+	}
 	if r1 != r2 {
 		return r1 < r2
 	}

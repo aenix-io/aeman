@@ -25,8 +25,15 @@ import {
   takenIntoWorkLocally,
   insertSpot,
   insertedOrder,
-  backlogKey,
-  compareBacklogKeys,
+  byReadiness,
+  splitEpics,
+  epicRows,
+  epicDrop,
+  readBacklogMode,
+  epicsByReadiness,
+  offersEpicTake,
+  epicTake,
+  epicTakeOwner,
 } from "./backlogboard";
 import type { Card, LineageRef } from "./providers/types";
 
@@ -195,146 +202,73 @@ describe("what a drop does (K5)", () => {
   });
 });
 
-// ONE ORDER, decided by the tree (K14): a drop moves a task among its
-// SIBLINGS — the tasks under the same parent — which moves it on the Strategy board too. A drop whose neighbours are
-// none of its siblings is not a place it can go: forbidden, nothing moves.
-describe("a drop moves a task among its siblings only (K14)", () => {
+// Q4 — a drop puts a task between ANY two neighbours, of whichever epic: it
+// becomes an exception to its epic's order (the epic's key stays). A review
+// nobody has taken is no anchor and is never dragged (K10).
+describe("a drop goes between any two neighbours (Q4)", () => {
   const under = (itemId: string, parent: string, over: Partial<Card> = {}) =>
     card({ itemId, parent, lineage: [{ uid: parent, type: "epic", title: parent }], ...over });
   const a1 = under("a1", "ea");
   const a2 = under("a2", "ea");
-  const a3 = under("a3", "ea");
   const b1 = under("b1", "eb");
   const b2 = under("b2", "eb");
-  const list = [a1, a2, a3, b1, b2];
+  const list = [a1, a2, b1, b2];
 
-  it("reorders within its parent, anchored on the sibling beside it", () => {
-    // a3 to the top of ea's run: before a1.
-    expect(dropPlan("a3", list, 0)).toEqual({ kind: "reorder", order: ["a3", "a1", "a2", "b1", "b2"], anchor: { before: "a1" } });
-    // a1 down between a2 and a3: after a2.
-    expect(dropPlan("a1", list, 1)).toEqual({ kind: "reorder", order: ["a2", "a1", "a3", "b1", "b2"], anchor: { after: "a2" } });
+  it("moves B2 between A1 and A2 — the brief's §4", () => {
+    expect(dropPlan("b2", list, 1)).toEqual({ kind: "reorder", order: ["a1", "b2", "a2", "b1"], anchor: { after: "a1" } });
   });
 
-  it("lands after the last sibling at the end of its run, even with another parent's task below", () => {
-    // a1 dropped between a3 and b1: a3 is a sibling above it.
-    expect(dropPlan("a1", list, 2)).toEqual({ kind: "reorder", order: ["a2", "a3", "a1", "b1", "b2"], anchor: { after: "a3" } });
+  it("moves a task to the top, before the first task", () => {
+    expect(dropPlan("b1", list, 0)).toEqual({ kind: "reorder", order: ["b1", "a1", "a2", "b2"], anchor: { before: "a1" } });
   });
 
-  it("is forbidden next to the tasks of another parent only", () => {
-    // a1 between b1 and b2: neither neighbour is under ea.
-    expect(dropPlan("a1", list, 3)).toEqual({ kind: "forbidden" });
-    // b2 to the very top, above ea's run.
-    expect(dropPlan("b2", list, 0)).toEqual({ kind: "forbidden" });
-  });
-
-  // A review's place follows its task's (K10): dragging it is no gesture —
-  // every drop of a review is forbidden and writes nothing.
-  it("never moves a review nobody has taken: its place is its task's", () => {
+  it("never moves a review nobody has taken, and a review is no anchor", () => {
     const rA = card({ itemId: "rA", reviewOf: "x" });
     const rB = card({ itemId: "rB", reviewOf: "y" });
-    const rC = card({ itemId: "rC", reviewOf: "z" });
-    const list = [rA, rB, a1, rC];
-    expect(dropPlan("rB", list, 0)).toEqual({ kind: "forbidden" });
-    expect(dropPlan("rC", list, 1)).toEqual({ kind: "forbidden" });
-    expect(dropPlan("rA", list, 2)).toEqual({ kind: "forbidden" });
-    // And a task does not sit by a review as by a sibling.
-    expect(dropPlan("a1", [rA, a1], 0)).toEqual({ kind: "forbidden" });
+    expect(dropPlan("rB", [rA, rB, a1], 0)).toEqual({ kind: "forbidden" });
+    // A task dropped among the reviews lands before the first task.
+    expect(dropPlan("a2", [rA, rB, a1, a2], 1)).toEqual({ kind: "reorder", order: ["rA", "rB", "a2", "a1"], anchor: { before: "a1" } });
   });
 
-  it("treats the tasks with no plan item above as one run of siblings", () => {
-    const l1 = card({ itemId: "l1" });
-    const l2 = card({ itemId: "l2", team: "beta" });
-    expect(dropPlan("l2", [a1, l1, l2], 1)).toEqual({ kind: "reorder", order: ["a1", "l2", "l1"], anchor: { before: "l1" } });
-    expect(dropPlan("l2", [a1, l1, l2], 0)).toEqual({ kind: "forbidden" });
+  it("has nothing to write for a task alone among reviews", () => {
+    const rA = card({ itemId: "rA", reviewOf: "x" });
+    expect(dropPlan("a1", [rA, a1], 0)).toEqual({ kind: "none" });
   });
 });
 
-// The backlog reads in the STRATEGY's order (K14) — a mirror of
-// board.BacklogKey, case for case with TestABacklogReadsInTheStrategysOrder:
-// the path of places in the board's order from the root plan item down,
-// roots level by level, tasks with no plan item after every planned one, the
-// reviews nobody has taken in a group of their own on top (K10).
-// (Priorities were removed: the order is the place in the Strategy board tree.)
-describe("the Strategy board's order in the backlog (K14)", () => {
+// Q2 — the backlog reads in the BOARD's order: the reviews nobody has taken
+// first, then every task by its own key — the plan items above a task decide
+// nothing. Mirrors board.BacklogOrder (TestABacklogReadsInTheBoardsOrder).
+describe("the board's order in the backlog (Q2)", () => {
   const ref = (uid: string, type: "goal" | "initiative" | "epic"): LineageRef => ({ uid, type, title: uid });
   const G1 = ref("g1", "goal");
   const G2 = ref("g2", "goal");
-  const I1 = ref("i1", "initiative");
   const E1 = ref("e1", "epic");
   const E2 = ref("e2", "epic");
-  const IR = ref("i-root", "initiative");
-  // The board's order — deliberately not the tree's.
-  const boardOrder = ["loose-1", "t-e2", "g2", "e2", "t-g2", "g1", "loose-2", "i1", "e1", "t-e1-b", "t-e1-a", "t-i1", "i-root", "t-iroot"];
   const t = (itemId: string, lineage: LineageRef[], over: Partial<Card> = {}) => card({ itemId, lineage, parent: lineage.at(-1)?.uid, ...over });
+  const boardOrder = ["loose-1", "t-e2", "g2", "e2", "r", "g1", "e1", "t-e1"];
   const cards = [
     t("loose-1", []),
-    t("t-e2", [G1, I1, E2]),
-    t("t-g2", [G2]),
-    t("loose-2", []),
-    t("t-e1-b", [G1, I1, E1]),
-    t("t-e1-a", [G1, I1, E1]),
-    t("t-i1", [G1, I1]),
-    t("t-iroot", [IR]),
+    t("t-e2", [G2, E2]),
+    card({ itemId: "r", reviewOf: "t-e1", lineage: [G1, E1] }),
+    t("t-e1", [G1, E1]),
   ];
 
-  it("lists the tasks in the Strategy board's draw order, the loose ones last", () => {
-    expect(backlogList(cards, [""], boardOrder).map((c) => c.itemId)).toEqual([
-      "t-g2", "t-e2", "t-e1-b", "t-e1-a", "t-i1", "t-iroot", "loose-1", "loose-2",
-    ]);
+  it("lists the reviews first, then the tasks in the board's order", () => {
+    expect(backlogList(cards, [""], boardOrder).map((c) => c.itemId)).toEqual(["r", "loose-1", "t-e2", "t-e1"]);
   });
 
-  // A `priority:` a card still carries (an older file) is no part of the
-  // order: the Strategy board's order alone decides.
-  it("reads the Strategy board's order alone, whatever priority a card once had", () => {
-    const order = ["g1", "g2", "a", "b", "c", "loose"];
-    const list = [t("c", [G2]), t("b", [G1], { priority: "P0" } as Partial<Card>), t("loose", []), t("a", [G1])];
-    expect(backlogList(list, [""], order).map((c) => c.itemId)).toEqual(["a", "b", "c", "loose"]);
+  it("re-sorts on a new board order (an Ordering frame), and a goal moved up moves no task", () => {
+    const moved = ["g1", "e1", "loose-1", "t-e2", "g2", "e2", "r", "t-e1"];
+    expect(backlogList(cards, [""], moved).map((c) => c.itemId)).toEqual(["r", "loose-1", "t-e2", "t-e1"]);
+    const taskMoved = ["t-e1", "loose-1", "t-e2", "g2", "e2", "r", "g1", "e1"];
+    expect(backlogList(cards, [""], taskMoved).map((c) => c.itemId)).toEqual(["r", "t-e1", "loose-1", "t-e2"]);
   });
 
-  // Mirrors TestTheReviewsNobodyHasTakenStandFirst (K10): the reviews nobody
-  // has taken stand in a group of their own on top, in their tasks' Strategy
-  // order; the tasks follow in theirs.
-  it("puts the reviews nobody has taken first, in their tasks' Strategy order", () => {
-    const order = ["g1", "g2", "r-late", "r-loose", "r-early", "o-early", "t1", "o-late", "o-loose", "t0"];
-    const list = [
-      card({ itemId: "r-late", reviewOf: "o-late", lineage: [G1] }),
-      card({ itemId: "r-loose", reviewOf: "o-loose" }),
-      card({ itemId: "r-early", reviewOf: "o-early", lineage: [G1] }),
-      t("t1", [G1]),
-      t("t0", []),
-    ];
-    expect(backlogList(list, [""], order).map((c) => c.itemId)).toEqual(["r-early", "r-late", "r-loose", "t1", "t0"]);
-  });
-
-  // Mirrors TestAReviewOfASubtaskIsPlacedByThePlanningChain: a review of a
-  // SUBTASK is placed by its planning chain (status.lineage carries no task)
-  // and the subtask's own place.
-  it("places a review of a subtask by its planning chain and the subtask's place", () => {
-    const E = ref("e", "epic");
-    const list = [card({ itemId: "r-sub", reviewOf: "s", lineage: [E] }), card({ itemId: "r-t2", reviewOf: "t2", lineage: [E] })];
-    expect(backlogList(list, [""], ["e", "t", "t2", "s", "r-sub", "r-t2"]).map((c) => c.itemId)).toEqual(["r-t2", "r-sub"]);
-  });
-
-  it("re-sorts on a new board order (an Ordering frame): a goal moved up takes its tasks with it", () => {
-    const moved = ["g1", "loose-1", "t-e2", "g2", "e2", "t-g2", "loose-2", "i1", "e1", "t-e1-b", "t-e1-a", "t-i1", "i-root", "t-iroot"];
-    expect(backlogList(cards, [""], moved).map((c) => c.itemId).slice(0, 5)).toEqual(["t-e2", "t-e1-b", "t-e1-a", "t-i1", "t-g2"]);
-  });
-
-  it("places a card the order does not name yet after the ones it does, in the board's order", () => {
-    const fresh = t("fresh", [G1, I1, E1]);
+  it("places a card the order does not name yet after the ones it does", () => {
+    const fresh = t("fresh", [G1, E1]);
     const ids = backlogList([...cards, fresh], [""], boardOrder).map((c) => c.itemId);
-    expect(ids.indexOf("fresh")).toBe(ids.indexOf("t-e1-a") + 1);
-  });
-
-  it("compares keys step by step, a key never before itself", () => {
-    const pos = new Map(["g", "under-g", "e", "under-e"].map((u, i) => [u, i]));
-    const G = ref("g", "goal");
-    const E = ref("e", "epic");
-    const ug = backlogKey(t("under-g", [G]), pos);
-    const ue = backlogKey(t("under-e", [G, E]), pos);
-    expect(compareBacklogKeys(ug, ue)).toBeLessThan(0);
-    expect(compareBacklogKeys(ue, ug)).toBeGreaterThan(0);
-    expect(compareBacklogKeys(ug, ug)).toBe(0);
+    expect(ids.at(-1)).toBe("fresh");
   });
 });
 
@@ -403,6 +337,39 @@ describe("the insert +", () => {
     expect(insertedOrder(["x", "a"], "n", null)).toEqual(["x", "a", "n"]);
     expect(insertedOrder(["x", "a", "n"], "n", { after: "x" })).toEqual(["x", "n", "a"]);
   });
+
+  // Q10 — the "+" between an epic's tasks makes a task of THAT epic (it used
+  // to make a loose one that sorted to the end): the epic of the card above
+  // the gap — the same as below's when they agree, the card above's at a
+  // boundary — at the top of the list the card below's, none in an empty
+  // list. Reviews nobody has taken are skipped. Mirrors board.InheritedEpic.
+  describe("inherits the epic of its context (Q10)", () => {
+    const B: LineageRef = { uid: "b", type: "epic", title: "Epic B" };
+    const a1 = card({ itemId: "a1", parent: "e", lineage: [GOAL, EPIC] });
+    const a2 = card({ itemId: "a2", parent: "e", lineage: [EPIC] });
+    const n1 = card({ itemId: "n1" });
+    const b1 = card({ itemId: "b1", parent: "b", lineage: [B] });
+    const review = card({ itemId: "r", reviewOf: "a1", lineage: [B] });
+
+    it("between two tasks of one epic: that epic", () => {
+      expect(insertSpot([a1, a2, b1], 1, ["portal"]).epic?.uid).toBe("e");
+    });
+    it("at a boundary: the card above's, none below a neutral task", () => {
+      expect(insertSpot([a1, a2, b1], 2, ["portal"]).epic?.uid).toBe("e");
+      expect(insertSpot([n1, b1], 1, ["portal"]).epic).toBeNull();
+    });
+    it("at the top the card below's, at the bottom the card above's", () => {
+      expect(insertSpot([a1, b1], 0, ["portal"]).epic?.uid).toBe("e");
+      expect(insertSpot([a1, b1], 2, ["portal"]).epic?.uid).toBe("b");
+    });
+    it("none in an empty list", () => {
+      expect(insertSpot([], 0, ["portal"]).epic).toBeNull();
+    });
+    it("skips a review nobody has taken", () => {
+      expect(insertSpot([review, a1], 1, ["portal"]).epic?.uid).toBe("e");
+      expect(insertSpot([review, a1], 0, ["portal"]).epic?.uid).toBe("e");
+    });
+  });
 });
 
 // Each card shows its PARENT CHAIN on the right: every planning card above
@@ -467,17 +434,17 @@ describe("what the owner picker does on a backlog card (K3, K4, K5)", () => {
 
 // The optimistic shapes, so the board shows the server's answer before the
 // server has given it. Taking into work mirrors boardservice.ownByPerson on an
-// unplanned card: today, the unplanned band, the team's sprint, the person,
+// unplanned card: today, the PLANNED band, the team's sprint, the person,
 // and out of the backlog.
 describe("the optimistic shapes", () => {
-  it("takes a task into work today, in the unplanned band and the team's sprint (K4)", () => {
+  it("takes a task into work today, in the planned band and the team's sprint (K4)", () => {
     expect(takenIntoWorkLocally({ team: "alpha", person: "kvaps" }, "2026-11-03", "2026-11-02")).toEqual({
       team: "alpha",
       assignees: ["kvaps"],
       parked: false,
       startDate: "2026-11-03",
       day: "2026-11-03",
-      zone: "yellow",
+      zone: "gray",
       sprintStart: "2026-11-02",
     });
   });
@@ -640,5 +607,117 @@ describe("the backlog's order, shared with the server", () => {
   it("reads who rides a parent task as board.IsSubtask does", () => {
     const got = Object.fromEntries(Object.keys(fx.subtask).map((id) => [id, isSubtask(cards.find((c) => c.itemId === id)!)]));
     expect(got).toEqual(fx.subtask);
+  });
+});
+
+// The All / Ready / Blocked filter only HIDES: the order is the queue's, a
+// blocked task stays where it stands (dependencies never change the order).
+describe("the readiness filter", () => {
+  const list = [card({ itemId: "a" }), card({ itemId: "b", locked: true }), card({ itemId: "c" })];
+  it("shows everything by default, in the list's order", () => {
+    expect(byReadiness(list, "all").map((c) => c.itemId)).toEqual(["a", "b", "c"]);
+  });
+  it("shows the ready ones or the blocked ones, the order kept", () => {
+    expect(byReadiness(list, "ready").map((c) => c.itemId)).toEqual(["a", "c"]);
+    expect(byReadiness(list, "blocked").map((c) => c.itemId)).toEqual(["b"]);
+  });
+});
+
+// The Epics mode (ordering.md, "Backlog Epics mode"): the epics of the
+// shown teams in the EPIC ORDER, empty ones included, done ones not, each
+// with its goal/initiative, its waiting tasks and whether they are scattered.
+describe("the Epics mode", () => {
+  const I = { uid: "i", type: "initiative" as const, title: "Kubernetes и S3" };
+  const ep = (itemId: string, over: Partial<Card> = {}) =>
+    card({ itemId, title: itemId, type: "epic", parked: false, team: "portal", lineage: [I], ...over });
+  const under = (itemId: string, epic: string, over: Partial<Card> = {}) =>
+    card({ itemId, team: "portal", parent: epic, lineage: [I, { uid: epic, type: "epic", title: epic }], ...over });
+  const A = ep("A");
+  const B = ep("B");
+  const C = ep("C"); // empty
+  const done = ep("D", { hierarchy: { status: "done", done: 1, total: 1 } } as Partial<Card>);
+  const other = ep("O", { team: "beta" });
+  const a1 = under("a1", "A");
+  const b1 = under("b1", "B");
+  const a2 = under("a2", "A");
+  const scope = [A, B, C, done, other, a1, b1, a2];
+  const list = [a1, b1, a2];
+
+  it("lists the team's epics in the epic order, empty ones in, done ones out", () => {
+    const order = ["B", "A", "C", "D", "O", "a1", "b1", "a2"];
+    expect(epicRows(scope, list, ["portal"], order).map((r) => r.epic.itemId)).toEqual(["B", "A", "C"]);
+  });
+
+  it("counts the waiting tasks, marks a scattered epic Split, and carries the plan above", () => {
+    const rows = epicRows(scope, list, ["portal"]);
+    const byId = new Map(rows.map((r) => [r.epic.itemId, r]));
+    expect(byId.get("A")?.parked).toBe(2);
+    expect(byId.get("A")?.split).toBe(true); // b1 stands inside A's area
+    expect(byId.get("B")?.split).toBe(false);
+    expect(byId.get("C")?.parked).toBe(0);
+    expect(byId.get("A")?.chain.map((r) => r.uid)).toEqual(["i"]);
+  });
+
+  it("takes in another team's epic that has a task standing under a shown team", () => {
+    const o1 = under("o1", "O");
+    expect(epicRows([...scope, o1], [...list, o1], ["portal"]).map((r) => r.epic.itemId)).toContain("O");
+  });
+
+  it("reads Split per team: two teams' tasks of one epic interleaved are no split", () => {
+    const x1 = under("x1", "A", { team: "beta" });
+    expect(splitEpics([a1, x1, a2], (c) => c.team ?? "").has("A")).toBe(false);
+  });
+
+  it("drops an epic beside another — the epic move — and nothing where it was", () => {
+    expect(epicDrop(["A", "B", "C"], "C", 0)).toEqual({ order: ["C", "A", "B"], anchor: { before: "A" } });
+    expect(epicDrop(["A", "B", "C"], "A", 1)).toEqual({ order: ["B", "A", "C"], anchor: { after: "B" } });
+    expect(epicDrop(["A", "B", "C"], "B", 1)).toBeNull();
+  });
+
+  it("remembers the mode, Tasks by default — switching it writes nothing", () => {
+    expect(readBacklogMode(null)).toBe("tasks");
+    expect(readBacklogMode("epics")).toBe("epics");
+    expect(readBacklogMode("nonsense")).toBe("tasks");
+  });
+});
+
+// All / Ready / Blocked applies to the Epics mode by the epics' own lock
+// (own or inherited, status.locked), and never reorders.
+describe("the readiness filter on the Epics mode", () => {
+  const ep = (itemId: string, locked = false) => card({ itemId, type: "epic", team: "portal", locked });
+  const rows = epicRows([ep("A"), ep("B", true), ep("C")], [], ["portal"]);
+  it("shows the locked epics under Blocked and the others under Ready, the order kept", () => {
+    expect(epicsByReadiness(rows, "all").map((r) => r.epic.itemId)).toEqual(["A", "B", "C"]);
+    expect(epicsByReadiness(rows, "blocked").map((r) => r.epic.itemId)).toEqual(["B"]);
+    expect(epicsByReadiness(rows, "ready").map((r) => r.epic.itemId)).toEqual(["A", "C"]);
+  });
+});
+
+// Take on an epic (the Epics mode): offered while nobody owns it; it makes
+// the viewer the epic's owner and keeps its team.
+describe("Take on an epic", () => {
+  it("is offered while the epic has no owner, and not once somebody owns it", () => {
+    expect(offersEpicTake(card({ type: "epic" }))).toBe(true);
+    expect(offersEpicTake(card({ type: "epic", owner: "ann" }))).toBe(false);
+  });
+  it("makes the viewer its owner and keeps its team", () => {
+    expect(epicTakeOwner(card({ type: "epic", team: "portal" }), "kvaps")).toEqual({ team: "portal", person: "kvaps" });
+    expect(epicTakeOwner(card({ type: "epic" }), "kvaps")).toEqual({ team: "", person: "kvaps" });
+  });
+});
+
+// Take on an epic is always drawn: enabled while nobody owns it, disabled —
+// naming who does — once somebody does.
+describe("an Epics row's Take", () => {
+  it("is enabled while the epic has no owner", () => {
+    expect(epicTake(card({ type: "epic", title: "S3" }))).toEqual({
+      enabled: true,
+      title: "Take this epic yourself: you become its owner",
+    });
+  });
+  it("is disabled, saying who owns it, once somebody does", () => {
+    const t = epicTake(card({ type: "epic", title: "S3", owner: "ann" }));
+    expect(t.enabled).toBe(false);
+    expect(t.title).toBe("ann already owns «S3» — change the owner with the avatar");
   });
 });

@@ -9,16 +9,19 @@
 // listing fills and the watch keeps current (K6). A card taken into work, finished or re-teamed out of
 // the selection by anybody simply stops being one of them.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Board, Card as CardModel, Provider, SizeKey } from "../providers/types";
+import type { Board, Card as CardModel, Provider } from "../providers/types";
 import {
   insertSpot,
+  byReadiness,
+  epicTakeOwner,
+  type Readiness,
+  epicRows,
+  epicsByReadiness,
+  type BacklogMode,
   insertedOrder,
   backlogList,
   dropPlan,
-  dueLabel,
-  dueOf,
   handedOverLocally,
-  nearestPlanning,
   openPlanning,
   ownPlan,
   parentChain,
@@ -30,8 +33,10 @@ import {
   type Anchor,
 } from "../backlogboard";
 import type { LineageRef } from "../providers/types";
+import { BacklogEpics } from "./BacklogEpics";
+import { readMode } from "../viewprefs";
 import { justMade, noteMade } from "../justmade";
-import { ownerOf, type Owner } from "../owner";
+import { ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
 import {
   asksFirst,
   freeSubtasks,
@@ -41,7 +46,6 @@ import {
   withdrawPatch,
   type RemoveChoice,
 } from "../removal";
-import { SIZES, SIZE_ORDER } from "../size";
 import { currentSprint, previousSprint } from "../sprint";
 import { todayIso } from "../date";
 import type { Avatars, Names } from "../users";
@@ -52,13 +56,11 @@ import { clickOn, selectedByOf, type PresenceMap } from "../presence";
 import { Avatar } from "./Avatar";
 import { displayName } from "../users";
 import { InsertGap } from "./InsertGap";
-import { Dropdown } from "./Dropdown";
 import { KindIcon } from "./KindIcon";
 import { markOf } from "../placements";
 import { OwnerBadge } from "./OwnerBadge";
 import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
-import { SizeChip } from "./SizeChip";
 import { FilterSelect } from "./FilterSelect";
 import { customerOptions, teamOptions } from "../filteroptions";
 import { bornCustomers, customerPasses, sprintTeamOf } from "../ownership";
@@ -104,6 +106,9 @@ interface BacklogBoardProps {
   presence?: PresenceMap;
   /** Broadcast this board's selection as shared presence (#290). */
   onPresence?: (card: string | null) => void;
+  /** Tasks | Epics, the app's: drawn in its top bar (ViewControls),
+   *  remembered per viewer. Left out, the board reads the remembered one. */
+  mode?: BacklogMode;
 }
 
 /** dropSpot reads the list for a point: the place among the cards drawn in
@@ -151,17 +156,78 @@ export function BacklogBoard({
   me,
   presence,
   onPresence,
+  mode: modeProp,
 }: BacklogBoardProps) {
   const today = todayIso();
   const teams = useMemo(() => shownTeams(teamFilter, roster), [teamFilter, roster]);
   // The Customer filter by effective customers — the server's rule for the
   // listing and the watch (O11), applied to what the board holds.
   const { kept, keep } = useKeptCreated(customerFilter.join(","));
-  const list = useMemo(
+  // All / Ready / Blocked: a filter, never an order (ordering.md).
+  const [readiness, setReadiness] = useState<Readiness>("all");
+  const whole = useMemo(
     () => backlogList(board.cards, teams, board.boardOrder).filter((c) => customerPasses(c, board.cards, customerFilter, kept)),
     [board.cards, board.boardOrder, teams, customerFilter, kept],
   );
+  const list = useMemo(() => byReadiness(whole, readiness), [whole, readiness]);
   const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
+
+  // ---- Tasks | Epics (ordering.md): one order, two readings ----
+  // The mode is the viewer's own and switching writes nothing. The Epics
+  // mode reads the epics — empty ones too, which no backlog listing holds —
+  // off the Strategy listing, and orders them by the board's order.
+  const [storedMode] = useState<BacklogMode>(readMode);
+  const mode = modeProp ?? storedMode;
+  const [scope, setScope] = useState<CardModel[] | null>(null);
+  const [scopeTick, setScopeTick] = useState(0);
+  useEffect(() => {
+    if (mode !== "epics") {
+      return;
+    }
+    let live = true;
+    provider
+      .listCards({ view: "strategy" })
+      .then((l) => {
+        if (live) {
+          setScope(l.cards);
+        }
+      })
+      .catch((err: unknown) => {
+        if (live) {
+          onError(err instanceof Error ? err.message : String(err));
+        }
+      });
+    return () => {
+      live = false;
+    };
+  }, [mode, provider, scopeTick, onError]);
+  const [epicOrder, setEpicOrder] = useState<string[] | null>(null);
+  const epics = useMemo(() => {
+    // The counts are of every waiting task; All / Ready / Blocked reads the
+    // epics' own lock (own or inherited), the same rule as for tasks.
+    const rows = epicsByReadiness(epicRows(scope ?? [], whole, teams, board.boardOrder), readiness);
+    if (!epicOrder) {
+      return rows;
+    }
+    const at = new Map(epicOrder.map((id, i) => [id, i]));
+    return [...rows].sort((a, b) => (at.get(a.epic.itemId) ?? 1e9) - (at.get(b.epic.itemId) ?? 1e9));
+  }, [scope, whole, teams, board.boardOrder, epicOrder, readiness]);
+  const moveEpic = useCallback(
+    (epicId: string, anchor: { after: string } | { before: string }, order: string[]) => {
+      // Shown at once; the server gathers the epic's tasks, and the board
+      // reads back both the epics and the tasks once it has.
+      setEpicOrder(order);
+      void provider
+        .moveTo(epicId, anchor)
+        .catch((err: unknown) => onError(errText(err)))
+        .finally(() => {
+          setEpicOrder(null);
+          setScopeTick((n) => n + 1);
+          reload();
+        });
+    },
+    [provider, onError, reload],
+  );
 
   // ---- writing a place: a move by its neighbour ----
   const persistAnchor = useCallback(
@@ -287,8 +353,8 @@ export function BacklogBoard({
         return;
       }
       const plan = dropPlan(card.itemId, list, at);
-      // A place next to none of its siblings is not one it can go (K14):
-      // the drag showed it as forbidden, and nothing moves.
+      // A review nobody has taken is never dragged (K10): the drag showed
+      // it as forbidden, and nothing moves.
       if (plan.kind !== "reorder") {
         return;
       }
@@ -304,7 +370,7 @@ export function BacklogBoard({
     [list, board.cards, reorderCards, moveInBoardOrder, persistAnchor, onError, reload],
   );
   // Where the card in hand would land is not a place it may go: next to
-  // none of its siblings (K14).
+  // a review nobody has taken, whose place is its task's (K10).
   const forbidden = useMemo(
     () => !!carried && over !== null && dropPlan(carried.itemId, list, over).kind === "forbidden",
     [carried, over, list],
@@ -366,9 +432,12 @@ export function BacklogBoard({
   // card below it at the top) and the server places it in the same request;
   // the board shows it in place the moment the answer arrives.
   const [inserting, setInserting] = useState<number | null>(null);
+  // The inherited epic's × (Q10): the gap it was taken off in.
+  const [noEpicAt, setNoEpicAt] = useState<number | null>(null);
   const insertAt = useCallback(
     (at: number, team: string, title: string) => {
-      const { anchor } = insertSpot(list, at, teams);
+      const { anchor, epic } = insertSpot(list, at, teams);
+      const parent = epic && noEpicAt !== at ? epic.uid : null;
       // Typed in under the Customer filter: born for its one customer, or —
       // with several chosen — kept shown until the filter changes, so it
       // does not vanish the moment it is made (O11).
@@ -379,6 +448,7 @@ export function BacklogBoard({
           team: team || null,
           parked: true,
           customers: born ?? null,
+          parent,
           after: anchor && "after" in anchor ? anchor.after : null,
           before: anchor && "before" in anchor ? anchor.before : null,
         })
@@ -392,15 +462,25 @@ export function BacklogBoard({
         })
         .catch((err: unknown) => onError(errText(err)));
     },
-    [list, teams, provider, addCard, reorderCards, onError, customerFilter, keep],
+    [list, teams, provider, addCard, reorderCards, onError, customerFilter, keep, noEpicAt],
   );
   const gap = (at: number, empty = false) => {
-    const { box } = insertSpot(list, at, teams);
+    const { box, epic } = insertSpot(list, at, teams);
     return (
-      <InsertGap key={`gap-${at}`} at={at} open={inserting === at} always={empty} onOpen={() => setInserting(at)}>
+      <InsertGap
+        key={`gap-${at}`}
+        at={at}
+        open={inserting === at}
+        always={empty}
+        onOpen={() => {
+          setNoEpicAt(null);
+          setInserting(at);
+        }}
+      >
         <AddCard
           placeholder="Add to the backlog…"
           autoOpen
+          chip={epic && noEpicAt !== at ? { label: epic.title, onClear: () => setNoEpicAt(at) } : null}
           {...box}
           onCreate={(title, team) => insertAt(at, "forcedTeam" in box ? (box.forcedTeam ?? "") : (team ?? ""), title)}
           onClosed={() => setInserting(null)}
@@ -410,30 +490,40 @@ export function BacklogBoard({
   };
 
 
+  // ---- an epic's team and owner, set from the Epics mode (ownership.md, O9):
+  // the Strategy board's gesture; the list is read again after the answer ----
+  const ownEpic = (epic: CardModel, next: Owner) => {
+    const change = planOwnPatch(planOwnerOf(epic), next);
+    if (!change) {
+      return;
+    }
+    setScope((cur) => cur && cur.map((c) => (c.itemId === epic.itemId ? { ...c, team: next.team || undefined, owner: next.person || undefined } : c)));
+    void provider
+      .patchCard(epic.itemId, change)
+      .catch((err: unknown) => onError(errText(err)))
+      .finally(() => setScopeTick((n) => n + 1));
+  };
+
+  // ---- Take on an epic: the viewer becomes its owner through the take
+  // door, which refuses an epic somebody else owns (somebodysCard) ----
+  const takeEpic = (epic: CardModel) => {
+    const before = epic.owner;
+    const mine = epicTakeOwner(epic, me ?? "");
+    setScope((cur) => cur && cur.map((c) => (c.itemId === epic.itemId ? { ...c, owner: mine.person } : c)));
+    void provider
+      .takePlanItem(epic.itemId)
+      .catch((err: unknown) => {
+        setScope((cur) => cur && cur.map((c) => (c.itemId === epic.itemId ? { ...c, owner: before } : c)));
+        onError(errText(err));
+      })
+      .finally(() => setScopeTick((n) => n + 1));
+  };
+
   // ---- a parent in a card's chain: that planning card's drawer ----
   const openParent = useCallback(
     (uid: string) => void openPlanning(provider, uid, onOpen, onError),
     [provider, onOpen, onError],
   );
-
-  // ---- the size: weighed where the work is being weighed up ----
-  const [sizing, setSizing] = useState<CardModel | null>(null);
-  const sizeAnchor = useRef<HTMLElement | null>(null);
-  const openSizer = useCallback((card: CardModel, anchor: HTMLElement) => {
-    sizeAnchor.current = anchor;
-    setSizing((cur) => (cur?.itemId === card.itemId ? null : card));
-  }, []);
-  const setSize = (card: CardModel, size: SizeKey | "") => {
-    setSizing(null);
-    if ((card.size ?? "") === size) {
-      return;
-    }
-    patchCard(card.itemId, { size: size || undefined });
-    void provider.patchCard(card.itemId, { size }).catch((err: unknown) => {
-      patchCard(card.itemId, { size: card.size });
-      onError(errText(err));
-    });
-  };
 
   // ---- the ×: the same × as everywhere else (removal.ts) ----
   // On a card in its backlog the one answer it has is "off the board"; the
@@ -533,6 +623,8 @@ export function BacklogBoard({
     );
   };
   const [taking, setTaking] = useState<CardModel | null>(null);
+  // Take on an epic (Epics mode): the viewer becomes its owner.
+  const [takingEpic, setTakingEpic] = useState<CardModel | null>(null);
 
   return (
     <div className="backlog-board">
@@ -554,7 +646,49 @@ export function BacklogBoard({
           manage={onManageCustomers ? { label: "Manage customers", onClick: onManageCustomers } : undefined}
           title="Show only the work for these customers"
         />
+        <div className="segmented segmented-compact backlog-readiness" role="group" aria-label="Readiness">
+          {(["all", "ready", "blocked"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              className={`segment${readiness === m ? " segment-active" : ""}`}
+              aria-pressed={readiness === m}
+              onClick={() => setReadiness(m)}
+            >
+              {m === "all" ? "All" : m === "ready" ? "Ready" : "Blocked"}
+            </button>
+          ))}
+        </div>
       </div>
+      {mode === "epics" && (
+        <BacklogEpics
+          rows={epics}
+          loading={scope === null}
+          onMove={moveEpic}
+          onOpen={(uid) => openParent(uid)}
+          onOpenParent={openParent}
+          avatars={avatars}
+          names={names}
+          onTake={(epic) => setTakingEpic(epic)}
+          ownerPicker={(epic, badge) => (
+            <OwnerPicker
+              planning
+              current={planOwnerOf(epic)}
+              teams={roster}
+              people={members}
+              cards={board.cards}
+              avatars={avatars}
+              names={names}
+              onPick={(o) => ownEpic(epic, o)}
+              className="backlog-row-badge"
+              title={`Who carries «${epic.title}» out (a team) and who answers for it (its owner)`}
+            >
+              {badge}
+            </OwnerPicker>
+          )}
+        />
+      )}
+      {mode === "tasks" && (
       <section className="backlog-list" aria-label="Backlog">
         <div className={`backlog-list-body${carried ? " backlog-list-over" : ""}${forbidden ? " backlog-list-forbid" : ""}`} data-backlog-list="">
           {(() => {
@@ -574,7 +708,6 @@ export function BacklogBoard({
                       names={names}
                       onPointerDown={beginDrag(c)}
                       onRemove={() => remove(c)}
-                      onPickSize={openSizer}
                       onOpenParent={openParent}
                       owner={
                         counterpart(c) ? (
@@ -601,20 +734,16 @@ export function BacklogBoard({
           })()}
         </div>
       </section>
-      <Dropdown open={!!sizing} anchorRef={sizeAnchor} onClose={() => setSizing(null)} className="backlog-size-menu">
-        {SIZE_ORDER.map((sz) => (
-          <button
-            key={sz}
-            type="button"
-            className={`backlog-size-item${sizing?.size === sz ? " backlog-size-item-on" : ""}`}
-            title={SIZES[sz].hint}
-            onClick={() => sizing && setSize(sizing, sizing.size === sz ? "" : sz)}
-          >
-            <span className="backlog-size-key">{sz}</span>
-            <span className="backlog-size-pts">{SIZES[sz].points}</span>
-          </button>
-        ))}
-      </Dropdown>
+      )}
+      {takingEpic && (
+        <TakeDialog
+          title={takingEpic.title}
+          heading="Take this epic?"
+          text={`«${takingEpic.title}»: you become its owner. Its team stays as it is.`}
+          onClose={() => setTakingEpic(null)}
+          onTake={() => takeEpic(takingEpic)}
+        />
+      )}
       {taking && (
         <TakeDialog
           title={taking.title}
@@ -649,7 +778,6 @@ interface BacklogRowProps {
   owner: React.ReactNode;
   onPointerDown: (e: React.PointerEvent) => void;
   onRemove: () => void;
-  onPickSize: (card: CardModel, anchor: HTMLElement) => void;
   onOpenParent: (uid: string) => void;
   /** Take, while nobody has the card: asks first (TakeDialog). */
   onTake?: () => void;
@@ -657,8 +785,8 @@ interface BacklogRowProps {
 
 /** BacklogRow is one wide card, drawn as the Me and Team boards draw a card
  *  (`card`, a review card with its review mark): the title first; on the
- *  right the planning cards it sits under, the due date when the nearest
- *  has an end, the size, its team's avatar (the owner picker) and,
+ *  right the planning cards it sits under, its team's avatar (the owner
+ *  picker) and,
  *  right-most while nobody has it, Take. The × stands left of all of that,
  *  in a slot that takes no room: it shows over the title's end on hover. */
 function BacklogRow({
@@ -670,12 +798,9 @@ function BacklogRow({
   owner,
   onPointerDown,
   onRemove,
-  onPickSize,
   onOpenParent,
   onTake,
 }: BacklogRowProps) {
-  const up = nearestPlanning(card);
-  const due = dueOf(card);
   const mark = markOf(card);
   return (
     <div
@@ -698,12 +823,6 @@ function BacklogRow({
         </button>
       </span>
       <ParentChain chain={parentChain(card)} onOpen={onOpenParent} />
-      {due && (
-        <span className="backlog-row-due" title={`Due ${due}: the end of «${up?.title ?? ""}»`}>
-          due {dueLabel(due)}
-        </span>
-      )}
-      <SizeChip card={card} onPick={onPickSize} />
       <span className="backlog-row-owner">{owner}</span>
       {onTake && (
         <button
@@ -722,14 +841,26 @@ function BacklogRow({
 
 /** TakeDialog asks before TAKE makes a card the viewer's and takes it into
  *  work. */
-export function TakeDialog({ title, onClose, onTake }: { title: string; onClose: () => void; onTake: () => void }) {
+export function TakeDialog({
+  title,
+  onClose,
+  onTake,
+  heading = "Take this card into work?",
+  text,
+}: {
+  title: string;
+  onClose: () => void;
+  onTake: () => void;
+  heading?: string;
+  text?: string;
+}) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal modal-narrow"
         role="dialog"
         aria-modal="true"
-        aria-label="Take this card into work?"
+        aria-label={heading}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if (e.key === "Escape") {
@@ -738,13 +869,13 @@ export function TakeDialog({ title, onClose, onTake }: { title: string; onClose:
         }}
       >
         <div className="modal-header">
-          <h2 className="modal-title">Take this card into work?</h2>
+          <h2 className="modal-title">{heading}</h2>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
         <div className="modal-body">
-          <p className="take-dialog-text">«{title}» becomes yours, today, and leaves the backlog.</p>
+          <p className="take-dialog-text">{text ?? `«${title}» becomes yours, today, and leaves the backlog.`}</p>
           <div className="take-dialog-actions">
             <button type="button" className="btn" onClick={onClose}>
               Cancel
@@ -769,13 +900,13 @@ export function TakeDialog({ title, onClose, onTake }: { title: string; onClose:
 /** Landing is the card in hand, drawn where it would come to rest — an
  *  outline, since it is not there yet, but otherwise the card being dragged:
  *  a review keeps its review stripe. Where it may not come to rest (next to
- *  none of its siblings, K14) the outline says so. */
+ *  a review nobody has taken, K10) the outline says so. */
 export function Landing({ card, forbidden = false }: { card: CardModel; forbidden?: boolean }) {
   const mark = markOf(card);
   return (
     <div
       className={`card backlog-card${mark ? ` card-${mark}` : ""} backlog-card-landing${forbidden ? " backlog-card-landing-forbid" : ""}`}
-      title={forbidden ? "Only among the tasks under the same parent: the Strategy board's tree decides the order" : undefined}
+      title={forbidden ? "A review nobody has taken stands on top until somebody takes it" : undefined}
     >
       <span className="card-title backlog-card-title">{card.title}</span>
     </div>

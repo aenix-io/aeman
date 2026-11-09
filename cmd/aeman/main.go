@@ -84,6 +84,8 @@ func run(args []string) error {
 		return runInit(args[1:])
 	case "migrate":
 		return runMigrate(args[1:])
+	case "ordering-report":
+		return runOrderingReport(args[1:])
 	case "login":
 		return runLogin(args[1:])
 	case "logout":
@@ -108,6 +110,9 @@ Usage:
   aeman service VERB    Install, uninstall or inspect the MCP daemon (install|uninstall|status)
   aeman init --repo URL Bootstrap an empty repository as a board
   aeman migrate [flags] Copy a GitHub Projects v2 board into a repository
+  aeman ordering-report --repo name=url ...
+                        Print what the schema-4 ordering migration would change
+                        (files re-keyed, Team cells reordered); writes nothing
   aeman login [flags]   Store the forge token in the OS keychain
   aeman logout [flags]  Remove the stored token for the forge
   aeman version         Print the version

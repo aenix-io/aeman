@@ -72,6 +72,24 @@ func (b *storeBackend) enqueue(ctx context.Context, e *boardEntry, op pendingOp)
 		op.notBefore = time.Now().Add(coalesceWindow)
 	}
 	e.mu.Lock()
+	start := b.enqueueLocked(bctx, e, op)
+	e.mu.Unlock()
+	start()
+}
+
+// enqueueLocked is enqueue for a caller that already holds e.mu — one whose
+// change to the cache and place in the queue must be one step, so two
+// writes land in the queue in the order the cache took them (an ordering
+// action's absolute keys: the later plan must also be the later write). It
+// returns what to run once the lock is let go.
+func (b *storeBackend) enqueueLocked(ctx context.Context, e *boardEntry, op pendingOp) func() {
+	bctx := context.WithoutCancel(ctx)
+	if op.action.ID == "" {
+		op.action = actionFrom(ctx)
+	}
+	if op.actor == "" {
+		op.actor = board.ActorFrom(ctx)
+	}
 	merged := false
 	if op.key != "" {
 		// Coalesce only past the last op of ANOTHER kind on this card: once
@@ -112,12 +130,12 @@ func (b *storeBackend) enqueue(ctx context.Context, e *boardEntry, op pendingOp)
 	if starting {
 		e.draining = true
 	}
-	e.mu.Unlock()
-	if starting {
-		go b.drain(bctx, e)
-	}
-	if !starting {
-		b.rememberHeld(op.action.ID, bctx, e)
+	return func() {
+		if starting {
+			go b.drain(bctx, e)
+		} else {
+			b.rememberHeld(op.action.ID, bctx, e)
+		}
 	}
 }
 

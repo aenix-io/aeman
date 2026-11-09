@@ -482,8 +482,8 @@ What the answer **does** depends on whether the card is in work — a date
 or a sprint — because the Strategy board lists the loose work (H9) and giving it
 a home means putting it where a board draws it:
 
-- a **person** files an **unplanned** card the way typing it into their
-  Me board would: on the team, today, in the unplanned band, in the
+- a **person** takes an **unplanned** card into work: on the team,
+  today, in the planned band (since 2026-11-08), in the
   team's sprint, out of its backlog — so it stands on their Team and Me boards
   at once. A **planned** card changes hands and keeps its plan, its sprint
   included: a card in a sprint joins the new team's current one, as the

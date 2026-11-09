@@ -32,6 +32,7 @@ import type {
   CardPatch,
   CarryReport,
   CustomerRef,
+  MoveResult,
   NewCardInput,
   Note,
   Provider,
@@ -436,6 +437,33 @@ export const apiProvider: Provider = {
     });
   },
 
+  async moveTo(uid, place): Promise<MoveResult> {
+    uid = await resolveCardId(uid);
+    const body: { after?: string; before?: string; parent?: string } = {};
+    if (place.before) {
+      body.before = await resolveCardId(place.before);
+    } else {
+      body.after = place.after ? await resolveCardId(place.after) : "";
+    }
+    if (place.parent !== undefined) {
+      body.parent = place.parent ? await resolveCardId(place.parent) : "";
+    }
+    const { data } = await client.POST("/cards/{uid}/actions/move", { params: { path: { uid } }, body });
+    return { actionId: data?.actionId, moved: data?.moved ?? 0 };
+  },
+
+  async reorderInEpic(uid, place): Promise<MoveResult> {
+    uid = await resolveCardId(uid);
+    const body: { after?: string; before?: string } = {};
+    if (place.before) {
+      body.before = await resolveCardId(place.before);
+    } else if (place.after) {
+      body.after = await resolveCardId(place.after);
+    }
+    const { data } = await client.POST("/cards/{uid}/actions/reorder-in-epic", { params: { path: { uid } }, body });
+    return { actionId: data?.actionId, moved: data?.moved ?? 0 };
+  },
+
   async moveCardBefore(
     uid: string,
     beforeId: string,
@@ -507,6 +535,17 @@ export const apiProvider: Provider = {
 
   async setTeamCapacity(team: string, points: number): Promise<void> {
     await client.POST("/teams/actions/capacity", { body: { team, points } });
+  },
+
+  async takePlanItem(uid: string): Promise<Card> {
+    uid = await resolveCardId(uid);
+    // The `all` board: a plan item stands on no backlog listing, and `take`
+    // is offered there for any card.
+    return cardFrom(
+      client.POST("/views/{view}/cards/{uid}/actions/take", {
+        params: { path: { view: "all", uid } },
+      }),
+    );
   },
 
   async takeCard(uid: string): Promise<Card> {

@@ -39,6 +39,9 @@ interface AddCardProps {
    *  inside a card's width has no room for a word, and the menus name what
    *  the dots mean. */
   compact?: boolean;
+  /** A chip before the input naming what the new card is filed under (the
+   *  Backlog "+"'s inherited epic, Q10), with an × that takes it off. */
+  chip?: { label: string; onClear: () => void } | null;
 }
 
 /** AddCard expands into a title input with an integrated team picker. */
@@ -54,6 +57,7 @@ export function AddCard({
   onClosed,
   picker,
   compact,
+  chip,
 }: AddCardProps) {
   // With "no team" disabled the picker starts on the first team, so a filtered
   // create lands on a real team by default instead of "no team".
@@ -161,6 +165,14 @@ export function AddCard({
 
   return (
     <div className="add-card-form" ref={formRef}>
+      {chip && (
+        <span className="add-card-chip" title={`Filed under ${chip.label}`}>
+          {chip.label}
+          <button type="button" className="add-card-chip-x" aria-label="Not under this epic" onClick={chip.onClear}>
+            ×
+          </button>
+        </span>
+      )}
       <input
         type="text"
         className="add-card-input"

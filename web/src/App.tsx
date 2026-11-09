@@ -25,6 +25,10 @@ import {
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
 import { DayNav } from "./components/DayNav";
+import { BacklogModeSwitch, StrategyControls } from "./components/ViewControls";
+import { readDepth, readMode, readZoom, storeDepth, storeMode, storeZoom } from "./viewprefs";
+import type { DepthRange, Zoom } from "./strategy";
+import type { BacklogMode } from "./backlogboard";
 import { avatarsFrom, namesFrom } from "./users";
 import { forgeCopy } from "./forge";
 import { unpushedNotice, type HealthStatus } from "./health";
@@ -252,6 +256,10 @@ export function App() {
     }, 300);
   }, []);
   const [error, setErrorState] = useState<string | null>(null);
+  // The board-specific view choices the top bar draws (viewprefs.ts).
+  const [strategyDepth, setStrategyDepth] = useState<DepthRange>(readDepth);
+  const [strategyZoom, setStrategyZoom] = useState<Zoom>(readZoom);
+  const [backlogMode, setBacklogMode] = useState<BacklogMode>(readMode);
   // While a sign-out is being confirmed (see onSignedOut) the messages the
   // failing calls produce — every one of them "not signed in" — are held
   // back: the sign-in gate is the answer, not a banner. The last one held is
@@ -1590,6 +1598,29 @@ export function App() {
             with the view tabs rather than being drawn again inside each. The
             boards that are not of a day (Backlog, Strategy) have no
             day to show. */}
+        {view === "strategy" && (
+          <StrategyControls
+            depth={strategyDepth}
+            onDepth={(d) => {
+              setStrategyDepth(d);
+              storeDepth(d);
+            }}
+            zoom={strategyZoom}
+            onZoom={(z) => {
+              setStrategyZoom(z);
+              storeZoom(z);
+            }}
+          />
+        )}
+        {view === "backlog" && (
+          <BacklogModeSwitch
+            mode={backlogMode}
+            onMode={(m) => {
+              setBacklogMode(m);
+              storeMode(m);
+            }}
+          />
+        )}
         {(view === "me" || view === "team") && (
           <DayNav
             selectedDate={selectedDate}
@@ -1733,9 +1764,12 @@ export function App() {
             onFilters={setStrategyFilters}
             onManageTeams={() => setManagingTeams(true)}
             onManageCustomers={() => setManagingCustomers(true)}
+            depth={strategyDepth}
+            zoom={strategyZoom}
           />
         )}
         {board && view === "backlog" && (
+          // Tasks | Epics is the app's (the top bar's).
           <BacklogBoard
             board={board}
             provider={provider}
@@ -1758,6 +1792,7 @@ export function App() {
             onError={onError}
             presence={presence}
             onPresence={sharePresence}
+            mode={backlogMode}
             me={config?.login ?? ""}
           />
         )}

@@ -30,12 +30,13 @@ var ErrAlreadyFinished = errors.New("this card is finished; there is nothing to 
 // docs/design/backlog.md "Taking"). The ACTOR — whoever makes the request,
 // the identity every write records as its author — gets the card on its OWN
 // team (a card of the no-team group stays in it): a parked task is taken
-// into work the way `own` with a person takes it (today, the unplanned band,
+// into work the way `own` with a person takes it (today, the planned band,
 // the team's sprint, out of the backlog), and a review nobody has taken makes
-// the actor its reviewer (K10). Every refusal fires before anything is
-// written: a planning card, a subtask, a review somebody
-// already has and a parked card somebody else is named on are not the
-// actor's to take; finished work has nothing left to
+// the actor its reviewer (K10), and a GOAL, an INITIATIVE or an EPIC — the
+// Backlog's Epics mode — makes the actor its owner (takePlanItem). Every
+// refusal fires before anything is
+// written: a subtask, a review somebody already has and a parked card
+// somebody else is named on are not the actor's to take; finished work has nothing left to
 // take; a task already in work is handed over with the owner picker.
 func (s *Service) Take(ctx context.Context, boardID string, itemID string) error {
 	actor := board.ActorFrom(ctx)
@@ -46,8 +47,8 @@ func (s *Service) Take(ctx context.Context, boardID string, itemID string) error
 	if err != nil {
 		return err
 	}
-	if err := notAPlanningCard(card, "owner"); err != nil {
-		return err
+	if board.IsPlanning(card) {
+		return s.takePlanItem(ctx, b, card, actor)
 	}
 	if board.Complete(card.Stage, card.Progress) {
 		return fmt.Errorf("%w: %q", ErrAlreadyFinished, card.Title)
@@ -71,4 +72,19 @@ func (s *Service) Take(ctx context.Context, boardID string, itemID string) error
 		}
 	}
 	return s.ownByPerson(ctx, boardID, b, card, card.Team, actor)
+}
+
+// takePlanItem is Take on a goal, an initiative or an epic: "I answer for
+// this" — the actor becomes its OWNER (O1), its team kept and nothing else
+// written. One somebody else already owns is not theirs to take
+// (ErrSomebodysCard): changing hands is the owner picker's.
+func (s *Service) takePlanItem(ctx context.Context, b board.Board, card board.Card, actor string) error {
+	if card.Owner != "" && card.Owner != actor {
+		return fmt.Errorf("%w: %q is %s's", ErrSomebodysCard, card.Title, card.Owner)
+	}
+	ob, err := s.ownership()
+	if err != nil {
+		return err
+	}
+	return s.setOwner(ctx, ob, b, card, actor)
 }

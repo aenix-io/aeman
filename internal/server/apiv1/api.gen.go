@@ -225,6 +225,7 @@ const (
 	NoHistory               ProblemCode = "noHistory"
 	NoPlaceOfItsOwn         ProblemCode = "noPlaceOfItsOwn"
 	NoReviewer              ProblemCode = "noReviewer"
+	NoRoom                  ProblemCode = "noRoom"
 	NoSuchView              ProblemCode = "noSuchView"
 	NobodyToTake            ProblemCode = "nobodyToTake"
 	NotATarget              ProblemCode = "notATarget"
@@ -232,6 +233,7 @@ const (
 	NotFinished             ProblemCode = "notFinished"
 	NotInWork               ProblemCode = "notInWork"
 	NotOnThisBoard          ProblemCode = "notOnThisBoard"
+	NotUnderAnEpic          ProblemCode = "notUnderAnEpic"
 	NotYoursToRefuse        ProblemCode = "notYoursToRefuse"
 	NotYoursToRemove        ProblemCode = "notYoursToRemove"
 	NoteNotFound            ProblemCode = "noteNotFound"
@@ -346,6 +348,8 @@ func (e ProblemCode) Valid() bool {
 		return true
 	case NoReviewer:
 		return true
+	case NoRoom:
+		return true
 	case NoSuchView:
 		return true
 	case NobodyToTake:
@@ -359,6 +363,8 @@ func (e ProblemCode) Valid() bool {
 	case NotInWork:
 		return true
 	case NotOnThisBoard:
+		return true
+	case NotUnderAnEpic:
 		return true
 	case NotYoursToRefuse:
 		return true
@@ -606,6 +612,9 @@ type CreateCardRequest struct {
 	Customers *[]string       `json:"customers,omitempty"`
 	Dates     *CardDatesInput `json:"dates,omitempty"`
 
+	// InheritParent With `after` or `before` and no `parent`, files the new task under the EPIC of its context in its team's backlog (Q10, docs/design/ordering.md): the epic of the card above the gap (the same as below's when they agree, the card above's at a boundary), at the top of the list the card below's, none in an empty list. Default false: nothing is inherited unless asked for.
+	InheritParent *bool `json:"inheritParent,omitempty"`
+
 	// NoSprint Schedules the card for its day without joining any sprint — a "next sprint" create; the next carry-over to reach its day adopts it.
 	NoSprint *bool `json:"noSprint,omitempty"`
 
@@ -722,6 +731,18 @@ type MoveCardBody struct {
 
 	// Before The card to land in front of. It wins when both are sent.
 	Before *string `json:"before,omitempty"`
+
+	// Parent Re-parents the card first (a Strategy drop under another plan item) — `""` takes the parent off — then places it: at the anchor when one is named, else a parked task by the default place in its team's queue (Q6).
+	Parent *string `json:"parent,omitempty"`
+}
+
+// MoveResult defines model for MoveResult.
+type MoveResult struct {
+	// ActionID The action the keys were written under (its commits carry it as `Aeman-Action-Id`); absent when nothing was written.
+	ActionID *string `json:"actionId,omitempty"`
+
+	// Moved How many cards took a new key (an epic move counts the epic and every task it gathered).
+	Moved int `json:"moved"`
 }
 
 // Note defines model for Note.
@@ -1223,6 +1244,9 @@ type DeferCardJSONRequestBody = DeferCardBody
 // MoveCardJSONRequestBody defines body for MoveCard for application/json ContentType.
 type MoveCardJSONRequestBody = MoveCardBody
 
+// ReorderInEpicJSONRequestBody defines body for ReorderInEpic for application/json ContentType.
+type ReorderInEpicJSONRequestBody = MoveCardBody
+
 // SendToReviewJSONRequestBody defines body for SendToReview for application/json ContentType.
 type SendToReviewJSONRequestBody = SendToReviewBody
 
@@ -1309,6 +1333,9 @@ type ServerInterface interface {
 	// ReopenCard Undo a done mark, restoring the progress the card had when done was set.
 	// (POST /cards/{uid}/actions/reopen)
 	ReopenCard(w http.ResponseWriter, r *http.Request, uid UID)
+	// ReorderInEpic Move a task within its epic, over the slots its epic's tasks hold.
+	// (POST /cards/{uid}/actions/reorder-in-epic)
+	ReorderInEpic(w http.ResponseWriter, r *http.Request, uid UID)
 	// SendToReview Send the card to a reviewer, or reassign the review that exists.
 	// (POST /cards/{uid}/actions/send-to-review)
 	SendToReview(w http.ResponseWriter, r *http.Request, uid UID)
@@ -1668,6 +1695,32 @@ func (siw *ServerInterfaceWrapper) ReopenCard(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReopenCard(w, r, uid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReorderInEpic operation middleware
+func (siw *ServerInterfaceWrapper) ReorderInEpic(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "uid" -------------
+	var uid UID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "uid", r.PathValue("uid"), &uid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uid", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReorderInEpic(w, r, uid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3400,6 +3453,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cards/{uid}", wrapper.GetCard)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/cards/{uid}", wrapper.PatchCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/move", wrapper.MoveCard)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/reorder-in-epic", wrapper.ReorderInEpic)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/defer", wrapper.DeferCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/in-progress", wrapper.SetInProgress)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/reopen", wrapper.ReopenCard)
@@ -3672,12 +3726,18 @@ type MoveCardResponseObject interface {
 	VisitMoveCardResponse(w http.ResponseWriter) error
 }
 
-type MoveCard204Response struct {
-}
+type MoveCard200JSONResponse MoveResult
 
-func (response MoveCard204Response) VisitMoveCardResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
+func (response MoveCard200JSONResponse) VisitMoveCardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 type MoveCarddefaultApplicationProblemPlusJSONResponse struct {
@@ -3764,6 +3824,46 @@ type ReopenCarddefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response ReopenCarddefaultApplicationProblemPlusJSONResponse) VisitReopenCardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReorderInEpicRequestObject struct {
+	UID  UID `json:"uid"`
+	Body *ReorderInEpicJSONRequestBody
+}
+
+type ReorderInEpicResponseObject interface {
+	VisitReorderInEpicResponse(w http.ResponseWriter) error
+}
+
+type ReorderInEpic200JSONResponse MoveResult
+
+func (response ReorderInEpic200JSONResponse) VisitReorderInEpicResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReorderInEpicdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ReorderInEpicdefaultApplicationProblemPlusJSONResponse) VisitReorderInEpicResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -4937,6 +5037,9 @@ type StrictServerInterface interface {
 	// ReopenCard Undo a done mark, restoring the progress the card had when done was set.
 	// (POST /cards/{uid}/actions/reopen)
 	ReopenCard(ctx context.Context, request ReopenCardRequestObject) (ReopenCardResponseObject, error)
+	// ReorderInEpic Move a task within its epic, over the slots its epic's tasks hold.
+	// (POST /cards/{uid}/actions/reorder-in-epic)
+	ReorderInEpic(ctx context.Context, request ReorderInEpicRequestObject) (ReorderInEpicResponseObject, error)
 	// SendToReview Send the card to a reviewer, or reassign the review that exists.
 	// (POST /cards/{uid}/actions/send-to-review)
 	SendToReview(ctx context.Context, request SendToReviewRequestObject) (SendToReviewResponseObject, error)
@@ -5316,6 +5419,39 @@ func (sh *strictHandler) ReopenCard(w http.ResponseWriter, r *http.Request, uid 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReopenCardResponseObject); ok {
 		if err := validResponse.VisitReopenCardResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReorderInEpic operation middleware
+func (sh *strictHandler) ReorderInEpic(w http.ResponseWriter, r *http.Request, uid UID) {
+	var request ReorderInEpicRequestObject
+
+	request.UID = uid
+
+	var body ReorderInEpicJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReorderInEpic(ctx, request.(ReorderInEpicRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReorderInEpic")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReorderInEpicResponseObject); ok {
+		if err := validResponse.VisitReorderInEpicResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

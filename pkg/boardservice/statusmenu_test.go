@@ -125,9 +125,10 @@ func TestTheStatusMenuWritesNothingWhenOneTaskIsNotTheActorsToWrite(t *testing.T
 	}
 }
 
-// UNASSIGNED parks each task where it stands — the plan's order is not
-// rearranged by taking work out of hand — and reads the board once for the
-// whole gesture, however many tasks it moves (M3).
+// UNASSIGNED parks each task without a move of its own — the plan's order is
+// not rearranged by taking work out of hand; its queue place is the return
+// rule's (Q8, an ordering action, not a move) — and reads the board once for
+// the whole gesture, however many tasks it moves (M3).
 func TestUnassignedMovesNoTaskAndReadsTheBoardOnce(t *testing.T) {
 	f := strategyWorkBoard()
 	if _, err := New(f).UnassignWork(ctx, "acme", "g", nil); err != nil {

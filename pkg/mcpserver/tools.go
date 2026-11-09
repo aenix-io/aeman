@@ -231,7 +231,10 @@ type createCardInput struct {
 	Customers []string `json:"customers,omitempty" jsonschema:"customer ids from get_board metadata.customers the new card is for"`
 	After     string   `json:"after,omitempty" jsonschema:"on the backlog, team and me views: uid of the card the new one is placed right AFTER, in the same create — how a person inserts a card between two in a backlog or in a Team/Me cell (the cell's person and band are the create's own fields). A list is read top-down. One of after and before, or neither (the card lands last)"`
 	Before    string   `json:"before,omitempty" jsonschema:"on the backlog, team and me views: uid of the card the new one is placed right BEFORE — the top of a list is before its first card. One of after and before, or neither"`
-	Parent    string   `json:"parent,omitempty" jsonschema:"uid of the card this one sits under — the ONE link of the hierarchy, and what it means is the parent's type. A TASK parent groups this card as a subtask (one level deep; a subtask rides its parent and is never parked, so view=backlog refuses a task parent). A goal, an initiative or an epic as parent files the card in the hierarchy: a task may sit under any of the three, an epic under an initiative or a goal, an initiative under a goal — the parent must be of a higher level (parentLevel) and in the card's own repository (crossDomain) — and nothing else about the card changes"`
+	// InheritParent is the Backlog "+"'s epic inheritance (Q10), off unless
+	// asked for: an agent never files a task under an epic it did not name.
+	InheritParent bool   `json:"inheritParent,omitempty" jsonschema:"with after or before and no parent: file the new task under the EPIC of its context in its team's backlog — the epic of the card above the gap (the card above's at a boundary between two epics), at the top of the list the card below's. Default false: nothing is inherited unless asked for"`
+	Parent        string `json:"parent,omitempty" jsonschema:"uid of the card this one sits under — the ONE link of the hierarchy, and what it means is the parent's type. A TASK parent groups this card as a subtask (one level deep; a subtask rides its parent and is never parked, so view=backlog refuses a task parent). A goal, an initiative or an epic as parent files the card in the hierarchy: a task may sit under any of the three, an epic under an initiative or a goal, an initiative under a goal — the parent must be of a higher level (parentLevel) and in the card's own repository (crossDomain) — and nothing else about the card changes"`
 }
 
 func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in createCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
@@ -315,6 +318,7 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 		Type:           in.Type,
 		After:          in.After,
 		Before:         in.Before,
+		InheritParent:  in.InheritParent,
 		Owner:          in.Owner,
 		Customers:      in.Customers,
 	})
@@ -369,7 +373,7 @@ type updateCardInput struct {
 	Start       *string   `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd: the card joins the sprint active on that day. A FUTURE day parks it off the board until that day arrives (this is how you schedule work ahead, and how the +1 day / +1 week buttons work). Sprints are daily and created as they start, so no sprint covers a future day yet: the card is left with NO sprint while it waits and the carry-over that reaches its day adopts it — expected, not a mis-scheduled card, and setting sprint by hand would only drag it back onto today's board. Empty clears the dates"`
 	End         *string   `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; empty clears it"`
 	Sprint      *string   `json:"sprint,omitempty" jsonschema:"sprint start day the card belongs to; empty clears it"`
-	Parked      *bool     `json:"parked,omitempty" jsonschema:"true parks the task in its TEAM's backlog: the ranked list of work the team has accepted and not taken into work. Every team has one and nothing declares it. Parking clears the person, the sprint and the dates, takes the card's subtasks off the board with it, withdraws any review of it and puts it at the top of the backlog. A task leaves its backlog by being TAKEN INTO WORK — a start date, a sprint, or own_card with a person — and each of those unparks it on its own; false alone on a parked task with no date and no sprint is refused. A REVIEW card and a SUBTASK are refused: neither has a place of its own to be parked in. A task has no week"`
+	Parked      *bool     `json:"parked,omitempty" jsonschema:"true parks the task in its TEAM's backlog: the ranked list of work the team has accepted and not taken into work. Every team has one and nothing declares it. Parking clears the person, the sprint and the dates, takes the card's subtasks off the board with it, withdraws any review of it and puts it back in its team's backlog — at its old place while that is still among its epic's tasks there, else right after its epic's last parked task. A task leaves its backlog by being TAKEN INTO WORK — a start date, a sprint, or own_card with a person — and each of those unparks it on its own; false alone on a parked task with no date and no sprint is refused. A REVIEW card and a SUBTASK are refused: neither has a place of its own to be parked in. A task has no week"`
 	ReviewOf    *string   `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews; empty breaks the link"`
 	Parent      *string   `json:"parent,omitempty" jsonschema:"uid of the card this one sits under; empty takes it out. Under a TASK it is a subtask (one level deep): it keeps its own description/notes/log, feeds the parent's derived progress and rides with it — team, person, sprint — through carry-over. Under a goal, an initiative or an epic it is filed in the hierarchy and NOTHING else changes; the parent must be of a higher level than the card (an epic may not sit under an epic) and in the card's own repository"`
 }
@@ -590,23 +594,69 @@ type moveCardInput struct {
 	cardRef
 	After  string `json:"after,omitempty" jsonschema:"uid to position after; empty moves the card to the top"`
 	Before string `json:"before,omitempty" jsonschema:"uid to position right before (the server resolves the true anchor); wins over after"`
+	// Parent is the Strategy drop under another plan item (Q6).
+	Parent *string `json:"parent,omitempty" jsonschema:"re-parent the card first (a drop under another plan item; empty takes the parent off), then place it: at after/before when given, else a parked task lands after the new epic's last parked task in its team's backlog"`
 }
 
-func (h *server) moveCard(ctx context.Context, _ *mcp.CallToolRequest, in moveCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
+// orderingOutput is an ordering gesture's answer: the card as it stands now,
+// how many cards took a new key, and the action the keys were written under.
+type orderingOutput struct {
+	apiserver.Card
+	ActionID string `json:"actionId,omitempty"`
+	Moved    int    `json:"moved"`
+}
+
+func (h *server) moveCard(ctx context.Context, _ *mcp.CallToolRequest, in moveCardInput) (*mcp.CallToolResult, orderingOutput, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
-		return nil, apiserver.Card{}, err
+		return nil, orderingOutput{}, err
 	}
-	move := func() error {
-		if in.Before != "" {
-			return svc.MoveCardBefore(ctx, boardID, in.UID, in.Before)
-		}
-		return svc.MoveCard(ctx, boardID, in.UID, in.After)
+	spot := board.Spot{After: in.After}
+	if in.Before != "" {
+		spot = board.Spot{Before: in.Before}
 	}
-	if err := move(); err != nil {
-		return nil, apiserver.Card{}, err
+	var res boardservice.MoveResult
+	if in.Parent != nil {
+		res, err = svc.MoveUnder(ctx, boardID, in.UID, *in.Parent, spot)
+	} else {
+		res, err = svc.Move(ctx, boardID, in.UID, spot)
 	}
-	return h.cardResource(ctx, svc, boardID, in.UID)
+	if err != nil {
+		return nil, orderingOutput{}, err
+	}
+	return h.orderingResult(ctx, svc, boardID, in.UID, res)
+}
+
+// orderingResult answers an ordering gesture with the card and the action.
+func (h *server) orderingResult(ctx context.Context, svc *boardservice.Service, boardID, uid string, res boardservice.MoveResult) (*mcp.CallToolResult, orderingOutput, error) {
+	_, card, err := h.cardResource(ctx, svc, boardID, uid)
+	if err != nil {
+		return nil, orderingOutput{}, err
+	}
+	out := orderingOutput{Card: card, Moved: res.Moved}
+	if res.Moved > 0 {
+		out.ActionID = boardservice.ActionIDFrom(ctx)
+	}
+	return nil, out, nil
+}
+
+// reorderInEpicInput moves a task within its epic (Q6).
+type reorderInEpicInput struct {
+	cardRef
+	After  string `json:"after,omitempty" jsonschema:"uid of the epic's task the moved one lands right after, among the epic's tasks as the Strategy board draws them"`
+	Before string `json:"before,omitempty" jsonschema:"uid of the epic's task the moved one lands right before; one of after and before"`
+}
+
+func (h *server) reorderInEpic(ctx context.Context, _ *mcp.CallToolRequest, in reorderInEpicInput) (*mcp.CallToolResult, orderingOutput, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, orderingOutput{}, err
+	}
+	res, err := svc.ReorderInEpic(ctx, boardID, in.UID, in.After, in.Before)
+	if err != nil {
+		return nil, orderingOutput{}, err
+	}
+	return h.orderingResult(ctx, svc, boardID, in.UID, res)
 }
 
 // deferCardInput pushes a card's scheduled day ahead.

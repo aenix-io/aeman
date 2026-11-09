@@ -273,6 +273,9 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 		}
 		domains = append(domains, gitDomain{Domain: gitstore.Domain{Name: spec.Name, Repo: repo}, remote: remote})
 	}
+	if err := migrateOrdering(domains, log); err != nil {
+		return nil, err
+	}
 	if len(domains) > 1 {
 		// Two repositories that already declare the same team cannot be
 		// served as one board — the merge would fold two
@@ -305,6 +308,41 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 		// Issue/PR titles in card descriptions are read with the push
 		// credential — the store has no per-visitor token any more.
 		Links: links}), nil
+}
+
+// migrateOrdering brings the board to schema 4 — the ordering model, which
+// needs every repository at once (gitstore.MigrateOrdering) — and then places
+// every task a direct writer left without a valid key (Q11), before anything
+// is served. Both are one commit per repository, and both write nothing on a
+// board that needs nothing.
+func migrateOrdering(domains []gitDomain, log *slog.Logger) error {
+	plain := make([]gitstore.Domain, 0, len(domains))
+	for _, d := range domains {
+		plain = append(plain, d.Domain)
+	}
+	report, err := gitstore.MigrateOrdering(plain, false)
+	if err != nil {
+		return fmt.Errorf("schema 4: %w", err)
+	}
+	if report.Migrated {
+		log.Info("board migrated to schema 4 (ordering)", "files", report.Total(), "teamCellsReordered", len(report.Cells))
+		for _, c := range report.Cells {
+			log.Info("team cell reordered by the migration", "team", c.Team, "person", c.Person, "zone", c.Zone)
+		}
+	}
+	ctx, flush := gitstore.WithScope(context.Background(), gitstore.Action{Name: "place", ID: gitstore.NewID(time.Now()),
+		Summary: "place the tasks with no key"})
+	n, err := boardservice.New(gitstore.NewMultiBackend(plain, gitstore.BackendOptions{})).Normalize(ctx, "")
+	if err != nil {
+		return fmt.Errorf("normalise the order: %w", err)
+	}
+	if _, err := flush(); err != nil {
+		return fmt.Errorf("normalise the order: %w", err)
+	}
+	if n > 0 {
+		log.Info("tasks with no key placed", "count", n)
+	}
+	return nil
 }
 
 // rosterCollision is the start-up refusal for a name two domains declare:

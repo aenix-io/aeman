@@ -64,66 +64,14 @@ export function shownTeams(filter: readonly string[] | null, roster: readonly st
   return filter ? [...filter] : [...new Set([...roster, ""])];
 }
 
-/** BacklogKey is a backlog card's place in the list — board.BacklogKey,
- *  mirrored: whether it is a review nobody has taken (K10: those stand first,
- *  as a group of their own, each placed by the task it reviews), whether it
- *  is LOOSE (no plan item above it: after every planned card), and its PATH — the places in the board's order
- *  from the root of its tree down to the card (K14), the root's level ahead
- *  of its place, as the Strategy board draws its roots level by level. */
-export interface BacklogKey {
-  review: boolean;
-  loose: boolean;
-  path: number[];
-}
-
-const ROOT_LEVEL: Record<string, number> = { goal: 0, initiative: 1, epic: 2 };
-const PLANNING = new Set(["goal", "initiative", "epic"]);
-/** A place nobody named: after every named one. */
-const UNNAMED = Number.MAX_SAFE_INTEGER;
-
-/** backlogKey reads a card's key off the board's order (`pos`, uid → place).
- *  A card or an ancestor the order does not name stands after the named ones;
- *  `fallback` is the card's own place then. */
-export function backlogKey(
-  c: Pick<Card, "itemId" | "lineage" | "reviewOf" | "assignees" | "stage" | "progress">,
-  pos: ReadonlyMap<string, number>,
-  fallback = UNNAMED,
-): BacklogKey {
-  // A review nobody has taken (K10) stands in the group on top, placed by
-  // the task it reviews: its lineage is the task's planning chain, and the
-  // task's own place ends the path.
-  const review = needsReviewer(c);
-  const own = review ? (pos.get(c.reviewOf ?? "") ?? pos.get(c.itemId) ?? fallback) : (pos.get(c.itemId) ?? fallback);
-  const up = c.lineage ?? [];
-  if (!up.some((a) => a.type && PLANNING.has(a.type))) {
-    return { review, loose: true, path: [own] };
-  }
-  const root = ROOT_LEVEL[up[0].type ?? ""] ?? 3;
-  return { review, loose: false, path: [root, ...up.map((a) => pos.get(a.uid) ?? UNNAMED), own] };
-}
-
-/** compareBacklogKeys orders two keys: negative when a stands first. */
-export function compareBacklogKeys(a: BacklogKey, b: BacklogKey): number {
-  if (a.review !== b.review) {
-    return a.review ? -1 : 1;
-  }
-  if (a.loose !== b.loose) {
-    return a.loose ? 1 : -1;
-  }
-  for (let i = 0; i < a.path.length && i < b.path.length; i++) {
-    if (a.path[i] !== b.path[i]) {
-      return a.path[i] - b.path[i];
-    }
-  }
-  return a.path.length - b.path.length;
-}
-
 /** backlogList is the board: the backlog cards of the shown teams, MIXED, in
- *  the Strategy board's order (backlogKey) read off `order` — the listing's
- *  `boardOrder`, which every Ordering frame replaces. A card the order does
- *  not name yet (one a watch frame brought in) stands after the named ones,
- *  in the order the board holds the cards; with no order at all (an older
- *  server) that is the whole list. */
+ *  the board's order (Q2, board.BacklogOrder) read off `order` — the
+ *  listing's `boardOrder`, which every Ordering frame replaces: the reviews
+ *  nobody has taken first (K10), then every task by its own place. A task's
+ *  rank IS its queue place, so the plan items above it decide nothing. A
+ *  card the order does not name yet (one a watch frame brought in) stands
+ *  after the named ones, in the order the board holds the cards; with no
+ *  order at all (an older server) that is the whole list. */
 export function backlogList(cards: readonly Card[], teams: readonly string[], order?: readonly string[]): Card[] {
   const shown = new Set(teams);
   // A backlog holds the tasks STANDING UNDER its team (O13): its own, else
@@ -134,22 +82,9 @@ export function backlogList(cards: readonly Card[], teams: readonly string[], or
   const keyed = cards
     .map((c, i) => ({ c, i }))
     .filter(({ c }) => onBacklog(c) && shown.has(place(c)))
-    .map(({ c, i }) => ({ c, key: backlogKey(c, pos, base + i) }));
-  keyed.sort((a, b) => compareBacklogKeys(a.key, b.key));
+    .map(({ c, i }) => ({ c, review: needsReviewer(c), at: pos.get(c.itemId) ?? base + i }));
+  keyed.sort((a, b) => (a.review !== b.review ? (a.review ? -1 : 1) : a.at - b.at));
   return keyed.map(({ c }) => c);
-}
-
-/** runOf is which cards a backlog card is a SIBLING of (K14): a review nobody
- *  has taken among the other such reviews; a task among the tasks under the
- *  same parent — the loose tasks, with no plan item above, being one run. */
-function runOf(c: Pick<Card, "itemId" | "parent" | "lineage" | "reviewOf" | "assignees" | "stage" | "progress">): string {
-  if (needsReviewer(c)) {
-    // Its place is its task's (K10): it is no one's sibling, so no drop of
-    // it, or by it, is a place.
-    return `review:${c.itemId}`;
-  }
-  const planned = (c.lineage ?? []).some((a) => a.type && PLANNING.has(a.type));
-  return planned ? (c.parent ?? "") : "";
 }
 
 /** takeOwner is what TAKE leaves on the card, the server's `take` (K11)
@@ -212,35 +147,41 @@ export function spliceOrder(all: readonly string[], column: readonly string[]): 
 /** BacklogDrop is what a drop means. */
 export type BacklogDrop = { kind: "none" } | { kind: "forbidden" } | { kind: "reorder"; order: string[]; anchor: Anchor };
 
-/** dropPlan reads a drop at place `at` of the list without the card (K5,
- *  K14): ONE order, decided by the tree, so the card moves among its
- *  SIBLINGS only (runOf) — anchored after the sibling just above it, else
- *  before the sibling just below — and a drop with neither neighbour a
- *  sibling is FORBIDDEN. The team does not change by a drop: handing a task
- *  to another team is the owner picker's (ownPlan). A card put back where it
- *  was writes nothing. `list` is the cards as drawn, the card included. */
+/** dropPlan reads a drop at place `at` of the list without the card (Q4,
+ *  K5): a task goes between ANY two neighbours, of whichever epic or team —
+ *  it becomes an exception to its epic's order, and the epic's key does not
+ *  change. It is anchored after the TASK above it, else before the task
+ *  below it; a review nobody has taken is no anchor (its group is pinned on
+ *  top, K10), so a drop among the reviews lands before the first task. A
+ *  review itself is never dragged: its drop is forbidden. The team does not
+ *  change by a drop: handing a task to another team is the owner picker's
+ *  (ownPlan). A card put back where it was writes nothing. `list` is the
+ *  cards as drawn, the card included. */
 export function dropPlan(id: string, list: readonly Card[], at: number): BacklogDrop {
   const ids = list.map((c) => c.itemId);
-  const order = orderWith(ids, id, at);
-  if (order.every((x, i) => x === ids[i])) {
-    return { kind: "none" };
-  }
   const byId = new Map(list.map((c) => [c.itemId, c]));
   const moved = byId.get(id);
   if (!moved) {
     return { kind: "none" };
   }
-  const run = runOf(moved);
-  const place = order.indexOf(id);
-  const above = place > 0 ? byId.get(order[place - 1]) : undefined;
-  const below = place < order.length - 1 ? byId.get(order[place + 1]) : undefined;
-  if (above && runOf(above) === run) {
-    return { kind: "reorder", order, anchor: { after: above.itemId } };
+  if (needsReviewer(moved)) {
+    return { kind: "forbidden" };
   }
-  if (below && runOf(below) === run) {
-    return { kind: "reorder", order, anchor: { before: below.itemId } };
+  const order = orderWith(ids, id, at);
+  const tasks = order.filter((x) => x === id || !needsReviewer(byId.get(x)!));
+  const reviews = order.filter((x) => x !== id && needsReviewer(byId.get(x)!));
+  const shown = [...reviews, ...tasks];
+  if (shown.every((x, i) => x === ids[i])) {
+    return { kind: "none" };
   }
-  return { kind: "forbidden" };
+  const place = tasks.indexOf(id);
+  if (place > 0) {
+    return { kind: "reorder", order: shown, anchor: { after: tasks[place - 1] } };
+  }
+  if (tasks.length > 1) {
+    return { kind: "reorder", order: shown, anchor: { before: tasks[1] } };
+  }
+  return { kind: "none" };
 }
 
 /** AddBox is what an insert "+" offers once opened: with one team shown,
@@ -259,6 +200,41 @@ export type AddBox =
 export interface InsertSpot {
   anchor: Anchor;
   box: AddBox;
+  /** The epic the new task is filed under (Q10): inheritedEpic of the gap.
+   *  The form shows it as a chip with an ×, and the create names it as the
+   *  parent unless the × took it off. */
+  epic: LineageRef | null;
+}
+
+/** epicOf is a card's epic as its lineage carries it: the nearest epic
+ *  above it, or none — a NEUTRAL task. Mirrors board.Index.EpicOf. */
+export function epicOf(c: Pick<Card, "lineage">): LineageRef | null {
+  const up = c.lineage ?? [];
+  for (let i = up.length - 1; i >= 0; i--) {
+    if (up[i].type === "epic") {
+      return up[i];
+    }
+  }
+  return null;
+}
+
+/** inheritedEpic is the epic a task typed into gap `at` of the list as
+ *  drawn inherits (Q10, board.InheritedEpic): the card above's epic — the
+ *  same as below's when the two agree, the card above's at a boundary
+ *  (which may be none) — or, at the top, the card below's; none in an empty
+ *  list. A review nobody has taken is no neighbour: it is skipped. */
+export function inheritedEpic(list: readonly Card[], at: number): LineageRef | null {
+  for (let i = Math.min(at, list.length) - 1; i >= 0; i--) {
+    if (!needsReviewer(list[i])) {
+      return epicOf(list[i]);
+    }
+  }
+  for (let i = Math.max(at, 0); i < list.length; i++) {
+    if (!needsReviewer(list[i])) {
+      return epicOf(list[i]);
+    }
+  }
+  return null;
 }
 
 /** insertSpot reads the gap `at` of the list as drawn: 0 is above the
@@ -269,8 +245,9 @@ export function insertSpot(list: readonly Card[], at: number, teams: readonly st
     list.map((c) => c.itemId),
     at,
   );
+  const epic = inheritedEpic(list, at);
   if (teams.length === 1) {
-    return { anchor, box: { forcedTeam: teams[0] || null } };
+    return { anchor, box: { forcedTeam: teams[0] || null }, epic };
   }
   // The team the card above STANDS UNDER (O13); the new card is made with
   // it as its own.
@@ -279,6 +256,7 @@ export function insertSpot(list: readonly Card[], at: number, teams: readonly st
   return {
     anchor,
     box: { teams: teams.filter((t) => t !== ""), allowNoTeam: teams.includes(""), initialTeam: start || null },
+    epic,
   };
 }
 
@@ -300,7 +278,7 @@ export function insertedOrder(all: readonly string[], id: string, anchor: Anchor
 
 /** ownPlan is what the owner picker does on a backlog card. A PERSON takes
  *  the task into work (K4): the server files it as the Me board files a
- *  create — today, the unplanned band, the team's sprint — and it leaves the
+ *  create — today, the planned band, the team's sprint — and it leaves the
  *  backlog at once. A team alone, or nobody, hands it to that team's
  *  backlog (the no-team group's for nobody), still parked (K3, K5). */
 export function ownPlan(c: Pick<Card, "team">, owner: Owner): "take" | "hand-over" | "none" {
@@ -313,7 +291,7 @@ export function ownPlan(c: Pick<Card, "team">, owner: Owner): "take" | "hand-ove
 /** takenIntoWorkLocally is the card the moment a person takes it, before the
  *  server answers — what boardservice.ownByPerson writes on an unplanned
  *  card: the team (joining its current sprint, or starting one today), the
- *  dates today, the unplanned band, the person, and out of the backlog. */
+ *  dates today, the planned band, the person, and out of the backlog. */
 export function takenIntoWorkLocally(
   owner: Owner,
   today: string,
@@ -325,7 +303,7 @@ export function takenIntoWorkLocally(
     parked: false,
     startDate: today,
     day: today,
-    zone: "yellow",
+    zone: "gray",
     sprintStart: teamSprint ?? today,
   };
 }
@@ -388,4 +366,163 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 export function dueLabel(iso: string): string {
   const [, m, d] = iso.split("-").map(Number);
   return `${d} ${MONTHS[m - 1]}`;
+}
+
+/** Readiness is the Backlog's All / Ready / Blocked filter (ordering.md):
+ *  a dependency never changes the order — a blocked task stays where it
+ *  stands — so the filter only hides. Ready is every card that waits for
+ *  nothing (status.locked false); Blocked the ones that do. All, the
+ *  default, hides nothing. */
+export type Readiness = "all" | "ready" | "blocked";
+
+export function byReadiness<T extends Pick<Card, "locked">>(list: readonly T[], mode: Readiness): T[] {
+  if (mode === "all") {
+    return [...list];
+  }
+  return list.filter((c) => (mode === "blocked" ? !!c.locked : !c.locked));
+}
+
+/** splitEpics is the epics whose tasks do not stand together in a team's
+ *  queue (board.Index.Split): another task stands inside the epic's area.
+ *  `list` is the backlog in its order, any mix of teams; each team's queue
+ *  is read apart, and the reviews nobody has taken are no part of one. */
+export function splitEpics(list: readonly Card[], teamOf: (c: Card) => string): Set<string> {
+  const runs = new Map<string, Map<string, number>>(); // team → epic → runs
+  const last = new Map<string, string | null>(); // team → epic of the last task
+  for (const c of list) {
+    if (needsReviewer(c)) {
+      continue;
+    }
+    const team = teamOf(c);
+    const epic = epicOf(c)?.uid ?? null;
+    if (epic && last.get(team) !== epic) {
+      const byEpic = runs.get(team) ?? new Map<string, number>();
+      byEpic.set(epic, (byEpic.get(epic) ?? 0) + 1);
+      runs.set(team, byEpic);
+    }
+    last.set(team, epic);
+  }
+  const out = new Set<string>();
+  for (const byEpic of runs.values()) {
+    for (const [epic, n] of byEpic) {
+      if (n > 1) {
+        out.add(epic);
+      }
+    }
+  }
+  return out;
+}
+
+/** BacklogMode is the Backlog's Tasks | Epics switch; switching writes
+ *  nothing — both read the same order. Remembered per viewer. */
+export type BacklogMode = "tasks" | "epics";
+
+export const BACKLOG_MODE_KEY = "aeman.backlog.mode";
+
+export function readBacklogMode(raw: string | null): BacklogMode {
+  return raw === "epics" ? "epics" : "tasks";
+}
+
+/** EpicRow is one line of the Epics mode: the epic, the goal and initiative
+ *  above it, how many of its tasks wait in the shown backlogs, and whether
+ *  they are scattered (Split). */
+export interface EpicRow {
+  epic: Card;
+  chain: LineageRef[];
+  parked: number;
+  split: boolean;
+}
+
+/** epicRows is the Epics mode (ordering.md, "Backlog Epics mode"): the epics
+ *  in the shown teams' scope — of a shown team, or with an open task
+ *  standing under one; an epic of no team with the no-team group shown —
+ *  empty ones included, done ones not, in the EPIC ORDER (the board's order,
+ *  `order`). `scope` is the cards the epics and their tasks are read from
+ *  (the Strategy listing), `list` the backlog as drawn. */
+export function epicRows(
+  scope: readonly Card[],
+  list: readonly Card[],
+  teams: readonly string[],
+  order?: readonly string[],
+): EpicRow[] {
+  const shown = new Set(teams);
+  const teamOf = placerOf(scope);
+  const listTeamOf = placerOf(list);
+  const inScope = new Set<string>();
+  for (const c of scope) {
+    if (c.type === "epic" || isPlanning(c) || isComplete(c)) {
+      continue;
+    }
+    const e = epicOf(c);
+    if (e && shown.has(teamOf(c))) {
+      inScope.add(e.uid);
+    }
+  }
+  const pos = new Map((order ?? []).map((uid, i) => [uid, i]));
+  const at = (c: Card, i: number) => pos.get(c.itemId) ?? pos.size + i;
+  const parked = new Map<string, number>();
+  for (const c of list) {
+    const e = epicOf(c);
+    if (e && !needsReviewer(c)) {
+      parked.set(e.uid, (parked.get(e.uid) ?? 0) + 1);
+    }
+  }
+  const split = splitEpics(list, listTeamOf);
+  return scope
+    .map((c, i) => ({ c, i }))
+    .filter(({ c }) => c.type === "epic" && c.hierarchy?.status !== "done")
+    .filter(({ c }) => shown.has(c.team ?? "") || inScope.has(c.itemId))
+    .sort((a, b) => at(a.c, a.i) - at(b.c, b.i))
+    .map(({ c }) => ({
+      epic: c,
+      chain: (c.lineage ?? []).filter((r) => r.type === "goal" || r.type === "initiative"),
+      parked: parked.get(c.itemId) ?? 0,
+      split: split.has(c.itemId),
+    }));
+}
+
+/** epicDrop is where an epic dropped at place `at` of the Epics list (the
+ *  list without it) goes: right after the epic above it, or right before the
+ *  first one at the top — the epic move, which gathers its tasks. Nothing
+ *  for a drop where it already was. */
+export function epicDrop(ids: readonly string[], id: string, at: number): { order: string[]; anchor: Anchor } | null {
+  const order = orderWith(ids, id, at);
+  if (order.every((x, i) => x === ids[i])) {
+    return null;
+  }
+  return { order, anchor: anchorFor(order, id) };
+}
+
+/** epicsByReadiness is the All / Ready / Blocked filter on the Epics mode:
+ *  Blocked is an epic locked by a dependency, its own or inherited
+ *  (status.locked), Ready one that is not — the tasks' rule. It only hides. */
+export function epicsByReadiness(rows: readonly EpicRow[], mode: Readiness): EpicRow[] {
+  const keep = new Set(byReadiness(rows.map((r) => r.epic), mode).map((c) => c.itemId));
+  return rows.filter((r) => keep.has(r.epic.itemId));
+}
+
+/** offersEpicTake reports whether an epic's row in the Epics mode offers
+ *  TAKE: while nobody answers for it (no owner). Take on an epic is the plan
+ *  item's analogue of a task's: the viewer becomes its OWNER and its team
+ *  stays as it is; once somebody owns it, changing hands is the owner
+ *  picker's. */
+export function offersEpicTake(epic: Pick<Card, "owner">): boolean {
+  return !epic.owner;
+}
+
+/** epicTake is how an Epics row draws its Take: enabled while nobody owns
+ *  the epic; DISABLED, saying who does, once somebody owns it — changing
+ *  hands is the owner picker's (the avatar). The server refuses the same
+ *  (somebodysCard). */
+export function epicTake(epic: Pick<Card, "owner" | "title">): { enabled: boolean; title: string } {
+  if (epic.owner) {
+    return { enabled: false, title: `${epic.owner} already owns «${epic.title}» — change the owner with the avatar` };
+  }
+  return { enabled: true, title: "Take this epic yourself: you become its owner" };
+}
+
+/** epicTakeOwner is what Take leaves on an epic: its own team, the viewer
+ *  as its owner. */
+export function epicTakeOwner(epic: Pick<Card, "team">, viewer: string): Owner {
+  return { team: epic.team ?? "", person: viewer };
 }

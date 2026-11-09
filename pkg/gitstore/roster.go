@@ -20,8 +20,11 @@ import (
 // Version 2 retired the Process feature: the processes/ directory and the
 // process, task and accumulate card keys (docs/design/hierarchy.md).
 // Version 3 is the team backlog: the weekly plan and the Triage strip are
-// parked and a task's week is gone (docs/design/backlog.md).
-const SchemaVersion = 3
+// parked and a task's week is gone (docs/design/backlog.md). Version 4 is
+// the ordering model: a task's rank is its team-queue place and an epic's the
+// board-wide epic order (docs/design/ordering.md), reached by
+// MigrateOrdering over every repository at once.
+const SchemaVersion = 4
 
 // BoardPath is the board's own file, primary domain only.
 const BoardPath = "board.yaml"

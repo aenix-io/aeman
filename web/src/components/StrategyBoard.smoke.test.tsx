@@ -415,3 +415,36 @@ describe("the badge", () => {
     expect(html).toContain("Take out of work");
   });
 });
+
+// The toolbar folds every row or none (the order does not change), and an
+// epic whose parked tasks are scattered in a team's backlog says Split.
+describe("folding and Split on the Strategy board", () => {
+  it("offers Expand all, then Collapse all", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    expect(html).toContain("Collapse all");
+    expect(html).toContain("Expand all");
+    expect(html.indexOf("Expand all")).toBeLessThan(html.indexOf("Collapse all"));
+  });
+
+  it("marks an epic whose parked tasks another task stands between", () => {
+    const chain = [{ uid: "i", type: "initiative" as const, title: "Billing v2" }, { uid: "e", type: "epic" as const, title: "Invoices" }];
+    const e2 = card({ itemId: "e2", title: "Other", type: "epic", parent: "i", lineage: [chain[0]] });
+    const p1 = card({ itemId: "p1", title: "first", parent: "e", team: "core", parked: true, lineage: chain });
+    const x1 = card({ itemId: "x1", title: "between", parent: "e2", team: "core", parked: true, lineage: [chain[0], { uid: "e2", type: "epic", title: "Other" }] });
+    const p2 = card({ itemId: "p2", title: "second", parent: "e", team: "core", parked: true, lineage: chain });
+    const html = draw(board([goal, ini, epic, e2, p1, x1, p2]));
+    expect(html.match(/class="split-badge"/g)?.length).toBe(1);
+    expect(draw(board([goal, ini, epic, e2, p1, p2, x1]))).not.toContain('class="split-badge"');
+  });
+});
+
+// The lower toolbar keeps the filters at the left and the folding at the
+// right; the timeline's window is the top bar's now.
+describe("the Strategy board's own toolbar", () => {
+  it("draws the filters first, the folding after them, and no window", () => {
+    const html = draw(board([goal, ini, epic, done, open]));
+    const bar = html.slice(html.indexOf("strategy-toolbar"), html.indexOf("strategy-head"));
+    expect(bar.indexOf("Team")).toBeLessThan(bar.indexOf("Expand all"));
+    expect(bar).not.toContain("strategy-range");
+  });
+});

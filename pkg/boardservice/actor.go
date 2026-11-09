@@ -22,6 +22,22 @@ func ActorFrom(ctx context.Context) string {
 	return board.ActorFrom(ctx)
 }
 
+type actionIDKey struct{}
+
+// WithActionID stamps the request's ACTION — the id its writes are committed
+// under — on the context, so a door that answers with the action (an
+// ordering gesture) can name it. The server stamps it on every
+// mutating request and MCP call.
+func WithActionID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, actionIDKey{}, id)
+}
+
+// ActionIDFrom is the action stamped by WithActionID, or "".
+func ActionIDFrom(ctx context.Context) string {
+	id, _ := ctx.Value(actionIDKey{}).(string)
+	return id
+}
+
 // eventRetryBackoff is the per-attempt backoff base for event writes; a
 // package variable so tests can shrink it.
 var eventRetryBackoff = 400 * time.Millisecond

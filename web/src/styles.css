@@ -638,6 +638,14 @@ select {
   border-left: 1px solid var(--line);
 }
 
+/* A segmented group in a board's own toolbar, sized like the filter
+   buttons beside it (.btn.filter-select-btn): Expand all / Collapse all,
+   All / Ready / Blocked. */
+.segmented-compact .segment {
+  font-size: 12px;
+  padding: 4px 12px;
+}
+
 .segment-active {
   background: var(--accent-emphasis);
   color: var(--on-accent);
@@ -1218,6 +1226,37 @@ button.team-avatar {
   border-radius: 4px;
   background: var(--bg);
   position: relative;
+}
+
+/* The Backlog "+"'s inherited epic (Q10): what the new task is filed under,
+   with an × that takes it off. */
+.add-card-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 40%;
+  margin: 3px 0 3px 4px;
+  padding: 0 4px 0 6px;
+  border-radius: 10px;
+  background: var(--surface-2, var(--bg));
+  border: 1px solid var(--border, var(--accent));
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.add-card-chip-x {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.6;
+}
+
+.add-card-chip-x:hover {
+  opacity: 1;
 }
 
 .add-card-form .add-card-input {
@@ -3015,94 +3054,6 @@ button.card-age {
   cursor: default;
 }
 
-/* What a card weighs, on its face: on a Backlog card, beside its owner. */
-.size-chip {
-  flex: none;
-  position: relative;
-  z-index: 4;
-  min-width: 17px;
-  height: 15px;
-  padding: 0 3px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: var(--hover-overlay);
-  color: var(--fg);
-  font: inherit;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 13px;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-  cursor: pointer;
-}
-
-.size-chip:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-/* Nobody has said what this one weighs, so the letter is the one it is
-   COUNTED as, in an empty dashed chip rather than a solid one: the reader
-   sees what the number over the person is made of, and the chip says at a
-   glance that it is the board's assumption and not anybody's word. */
-.size-chip-unset {
-  background: transparent;
-  border-color: var(--line);
-  border-style: dashed;
-  color: var(--muted);
-  font-weight: 500;
-}
-
-/* Four letters, each with what it weighs: a menu narrow enough to open over
-   a box without covering the column beside it. */
-.backlog-size-menu {
-  min-width: 0;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px var(--elev-2);
-  padding: 3px;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.backlog-size-item {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  min-width: 74px;
-  border: none;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  padding: 3px 7px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.backlog-size-item:hover {
-  background: var(--hover-overlay);
-}
-
-.backlog-size-item-on {
-  background: var(--hover-overlay);
-  font-weight: 700;
-}
-
-.backlog-size-key {
-  font-weight: 700;
-}
-
-.backlog-size-pts {
-  color: var(--muted);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-
 /* The destructive half of a two-way choice: coloured, but not shouting — it
    is a legitimate answer, not a trap. */
 .sprint-choice-btn-danger strong {
@@ -3501,14 +3452,6 @@ button.card-age {
   white-space: nowrap;
 }
 
-.backlog-row-due {
-  flex: none;
-  color: var(--muted);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
 /* A backlog card IS a day board's card (.card, and .card-review for a review
    nobody has taken): the same look, padding and title. It only spans the
    list's width instead of the day boards' column. */
@@ -3656,7 +3599,7 @@ button.card-age {
   row-gap: 6px;
 }
 
-.strategy-toolbar .segmented {
+.strategy-toolbar .segmented:not(.strategy-fold) {
   margin-left: 0;
 }
 
@@ -3676,13 +3619,6 @@ button.card-age {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 3px 6px;
-}
-
-.strategy-range {
-  font-size: 12px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 
 .strategy-empty {
@@ -5612,3 +5548,127 @@ button.card-age {
   border-bottom-right-radius: 3px;
 }
 
+
+/* An epic whose tasks are scattered in a team's backlog (ordering.md):
+   moving the epic gathers them. */
+.split-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 8px;
+  border: 1px solid var(--warn, #c90);
+  color: var(--warn, #c90);
+  font-size: 10px;
+  line-height: 15px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* The Backlog's Epics mode: one row per epic, dragged to move the epic. */
+.backlog-mode {
+  margin-right: 8px;
+}
+
+/* Three aligned columns: the epic (and Split), the count of its waiting
+   tasks, and the Goal › Initiative chain right-aligned in a column of its
+   own — the Tasks rows' chain, its chips cut with an ellipsis. */
+/* The Epics row is the Tasks row: the same card, its right-hand cluster —
+   chain, avatar, Take — the Tasks row's own elements and gaps. */
+.card.backlog-epic-row {
+  cursor: grab;
+}
+
+.backlog-epic-title {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.backlog-epic-title .card-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backlog-epic-count {
+  flex: none;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.backlog-epic-carried {
+  opacity: 0.4;
+}
+
+.backlog-epic-drop-above {
+  box-shadow: inset 0 2px 0 var(--accent, #6af);
+}
+
+.backlog-epic-drop-below {
+  box-shadow: inset 0 -2px 0 var(--accent, #6af);
+}
+
+/* A board's own controls in the app's top bar, at its LEFT edge — the
+   Strategy board's Hierarchy range, zoom and window, the Backlog's Tasks |
+   Epics — the view tabs still pushed to the right. */
+.topbar-controls {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 10px;
+  margin-right: auto;
+}
+
+.topbar-controls .segmented {
+  margin-left: 0;
+}
+
+/* A control that stands in the middle of the top bar (the Strategy board's
+   zoom): centred on the bar whatever stands at its sides. On a narrow bar it
+   falls back into the row. */
+.toolbar {
+  position: relative;
+}
+
+.topbar-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.topbar-center .segmented {
+  margin-left: 0;
+}
+
+@media (max-width: 900px) {
+  .topbar-center {
+    position: static;
+    transform: none;
+    align-self: center;
+  }
+}
+
+/* The Strategy board's own toolbar: the filters at the left, the folding at
+   the right. */
+.strategy-toolbar .strategy-fold {
+  margin-left: auto;
+}
+
+/* The chain's clicks open a plan item, not the epic: a box that draws
+   nothing of its own, so the chain lays out as on a Tasks row. */
+.backlog-epic-cluster {
+  display: contents;
+}
+
+/* Take that is not the viewer's to press (an epic somebody owns): drawn,
+   greyed, its tooltip saying who does. */
+.backlog-take-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
