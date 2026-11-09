@@ -745,7 +745,7 @@ export function Card({
                 className="card-stage-item"
                 onClick={() => {
                   placements.onPark?.();
-                  setAssignOpen(false);
+                  setDatesOpen(false);
                 }}
               >
                 Send to the backlog
