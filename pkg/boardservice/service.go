@@ -794,9 +794,9 @@ func (s *Service) DeleteTeam(ctx context.Context, boardID string, team string) e
 }
 
 // selectCarry partitions a team's cards for a carry-over closing sprint old
-// and opening today: cards to carry forward, finished recurrent cards to
-// reseed, and completed review cards to pin back to the closing sprint.
-func selectCarry(b board.Board, team, old, today string) (carry, reseed, relocate []board.Card) {
+// and opening today: cards to carry forward and finished recurrent cards to
+// reseed.
+func selectCarry(b board.Board, team, old, today string) (carry, reseed []board.Card) {
 	// Carry only the unfinished cards of the sprint being closed (sprintStart ==
 	// the old current pointer). A card that is NOT on today's sprint — demoted
 	// back to an earlier one, or simply old — stays where it is, so removing a
@@ -851,15 +851,10 @@ func selectCarry(b board.Board, team, old, today string) (carry, reseed, relocat
 			}
 			continue
 		}
+		// Finished work stays on the closing sprint as it is (R6): the day
+		// boards read a done card by its sprint, so it does not linger on the
+		// new one whatever its dates say.
 		if board.Complete(c.Stage, c.Progress) {
-			// A completed review card created on a later day of the closing
-			// sprint keeps its own start-day (often today), so it would linger on
-			// the new sprint's day even though it is not carried. Pull its dates
-			// back to the closing sprint so it stays behind; a re-review in the
-			// new sprint relocates it forward.
-			if c.ReviewOf != "" && (c.StartDate != old || c.Day != old) {
-				relocate = append(relocate, c)
-			}
 			continue
 		}
 		// A review card crosses sprints only while its review is still on: the
@@ -871,7 +866,7 @@ func selectCarry(b board.Board, team, old, today string) (carry, reseed, relocat
 		}
 		carry = append(carry, c)
 	}
-	return carry, reseed, relocate
+	return carry, reseed
 }
 
 // CarryOver advances a team's sprint to today (the old current becomes previous)
@@ -891,7 +886,7 @@ func (s *Service) CarryOver(ctx context.Context, boardID string, team string, dr
 		// The press hands the previous sprint back its finished work instead.
 		return s.returnFinished(ctx, b, team, dryRun)
 	}
-	carry, reseed, relocate := selectCarry(b, team, old, today)
+	carry, reseed := selectCarry(b, team, old, today)
 	// Subtasks ride with their carried parent - even completed ones, and
 	// whatever team they belong to; the parent's team drives the sprint.
 	followers := carryFollowers(b, carry)
@@ -902,13 +897,6 @@ func (s *Service) CarryOver(ctx context.Context, boardID string, team string, dr
 	}
 	if err := s.backend.SetSprintState(ctx, b, team, today, old); err != nil {
 		return CarryReport{}, err
-	}
-	// Pin completed review cards to the closing sprint's day so they do not
-	// linger on the new sprint (best-effort; failures are non-fatal).
-	for _, c := range relocate {
-		_ = s.backend.SetStart(ctx, b, c, old)
-		_ = s.backend.SetDay(ctx, b, c, old)
-		_ = s.backend.SetSprintStart(ctx, b, c, old)
 	}
 	// The per-card writes are independent, but a burst of concurrent Projects v2
 	// mutations trips GitHub's secondary rate limit, so run them at a modest

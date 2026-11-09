@@ -407,7 +407,7 @@ func TestCarryOverCarriesATaskUnderAnEpic(t *testing.T) {
 		{ItemID: "sub", Parent: "under", Team: "alpha", SprintStart: old},
 		{ItemID: "loose", Team: "alpha", SprintStart: old},
 	})
-	carry, _, _ := selectCarry(b, "alpha", old, today)
+	carry, _ := selectCarry(b, "alpha", old, today)
 	got := map[string]bool{}
 	for _, c := range carry {
 		got[c.ItemID] = true

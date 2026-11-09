@@ -1979,15 +1979,20 @@ func TestSendToReviewUsesOriginalSprint(t *testing.T) {
 	}
 }
 
-// Carry-over leaves a completed review card behind, pinned to the closing
-// sprint's day, so it does not linger on the new sprint (and its unfinished
-// original carries).
-func TestCarryOverPinsCompletedReviewCard(t *testing.T) {
+// Carry-over leaves a completed review card behind as it leaves any finished
+// card, and no longer re-dates it (R6). It used to pin the card's dates to the
+// closing sprint's day, because the Me board read a done card by its date
+// range and drew a review created today on the new sprint's first day. The Me
+// board is the Team board's rule now (D6), which reads a done card by its
+// sprint: left on the closing sprint, it is on neither board today.
+func TestCarryOverLeavesACompletedReviewCardAsItIs(t *testing.T) {
+	today := board.TodayIso()
+	old := board.AddDays(today, -3)
 	f := newFake([]board.Card{
-		{ItemID: "orig", Team: "alpha", Progress: 50, StartDate: "2026-07-03", Day: "2026-07-03", SprintStart: "2026-07-02"},
-		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, Assignees: []string{"bob"},
-			StartDate: "2026-07-03", Day: "2026-07-03", SprintStart: "2026-07-02"},
-	}, map[string]board.SprintState{"alpha": {Current: "2026-07-02", ItemID: "s1"}})
+		{ItemID: "orig", Team: "alpha", Progress: 50, StartDate: old, Day: old, SprintStart: old},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, DoneAt: today, Assignees: []string{"bob"},
+			StartDate: today, Day: today, SprintStart: old},
+	}, map[string]board.SprintState{"alpha": {Current: old, ItemID: "s1"}})
 	rep, err := f2svc(f).CarryOver(ctx, "acme", "alpha", false)
 	if err != nil {
 		t.Fatal(err)
@@ -1996,8 +2001,16 @@ func TestCarryOverPinsCompletedReviewCard(t *testing.T) {
 		t.Fatalf("carried = %d, want 1 (only the original)", rep.Carried)
 	}
 	r := f.get("rev")
-	if r.StartDate != "2026-07-02" || r.Day != "2026-07-02" || r.SprintStart != "2026-07-02" {
-		t.Fatalf("completed review card must be pinned to the closing sprint: %+v", r)
+	if r.StartDate != today || r.Day != today || r.SprintStart != old {
+		t.Fatalf("a completed review card stays as it was: %+v", r)
+	}
+	f.mu.Lock()
+	b := f.b
+	f.mu.Unlock()
+	for _, c := range append(board.TeamGrid(b, "alpha", today), board.MeView(b, "bob", today)...) {
+		if c.ItemID == "rev" {
+			t.Fatalf("the closed sprint's review card must not stand on today's boards")
+		}
 	}
 }
 
@@ -2620,7 +2633,7 @@ func TestSetDatesIntoFutureLeavesTheSprint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	carry, _, _ := selectCarry(b, "alpha", today, future)
+	carry, _ := selectCarry(b, "alpha", today, future)
 	found := false
 	for _, c := range carry {
 		if c.ItemID == "c1" {
