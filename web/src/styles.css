@@ -5864,10 +5864,15 @@ button.card-age {
 .search-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 16px;
+  padding: 1px 8px;
+  color: var(--muted);
+  margin-right: 4px;
 }
 .search-btn kbd {
-  font: 11px/16px ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 10px/14px ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--faint);
 }
 @media (max-width: 600px) {
