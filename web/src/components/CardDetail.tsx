@@ -683,12 +683,15 @@ export function CardDetail({
   // editor answers first (it cancels the rename), so a card being renamed is
   // not closed out from under the typing.
   const backdropRef = useRef<HTMLDivElement | null>(null);
+  // Taken again whenever ANOTHER card comes into the drawer: one opened from
+  // the ⌘K search replaces the card without remounting the drawer, and the
+  // focus the search had must come back here for Esc to be heard.
   useEffect(() => {
     const node = backdropRef.current;
     if (node && !node.contains(document.activeElement)) {
       node.focus();
     }
-  }, []);
+  }, [card.itemId]);
   // What kind of work this is. It is set by which area of the Team board a
   // card stands in, which is no help when the card is met anywhere else —
   // and on the Backlog board a column is a team, so there is no area to

@@ -5849,6 +5849,12 @@ button.card-age {
   color: var(--muted);
   font-size: 13px;
 }
+.spotlight-stale {
+  padding: 6px 14px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  font-size: 12px;
+  color: var(--danger);
+}
 .spotlight-foot {
   display: flex;
   gap: 16px;

@@ -102,6 +102,10 @@ describe("highlight", () => {
     expect(highlight("backups", "back ups kup")).toEqual([{ text: "backups", hit: true }]);
   });
 
+  it("draws a title unmarked when lower case would shift the marks", () => {
+    expect(highlight("İstanbul office", "office")).toEqual([{ text: "İstanbul office", hit: false }]);
+  });
+
   it("gives the title back whole with nothing to mark", () => {
     expect(highlight("Backups", "")).toEqual([{ text: "Backups", hit: false }]);
     expect(highlight("Backups", "zzz")).toEqual([{ text: "Backups", hit: false }]);

@@ -654,47 +654,77 @@ export function App() {
   // ---- ⌘K search (Spotlight.tsx) ----
   // It searches every card the visitor can read: the view=all listing,
   // fetched when the search opens and kept for the next opening, which
-  // re-fetches it behind the cached copy once it is older than a minute.
+  // re-fetches it behind the cached copy once it is older than a minute. A
+  // card created or renamed within that minute is not in it yet — the price
+  // of not listing the whole board on every keystroke.
   const [spotlight, setSpotlight] = useState(false);
   const [searchIndex, setSearchIndex] = useState<CardModel[] | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const searchFetched = useRef(0);
+  const searchSeq = useRef(0);
   const openSpotlight = useCallback(() => {
     setSpotlight(true);
     if (Date.now() - searchFetched.current < 60_000) {
       return;
     }
     searchFetched.current = Date.now();
+    const seq = ++searchSeq.current;
     setSearchError(null);
     provider
       .listCards({ view: "all" })
-      .then((l) => setSearchIndex(l.cards))
+      .then((l) => {
+        if (seq === searchSeq.current) {
+          setSearchIndex(l.cards);
+        }
+      })
       .catch((err: unknown) => {
-        searchFetched.current = 0;
-        setSearchError(errMessage(err));
+        if (seq === searchSeq.current) {
+          searchFetched.current = 0;
+          setSearchError(errMessage(err));
+        }
       });
   }, [provider]);
+  const hasBoard = !!board;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        if (spotlight) {
-          setSpotlight(false);
-        } else {
-          openSpotlight();
-        }
+      // By the physical key, so a Russian layout (where K types «л») opens it too.
+      const k = e.code === "KeyK" || e.key.toLowerCase() === "k";
+      if (!k || !(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.isComposing || !hasBoard) {
+        return;
+      }
+      e.preventDefault();
+      if (spotlight) {
+        setSpotlight(false);
+      } else {
+        openSpotlight();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [spotlight, openSpotlight]);
+  }, [spotlight, openSpotlight, hasBoard]);
+  // A card picked in the search opens the way a linked card does (openByLink):
+  // fetched whole — a listing row has no body — and dropped if the person has
+  // opened something else meanwhile, or said plainly when it is gone.
   const pickFromSearch = (c: CardModel) => {
     setSpotlight(false);
-    // A listing row carries no body: the drawer opens on the whole card.
+    pendingCard.current = c.itemId;
     void provider
       .getCard(c.itemId)
-      .then(openCard)
-      .catch((err: unknown) => setError(errMessage(err)));
+      .then((full) => {
+        if (pendingCard.current !== c.itemId) {
+          return;
+        }
+        pendingCard.current = null;
+        setDetailStack([]);
+        setDetailCard(full);
+      })
+      .catch((err: unknown) => {
+        if (pendingCard.current !== c.itemId) {
+          return;
+        }
+        pendingCard.current = null;
+        setError(cardUnreadable(err) ? "That card is gone, or it is not yours to read." : errMessage(err));
+      });
   };
 
   // The roster: the board's teams in the server-side order (the sprint-state
@@ -1582,7 +1612,7 @@ export function App() {
               title="Search every card"
             >
               Search
-              <kbd>{/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K"}</kbd>
+              <kbd>{/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘K" : "Ctrl K"}</kbd>
             </button>
           )}
           <AppearanceMenu

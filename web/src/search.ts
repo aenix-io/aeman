@@ -89,6 +89,11 @@ export interface Run {
  *  the query matched is marked, overlapping matches merged into one run. */
 export function highlight(title: string, query: string): Run[] {
   const lower = title.toLowerCase();
+  // A letter whose lower case is longer («İ») would shift every mark after
+  // it: such a title is drawn unmarked rather than marked in the wrong place.
+  if (lower.length !== title.length) {
+    return [{ text: title, hit: false }];
+  }
   const marked = new Array<boolean>(title.length).fill(false);
   for (const w of words(query)) {
     for (let i = lower.indexOf(w); i !== -1; i = lower.indexOf(w, i + 1)) {

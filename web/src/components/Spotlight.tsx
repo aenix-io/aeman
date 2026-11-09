@@ -31,27 +31,46 @@ export function Spotlight({ cards, error, onPick, onClose, avatars, names }: Spo
   const list = useRef<HTMLUListElement>(null);
   const hits = useMemo(() => searchCards(cards ?? [], query), [cards, query]);
 
+  // The focus is the search's while it is open, and goes back where it was
+  // when it closes — the card's drawer listens for its Esc on the element
+  // that had it.
   useEffect(() => {
+    const was = document.activeElement as HTMLElement | null;
     input.current?.focus();
+    return () => {
+      if (was && was.isConnected && was !== document.body) {
+        was.focus();
+      }
+    };
   }, []);
   useEffect(() => {
     setActive(0);
   }, [query]);
+  // A fresher listing can bring fewer answers to the same query.
+  useEffect(() => {
+    setActive((a) => Math.min(a, Math.max(hits.length - 1, 0)));
+  }, [hits.length]);
   useLayoutEffect(() => {
     list.current?.children[active]?.scrollIntoView({ block: "nearest" });
   }, [active, hits]);
 
   const onKey = (e: React.KeyboardEvent) => {
-    if (e.nativeEvent.isComposing) {
+    // An input method confirming a word is not an Enter (Safari reports
+    // that key as 229 with isComposing already false).
+    if (e.nativeEvent.isComposing || e.keyCode === 229) {
       return;
     }
     if (e.key === "Escape") {
       e.preventDefault();
       onClose();
-    } else if (e.key === "ArrowDown" || (e.key === "n" && e.ctrlKey)) {
+    } else if (e.key === "Tab") {
+      // The field is the dialog's only stop: Tab does not wander off into
+      // the page under the scrim.
+      e.preventDefault();
+    } else if (e.key === "ArrowDown") {
       e.preventDefault();
       setActive((a) => (hits.length ? (a + 1) % hits.length : 0));
-    } else if (e.key === "ArrowUp" || (e.key === "p" && e.ctrlKey)) {
+    } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((a) => (hits.length ? (a - 1 + hits.length) % hits.length : 0));
     } else if (e.key === "Enter" && hits[active]) {
@@ -61,7 +80,7 @@ export function Spotlight({ cards, error, onPick, onClose, avatars, names }: Spo
   };
 
   let empty: string | null = null;
-  if (error) {
+  if (error && !cards) {
     empty = error;
   } else if (!cards) {
     empty = "Loading cards…";
@@ -76,8 +95,16 @@ export function Spotlight({ cards, error, onPick, onClose, avatars, names }: Spo
       <div
         className="spotlight"
         role="dialog"
+        aria-modal="true"
         aria-label="Search cards"
-        onMouseDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          // A press anywhere in the dialog but the field keeps the field's
+          // focus, and with it the keys.
+          if (e.target !== input.current) {
+            e.preventDefault();
+          }
+        }}
         onKeyDown={onKey}
       >
         <div className="spotlight-field">
@@ -94,8 +121,9 @@ export function Spotlight({ cards, error, onPick, onClose, avatars, names }: Spo
             spellCheck={false}
             autoComplete="off"
             role="combobox"
+            aria-autocomplete="list"
             aria-expanded={hits.length > 0}
-            aria-controls="spotlight-results"
+            aria-controls={empty ? undefined : "spotlight-results"}
             aria-activedescendant={hits[active] ? `spotlight-${hits[active].itemId}` : undefined}
           />
           <kbd className="spotlight-esc">esc</kbd>
@@ -140,6 +168,7 @@ export function Spotlight({ cards, error, onPick, onClose, avatars, names }: Spo
             })}
           </ul>
         )}
+        {error && cards && <div className="spotlight-stale">Showing the last listing: {error}</div>}
         <div className="spotlight-foot">
           <span><kbd>↑</kbd><kbd>↓</kbd> to move</span>
           <span><kbd>↵</kbd> to open</span>
