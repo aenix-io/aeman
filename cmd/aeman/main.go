@@ -264,7 +264,7 @@ func runMCP(args []string) error {
 		defer cancelHTTP()
 		httpErr = make(chan error, 1)
 		go func() {
-			httpErr <- serveMCPHTTP(httpCtx, *listen, mcpHTTPHandler(swap.current, swap.health()), drain, logger)
+			httpErr <- serveMCPHTTP(httpCtx, *listen, mcpHTTPHandler(func() *mcp.Server { return swap.current() }, func() daemonHealth { return swap.health()() }), drain, logger)
 		}()
 		select {
 		case err := <-httpErr:
@@ -273,6 +273,7 @@ func runMCP(args []string) error {
 		}
 	}
 
+	logger.Info("backend initialization started")
 	gb, err := openMCPBackend(gitCfg, logger)
 	if err != nil {
 		if cancelHTTP != nil {
@@ -283,6 +284,7 @@ func runMCP(args []string) error {
 		}
 		return err
 	}
+	logger.Info("backend initialization complete")
 	defer gb.Close()
 	drain = gb.Drain
 	cfg := mcpserver.Config{

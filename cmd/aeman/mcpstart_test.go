@@ -104,7 +104,7 @@ func TestAwaitHealthyWaitsForReady(t *testing.T) {
 func TestMCPServerSwapKeepsSessionAndChangesHealth(t *testing.T) {
 	placeholder := mcpserver.New(mcpserver.Config{Board: "board", Lock: true, Version: "test"})
 	swap := newMCPServerSwap(placeholder, func() daemonHealth { return daemonHealth{Status: "starting"} })
-	ts := httptest.NewServer(mcpHTTPHandler(swap.current(), swap.health()))
+	ts := httptest.NewServer(mcpHTTPHandler(func() *mcp.Server { return swap.current() }, func() daemonHealth { return swap.health()() }))
 	t.Cleanup(ts.Close)
 
 	cs, err := dial(t, ts.URL+"/mcp", nil)
@@ -113,6 +113,10 @@ func TestMCPServerSwapKeepsSessionAndChangesHealth(t *testing.T) {
 	}
 	backend := boardservicetest.New(nil, nil)
 	swap.set(fakeMCPServer(backend), func() daemonHealth { return daemonHealth{Status: "ok"} })
+	_, status := healthzAnswers(t.Context(), ts.Listener.Addr().String())
+	if status != "ok" {
+		t.Fatalf("health status after swap = %q, want ok", status)
+	}
 	if _, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "get_board"}); err != nil {
 		t.Fatalf("get_board after backend swap: %v", err)
 	}
