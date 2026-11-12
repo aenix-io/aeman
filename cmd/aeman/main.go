@@ -206,6 +206,8 @@ func runServe(args []string) error {
 	return srv.Run(ctx)
 }
 
+var openMCPBackend = server.OpenGitBackend
+
 func runMCP(args []string) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	verbose := fs.Bool("verbose", false, "enable debug logging")
@@ -244,11 +246,45 @@ func runMCP(args []string) error {
 	// (`aeman login`), else the one gh or glab is signed in with.
 	cli := cliFor(gitCfg.Forge, openStore(logger), osEnv, logger)
 	fillGitToken(context.Background(), gitCfg, cli)
-	gb, err := server.OpenGitBackend(gitCfg, logger)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	var (
+		swap       *mcpServerSwap
+		httpErr    chan error
+		cancelHTTP context.CancelFunc
+		drain      = func(context.Context) error { return nil }
+	)
+	if *listen != "" {
+		swap = newMCPServerSwap(mcpserver.New(mcpserver.Config{Board: gitCfg.Repos[0].Name, Lock: true, Version: version}),
+			func() daemonHealth { return daemonHealth{Status: "starting"} })
+		var httpCtx context.Context
+		httpCtx, cancelHTTP = context.WithCancel(ctx)
+		defer cancelHTTP()
+		httpErr = make(chan error, 1)
+		go func() {
+			httpErr <- serveMCPHTTP(httpCtx, *listen, mcpHTTPHandler(swap.current, swap.health()), drain, logger)
+		}()
+		select {
+		case err := <-httpErr:
+			return err
+		default:
+		}
+	}
+
+	gb, err := openMCPBackend(gitCfg, logger)
 	if err != nil {
+		if cancelHTTP != nil {
+			cancelHTTP()
+			if serveErr := <-httpErr; serveErr != nil {
+				return serveErr
+			}
+		}
 		return err
 	}
 	defer gb.Close()
+	drain = gb.Drain
 	cfg := mcpserver.Config{
 		Board:   gitCfg.Repos[0].Name,
 		Lock:    true,
@@ -259,7 +295,6 @@ func runMCP(args []string) error {
 		ResolveLogin: cli.Login,
 		Backend:      gb.Backend(),
 	}
-	drain := gb.Drain
 	srv := mcpserver.New(cfg)
 
 	// Attribute activity events to whoever the elected source's token
@@ -271,13 +306,10 @@ func runMCP(args []string) error {
 	// One commit per tool call, not one per card a fan-out tool touches.
 	srv.AddReceivingMiddleware(gb.MCPActionMiddleware())
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	if *listen != "" {
 		health := func() daemonHealth { return daemonReport(gb.UnpushedAge(), gitCfg.UnpushedWarn) }
-		// serveMCPHTTP says "ready" once the port is actually bound.
-		return serveMCPHTTP(ctx, *listen, mcpHTTPHandler(srv, health), drain, logger)
+		swap.set(srv, health)
+		return <-httpErr
 	}
 
 	logger.Info("aeman MCP server ready on stdio", "repos", len(gitCfg.Repos))
