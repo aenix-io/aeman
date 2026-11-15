@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -252,6 +253,53 @@ func TestOpenGitBackendStandalone(t *testing.T) {
 	p, _ := gitstore.CardPath(cardByTitle(bd, "one").ItemID)
 	if data, _ := other.ReadFile(p); !strings.Contains(string(data), "progress: 60") {
 		t.Fatalf("the drained write is not on the remote:\n%s", data)
+	}
+}
+
+// A clone whose directory was removed under a running process may have
+// been written into afterwards: a branch ref and objects, but no HEAD.
+// Reopening it would serve that remnant or refuse every sync, so the start
+// sets it aside — kept, not deleted, since it may hold a write never
+// pushed — and clones afresh.
+func TestOpenGitBackendSetsAsideAStoreWithoutHEAD(t *testing.T) {
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	dir := t.TempDir()
+	cfg := &GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: dir}
+
+	first, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "repos", "board", "HEAD")); err != nil {
+		t.Fatal(err)
+	}
+
+	var logs strings.Builder
+	second, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(&logs, nil)))
+	if err != nil {
+		t.Fatalf("a store without HEAD must be cloned afresh: %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	bd, err := second.Backend().LoadBoard(context.Background(), "ignored")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bd.Cards) != 2 {
+		t.Fatalf("cards = %d, want the remote's 2", len(bd.Cards))
+	}
+	aside, _ := filepath.Glob(filepath.Join(dir, "repos", "board.lost-*"))
+	if len(aside) != 1 {
+		t.Fatalf("set-aside copies = %v, want one", aside)
+	}
+	if _, err := os.Stat(filepath.Join(aside[0], "refs", "heads", "main")); err != nil {
+		t.Fatalf("the set-aside copy lost its branch: %v", err)
+	}
+	if !strings.Contains(logs.String(), "level=WARN") || !strings.Contains(logs.String(), aside[0]) {
+		t.Fatalf("the set-aside is not reported with its path:\n%s", logs.String())
 	}
 }
 

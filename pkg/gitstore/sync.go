@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -46,6 +48,12 @@ type Remote struct {
 }
 
 const remoteName = "origin"
+
+// ErrStoreLost is returned when the directory of an on-disk store was
+// removed while the Repo was in use. Its refs and shallow list went with
+// it: a fetch would ask the remote for the whole history and a commit
+// would start a new root, so both are refused.
+var ErrStoreLost = errors.New("gitstore: the on-disk store was removed while in use")
 
 // ErrNoRemoteTip is returned when the remote has no branch to sync with.
 var ErrNoRemoteTip = errors.New("gitstore: remote has no such branch")
@@ -138,6 +146,9 @@ func (r *Repo) DeepenSince(ctx context.Context, remote Remote, since time.Time) 
 // the transfer — store the pack, apply shallow and unshallow lines. It
 // returns the remote's tip.
 func (r *Repo) uploadPack(ctx context.Context, remote Remote, build func(*packp.UploadPackRequest, plumbing.Hash) bool) (tip plumbing.Hash, err error) {
+	if err := r.CheckStore(); err != nil {
+		return plumbing.ZeroHash, err
+	}
 	ep, err := transport.NewEndpoint(remote.URL)
 	if err != nil {
 		return plumbing.ZeroHash, err
@@ -198,7 +209,7 @@ func (r *Repo) uploadPack(ctx context.Context, remote Remote, build func(*packp.
 	if req.Capabilities.Supports(capability.Sideband64k) {
 		body = sideband.NewDemuxer(sideband.Sideband64k, resp)
 	}
-	if err := packfile.UpdateObjectStorage(r.s, body); err != nil {
+	if err := r.storePack(body); err != nil {
 		return plumbing.ZeroHash, err
 	}
 	if len(resp.Shallows) > 0 || len(resp.Unshallows) > 0 {
@@ -207,6 +218,43 @@ func (r *Repo) uploadPack(ctx context.Context, remote Remote, build func(*packp.
 		}
 	}
 	return tip, nil
+}
+
+// CheckStore reports ErrStoreLost when the on-disk store is gone. HEAD is
+// the witness: go-git writes it only when the store is created, so neither
+// a fetch nor a commit into the emptied directory brings it back.
+func (r *Repo) CheckStore() error {
+	if r.dir == "" {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(r.dir, "HEAD")); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("%w: %s", ErrStoreLost, r.dir)
+		}
+		return err
+	}
+	return nil
+}
+
+// storePack writes a received pack into the store. go-git leaves its
+// temporary pack file behind when the pack does not parse — a transfer cut
+// short by the deadline — so a failed write removes every temporary pack.
+// packMu makes that safe: it also holds off Maintain, whose git repack
+// writes its own tmp_pack_*, and the data-directory lock keeps other
+// processes out. go-git leaves the file open on that path, so its space is
+// returned only once the garbage collector closes the descriptors.
+func (r *Repo) storePack(body io.Reader) error {
+	r.packMu.Lock()
+	defer r.packMu.Unlock()
+	err := packfile.UpdateObjectStorage(r.s, body)
+	if err == nil || r.dir == "" {
+		return err
+	}
+	tmp, _ := filepath.Glob(filepath.Join(r.dir, "objects", "pack", "tmp_pack_*"))
+	for _, f := range tmp {
+		_ = os.Remove(f)
+	}
+	return err
 }
 
 // has reports whether the object is in the local store.
@@ -390,6 +438,9 @@ func (r *Repo) Maintain(ctx context.Context) error {
 	if r.dir == "" {
 		return nil
 	}
+	// git's repack output is named tmp_pack_* as well; see storePack.
+	r.packMu.Lock()
+	defer r.packMu.Unlock()
 	// -a -d packs everything into a single pack and drops the loose objects
 	// and packs it made redundant. safe.directory keeps git from refusing a
 	// repository whose owner it cannot vouch for — go-git made this clone and

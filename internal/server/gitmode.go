@@ -236,7 +236,7 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 			// renewed between two pushes is picked up without re-wiring.
 			remote.Auth = cfg.App.GitAuthFor(spec.URL)
 		}
-		repo, reopened, err := cloneOrOpen(dir, remote, opts, spec.URL)
+		repo, reopened, err := cloneOrOpen(dir, remote, opts, spec.URL, log)
 		if err != nil {
 			return nil, err
 		}
@@ -374,11 +374,30 @@ func initHint(url string) error {
 // cloneOrOpen reopens an existing clone (its unpushed commits included) or
 // makes a shallow one; a server that does not speak shallow gets a full
 // clone instead of a refusal.
-func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url string) (*gitstore.Repo, bool, error) {
+func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url string, log *slog.Logger) (*gitstore.Repo, bool, error) {
 	opts.Dir = dir // where Maintain runs `git repack`
 	storer := filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
 	if existing := gitstore.Open(storer, opts); !existing.Head().IsZero() {
-		return existing, true, nil
+		err := existing.CheckStore()
+		if !errors.Is(err, gitstore.ErrStoreLost) {
+			if err != nil {
+				return nil, false, err
+			}
+			return existing, true, nil
+		}
+		// A branch without HEAD is what a write into a store removed under
+		// a running process leaves. Set aside rather than deleted: it may
+		// hold a write that was never pushed.
+		aside := fmt.Sprintf("%s.lost-%d", dir, time.Now().Unix())
+		if err := os.Rename(dir, aside); err != nil {
+			return nil, false, fmt.Errorf("set aside damaged clone: %w", err)
+		}
+		log.Warn("clone had a branch but no HEAD; set aside and cloning afresh, it may hold unpushed commits",
+			"repo", url, "aside", aside)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return nil, false, fmt.Errorf("data dir: %w", err)
+		}
+		storer = filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

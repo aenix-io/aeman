@@ -56,6 +56,7 @@ type Repo struct {
 	branch plumbing.ReferenceName
 	dir    string // on-disk path for `git repack`; empty = no repack
 	mu     sync.Mutex
+	packMu sync.Mutex
 	// idx is the per-path history (see pathIndex), built on the first log
 	// read and kept in step with the head; idxMu guards it apart from mu,
 	// so a log read never waits on a commit and vice versa.
@@ -286,6 +287,9 @@ func (r *Repo) Commit(a Action, writes []FileWrite) (plumbing.Hash, error) {
 // commitLocked is Commit with the lock held and the message and signatures
 // already decided — what a replay uses to record a commit again verbatim.
 func (r *Repo) commitLocked(msg string, author, committer object.Signature, writes []FileWrite, allowEmpty bool) (plumbing.Hash, error) {
+	if err := r.CheckStore(); err != nil {
+		return plumbing.ZeroHash, err
+	}
 	head := r.Head()
 	root, err := r.loadRoot(head)
 	if err != nil {
