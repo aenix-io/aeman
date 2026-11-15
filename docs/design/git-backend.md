@@ -662,7 +662,7 @@ and the loose objects (below) live in RAM. Either way the clone is
 inspectable with `git log`, the property that made the "cache lost"
 hunts survivable. The storer is a one-line swap if that ever changes.
 
-Six things the research found in go-git, each closed in code over its
+Seven things the research found in go-git, each closed in code over its
 public API — none is optional:
 
 1. `Repository.Log` ignores the shallow list and errors at the boundary.
@@ -696,6 +696,11 @@ public API — none is optional:
    transport is **HTTPS with a token** — faster on every operation (a
    no-op fetch is 0.2 s vs 1.4 s), no host keys, and the same shape on
    every forge. SSH remains possible with an explicit `known_hosts`.
+7. A received pack that does not parse — a transfer cut by the sync
+   deadline — leaves its `tmp_pack_*` file behind, still open. The pack
+   write removes the temporary packs when it fails; without that, a
+   clone stuck on a fetch that never fits the deadline filled the disk
+   one partial pack per tick.
 
 ### Cache and write queue
 
