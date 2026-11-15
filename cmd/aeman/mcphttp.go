@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -106,14 +107,45 @@ func daemonReport(unpushed, warn time.Duration) daemonHealth {
 	return h
 }
 
+// mcpServerSwap lets the HTTP listener accept sessions while the backend
+// loads, then replaces both the server and its health report atomically.
+type mcpServerSwap struct {
+	server atomic.Pointer[mcp.Server]
+	report atomic.Value
+}
+
+func newMCPServerSwap(initial *mcp.Server, health func() daemonHealth) *mcpServerSwap {
+	s := &mcpServerSwap{}
+	s.server.Store(initial)
+	s.report.Store(health)
+	return s
+}
+
+func (s *mcpServerSwap) current() *mcp.Server { return s.server.Load() }
+
+func (s *mcpServerSwap) health() func() daemonHealth { return s.report.Load().(func() daemonHealth) }
+
+func (s *mcpServerSwap) set(srv *mcp.Server, health func() daemonHealth) {
+	s.server.Store(srv)
+	s.report.Store(health)
+}
+
 // mcpHTTPHandler mounts one MCP server for every HTTP session. The server is
 // shared: it keeps no per-call state of its own — what a call needs rides
 // its context — so a single one answers every client, over the single store
 // this process holds.
-func mcpHTTPHandler(srv *mcp.Server, health func() daemonHealth) http.Handler {
+func mcpHTTPHandler(srv any, health func() daemonHealth) http.Handler {
 	mux := http.NewServeMux()
-	streamable := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
-		&mcp.StreamableHTTPOptions{SessionTimeout: mcpSessionTimeout})
+	streamable := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+		switch s := srv.(type) {
+		case *mcp.Server:
+			return s
+		case func() *mcp.Server:
+			return s()
+		default:
+			panic("unsupported MCP server source")
+		}
+	}, &mcp.StreamableHTTPOptions{SessionTimeout: mcpSessionTimeout})
 	// Clients disagree about the trailing slash, and the redirect a single
 	// registration would serve loses the POST body.
 	mux.Handle("/mcp", streamable)

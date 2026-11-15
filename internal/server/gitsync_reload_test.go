@@ -46,7 +46,9 @@ func TestReloadFromTipCapturesTheBoardUnderTheEntryLock(t *testing.T) {
 	case id := <-probe.entered:
 		e.mu.Unlock()
 		close(probe.release)
-		<-done
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
 		t.Fatalf("backend load started with %q while the entry lock was held", id)
 	case <-time.After(50 * time.Millisecond):
 	}

@@ -570,7 +570,7 @@ func (m *serviceMgr) awaitHealthy(ctx context.Context, addr string) bool {
 		// "unknown" is something answering on the port that is not aeman —
 		// a squatter, which is one of the cases this exists to catch, so it
 		// must not count as the daemon having come up.
-		if ok, status := healthzAnswers(ctx, addr); ok && status != healthUnknown {
+		if ok, status := healthzAnswers(ctx, addr); ok && (status == "ok" || status == "degraded") {
 			return true
 		}
 		select {
@@ -648,6 +648,8 @@ func stableBinaryPath(argv0, resolved string) string {
 	if err != nil {
 		return resolved
 	}
+	// os.Stat only compares file identity; no user-controlled file is opened or read.
+	// #nosec G703
 	ii, err := os.Stat(invoked)
 	if err != nil || !os.SameFile(ri, ii) {
 		return resolved

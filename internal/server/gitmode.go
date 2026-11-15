@@ -120,10 +120,12 @@ func OpenGitBackend(cfg *GitConfig, log *slog.Logger) (*GitBackend, error) {
 	if len(cfg.Repos) == 0 {
 		return nil, errors.New("git mode needs at least one --repo")
 	}
+	log.Info("backend data lock waiting")
 	lock, err := lockDataDirWaiting(cfg.DataDir)
 	if err != nil {
 		return nil, err
 	}
+	log.Info("backend data lock acquired")
 	store := newBoardStore()
 	store.log = log
 	be, err := openGitStore(store, cfg, log)
@@ -271,6 +273,7 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 			}
 			return nil, fmt.Errorf("read %s: %w", spec.URL, err)
 		}
+		log.Info("backend repository loaded", "repo", spec.Name, "reopened", reopened)
 		domains = append(domains, gitDomain{Domain: gitstore.Domain{Name: spec.Name, Repo: repo}, remote: remote})
 	}
 	if err := migrateOrdering(domains, log); err != nil {
