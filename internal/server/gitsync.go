@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -50,6 +51,10 @@ type gitOptions struct {
 	// them as written.
 	Links  *forgeLinks
 	Logger *slog.Logger
+	// Lock is the process's claim on the data directory, checked with the
+	// clones for a directory removed under the process; nil checks only
+	// the clones.
+	Lock *dataLock
 }
 
 // gitDomain is one of the board's repositories and where it pushes.
@@ -77,10 +82,89 @@ type gitSync struct {
 	// see asofcache.go.
 	asOf *asOfCache
 
+	// lostMu, not mu: storeLost stats files on each sync, maintenance pass
+	// and healthz, and has no business waiting on, or holding up, the push
+	// state.
+	lock   *dataLock
+	lostMu sync.Mutex
+	// lost is what storeLost latched; atomic because every repository's
+	// guard reads it, and storeLost holds lostMu while CheckStore runs the
+	// guard.
+	lost atomic.Pointer[error]
+
 	mu          sync.Mutex
 	lastPushErr error
 	pushTimer   *time.Timer
 	pushing     bool
+}
+
+// storeLost reports a data directory removed under the running process: a
+// clone without its HEAD, or a lock file that is no longer the one this
+// process holds. The process cannot repair either — the refs are gone,
+// or the path now belongs to another process — so the answer is kept until
+// restart, and the operator is told once, at ERROR, instead of every tick.
+func (g *gitSync) storeLost() error {
+	g.lostMu.Lock()
+	defer g.lostMu.Unlock()
+	if err := g.latched(); err != nil {
+		return err
+	}
+	err, args := g.lock.Lost(), []any{}
+	if err == nil {
+		for _, d := range g.domains {
+			if e := d.Repo.CheckStore(); errors.Is(e, gitstore.ErrStoreLost) {
+				err, args = e, []any{"domain", d.Name}
+				break
+			}
+		}
+	}
+	if err == nil {
+		return nil
+	}
+	lost := fmt.Errorf("%w; restart required", err)
+	g.lost.Store(&lost)
+	g.log.Error("the data directory was removed under this process; sync and writes stopped, restart required", append(args, "err", err)...)
+	return lost
+}
+
+// errStoreLostPublic is storeLost as the health endpoints say it: they
+// answer without a login, so the path stays in the ERROR log line.
+var errStoreLostPublic = errors.New("data directory lost; restart required")
+
+func (g *gitSync) storeLostPublic() error {
+	if g.storeLost() != nil {
+		return errStoreLostPublic
+	}
+	return nil
+}
+
+// refuseLost is the request doors' check (G90): a write is refused before it
+// is applied, never accepted and rolled back by the drain. A nil backend, the
+// in-memory store, has no directory to lose.
+func (b *storeBackend) refuseLost() error {
+	if b == nil || b.git == nil {
+		return nil
+	}
+	return b.git.storeLostPublic()
+}
+
+// latched is what storeLost found, or nil until it finds something.
+func (g *gitSync) latched() error {
+	if p := g.lost.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+// guard is every repository's store guard. The latch comes first: the sync
+// stops for every domain when one is lost, so a write to a surviving one
+// would sit unpushed until a restart. The lock is checked on each call,
+// since the write paths that bypass the queue never reach storeLost.
+func (g *gitSync) guard() error {
+	if err := g.latched(); err != nil {
+		return err
+	}
+	return g.lock.Lost()
 }
 
 // primary is the repository that names the board.
@@ -96,12 +180,15 @@ func newGitBackend(store *boardStore, domains []gitDomain, opts gitOptions) *sto
 		ds[i] = d.Domain
 	}
 	mb := gitstore.NewMultiBackend(ds, gitstore.BackendOptions{})
-	be := &storeBackend{
-		inner: mb,
-		store: store,
-		git: &gitSync{domains: domains, mb: mb, pushDelay: opts.PushDelay, historyMax: opts.HistoryMax, links: opts.Links, log: opts.Logger,
-			asOf: newAsOfCache()},
+	g := &gitSync{domains: domains, mb: mb, pushDelay: opts.PushDelay, historyMax: opts.HistoryMax, links: opts.Links, log: opts.Logger,
+		lock: opts.Lock, asOf: newAsOfCache()}
+	// Commit, fetch and deepen consult CheckStore whichever path calls them,
+	// the writes that bypass the queue included; the push and the repack do
+	// not, and syncNow and maintainNow check before them.
+	for _, d := range domains {
+		d.Repo.SetStoreGuard(g.guard)
 	}
+	be := &storeBackend{inner: mb, store: store, git: g}
 	if opts.SyncInterval > 0 {
 		go be.runSync(context.Background(), opts.SyncInterval)
 	}
@@ -324,6 +411,10 @@ func (b *storeBackend) syncNowWaiting(ctx context.Context, key string) error {
 
 func (b *storeBackend) syncNow(ctx context.Context, key string) error {
 	g := b.git
+	// Before the push: a push reads the clone without CheckStore.
+	if err := g.storeLost(); err != nil {
+		return err
+	}
 	g.mu.Lock()
 	if g.pushing {
 		g.mu.Unlock()
@@ -549,6 +640,11 @@ func (b *storeBackend) runSync(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			// Checked before the boards: a daemon nobody has asked yet has
+			// no board to tick, and its directory can be lost all the same.
+			if b.git.storeLost() != nil {
+				continue
+			}
 			b.store.mu.Lock()
 			keys := make([]string, 0, len(b.store.entries))
 			for k := range b.store.entries {
@@ -691,6 +787,10 @@ func (b *storeBackend) runMaintain(ctx context.Context, every time.Duration) {
 // at once — and the clones are repacked. It returns how many ghosts went.
 func (b *storeBackend) maintainNow(ctx context.Context, key string) (int, error) {
 	g := b.git
+	// The repack does not commit, so CheckStore never sees it.
+	if err := g.storeLost(); err != nil {
+		return 0, err
+	}
 	g.applyMu.Lock()
 	landed := func(domain string) bool {
 		for _, d := range g.domains {

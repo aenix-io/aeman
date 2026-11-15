@@ -94,17 +94,34 @@ func checkListenAddr(addr string, insecure bool) error {
 type daemonHealth struct {
 	Status             string `json:"status"`
 	UnpushedAgeSeconds int    `json:"unpushedAgeSeconds"`
+	StoreLost          string `json:"storeLost,omitempty"`
 }
 
 // daemonReport turns the store's unpushed age into that answer. The commits
 // are safe on disk either way; past the threshold they are not reaching
-// anyone, which is what degraded says.
-func daemonReport(unpushed, warn time.Duration) daemonHealth {
+// anyone, which is what degraded says. A lost data directory (G90) is
+// degraded whatever the age: nothing syncs until a restart.
+func daemonReport(unpushed, warn time.Duration, lost error) daemonHealth {
 	h := daemonHealth{Status: "ok", UnpushedAgeSeconds: int(unpushed.Seconds())}
 	if warn > 0 && unpushed > warn {
 		h.Status = "degraded"
 	}
+	if lost != nil {
+		h.Status = "degraded"
+		h.StoreLost = lost.Error()
+	}
 	return h
+}
+
+type storeState interface {
+	UnpushedAge() time.Duration
+	StoreLost() error
+}
+
+// backendHealth is the loaded daemon's health; it asks the backend on every
+// call because a store can be lost at any point after start.
+func backendHealth(st storeState, warn time.Duration) func() daemonHealth {
+	return func() daemonHealth { return daemonReport(st.UnpushedAge(), warn, st.StoreLost()) }
 }
 
 // mcpServerSwap lets the HTTP listener accept sessions while the backend
@@ -151,8 +168,13 @@ func mcpHTTPHandler(srv any, health func() daemonHealth) http.Handler {
 	mux.Handle("/mcp", streamable)
 	mux.Handle("/mcp/", streamable)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		h := health()
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(health())
+		// A lost store alone is 503, as for /api/healthz: a restart cures it.
+		if h.StoreLost != "" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+		_ = json.NewEncoder(w).Encode(h)
 	})
 	// Loopback is no boundary against a browser: any page the person opens
 	// can post to 127.0.0.1. With nothing authenticating the endpoint, the

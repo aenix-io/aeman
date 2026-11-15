@@ -31,7 +31,7 @@ import type { DepthRange, Zoom } from "./strategy";
 import type { BacklogMode } from "./backlogboard";
 import { avatarsFrom, namesFrom } from "./users";
 import { forgeCopy } from "./forge";
-import { unpushedNotice, type HealthStatus } from "./health";
+import { healthNotice, type HealthStatus } from "./health";
 import { migrateBoardScopedKeys } from "./storage";
 import { pruneTeamFilter, settlePendingTeams, teamRoster } from "./teams";
 import { forgetMade, justMade, staysOnLeave } from "./justmade";
@@ -439,7 +439,7 @@ export function App() {
       window.clearInterval(timer);
     };
   }, [configured]);
-  const syncNotice = unpushedNotice(health);
+  const syncNotice = healthNotice(health);
 
   // Bootstrap: fetch the session config; the board loads once it is known.
   useEffect(() => {

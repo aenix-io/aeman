@@ -1439,6 +1439,7 @@ components:
             - reviewCardLink
             - setupRequired
             - somebodysCard
+            - storeLost
             - subtaskDepth
             - teamExists
             - teamInUse

@@ -611,7 +611,9 @@ func healthzAnswers(ctx context.Context, addr string) (bool, string) {
 	// Whatever is on that port may not be aeman, and it must not be able to
 	// make `status` read an unbounded body.
 	body := io.LimitReader(resp.Body, 64<<10)
-	if resp.StatusCode != http.StatusOK {
+	// 503 is a daemon whose data directory is lost (G90): it answers, and
+	// its body says so.
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusServiceUnavailable {
 		_, _ = io.Copy(io.Discard, body)
 		return false, ""
 	}

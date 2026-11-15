@@ -4,9 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -31,8 +34,43 @@ var errLockHeld = errors.New("data directory is already locked")
 // so does the process exiting, however it exits.
 type dataLock struct {
 	once sync.Once
+	mu   sync.Mutex // guards f against Close racing Lost
 	f    *os.File
+	path string
 	err  error
+}
+
+// errDataDirLost is a claim whose lock file is no longer the one at its path.
+var errDataDirLost = errors.New("the data directory was removed while this process held it")
+
+// Lost reports errDataDirLost when the file at the lock's path is not the
+// one this claim holds: the directory was removed, and perhaps another
+// process has made a fresh lock file there and taken it. The claim then
+// guards nothing, and the clones beside it may be the newcomer's. It is nil
+// otherwise — for a nil or closed claim, and for a stat that fails in a way
+// that proves nothing (EACCES), since every write is refused on its answer.
+//
+// Windows: the lock is opened without sharing, so the directory cannot be
+// removed while it is held and the claim cannot be lost this way.
+func (l *dataLock) Lost() error {
+	if l == nil || runtime.GOOS == "windows" {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.f == nil {
+		return nil
+	}
+	held, err := l.f.Stat()
+	if err != nil {
+		return nil
+	}
+	now, err := os.Stat(l.path)
+	gone := errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR)
+	if gone || (err == nil && !os.SameFile(held, now)) {
+		return fmt.Errorf("%w: %s", errDataDirLost, l.path)
+	}
+	return nil
 }
 
 // dataLockWait is how long a start gives a predecessor to let go. It exists
@@ -72,7 +110,7 @@ func lockDataDirFor(dir string, wait time.Duration) (*dataLock, error) {
 	for {
 		f, err := acquireLock(path)
 		if err == nil {
-			return &dataLock{f: f}, nil
+			return &dataLock{f: f, path: path}, nil
 		}
 		if !errors.Is(err, errLockHeld) {
 			return nil, fmt.Errorf("lock the data dir: %w", err)
@@ -92,6 +130,8 @@ func (l *dataLock) Close() error {
 		return nil
 	}
 	l.once.Do(func() {
+		l.mu.Lock()
+		defer l.mu.Unlock()
 		if l.f != nil {
 			l.err = l.f.Close()
 			l.f = nil

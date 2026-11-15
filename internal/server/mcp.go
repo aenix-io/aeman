@@ -87,6 +87,11 @@ func stampMCPAction(be *storeBackend) func(mcp.MethodHandler) mcp.MethodHandler 
 			if be == nil || method != "tools/call" {
 				return next(ctx, method, req)
 			}
+			// Every tool, reads included: an agent has no banner, and with
+			// the sync stopped a read answers from a board nobody updates.
+			if err := be.refuseLost(); err != nil {
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, nil
+			}
 			id := gitstore.NewID(time.Now())
 			name := "mcp"
 			if c, ok := req.(*mcp.CallToolRequest); ok && c.Params != nil {

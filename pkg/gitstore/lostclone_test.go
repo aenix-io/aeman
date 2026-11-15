@@ -134,3 +134,37 @@ func TestRepackWaitsForAPackWriteInFlight(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A store may be lost in a way HEAD cannot show: the directory removed and
+// filled again by another process, whose clone has a HEAD of its own. The
+// owner of the Repo knows (server: its data-directory lock was replaced) and
+// says so through the guard; commit, fetch and deepen then refuse as for a
+// missing HEAD, with the guard's error.
+func TestAStoreGuardRefusesCommitAndSync(t *testing.T) {
+	remote, _ := newTestRemote(t)
+	seedRemote(t, remote)
+	r, _ := cloneOnDisk(t, remote)
+	errGone := errors.New("the directory belongs to someone else now")
+	r.SetStoreGuard(func() error { return errGone })
+	head := r.Head()
+
+	if _, err := r.Commit(Action{Name: "progress", Actor: "kvaps", Summary: "x"}, []FileWrite{
+		{Path: TeamPath("01JB4TEAM9"), Data: []byte("name: late\n")},
+	}); !errors.Is(err, errGone) {
+		t.Fatalf("commit: %v, want the guard's error", err)
+	}
+	if _, _, err := r.Fetch(context.Background(), remote); !errors.Is(err, errGone) {
+		t.Fatalf("fetch: %v, want the guard's error", err)
+	}
+	if err := r.DeepenSince(context.Background(), remote, time.Now().AddDate(0, 0, -14)); !errors.Is(err, errGone) {
+		t.Fatalf("deepen: %v, want the guard's error", err)
+	}
+	if r.Head() != head {
+		t.Fatal("a guarded store moved its head")
+	}
+
+	r.SetStoreGuard(func() error { return nil })
+	if err := r.CheckStore(); err != nil {
+		t.Fatalf("a guard that passes still refuses: %v", err)
+	}
+}

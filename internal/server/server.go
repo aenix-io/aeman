@@ -568,6 +568,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	resp := map[string]any{"status": "ok"}
+	code := http.StatusOK
 	if s.gitBE != nil {
 		// A push that cannot land must not be discovered a week later: the
 		// oldest unpushed commit's age is here, and past the threshold the
@@ -577,6 +578,14 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 		resp["unpushedAgeSeconds"] = int(age.Seconds())
 		if age > s.unpushedWarn() {
 			resp["status"] = "degraded"
+		}
+		// 503 for this alone: a restart is its only cure, and a liveness
+		// probe acts on the code. An unpushed backlog is the remote's to
+		// fix, and restarting would not.
+		if err := s.gitBE.git.storeLostPublic(); err != nil {
+			resp["status"] = "degraded"
+			resp["storeLost"] = err.Error()
+			code = http.StatusServiceUnavailable
 		}
 		// How long ago the cache was last known to be the remote — a full
 		// read or a fetch that found nothing new. A number that keeps
@@ -602,7 +611,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 			resp["ghosts"] = list
 		}
 	}
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, code, resp)
 }
 
 // configResponse is returned by /api/config to bootstrap the frontend.
