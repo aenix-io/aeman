@@ -696,11 +696,7 @@ public API — none is optional:
    transport is **HTTPS with a token** — faster on every operation (a
    no-op fetch is 0.2 s vs 1.4 s), no host keys, and the same shape on
    every forge. SSH remains possible with an explicit `known_hosts`.
-7. A received pack that does not parse — a transfer cut by the sync
-   deadline — leaves its `tmp_pack_*` file behind, still open. The pack
-   write removes the temporary packs when it fails; without that, a
-   clone stuck on a fetch that never fits the deadline filled the disk
-   one partial pack per tick.
+7. A received pack that does not parse — a transfer cut by the sync deadline — leaves its `tmp_pack_*` file behind, still open. The pack write removes the temporary packs when it fails; without that, a clone stuck on a fetch that never fits the deadline filled the disk one partial pack per tick. At start the clone's partial packs are removed as well, and a clone directory without `HEAD` that still holds files is renamed to `<dir>.lost-<unix time>` and cloned afresh; one that is a symlink or cannot be renamed refuses the start.
 
 ### Cache and write queue
 
