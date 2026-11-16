@@ -416,10 +416,19 @@ func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url 
 		}
 		// HEAD without the branch is what a failed clone leaves, and go-git
 		// refuses to clone into it. Another local branch (the branch
-		// setting changed) may hold commits never pushed: set aside. Other
-		// refs mirror the forge or are never written here; nothing to keep.
-		if hasLocalBranch(storer) {
-			if err := setAside(dir, "has no "+existing.Branch().Short()+" branch but holds another", url, log); err != nil {
+		// setting changed) may hold commits never pushed, and so may any
+		// object: with no branch left, telling a pushed commit from an
+		// unpushed one would need the forge. Either is set aside; only an
+		// unborn store, with no object at all, is emptied.
+		why := ""
+		switch {
+		case hasLocalBranch(storer):
+			why = "has no " + existing.Branch().Short() + " branch but holds another"
+		case holdsAFile(filepath.Join(dir, "objects")):
+			why = "has no " + existing.Branch().Short() + " branch but holds objects"
+		}
+		if why != "" {
+			if err := setAside(dir, why, url, log); err != nil {
 				return nil, false, err
 			}
 		} else if err := emptyDir(dir); err != nil {
