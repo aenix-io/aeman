@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -385,6 +386,7 @@ var cloneRepo = gitstore.Clone
 // makes a shallow one; a shallow clone that fails is retried in full.
 func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url string, log *slog.Logger) (*gitstore.Repo, bool, error) {
 	opts.Dir = dir // where Maintain runs `git repack`
+	reportSetAside(dir, url, log)
 	// A tmp_pack_* is a pack whose write never finished; nothing reads it.
 	// Not filepath.Glob: dir comes from --data and may hold its metacharacters.
 	packs := filepath.Join(dir, "objects", "pack")
@@ -496,6 +498,30 @@ func setAside(dir, why, url string, log *slog.Logger) error {
 		return fmt.Errorf("data dir: %w", err)
 	}
 	return nil
+}
+
+// reportSetAside warns about every <dir>.lost-* next to dir, on every start:
+// the start that set one aside said so once, and logs rotate while the
+// copies keep taking space.
+func reportSetAside(dir, url string, log *slog.Logger) {
+	parent, prefix := filepath.Dir(dir), filepath.Base(dir)+".lost-"
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		log.Warn("could not look for set-aside clones", "repo", url, "path", parent, "err", err)
+		return
+	}
+	for _, e := range entries {
+		suffix, ok := strings.CutPrefix(e.Name(), prefix)
+		if !ok {
+			continue
+		}
+		attrs := []any{"repo", url, "path", filepath.Join(parent, e.Name())}
+		if unix, err := strconv.ParseInt(suffix, 10, 64); err == nil {
+			attrs = append(attrs, "age", time.Since(time.Unix(unix, 0)).Round(time.Minute))
+		}
+		log.Warn("a set-aside clone is still on disk and may hold unpushed commits; "+
+			"recover them and remove it (docs/api.md, Recovering a set-aside clone)", attrs...)
+	}
 }
 
 // hasLocalBranch reports whether the store holds any refs/heads/*, and

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -843,6 +844,47 @@ func TestOpenGitBackendSaysARefCouldNotBeRead(t *testing.T) {
 				t.Fatalf("the log does not say a ref could not be read:\n%s", logs.String())
 			}
 		})
+	}
+}
+
+// A set-aside copy is reported on every start, not only the one that made
+// it: logs rotate while the copies keep filling the volume.
+func TestEveryStartReportsTheSetAsideCopies(t *testing.T) {
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	dir := t.TempDir()
+	cfg := &GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: dir}
+	aside := filepath.Join(dir, "repos", fmt.Sprintf("board.lost-%d", time.Now().Add(-49*time.Hour).Unix()))
+	// A copy renamed by hand has no time in its name: still reported, with no age.
+	renamed := filepath.Join(dir, "repos", "board.lost-kept")
+	for _, d := range []string{aside, renamed} {
+		if err := os.MkdirAll(d, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for start := range 2 {
+		var logs strings.Builder
+		be, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(&logs, nil)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := be.Close(); err != nil {
+			t.Fatal(err)
+		}
+		line := func(path string) string {
+			for l := range strings.Lines(logs.String()) {
+				if strings.Contains(l, path) {
+					return l
+				}
+			}
+			return ""
+		}
+		if l := line(aside); !strings.Contains(l, "level=WARN") || !strings.Contains(l, "age=49h") {
+			t.Fatalf("start %d does not report the set-aside copy with its age:\n%s", start+1, logs.String())
+		}
+		if l := line(renamed); !strings.Contains(l, "level=WARN") || strings.Contains(l, "age=") {
+			t.Fatalf("start %d does not report the renamed copy without an age:\n%s", start+1, logs.String())
+		}
 	}
 }
 
