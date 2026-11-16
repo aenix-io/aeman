@@ -1,0 +1,118 @@
+name: Homebrew
+
+# A release tag opens a pull request in the tap that points Formula/aeman.rb at
+# the tag's source tarball. Pre-release tags (v1.2.3-rc1) do not match.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions: {}
+
+concurrency:
+  group: homebrew-${{ github.ref }}
+
+jobs:
+  bump:
+    name: bump formula
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app
+        with:
+          client-id: ${{ vars.HOMEBREW_TAP_CLIENT_ID }}
+          private-key: ${{ secrets.HOMEBREW_TAP_PRIVATE_KEY }}
+          owner: aenix-io
+          repositories: homebrew-tap
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Open the bump pull request
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          TAG: ${{ github.ref_name }}
+          TAP: aenix-io/homebrew-tap
+          FORMULA: Formula/aeman.rb
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.tar.gz"
+          sha256="$(curl --fail --silent --show-error --location "$url" | sha256sum | cut --delimiter=' ' --fields=1)"
+          branch="bump-aeman-${TAG}"
+
+          rewrite() {
+            sed --regexp-extended \
+              --expression="s|^(  url \")[^\"]*(\")\$|\1${url}\2|" \
+              --expression="s|^(  sha256 \")[^\"]*(\")\$|\1${sha256}\2|"
+          }
+          # True when version $1 is strictly newer than version $2.
+          newer() {
+            [[ "$1" != "$2" && "$(printf '%s\n%s\n' "$1" "$2" | sort --version-sort | tail --lines=1)" == "$1" ]]
+          }
+
+          current="$(gh api "repos/${TAP}/contents/${FORMULA}" --jq .content | base64 --decode)"
+          current_version="$(sed --quiet --regexp-extended 's|^  url ".*/v([^/]+)\.tar\.gz"$|\1|p' <<<"$current")"
+          if [[ -z "$current_version" ]]; then
+            echo "::error::The url in ${FORMULA} is not a tag tarball, so its version is unknown."
+            exit 1
+          fi
+          if [[ "$(rewrite <<<"$current")" == "$current" ]]; then
+            echo "The formula is already at ${TAG}."
+            exit 0
+          fi
+          # A patch tag on an older line must not downgrade the formula.
+          if newer "$current_version" "$version"; then
+            echo "The formula is at v${current_version}, newer than ${TAG}."
+            exit 0
+          fi
+
+          # Open bump PRs from the tap itself, as number:branch. A newer one
+          # stops this run; older ones are closed below.
+          bumps="$(gh api --paginate "repos/${TAP}/pulls?state=open&per_page=100" |
+            jq --raw-output --arg tap "$TAP" '.[]
+              | select(.head.repo.full_name == $tap and (.head.ref | test("^bump-aeman-v[0-9]+\\.[0-9]+\\.[0-9]+$")))
+              | "\(.number):\(.head.ref)"')"
+          for entry in $bumps; do
+            ref="${entry#*:}"
+            if newer "${ref#bump-aeman-v}" "$version"; then
+              echo "::notice::https://github.com/${TAP}/pull/${entry%%:*} bumps to a newer tag than ${TAG}."
+              exit 0
+            fi
+          done
+
+          # Every step below is safe to repeat: a re-run of the same tag reuses
+          # the branch, skips an unchanged file and an already open PR.
+          if ! gh api "repos/${TAP}/git/ref/heads/${branch}" --silent 2>/dev/null; then
+            base="$(gh api "repos/${TAP}/git/ref/heads/main" --jq .object.sha)"
+            gh api --method POST "repos/${TAP}/git/refs" \
+              --raw-field ref="refs/heads/${branch}" --raw-field sha="$base" --silent
+          fi
+
+          on_branch="$(gh api "repos/${TAP}/contents/${FORMULA}?ref=${branch}")"
+          updated="$(jq --raw-output .content <<<"$on_branch" | base64 --decode | rewrite)"
+          if [[ "$updated" != "$(jq --raw-output .content <<<"$on_branch" | base64 --decode)" ]]; then
+            # The contents API commits as the App, and GitHub signs that commit.
+            gh api --method PUT "repos/${TAP}/contents/${FORMULA}" \
+              --raw-field message="aeman ${version}" \
+              --raw-field content="$(base64 --wrap=0 <<<"$updated")" \
+              --raw-field sha="$(jq --raw-output .sha <<<"$on_branch")" \
+              --raw-field branch="$branch" --silent
+          fi
+
+          pr="$(gh api "repos/${TAP}/pulls?state=open&head=${TAP%%/*}:${branch}" --jq '.[0].html_url // empty')"
+          if [[ -z "$pr" ]]; then
+            pr="$(gh api --method POST "repos/${TAP}/pulls" \
+              --raw-field base=main --raw-field head="$branch" \
+              --raw-field title="aeman ${version}" \
+              --raw-field body="Bumps aeman to [${TAG}](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG})." \
+              --jq .html_url)"
+          fi
+          echo "$pr"
+
+          for entry in $bumps; do
+            number="${entry%%:*}"
+            ref="${entry#*:}"
+            newer "$version" "${ref#bump-aeman-v}" || continue
+            gh api --method POST "repos/${TAP}/issues/${number}/comments" --raw-field body="Superseded by ${pr}." --silent
+            gh api --method PATCH "repos/${TAP}/pulls/${number}" --raw-field state=closed --silent
+            gh api --method DELETE "repos/${TAP}/git/refs/heads/${ref}" --silent
+          done
