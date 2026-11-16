@@ -1,0 +1,109 @@
+version: 2
+
+before:
+  hooks:
+    # The binary embeds web/dist, built beforehand by `make frontend` or the
+    # release workflow's SPA job: npm runs dependency code, which must not
+    # share a process environment with the release tokens.
+    - test -f web/dist/index.html
+
+builds:
+  - main: ./cmd/aeman
+    binary: aeman
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      # The leading v matches what the image and `make backend` report.
+      - -s -w -X main.version=v{{.Version}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    include:
+      - '^(feat|fix|security|refactor|docs|perf|build)(\([^)]+\))?!?:'
+
+# A formula rather than a cask: only a formula has the service block that
+# `brew services` runs. The section is deprecated in GoReleaser in favour of
+# homebrew_casks, which would cost that block.
+brews:
+  - skip_upload: auto # a pre-release tag must not overwrite the formula: for Homebrew, the tap IS latest
+    repository:
+      owner: aenix-io
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/aenix-io/aeman"
+    description: "Short-term planning for engineering teams with web UI and MCP server"
+    license: "Apache-2.0"
+    install: |
+      bin.install "aeman"
+    test: |
+      assert_equal "aeman v#{version}", shell_output("#{bin}/aeman --version").strip
+    # Board settings come from Homebrew's own per-service override file,
+    # services/aeman.env under its user config directory, which brew merges
+    # over these variables when it writes the launchd or systemd unit. PATH
+    # lets the daemon find `gh` or `glab`, its last credential fallback.
+    service: |
+      run [opt_bin/"aeman", "mcp"]
+      environment_variables AEMAN_MCP_LISTEN: "127.0.0.1:8766", PATH: std_service_path_env
+      keep_alive true
+      # systemd's default 100ms restart delay trips its 5-starts-in-10s limit and leaves the unit failed.
+      restart_delay 5
+      process_type :background
+      # stopTimeout() in aeman's cmd/aeman/service.go: a 30s stop budget plus 5s slack.
+      stop_timeout 35
+      log_path var/"log/aeman.log"
+      error_log_path var/"log/aeman.log"
+    caveats: |
+      The MCP daemon can run under one of two managers. Use only one: both
+      default to the same data directory and port, and the second one fails
+      to start on the held lock.
+
+      brew services (Homebrew 6.0.15 or newer): put the board in
+      ~/.homebrew/services/aeman.env, or in
+      $XDG_CONFIG_HOME/homebrew/services/aeman.env if XDG_CONFIG_HOME is set, e.g.
+        AEMAN_REPOS=board=https://github.com/OWNER/REPO.git
+      then run
+        brew services start aeman
+      After `brew upgrade aeman` or an edit of that file:
+        brew services restart aeman
+      The service does not inherit your shell: if it sets AEMAN_TZ,
+      GH_CONFIG_DIR, GLAB_CONFIG_DIR or XDG_CONFIG_HOME, copy them there too.
+      Homebrew skips the file if it is group- or world-writable.
+
+      aeman service: install the unit from the Homebrew binary, so the unit
+      keeps pointing at it across upgrades:
+        #{opt_bin}/aeman service install --repo board=https://github.com/OWNER/REPO.git
+      After `brew upgrade aeman`, restart the daemon:
+        macOS: launchctl kill SIGTERM gui/$(id -u)/io.aenix.aeman
+        Linux: systemctl --user restart aeman.service
+
+      To switch from `aeman service` to brew services, run
+      `aeman service uninstall` first; the other way, `brew services stop aeman`.
+
+release:
+  # Named, not taken from the git remote: clones made before the move to
+  # aenix-io still point at the old owner, and the formula's URLs follow this.
+  github:
+    owner: aenix-io
+    name: aeman
+  prerelease: auto
+  # Asset upload answers 422 already_exists on a re-run, which GoReleaser
+  # treats as fatal; without this, re-running after a failed tap push would
+  # die on the first archive and never reach the formula.
+  replace_existing_artifacts: true
