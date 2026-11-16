@@ -801,6 +801,51 @@ func TestOpenGitBackendSetsAsideABranchlessStoreThatHoldsObjects(t *testing.T) {
 	}
 }
 
+// A ref that cannot be read is not another branch, and need not be a
+// branch at all: the store reads every ref when it looks for branches. The
+// log says a ref could not be read, and the copy is kept either way.
+func TestOpenGitBackendSaysARefCouldNotBeRead(t *testing.T) {
+	for _, ref := range []string{"refs/heads/main", "refs/remotes/origin/main"} {
+		t.Run(ref, func(t *testing.T) {
+			remote := gitRemote(t)
+			seedGitRemote(t, remote)
+			cfg := &GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: t.TempDir()}
+			live, _ := stoppedCloneWithUnpushedCommit(t, cfg)
+			if err := os.Remove(filepath.Join(live, "packed-refs")); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				t.Fatal(err)
+			}
+			if err := os.Remove(filepath.Join(live, "refs", "heads", "main")); err != nil {
+				t.Fatal(err)
+			}
+			broken := filepath.Join(live, filepath.FromSlash(ref))
+			if err := os.MkdirAll(filepath.Dir(broken), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(broken, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			var logs strings.Builder
+			second, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(&logs, nil)))
+			if err != nil {
+				t.Fatalf("a store with an unreadable ref must be set aside and cloned afresh: %v", err)
+			}
+			t.Cleanup(func() { _ = second.Close() })
+			if aside, _ := filepath.Glob(filepath.Join(cfg.DataDir, "repos", "board.lost-*")); len(aside) != 1 {
+				t.Fatalf("set aside = %v, want one copy", aside)
+			}
+			for _, claim := range []string{"holds another", "branch ref"} {
+				if strings.Contains(logs.String(), claim) {
+					t.Fatalf("the log claims %q about an unreadable %s:\n%s", claim, ref, logs.String())
+				}
+			}
+			if !strings.Contains(logs.String(), "a ref could not be read") {
+				t.Fatalf("the log does not say a ref could not be read:\n%s", logs.String())
+			}
+		})
+	}
+}
+
 // An empty clone directory — what the start itself creates — is cloned
 // into, with nothing set aside.
 func TestOpenGitBackendClonesIntoAnEmptyDirectoryWithoutSettingAside(t *testing.T) {

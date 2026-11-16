@@ -421,8 +421,11 @@ func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url 
 		// unpushed one would need the forge. Either is set aside; only an
 		// unborn store, with no object at all, is emptied.
 		why := ""
+		branches, readErr := hasLocalBranch(storer)
 		switch {
-		case hasLocalBranch(storer):
+		case readErr != nil:
+			why = "has no " + existing.Branch().Short() + " branch and a ref could not be read (" + readErr.Error() + ")"
+		case branches:
 			why = "has no " + existing.Branch().Short() + " branch but holds another"
 		case holdsAFile(filepath.Join(dir, "objects")):
 			why = "has no " + existing.Branch().Short() + " branch but holds objects"
@@ -495,12 +498,12 @@ func setAside(dir, why, url string, log *slog.Logger) error {
 	return nil
 }
 
-// hasLocalBranch reports whether the store holds any refs/heads/*. Refs
-// that cannot be read count as holding one.
-func hasLocalBranch(s storage.Storer) bool {
+// hasLocalBranch reports whether the store holds any refs/heads/*, and
+// the error when its refs cannot all be read.
+func hasLocalBranch(s storage.Storer) (bool, error) {
 	refs, err := s.IterReferences()
 	if err != nil {
-		return true
+		return false, err
 	}
 	defer refs.Close()
 	found := false
@@ -511,7 +514,7 @@ func hasLocalBranch(s storage.Storer) bool {
 		}
 		return nil
 	})
-	return found || err != nil
+	return found, err
 }
 
 // lostFound is what a freshly formatted ext* volume holds at its root,
