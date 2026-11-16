@@ -1232,3 +1232,55 @@ func TestAnUnbornStoreIsClonedShallow(t *testing.T) {
 		t.Fatalf("clone depths asked = %v, want one shallow attempt [1]", depths)
 	}
 }
+
+// A clone whose configured branch is missing but which holds another local
+// branch — the branch setting was changed — may hold commits never pushed
+// on that branch. It is set aside, not emptied, and cloned afresh.
+func TestOpenGitBackendSetsAsideAStoreWithAnotherBranch(t *testing.T) {
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	dir := t.TempDir()
+	cfg := &GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: dir}
+	first, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	live := filepath.Join(dir, "repos", "board")
+	local := gitstore.Open(filesystem.NewStorage(osfs.New(live), cache.NewObjectLRUDefault()),
+		gitstore.Options{Committer: gitstore.Identity{Name: "aeman", Email: "a@x"}, Dir: live})
+	unpushed, err := local.Commit(gitstore.Action{Name: "progress", Actor: "kvaps", Summary: "x"},
+		[]gitstore.FileWrite{{Path: "cards/a/1/A1.md", Data: []byte("---\ntitle: a\n---\n")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(live, "refs", "heads", "main"), filepath.Join(live, "refs", "heads", "other")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(live, "packed-refs")); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+
+	second, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("a store with another branch must be set aside and cloned afresh: %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	bd, err := second.Backend().LoadBoard(context.Background(), "ignored")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bd.Cards) != 2 {
+		t.Fatalf("cards = %d, want the remote's 2", len(bd.Cards))
+	}
+	aside, _ := filepath.Glob(filepath.Join(dir, "repos", "board.lost-*"))
+	if len(aside) != 1 {
+		t.Fatalf("set aside = %v, want one copy", aside)
+	}
+	kept, err := os.ReadFile(filepath.Join(aside[0], "refs", "heads", "other"))
+	if err != nil || strings.TrimSpace(string(kept)) != unpushed.String() {
+		t.Fatalf("the other branch in the copy = %q, %v; want %s", kept, err, unpushed)
+	}
+}

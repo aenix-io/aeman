@@ -14,8 +14,11 @@ import (
 	"time"
 
 	"github.com/go-git/go-billy/v5/osfs"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/cache"
+	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5/storage"
 	"github.com/go-git/go-git/v5/storage/filesystem"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -411,9 +414,15 @@ func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url 
 		if !existing.Head().IsZero() {
 			return existing, true, nil
 		}
-		// HEAD without a branch is what a failed clone leaves: no commit of
-		// its own to keep, and go-git refuses to clone into it.
-		if err := emptyDir(dir); err != nil {
+		// HEAD without the branch is what a failed clone leaves, and go-git
+		// refuses to clone into it. Another local branch (the branch
+		// setting changed) may hold commits never pushed: set aside. Other
+		// refs mirror the forge or are never written here; nothing to keep.
+		if hasLocalBranch(storer) {
+			if err := setAside(dir, "has no "+existing.Branch().Short()+" branch but holds another", url, log); err != nil {
+				return nil, false, err
+			}
+		} else if err := emptyDir(dir); err != nil {
 			return nil, false, fmt.Errorf("reset clone dir: %w", err)
 		}
 		storer = filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
@@ -423,20 +432,8 @@ func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url 
 		if !holdsAFile(dir) {
 			break
 		}
-		if fi, err := os.Lstat(dir); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
-			target, _ := filepath.EvalSymlinks(dir)
-			return nil, false, fmt.Errorf("clone directory %s is a symlink to %s and has no HEAD; move %s aside by hand and start again",
-				dir, target, target)
-		}
-		// Set aside rather than deleted: it may hold a write never pushed.
-		aside := fmt.Sprintf("%s.lost-%d", dir, time.Now().Unix())
-		if err := os.Rename(dir, aside); err != nil {
-			return nil, false, fmt.Errorf("set aside damaged clone %s; move it aside by hand and start again: %w", dir, err)
-		}
-		log.Warn("clone had no HEAD; set aside and cloning afresh, it may hold unpushed commits",
-			"repo", url, "aside", aside)
-		if err := os.MkdirAll(dir, 0o750); err != nil {
-			return nil, false, fmt.Errorf("data dir: %w", err)
+		if err := setAside(dir, "has no HEAD", url, log); err != nil {
+			return nil, false, err
 		}
 		storer = filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
 	}
@@ -466,6 +463,46 @@ func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url 
 		return nil, false, fmt.Errorf("clone %s: %w", url, err)
 	}
 	return r, false, nil
+}
+
+// setAside renames a damaged clone directory to <dir>.lost-<unix time> and
+// recreates dir empty. Set aside rather than deleted: it may hold a write
+// never pushed. A symlink is refused: renaming it would keep the target.
+func setAside(dir, why, url string, log *slog.Logger) error {
+	if fi, err := os.Lstat(dir); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		target, _ := filepath.EvalSymlinks(dir)
+		return fmt.Errorf("clone directory %s is a symlink to %s and %s; move %s aside by hand and start again",
+			dir, target, why, target)
+	}
+	aside := fmt.Sprintf("%s.lost-%d", dir, time.Now().Unix())
+	if err := os.Rename(dir, aside); err != nil {
+		return fmt.Errorf("set aside damaged clone %s; move it aside by hand and start again: %w", dir, err)
+	}
+	log.Warn("clone "+why+"; set aside and cloning afresh, it may hold unpushed commits",
+		"repo", url, "aside", aside)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return fmt.Errorf("data dir: %w", err)
+	}
+	return nil
+}
+
+// hasLocalBranch reports whether the store holds any refs/heads/*. Refs
+// that cannot be read count as holding one.
+func hasLocalBranch(s storage.Storer) bool {
+	refs, err := s.IterReferences()
+	if err != nil {
+		return true
+	}
+	defer refs.Close()
+	found := false
+	err = refs.ForEach(func(r *plumbing.Reference) error {
+		if r.Name().IsBranch() {
+			found = true
+			return storer.ErrStop
+		}
+		return nil
+	})
+	return found || err != nil
 }
 
 // lostFound is what a freshly formatted ext* volume holds at its root,
