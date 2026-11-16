@@ -375,9 +375,11 @@ func initHint(url string) error {
 	return fmt.Errorf("%w: run `aeman init --repo %s` first (%s)", errUnbornRemote, url, url)
 }
 
+// cloneRepo is gitstore.Clone; a test swaps it to see which depth ran.
+var cloneRepo = gitstore.Clone
+
 // cloneOrOpen reopens an existing clone (its unpushed commits included) or
-// makes a shallow one; a server that does not speak shallow gets a full
-// clone instead of a refusal.
+// makes a shallow one; a shallow clone that fails is retried in full.
 func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url string, log *slog.Logger) (*gitstore.Repo, bool, error) {
 	opts.Dir = dir // where Maintain runs `git repack`
 	// A tmp_pack_* is a pack whose write never finished; nothing reads it.
@@ -409,6 +411,12 @@ func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url 
 		if !existing.Head().IsZero() {
 			return existing, true, nil
 		}
+		// HEAD without a branch is what a failed clone leaves: no commit of
+		// its own to keep, and go-git refuses to clone into it.
+		if err := emptyDir(dir); err != nil {
+			return nil, false, fmt.Errorf("reset clone dir: %w", err)
+		}
+		storer = filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
 	case !errors.Is(err, gitstore.ErrStoreLost):
 		return nil, false, err
 	default:
@@ -434,12 +442,12 @@ func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	r, err := gitstore.Clone(ctx, storer, remote, opts, 1)
+	r, err := cloneRepo(ctx, storer, remote, opts, 1)
 	if err != nil && !errors.Is(err, gitstore.ErrEmptyRepository) && !errors.Is(err, transport.ErrEmptyRemoteRepository) {
-		// Not every server speaks shallow (GitHub, GitLab and Gitea do; a
-		// plain daemon may not). The failed attempt left an unborn
-		// repository behind; start the directory over — it holds nothing
-		// yet — and a real failure fails again here.
+		// The shallow attempt fails when the server does not speak shallow
+		// or the transfer breaks off; either way it may leave an unborn
+		// store behind. Empty it and clone in full: a failure that has
+		// nothing to do with depth fails again here.
 		if gitstore.Open(storer, opts).Head().IsZero() {
 			if err := emptyDir(dir); err != nil {
 				return nil, false, fmt.Errorf("reset clone dir: %w", err)
@@ -449,7 +457,7 @@ func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url 
 			}
 		}
 		storer = filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
-		r, err = gitstore.Clone(ctx, storer, remote, opts, 0)
+		r, err = cloneRepo(ctx, storer, remote, opts, 0)
 	}
 	if err != nil {
 		if errors.Is(err, gitstore.ErrEmptyRepository) || errors.Is(err, transport.ErrEmptyRemoteRepository) {
