@@ -97,6 +97,25 @@ func (s *Service) MoveUnder(ctx context.Context, boardID, itemID, parent string,
 	return MoveResult{Moved: len(changes), Changes: changes}, err
 }
 
+// Relink is a card linked to another parent through the picker — a PATCH of
+// its parent, MCP update_card (Q9, amended 2026-11-20): every rule of a
+// parent change holds, and a parked task linked under a new plan item is then
+// placed by Q3 like a Strategy drop into it, after that item's last parked
+// task in its team's queue, so the Backlog reads it beside its siblings. The
+// same parent again moves nothing, and a parent taken off leaves the task
+// where it stands.
+func (s *Service) Relink(ctx context.Context, boardID, itemID, parent string) error {
+	_, card, err := s.loadCard(ctx, boardID, itemID)
+	if err != nil {
+		return err
+	}
+	if parent == "" || card.Parent == parent {
+		return s.SetParent(ctx, boardID, itemID, parent)
+	}
+	_, err = s.MoveUnder(ctx, boardID, itemID, parent, board.Spot{})
+	return err
+}
+
 // ReorderInEpic is a task moved WITHIN its epic on the Strategy board (Q6):
 // the epic's parked tasks of the task's team permute over the slots they
 // hold in the queue; a task in work or done takes an ordinary key between

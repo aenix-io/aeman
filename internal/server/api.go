@@ -500,7 +500,7 @@ func (a surface) CreateCard(ctx context.Context, req apiv1.CreateCardRequestObje
 // is grouped under.
 func applyGroupingPatch(ctx context.Context, svc *boardservice.Service, boardID, uid string, p *apiv1.CardPatch) error {
 	if p.Parent != nil {
-		if err := svc.SetParent(ctx, boardID, uid, *p.Parent); err != nil {
+		if err := svc.Relink(ctx, boardID, uid, *p.Parent); err != nil {
 			return err
 		}
 	}

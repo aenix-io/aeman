@@ -388,7 +388,7 @@ type updateCardInput struct {
 	Sprint      *string   `json:"sprint,omitempty" jsonschema:"sprint start day the card belongs to; empty clears it"`
 	Parked      *bool     `json:"parked,omitempty" jsonschema:"true parks the task in its TEAM's backlog: the ranked list of work the team has accepted and not taken into work. Every team has one and nothing declares it. Parking clears the person, the sprint and the dates, takes the card's subtasks off the board with it, withdraws any review of it and puts it back in its team's backlog — at its old place while that is still among its epic's tasks there, else right after its epic's last parked task. A task leaves its backlog by being TAKEN INTO WORK — a start date, a sprint, or own_card with a person — and each of those unparks it on its own; false alone on a parked task with no date and no sprint is refused. A REVIEW card and a SUBTASK are refused: neither has a place of its own to be parked in. A task has no week"`
 	ReviewOf    *string   `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews; empty breaks the link"`
-	Parent      *string   `json:"parent,omitempty" jsonschema:"uid of the card this one sits under; empty takes it out. Under a TASK it is a subtask (one level deep): it keeps its own description/notes/log, feeds the parent's derived progress and rides with it — team, person, sprint — through carry-over. Under a goal, an initiative or an epic it is filed in the hierarchy and NOTHING else changes; the parent must be of a higher level than the card (an epic may not sit under an epic) and in the card's own repository"`
+	Parent      *string   `json:"parent,omitempty" jsonschema:"uid of the card this one sits under; empty takes it out. Under a TASK it is a subtask (one level deep): it keeps its own description/notes/log, feeds the parent's derived progress and rides with it — team, person, sprint — through carry-over. Under a goal, an initiative or an epic it is filed in the hierarchy, and a PARKED task linked under a new one is placed in its team's backlog after that item's last parked task, beside its new siblings (a task in work keeps its place, and taking the parent off moves nothing); the parent must be of a higher level than the card (an epic may not sit under an epic) and in the card's own repository"`
 }
 
 func (h *server) updateCard(ctx context.Context, _ *mcp.CallToolRequest, in updateCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
@@ -479,7 +479,7 @@ func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, 
 		}
 	}
 	if in.Parent != nil {
-		if err := svc.SetParent(ctx, boardID, in.UID, *in.Parent); err != nil {
+		if err := svc.Relink(ctx, boardID, in.UID, *in.Parent); err != nil {
 			return err
 		}
 	}

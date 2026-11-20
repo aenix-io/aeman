@@ -2672,9 +2672,11 @@ components:
           description: >-
             Puts the card under another one; empty takes it out. Under a TASK
             the card becomes a subtask (its team, person and sprint follow);
-            under a goal, an initiative or an epic it is filed in the hierarchy
-            and nothing else changes. The level rule and the repository rule
-            hold (422 `parentLevel`, `crossDomain`).
+            under a goal, an initiative or an epic it is filed in the hierarchy,
+            and a parked task linked under a new one is placed in its team's
+            backlog after that item's last parked task (Q9); a task in work
+            keeps its place, and taking the parent off moves nothing. The level
+            rule and the repository rule hold (422 `parentLevel`, `crossDomain`).
     CardDatesPatch:
       type: object
       properties:

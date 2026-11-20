@@ -606,7 +606,7 @@ type CardPatch struct {
 	// Owner The person who answers for a goal, an initiative or an epic; empty takes them off. On any other card 422 `ownerIsThePlans`.
 	Owner *string `json:"owner,omitempty"`
 
-	// Parent Puts the card under another one; empty takes it out. Under a TASK the card becomes a subtask (its team, person and sprint follow); under a goal, an initiative or an epic it is filed in the hierarchy and nothing else changes. The level rule and the repository rule hold (422 `parentLevel`, `crossDomain`).
+	// Parent Puts the card under another one; empty takes it out. Under a TASK the card becomes a subtask (its team, person and sprint follow); under a goal, an initiative or an epic it is filed in the hierarchy, and a parked task linked under a new one is placed in its team's backlog after that item's last parked task (Q9); a task in work keeps its place, and taking the parent off moves nothing. The level rule and the repository rule hold (422 `parentLevel`, `crossDomain`).
 	Parent *string `json:"parent,omitempty"`
 
 	// Parked `true` parks the task in its team's backlog; `false` takes a parked task that is already in work out of it, and is refused (422 `takeIntoWork`) on one with no date and no sprint — set a date, a sprint or `own` a person instead.
