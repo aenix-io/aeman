@@ -792,6 +792,29 @@ export function SortableBoard<Meta>({
     activeId !== null && nestPreview(local) !== null ? activeId : null;
 
 
+  // A drag re-renders this board on every new target under the pointer (the
+  // working copy moves), and drawing every card afresh each time made a full
+  // Team board crawl. A card's node depends only on what renderCard closes
+  // over and the card itself, so it is kept until either changes: the board's
+  // own drag state never redraws a card, only the wrapper that places it.
+  const cardNodes = useRef<{
+    fn: unknown;
+    map: Map<string, { card: CardModel; group: BoardGroup<Meta>; node: ReactNode }>;
+  }>({ fn: null, map: new Map() });
+  if (cardNodes.current.fn !== renderCard) {
+    cardNodes.current = { fn: renderCard, map: new Map() };
+  }
+  const renderCardKept = (card: CardModel, group: BoardGroup<Meta>): ReactNode => {
+    const key = `${group.key}\u0000${card.itemId}`;
+    const kept = cardNodes.current.map.get(key);
+    if (kept && kept.card === card && kept.group === group) {
+      return kept.node;
+    }
+    const node = renderCard(card, group);
+    cardNodes.current.map.set(key, { card, group, node });
+    return node;
+  };
+
   // Render each group as a node, keyed by group.key, so a custom layout can
   // arrange them (Team groups cells into engineer columns); default is flat.
   const nodes = new Map<string, ReactNode>();
@@ -811,7 +834,7 @@ export function SortableBoard<Meta>({
         cardById={cardById}
         groupable={!!onGroupDrop}
         renderGroup={renderGroup}
-        renderCard={renderCard}
+        renderCard={renderCardKept}
         renderGap={renderGap}
         renderHead={renderHead}
         isRecord={isRecord}
