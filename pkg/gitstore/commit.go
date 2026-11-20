@@ -57,6 +57,7 @@ type Repo struct {
 	dir    string // on-disk path for `git repack`; empty = no repack
 	mu     sync.Mutex
 	packMu sync.Mutex
+	guard  func() error // see SetStoreGuard
 	// idx is the per-path history (see pathIndex), built on the first log
 	// read and kept in step with the head; idxMu guards it apart from mu,
 	// so a log read never waits on a commit and vice versa.

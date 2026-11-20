@@ -195,8 +195,10 @@ func TestHealthzDegradesPastUnpushedWarn(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	srv.store.waitDrained(ctx)
-	if rec := do(t, srv, "GET", "/api/healthz", ""); !strings.Contains(rec.Body.String(), `"status":"degraded"`) {
-		t.Fatalf("health with an old unpushed commit: %s", rec.Body.String())
+	// Still 200: a push that is not landing is the remote's trouble, and a
+	// liveness probe restarting the process would not cure it (G90 is 503).
+	if rec := do(t, srv, "GET", "/api/healthz", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"status":"degraded"`) {
+		t.Fatalf("health with an old unpushed commit: %d %s", rec.Code, rec.Body.String())
 	}
 	if err := srv.drainAndPush(ctx); err != nil {
 		t.Fatal(err)

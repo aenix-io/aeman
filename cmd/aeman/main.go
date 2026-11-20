@@ -309,8 +309,7 @@ func runMCP(args []string) error {
 	srv.AddReceivingMiddleware(gb.MCPActionMiddleware())
 
 	if *listen != "" {
-		health := func() daemonHealth { return daemonReport(gb.UnpushedAge(), gitCfg.UnpushedWarn) }
-		swap.set(srv, health)
+		swap.set(srv, backendHealth(gb, gitCfg.UnpushedWarn))
 		return <-httpErr
 	}
 

@@ -274,6 +274,7 @@ const (
 	ReviewCardLink          ProblemCode = "reviewCardLink"
 	SetupRequired           ProblemCode = "setupRequired"
 	SomebodysCard           ProblemCode = "somebodysCard"
+	StoreLost               ProblemCode = "storeLost"
 	SubtaskDepth            ProblemCode = "subtaskDepth"
 	TakeIntoWork            ProblemCode = "takeIntoWork"
 	TeamExists              ProblemCode = "teamExists"
@@ -421,6 +422,8 @@ func (e ProblemCode) Valid() bool {
 	case SetupRequired:
 		return true
 	case SomebodysCard:
+		return true
+	case StoreLost:
 		return true
 	case SubtaskDepth:
 		return true

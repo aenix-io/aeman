@@ -1103,6 +1103,29 @@ func TestServiceStatusRepeatsWhatTheDaemonCallsItself(t *testing.T) {
 	}
 }
 
+// A daemon whose data directory is lost answers 503 so a probe restarts it
+// (G90); `status` still reads the body, or it would call that daemon silent.
+func TestServiceStatusReadsAStoreLostAnswer(t *testing.T) {
+	m, r := testMgr(t, "linux")
+	r.err = errors.New("inactive")
+	writeUnit(t, m, systemdUnit(testUnit(t, m, map[string]string{"PATH": "/usr/bin"})))
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = io.WriteString(w, `{"status":"degraded","unpushedAgeSeconds":0,"storeLost":"data directory lost; restart required"}`)
+	}))
+	t.Cleanup(ts.Close)
+
+	st, err := m.status(t.Context(), strings.TrimPrefix(ts.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Healthy || st.Health != "degraded" {
+		t.Fatalf("a 503 with a health body: answering %v, health %q; want answering and degraded", st.Healthy, st.Health)
+	}
+}
+
 // The two halves of a RUNNING daemon's report: one that is running and
 // degraded still needs the operator pointed at its logs, and one that is
 // running and well must not be. Both are asserted here rather than only
