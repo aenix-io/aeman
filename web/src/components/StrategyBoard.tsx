@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { FoldControls } from "./FoldControls";
 import {
   DndContext,
   DragOverlay,
@@ -1002,19 +1003,13 @@ export function StrategyBoard({
           }}
           title="Show only work in progress, in a backlog, locked by a dependency, plan items with no items, or done"
         />
-        <div className="segmented segmented-compact strategy-fold" role="group" aria-label="Folding">
-          <button type="button" className="segment" title="Unfold every row" onClick={() => setFolded(new Set())}>
-            Expand all
-          </button>
-          <button
-            type="button"
-            className="segment"
-            title="Fold every row that has rows under it (the order does not change)"
-            onClick={() => setFolded(foldableIds(shown, depth))}
-          >
-            Collapse all
-          </button>
-        </div>
+        <FoldControls
+          className="strategy-fold"
+          expandTitle="Unfold every row"
+          collapseTitle="Fold every row that has rows under it (the order does not change)"
+          onExpand={() => setFolded(new Set())}
+          onCollapse={() => setFolded(foldableIds(shown, depth))}
+        />
       </div>
 
       {shownLines.length === 0 ? (

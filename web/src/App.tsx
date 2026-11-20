@@ -25,8 +25,8 @@ import {
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
 import { DayNav } from "./components/DayNav";
-import { BacklogModeSwitch, StrategyControls } from "./components/ViewControls";
-import { readDepth, readMode, readZoom, storeDepth, storeMode, storeZoom } from "./viewprefs";
+import { BacklogModeSwitch, DayGroupingSwitch, StrategyControls } from "./components/ViewControls";
+import { readDayGrouping, readDepth, readMode, readZoom, storeDayGrouping, storeDepth, storeMode, storeZoom, type DayGrouping } from "./viewprefs";
 import type { DepthRange, Zoom } from "./strategy";
 import type { BacklogMode } from "./backlogboard";
 import { avatarsFrom, namesFrom } from "./users";
@@ -261,6 +261,7 @@ export function App() {
   const [strategyDepth, setStrategyDepth] = useState<DepthRange>(readDepth);
   const [strategyZoom, setStrategyZoom] = useState<Zoom>(readZoom);
   const [backlogMode, setBacklogMode] = useState<BacklogMode>(readMode);
+  const [dayGrouping, setDayGrouping] = useState<DayGrouping>(readDayGrouping);
   // While a sign-out is being confirmed (see onSignedOut) the messages the
   // failing calls produce — every one of them "not signed in" — are held
   // back: the sign-in gate is the answer, not a banner. The last one held is
@@ -1726,6 +1727,15 @@ export function App() {
             sprintJump={view === "team" ? sprintJump : null}
           />
         )}
+        {(view === "me" || view === "team") && (
+          <DayGroupingSwitch
+            mode={dayGrouping}
+            onMode={(g) => {
+              setDayGrouping(g);
+              storeDayGrouping(g);
+            }}
+          />
+        )}
 
         {pendingSync === 0 && waiting && (
           <span className="load-badge" title="Loading…" role="status" aria-label="Loading">
@@ -1815,6 +1825,8 @@ export function App() {
         )}
         {board && view === "me" && (
           <MeBoard
+            groupByParent={dayGrouping === "plans"}
+            onOpenPlan={(uid) => pickFromSearch({ itemId: uid } as CardModel)}
             board={board}
             selectedDate={selectedDate}
             asOf={asOf ?? undefined}
@@ -1896,6 +1908,8 @@ export function App() {
         )}
         {board && view === "team" && (
           <TeamBoard
+            groupByParent={dayGrouping === "plans"}
+            onOpenPlan={(uid) => pickFromSearch({ itemId: uid } as CardModel)}
             board={board}
             selectedDate={selectedDate}
             onSelectDate={setSelectedDate}
