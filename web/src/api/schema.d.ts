@@ -859,6 +859,10 @@ export interface components {
             title: string;
             /** @description The ancestor's end date, when it has one — a planning card's bar ends there on the Strategy board. The Backlog shows the nearest planning card's end as the due date of the task under it. */
             end?: string;
+            /** @description A plan item's team: its own, else the nearest ancestor's (O13). Absent for a task and for a plan item under no team. */
+            team?: string;
+            /** @description A plan item's owner, its own and never inherited (O1). Absent for a task and for a plan item nobody owns. */
+            owner?: string;
         };
         /** @description A PLANNING card's derived standing, from the tasks under it through every level: no-items when nothing is under it; done when every leaf task is complete; in-progress when any OPEN one is in work (a date or a sprint, not parked); backlog when there are open ones and none is in work — with the counts. Progress, a person or a stage do not make it in progress by themselves: a parked task is waiting. Never stored; absent on a task. */
         Hierarchy: {

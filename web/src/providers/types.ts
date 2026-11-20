@@ -30,6 +30,10 @@ export interface LineageRef {
   /** The ancestor's end date, when it has one. The Backlog board shows the
    *  nearest planning card's as the due date of the task under it. */
   end?: string;
+  /** A plan item's team (its own, else the nearest ancestor's) and its own
+   *  owner: whose it is, drawn by a group head on the day boards. */
+  team?: string;
+  owner?: string;
 }
 
 /** ReviewedRef is the card a review card reviews (status.reviewed). */

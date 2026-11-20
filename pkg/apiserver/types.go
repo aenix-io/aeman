@@ -130,6 +130,13 @@ type LineageRef struct {
 	// bar ends there on the Strategy board, and the Backlog shows the nearest
 	// planning card's end as the due date of the task under it.
 	End string `json:"end,omitempty"`
+	// Team is the team the ancestor stands under — its own, else the
+	// nearest ancestor's (O13) — and Owner the one person who answers for
+	// it, its own and never inherited (O1): whose a plan item is, drawn
+	// beside it where the plan item itself is not listed (the day boards'
+	// group heads).
+	Team  string `json:"team,omitempty"`
+	Owner string `json:"owner,omitempty"`
 }
 
 // ReviewedRef is the card a review card reviews, in status.reviewed: enough
@@ -469,7 +476,12 @@ func CardResourceIn(b board.Board, ix *board.Index, c board.Card) Card {
 	}
 	status.Subtask = ix.IsSubtask(c)
 	for _, a := range up {
-		status.Lineage = append(status.Lineage, LineageRef{UID: a.ItemID, Type: a.Type, Title: a.Title, End: a.Day})
+		ref := LineageRef{UID: a.ItemID, Type: a.Type, Title: a.Title, End: a.Day}
+		if board.IsPlanning(a) {
+			ref.Team = ix.EffectiveTeam(a)
+			ref.Owner = a.Owner
+		}
+		status.Lineage = append(status.Lineage, ref)
 	}
 	if !board.IsPlanning(c) {
 		for i := len(up) - 1; i >= 0; i-- {

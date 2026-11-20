@@ -1850,6 +1850,16 @@ components:
             The ancestor's end date, when it has one — a planning card's bar
             ends there on the Strategy board. The Backlog shows the nearest planning
             card's end as the due date of the task under it.
+        team:
+          type: string
+          description: >-
+            A plan item's team: its own, else the nearest ancestor's (O13).
+            Absent for a task and for a plan item under no team.
+        owner:
+          type: string
+          description: >-
+            A plan item's owner, its own and never inherited (O1). Absent for
+            a task and for a plan item nobody owns.
     Hierarchy:
       type: object
       additionalProperties: false
