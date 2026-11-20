@@ -1,0 +1,87 @@
+name: Release
+
+# A release tag publishes the binaries, the GitHub release and the Homebrew
+# formula. The container image for the same tag is image.yml's job.
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # The formula lands after the release is public, so a cancelled run would
+  # leave a release the tap never hears about.
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  # The SPA build runs npm packages' code, so it gets its own job with no
+  # write token anywhere on the runner; only web/dist crosses over.
+  web:
+    name: SPA
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # No dependency caches: a release must not build from a cache that a
+      # pull request run could have written.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "20"
+          package-manager-cache: false
+      - name: Build
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-dist
+          path: web/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  goreleaser:
+    name: binaries & Homebrew
+    needs: web
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and upload the archives
+    steps:
+      # Minted before anything is published, so an App that lost its
+      # installation on the tap fails the run without a release.
+      - name: Tap token
+        id: tap-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.HOMEBREW_TAP_CLIENT_ID }}
+          private-key: ${{ secrets.HOMEBREW_TAP_PRIVATE_KEY }}
+          owner: aenix-io
+          repositories: homebrew-tap
+          permission-contents: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the changelog walks back to the previous tag
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-dist
+          path: web/dist
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: "v2.20.2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
