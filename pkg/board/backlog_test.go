@@ -337,9 +337,9 @@ func TestAReviewOfASubtaskIsPlacedByThePlanningChain(t *testing.T) {
 }
 
 // Q2 — A BACKLOG READS IN THE BOARD'S ORDER: a task's rank is its place in
-// its team's queue, whatever plan items stand above it — the reviews nobody
-// has taken first, then every task, planned or not, by its own key. Moving a
-// goal or an initiative therefore reorders no backlog.
+// its team's queue, whatever plan items stand above it — every card,
+// planned or not and a review nobody has taken among them, by its own key.
+// Moving a goal or an initiative therefore reorders no backlog.
 func TestABacklogReadsInTheBoardsOrder(t *testing.T) {
 	b := NewBoard([]Card{
 		{ItemID: "loose-1", Parked: true},
@@ -358,7 +358,7 @@ func TestABacklogReadsInTheBoardsOrder(t *testing.T) {
 			listed = append(listed, c)
 		}
 	}
-	if got, want := ids(BacklogOrder(ix, listed)), []string{"r", "loose-1", "t-e2", "t-e1"}; !reflect.DeepEqual(got, want) {
+	if got, want := ids(BacklogOrder(ix, listed)), []string{"loose-1", "t-e2", "r", "t-e1"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("BacklogOrder = %v, want %v", got, want)
 	}
 }

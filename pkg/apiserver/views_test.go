@@ -167,14 +167,14 @@ func TestTheBacklogViewListsWhatATeamHasParked(t *testing.T) {
 	}
 }
 
-// The reviews NOBODY HAS TAKEN lead a backlog listing (K10, BacklogOrder):
-// before every task, in their tasks' Strategy order — one dragged below a
-// task is still above it.
-func TestTheReviewsNobodyHasTakenLeadABacklogListing(t *testing.T) {
+// A review NOBODY HAS TAKEN stands in a backlog listing by its own key, like
+// a task (K10, BacklogOrder): made at the top of the board's order it leads,
+// and one dragged below a task stays below it.
+func TestAReviewNobodyHasTakenStandsByItsOwnKeyInABacklogListing(t *testing.T) {
 	b := board.NewBoard([]board.Card{
+		{ItemID: "r-top", Team: "alpha", ReviewOf: "o", Parked: true, Rank: "a", CreatedAt: "2026-11-03T10:00:00Z"},
 		{ItemID: "t1", Team: "alpha", Parked: true, Rank: "b", CreatedAt: "2026-01-01T00:00:00Z"},
 		{ItemID: "o", Team: "alpha", Stage: board.StageReview, SprintStart: "2026-11-03"},
-		{ItemID: "r-top", Team: "alpha", ReviewOf: "o", Parked: true, Rank: "a", CreatedAt: "2026-11-03T10:00:00Z"},
 		{ItemID: "t2", Team: "alpha", Parked: true, Rank: "c", CreatedAt: "2026-01-02T00:00:00Z"},
 		{ItemID: "o2", Team: "alpha", Stage: board.StageReview, SprintStart: "2026-11-03"},
 		{ItemID: "r-dragged", Team: "alpha", ReviewOf: "o2", Parked: true, Rank: "d", CreatedAt: "2026-11-02T10:00:00Z"},
@@ -183,7 +183,7 @@ func TestTheReviewsNobodyHasTakenLeadABacklogListing(t *testing.T) {
 	for _, c := range FilterCards(b, Selector{View: "backlog", Team: "alpha"}) {
 		got = append(got, c.ItemID)
 	}
-	if want := []string{"r-top", "r-dragged", "t1", "t2"}; !slices.Equal(got, want) {
+	if want := []string{"r-top", "t1", "t2", "r-dragged"}; !slices.Equal(got, want) {
 		t.Fatalf("backlog = %v, want %v", got, want)
 	}
 }

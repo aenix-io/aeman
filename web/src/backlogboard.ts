@@ -66,8 +66,9 @@ export function shownTeams(filter: readonly string[] | null, roster: readonly st
 
 /** backlogList is the board: the backlog cards of the shown teams, MIXED, in
  *  the board's order (Q2, board.BacklogOrder) read off `order` — the
- *  listing's `boardOrder`, which every Ordering frame replaces: the reviews
- *  nobody has taken first (K10), then every task by its own place. A task's
+ *  listing's `boardOrder`, which every Ordering frame replaces: every card by
+ *  its own place, a review nobody has taken included — it is made at the top
+ *  of the board's order, so it stands first until somebody drags it (K10). A task's
  *  rank IS its queue place, so the plan items above it decide nothing. A
  *  card the order does not name yet (one a watch frame brought in) stands
  *  after the named ones, in the order the board holds the cards; with no
@@ -82,8 +83,8 @@ export function backlogList(cards: readonly Card[], teams: readonly string[], or
   const keyed = cards
     .map((c, i) => ({ c, i }))
     .filter(({ c }) => onBacklog(c) && shown.has(place(c)))
-    .map(({ c, i }) => ({ c, review: needsReviewer(c), at: pos.get(c.itemId) ?? base + i }));
-  keyed.sort((a, b) => (a.review !== b.review ? (a.review ? -1 : 1) : a.at - b.at));
+    .map(({ c, i }) => ({ c, at: pos.get(c.itemId) ?? base + i }));
+  keyed.sort((a, b) => a.at - b.at);
   return keyed.map(({ c }) => c);
 }
 
@@ -148,38 +149,28 @@ export function spliceOrder(all: readonly string[], column: readonly string[]): 
 export type BacklogDrop = { kind: "none" } | { kind: "forbidden" } | { kind: "reorder"; order: string[]; anchor: Anchor };
 
 /** dropPlan reads a drop at place `at` of the list without the card (Q4,
- *  K5): a task goes between ANY two neighbours, of whichever epic or team —
- *  it becomes an exception to its epic's order, and the epic's key does not
- *  change. It is anchored after the TASK above it, else before the task
- *  below it; a review nobody has taken is no anchor (its group is pinned on
- *  top, K10), so a drop among the reviews lands before the first task. A
- *  review itself is never dragged: its drop is forbidden. The team does not
- *  change by a drop: handing a task to another team is the owner picker's
- *  (ownPlan). A card put back where it was writes nothing. `list` is the
- *  cards as drawn, the card included. */
+ *  K5): a card goes between ANY two neighbours, of whichever epic or team,
+ *  a review nobody has taken included (K10: it leads by default, and may be
+ *  dragged lower like a task). It is anchored after the card above it, else
+ *  before the card below it. The team does not change by a drop: handing a
+ *  task to another team is the owner picker's (ownPlan). A card put back
+ *  where it was writes nothing. `list` is the cards as drawn, the card
+ *  included. */
 export function dropPlan(id: string, list: readonly Card[], at: number): BacklogDrop {
   const ids = list.map((c) => c.itemId);
-  const byId = new Map(list.map((c) => [c.itemId, c]));
-  const moved = byId.get(id);
-  if (!moved) {
+  if (!ids.includes(id)) {
     return { kind: "none" };
-  }
-  if (needsReviewer(moved)) {
-    return { kind: "forbidden" };
   }
   const order = orderWith(ids, id, at);
-  const tasks = order.filter((x) => x === id || !needsReviewer(byId.get(x)!));
-  const reviews = order.filter((x) => x !== id && needsReviewer(byId.get(x)!));
-  const shown = [...reviews, ...tasks];
-  if (shown.every((x, i) => x === ids[i])) {
+  if (order.every((x, i) => x === ids[i])) {
     return { kind: "none" };
   }
-  const place = tasks.indexOf(id);
+  const place = order.indexOf(id);
   if (place > 0) {
-    return { kind: "reorder", order: shown, anchor: { after: tasks[place - 1] } };
+    return { kind: "reorder", order, anchor: { after: order[place - 1] } };
   }
-  if (tasks.length > 1) {
-    return { kind: "reorder", order: shown, anchor: { before: tasks[1] } };
+  if (order.length > 1) {
+    return { kind: "reorder", order, anchor: { before: order[1] } };
   }
   return { kind: "none" };
 }

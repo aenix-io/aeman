@@ -222,22 +222,23 @@ describe("a drop goes between any two neighbours (Q4)", () => {
     expect(dropPlan("b1", list, 0)).toEqual({ kind: "reorder", order: ["b1", "a1", "a2", "b2"], anchor: { before: "a1" } });
   });
 
-  it("never moves a review nobody has taken, and a review is no anchor", () => {
+  it("moves a review nobody has taken like a task, and anchors on one", () => {
     const rA = card({ itemId: "rA", reviewOf: "x" });
     const rB = card({ itemId: "rB", reviewOf: "y" });
-    expect(dropPlan("rB", [rA, rB, a1], 0)).toEqual({ kind: "forbidden" });
-    // A task dropped among the reviews lands before the first task.
-    expect(dropPlan("a2", [rA, rB, a1, a2], 1)).toEqual({ kind: "reorder", order: ["rA", "rB", "a2", "a1"], anchor: { before: "a1" } });
+    // A review dragged below a task (K10: it leads only by default).
+    expect(dropPlan("rB", [rA, rB, a1], 2)).toEqual({ kind: "reorder", order: ["rA", "a1", "rB"], anchor: { after: "a1" } });
+    // A task dropped among the reviews lands right there, after the review above.
+    expect(dropPlan("a2", [rA, rB, a1, a2], 1)).toEqual({ kind: "reorder", order: ["rA", "a2", "rB", "a1"], anchor: { after: "rA" } });
   });
 
-  it("has nothing to write for a task alone among reviews", () => {
+  it("puts a task above a review at the top, before it", () => {
     const rA = card({ itemId: "rA", reviewOf: "x" });
-    expect(dropPlan("a1", [rA, a1], 0)).toEqual({ kind: "none" });
+    expect(dropPlan("a1", [rA, a1], 0)).toEqual({ kind: "reorder", order: ["a1", "rA"], anchor: { before: "rA" } });
   });
 });
 
 // Q2 — the backlog reads in the BOARD's order: the reviews nobody has taken
-// first, then every task by its own key — the plan items above a task decide
+// included, every card by its own key — the plan items above a task decide
 // nothing. Mirrors board.BacklogOrder (TestABacklogReadsInTheBoardsOrder).
 describe("the board's order in the backlog (Q2)", () => {
   const ref = (uid: string, type: "goal" | "initiative" | "epic"): LineageRef => ({ uid, type, title: uid });
@@ -254,15 +255,15 @@ describe("the board's order in the backlog (Q2)", () => {
     t("t-e1", [G1, E1]),
   ];
 
-  it("lists the reviews first, then the tasks in the board's order", () => {
-    expect(backlogList(cards, [""], boardOrder).map((c) => c.itemId)).toEqual(["r", "loose-1", "t-e2", "t-e1"]);
+  it("lists every card in the board's order, a review nobody has taken by its own key", () => {
+    expect(backlogList(cards, [""], boardOrder).map((c) => c.itemId)).toEqual(["loose-1", "t-e2", "r", "t-e1"]);
   });
 
   it("re-sorts on a new board order (an Ordering frame), and a goal moved up moves no task", () => {
     const moved = ["g1", "e1", "loose-1", "t-e2", "g2", "e2", "r", "t-e1"];
-    expect(backlogList(cards, [""], moved).map((c) => c.itemId)).toEqual(["r", "loose-1", "t-e2", "t-e1"]);
+    expect(backlogList(cards, [""], moved).map((c) => c.itemId)).toEqual(["loose-1", "t-e2", "r", "t-e1"]);
     const taskMoved = ["t-e1", "loose-1", "t-e2", "g2", "e2", "r", "g1", "e1"];
-    expect(backlogList(cards, [""], taskMoved).map((c) => c.itemId)).toEqual(["r", "t-e1", "loose-1", "t-e2"]);
+    expect(backlogList(cards, [""], taskMoved).map((c) => c.itemId)).toEqual(["t-e1", "loose-1", "t-e2", "r"]);
   });
 
   it("places a card the order does not name yet after the ones it does", () => {
@@ -508,17 +509,25 @@ describe("the reviews nobody has taken (K10)", () => {
     expect(onBacklog(waiting({ assignees: ["bob"] }))).toBe(false);
   });
 
-  // In the same list as the tasks, in the group on top of them (K10), and
-  // never dragged: its place is its task's.
-  it("stands in the group on top of the tasks, and does not move by a drop", () => {
+  // In the same list as the tasks, by its own key (K10): made at the top of
+  // the board's order it leads, and it may be dragged lower like a task.
+  it("stands by its own key among the tasks, and moves by a drop like one", () => {
     const t1 = card({ itemId: "t1", team: "alpha" });
     const t2 = card({ itemId: "t2", team: "beta" });
     const top = waiting({ itemId: "r-top", team: "alpha" });
-    const dragged = waiting({ itemId: "r-low", team: "beta" });
-    const list = backlogList([top, t1, dragged, t2], ["alpha", "beta"]);
-    expect(list.map((c) => c.itemId)).toEqual(["r-top", "r-low", "t1", "t2"]);
-    expect(dropPlan("r-top", list, 1)).toEqual({ kind: "forbidden" });
-    expect(dropPlan("r-top", list, 2)).toEqual({ kind: "forbidden" });
+    const low = waiting({ itemId: "r-low", team: "beta" });
+    const list = backlogList([top, t1, low, t2], ["alpha", "beta"]);
+    expect(list.map((c) => c.itemId)).toEqual(["r-top", "t1", "r-low", "t2"]);
+    expect(dropPlan("r-top", list, 2)).toEqual({
+      kind: "reorder",
+      order: ["t1", "r-low", "r-top", "t2"],
+      anchor: { after: "r-low" },
+    });
+    expect(dropPlan("t2", list, 0)).toEqual({
+      kind: "reorder",
+      order: ["t2", "r-top", "t1", "r-low"],
+      anchor: { before: "r-top" },
+    });
   });
 
   it("drops out the moment a reviewer has it", () => {
