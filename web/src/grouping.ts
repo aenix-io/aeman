@@ -301,3 +301,11 @@ export function blockAnchor(
   const i = order.indexOf(block[0]);
   return { after: i > 0 ? order[i - 1] : null };
 }
+
+/** takeable is what a Backlog run's Take takes (K11): every open card of the
+ *  run nobody has, a review nobody has taken included — Take makes it the
+ *  viewer's review, as on its own row. A finished card, and one somebody
+ *  has, stay. */
+export function takeable(cards: readonly Card[]): Card[] {
+  return cards.filter((c) => !isComplete(c) && c.assignees.length === 0);
+}

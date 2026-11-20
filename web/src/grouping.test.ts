@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { adjacentRuns, blockAnchor, reassignable, arrangeByParent, expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowId, planRowUid } from "./grouping";
+import { adjacentRuns, blockAnchor, reassignable, takeable, arrangeByParent, expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowId, planRowUid } from "./grouping";
 import type { Card, LineageRef } from "./providers/types";
 
 const goal: LineageRef = { uid: "g", type: "goal", title: "Cozystack" };
@@ -341,5 +341,21 @@ describe("blockAnchor", () => {
   it("falls back to the board's order when the block is the whole cell", () => {
     expect(blockAnchor(["a", "b"], ["a", "b"], order)).toEqual({ after: "x" });
     expect(blockAnchor(["x", "y"], ["x", "y"], ["x", "y"])).toEqual({ after: null });
+  });
+});
+
+// What a Backlog run's Take takes (K11): every open card of the run nobody
+// has — a review nobody has taken included, which Take makes the viewer's
+// review as on its own row; a finished card and one somebody has stay.
+describe("takeable", () => {
+  it("takes the open cards nobody has, reviews included", () => {
+    const open = card("o", {});
+    const review = card("r", { reviewOf: "x" });
+    const done = card("d", { progress: 100 });
+    const held = card("h", { assignees: ["ann"] });
+    expect(takeable([open, review, done, held]).map((c) => c.itemId)).toEqual(["o", "r"]);
+  });
+  it("offers Take on a run of reviews only", () => {
+    expect(takeable([card("r", { reviewOf: "x" })]).length).toBe(1);
   });
 });
