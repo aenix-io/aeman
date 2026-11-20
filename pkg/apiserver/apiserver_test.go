@@ -379,3 +379,26 @@ func TestCardResourceCarriesDoneAtAndDomain(t *testing.T) {
 		t.Fatalf("status = %+v", r.Status)
 	}
 }
+
+// The Team board asks for every team it shows in one request, and a person's
+// cell holds the cards of all of them in BOARD order — the order the Me board
+// shows the same person's cards in. The union used to come back team by team
+// in the order the request named them, so a cell read "all of portal's, then
+// all of cozystack's" on the Team board and the board's own order on Me.
+func TestATeamListingOfSeveralTeamsIsInBoardOrder(t *testing.T) {
+	t.Parallel()
+	day := board.TodayIso()
+	b := board.NewBoard([]board.Card{
+		{ItemID: "c1", Team: "cozystack", Assignees: []string{"u"}, StartDate: day, SprintStart: day},
+		{ItemID: "p1", Team: "portal", Assignees: []string{"u"}, StartDate: day, SprintStart: day},
+		{ItemID: "c2", Team: "cozystack", Assignees: []string{"u"}, StartDate: day, SprintStart: day},
+	})
+	b.SprintStates = map[string]board.SprintState{"cozystack": {Current: day}, "portal": {Current: day}}
+	got := []string{}
+	for _, c := range FilterCards(b, Selector{View: "team", Team: "portal,cozystack", Day: day}) {
+		got = append(got, c.ItemID)
+	}
+	if want := []string{"c1", "p1", "c2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("team listing = %v, want the board's order %v", got, want)
+	}
+}

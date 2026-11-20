@@ -28,7 +28,7 @@ One `rank`, meaning by kind; keys of different kinds are never compared for mean
 
 - **Board order** — every card by (rank, id), merged across repositories, as before. An empty or invalid rank sorts last until normalisation gives it a key.
 - **Epic order** — the board's epics in board order. Global: independent of goal and initiative, with no per-team ranks.
-- **Queue Q(T)** — the open, parked, own-place tasks standing under team T (effective team, O13), in board order. Subtasks ride their parent; reviews nobody has taken keep their pinned group at the top (K10), in board order among themselves. A mixed multi-team view is the same filter over several teams.
+- **Queue Q(T)** — the open, parked, own-place tasks standing under team T (effective team, O13), in board order. Subtasks ride their parent. A review nobody has taken is not in Q(T) — no `Place`, gather or slot permutation moves it — but in the backlog it stands by its own key among the queue's tasks: it is made at the top of the board's order, so it leads until somebody drags it lower (K10; it was held in a pinned group on top until 2026-11-20). A mixed multi-team view is the same filter over several teams.
 - **A task's epic** is its nearest epic ancestor; a task with none is **neutral**. **E's area in Q(T)** is the gaps from "before E's first task" to "after E's last task", inclusive.
 - **Strategy**: a parent's children by key, as before — mixed plan items and tasks too (decision 3). A flat range (one that starts at the epic level) draws the epics in the epic order. A display-mode switch writes nothing.
 - **Keys**: `RankBetween` as before. Gathered blocks get evenly spaced keys between their neighbours; slot permutations reuse the existing values; a rebalance renumbers a bounded window around the insertion, never the whole list. Keys are computed in `pkg/board` over the MERGED board (`board.PlaceAfter`, `board.Reorder`); the backend writes the keys it is given (`Backend.Reorder`).
@@ -100,9 +100,10 @@ Examples, with A < B < C:
 
 Unranked tasks come from direct writers; an invalid key (empty, a character outside the alphabet, a trailing `0`, longer than 32) counts as none. One mechanism: `Normalize` applies `Place` to such open parked tasks in (created, id) order and writes them as one server action, `place`. It runs at start-up, after every fetch that brought changed cards (only those are checked), and at the end of the migration. It is deterministic over a board, so two replicas write the same keys. A writer-supplied valid rank is respected.
 
-### Backlog Epics mode, dependencies
+### Backlog Plans mode, dependencies
 
-- **Epics mode** (the Backlog's Tasks | Epics switch, in the app's top bar beside the view tabs as the Strategy board's Hierarchy range and zoom are, remembered per viewer; All / Ready / Blocked reads the epics' own lock; built from the Strategy listing, so empty epics are there) lists the selected teams' epics (by effective team, or by an open task standing under the team), empty ones included; epics with no team appear under "No team", and done epics are hidden. Each row shows the epic in the epic order, Goal/Initiative context, and its count of parked tasks. **Split** means another task stands inside the epic's area, in some team's queue (`board.Index.Split`, mirrored as `splitEpics`); the Strategy board marks its epic rows the same way. Dragging a row is the epic move. Tasks ↔ Epics writes nothing. The Strategy board's Collapse all / Expand all only fold.
+- **Plans mode** (since 2026-11-20). The Backlog's switch is Tasks | Plans, in the middle of the app's top bar, remembered per viewer (a remembered "epics" reads back as Plans). Plans draws the one queue cut into runs of neighbouring cards of one plan item, the loose ones under "Ungrouped" (`grouping.adjacentRuns`, S19); a run's head drags the run's cards together to where it lands, a card dragged alone moves alone, and nothing in the Backlog re-parents a card or moves an epic. The epic move (Q5) stays the Strategy board's. Tasks ↔ Plans writes nothing.
+- ~~**Epics mode** (the Backlog's Tasks | Epics switch, in the app's top bar beside the view tabs as the Strategy board's Hierarchy range and zoom are, remembered per viewer; All / Ready / Blocked reads the epics' own lock; built from the Strategy listing, so empty epics are there) lists the selected teams' epics (by effective team, or by an open task standing under the team), empty ones included; epics with no team appear under "No team", and done epics are hidden. Each row shows the epic in the epic order, Goal/Initiative context, and its count of parked tasks. **Split** means another task stands inside the epic's area, in some team's queue (`board.Index.Split`, mirrored as `splitEpics`); the Strategy board marks its epic rows the same way. Dragging a row is the epic move. Tasks ↔ Epics writes nothing.~~ **Removed 2026-11-20**, replaced by the Plans mode above. **Split** (`splitEpics`) still marks the Strategy board's epic rows. The Strategy board's Collapse all / Expand all only fold.
 - **Dependencies** never change the order. The All / Ready / Blocked filter reads `status.locked`, default All.
 
 ## Atomicity of the mass move
@@ -115,7 +116,7 @@ Unranked tasks come from direct writers; an invalid key (empty, a character outs
 
 **Concurrent changes.** Two requests on one server are serialised by the store lock: each plans over the cache as the other left it. A fetch that brings another replica's commits in between is just another state to plan over. A rejected push replays the commit field by field (`gitstore.Repo.Rebase`), rank lines included; a block that another replica broke meanwhile stays as the replay leaves it until the next gather.
 
-**What the client sees.** The acting tab shows the new order at once — a reorder within an epic through the `queue.ts` mirror of the slot permutation (`epicSlotOrder`), since the server does not echo a tab's own write; a drop into another epic and a Backlog epic move read the board back once the server answers; the answer is `{actionId, moved}` — the action the keys were written under, and how many cards took one. Other tabs get ONE `Ordering` frame with the complete result. A refusal rolls the optimistic order back.
+**What the client sees.** The acting tab shows the new order at once — a reorder within an epic through the `queue.ts` mirror of the slot permutation (`epicSlotOrder`), since the server does not echo a tab's own write; a drop into another epic and an epic move read the board back once the server answers; the answer is `{actionId, moved}` — the action the keys were written under, and how many cards took one. Other tabs get ONE `Ordering` frame with the complete result. A refusal rolls the optimistic order back.
 
 
 **Cost.** 1 + k files (k = the epic's parked tasks out of place); one commit per repository touched, typically one or two; O(n) compute on ~3300 cards; one `Ordering` frame as before.
@@ -136,12 +137,12 @@ Unranked tasks come from direct writers; an invalid key (empty, a character outs
 
 ## Changes by layer
 
-- **`pkg/board`** — `queue.go`: `Queue`, `EpicOf`, `Place`, `BestGap`, `ValidReturn`, `MoveEpicPlan`, `ReorderInEpicPlan`, `InheritedEpic`, `Split`, `EpicOrder`; `PlaceAfter` with a windowed rebalance; `Normalize`. `BacklogKey` goes; `BacklogOrder` is the reviews first, then board order.
+- **`pkg/board`** — `queue.go`: `Queue`, `EpicOf`, `Place`, `BestGap`, `ValidReturn`, `MoveEpicPlan`, `ReorderInEpicPlan`, `InheritedEpic`, `Split`, `EpicOrder`; `PlaceAfter` with a windowed rebalance; `Normalize`. `BacklogKey` goes; `BacklogOrder` is board order (the reviews nobody has taken first until 2026-11-20; now by their own keys, K10).
 - **`pkg/boardservice`** — ordering operations through `Backend.Reorder` (a planner run over the merged board, keys written as given); `Place` at every door; `Normalize`.
 - **`pkg/gitstore`** — `Reorder` on `Backend` and `MultiBackend`; `MigrateOrdering` (schema 4); defects 1–2.
 - **`internal/server`** — the planner under the store lock and one queued op per action; normalisation at start-up and after a fetch.
 - **API / OpenAPI / MCP** — `move` on an epic gathers and answers 200 `{actionId, moved}`; `reorder-in-epic`; `inheritParent` on create; MCP `reorder_in_epic`, `inheritParent` on `create_card`; the `parked` text fixed.
-- **`web`** — `queue.ts` mirror; Backlog drops anywhere, the "+" with an epic chip; Strategy's flat epic list and the drop rules above; the Backlog's Tasks | Epics switch with Split, and Split on the Strategy board's epic rows. Undo is not part of this change (owner decision, 2026-11-08): it will come back as a generic revert of an action, which the `actionId` a move answers with will name.
+- **`web`** — `queue.ts` mirror; Backlog drops anywhere, the "+" with an epic chip; Strategy's flat epic list and the drop rules above; the Backlog's Tasks | Epics switch with Split (replaced 2026-11-20 by Tasks | Plans, which moves no epic), and Split on the Strategy board's epic rows. Undo is not part of this change (owner decision, 2026-11-08): it will come back as a generic revert of an action, which the `actionId` a move answers with will name.
 
 ## Defects found by the analysis (fixed first)
 
@@ -156,10 +157,10 @@ Unranked tasks come from direct writers; an invalid key (empty, a character outs
 | Row | Rule |
 | --- | --- |
 | Q1 | A card's `rank` orders it within its kind: one global epic order, one queue per team, goals and initiatives among their own; keys of different kinds are never compared for meaning. |
-| Q2 | The backlog is the reviews nobody has taken, then the team's queue in board order; the Tasks/Epics switch and every Strategy display range write nothing. |
+| Q2 | The backlog is the team's queue in board order, the reviews nobody has taken among it by their own keys (first until dragged, K10; amended 2026-11-20); the Tasks/Plans switch and every Strategy display range write nothing. |
 | Q3 | Every default position is `Place`: after the epic's last parked task in the team's queue, else the least-contradicting gap, else after the plan parent's last parked task, else the end of the queue; an explicit place always wins. |
 | Q4 | A task moved in the backlog goes between any two neighbours; its epic's key does not change. |
-| Q5 | Moving an epic — from Strategy or Backlog — re-keys it and gathers its parked tasks into one contiguous block per team, internal order kept; tasks in work and other epics' tasks stay. |
+| Q5 | Moving an epic — from the Strategy board (the Backlog's Epics mode, its other door, was removed 2026-11-20) — re-keys it and gathers its parked tasks into one contiguous block per team, internal order kept; tasks in work and other epics' tasks stay. |
 | Q6 | In Strategy a task moved within its epic permutes that epic's parked tasks of its team over their slots; a task dropped into another epic is re-parented and placed by Q3 in the new epic's area. |
 | Q7 | Moving a goal or an initiative rewrites its own key only; a flat-range epic drop never re-parents. |
 | Q8 | A task back from work keeps its key only while the key is inside its epic's area (or, with no other task of the epic there, in a minimal-cost gap); otherwise Q3. |

@@ -27,9 +27,9 @@ describe("the board controls of the top bar", () => {
     expect(html).not.toContain("strategy-range");
   });
 
-  it("draws Tasks | Epics, the chosen one pressed", () => {
-    const html = renderToStaticMarkup(<BacklogModeSwitch mode="epics" onMode={vi.fn()} />);
-    expect(html).toMatch(/aria-pressed="true"[^>]*>Epics</);
+  it("draws Tasks | Plans, the chosen one pressed", () => {
+    const html = renderToStaticMarkup(<BacklogModeSwitch mode="plans" onMode={vi.fn()} />);
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Plans</);
     expect(html).toMatch(/aria-pressed="false"[^>]*>Tasks</);
   });
 });

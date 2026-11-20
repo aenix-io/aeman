@@ -64,10 +64,11 @@ SPA's tabs are **Me, Team, Backlog, Strategy, Project**.
   (features reads portal's and cozystack's) selects them all.
 - **What is listed.** The team's parked tasks: no planning card, no
   subtask, no review card, nothing finished. Order is
-  `BacklogOrder` over the union — the reviews nobody has taken first
-  (K10), then the tasks in the **board's order** (Q2,
+  `BacklogOrder` over the union — every card, the reviews nobody has
+  taken (K10) among them, by its own key in the **board's order** (Q2,
   [ordering.md](ordering.md); it was the Strategy board's tree order,
-  K14, until 2026-11-08).
+  K14, until 2026-11-08, and the reviews nobody has taken were held in a
+  group of their own on top until 2026-11-20).
 - **The card.** One wide card per row, a plain card with no coloured
   accent down its edge: the title; on the RIGHT its parent chain —
   every goal, initiative and epic it sits under, root first (all of
@@ -80,12 +81,13 @@ SPA's tabs are **Me, Team, Backlog, Strategy, Project**.
   left while nobody has it.
 - **Order.** Dragging a card puts it between **any two neighbours**
   (Q4, [ordering.md](ordering.md)): the move gesture anchored on the
-  task just above it (`after`), else the one just below (`before`); it
+  card just above it (`after`), else the one just below (`before`); it
   becomes an exception to its epic's order and the epic's key does not
-  change. A review nobody has taken is never dragged. A drag does not change the team: the card's team
+  change. A review nobody has taken is dragged like a task (since
+  2026-11-20) and anchors a drop like one. A drag does not change the team: the card's team
   chip is its owner picker, and `own` with a team alone hands it to that
   team, still parked; the owner badge is that picker.
-- **Tasks | Epics** ([ordering.md](ordering.md)). The Epics mode lists the shown teams' epics in the epic order — empty ones too — with the goal and initiative above, the count of waiting tasks and Split for a scattered one; dragging an epic is the epic move, which gathers its tasks. Switching writes nothing; the mode is the viewer's own. All / Ready / Blocked only hides: a blocked task keeps its place.
+- **Tasks | Plans** (since 2026-11-20; it was Tasks | Epics). Plans draws the same one list cut into **runs**: neighbouring cards of one plan item — a card's direct plan item, the nearest entry of its lineage with a level; a review card's is its task's — under one head, and the cards in no plan item under "Ungrouped" the same way (`grouping.adjacentRuns`). Nothing is reordered to make a run: a card moved away from its run leaves the plan item in two runs, and one brought back next to the others joins them again. A head folds its run (folded by default), shows the plan item's team, owner and the run's count, its ID and a "+" that adds a task inside the plan item right after the run's last card; the first click selects it and the second opens the plan item's drawer, shared as presence by its uid. Dragging a card moves it alone — the Backlog never changes a card's plan item; dragging a head moves the run's cards together to where it lands. Switching writes nothing; the mode is the viewer's own, and a remembered "epics" reads back as Plans. The Epics mode is gone, and with it the Backlog's door to the epic move (Q5, still the Strategy board's). All / Ready / Blocked only hides: a blocked task keeps its place.
 - **Adding.** No add box at the foot of the list: every gap — above the
   first card, between two, below the last — shows a round "+" at its left
   edge on hover, and an empty backlog shows one always. Pressed, it opens
@@ -96,7 +98,6 @@ SPA's tabs are **Me, Team, Backlog, Strategy, Project**.
   the create names its place — `after` the card above, or `before` the
   card below at the top — and the server places it in the same request
   (MCP `create_card` takes the same two).
-- **Taking an epic.** In the Epics mode every row draws Take: while nobody owns the epic it makes the viewer its owner (the same `take` gesture on a plan item; its team is kept); once somebody does, it is drawn disabled, its tooltip naming the owner — changing the owner is the avatar's.
 - **Taking.** **Take** is the backlog's own gesture (`take`, MCP
   `take_card`): the card's right-most button asks "Take this card into
   work?" and makes it the viewer's, on the card's own team — today, the
@@ -150,10 +151,11 @@ board's order puts it — before the ranked ones of its run, oldest first —
 rather than after them.
 
 **Reviews nobody has taken** (K10, amended 2026-11-07 and 2026-11-08)
-stand FIRST, in a group of their own before every task, in the Strategy board's
-order of the tasks they review. Their place is their tasks': a review is
-not dragged (a drop of it is forbidden and writes nothing). K10's "at the
-top until somebody drags it" is gone.
+stood FIRST, in a group of their own before every task, in the Strategy board's
+order of the tasks they review, and were not dragged. **Amended
+2026-11-20**: K10's "at the top until somebody drags it" is back — a
+review is made at the top of the board's order and stands by its own key
+like a task, so it can be dragged lower (see **Order** above).
 
 ## Priorities removed; UNASSIGNED (K15, K16)
 
@@ -236,12 +238,13 @@ Decided 2026-11-03 with the owner (K10).
   made with **nobody** on it and **parked in the task's team's backlog**:
   the "needs a reviewer" item. A task that already has a review card gets
   no second one.
-- **Its place is first in the backlog** (amended with K14, 2026-11-07;
-  priorities removed 2026-11-08): in a group of its own before every task,
-  the reviews in their tasks' Strategy order. It is not dragged: its place
-  is its task's. It stands in the same list as the tasks, drawn as a
+- **Its place is first in the backlog until somebody drags it** (amended
+  2026-11-20; from 2026-11-07 to 2026-11-20 it was held in a group of its
+  own on top and never dragged): it is made at the top of the board's
+  order and stands by its own key, like a task — dragged lower, singly or
+  with its plan item's run, it stays where it was put. It stands in the same list as the tasks, drawn as a
   review card is drawn on the Me and Team boards, with the reviewed task's
-  parent chain — goal, initiative and epic only, as a task's; the drawer's breadcrumb, which ends in the task (`status.reviewed`), is the way to it — with the task's owner as the small counterpart avatar over the corner of its own, as on the Team and Me boards, and is not dragged: its place is its task's.
+  parent chain — goal, initiative and epic only, as a task's; the drawer's breadcrumb, which ends in the task (`status.reviewed`), is the way to it — with the task's owner as the small counterpart avatar over the corner of its own, as on the Team and Me boards.
 - **Taking one** is the card's owner picker with a person — `own` on the
   review card, the one owner answer a review card takes while nobody has
   it: it gets the reviewer, today, the reviewed task's sprint and the
@@ -322,10 +325,10 @@ parked tasks reachable, so nothing the migration parks is lost.
 | K7 | A task has no week: the API, the MCP and the codec refuse or drop `week` on a task; deadline stubs keep theirs. |
 | K8 | Schema 3 parks the tasks planned for a week ahead and the strip, keeps a task whose week has come in work on that week's dates and its team's current sprint, and strips every task week, in one idempotent pass. |
 | K9 | The Triage view, the `place` and `untriage` gestures and the `triage`/`triageWeek`/`due` status fields are gone from the API, the MCP and the SPA. |
-| K10 | Putting a task on review always makes its review card; without a reviewer it is made with nobody on it, parked in the team's backlog — first, in its task's Strategy order (K14), placed by its task and never dragged — and a person picked there takes it into work. |
+| K10 | Putting a task on review always makes its review card; without a reviewer it is made with nobody on it, parked in the team's backlog — made at the top of the board's order, so first until somebody drags it lower, like a task (amended 2026-11-20) — and a person picked there takes it into work. |
 | K11 | Take is the backlog's gesture: the card becomes the actor's, on its own team, and leaves the backlog; refused where there is nothing to take. |
 | K12 | The × on a review somebody has offers "back to backlog": the reviewer is taken off and the review waits, nobody on it, at the top of the reviewed task's team backlog; the task stays on review. |
 | K13 | The insert "+" in a gap of the list creates a task parked on the chosen team and placed there by the create itself (`after`/`before`), in one request. |
-| K14 | The backlog reads in the Strategy board's order — the path of board-order places from the root plan item down; loose tasks after the planned ones; the reviews nobody has taken first, placed by their tasks and never dragged — and a drag moves a task among its siblings only, which moves it on the Strategy board too. |
+| K14 | ~~The backlog reads in the Strategy board's order — the path of board-order places from the root plan item down; loose tasks after the planned ones; the reviews nobody has taken first, placed by their tasks and never dragged — and a drag moves a task among its siblings only, which moves it on the Strategy board too.~~ **Superseded** (2026-11-08) by Q2 ([ordering.md](ordering.md)): the backlog reads in the board's order; and since 2026-11-20 a review nobody has taken stands by its own key and is dragged like a task (K10). |
 | K15 | ~~Any card carries a priority, P0 to P4 or none; it counts under its effective priority (its own, else the nearest ancestor's), and the backlog reads P0 first and none last; nothing clears a priority on its own.~~ **Removed** (2026-11-08): order or priorities, not both; a `priority:` key in a file is an unknown key, kept and ignored. |
 | K16 | UNASSIGNED takes an open task in work (or every one under a plan item) back to its backlog, the ×'s unassign way, after a confirm that counts them; finished work is untouched. |

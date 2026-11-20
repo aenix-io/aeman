@@ -111,6 +111,9 @@ export function resourceToCard(res: CardResource): Card {
       title: l.title,
       // The ancestor's end: the Backlog board's due date for a task under it.
       ...(l.end ? { end: l.end } : {}),
+      // Whose a plan item is: a day board's group head draws it.
+      ...(l.team ? { team: l.team } : {}),
+      ...(l.owner ? { owner: l.owner } : {}),
     })),
     // The server's subtask answer, read for a review card only (isSubtask).
     ...(spec.reviewOf ? { subtask: res.status?.subtask ?? false } : {}),
