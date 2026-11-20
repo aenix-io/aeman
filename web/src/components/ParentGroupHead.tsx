@@ -24,6 +24,9 @@ interface ParentGroupHeadProps {
   selectedBy?: string[];
   /** The team avatar drawn dimmed, as the board's cards draw theirs. */
   dimAvatar?: boolean;
+  /** Drawn on the right before the count — the Backlog's chain of the plan
+   *  items above this one. */
+  aside?: React.ReactNode;
   /** A click on the head, as on a card: the first selects it, the second
    *  opens the plan item (S15). The board decides which this one is. */
   onPress?: () => void;
@@ -53,6 +56,7 @@ export function ParentGroupHead({
   selected,
   selectedBy,
   dimAvatar,
+  aside,
   onPress,
   avatars,
   names,
@@ -143,6 +147,7 @@ export function ParentGroupHead({
           </button>
         )}
       </span>
+      {aside}
       <span className="group-head-count">{head.done > 0 ? `${head.done}/${head.count}` : head.count}</span>
       {/* Whose the plan item is, drawn exactly as a task card draws whose it
           is (Card's card-assign): the team's avatar flush right, the owner's

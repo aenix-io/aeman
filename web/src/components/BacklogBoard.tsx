@@ -823,8 +823,16 @@ export function BacklogBoard({
                     )
                   }
                   onTake={c.assignees.length === 0 ? () => setTaking(c) : undefined}
+                  noChain
                 />
               );
+              // The plan items above a run's own, root first: its head draws
+              // them on the right, as a card draws its chain in Tasks.
+              const above = (run: PlanRun) => {
+                const line = run.cards[0].lineage ?? [];
+                const i = line.findIndex((l) => l.uid === run.head.uid);
+                return i > 0 ? line.slice(0, i) : [];
+              };
               return (
                 <>
                   {shown.length === 0 && !planCarry && gap(0, true)}
@@ -856,6 +864,7 @@ export function BacklogBoard({
                                   )
                                 : undefined
                             }
+                            aside={<ParentChain chain={above(run)} onOpen={openParent} />}
                             avatars={avatars}
                             names={names}
                           />
@@ -931,6 +940,8 @@ interface BacklogRowProps {
   onOpenParent: (uid: string) => void;
   /** Take, while nobody has the card: asks first (TakeDialog). */
   onTake?: () => void;
+  /** Leave the parent chain out: in Plans the group's head draws it. */
+  noChain?: boolean;
 }
 
 /** BacklogRow is one wide card, drawn as the Me and Team boards draw a card
@@ -950,6 +961,7 @@ function BacklogRow({
   onRemove,
   onOpenParent,
   onTake,
+  noChain = false,
 }: BacklogRowProps) {
   const mark = markOf(card);
   return (
@@ -972,7 +984,7 @@ function BacklogRow({
           ×
         </button>
       </span>
-      <ParentChain chain={parentChain(card)} onOpen={onOpenParent} />
+      {!noChain && <ParentChain chain={parentChain(card)} onOpen={onOpenParent} />}
       <span className="backlog-row-owner">{owner}</span>
       {onTake && (
         <button
