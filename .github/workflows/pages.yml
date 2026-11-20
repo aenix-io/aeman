@@ -44,7 +44,7 @@ jobs:
           SITE_URL: ${{ github.repository == 'aenix-io/aeman' && 'https://aeman.aenix.io/' || format('https://{0}.github.io/{1}/', github.repository_owner, github.event.repository.name) }}
         run: node site/build.mjs
       - run: node --test site/build.test.mjs
-      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         with:
           path: site/dist
