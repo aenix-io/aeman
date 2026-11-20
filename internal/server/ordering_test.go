@@ -307,8 +307,10 @@ func TestAGroupMovedOnABoardIsOneAction(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
 		t.Fatal(err)
 	}
-	if res.ActionID == "" || res.Moved != 2 {
-		t.Fatalf("answer = %+v, want the action and both cards", res)
+	// B1 takes a key behind A1; B2 already stands right behind B1 and needs
+	// none — the answer counts the cards that took a key.
+	if res.ActionID == "" || res.Moved != 1 {
+		t.Fatalf("answer = %+v, want the action and the one card that took a key", res)
 	}
 	if got := backlogOf(t, srv, ids); got != "A1 B1 B2 A2" {
 		t.Fatalf("backlog after the block moved behind A1 = %s", got)
@@ -322,6 +324,19 @@ func TestAGroupMovedOnABoardIsOneAction(t *testing.T) {
 	srv.store.waitDrained(ctx)
 	if got := headCount(t, srv) - before; got != 1 {
 		t.Fatalf("one group move is one commit; it made %d", got)
+	}
+	// A card named twice, or one the board does not have, is refused before
+	// anything is written: half a block must not move.
+	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/actions/move-together",
+		`{"uids":["`+ids["a2"]+`","`+ids["a2"]+`"],"zone":"planned"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("a card named twice: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/actions/move-together",
+		`{"uids":["`+ids["a2"]+`","01NOSUCHCARD00000000000000"],"zone":"planned"}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("a stranger in the block: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, srv, http.MethodGet, "/api/v1/cards/"+ids["a2"], ""); strings.Contains(rec.Body.String(), `"zone":"planned"`) {
+		t.Fatalf("a refused block wrote its first card: %s", rec.Body.String())
 	}
 	// Nothing to move is a mistake, not an empty success.
 	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/actions/move-together", `{"uids":[]}`); rec.Code != http.StatusBadRequest {

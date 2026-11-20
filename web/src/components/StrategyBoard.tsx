@@ -584,7 +584,14 @@ export function StrategyBoard({
   // visitor's reach — is let go and stops being broadcast. A row only
   // folded away keeps it: its parent wears the mark, as on the day boards.
   useEffect(() => {
-    if (focusRow && !board.cards.some((c) => c.itemId === focusRow)) {
+    // A row a breadcrumb is still revealing is not gone, and an empty board
+    // is one still loading, not one the card left.
+    if (
+      focusRow &&
+      board.cards.length > 0 &&
+      revealPending.current !== focusRow &&
+      !board.cards.some((c) => c.itemId === focusRow)
+    ) {
       setFocusRow(null);
     }
   }, [board.cards, focusRow]);

@@ -170,6 +170,30 @@ func (e LogNoteEntryType) Valid() bool {
 	}
 }
 
+// Defines values for MoveTogetherBodyZone.
+const (
+	MoveTogetherBodyZoneNiceToHave MoveTogetherBodyZone = "niceToHave"
+	MoveTogetherBodyZonePlanned    MoveTogetherBodyZone = "planned"
+	MoveTogetherBodyZoneUnplanned  MoveTogetherBodyZone = "unplanned"
+	MoveTogetherBodyZoneUrgent     MoveTogetherBodyZone = "urgent"
+)
+
+// Valid indicates whether the value is a known member of the MoveTogetherBodyZone enum.
+func (e MoveTogetherBodyZone) Valid() bool {
+	switch e {
+	case MoveTogetherBodyZoneNiceToHave:
+		return true
+	case MoveTogetherBodyZonePlanned:
+		return true
+	case MoveTogetherBodyZoneUnplanned:
+		return true
+	case MoveTogetherBodyZoneUrgent:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NoteListKind.
 const (
 	NoteListKindNoteList NoteListKind = "NoteList"
@@ -789,12 +813,15 @@ type MoveTogetherBody struct {
 	// Before The card the block lands in front of. It wins when both are sent.
 	Before *string `json:"before,omitempty"`
 
-	// Uids The cards of the block, in the order they are to stand; at least one.
+	// Uids The cards of the block, in the order they are to stand; at least one, each once.
 	Uids []string `json:"uids"`
 
 	// Zone The band every card of the block takes, as a PATCH of its `zone`.
-	Zone *string `json:"zone,omitempty"`
+	Zone *MoveTogetherBodyZone `json:"zone,omitempty"`
 }
+
+// MoveTogetherBodyZone The band every card of the block takes, as a PATCH of its `zone`.
+type MoveTogetherBodyZone string
 
 // Note defines model for Note.
 type Note = apiserver.Note

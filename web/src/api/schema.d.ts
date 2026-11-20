@@ -1203,14 +1203,17 @@ export interface components {
             before?: string;
         };
         MoveTogetherBody: {
-            /** @description The cards of the block, in the order they are to stand; at least one. */
+            /** @description The cards of the block, in the order they are to stand; at least one, each once. */
             uids: string[];
             /** @description The card the block lands behind; empty means the top. */
             after?: string;
             /** @description The card the block lands in front of. It wins when both are sent. */
             before?: string;
-            /** @description The band every card of the block takes, as a PATCH of its `zone`. */
-            zone?: string;
+            /**
+             * @description The band every card of the block takes, as a PATCH of its `zone`.
+             * @enum {string}
+             */
+            zone?: "urgent" | "unplanned" | "planned" | "niceToHave";
             /** @description The person every card of the block takes, as a PATCH of its `assignees` (a review card's is its reviewer); `[]` is nobody. */
             assignees?: string[];
         };

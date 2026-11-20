@@ -751,6 +751,18 @@ func (a surface) MoveTogether(ctx context.Context, req apiv1.MoveTogetherRequest
 	if err != nil {
 		return nil, err
 	}
+	// Every card is checked before the first write: a stranger or a card
+	// named twice half-way through must not leave half the block moved.
+	seen := make(map[string]bool, len(uids))
+	for _, uid := range uids {
+		if seen[uid] {
+			return nil, problem(http.StatusBadRequest, "invalidBody", "uids names "+uid+" twice")
+		}
+		seen[uid] = true
+		if _, err := svc.Card(ctx, boardID, uid); err != nil {
+			return nil, err
+		}
+	}
 	if req.Body.Zone != nil || req.Body.Assignees != nil {
 		var p apiv1.CardPatch
 		if req.Body.Zone != nil {
@@ -773,10 +785,11 @@ func (a surface) MoveTogether(ctx context.Context, req apiv1.MoveTogetherRequest
 		if i > 0 {
 			spot = board.Spot{After: uids[i-1]}
 		}
-		if _, err := svc.Move(ctx, boardID, uid, spot); err != nil {
+		res, err := svc.Move(ctx, boardID, uid, spot)
+		if err != nil {
 			return nil, err
 		}
-		moved++
+		moved += res.Moved
 	}
 	return apiv1.MoveTogether200JSONResponse(moveResultOf(ctx, boardservice.MoveResult{Moved: moved})), nil
 }

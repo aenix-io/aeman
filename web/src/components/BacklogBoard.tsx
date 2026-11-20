@@ -31,7 +31,7 @@ import {
 } from "../backlogboard";
 import type { LineageRef } from "../providers/types";
 import { ParentGroupHead, type GroupAssign } from "./ParentGroupHead";
-import { adjacentRuns, reassignable, type PlanRun } from "../grouping";
+import { adjacentRuns, blockAnchor, reassignable, type PlanRun } from "../grouping";
 import { readMode } from "../viewprefs";
 import { justMade, noteMade } from "../justmade";
 import { ownerOf, type Owner } from "../owner";
@@ -313,7 +313,10 @@ export function BacklogBoard({
       teams: roster,
       people: members,
       team: own1.size === 1 ? [...own1][0] || undefined : undefined,
-      onTeam: (t) => cards.forEach((c) => t && handOver(c, t)),
+      // A backlog card is always some team's and nobody's yet: there is no
+      // "No team" or "Unassigned" to hand it to here.
+      clearable: false,
+      onTeam: (t) => cards.forEach((c) => t && c.team !== t && handOver(c, t)),
       onPerson: (login) => {
         if (login) {
           cards.forEach((c) => own(c, { team: c.team ?? "", person: login }));
@@ -472,11 +475,12 @@ export function BacklogBoard({
       // A run is ONE request (S21): the block at the first card's anchor, one
       // commit; a lone card is the plain move.
       if (anchors.length > 1) {
+        // The block's one anchor is a card OUTSIDE it (grouping.blockAnchor):
+        // a run dropped at the very top would otherwise be anchored before its
+        // own second card, which leaves it where it was.
+        const ids = anchors.map((a) => a.id);
         provider
-          .moveTogether(
-            anchors.map((a) => a.id),
-            anchors[0].anchor && "before" in anchors[0].anchor ? { before: anchors[0].anchor.before } : { after: anchors[0].anchor?.after ?? null },
-          )
+          .moveTogether(ids, blockAnchor(next, ids, next))
           .catch((err: unknown) => {
             onError(errText(err));
             reload();

@@ -54,6 +54,8 @@ export interface GroupAssign {
   person?: string;
   onTeam: (team: string | null) => void;
   onPerson?: (login: string | null) => void;
+  /** Offer "No team" and "Unassigned" (true unless a board has neither). */
+  clearable?: boolean;
 }
 
 // A press on a control of the head is the control's: it must not start a
@@ -235,6 +237,7 @@ export function ParentGroupHead({
                   {t}
                 </button>
               ))}
+              {assign.clearable !== false && (
               <button
                 type="button"
                 className="card-stage-item card-stage-clear"
@@ -246,6 +249,7 @@ export function ParentGroupHead({
               >
                 No team
               </button>
+              )}
             </div>
             {assign.onPerson && (
               <div className="card-assign-col">
@@ -265,6 +269,7 @@ export function ParentGroupHead({
                     {displayName(p, names)}
                   </button>
                 ))}
+                {assign.clearable !== false && (
                 <button
                   type="button"
                   className="card-stage-item card-stage-clear"
@@ -276,6 +281,7 @@ export function ParentGroupHead({
                 >
                   Unassigned
                 </button>
+                )}
               </div>
             )}
           </div>

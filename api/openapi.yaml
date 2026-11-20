@@ -2733,7 +2733,8 @@ components:
       properties:
         uids:
           type: array
-          description: The cards of the block, in the order they are to stand; at least one.
+          minItems: 1
+          description: The cards of the block, in the order they are to stand; at least one, each once.
           items:
             type: string
         after:
@@ -2744,6 +2745,7 @@ components:
           description: The card the block lands in front of. It wins when both are sent.
         zone:
           type: string
+          enum: [urgent, unplanned, planned, niceToHave]
           description: The band every card of the block takes, as a PATCH of its `zone`.
         assignees:
           type: array
