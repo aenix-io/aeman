@@ -31,7 +31,7 @@ import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 import { isSubtask, subtaskParent, subtaskShows } from "../subtasks";
-import { expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowUid, reassignable, type PlanRow } from "../grouping";
+import { expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowUid, reassignable, blockAnchor, type PlanRow } from "../grouping";
 import { ParentGroupHead, type GroupAssign } from "./ParentGroupHead";
 import { GroupBacklogDialog } from "./GroupBacklogDialog";
 import { FoldControls } from "./FoldControls";
@@ -677,19 +677,23 @@ export function TeamBoard({
       setExpandedPlans((cur) => new Set(cur).add(back));
     }
     const cell = cells.find((ids) => ids.includes(h.cards[0])) ?? [];
-    void (async () => {
-      try {
-        for (const { id, patch } of patches) {
-          if (Object.keys(patch).length > 0) {
-            await provider.patchCard(id, patch);
-          }
-          await persistPlace(id, cell, order);
-        }
-      } catch (err: unknown) {
-        onError(errMessage(err));
-        reload();
+    // ONE request for the whole group (S21): the cell it landed in and its
+    // place, the block in the cell's order — one commit, not a patch and a
+    // move per card.
+    const into: { zone?: ZoneKey; assignees?: string[] } = {};
+    for (const { patch } of patches) {
+      if (patch.zone) {
+        into.zone = patch.zone;
       }
-    })();
+      if (patch.assignees) {
+        into.assignees = patch.assignees;
+      }
+    }
+    const block = cell.filter((id) => moving.has(id));
+    provider.moveTogether(block, blockAnchor(cell, block, order), into).catch((err: unknown) => {
+      onError(errMessage(err));
+      reload();
+    });
   };
 
   // A card dropped on a head's middle band joins that plan item, in the head's
@@ -1056,6 +1060,7 @@ export function TeamBoard({
               setSelectedCardId(null);
             }}
             assign={groupAssign(h.cards)}
+            reviewPrefix
             avatars={avatars}
             names={names}
           />

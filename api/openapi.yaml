@@ -521,6 +521,35 @@ paths:
                 $ref: '#/components/schemas/MoveResult'
         default:
           $ref: '#/components/responses/Problem'
+  /cards/actions/move-together:
+    post:
+      operationId: moveTogether
+      tags: [Cards]
+      summary: Move a block of cards as one action — a plan group dragged on a board.
+      description: >-
+        What dragging a plan group's head does (Plans on Team and Me, a run on
+        the Backlog): every card named takes `zone` and `assignees` when they
+        are sent, by the same rules as a PATCH of that card, and the block is
+        placed at the anchor in the order given — the first card where a move
+        of it would put it (`before` wins over `after`; an empty `after` is
+        the top), each next one right behind the one before. All of it is ONE
+        action and one commit. The answer names the action and how many
+        cards were placed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveTogetherBody'
+      responses:
+        '200':
+          description: The block is moved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoveResult'
+        default:
+          $ref: '#/components/responses/Problem'
   /cards/{uid}/actions/reorder-in-epic:
     post:
       operationId: reorderInEpic
@@ -2698,6 +2727,31 @@ components:
         before:
           type: string
           description: The card to land in front of. It wins when both are sent.
+    MoveTogetherBody:
+      type: object
+      required: [uids]
+      properties:
+        uids:
+          type: array
+          description: The cards of the block, in the order they are to stand; at least one.
+          items:
+            type: string
+        after:
+          type: string
+          description: The card the block lands behind; empty means the top.
+        before:
+          type: string
+          description: The card the block lands in front of. It wins when both are sent.
+        zone:
+          type: string
+          description: The band every card of the block takes, as a PATCH of its `zone`.
+        assignees:
+          type: array
+          description: >-
+            The person every card of the block takes, as a PATCH of its
+            `assignees` (a review card's is its reviewer); `[]` is nobody.
+          items:
+            type: string
     DeferCardBody:
       type: object
       properties:

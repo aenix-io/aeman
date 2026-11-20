@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { adjacentRuns, reassignable, arrangeByParent, expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowId, planRowUid } from "./grouping";
+import { adjacentRuns, blockAnchor, reassignable, arrangeByParent, expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowId, planRowUid } from "./grouping";
 import type { Card, LineageRef } from "./providers/types";
 
 const goal: LineageRef = { uid: "g", type: "goal", title: "Cozystack" };
@@ -324,5 +324,22 @@ describe("reassignable", () => {
   });
   it("is empty for a group of reviews only", () => {
     expect(reassignable([card("r", { reviewOf: "x" })])).toEqual([]);
+  });
+});
+
+// Where a moved group stands, as ONE anchor for the whole block (S21): its
+// cell's card in front of it, else the cell's card behind it, else — alone in
+// its cell — the board's order around it.
+describe("blockAnchor", () => {
+  const order = ["x", "a", "b", "y"];
+  it("anchors behind the cell's card in front of the block", () => {
+    expect(blockAnchor(["p", "a", "b", "q"], ["a", "b"], order)).toEqual({ after: "p" });
+  });
+  it("anchors before the cell's card behind the block when it leads the cell", () => {
+    expect(blockAnchor(["a", "b", "q"], ["a", "b"], order)).toEqual({ before: "q" });
+  });
+  it("falls back to the board's order when the block is the whole cell", () => {
+    expect(blockAnchor(["a", "b"], ["a", "b"], order)).toEqual({ after: "x" });
+    expect(blockAnchor(["x", "y"], ["x", "y"], ["x", "y"])).toEqual({ after: null });
   });
 });

@@ -30,8 +30,8 @@ import {
   type Anchor,
 } from "../backlogboard";
 import type { LineageRef } from "../providers/types";
-import { ParentGroupHead } from "./ParentGroupHead";
-import { adjacentRuns, type PlanRun } from "../grouping";
+import { ParentGroupHead, type GroupAssign } from "./ParentGroupHead";
+import { adjacentRuns, reassignable, type PlanRun } from "../grouping";
 import { readMode } from "../viewprefs";
 import { justMade, noteMade } from "../justmade";
 import { ownerOf, type Owner } from "../owner";
@@ -299,6 +299,30 @@ export function BacklogBoard({
     [me, board, today, patchCard, provider, addCard, onError],
   );
 
+  // ---- a run's head: its avatar and its Take hand the run's tasks over ----
+  // Each card by its own gesture — a team hands it over still parked (K5), a
+  // person takes it into work (K4), Take takes it for the viewer (K11) — so
+  // the rules are the card's; the plan item's own owner is not touched.
+  const runAssign = (run: PlanRun): GroupAssign | undefined => {
+    const cards = reassignable(run.cards);
+    if (cards.length === 0) {
+      return undefined;
+    }
+    const own1 = new Set(cards.map((c) => c.team ?? ""));
+    return {
+      teams: roster,
+      people: members,
+      team: own1.size === 1 ? [...own1][0] || undefined : undefined,
+      onTeam: (t) => cards.forEach((c) => t && handOver(c, t)),
+      onPerson: (login) => {
+        if (login) {
+          cards.forEach((c) => own(c, { team: c.team ?? "", person: login }));
+        }
+      },
+    };
+  };
+  const [takingRun, setTakingRun] = useState<PlanRun | null>(null);
+
   // ---- selecting: shared live through presence (#290) ----
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedRef = useRef<string | null>(null);
@@ -445,6 +469,20 @@ export function BacklogBoard({
       for (const { id, anchor } of anchors) {
         moveInBoardOrder?.(id, anchor);
       }
+      // A run is ONE request (S21): the block at the first card's anchor, one
+      // commit; a lone card is the plain move.
+      if (anchors.length > 1) {
+        provider
+          .moveTogether(
+            anchors.map((a) => a.id),
+            anchors[0].anchor && "before" in anchors[0].anchor ? { before: anchors[0].anchor.before } : { after: anchors[0].anchor?.after ?? null },
+          )
+          .catch((err: unknown) => {
+            onError(errText(err));
+            reload();
+          });
+        return;
+      }
       void (async () => {
         try {
           for (const { id, anchor } of anchors) {
@@ -456,7 +494,7 @@ export function BacklogBoard({
         }
       })();
     },
-    [list, board.cards, reorderCards, moveInBoardOrder, persistAnchor, onError, reload],
+    [list, board.cards, reorderCards, moveInBoardOrder, persistAnchor, provider, onError, reload],
   );
   const beginPlanDrag = useCallback(
     (moving: CardModel[], click: () => void, title: string) => (e: React.PointerEvent) => {
@@ -864,7 +902,27 @@ export function BacklogBoard({
                                   )
                                 : undefined
                             }
-                            aside={<ParentChain chain={above(run)} onOpen={openParent} />}
+                            aside={
+                              <>
+                                <ParentChain chain={above(run)} onOpen={openParent} />
+                                {run.head.uid && reassignable(run.cards).some((c) => c.assignees.length === 0) && (
+                                  <button
+                                    type="button"
+                                    className="backlog-take-btn"
+                                    aria-haspopup="dialog"
+                                    title="Take the run's tasks into work yourself"
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setTakingRun(run);
+                                    }}
+                                  >
+                                    Take
+                                  </button>
+                                )}
+                              </>
+                            }
+                            assign={runAssign(run)}
                             reviewPrefix
                             avatars={avatars}
                             names={names}
@@ -903,6 +961,15 @@ export function BacklogBoard({
             })()}
           </div>
         </section>
+      )}
+      {takingRun && (
+        <TakeDialog
+          title={takingRun.head.title}
+          heading="Take these tasks into work?"
+          text={`The open tasks of «${takingRun.head.title}» here that nobody has become yours, today, and leave the backlog.`}
+          onClose={() => setTakingRun(null)}
+          onTake={() => reassignable(takingRun.cards).filter((c) => c.assignees.length === 0).forEach((c) => take(c))}
+        />
       )}
       {taking && (
         <TakeDialog

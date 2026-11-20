@@ -28,8 +28,8 @@ interface ParentGroupHeadProps {
   /** Drawn on the right before the count — the Backlog's chain of the plan
    *  items above this one. */
   aside?: React.ReactNode;
-  /** A group of review cards only reads "review: …" as a review card does
-   *  (the Backlog); the day boards leave the stripe alone to say it. */
+  /** A group of review cards only reads "review: …" as a review card does,
+   *  beside its stripe. */
   reviewPrefix?: boolean;
   /** A click on the head, as on a card: the first selects it, the second
    *  opens the plan item (S15). The board decides which this one is. */

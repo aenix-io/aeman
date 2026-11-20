@@ -218,6 +218,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cards/actions/move-together": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a block of cards as one action — a plan group dragged on a board.
+         * @description What dragging a plan group's head does (Plans on Team and Me, a run on the Backlog): every card named takes `zone` and `assignees` when they are sent, by the same rules as a PATCH of that card, and the block is placed at the anchor in the order given — the first card where a move of it would put it (`before` wins over `after`; an empty `after` is the top), each next one right behind the one before. All of it is ONE action and one commit. The answer names the action and how many cards were placed.
+         */
+        post: operations["moveTogether"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cards/{uid}/actions/reorder-in-epic": {
         parameters: {
             query?: never;
@@ -1182,6 +1202,18 @@ export interface components {
             /** @description The card to land in front of. It wins when both are sent. */
             before?: string;
         };
+        MoveTogetherBody: {
+            /** @description The cards of the block, in the order they are to stand; at least one. */
+            uids: string[];
+            /** @description The card the block lands behind; empty means the top. */
+            after?: string;
+            /** @description The card the block lands in front of. It wins when both are sent. */
+            before?: string;
+            /** @description The band every card of the block takes, as a PATCH of its `zone`. */
+            zone?: string;
+            /** @description The person every card of the block takes, as a PATCH of its `assignees` (a review card's is its reviewer); `[]` is nobody. */
+            assignees?: string[];
+        };
         DeferCardBody: {
             /** @description How many days ahead of today the card is pushed; must be positive. */
             days?: number;
@@ -1925,6 +1957,31 @@ export interface operations {
         };
         responses: {
             /** @description The order is applied. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MoveResult"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    moveTogether: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveTogetherBody"];
+            };
+        };
+        responses: {
+            /** @description The block is moved. */
             200: {
                 headers: {
                     [name: string]: unknown;

@@ -71,7 +71,7 @@ import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard
 import { ParentGroupHead, type GroupAssign } from "./ParentGroupHead";
 import { GroupBacklogDialog } from "./GroupBacklogDialog";
 import { FoldControls } from "./FoldControls";
-import { expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowUid, reassignable, type PlanRow } from "../grouping";
+import { expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowUid, reassignable, blockAnchor, type PlanRow } from "../grouping";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
 interface MeBoardProps {
@@ -1557,16 +1557,12 @@ export function MeBoard({
         setExpandedPlans((cur) => new Set(cur).add(card.itemId));
       }
       const band = bands.find((ids) => ids.includes(h.cards[0])) ?? [];
-      void (async () => {
-        try {
-          for (const id of h.cards) {
-            await persistPlace(id, band, order);
-          }
-        } catch (err: unknown) {
-          onError(errMessage(err));
-          reload();
-        }
-      })();
+      // ONE request for the whole group (S21): one commit, not a move per card.
+      const block = band.filter((id) => moving.has(id));
+      provider.moveTogether(block, blockAnchor(band, block, order)).catch((err: unknown) => {
+        onError(errMessage(err));
+        reload();
+      });
       return;
     }
     const pd = planDrop(card, groupUnder, heads);
@@ -1690,6 +1686,7 @@ export function MeBoard({
               setSelectedCardId(null);
             }}
             assign={groupAssign(h.cards)}
+            reviewPrefix
             avatars={avatars}
             names={names}
           />

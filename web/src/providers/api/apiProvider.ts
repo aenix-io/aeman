@@ -464,6 +464,23 @@ export const apiProvider: Provider = {
     return { actionId: data?.actionId, moved: data?.moved ?? 0 };
   },
 
+  async moveTogether(uids, anchor, cell): Promise<void> {
+    const ids = await Promise.all(uids.map(resolveCardId));
+    const body: { uids: string[]; after?: string; before?: string; zone?: string; assignees?: string[] } = { uids: ids };
+    if ("before" in anchor) {
+      body.before = await resolveCardId(anchor.before);
+    } else {
+      body.after = anchor.after ? await resolveCardId(anchor.after) : "";
+    }
+    if (cell?.zone !== undefined) {
+      body.zone = semanticZone(cell.zone);
+    }
+    if (cell?.assignees !== undefined) {
+      body.assignees = cell.assignees;
+    }
+    await client.POST("/cards/actions/move-together", { body });
+  },
+
   async moveCardBefore(
     uid: string,
     beforeId: string,

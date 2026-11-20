@@ -516,68 +516,81 @@ func (a surface) PatchCard(ctx context.Context, req apiv1.PatchCardRequestObject
 		return nil, err
 	}
 	uid, p := req.UID, req.Body
+	if err := applyPatch(ctx, svc, boardID, uid, p); err != nil {
+		return nil, err
+	}
+	card, err := a.s.cardOf(ctx, svc, boardID, uid)
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.PatchCard200JSONResponse(card), nil
+}
+
+// applyPatch applies a spec patch field by field through the service, in the
+// order PATCH /cards/{uid} documents — the assignees last.
+func applyPatch(ctx context.Context, svc *boardservice.Service, boardID, uid string, p *apiv1.CardPatch) error {
 	if p.Title != nil {
 		if err := svc.Rename(ctx, boardID, uid, *p.Title); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if p.Description != nil {
 		if err := svc.SetDescription(ctx, boardID, uid, *p.Description); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if p.Team != nil {
 		if err := svc.SetTeam(ctx, boardID, uid, *p.Team, ""); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if p.Owner != nil {
 		if err := svc.SetOwner(ctx, boardID, uid, *p.Owner); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if p.Customers != nil {
 		if err := svc.SetCustomers(ctx, boardID, uid, *p.Customers); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if p.DependsOn != nil {
 		if err := svc.SetDependsOn(ctx, boardID, uid, *p.DependsOn); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if err := patchZoneAndSize(ctx, svc, boardID, uid, p); err != nil {
-		return nil, err
+		return err
 	}
 	if p.Stage != nil {
 		stage, err := parseStage(string(*p.Stage))
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if err := svc.SetStage(ctx, boardID, uid, stage); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if p.Recurrence != nil {
 		if err := svc.SetRecurrence(ctx, boardID, uid, *p.Recurrence); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if p.Progress != nil {
 		if err := svc.SetProgress(ctx, boardID, uid, *p.Progress); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if p.Dates != nil {
 		if err := applyDatesPatch(ctx, svc, boardID, uid, p.Dates); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if err := applyPlacementPatch(ctx, svc, boardID, uid, p); err != nil {
-		return nil, err
+		return err
 	}
 	if err := applyGroupingPatch(ctx, svc, boardID, uid, p); err != nil {
-		return nil, err
+		return err
 	}
 	// Assignees are applied AFTER the parent on purpose. Ungrouping hands an
 	// ownerless child the parent's person so it does not fall off every
@@ -589,19 +602,15 @@ func (a surface) PatchCard(ctx context.Context, req apiv1.PatchCardRequestObject
 			login = (*p.Assignees)[0]
 		}
 		if err := svc.SetAssignee(ctx, boardID, uid, login); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if p.ReviewOf != nil {
 		if err := svc.SetReviewOf(ctx, boardID, uid, *p.ReviewOf); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	card, err := a.s.cardOf(ctx, svc, boardID, uid)
-	if err != nil {
-		return nil, err
-	}
-	return apiv1.PatchCard200JSONResponse(card), nil
+	return nil
 }
 
 // applyDatesPatch applies a spec.dates patch. A patched start runs the calendar
@@ -727,6 +736,49 @@ func (a surface) MoveCard(ctx context.Context, req apiv1.MoveCardRequestObject) 
 		return nil, err
 	}
 	return apiv1.MoveCard200JSONResponse(moveResultOf(ctx, res)), nil
+}
+
+// MoveTogether moves a block of cards as one action — a plan group dragged
+// on a board: each takes the zone and person sent, as a PATCH of it would,
+// then the first is placed at the anchor and each next right behind the one
+// before. One request, so one commit (S21).
+func (a surface) MoveTogether(ctx context.Context, req apiv1.MoveTogetherRequestObject) (apiv1.MoveTogetherResponseObject, error) {
+	uids := req.Body.Uids
+	if len(uids) == 0 {
+		return nil, problem(http.StatusBadRequest, "invalidBody", "uids names no card to move")
+	}
+	svc, boardID, err := a.s.serviceOf()
+	if err != nil {
+		return nil, err
+	}
+	if req.Body.Zone != nil || req.Body.Assignees != nil {
+		var p apiv1.CardPatch
+		if req.Body.Zone != nil {
+			z := apiv1.CardPatchZone(*req.Body.Zone)
+			p.Zone = &z
+		}
+		p.Assignees = req.Body.Assignees
+		for _, uid := range uids {
+			if err := applyPatch(ctx, svc, boardID, uid, &p); err != nil {
+				return nil, err
+			}
+		}
+	}
+	spot := board.Spot{After: strOf(req.Body.After)}
+	if before := strOf(req.Body.Before); before != "" {
+		spot = board.Spot{Before: before}
+	}
+	moved := 0
+	for i, uid := range uids {
+		if i > 0 {
+			spot = board.Spot{After: uids[i-1]}
+		}
+		if _, err := svc.Move(ctx, boardID, uid, spot); err != nil {
+			return nil, err
+		}
+		moved++
+	}
+	return apiv1.MoveTogether200JSONResponse(moveResultOf(ctx, boardservice.MoveResult{Moved: moved})), nil
 }
 
 // ReorderInEpic moves a task within its epic over its epic's slots (Q6).

@@ -778,6 +778,24 @@ type MoveResult struct {
 	Moved int `json:"moved"`
 }
 
+// MoveTogetherBody defines model for MoveTogetherBody.
+type MoveTogetherBody struct {
+	// After The card the block lands behind; empty means the top.
+	After *string `json:"after,omitempty"`
+
+	// Assignees The person every card of the block takes, as a PATCH of its `assignees` (a review card's is its reviewer); `[]` is nobody.
+	Assignees *[]string `json:"assignees,omitempty"`
+
+	// Before The card the block lands in front of. It wins when both are sent.
+	Before *string `json:"before,omitempty"`
+
+	// Uids The cards of the block, in the order they are to stand; at least one.
+	Uids []string `json:"uids"`
+
+	// Zone The band every card of the block takes, as a PATCH of its `zone`.
+	Zone *string `json:"zone,omitempty"`
+}
+
 // Note defines model for Note.
 type Note = apiserver.Note
 
@@ -1286,6 +1304,9 @@ type TakeCardParams struct {
 	Snapshot *Snapshot `form:"snapshot,omitempty" json:"snapshot,omitempty"`
 }
 
+// MoveTogetherJSONRequestBody defines body for MoveTogether for application/json ContentType.
+type MoveTogetherJSONRequestBody = MoveTogetherBody
+
 // PatchCardJSONRequestBody defines body for PatchCard for application/json ContentType.
 type PatchCardJSONRequestBody = CardPatch
 
@@ -1360,6 +1381,9 @@ type ServerInterface interface {
 	// GetBoard The board: title, the team roster, the people and the visitor's domains.
 	// (GET /board)
 	GetBoard(w http.ResponseWriter, r *http.Request, params GetBoardParams)
+	// MoveTogether Move a block of cards as one action — a plan group dragged on a board.
+	// (POST /cards/actions/move-together)
+	MoveTogether(w http.ResponseWriter, r *http.Request)
 	// DeleteCard Hard delete, cascading to the linked review card.
 	// (DELETE /cards/{uid})
 	DeleteCard(w http.ResponseWriter, r *http.Request, uid UID)
@@ -1538,6 +1562,20 @@ func (siw *ServerInterfaceWrapper) GetBoard(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetBoard(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MoveTogether operation middleware
+func (siw *ServerInterfaceWrapper) MoveTogether(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MoveTogether(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3530,6 +3568,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cards/{uid}", wrapper.GetCard)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/cards/{uid}", wrapper.PatchCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/move", wrapper.MoveCard)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/actions/move-together", wrapper.MoveTogether)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/reorder-in-epic", wrapper.ReorderInEpic)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/defer", wrapper.DeferCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/in-progress", wrapper.SetInProgress)
@@ -3592,6 +3631,45 @@ type GetBoarddefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response GetBoarddefaultApplicationProblemPlusJSONResponse) VisitGetBoardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveTogetherRequestObject struct {
+	Body *MoveTogetherJSONRequestBody
+}
+
+type MoveTogetherResponseObject interface {
+	VisitMoveTogetherResponse(w http.ResponseWriter) error
+}
+
+type MoveTogether200JSONResponse MoveResult
+
+func (response MoveTogether200JSONResponse) VisitMoveTogetherResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveTogetherdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response MoveTogetherdefaultApplicationProblemPlusJSONResponse) VisitMoveTogetherResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -5090,6 +5168,9 @@ type StrictServerInterface interface {
 	// GetBoard The board: title, the team roster, the people and the visitor's domains.
 	// (GET /board)
 	GetBoard(ctx context.Context, request GetBoardRequestObject) (GetBoardResponseObject, error)
+	// MoveTogether Move a block of cards as one action — a plan group dragged on a board.
+	// (POST /cards/actions/move-together)
+	MoveTogether(ctx context.Context, request MoveTogetherRequestObject) (MoveTogetherResponseObject, error)
 	// DeleteCard Hard delete, cascading to the linked review card.
 	// (DELETE /cards/{uid})
 	DeleteCard(ctx context.Context, request DeleteCardRequestObject) (DeleteCardResponseObject, error)
@@ -5267,6 +5348,37 @@ func (sh *strictHandler) GetBoard(w http.ResponseWriter, r *http.Request, params
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetBoardResponseObject); ok {
 		if err := validResponse.VisitGetBoardResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MoveTogether operation middleware
+func (sh *strictHandler) MoveTogether(w http.ResponseWriter, r *http.Request) {
+	var request MoveTogetherRequestObject
+
+	var body MoveTogetherJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MoveTogether(ctx, request.(MoveTogetherRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MoveTogether")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MoveTogetherResponseObject); ok {
+		if err := validResponse.VisitMoveTogetherResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

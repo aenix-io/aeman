@@ -827,6 +827,26 @@ select {
   visibility: hidden;
 }
 
+/* A plan group's head leaves the same dashed gap where it would land (Plans
+   on Team and Me); the lifted head follows the pointer in the overlay. */
+.sortable-card-placeholder .group-head {
+  background: transparent;
+  border: 1px dashed var(--placeholder-border);
+  box-shadow: none;
+}
+
+.sortable-card-placeholder .group-head > *,
+.sortable-card-placeholder .group-head::before,
+.sortable-card-placeholder .group-add {
+  visibility: hidden;
+}
+
+.dnd-overlay .group-head {
+  box-shadow: 0 8px 20px var(--elev-3);
+  transform: scale(1.02);
+  cursor: grabbing;
+}
+
 /* The lifted card following the pointer (rendered in a DragOverlay portal). */
 .dnd-overlay {
   cursor: grabbing;
