@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -379,23 +380,52 @@ func initHint(url string) error {
 // clone instead of a refusal.
 func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url string, log *slog.Logger) (*gitstore.Repo, bool, error) {
 	opts.Dir = dir // where Maintain runs `git repack`
+	// A tmp_pack_* is a pack whose write never finished; nothing reads it.
+	// Not filepath.Glob: dir comes from --data and may hold its metacharacters.
+	packs := filepath.Join(dir, "objects", "pack")
+	entries, err := os.ReadDir(packs)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		log.Warn("could not look for partial packs", "repo", url, "path", packs, "err", err)
+	}
+	dropped := 0
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), "tmp_pack_") {
+			continue
+		}
+		f := filepath.Join(packs, e.Name())
+		if err := os.Remove(f); err != nil {
+			log.Warn("could not drop a partial pack", "repo", url, "path", f, "err", err)
+			continue
+		}
+		dropped++
+	}
+	if dropped > 0 {
+		log.Warn("dropped partial packs", "repo", url, "count", dropped)
+	}
 	storer := filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
-	if existing := gitstore.Open(storer, opts); !existing.Head().IsZero() {
-		err := existing.CheckStore()
-		if !errors.Is(err, gitstore.ErrStoreLost) {
-			if err != nil {
-				return nil, false, err
-			}
+	existing := gitstore.Open(storer, opts)
+	switch err := existing.CheckStore(); {
+	case err == nil:
+		if !existing.Head().IsZero() {
 			return existing, true, nil
 		}
-		// A branch without HEAD is what a write into a store removed under
-		// a running process leaves. Set aside rather than deleted: it may
-		// hold a write that was never pushed.
+	case !errors.Is(err, gitstore.ErrStoreLost):
+		return nil, false, err
+	default:
+		if !holdsAFile(dir) {
+			break
+		}
+		if fi, err := os.Lstat(dir); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+			target, _ := filepath.EvalSymlinks(dir)
+			return nil, false, fmt.Errorf("clone directory %s is a symlink to %s and has no HEAD; move %s aside by hand and start again",
+				dir, target, target)
+		}
+		// Set aside rather than deleted: it may hold a write never pushed.
 		aside := fmt.Sprintf("%s.lost-%d", dir, time.Now().Unix())
 		if err := os.Rename(dir, aside); err != nil {
-			return nil, false, fmt.Errorf("set aside damaged clone: %w", err)
+			return nil, false, fmt.Errorf("set aside damaged clone %s; move it aside by hand and start again: %w", dir, err)
 		}
-		log.Warn("clone had a branch but no HEAD; set aside and cloning afresh, it may hold unpushed commits",
+		log.Warn("clone had no HEAD; set aside and cloning afresh, it may hold unpushed commits",
 			"repo", url, "aside", aside)
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return nil, false, fmt.Errorf("data dir: %w", err)
@@ -411,7 +441,7 @@ func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url 
 		// repository behind; start the directory over — it holds nothing
 		// yet — and a real failure fails again here.
 		if gitstore.Open(storer, opts).Head().IsZero() {
-			if err := os.RemoveAll(dir); err != nil {
+			if err := emptyDir(dir); err != nil {
 				return nil, false, fmt.Errorf("reset clone dir: %w", err)
 			}
 			if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -428,6 +458,56 @@ func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url 
 		return nil, false, fmt.Errorf("clone %s: %w", url, err)
 	}
 	return r, false, nil
+}
+
+// lostFound is what a freshly formatted ext* volume holds at its root,
+// unreadable to anyone but root; it is not a clone's content.
+const lostFound = "lost+found"
+
+// emptyDir removes what dir holds but keeps dir, which may be a mount point
+// or sit under a parent the process cannot write.
+func emptyDir(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.Name() == lostFound {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// holdsAFile reports whether anything but directories lies under dir. A
+// missing dir holds nothing; one that cannot be read through may hold
+// anything, and counts as holding a file.
+func holdsAFile(dir string) bool {
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return !errors.Is(err, fs.ErrNotExist)
+	}
+	held := false
+	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && d.Name() == lostFound && filepath.Dir(p) == root {
+			return fs.SkipDir
+		}
+		if !d.IsDir() {
+			held = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return held || (err != nil && !errors.Is(err, fs.ErrNotExist))
 }
 
 // recoverableRefreshError is deliberately narrow. A timeout or network
