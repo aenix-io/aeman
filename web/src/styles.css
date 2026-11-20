@@ -3721,6 +3721,29 @@ button.card-age {
   background: var(--accent-glow);
 }
 
+/* Somebody else has the row selected (presence, #290): the accent outline
+   the cards wear, and their avatars after the title. */
+.strategy-row-peer-selected {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.strategy-row-focus.strategy-row-peer-selected {
+  box-shadow: inset 3px 0 0 var(--accent), inset 0 0 0 1px var(--accent);
+}
+.strategy-presence {
+  display: inline-flex;
+  flex: none;
+  margin-left: 4px;
+}
+.strategy-presence-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--bg);
+}
+.strategy-presence-avatar + .strategy-presence-avatar {
+  margin-left: -5px;
+}
+
 .strategy-cell {
   padding: 0 6px;
   white-space: nowrap;

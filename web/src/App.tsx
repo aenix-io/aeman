@@ -1868,6 +1868,9 @@ export function App() {
             reload={reload}
             onError={onError}
             onOpen={openCard}
+            presence={presence}
+            onPresence={sharePresence}
+            me={config?.login ?? ""}
             focusId={strategyFocus}
             onFocused={() => setStrategyFocus(null)}
             filters={strategyFilters}

@@ -32,12 +32,15 @@ export function TreeTitle({
   onToggle,
   onAdd,
   onRemove,
+  marks,
 }: {
   row: Row;
   open: boolean;
   onToggle: () => void;
   onAdd: (() => void) | null;
   onRemove: (() => void) | null;
+  /** Who else has the row selected (presence), after the title. */
+  marks?: ReactNode;
 }) {
   const { node, depth, foldable } = row;
   const card = node.card;
@@ -74,6 +77,7 @@ export function TreeTitle({
       <span className="strategy-title" title={card.title}>
         {card.title}
       </span>
+      {marks}
       {isPlanning(card) && card.hierarchy && card.hierarchy.total > 0 && (
         <span className="strategy-count" title={`${card.hierarchy.done} of ${card.hierarchy.total} tasks done`}>
           {card.hierarchy.done}/{card.hierarchy.total}
