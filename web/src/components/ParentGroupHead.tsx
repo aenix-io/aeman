@@ -27,6 +27,9 @@ interface ParentGroupHeadProps {
   /** Drawn on the right before the count — the Backlog's chain of the plan
    *  items above this one. */
   aside?: React.ReactNode;
+  /** A group of review cards only reads "review: …" as a review card does
+   *  (the Backlog); the day boards leave the stripe alone to say it. */
+  reviewPrefix?: boolean;
   /** A click on the head, as on a card: the first selects it, the second
    *  opens the plan item (S15). The board decides which this one is. */
   onPress?: () => void;
@@ -57,6 +60,7 @@ export function ParentGroupHead({
   selectedBy,
   dimAvatar,
   aside,
+  reviewPrefix = false,
   onPress,
   avatars,
   names,
@@ -94,7 +98,10 @@ export function ParentGroupHead({
       )}
       <PresenceMarks selectedBy={selectedBy} avatars={avatars} names={names} />
       <span className="group-head-text" title={head.above ? `${head.above} › ${head.title}` : head.title}>
-        <span className="group-head-title">{head.title}</span>
+        <span className="group-head-title">
+          {reviewPrefix && head.reviewOnly ? "review: " : ""}
+          {head.title}
+        </span>
       </span>
       {/* The hover lane, as a card's: ID, × and +, growing to the left. */}
       <span className="card-actions">

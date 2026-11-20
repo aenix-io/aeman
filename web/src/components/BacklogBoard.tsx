@@ -865,6 +865,7 @@ export function BacklogBoard({
                                 : undefined
                             }
                             aside={<ParentChain chain={above(run)} onOpen={openParent} />}
+                            reviewPrefix
                             avatars={avatars}
                             names={names}
                           />
