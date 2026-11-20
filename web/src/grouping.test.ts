@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { adjacentRuns, blockAnchor, reassignable, takeable, arrangeByParent, expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowId, planRowUid } from "./grouping";
+import { adjacentRuns, blockAnchor, reassignable, takeable, takeQuestion, arrangeByParent, expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowId, planRowUid } from "./grouping";
 import type { Card, LineageRef } from "./providers/types";
 
 const goal: LineageRef = { uid: "g", type: "goal", title: "Cozystack" };
@@ -357,5 +357,30 @@ describe("takeable", () => {
   });
   it("offers Take on a run of reviews only", () => {
     expect(takeable([card("r", { reviewOf: "x" })]).length).toBe(1);
+  });
+});
+
+// What a run's Take asks before it takes (K11): on every head with something
+// to take — Ungrouped included, whose cards stand in no plan item and say so
+// rather than naming "Ungrouped" as if it were one — and on none without.
+describe("takeQuestion", () => {
+  const run = (uid: string, title: string, cards: ReturnType<typeof card>[], reviewOnly = false) =>
+    ({ id: `plan:backlog:${uid}:x`, head: { uid, type: uid ? "epic" : "none", title, count: cards.length, done: 0, reviewOnly }, cards }) as never;
+  it("asks on a plan item's run", () => {
+    expect(takeQuestion(run("e", "Billing", [card("a", {})]))?.text).toBe(
+      "The open cards of «Billing» here that nobody has become yours, today, and leave the backlog.",
+    );
+  });
+  it("asks on Ungrouped too, naming no plan item", () => {
+    expect(takeQuestion(run("", "Ungrouped", [card("a", {})]))?.text).toBe(
+      "The open cards here in no plan item that nobody has become yours, today, and leave the backlog.",
+    );
+    expect(takeQuestion(run("", "Ungrouped", [card("r", { reviewOf: "x" })], true))).toEqual({
+      heading: "Review these yourself?",
+      text: "The reviews here of tasks in no plan item that nobody has taken become yours, today.",
+    });
+  });
+  it("asks nothing where nothing is to take", () => {
+    expect(takeQuestion(run("", "Ungrouped", [card("d", { progress: 100 })]))).toBeNull();
   });
 });

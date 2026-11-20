@@ -31,7 +31,7 @@ import {
 } from "../backlogboard";
 import type { LineageRef } from "../providers/types";
 import { ParentGroupHead, type GroupAssign } from "./ParentGroupHead";
-import { adjacentRuns, blockAnchor, reassignable, takeable, type PlanRun } from "../grouping";
+import { adjacentRuns, blockAnchor, reassignable, takeable, takeQuestion, type PlanRun } from "../grouping";
 import { readMode } from "../viewprefs";
 import { justMade, noteMade } from "../justmade";
 import { ownerOf, type Owner } from "../owner";
@@ -908,7 +908,7 @@ export function BacklogBoard({
                             }
                             aside={<ParentChain chain={above(run)} onOpen={openParent} />}
                             trailing={
-                              run.head.uid && takeable(run.cards).length > 0 ? (
+                              takeQuestion(run) ? (
                                 <button
                                   type="button"
                                   className="backlog-take-btn"
@@ -971,12 +971,8 @@ export function BacklogBoard({
       {takingRun && (
         <TakeDialog
           title={takingRun.head.title}
-          heading={takingRun.head.reviewOnly ? "Review these yourself?" : "Take these cards into work?"}
-          text={
-            takingRun.head.reviewOnly
-              ? `The reviews of «${takingRun.head.title}» here that nobody has taken become yours, today.`
-              : `The open cards of «${takingRun.head.title}» here that nobody has become yours, today, and leave the backlog.`
-          }
+          heading={takeQuestion(takingRun)?.heading}
+          text={takeQuestion(takingRun)?.text}
           onClose={() => setTakingRun(null)}
           onTake={() => takeable(takingRun.cards).forEach((c) => take(c))}
         />
