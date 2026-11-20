@@ -480,14 +480,20 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	switch sel.View {
 	case "team":
 		// team accepts a comma-separated set so the Team board fetches every team
-		// it shows in one request; the grids are unioned, deduped by item id.
-		seen := map[string]bool{}
+		// it shows in one request; the grids are unioned, deduped by item id,
+		// and served in BOARD order like every listing — not team by team in
+		// the order the request named them, which put a person's cards of two
+		// teams in another order than their Me board shows.
+		on := map[string]bool{}
 		for _, t := range strings.Split(sel.Team, ",") {
 			for _, c := range board.TeamGridIn(b, index(), strings.TrimSpace(t), sel.Day) {
-				if !seen[c.ItemID] {
-					seen[c.ItemID] = true
-					base = append(base, c)
-				}
+				on[c.ItemID] = true
+			}
+		}
+		for _, c := range b.Cards {
+			if on[c.ItemID] {
+				base = append(base, c)
+				delete(on, c.ItemID)
 			}
 		}
 	case "me":
