@@ -55,6 +55,14 @@ type Selector struct {
 	// Focus keeps only workable cards — the "what can I act on now" filter
 	// (drops done, on-review and locked). It mirrors the Me view's focus toggle.
 	Focus bool
+	// Under keeps the cards standing under one card at any depth — a plan
+	// item's work, or a task's subtasks: what that item's group shows on a
+	// board. A review card stands under its task and what the task stands
+	// under. The card itself is not under itself.
+	Under string
+	// Group asks for the Plans reading ("plans"): the listing carries the
+	// groups the Team, Me and Backlog boards draw (PlanGroups).
+	Group string
 	// IncludeReviews brings review cards into a view. On me/team it APPENDS
 	// each returned card's linked review, so a client rendering the reviewer
 	// badge has it on hand without a second request. Off by default: agents
@@ -95,9 +103,16 @@ func ParseSelector(q url.Values) (Selector, error) {
 		Owner:          q.Get("owner"),
 		Status:         q.Get("status"),
 		Fields:         q.Get("fields"),
+		Under:          q.Get("under"),
+		Group:          q.Get("group"),
 	}
 	if err := CheckStatus(sel.Status); err != nil {
 		return Selector{}, err
+	}
+	switch sel.Group {
+	case "", "plans":
+	default:
+		return Selector{}, fmt.Errorf("unknown group %q (want plans)", sel.Group)
 	}
 	switch sel.Fields {
 	case "", "full", "summary":
@@ -516,8 +531,15 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 			dayIx = index()
 		}
 	}
+	var underIx *board.Index
+	if sel.Under != "" {
+		underIx = index()
+	}
 	for _, c := range base {
 		if dayCustomers != nil && !customerOK(dayIx, c, dayCustomers) {
+			continue
+		}
+		if underIx != nil && !isUnder(underIx, c, sel.Under) {
 			continue
 		}
 		// "done" is not a stored stage — it is DERIVED from progress, so a
@@ -757,6 +779,9 @@ func ListCards(b board.Board, sel Selector) CardList {
 		items = append(items, resource(b, ix, c))
 	}
 	list := CardList{Kind: "CardList", Items: items}
+	if sel.Group == "plans" {
+		list.Groups = PlanGroups(items, sel.View)
+	}
 	if sel.View == "backlog" {
 		list.BoardOrder = backlogBoardOrder(b)
 	}
@@ -874,6 +899,28 @@ func Drawn(b board.Board, sel Selector, uid string) bool {
 	for _, c := range FilterCards(b, sel) {
 		if c.ItemID == uid {
 			return true
+		}
+	}
+	return false
+}
+
+// isUnder reports a card standing under `uid` at any depth: in its own
+// lineage, or — for a review card — the reviewed task or the task's.
+func isUnder(ix *board.Index, c board.Card, uid string) bool {
+	if c.ItemID == uid {
+		return false
+	}
+	for _, a := range ix.Lineage(c) {
+		if a.ItemID == uid {
+			return true
+		}
+	}
+	if c.ReviewOf != "" {
+		if c.ReviewOf == uid {
+			return true
+		}
+		if t, ok := ix.Find(c.ReviewOf); ok {
+			return isUnder(ix, t, uid)
 		}
 	}
 	return false

@@ -136,6 +136,37 @@ func TestAPIListCardsMeView(t *testing.T) {
 	}
 }
 
+// "Working on <initiative>" over the API (ADR 0002): the caller's Me board
+// narrowed to what stands under it, read in Plans — the groups the board
+// draws, the plan item each stands for.
+func TestAPIListCardsUnderAPlanItemInPlans(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "i", Type: board.TypeInitiative, Title: "Bugs"},
+		{ItemID: "e", Type: board.TypeEpic, Parent: "i", Title: "Backups"},
+		{ItemID: "t1", Parent: "e", Assignees: []string{"bob"}, StartDate: today, SprintStart: today},
+		{ItemID: "t2", Parent: "i", Assignees: []string{"bob"}, StartDate: today, SprintStart: today},
+		{ItemID: "x", Assignees: []string{"bob"}, StartDate: today, SprintStart: today},
+	}, map[string]board.SprintState{"": {Current: today}})
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodGet, "/api/v1/views/me/cards?user=bob&under=i&group=plans", "")
+	list := decodeList(t, rec)
+	var ids []string
+	for _, c := range list.Items {
+		ids = append(ids, c.Metadata.UID)
+	}
+	if !slices.Equal(ids, []string{"t1", "t2"}) {
+		t.Fatalf("under=i = %v, want [t1 t2]", ids)
+	}
+	if len(list.Groups) != 2 || list.Groups[0].Plan == nil || list.Groups[0].Plan.UID != "e" ||
+		list.Groups[1].Plan == nil || list.Groups[1].Plan.UID != "i" {
+		t.Fatalf("groups = %+v", list.Groups)
+	}
+	if rec := do(t, srv, http.MethodGet, "/api/v1/views/me/cards?user=bob&group=tree", ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("an unknown group: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAPICreateCard(t *testing.T) {
 	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)

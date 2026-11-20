@@ -494,6 +494,36 @@ func (e ViewListKind) Valid() bool {
 	}
 }
 
+// Defines values for Group.
+const (
+	GroupPlans Group = "plans"
+)
+
+// Valid indicates whether the value is a known member of the Group enum.
+func (e Group) Valid() bool {
+	switch e {
+	case GroupPlans:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListCardsParamsGroup.
+const (
+	ListCardsParamsGroupPlans ListCardsParamsGroup = "plans"
+)
+
+// Valid indicates whether the value is a known member of the ListCardsParamsGroup enum.
+func (e ListCardsParamsGroup) Valid() bool {
+	switch e {
+	case ListCardsParamsGroupPlans:
+		return true
+	default:
+		return false
+	}
+}
+
 // AddCustomerBody defines model for AddCustomerBody.
 type AddCustomerBody struct {
 	Name *string `json:"name,omitempty"`
@@ -786,6 +816,9 @@ type PersonPatch struct {
 	Capacity *int `json:"capacity"`
 }
 
+// PlanGroup defines model for PlanGroup.
+type PlanGroup = apiserver.PlanGroup
+
 // PresenceBody defines model for PresenceBody.
 type PresenceBody struct {
 	// Card The card the caller has selected; empty clears the mark.
@@ -959,6 +992,9 @@ type Fields = string
 // Focus defines model for Focus.
 type Focus = string
 
+// Group defines model for Group.
+type Group string
+
 // Login defines model for Login.
 type Login = string
 
@@ -985,6 +1021,9 @@ type Team = string
 
 // UID defines model for Uid.
 type UID = string
+
+// Under defines model for Under.
+type Under = string
 
 // User defines model for User.
 type User = string
@@ -1068,7 +1107,16 @@ type ListCardsParams struct {
 
 	// Snapshot "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give.
 	Snapshot *Snapshot `form:"snapshot,omitempty" json:"snapshot,omitempty"`
+
+	// Under A card's uid: keep only the cards standing under it at any depth — a plan item's work, or a task's subtasks; a review card stands under its task and what the task stands under. What that item's group shows on a board, asked of any view (view=me&under=<initiative> is the caller's work on it today). The card itself is not listed.
+	Under *Under `form:"under,omitempty" json:"under,omitempty"`
+
+	// Group "plans" adds the Plans reading the Team, Me and Backlog boards draw (`groups`): on Me per band, on Team per person and band, each plan item gathered where its first card stands; on the Backlog the one list cut into runs of neighbouring cards of one plan item. Ignored on the other views.
+	Group *ListCardsParamsGroup `form:"group,omitempty" json:"group,omitempty"`
 }
+
+// ListCardsParamsGroup defines parameters for ListCards.
+type ListCardsParamsGroup string
 
 // FinishedEarlierParams defines parameters for FinishedEarlier.
 type FinishedEarlierParams struct {
@@ -2455,6 +2503,32 @@ func (siw *ServerInterfaceWrapper) ListCards(w http.ResponseWriter, r *http.Requ
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "snapshot"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "snapshot", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "under" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "under", r.URL.Query(), &params.Under, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "under"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "under", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "group" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "group", r.URL.Query(), &params.Group, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "group"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "group", Err: err})
 		}
 		return
 	}
