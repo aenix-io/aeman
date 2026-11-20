@@ -3716,9 +3716,16 @@ button.card-age {
   background: var(--hover-overlay-soft);
 }
 
-.strategy-row-focus {
-  box-shadow: inset 3px 0 0 var(--accent);
-  background: var(--accent-glow);
+/* The selected row: a quiet tint and the accent edge, not a fill — it stays
+   on while one reads the rest of the table. */
+.strategy-row-focus,
+.strategy-row-focus:hover {
+  box-shadow: inset 2px 0 0 var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+:root[data-theme="dark"] .strategy-row-focus,
+:root[data-theme="dark"] .strategy-row-focus:hover {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
 }
 
 /* Somebody else has the row selected (presence, #290): the accent outline
@@ -3727,7 +3734,7 @@ button.card-age {
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 .strategy-row-focus.strategy-row-peer-selected {
-  box-shadow: inset 3px 0 0 var(--accent), inset 0 0 0 1px var(--accent);
+  box-shadow: inset 2px 0 0 var(--accent), inset 0 0 0 1px var(--accent);
 }
 .strategy-presence {
   display: inline-flex;
@@ -4062,6 +4069,29 @@ button.card-age {
 .strategy-status-refused {
   background: var(--stage-refuse);
   color: var(--on-accent);
+}
+
+/* On the dark theme a pill is a tint of its colour with the colour as its
+   text, as labels are there: white on the light stage colours (review's
+   yellow, locked's coral) did not read, nor did in progress's dark blue on
+   its own glow. */
+:root[data-theme="dark"] .strategy-status-in-progress,
+:root[data-theme="dark"] .strategy-status-done,
+:root[data-theme="dark"] .strategy-status-review,
+:root[data-theme="dark"] .strategy-status-locked {
+  --pill: var(--accent);
+  background: color-mix(in srgb, var(--pill) 18%, transparent);
+  color: color-mix(in srgb, var(--pill) 75%, #fff);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pill) 45%, transparent);
+}
+:root[data-theme="dark"] .strategy-status-done {
+  --pill: var(--stage-done);
+}
+:root[data-theme="dark"] .strategy-status-review {
+  --pill: var(--stage-review);
+}
+:root[data-theme="dark"] .strategy-status-locked {
+  --pill: var(--stage-locked);
 }
 
 .strategy-timeline {
