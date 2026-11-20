@@ -128,3 +128,55 @@ func TestUnderKeepsTheCardsBelowAPlanItem(t *testing.T) {
 		}
 	}
 }
+
+// A board written by hand may hold a cycle of reviews (r1 reviews r2 reviews
+// r1, or a review of itself): under= walks it once and answers, as every
+// other walk over reviewOf does — it must not recurse until the process
+// dies.
+func TestUnderEndsOnACycleOfReviews(t *testing.T) {
+	b := board.NewBoard([]board.Card{
+		{ItemID: "r1", ReviewOf: "r2"},
+		{ItemID: "r2", ReviewOf: "r1"},
+		{ItemID: "self", ReviewOf: "self"},
+	})
+	if got := FilterCards(b, Selector{View: "all", Under: "zzz"}); len(got) != 0 {
+		t.Fatalf("under a stranger = %v, want none", got)
+	}
+	if got := FilterCards(b, Selector{View: "all", Under: "r1"}); len(got) != 1 || got[0].ItemID != "r2" {
+		t.Fatalf("under r1 = %v, want [r2]", got)
+	}
+}
+
+// The groups are what the board DRAWS: a linked review appended for its
+// reviewer badge (reviews=true, which the boards always ask) is in the items
+// and in no group — Me draws only the person's cards in hand, Team never a
+// review nobody has taken.
+func TestPlanGroupsLeaveOutTheReviewsAppendedForTheBadge(t *testing.T) {
+	today := board.TodayIso()
+	b := board.NewBoard([]board.Card{
+		{ItemID: "e", Type: board.TypeEpic},
+		{ItemID: "t", Parent: "e", Assignees: []string{"bob"}, StartDate: today, SprintStart: today},
+		{ItemID: "r", ReviewOf: "t", Assignees: []string{"alice"}, StartDate: today, SprintStart: today},
+		{ItemID: "r2", ReviewOf: "t", Parked: true},
+	})
+	b.SprintStates = map[string]board.SprintState{"": {Current: today}}
+	for _, tc := range []struct {
+		sel  Selector
+		want []string
+	}{
+		// Bob's board: his task; both reviews only ride along for the badge.
+		{Selector{View: "me", User: "bob", IncludeReviews: true, Group: "plans"}, []string{"t"}},
+		// The team's: alice's review is in hand in her column; the one
+		// nobody has taken is parked, on no day board.
+		{Selector{View: "team", IncludeReviews: true, Group: "plans"}, []string{"t", "r"}},
+	} {
+		list := ListCards(b, tc.sel)
+		var grouped []string
+		for _, g := range list.Groups {
+			grouped = append(grouped, g.Cards...)
+		}
+		if !reflect.DeepEqual(grouped, tc.want) {
+			t.Errorf("%s: grouped %v, want %v (items %d)", tc.sel.View, grouped, tc.want, len(list.Items))
+		}
+	}
+}

@@ -1258,10 +1258,12 @@ components:
       required: false
       description: >-
         A card's uid: keep only the cards standing under it at any depth —
-        a plan item's work, or a task's subtasks; a review card stands under
-        its task and what the task stands under. What that item's group shows
-        on a board, asked of any view (view=me&under=<initiative> is the
-        caller's work on it today). The card itself is not listed.
+        a plan item's work; a review card stands under its task and what the
+        task stands under. What that item's group shows on a board, asked of
+        any view (view=me&under=<initiative> is the caller's work on it
+        today). The card itself is not listed. A task's subtasks are under it
+        as well, but the day boards and the backlog deliver a subtask only
+        with its parent, so only view=all lists them for under=<task>.
       schema:
         type: string
     Group:

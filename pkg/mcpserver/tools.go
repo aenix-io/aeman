@@ -116,7 +116,7 @@ type listCardsInput struct {
 	Customer string `json:"customer,omitempty" jsonschema:"a comma-separated set of customer ids (get_board metadata.customers), matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the strategy view: a task whose effective customers include one, a planning card that does or has such a task under it, each listed with its ancestors. On the team, backlog, all and me views: the cards whose effective customers include one, AND the team set"`
 	Owner    string `json:"owner,omitempty" jsonschema:"on the strategy view, a comma-separated set of logins — the Strategy board's one person filter: the goals, initiatives and epics whose OWN owner is one of them (never inherited) and the tasks and subtasks one of them is assigned to, each with its ancestors — the plan items one answers for and the work one does. team narrows the Strategy board by EFFECTIVE team (own, else the nearest ancestor's) the same way; different filters are AND"`
 	Status   string `json:"status,omitempty" jsonschema:"on the strategy view, a comma-separated set of statuses — in-progress, backlog, done, locked, no-items — to list only that work: a task by its own work status (done when complete, backlog when parked, in-progress when in work — a date or a sprint, review/locked/refused stages included; a task nobody has placed reads as backlog) and by locked while a dependency holds it (status.locked, own or inherited) and it is not done; a subtask by its parent task's, a review card by the task it reviews; a goal, an initiative or an epic by itself for locked (status.locked, its roll-up not done) and no-items (nothing under it), and otherwise when any task under it matches; each with its ancestors. in-progress shows the work in hand; in-progress,backlog,locked,no-items (every value but done) hides exactly the finished work. Several values are OR; with team, customer and owner, AND"`
-	Under    string `json:"under,omitempty" jsonschema:"a card's uid: keep only the cards standing under it at any depth — a goal's, an initiative's or an epic's work, or a task's subtasks (a review card stands under its task and what the task stands under); the card itself is not listed. When somebody says they are working on a plan item, this is the call: view=me under=<its uid> is their work on it today, view=team&team=X under=<uid> the team's, view=backlog under=<uid> what of it is still waiting. get_card on the plan item gives its description, not its work"`
+	Under    string `json:"under,omitempty" jsonschema:"a card's uid: keep only the cards standing under it at any depth — a goal's, an initiative's or an epic's work (a review card stands under its task and what the task stands under); the card itself is not listed. A task's subtasks are under it too, but only view=all lists them for under=<task>: the day boards and the backlog deliver a subtask only with its parent. When somebody says they are working on a plan item, this is the call: view=me under=<its uid> is their work on it today, view=team&team=X under=<uid> the team's, view=backlog under=<uid> what of it is still waiting. get_card on the plan item gives its description, not its work"`
 	Group    string `json:"group,omitempty" jsonschema:"plans adds the Plans reading the Team, Me and Backlog boards draw (groups): on me per band, on team per person and band, each plan item (status.lineage's nearest entry with a type) gathered where its first card stands, the cards in none in a group with no plan; on backlog the one list cut into runs of neighbouring cards of one plan item. Read a day or a backlog by plan item with it instead of grouping the rows yourself"`
 	Snapshot bool   `json:"snapshot,omitempty" jsonschema:"read a PAST day as it stood rather than today's cards filtered by that day: every field is the day's own, so a card finished since reads unfinished and one created since is absent. Needs day set to a past day; the board's history answers it, and a day it no longer reaches is an error rather than a wrong answer"`
 }
@@ -128,7 +128,8 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	}
 	sel := apiserver.Selector{View: in.View, Team: in.Team, Day: in.Day, User: in.User,
 		Assignee: in.Assignee, Focus: in.Focus,
-		IncludeReviews: in.Reviews, Customer: in.Customer, Owner: in.Owner, Status: in.Status, Under: in.Under}
+		IncludeReviews: in.Reviews, Customer: in.Customer, Owner: in.Owner, Status: in.Status, Under: in.Under,
+		Group: in.Group}
 	switch in.Group {
 	case "", "plans":
 	default:
@@ -202,7 +203,7 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	// The Plans reading is of the rows the caller gets, the title filter
 	// applied: the groups name no card the listing left out.
 	if in.Group == "plans" {
-		list.Groups = apiserver.PlanGroups(list.Items, sel.View)
+		list.Regroup()
 	}
 	return nil, list, nil
 }

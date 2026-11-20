@@ -473,4 +473,16 @@ describe("the Strategy board's presence", () => {
     expect(rowOf(html, "Billing v2")).not.toContain("strategy-row-peer-selected");
     expect(rowOf(html, "Render PDF")).not.toContain("strategy-presence");
   });
+
+  // A folded row wears the marks of whoever has something inside it
+  // selected, as a folded parent does on the day boards.
+  it("marks a folded row for a selection inside it", () => {
+    store.set("aeman.strategy.folded", JSON.stringify(["i"]));
+    try {
+      const html = draw(board([goal, ini, epic, done, open]), null, undefined, { t1: { login: "ann", card: "t1" } });
+      expect(rowOf(html, "Billing v2")).toContain('title="Selected by ann"');
+    } finally {
+      store.delete("aeman.strategy.folded");
+    }
+  });
 });

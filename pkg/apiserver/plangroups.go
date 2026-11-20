@@ -153,3 +153,19 @@ func planUID(p *LineageRef) string {
 	}
 	return p.UID
 }
+
+// Regroup reads the groups of a listing that asked for them (group=plans)
+// again from its items, after a caller has narrowed them (the MCP title
+// filter): only the cards the board draws, and none the listing left out.
+func (l *CardList) Regroup() {
+	if l.drawn == nil {
+		return
+	}
+	drawn := make([]Card, 0, len(l.Items))
+	for _, c := range l.Items {
+		if l.drawn[c.Metadata.UID] {
+			drawn = append(drawn, c)
+		}
+	}
+	l.Groups = PlanGroups(drawn, l.view)
+}

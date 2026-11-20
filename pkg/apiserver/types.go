@@ -390,6 +390,11 @@ type CardList struct {
 	// draw in Plans, each a plan item (absent for the cards in none), its
 	// cell and its cards (PlanGroups).
 	Groups []PlanGroup `json:"groups,omitempty"`
+
+	// view and drawn are what Regroup reads the groups again from: the view
+	// asked, and the cards of the listing the board draws (drawnOf).
+	view  string
+	drawn map[string]bool
 }
 
 // CardResource maps a domain card onto the API resource, deriving status from

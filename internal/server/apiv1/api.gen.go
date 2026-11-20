@@ -1108,7 +1108,7 @@ type ListCardsParams struct {
 	// Snapshot "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give.
 	Snapshot *Snapshot `form:"snapshot,omitempty" json:"snapshot,omitempty"`
 
-	// Under A card's uid: keep only the cards standing under it at any depth — a plan item's work, or a task's subtasks; a review card stands under its task and what the task stands under. What that item's group shows on a board, asked of any view (view=me&under=<initiative> is the caller's work on it today). The card itself is not listed.
+	// Under A card's uid: keep only the cards standing under it at any depth — a plan item's work; a review card stands under its task and what the task stands under. What that item's group shows on a board, asked of any view (view=me&under=<initiative> is the caller's work on it today). The card itself is not listed. A task's subtasks are under it as well, but the day boards and the backlog deliver a subtask only with its parent, so only view=all lists them for under=<task>.
 	Under *Under `form:"under,omitempty" json:"under,omitempty"`
 
 	// Group "plans" adds the Plans reading the Team, Me and Backlog boards draw (`groups`): on Me per band, on Team per person and band, each plan item gathered where its first card stands; on the Backlog the one list cut into runs of neighbouring cards of one plan item. Ignored on the other views.

@@ -93,6 +93,14 @@ func TestARecordGivesBackWhatTheCrossTookOff(t *testing.T) {
 		t.Fatalf("the settled team's card must still come back: %v", got)
 	}
 
+	// The listing's own filters bind what comes back too: under= a plan item
+	// the card is not under gives nothing back (S20).
+	under := asRecord
+	under.Under = "some-epic"
+	if got := ids(under); contains(got, "tidied") {
+		t.Fatalf("a card under no such plan item came back: %v", got)
+	}
+
 	// A day the card was not left on gives nothing back.
 	other := liveSel
 	other.LeftOn = prev

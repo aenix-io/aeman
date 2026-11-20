@@ -562,6 +562,32 @@ export function StrategyBoard({
   }, [shown]);
   const baseRows = useMemo(() => shownLines.filter((l) => l.kind === "row" && l.section === "tree").map((l) => (l as RowLine).row), [shownLines]);
   const rows = useMemo(() => shownLines.filter((l): l is RowLine => l.kind === "row").map((l) => l.row), [shownLines]);
+  // Everything under a card, by its lineage: a folded row wears the marks
+  // of whoever has something inside it selected (presence.selectedByOf, as
+  // a folded parent on the day boards wears its subtasks').
+  const below = useMemo(() => {
+    const m = new Map<string, CardModel[]>();
+    for (const c of board.cards) {
+      for (const up of c.lineage ?? []) {
+        const list = m.get(up.uid);
+        if (list) {
+          list.push(c);
+        } else {
+          m.set(up.uid, [c]);
+        }
+      }
+    }
+    return m;
+  }, [board.cards]);
+  const foldedMarks = { children: (id: string) => below.get(id) ?? [], open: (id: string) => !folded.has(id) };
+  // A selection whose card is gone from the board — deleted, or out of the
+  // visitor's reach — is let go and stops being broadcast. A row only
+  // folded away keeps it: its parent wears the mark, as on the day boards.
+  useEffect(() => {
+    if (focusRow && !board.cards.some((c) => c.itemId === focusRow)) {
+      setFocusRow(null);
+    }
+  }, [board.cards, focusRow]);
   // The rows a drag carries — the dragged card and everything under it —
   // dimmed in place for as long as it runs, and a target for nothing.
   const ghosts = useMemo(() => {
@@ -1137,7 +1163,7 @@ export function StrategyBoard({
                           press(card);
                         }
                       }}
-                      selectedBy={selectedByOf(presence, card, undefined, me)}
+                      selectedBy={selectedByOf(presence, card, foldedMarks, me)}
                       avatars={avatars}
                       names={names}
                       onAdd={planning && kids.length > 0 ? () => setAddingUnder(addingUnder === card.itemId ? null : card.itemId) : null}

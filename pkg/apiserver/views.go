@@ -56,9 +56,11 @@ type Selector struct {
 	// (drops done, on-review and locked). It mirrors the Me view's focus toggle.
 	Focus bool
 	// Under keeps the cards standing under one card at any depth — a plan
-	// item's work, or a task's subtasks: what that item's group shows on a
-	// board. A review card stands under its task and what the task stands
-	// under. The card itself is not under itself.
+	// item's work: what that item's group shows on a board. A review card
+	// stands under its task and what the task stands under. The card itself
+	// is not under itself. A task's subtasks are under it too, but the day
+	// boards and the backlog deliver a subtask only with its parent, so only
+	// view=all lists them for under=<task>.
 	Under string
 	// Group asks for the Plans reading ("plans"): the listing carries the
 	// groups the Team, Me and Backlog boards draw (PlanGroups).
@@ -593,6 +595,26 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	return out
 }
 
+// drawnOf is the cards of a listing the board DRAWS: all of them but the
+// linked reviews reviews=true appends for the reviewer badge, which stand on
+// the board only where the view itself delivers them.
+func drawnOf(b board.Board, sel Selector, cards []board.Card) map[string]bool {
+	if !sel.IncludeReviews {
+		drawn := make(map[string]bool, len(cards))
+		for _, c := range cards {
+			drawn[c.ItemID] = true
+		}
+		return drawn
+	}
+	bare := sel
+	bare.IncludeReviews = false
+	drawn := map[string]bool{}
+	for _, c := range FilterCards(b, bare) {
+		drawn[c.ItemID] = true
+	}
+	return drawn
+}
+
 // withSubtasks appends the subtasks of every delivered parent, so a view is
 // self-contained for a client nesting them under their cards. The me/all team
 // gate and the focus filter apply to subtasks the same way they apply to
@@ -737,6 +759,9 @@ func onThisBoard(c board.Card, sel Selector, index func() *board.Index) bool {
 	if sel.Assignee != "" && !contains(c.Assignees, sel.Assignee) {
 		return false
 	}
+	if sel.Under != "" && !isUnder(index(), c, sel.Under) {
+		return false
+	}
 	return !sel.Focus || board.Workable(c)
 }
 
@@ -780,7 +805,8 @@ func ListCards(b board.Board, sel Selector) CardList {
 	}
 	list := CardList{Kind: "CardList", Items: items}
 	if sel.Group == "plans" {
-		list.Groups = PlanGroups(items, sel.View)
+		list.view, list.drawn = sel.View, drawnOf(b, sel, cards)
+		list.Regroup()
 	}
 	if sel.View == "backlog" {
 		list.BoardOrder = backlogBoardOrder(b)
@@ -905,23 +931,34 @@ func Drawn(b board.Board, sel Selector, uid string) bool {
 }
 
 // isUnder reports a card standing under `uid` at any depth: in its own
-// lineage, or — for a review card — the reviewed task or the task's.
+// lineage, or — for a review card — the reviewed task or the task's. A chain
+// of reviews is walked once: a board written by hand may close it into a
+// cycle, and that must end in an answer, not a stack overflow.
 func isUnder(ix *board.Index, c board.Card, uid string) bool {
 	if c.ItemID == uid {
 		return false
 	}
-	for _, a := range ix.Lineage(c) {
-		if a.ItemID == uid {
-			return true
+	seen := map[string]bool{}
+	for {
+		if seen[c.ItemID] {
+			return false
 		}
-	}
-	if c.ReviewOf != "" {
+		seen[c.ItemID] = true
+		for _, a := range ix.Lineage(c) {
+			if a.ItemID == uid {
+				return true
+			}
+		}
+		if c.ReviewOf == "" {
+			return false
+		}
 		if c.ReviewOf == uid {
 			return true
 		}
-		if t, ok := ix.Find(c.ReviewOf); ok {
-			return isUnder(ix, t, uid)
+		t, ok := ix.Find(c.ReviewOf)
+		if !ok {
+			return false
 		}
+		c = t
 	}
-	return false
 }
