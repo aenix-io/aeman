@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { adjacentRuns, arrangeByParent, expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowId, planRowUid } from "./grouping";
+import { adjacentRuns, reassignable, arrangeByParent, expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowId, planRowUid } from "./grouping";
 import type { Card, LineageRef } from "./providers/types";
 
 const goal: LineageRef = { uid: "g", type: "goal", title: "Cozystack" };
@@ -308,5 +308,21 @@ describe("the Plans reading, shared with the server", () => {
 
   it("cuts the Backlog into runs of neighbours", () => {
     expect(adjacentRuns(cards).map((r) => ({ plan: r.head.uid, cards: r.cards.map((c) => c.itemId) }))).toEqual(fx.backlog);
+  });
+});
+
+// The head's avatar hands the group's WORK over — a team or a person for
+// its tasks in that cell — and leaves the plan item's own owner alone. What
+// it moves: the open tasks; a finished one keeps who did it, and a review
+// card is the reviewer's, which the review's own menu changes.
+describe("reassignable", () => {
+  it("takes the open tasks and leaves the done ones and the reviews", () => {
+    const open = card("o", {});
+    const done = card("d", { progress: 100 });
+    const review = card("r", { reviewOf: "o" });
+    expect(reassignable([open, done, review]).map((c) => c.itemId)).toEqual(["o"]);
+  });
+  it("is empty for a group of reviews only", () => {
+    expect(reassignable([card("r", { reviewOf: "x" })])).toEqual([]);
   });
 });

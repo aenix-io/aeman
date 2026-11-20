@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import type { GroupHead } from "../grouping";
 import type { Avatars, Names } from "../users";
@@ -7,6 +7,7 @@ import { teamColor, teamInitial } from "../avatar";
 import { displayName } from "../users";
 import { Avatar } from "./Avatar";
 import { PresenceMarks } from "./Card";
+import { Dropdown } from "./Dropdown";
 
 interface ParentGroupHeadProps {
   head: GroupHead;
@@ -33,8 +34,26 @@ interface ParentGroupHeadProps {
   /** A click on the head, as on a card: the first selects it, the second
    *  opens the plan item (S15). The board decides which this one is. */
   onPress?: () => void;
+  /** The avatar's menu: hand the group's work in this cell to a team or a
+   *  person (grouping.reassignable). It never changes the plan item's own
+   *  owner, which is what the avatar shows. Absent where nothing may move. */
+  assign?: GroupAssign;
   avatars?: Avatars;
   names?: Names;
+}
+
+/** GroupAssign is what a head's avatar may hand the group's tasks to: the
+ *  Team column given onTeam, the Person column given onPerson — as a task
+ *  card's own menu offers on that board. */
+export interface GroupAssign {
+  teams: readonly string[];
+  people?: readonly string[];
+  /** The team every task of the group stands in, marked in the menu. */
+  team?: string;
+  /** The person every task of the group is with (the Team board's column). */
+  person?: string;
+  onTeam: (team: string | null) => void;
+  onPerson?: (login: string | null) => void;
 }
 
 // A press on a control of the head is the control's: it must not start a
@@ -62,10 +81,13 @@ export function ParentGroupHead({
   aside,
   reviewPrefix = false,
   onPress,
+  assign,
   avatars,
   names,
 }: ParentGroupHeadProps) {
   const [copied, setCopied] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const assignRef = useRef<HTMLDivElement | null>(null);
   return (
     <div
       className={`group-head${head.reviewOnly ? " group-head-review" : ""}${selected ? " group-head-selected" : ""}${
@@ -159,8 +181,22 @@ export function ParentGroupHead({
       {/* Whose the plan item is, drawn exactly as a task card draws whose it
           is (Card's card-assign): the team's avatar flush right, the owner's
           small one on its corner. */}
-      {(head.team || head.owner) && (
-        <span className="card-assign">
+      {(head.team || head.owner || assign) && (
+        <div
+          className={`card-assign${assign ? " group-head-assign" : ""}`}
+          ref={assignRef}
+          role={assign ? "button" : undefined}
+          title={assign ? "Hand the group's tasks to a team or a person" : undefined}
+          onPointerDown={assign ? own : undefined}
+          onClick={
+            assign
+              ? (e) => {
+                  e.stopPropagation();
+                  setAssignOpen((o) => !o);
+                }
+              : undefined
+          }
+        >
           {head.team ? (
             <span className="team-avatar" style={{ backgroundColor: teamColor(head.team) }} title={`Team: ${head.team}`}>
               {teamInitial(head.team)}
@@ -173,7 +209,78 @@ export function ParentGroupHead({
               <Avatar login={head.owner} avatars={avatars} names={names} className="card-counterpart-avatar" />
             </span>
           )}
-        </span>
+        </div>
+      )}
+      {assign && (
+        <Dropdown open={assignOpen} anchorRef={assignRef} onClose={() => setAssignOpen(false)} className="card-stage-menu card-assign-menu">
+          {/* The menu is portalled, but React still bubbles its events to the
+              head: a press in it must neither start a drag nor select. */}
+          <div onPointerDown={own} onClick={(e) => e.stopPropagation()}>
+          <div className="card-counterpart-head">The group&apos;s open tasks here</div>
+          <div className="card-assign-cols">
+            <div className="card-assign-col">
+              <div className="card-assign-head">Team</div>
+              {assign.teams.map((t) => (
+                <button
+                  key={`t-${t}`}
+                  type="button"
+                  className={`card-stage-item${assign.team === t ? " card-stage-item-active" : ""}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setAssignOpen(false);
+                    assign.onTeam(t);
+                  }}
+                >
+                  <span className="team-dot" style={{ background: teamColor(t) }} />
+                  {t}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="card-stage-item card-stage-clear"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setAssignOpen(false);
+                  assign.onTeam(null);
+                }}
+              >
+                No team
+              </button>
+            </div>
+            {assign.onPerson && (
+              <div className="card-assign-col">
+                <div className="card-assign-head">Person</div>
+                {(assign.people ?? []).map((p) => (
+                  <button
+                    key={`p-${p}`}
+                    type="button"
+                    className={`card-stage-item${assign.person === p ? " card-stage-item-active" : ""}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAssignOpen(false);
+                      assign.onPerson?.(p);
+                    }}
+                  >
+                    <Avatar login={p} avatars={avatars} names={names} />
+                    {displayName(p, names)}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="card-stage-item card-stage-clear"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setAssignOpen(false);
+                    assign.onPerson?.(null);
+                  }}
+                >
+                  Unassigned
+                </button>
+              </div>
+            )}
+          </div>
+          </div>
+        </Dropdown>
       )}
     </div>
   );

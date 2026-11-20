@@ -31,8 +31,8 @@ import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 import { isSubtask, subtaskParent, subtaskShows } from "../subtasks";
-import { expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowUid, type PlanRow } from "../grouping";
-import { ParentGroupHead } from "./ParentGroupHead";
+import { expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowUid, reassignable, type PlanRow } from "../grouping";
+import { ParentGroupHead, type GroupAssign } from "./ParentGroupHead";
 import { GroupBacklogDialog } from "./GroupBacklogDialog";
 import { FoldControls } from "./FoldControls";
 import {
@@ -989,6 +989,29 @@ export function TeamBoard({
     />
   );
 
+  // A head's avatar menu (Plans): the group's open tasks in this cell go to
+  // the team or person picked, one card's own reassignment each — a task's
+  // subtasks follow it as they do there. The plan item's owner stays.
+  const groupAssign = (ids: readonly string[]): GroupAssign | undefined => {
+    if (holdsRecords) {
+      return undefined;
+    }
+    const cards = reassignable(ids.flatMap((id) => cardsById.get(id) ?? []));
+    if (cards.length === 0) {
+      return undefined;
+    }
+    const teams = new Set(cards.map((c) => c.team ?? ""));
+    const persons = new Set(cards.map((c) => c.assignees.join(",")));
+    return {
+      teams: roster,
+      people,
+      team: teams.size === 1 ? [...teams][0] || undefined : undefined,
+      person: persons.size === 1 ? [...persons][0] || undefined : undefined,
+      onTeam: (t) => cards.forEach((c) => handleSetTeam(c, t)),
+      onPerson: (login) => cards.forEach((c) => handleSetAssignee(c, login)),
+    };
+  };
+
   // A row of the grouped board: a group's head (with its add-a-task form
   // under it while open), a card nested in a group, or a loose card.
   const renderGroupedRow = (card: CardModel): ReactNode => {
@@ -1032,6 +1055,7 @@ export function TeamBoard({
               setSelectedPlan(id);
               setSelectedCardId(null);
             }}
+            assign={groupAssign(h.cards)}
             avatars={avatars}
             names={names}
           />

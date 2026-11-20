@@ -68,10 +68,10 @@ import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
 import { ConnectDialog } from "./ConnectDialog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
-import { ParentGroupHead } from "./ParentGroupHead";
+import { ParentGroupHead, type GroupAssign } from "./ParentGroupHead";
 import { GroupBacklogDialog } from "./GroupBacklogDialog";
 import { FoldControls } from "./FoldControls";
-import { expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowUid, type PlanRow } from "../grouping";
+import { expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowUid, reassignable, type PlanRow } from "../grouping";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
 interface MeBoardProps {
@@ -1625,6 +1625,26 @@ export function MeBoard({
 
   // A row of the grouped board: a group's head (with its add-a-task form
   // under it while open), a card nested in a group, or a loose card.
+  // A head's avatar menu (Plans): the group's open tasks in this band go to
+  // the team picked, each by its own card's reassignment — what a task card's
+  // menu offers here (a team; the person is the board's owner). The plan
+  // item's owner stays.
+  const groupAssign = (ids: readonly string[]): GroupAssign | undefined => {
+    if (holdsRecords) {
+      return undefined;
+    }
+    const cards = reassignable(ids.flatMap((id) => board.cards.find((c) => c.itemId === id) ?? []));
+    if (cards.length === 0) {
+      return undefined;
+    }
+    const own = new Set(cards.map((c) => c.team ?? ""));
+    return {
+      teams,
+      team: own.size === 1 ? [...own][0] || undefined : undefined,
+      onTeam: (t) => cards.forEach((c) => handleSetTeam(c, t)),
+    };
+  };
+
   const renderGroupedRow = (card: CardModel): ReactNode => {
     if (isPlanRow(card.itemId)) {
       const h = plan.current.heads.get(card.itemId);
@@ -1669,6 +1689,7 @@ export function MeBoard({
               setSelectedPlan(id);
               setSelectedCardId(null);
             }}
+            assign={groupAssign(h.cards)}
             avatars={avatars}
             names={names}
           />

@@ -6030,3 +6030,9 @@ button.card-age {
 .backlog-run .group-member {
   margin-top: 4px;
 }
+
+/* A head's avatar hands the group's tasks over (Plans): it presses like a
+   card's. */
+.group-head-assign {
+  cursor: pointer;
+}

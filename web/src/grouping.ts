@@ -271,3 +271,12 @@ export function adjacentRuns(cards: readonly Card[]): PlanRun[] {
   close();
   return runs;
 }
+
+/** reassignable is what a group head's avatar hands over (Plans on the Team
+ *  and Me boards): the group's OPEN tasks in that cell. A finished task keeps
+ *  who did it, and a review card is its reviewer's — the review's own menu
+ *  changes that. The plan item's own owner is not touched: the head shows
+ *  whose the plan item is, its menu moves the work. */
+export function reassignable(cards: readonly Card[]): Card[] {
+  return cards.filter((c) => !c.reviewOf && !isComplete(c));
+}
