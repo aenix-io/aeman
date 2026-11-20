@@ -179,11 +179,12 @@ func TestTheSchema3BacklogReadsInTheStrategysOrder(t *testing.T) {
 	}
 }
 
-// The reviews NOBODY HAS TAKEN (K10) stand FIRST in a backlog, in a group
-// of their own before every task, among themselves in the board's order;
-// then the tasks in the board's order — a task's rank is its queue place, so
-// the plan items above them decide nothing (Q2).
-func TestTheReviewsNobodyHasTakenLeadTheBacklog(t *testing.T) {
+// The reviews NOBODY HAS TAKEN (K10) lead a backlog BY DEFAULT: each is made
+// at the top of the board's order, so the fresh ones stand first. They are
+// held there no longer — a review dragged below a task stands where its key
+// puts it, among the tasks, which read in the board's order: a task's rank is
+// its queue place, so the plan items above them decide nothing (Q2).
+func TestAReviewNobodyHasTakenLeadsTheBacklogUntilDraggedLower(t *testing.T) {
 	today := "2026-11-02"
 	b := NewBoard([]Card{
 		{ItemID: "g1", Type: TypeGoal},
@@ -195,6 +196,9 @@ func TestTheReviewsNobodyHasTakenLeadTheBacklog(t *testing.T) {
 		{ItemID: "r-early", ReviewOf: "o-early", Parked: true},
 		{ItemID: "o-early", Parent: "g1", Stage: StageReview, SprintStart: today},
 		{ItemID: "t1", Parent: "g1", Parked: true},
+		// Dragged below t1: it stays there.
+		{ItemID: "r-low", ReviewOf: "o-low", Parked: true},
+		{ItemID: "o-low", Parent: "g2", Stage: StageReview, SprintStart: today},
 		{ItemID: "o-late", Parent: "g1", Stage: StageReview, SprintStart: today},
 		{ItemID: "t-none", Parent: "g2", Parked: true},
 		{ItemID: "o-none", Parent: "g2", Stage: StageReview, SprintStart: today},
@@ -208,8 +212,8 @@ func TestTheReviewsNobodyHasTakenLeadTheBacklog(t *testing.T) {
 		}
 	}
 	want := []string{
-		"r-late", "r-none", "r-early", // the reviews, in the board's order
-		"t1", "t-none", "t0", // then the tasks, in the board's order
+		"r-late", "r-none", "r-early", // the fresh reviews, made on top
+		"t1", "r-low", "t-none", "t0", // the rest by its own key
 	}
 	if got := ids(BacklogOrder(ix, listed)); !reflect.DeepEqual(got, want) {
 		t.Fatalf("BacklogOrder = %v, want %v", got, want)
