@@ -309,3 +309,25 @@ export function blockAnchor(
 export function takeable(cards: readonly Card[]): Card[] {
   return cards.filter((c) => !isComplete(c) && c.assignees.length === 0);
 }
+
+/** takeQuestion is what a Backlog run's Take asks before it takes (K11), or
+ *  null where the run has nothing to take — on every head, Ungrouped's
+ *  included, which names no plan item rather than one called "Ungrouped". */
+export function takeQuestion(run: PlanRun): { heading: string; text: string } | null {
+  if (takeable(run.cards).length === 0) {
+    return null;
+  }
+  const where = run.head.uid ? `of «${run.head.title}» here` : "here in no plan item";
+  if (run.head.reviewOnly) {
+    return {
+      heading: "Review these yourself?",
+      text: run.head.uid
+        ? `The reviews of «${run.head.title}» here that nobody has taken become yours, today.`
+        : "The reviews here of tasks in no plan item that nobody has taken become yours, today.",
+    };
+  }
+  return {
+    heading: "Take these cards into work?",
+    text: `The open cards ${where} that nobody has become yours, today, and leave the backlog.`,
+  };
+}
