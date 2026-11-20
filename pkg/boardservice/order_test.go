@@ -218,6 +218,17 @@ func TestATaskLinkedThroughThePickerJoinsItsEpicsTasks(t *testing.T) {
 	if got := teamQueue(t, s, "U"); got != "A1 B1 x A2" {
 		t.Fatalf("an unlinked task moved: %s", got)
 	}
+	// Linked up a level, to a plan item with no parked task of its own in the
+	// queue: there are no siblings to stand beside, and the end of the queue
+	// is no place to send it — it keeps its key.
+	f.b.Cards = append(f.b.Cards,
+		board.Card{ItemID: "I", Title: "I", Type: board.TypeInitiative, Rank: "0b"})
+	if err := s.Relink(ctx, "acme", "A1", "I"); err != nil {
+		t.Fatal(err)
+	}
+	if got := teamQueue(t, s, "U"); got != "A1 B1 x A2" {
+		t.Fatalf("a task linked to a plan item with no siblings moved: %s", got)
+	}
 	// A task in work keeps its key.
 	before := f.get("w").Rank
 	if err := s.Relink(ctx, "acme", "w", "A"); err != nil {

@@ -454,7 +454,15 @@ export function CardDetail({
       .patchCard(card.itemId, { parent: nextId })
       // Filed under another plan item it may stand under another team, in
       // that team's sprint (O13): take where the server put it.
-      .then((updated) => patchCard(card.itemId, placementAnswer(updated)))
+      .then((updated) => {
+        patchCard(card.itemId, placementAnswer(updated));
+        // A parked task linked under a new plan item is placed beside its
+        // siblings (Q9); the Ordering frame that says so goes to every tab
+        // but this one, so this one reads the order again.
+        if (card.parked && nextId) {
+          reload();
+        }
+      })
       .catch((err: unknown) => {
         patchCard(card.itemId, before);
         onError?.(errMessage(err));

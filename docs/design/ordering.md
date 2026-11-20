@@ -87,7 +87,7 @@ Examples, with A < B < C:
 ### Handover, re-parent, the "+"
 
 - **Handover to another team** (a parked task's team changed): `Place` in the new team's queue — after its epic's last task there, else `bestGap`.
-- **Re-parent through the parent picker** (amended 2026-11-20): a parked task linked under a new plan item is placed by Q3, after that item's last parked task in its team's queue — the same as a Strategy drop into it — so the Backlog reads it beside its new siblings. The same parent again moves nothing, a task in work keeps its key, and taking the parent off leaves the task where it stands (`boardservice.Relink`).
+- **Re-parent through the parent picker** (amended 2026-11-20): a parked task linked under a new plan item is placed by Q3, after that item's last parked task in its team's queue — the same as a Strategy drop into it — so the Backlog reads it beside its new siblings. The same parent again moves nothing, a task in work keeps its key, and taking the parent off leaves the task where it stands, as does a link to a goal or an initiative with no parked task of its own in the queue — there is nothing to stand beside, and Q3's last resort, the end of the queue, is no place to send a task for a link (`boardservice.Relink`).
 - **Backlog "+"**: the place is exactly the gap pressed. The epic comes from context, with neighbours read off the list as drawn and reviews skipped:
   - a card above and below with the same epic → that epic;
   - above and below with different epics (a boundary) → the epic of the card above, which may be none;

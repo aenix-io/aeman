@@ -2674,8 +2674,9 @@ components:
             the card becomes a subtask (its team, person and sprint follow);
             under a goal, an initiative or an epic it is filed in the hierarchy,
             and a parked task linked under a new one is placed in its team's
-            backlog after that item's last parked task (Q9); a task in work
-            keeps its place, and taking the parent off moves nothing. The level
+            backlog beside that item's parked tasks (Q9; an epic with none, its
+            best gap); a task in work keeps its place, and so do a parent taken
+            off and a goal or an initiative with no parked task of its own. The level
             rule and the repository rule hold (422 `parentLevel`, `crossDomain`).
     CardDatesPatch:
       type: object
