@@ -28,6 +28,9 @@ interface ParentGroupHeadProps {
   /** Drawn on the right before the count — the Backlog's chain of the plan
    *  items above this one. */
   aside?: React.ReactNode;
+  /** Drawn last, right of the avatar — the Backlog's Take, where a row
+   *  keeps its own. */
+  trailing?: React.ReactNode;
   /** A group of review cards only reads "review: …" as a review card does,
    *  beside its stripe. */
   reviewPrefix?: boolean;
@@ -81,6 +84,7 @@ export function ParentGroupHead({
   selectedBy,
   dimAvatar,
   aside,
+  trailing,
   reviewPrefix = false,
   onPress,
   assign,
@@ -288,6 +292,7 @@ export function ParentGroupHead({
           </div>
         </Dropdown>
       )}
+      {trailing}
     </div>
   );
 }

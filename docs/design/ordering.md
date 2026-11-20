@@ -87,7 +87,7 @@ Examples, with A < B < C:
 ### Handover, re-parent, the "+"
 
 - **Handover to another team** (a parked task's team changed): `Place` in the new team's queue — after its epic's last task there, else `bestGap`.
-- **Re-parent through the parent picker**: keeps its queue place. It is a property edit, not an ordering gesture; Split shows the divergence.
+- **Re-parent through the parent picker** (amended 2026-11-20): a parked task linked under a new plan item is placed by Q3, after that item's last parked task in its team's queue — the same as a Strategy drop into it — so the Backlog reads it beside its new siblings. The same parent again moves nothing, a task in work keeps its key, and taking the parent off leaves the task where it stands, as does a link to a goal or an initiative with no parked task of its own in the queue — there is nothing to stand beside, and Q3's last resort, the end of the queue, is no place to send a task for a link (`boardservice.Relink`).
 - **Backlog "+"**: the place is exactly the gap pressed. The epic comes from context, with neighbours read off the list as drawn and reviews skipped:
   - a card above and below with the same epic → that epic;
   - above and below with different epics (a boundary) → the epic of the card above, which may be none;
@@ -164,7 +164,7 @@ Unranked tasks come from direct writers; an invalid key (empty, a character outs
 | Q6 | In Strategy a task moved within its epic permutes that epic's parked tasks of its team over their slots; a task dropped into another epic is re-parented and placed by Q3 in the new epic's area. |
 | Q7 | Moving a goal or an initiative rewrites its own key only; a flat-range epic drop never re-parents. |
 | Q8 | A task back from work keeps its key only while the key is inside its epic's area (or, with no other task of the epic there, in a minimal-cost gap); otherwise Q3. |
-| Q9 | A task handed to another team is placed by Q3 in that team's queue; a re-parent through the picker keeps its place. |
+| Q9 | A task handed to another team is placed by Q3 in that team's queue; a parked task re-parented through the picker under a new plan item is placed by Q3 too (since 2026-11-20); taking the parent off moves nothing. |
 | Q10 | The Backlog "+" creates exactly in its gap and inherits the epic of its context (the same epic above and below; at a boundary the card above's; at an end the only neighbour's; none in an empty list) when asked to. |
 | Q11 | An unranked or invalidly ranked task is placed by Q3 by normalisation at start-up, after a fetch that changed it, and after a migration. |
 | Q12 | A multi-file ordering action is planned and applied to the cache under one lock and written as one action, one commit per repository; a failed write leaves no partial move within a repository, in the cache or in git. Across repositories the halves are separate commits (the documented limit). |

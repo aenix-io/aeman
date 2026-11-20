@@ -31,7 +31,7 @@ import {
 } from "../backlogboard";
 import type { LineageRef } from "../providers/types";
 import { ParentGroupHead, type GroupAssign } from "./ParentGroupHead";
-import { adjacentRuns, blockAnchor, reassignable, type PlanRun } from "../grouping";
+import { adjacentRuns, blockAnchor, reassignable, takeable, type PlanRun } from "../grouping";
 import { readMode } from "../viewprefs";
 import { justMade, noteMade } from "../justmade";
 import { ownerOf, type Owner } from "../owner";
@@ -906,25 +906,27 @@ export function BacklogBoard({
                                   )
                                 : undefined
                             }
-                            aside={
-                              <>
-                                <ParentChain chain={above(run)} onOpen={openParent} />
-                                {run.head.uid && reassignable(run.cards).some((c) => c.assignees.length === 0) && (
-                                  <button
-                                    type="button"
-                                    className="backlog-take-btn"
-                                    aria-haspopup="dialog"
-                                    title="Take the run's tasks into work yourself"
-                                    onPointerDown={(e) => e.stopPropagation()}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setTakingRun(run);
-                                    }}
-                                  >
-                                    Take
-                                  </button>
-                                )}
-                              </>
+                            aside={<ParentChain chain={above(run)} onOpen={openParent} />}
+                            trailing={
+                              run.head.uid && takeable(run.cards).length > 0 ? (
+                                <button
+                                  type="button"
+                                  className="backlog-take-btn"
+                                  aria-haspopup="dialog"
+                                  title={
+                                    run.head.reviewOnly
+                                      ? "Review these yourself"
+                                      : "Take the run's cards into work yourself"
+                                  }
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setTakingRun(run);
+                                  }}
+                                >
+                                  Take
+                                </button>
+                              ) : undefined
                             }
                             assign={runAssign(run)}
                             reviewPrefix
@@ -969,10 +971,14 @@ export function BacklogBoard({
       {takingRun && (
         <TakeDialog
           title={takingRun.head.title}
-          heading="Take these tasks into work?"
-          text={`The open tasks of «${takingRun.head.title}» here that nobody has become yours, today, and leave the backlog.`}
+          heading={takingRun.head.reviewOnly ? "Review these yourself?" : "Take these cards into work?"}
+          text={
+            takingRun.head.reviewOnly
+              ? `The reviews of «${takingRun.head.title}» here that nobody has taken become yours, today.`
+              : `The open cards of «${takingRun.head.title}» here that nobody has become yours, today, and leave the backlog.`
+          }
           onClose={() => setTakingRun(null)}
-          onTake={() => reassignable(takingRun.cards).filter((c) => c.assignees.length === 0).forEach((c) => take(c))}
+          onTake={() => takeable(takingRun.cards).forEach((c) => take(c))}
         />
       )}
       {taking && (

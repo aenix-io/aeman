@@ -97,6 +97,52 @@ func (s *Service) MoveUnder(ctx context.Context, boardID, itemID, parent string,
 	return MoveResult{Moved: len(changes), Changes: changes}, err
 }
 
+// Relink is a card linked to another parent through the picker — a PATCH of
+// its parent, MCP update_card (Q9, amended 2026-11-20): every rule of a
+// parent change holds, and a parked task linked under a new plan item is then
+// placed by Q3 like a Strategy drop into it, after that item's last parked
+// task in its team's queue, so the Backlog reads it beside its siblings. The
+// same parent again moves nothing, a parent taken off leaves the task where
+// it stands, and so does a link to a goal or an initiative with no parked
+// task of its own in the queue (there is nothing to stand beside).
+func (s *Service) Relink(ctx context.Context, boardID, itemID, parent string) error {
+	_, card, err := s.loadCard(ctx, boardID, itemID)
+	if err != nil {
+		return err
+	}
+	if err := s.SetParent(ctx, boardID, itemID, parent); err != nil || parent == "" || card.Parent == parent {
+		return err
+	}
+	b, card, err := s.loadCard(ctx, boardID, itemID)
+	if err != nil {
+		return err
+	}
+	if !queued(b, card) {
+		return nil
+	}
+	// Beside its siblings, or nowhere new: under an epic the epic's area or
+	// its best gap; under a goal or an initiative only after a parked task of
+	// that plan item. With none of those, Q3's last resort is the end of the
+	// queue, and a link is no reason to send a task there — it keeps its key.
+	ix := board.NewIndex(b)
+	team := board.PlacedTeam(b, card)
+	if ix.EpicOf(card) == "" {
+		p := ix.PlanParentOf(card)
+		near := false
+		for _, t := range ix.Queue(team) {
+			if t.ItemID != card.ItemID && ix.PlanParentOf(t) == p {
+				near = true
+				break
+			}
+		}
+		if !near {
+			return nil
+		}
+	}
+	_, err = s.placeIn(ctx, b, card, team)
+	return err
+}
+
 // ReorderInEpic is a task moved WITHIN its epic on the Strategy board (Q6):
 // the epic's parked tasks of the task's team permute over the slots they
 // hold in the queue; a task in work or done takes an ordinary key between
