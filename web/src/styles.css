@@ -827,6 +827,26 @@ select {
   visibility: hidden;
 }
 
+/* A plan group's head leaves the same dashed gap where it would land (Plans
+   on Team and Me); the lifted head follows the pointer in the overlay. */
+.sortable-card-placeholder .group-head {
+  background: transparent;
+  border: 1px dashed var(--placeholder-border);
+  box-shadow: none;
+}
+
+.sortable-card-placeholder .group-head > *,
+.sortable-card-placeholder .group-head::before,
+.sortable-card-placeholder .group-add {
+  visibility: hidden;
+}
+
+.dnd-overlay .group-head {
+  box-shadow: 0 8px 20px var(--elev-3);
+  transform: scale(1.02);
+  cursor: grabbing;
+}
+
 /* The lifted card following the pointer (rendered in a DragOverlay portal). */
 .dnd-overlay {
   cursor: grabbing;
@@ -3716,9 +3736,39 @@ button.card-age {
   background: var(--hover-overlay-soft);
 }
 
-.strategy-row-focus {
-  box-shadow: inset 3px 0 0 var(--accent);
-  background: var(--accent-glow);
+/* The selected row: a quiet tint and the accent edge, not a fill — it stays
+   on while one reads the rest of the table. */
+.strategy-row-focus,
+.strategy-row-focus:hover {
+  box-shadow: inset 2px 0 0 var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+:root[data-theme="dark"] .strategy-row-focus,
+:root[data-theme="dark"] .strategy-row-focus:hover {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+
+/* Somebody else has the row selected (presence, #290): the accent outline
+   the cards wear, and their avatars after the title. */
+.strategy-row-peer-selected {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.strategy-row-focus.strategy-row-peer-selected {
+  box-shadow: inset 2px 0 0 var(--accent), inset 0 0 0 1px var(--accent);
+}
+.strategy-presence {
+  display: inline-flex;
+  flex: none;
+  margin-left: 4px;
+}
+.strategy-presence-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--bg);
+}
+.strategy-presence-avatar + .strategy-presence-avatar {
+  margin-left: -5px;
 }
 
 .strategy-cell {
@@ -4039,6 +4089,29 @@ button.card-age {
 .strategy-status-refused {
   background: var(--stage-refuse);
   color: var(--on-accent);
+}
+
+/* On the dark theme a pill is a tint of its colour with the colour as its
+   text, as labels are there: white on the light stage colours (review's
+   yellow, locked's coral) did not read, nor did in progress's dark blue on
+   its own glow. */
+:root[data-theme="dark"] .strategy-status-in-progress,
+:root[data-theme="dark"] .strategy-status-done,
+:root[data-theme="dark"] .strategy-status-review,
+:root[data-theme="dark"] .strategy-status-locked {
+  --pill: var(--accent);
+  background: color-mix(in srgb, var(--pill) 18%, transparent);
+  color: color-mix(in srgb, var(--pill) 75%, #fff);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pill) 45%, transparent);
+}
+:root[data-theme="dark"] .strategy-status-done {
+  --pill: var(--stage-done);
+}
+:root[data-theme="dark"] .strategy-status-review {
+  --pill: var(--stage-review);
+}
+:root[data-theme="dark"] .strategy-status-locked {
+  --pill: var(--stage-locked);
 }
 
 .strategy-timeline {
@@ -5976,4 +6049,10 @@ button.card-age {
 }
 .backlog-run .group-member {
   margin-top: 4px;
+}
+
+/* A head's avatar hands the group's tasks over (Plans): it presses like a
+   card's. */
+.group-head-assign {
+  cursor: pointer;
 }

@@ -271,3 +271,33 @@ export function adjacentRuns(cards: readonly Card[]): PlanRun[] {
   close();
   return runs;
 }
+
+/** reassignable is what a group head's avatar hands over (Plans on the Team
+ *  and Me boards): the group's OPEN tasks in that cell. A finished task keeps
+ *  who did it, and a review card is its reviewer's — the review's own menu
+ *  changes that. The plan item's own owner is not touched: the head shows
+ *  whose the plan item is, its menu moves the work. */
+export function reassignable(cards: readonly Card[]): Card[] {
+  return cards.filter((c) => !c.reviewOf && !isComplete(c));
+}
+
+/** blockAnchor is where a moved group stands, as ONE anchor for the whole
+ *  block (S21, provider.moveTogether): behind the card of its cell in front
+ *  of it; leading the cell, before the cell's card behind it; the whole cell,
+ *  by the board's order in front of its first card (null: the top). */
+export function blockAnchor(
+  cell: readonly string[],
+  block: readonly string[],
+  order: readonly string[],
+): { after: string | null } | { before: string } {
+  const at = cell.indexOf(block[0]);
+  if (at > 0) {
+    return { after: cell[at - 1] };
+  }
+  const behind = cell.find((id, i) => i >= at && !block.includes(id));
+  if (at === 0 && behind) {
+    return { before: behind };
+  }
+  const i = order.indexOf(block[0]);
+  return { after: i > 0 ? order[i - 1] : null };
+}

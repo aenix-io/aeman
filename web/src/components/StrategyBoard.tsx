@@ -88,7 +88,9 @@ import {
 import { NO_STRATEGY_FILTERS, ownerFilterOptions, peopleOf, strategyOwnerCell, type StrategyFilters } from "../ownership";
 import { isPlanning } from "../subtasks";
 import { ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
-import { type Avatars, type Names } from "../users";
+import { displayName, type Avatars, type Names } from "../users";
+import { clickOn, selectedByOf, type PresenceMap } from "../presence";
+import { Avatar } from "./Avatar";
 import { AddCard } from "./AddCard";
 import { INDENT_PX, OwnerCell, ROW_PX, StatusPill, TreeTitle } from "./PlanTree";
 import { KindIcon } from "./KindIcon";
@@ -120,6 +122,12 @@ interface StrategyBoardProps {
   reload: () => void;
   onError: (message: string) => void;
   onOpen: (card: CardModel) => void;
+  /** Other users' live selections (login -> card uid), drawn on their rows. */
+  presence?: PresenceMap;
+  /** Broadcast this board's selection as shared presence (#290). */
+  onPresence?: (card: string | null) => void;
+  /** The viewer, whose own selection is not drawn as somebody else's. */
+  me?: string;
   /** A card to REVEAL: a breadcrumb was followed here. Its ancestors unfold
    *  and its row is marked; onFocused says it has been. */
   focusId?: string | null;
@@ -225,7 +233,13 @@ interface RowProps {
   mark: DropMark | null;
   dragging: boolean;
   onToggle: () => void;
-  onOpen: () => void;
+  /** A click on the row: the first selects it, a click on the row already
+   *  selected opens the card (presence.clickOn, as on every board). */
+  onPress: () => void;
+  /** Who else has this row selected (presence). */
+  selectedBy?: string[];
+  avatars?: Avatars;
+  names?: Names;
   onAdd: (() => void) | null;
   onRemove: (() => void) | null;
   /** The Owner cell's content, for a task-kind row; nothing on a planning
@@ -247,13 +261,14 @@ interface RowProps {
  *  worth of hit area, the kind by its pictogram. While a drag runs the rows
  *  stay where they are — the dragged rows dimmed in place — and where it
  *  would land is a mark over the row (strategy.dropMark). */
-function StrategyRow({ row, today, open, focus, ghost, forbid, mark, dragging, onToggle, onOpen, onAdd, onRemove, owner, onStatus, menuOpen, split, rowRef }: RowProps) {
+function StrategyRow({ row, today, open, focus, ghost, forbid, mark, dragging, onToggle, onPress, selectedBy, avatars, names, onAdd, onRemove, owner, onStatus, menuOpen, split, rowRef }: RowProps) {
   const card = row.node.card;
   const id = card.itemId;
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id });
   const cls = [
     "strategy-row",
     focus ? "strategy-row-focus" : "",
+    (selectedBy?.length ?? 0) > 0 ? "strategy-row-peer-selected" : "",
     ghost || isDragging ? "strategy-row-ghost" : "",
     forbid ? "strategy-row-forbid" : "",
     mark ? `strategy-row-drop-${mark.edge}` : "",
@@ -269,11 +284,27 @@ function StrategyRow({ row, today, open, focus, ghost, forbid, mark, dragging, o
       }}
       className={cls}
       style={{ height: ROW_PX, ...markStyle(mark) }}
-      onClick={onOpen}
+      onClick={onPress}
+      aria-selected={focus}
       {...attributes}
       {...listeners}
     >
-      <TreeTitle row={row} open={open} onToggle={onToggle} onAdd={onAdd} onRemove={onRemove} />
+      <TreeTitle
+        row={row}
+        open={open}
+        onToggle={onToggle}
+        onAdd={onAdd}
+        onRemove={onRemove}
+        marks={
+          selectedBy && selectedBy.length > 0 ? (
+            <span className="strategy-presence" aria-hidden="true">
+              {selectedBy.map((login) => (
+                <Avatar key={login} login={login} avatars={avatars} names={names} className="strategy-presence-avatar" title={`Selected by ${displayName(login, names)}`} />
+              ))}
+            </span>
+          ) : null
+        }
+      />
       <span className="strategy-cell strategy-cell-owner">{owner}</span>
       <span className="strategy-cell strategy-cell-date">{shortDate(card.startDate, today)}</span>
       <span className="strategy-cell strategy-cell-date">{shortDate(card.day, today)}</span>
@@ -390,6 +421,9 @@ export function StrategyBoard({
   reload,
   onError,
   onOpen,
+  presence,
+  onPresence,
+  me = "",
   focusId,
   onFocused,
   filters,
@@ -439,7 +473,21 @@ export function StrategyBoard({
   const [folded, setFoldedState] = useState<Set<string>>(readFolded);
   // The planning row the + was pressed on, whose create form is open.
   const [addingUnder, setAddingUnder] = useState<string | null>(null);
+  // The selected row: a click's (the first selects, the second opens — as
+  // on every board) or the one a breadcrumb revealed, which a click then
+  // opens. It is shared as presence (#290).
   const [focusRow, setFocusRow] = useState<string | null>(null);
+  const press = (card: CardModel) => {
+    if (clickOn(focusRow === card.itemId) === "open") {
+      onOpen(card);
+      return;
+    }
+    setFocusRow(card.itemId);
+  };
+  useEffect(() => {
+    onPresence?.(focusRow);
+  }, [focusRow]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onPresence?.(null), []); // eslint-disable-line react-hooks/exhaustive-deps
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
 
   const setFolded = (next: Set<string>) => {
@@ -514,6 +562,39 @@ export function StrategyBoard({
   }, [shown]);
   const baseRows = useMemo(() => shownLines.filter((l) => l.kind === "row" && l.section === "tree").map((l) => (l as RowLine).row), [shownLines]);
   const rows = useMemo(() => shownLines.filter((l): l is RowLine => l.kind === "row").map((l) => l.row), [shownLines]);
+  // Everything under a card, by its lineage: a folded row wears the marks
+  // of whoever has something inside it selected (presence.selectedByOf, as
+  // a folded parent on the day boards wears its subtasks').
+  const below = useMemo(() => {
+    const m = new Map<string, CardModel[]>();
+    for (const c of board.cards) {
+      for (const up of c.lineage ?? []) {
+        const list = m.get(up.uid);
+        if (list) {
+          list.push(c);
+        } else {
+          m.set(up.uid, [c]);
+        }
+      }
+    }
+    return m;
+  }, [board.cards]);
+  const foldedMarks = { children: (id: string) => below.get(id) ?? [], open: (id: string) => !folded.has(id) };
+  // A selection whose card is gone from the board — deleted, or out of the
+  // visitor's reach — is let go and stops being broadcast. A row only
+  // folded away keeps it: its parent wears the mark, as on the day boards.
+  useEffect(() => {
+    // A row a breadcrumb is still revealing is not gone, and an empty board
+    // is one still loading, not one the card left.
+    if (
+      focusRow &&
+      board.cards.length > 0 &&
+      revealPending.current !== focusRow &&
+      !board.cards.some((c) => c.itemId === focusRow)
+    ) {
+      setFocusRow(null);
+    }
+  }, [board.cards, focusRow]);
   // The rows a drag carries — the dragged card and everything under it —
   // dimmed in place for as long as it runs, and a target for nothing.
   const ghosts = useMemo(() => {
@@ -909,7 +990,7 @@ export function StrategyBoard({
         key={card.itemId}
         className={`strategy-lane${ghosts.has(card.itemId) ? " strategy-lane-ghost" : ""}`}
         style={{ height: ROW_PX }}
-        onClick={() => onOpen(card)}
+        onClick={() => press(card)}
       >
         {placed && bar && (
           <div
@@ -1084,11 +1165,14 @@ export function StrategyBoard({
                       mark={mark && mark.row === card.itemId ? mark : null}
                       dragging={!!dragging}
                       onToggle={() => toggle(card.itemId)}
-                      onOpen={() => {
+                      onPress={() => {
                         if (!justDropped.current && !dragging) {
-                          onOpen(card);
+                          press(card);
                         }
                       }}
+                      selectedBy={selectedByOf(presence, card, foldedMarks, me)}
+                      avatars={avatars}
+                      names={names}
                       onAdd={planning && kids.length > 0 ? () => setAddingUnder(addingUnder === card.itemId ? null : card.itemId) : null}
                       onRemove={planning ? () => setRemoveChoice(card) : null}
                       owner={ownerCell(card, r.node.kind)}

@@ -385,6 +385,16 @@ type CardList struct {
 	// on an Ordering frame, by the same key (board.BacklogKey). Absent on
 	// every other listing.
 	BoardOrder []string `json:"boardOrder,omitempty"`
+	// Groups is the Plans reading, when the listing asked for it
+	// (group=plans) on the Team, Me or Backlog view: the groups those boards
+	// draw in Plans, each a plan item (absent for the cards in none), its
+	// cell and its cards (PlanGroups).
+	Groups []PlanGroup `json:"groups,omitempty"`
+
+	// view and drawn are what Regroup reads the groups again from: the view
+	// asked, and the cards of the listing the board draws (drawnOf).
+	view  string
+	drawn map[string]bool
 }
 
 // CardResource maps a domain card onto the API resource, deriving status from

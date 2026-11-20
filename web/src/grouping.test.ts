@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { adjacentRuns, arrangeByParent, expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowId, planRowUid } from "./grouping";
+import { adjacentRuns, blockAnchor, reassignable, arrangeByParent, expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowId, planRowUid } from "./grouping";
 import type { Card, LineageRef } from "./providers/types";
 
 const goal: LineageRef = { uid: "g", type: "goal", title: "Cozystack" };
@@ -253,5 +255,91 @@ describe("adjacentRuns", () => {
 
   it("is nothing for an empty list", () => {
     expect(adjacentRuns([])).toEqual([]);
+  });
+});
+
+// THE PLANS READING IS ONE RULE ON BOTH SIDES (ADR 0002): what the boards
+// draw here, a listing asked with group=plans carries as its groups
+// (apiserver.PlanGroups, TestPlanGroupsMatchTheSharedFixture), on the same
+// fixture.
+describe("the Plans reading, shared with the server", () => {
+  type Fx = {
+    cards: { uid: string; zone: string; assignees: string[]; reviewOf?: string; subtask?: boolean; lineage: LineageRef[] }[];
+    me: { zone: string; plan: string; cards: string[] }[];
+    team: { assignee: string; zone: string; plan: string; cards: string[] }[];
+    backlog: { plan: string; cards: string[] }[];
+  };
+  const fx = JSON.parse(
+    readFileSync(fileURLToPath(new URL("../../pkg/board/testdata/plan_groups.json", import.meta.url)), "utf8"),
+  ) as Fx;
+  const zones = ["urgent", "unplanned", "planned", "niceToHave"];
+  const cards = fx.cards
+    .filter((c) => !c.subtask)
+    .map((c) => ({ ...card(c.uid, { assignees: c.assignees, reviewOf: c.reviewOf, lineage: c.lineage }), zoneName: c.zone }));
+  // A cell's groups: each head, with the cards drawn under it.
+  const groupsOf = (cs: typeof cards, zone: string) => {
+    const { cards: drawn, heads } = arrangeByParent(cs.filter((c) => c.zoneName === zone));
+    return [...heads.values()].map((h) => ({
+      plan: h.uid,
+      cards: drawn.filter((c) => (parentGroupOf(c)?.uid ?? "") === h.uid).map((c) => c.itemId),
+    }));
+  };
+
+  it("groups the Me board per band", () => {
+    const got = zones.flatMap((z) => groupsOf(cards, z).map((g) => ({ zone: z, ...g })));
+    expect(got).toEqual(fx.me);
+  });
+
+  it("groups the Team board per person and band", () => {
+    const people: string[] = [];
+    for (const c of cards) {
+      for (const p of c.assignees.length ? c.assignees : [""]) {
+        if (!people.includes(p)) {
+          people.push(p);
+        }
+      }
+    }
+    const got = people.flatMap((p) => {
+      const mine = cards.filter((c) => (c.assignees.length ? c.assignees : [""]).includes(p));
+      return zones.flatMap((z) => groupsOf(mine, z).map((g) => ({ assignee: p, zone: z, ...g })));
+    });
+    expect(got).toEqual(fx.team);
+  });
+
+  it("cuts the Backlog into runs of neighbours", () => {
+    expect(adjacentRuns(cards).map((r) => ({ plan: r.head.uid, cards: r.cards.map((c) => c.itemId) }))).toEqual(fx.backlog);
+  });
+});
+
+// The head's avatar hands the group's WORK over — a team or a person for
+// its tasks in that cell — and leaves the plan item's own owner alone. What
+// it moves: the open tasks; a finished one keeps who did it, and a review
+// card is the reviewer's, which the review's own menu changes.
+describe("reassignable", () => {
+  it("takes the open tasks and leaves the done ones and the reviews", () => {
+    const open = card("o", {});
+    const done = card("d", { progress: 100 });
+    const review = card("r", { reviewOf: "o" });
+    expect(reassignable([open, done, review]).map((c) => c.itemId)).toEqual(["o"]);
+  });
+  it("is empty for a group of reviews only", () => {
+    expect(reassignable([card("r", { reviewOf: "x" })])).toEqual([]);
+  });
+});
+
+// Where a moved group stands, as ONE anchor for the whole block (S21): its
+// cell's card in front of it, else the cell's card behind it, else — alone in
+// its cell — the board's order around it.
+describe("blockAnchor", () => {
+  const order = ["x", "a", "b", "y"];
+  it("anchors behind the cell's card in front of the block", () => {
+    expect(blockAnchor(["p", "a", "b", "q"], ["a", "b"], order)).toEqual({ after: "p" });
+  });
+  it("anchors before the cell's card behind the block when it leads the cell", () => {
+    expect(blockAnchor(["a", "b", "q"], ["a", "b"], order)).toEqual({ before: "q" });
+  });
+  it("falls back to the board's order when the block is the whole cell", () => {
+    expect(blockAnchor(["a", "b"], ["a", "b"], order)).toEqual({ after: "x" });
+    expect(blockAnchor(["x", "y"], ["x", "y"], ["x", "y"])).toEqual({ after: null });
   });
 });

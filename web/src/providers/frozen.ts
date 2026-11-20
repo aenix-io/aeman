@@ -48,6 +48,7 @@ const CARD_WRITES = new Set([
   "removeCard",
   "moveCard",
   "moveCardBefore",
+  "moveTogether",
   "moveTo",
   "takePlanItem",
   "reorderInEpic",
@@ -104,7 +105,9 @@ export function frozenProvider(
       }
       if (CARD_WRITES.has(name)) {
         return (...args: unknown[]) => {
-          const uid = typeof args[0] === "string" ? args[0] : "";
+          // A block write (moveTogether) names its cards in a list: any one
+          // of them a record refuses the whole block.
+          const uid = typeof args[0] === "string" ? args[0] : Array.isArray(args[0]) ? (args[0] as string[]).find((u) => isRecord(u)) ?? "" : "";
           return isRecord(uid)
             ? Promise.reject(new Error(onFrozen(uid)))
             : call(...args);

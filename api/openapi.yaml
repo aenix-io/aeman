@@ -109,6 +109,8 @@ paths:
         - $ref: '#/components/parameters/Status'
         - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Snapshot'
+        - $ref: '#/components/parameters/Under'
+        - $ref: '#/components/parameters/Group'
       responses:
         '200':
           description: What that board draws.
@@ -513,6 +515,35 @@ paths:
       responses:
         '200':
           description: The order is applied.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoveResult'
+        default:
+          $ref: '#/components/responses/Problem'
+  /cards/actions/move-together:
+    post:
+      operationId: moveTogether
+      tags: [Cards]
+      summary: Move a block of cards as one action — a plan group dragged on a board.
+      description: >-
+        What dragging a plan group's head does (Plans on Team and Me, a run on
+        the Backlog): every card named takes `zone` and `assignees` when they
+        are sent, by the same rules as a PATCH of that card, and the block is
+        placed at the anchor in the order given — the first card where a move
+        of it would put it (`before` wins over `after`; an empty `after` is
+        the top), each next one right behind the one before. All of it is ONE
+        action and one commit. The answer names the action and how many
+        cards were placed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveTogetherBody'
+      responses:
+        '200':
+          description: The block is moved.
           content:
             application/json:
               schema:
@@ -1250,6 +1281,33 @@ components:
         and locked are dropped.
       schema:
         type: string
+    Under:
+      name: under
+      in: query
+      required: false
+      description: >-
+        A card's uid: keep only the cards standing under it at any depth —
+        a plan item's work; a review card stands under its task and what the
+        task stands under. What that item's group shows on a board, asked of
+        any view (view=me&under=<initiative> is the caller's work on it
+        today). The card itself is not listed. A task's subtasks are under it
+        as well, but the day boards and the backlog deliver a subtask only
+        with its parent, so only view=all lists them for under=<task>.
+      schema:
+        type: string
+    Group:
+      name: group
+      in: query
+      required: false
+      description: >-
+        "plans" adds the Plans reading the Team, Me and Backlog boards draw
+        (`groups`): on Me per band, on Team per person and band, each plan
+        item gathered where its first card stands; on the Backlog the one
+        list cut into runs of neighbouring cards of one plan item. Ignored
+        on the other views.
+      schema:
+        type: string
+        enum: [plans]
     Reviews:
       name: reviews
       in: query
@@ -1932,12 +1990,45 @@ components:
           type: array
           description: >-
             On a `backlog` listing only: the whole board's order, as every
-            `Ordering` frame carries it. A backlog reads in the Strategy board's
-            order (the path of places in this order from the root plan item
-            down to the task), the reviews nobody has taken first, in their
-            tasks' order; a client that
+            `Ordering` frame carries it. A backlog reads in this
+            order, every card by its own key (a review nobody has taken is made
+            at the top of it, so it leads until somebody drags it); a client that
             places a card the watch brings in, or re-sorts on an `Ordering`
             frame, reads the same key from it.
+          items:
+            type: string
+        groups:
+          type: array
+          description: >-
+            With group=plans on a Team, Me or Backlog listing: the groups that
+            board draws in Plans, in its order. A card is under its direct
+            plan item (the nearest `status.lineage` entry with a type; a review
+            card's lineage is its task's); the cards in none are a group with
+            no `plan`; subtasks ride their parent and are in no group.
+          items:
+            $ref: '#/components/schemas/PlanGroup'
+    PlanGroup:
+      type: object
+      additionalProperties: false
+      x-go-type: apiserver.PlanGroup
+      x-go-type-import:
+        path: github.com/aenix-io/aeman/pkg/apiserver
+      required: [cards]
+      properties:
+        assignee:
+          type: string
+          description: >-
+            The Team board's column: the person, "" for nobody. A card of
+            several people stands in each of their columns. Absent on Me and
+            the Backlog.
+        zone:
+          type: string
+          description: The band, on the Team and Me boards.
+        plan:
+          $ref: '#/components/schemas/LineageRef'
+        cards:
+          type: array
+          description: The group's cards by uid, in the listing's order.
           items:
             type: string
     Sprint:
@@ -2636,6 +2727,33 @@ components:
         before:
           type: string
           description: The card to land in front of. It wins when both are sent.
+    MoveTogetherBody:
+      type: object
+      required: [uids]
+      properties:
+        uids:
+          type: array
+          minItems: 1
+          description: The cards of the block, in the order they are to stand; at least one, each once.
+          items:
+            type: string
+        after:
+          type: string
+          description: The card the block lands behind; empty means the top.
+        before:
+          type: string
+          description: The card the block lands in front of. It wins when both are sent.
+        zone:
+          type: string
+          enum: [urgent, unplanned, planned, niceToHave]
+          description: The band every card of the block takes, as a PATCH of its `zone`.
+        assignees:
+          type: array
+          description: >-
+            The person every card of the block takes, as a PATCH of its
+            `assignees` (a review card's is its reviewer); `[]` is nobody.
+          items:
+            type: string
     DeferCardBody:
       type: object
       properties:

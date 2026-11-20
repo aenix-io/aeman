@@ -31,8 +31,8 @@ import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 import { isSubtask, subtaskParent, subtaskShows } from "../subtasks";
-import { expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowUid, type PlanRow } from "../grouping";
-import { ParentGroupHead } from "./ParentGroupHead";
+import { expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowUid, reassignable, blockAnchor, type PlanRow } from "../grouping";
+import { ParentGroupHead, type GroupAssign } from "./ParentGroupHead";
 import { GroupBacklogDialog } from "./GroupBacklogDialog";
 import { FoldControls } from "./FoldControls";
 import {
@@ -677,19 +677,23 @@ export function TeamBoard({
       setExpandedPlans((cur) => new Set(cur).add(back));
     }
     const cell = cells.find((ids) => ids.includes(h.cards[0])) ?? [];
-    void (async () => {
-      try {
-        for (const { id, patch } of patches) {
-          if (Object.keys(patch).length > 0) {
-            await provider.patchCard(id, patch);
-          }
-          await persistPlace(id, cell, order);
-        }
-      } catch (err: unknown) {
-        onError(errMessage(err));
-        reload();
+    // ONE request for the whole group (S21): the cell it landed in and its
+    // place, the block in the cell's order — one commit, not a patch and a
+    // move per card.
+    const into: { zone?: ZoneKey; assignees?: string[] } = {};
+    for (const { patch } of patches) {
+      if (patch.zone) {
+        into.zone = patch.zone;
       }
-    })();
+      if (patch.assignees) {
+        into.assignees = patch.assignees;
+      }
+    }
+    const block = cell.filter((id) => moving.has(id));
+    provider.moveTogether(block, blockAnchor(cell, block, order), into).catch((err: unknown) => {
+      onError(errMessage(err));
+      reload();
+    });
   };
 
   // A card dropped on a head's middle band joins that plan item, in the head's
@@ -989,6 +993,29 @@ export function TeamBoard({
     />
   );
 
+  // A head's avatar menu (Plans): the group's open tasks in this cell go to
+  // the team or person picked, one card's own reassignment each — a task's
+  // subtasks follow it as they do there. The plan item's owner stays.
+  const groupAssign = (ids: readonly string[]): GroupAssign | undefined => {
+    if (holdsRecords) {
+      return undefined;
+    }
+    const cards = reassignable(ids.flatMap((id) => cardsById.get(id) ?? []));
+    if (cards.length === 0) {
+      return undefined;
+    }
+    const teams = new Set(cards.map((c) => c.team ?? ""));
+    const persons = new Set(cards.map((c) => c.assignees.join(",")));
+    return {
+      teams: roster,
+      people,
+      team: teams.size === 1 ? [...teams][0] || undefined : undefined,
+      person: persons.size === 1 ? [...persons][0] || undefined : undefined,
+      onTeam: (t) => cards.forEach((c) => handleSetTeam(c, t)),
+      onPerson: (login) => cards.forEach((c) => handleSetAssignee(c, login)),
+    };
+  };
+
   // A row of the grouped board: a group's head (with its add-a-task form
   // under it while open), a card nested in a group, or a loose card.
   const renderGroupedRow = (card: CardModel): ReactNode => {
@@ -1032,6 +1059,8 @@ export function TeamBoard({
               setSelectedPlan(id);
               setSelectedCardId(null);
             }}
+            assign={groupAssign(h.cards)}
+            reviewPrefix
             avatars={avatars}
             names={names}
           />

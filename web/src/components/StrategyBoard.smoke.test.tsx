@@ -8,6 +8,7 @@ import type { StrategyFilters } from "../ownership";
 import { HIDE_DONE } from "../workstatus";
 import type { Board, Card, Provider } from "../providers/types";
 import { addDays, todayIso } from "../date";
+import type { PresenceMap } from "../presence";
 
 // The Strategy board draws its own two panes — a table of rows and a timeline of
 // bars — and nothing else in the suite renders them. This is the one test
@@ -83,6 +84,7 @@ function draw(
   b: Board,
   focusId: string | null = null,
   filters: StrategyFilters = { teams: [], customers: [], owners: [], statuses: [] },
+  presence?: PresenceMap,
 ) {
   return renderToStaticMarkup(
     <StrategyBoard
@@ -99,6 +101,8 @@ function draw(
       onError={vi.fn()}
       onOpen={vi.fn()}
       focusId={focusId}
+      presence={presence}
+      me="kvaps"
     />,
   );
 }
@@ -446,5 +450,39 @@ describe("the Strategy board's own toolbar", () => {
     const bar = html.slice(html.indexOf("strategy-toolbar"), html.indexOf("strategy-head"));
     expect(bar.indexOf("Team")).toBeLessThan(bar.indexOf("Collapse all"));
     expect(bar).not.toContain("strategy-range");
+  });
+});
+
+// A row is selected and opened as a card is on every board (S15): the click
+// handler is presence.clickOn's, which presence.test.ts pins; what the markup
+// shows is the others' selection — the accent outline and their avatar after
+// the title — and never the reader's own from another tab.
+describe("the Strategy board's presence", () => {
+  const rowOf = (html: string, title: string) => {
+    const at = html.indexOf(`title="${title}"`);
+    return html.slice(html.lastIndexOf('<div class="strategy-row', at), at + 400);
+  };
+  it("marks the row somebody else has selected", () => {
+    const html = draw(board([goal, ini, epic, done, open]), null, undefined, {
+      t1: { login: "ann", card: "e" },
+      t2: { login: "kvaps", card: "i" },
+    });
+    const row = rowOf(html, "Invoices");
+    expect(row).toContain("strategy-row-peer-selected");
+    expect(row).toContain('title="Selected by ann"');
+    expect(rowOf(html, "Billing v2")).not.toContain("strategy-row-peer-selected");
+    expect(rowOf(html, "Render PDF")).not.toContain("strategy-presence");
+  });
+
+  // A folded row wears the marks of whoever has something inside it
+  // selected, as a folded parent does on the day boards.
+  it("marks a folded row for a selection inside it", () => {
+    store.set("aeman.strategy.folded", JSON.stringify(["i"]));
+    try {
+      const html = draw(board([goal, ini, epic, done, open]), null, undefined, { t1: { login: "ann", card: "t1" } });
+      expect(rowOf(html, "Billing v2")).toContain('title="Selected by ann"');
+    } finally {
+      store.delete("aeman.strategy.folded");
+    }
   });
 });

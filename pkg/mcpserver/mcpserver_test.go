@@ -1225,3 +1225,32 @@ func TestMCPListCardsStrategyAndRefusesTheOldName(t *testing.T) {
 		}
 	}
 }
+
+// "We are on <initiative>" (ADR 0002): list_cards narrows any board to what
+// stands under a plan item, and reads it by plan item as the boards' Plans
+// do; the tool says when to use it.
+func TestMCPListCardsUnderAPlanItemInPlans(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "i", Type: board.TypeInitiative, Title: "Bugs"},
+		{ItemID: "e", Type: board.TypeEpic, Parent: "i", Title: "Backups"},
+		{ItemID: "t1", Parent: "e", Assignees: []string{"bob"}, StartDate: today, SprintStart: today},
+		{ItemID: "x", Assignees: []string{"bob"}, StartDate: today, SprintStart: today},
+	}, map[string]board.SprintState{"": {Current: today}})
+	cs := connect(t, Config{Board: "acme"}, fake)
+	got := textOf(call(t, cs, "list_cards", map[string]any{"view": "me", "user": "bob", "under": "i", "group": "plans"}))
+	if !listed(got, "t1") || listed(got, "x") || !strings.Contains(got, `"groups":[{"cards":["t1"],"plan":{"title":"Backups","type":"epic","uid":"e"}`) {
+		t.Fatalf("under=i in plans: %s", got)
+	}
+	surface := toolSurface(t, "list_cards")
+	for _, want := range []string{"under=<uid>", "group=plans"} {
+		if !strings.Contains(surface, want) {
+			t.Errorf("list_cards does not say %q", want)
+		}
+	}
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "list_cards",
+		Arguments: map[string]any{"group": "tree"}})
+	if err == nil && !res.IsError {
+		t.Fatalf("an unknown group was read: %s", textOf(res))
+	}
+}

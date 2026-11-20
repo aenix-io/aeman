@@ -419,6 +419,15 @@ export interface Provider {
    *  global anchor, so callers rendering a filtered slice don't need to know
    *  the full board order. */
   moveCardBefore(uid: string, beforeId: string): Promise<void>;
+  /** Move a block of cards as ONE action (POST /cards/actions/move-together):
+   *  each takes `zone` and `assignees` when given, as a patch of it would, and
+   *  the block stands at the anchor in the order given — a plan group's head
+   *  dragged on a board (S21). */
+  moveTogether(
+    uids: string[],
+    anchor: { after: string | null } | { before: string },
+    cell?: { zone?: ZoneKey; assignees?: string[] },
+  ): Promise<void>;
   /** Push the scheduled day N days ahead of max(today, current start). */
   deferCard(uid: string, days: number): Promise<Card>;
   /** Move to the implicit In Progress status (no stage, progress in [10,90]). */
