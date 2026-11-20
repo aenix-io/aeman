@@ -404,116 +404,14 @@ export function splitEpics(list: readonly Card[], teamOf: (c: Card) => string): 
   return out;
 }
 
-/** BacklogMode is the Backlog's Tasks | Epics switch; switching writes
- *  nothing — both read the same order. Remembered per viewer. */
-export type BacklogMode = "tasks" | "epics";
+/** BacklogMode is the Backlog's Tasks | Plans switch; switching writes
+ *  nothing. In Plans the list is drawn in groups of neighbouring tasks of one
+ *  plan item (grouping.adjacentRows). The Epics mode it replaces is read
+ *  back as Plans. */
+export type BacklogMode = "tasks" | "plans";
 
 export const BACKLOG_MODE_KEY = "aeman.backlog.mode";
 
 export function readBacklogMode(raw: string | null): BacklogMode {
-  return raw === "epics" ? "epics" : "tasks";
-}
-
-/** EpicRow is one line of the Epics mode: the epic, the goal and initiative
- *  above it, how many of its tasks wait in the shown backlogs, and whether
- *  they are scattered (Split). */
-export interface EpicRow {
-  epic: Card;
-  chain: LineageRef[];
-  parked: number;
-  split: boolean;
-}
-
-/** epicRows is the Epics mode (ordering.md, "Backlog Epics mode"): the epics
- *  in the shown teams' scope — of a shown team, or with an open task
- *  standing under one; an epic of no team with the no-team group shown —
- *  empty ones included, done ones not, in the EPIC ORDER (the board's order,
- *  `order`). `scope` is the cards the epics and their tasks are read from
- *  (the Strategy listing), `list` the backlog as drawn. */
-export function epicRows(
-  scope: readonly Card[],
-  list: readonly Card[],
-  teams: readonly string[],
-  order?: readonly string[],
-): EpicRow[] {
-  const shown = new Set(teams);
-  const teamOf = placerOf(scope);
-  const listTeamOf = placerOf(list);
-  const inScope = new Set<string>();
-  for (const c of scope) {
-    if (c.type === "epic" || isPlanning(c) || isComplete(c)) {
-      continue;
-    }
-    const e = epicOf(c);
-    if (e && shown.has(teamOf(c))) {
-      inScope.add(e.uid);
-    }
-  }
-  const pos = new Map((order ?? []).map((uid, i) => [uid, i]));
-  const at = (c: Card, i: number) => pos.get(c.itemId) ?? pos.size + i;
-  const parked = new Map<string, number>();
-  for (const c of list) {
-    const e = epicOf(c);
-    if (e && !needsReviewer(c)) {
-      parked.set(e.uid, (parked.get(e.uid) ?? 0) + 1);
-    }
-  }
-  const split = splitEpics(list, listTeamOf);
-  return scope
-    .map((c, i) => ({ c, i }))
-    .filter(({ c }) => c.type === "epic" && c.hierarchy?.status !== "done")
-    .filter(({ c }) => shown.has(c.team ?? "") || inScope.has(c.itemId))
-    .sort((a, b) => at(a.c, a.i) - at(b.c, b.i))
-    .map(({ c }) => ({
-      epic: c,
-      chain: (c.lineage ?? []).filter((r) => r.type === "goal" || r.type === "initiative"),
-      parked: parked.get(c.itemId) ?? 0,
-      split: split.has(c.itemId),
-    }));
-}
-
-/** epicDrop is where an epic dropped at place `at` of the Epics list (the
- *  list without it) goes: right after the epic above it, or right before the
- *  first one at the top — the epic move, which gathers its tasks. Nothing
- *  for a drop where it already was. */
-export function epicDrop(ids: readonly string[], id: string, at: number): { order: string[]; anchor: Anchor } | null {
-  const order = orderWith(ids, id, at);
-  if (order.every((x, i) => x === ids[i])) {
-    return null;
-  }
-  return { order, anchor: anchorFor(order, id) };
-}
-
-/** epicsByReadiness is the All / Ready / Blocked filter on the Epics mode:
- *  Blocked is an epic locked by a dependency, its own or inherited
- *  (status.locked), Ready one that is not — the tasks' rule. It only hides. */
-export function epicsByReadiness(rows: readonly EpicRow[], mode: Readiness): EpicRow[] {
-  const keep = new Set(byReadiness(rows.map((r) => r.epic), mode).map((c) => c.itemId));
-  return rows.filter((r) => keep.has(r.epic.itemId));
-}
-
-/** offersEpicTake reports whether an epic's row in the Epics mode offers
- *  TAKE: while nobody answers for it (no owner). Take on an epic is the plan
- *  item's analogue of a task's: the viewer becomes its OWNER and its team
- *  stays as it is; once somebody owns it, changing hands is the owner
- *  picker's. */
-export function offersEpicTake(epic: Pick<Card, "owner">): boolean {
-  return !epic.owner;
-}
-
-/** epicTake is how an Epics row draws its Take: enabled while nobody owns
- *  the epic; DISABLED, saying who does, once somebody owns it — changing
- *  hands is the owner picker's (the avatar). The server refuses the same
- *  (somebodysCard). */
-export function epicTake(epic: Pick<Card, "owner" | "title">): { enabled: boolean; title: string } {
-  if (epic.owner) {
-    return { enabled: false, title: `${epic.owner} already owns «${epic.title}» — change the owner with the avatar` };
-  }
-  return { enabled: true, title: "Take this epic yourself: you become its owner" };
-}
-
-/** epicTakeOwner is what Take leaves on an epic: its own team, the viewer
- *  as its owner. */
-export function epicTakeOwner(epic: Pick<Card, "team">, viewer: string): Owner {
-  return { team: epic.team ?? "", person: viewer };
+  return raw === "plans" || raw === "epics" ? "plans" : "tasks";
 }

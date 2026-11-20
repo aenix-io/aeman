@@ -223,3 +223,51 @@ export function expandRows(ids: readonly string[], heads: ReadonlyMap<string, Pl
   }
   return out;
 }
+
+/** A run of the Backlog drawn grouped: the neighbouring cards of one plan
+ *  item (or of none, "Ungrouped") and the head drawn above them. */
+export interface PlanRun {
+  /** The head row's id: the plan item and the run's first card, so a plan
+   *  item split in two places heads two runs. */
+  id: string;
+  head: GroupHead;
+  cards: Card[];
+}
+
+/** adjacentRuns is the Backlog's list as drawn grouped: one queue, so a group
+ *  is the cards of one plan item STANDING TOGETHER — a card of another plan
+ *  item between them splits the plan item into two runs, and bringing them
+ *  together again makes one. The cards in no plan item run under
+ *  "Ungrouped" the same way. Nothing is reordered: the runs are the list,
+ *  cut where the plan item changes. */
+export function adjacentRuns(cards: readonly Card[]): PlanRun[] {
+  const runs: PlanRun[] = [];
+  let open: { g: ParentGroup; cards: Card[] } | null = null;
+  const close = () => {
+    if (!open) {
+      return;
+    }
+    const kids = open.cards;
+    runs.push({
+      id: `${PLAN_ROW}backlog:${open.g.uid}:${kids[0].itemId}`,
+      head: {
+        ...open.g,
+        count: kids.length,
+        done: kids.filter((c) => isComplete(c)).length,
+        reviewOnly: kids.every((c) => !!c.reviewOf),
+      },
+      cards: kids,
+    });
+  };
+  for (const c of cards) {
+    const g = parentGroupOf(c) ?? UNGROUPED;
+    if (open && open.g.uid === g.uid) {
+      open.cards.push(c);
+      continue;
+    }
+    close();
+    open = { g, cards: [c] };
+  }
+  close();
+  return runs;
+}

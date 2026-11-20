@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { arrangeByParent, expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowId, planRowUid } from "./grouping";
+import { adjacentRuns, arrangeByParent, expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowId, planRowUid } from "./grouping";
 import type { Card, LineageRef } from "./providers/types";
 
 const goal: LineageRef = { uid: "g", type: "goal", title: "Cozystack" };
@@ -198,5 +198,60 @@ describe("expandRows", () => {
   it("carries a group moved by its head: its cards follow the head to its new place", () => {
     const { heads } = groupedRows("cell", cs, () => false);
     expect(expandRows([planRowId("cell", ""), headB, headA], heads)).toEqual(["loose", "b1", "a1", "a2"]);
+  });
+});
+
+// The Backlog is one queue: a group there is the cards of one plan item
+// STANDING TOGETHER. A card of another plan item between them splits the plan
+// item into two groups; brought together again they are one.
+describe("adjacentRuns", () => {
+  const ids = (runs: ReturnType<typeof adjacentRuns>) => runs.map((r) => [r.head.uid, r.cards.map((c) => c.itemId)]);
+
+  it("groups neighbours of one plan item, in the list's order", () => {
+    const cs = [under("a1", [epic]), under("a2", [epic]), under("b1", [other]), card("x")];
+    expect(ids(adjacentRuns(cs))).toEqual([
+      ["e", ["a1", "a2"]],
+      ["o", ["b1"]],
+      ["", ["x"]],
+    ]);
+  });
+
+  it("splits a plan item into two groups when another plan item stands between", () => {
+    const cs = [under("a1", [epic]), under("b1", [other]), under("a2", [epic])];
+    const runs = adjacentRuns(cs);
+    expect(ids(runs)).toEqual([
+      ["e", ["a1"]],
+      ["o", ["b1"]],
+      ["e", ["a2"]],
+    ]);
+    // Two heads of one plan item are two rows of their own.
+    expect(runs[0].id).not.toBe(runs[2].id);
+  });
+
+  it("joins them again once they stand together", () => {
+    const cs = [under("b1", [other]), under("a1", [epic]), under("a2", [epic])];
+    expect(ids(adjacentRuns(cs))).toEqual([
+      ["o", ["b1"]],
+      ["e", ["a1", "a2"]],
+    ]);
+  });
+
+  it("runs the loose cards under Ungrouped, and a review with its task's plan item", () => {
+    const cs = [card("r", { reviewOf: "x", lineage: [epic] }), under("a1", [epic]), card("x1"), card("x2")];
+    const runs = adjacentRuns(cs);
+    expect(ids(runs)).toEqual([
+      ["e", ["r", "a1"]],
+      ["", ["x1", "x2"]],
+    ]);
+    expect(runs[1].head).toMatchObject({ type: "none", title: "Ungrouped", count: 2 });
+  });
+
+  it("marks a run of reviews only as a review", () => {
+    const runs = adjacentRuns([card("r1", { reviewOf: "x", lineage: [epic] }), card("r2", { reviewOf: "y", lineage: [epic] })]);
+    expect(runs[0].head.reviewOnly).toBe(true);
+  });
+
+  it("is nothing for an empty list", () => {
+    expect(adjacentRuns([])).toEqual([]);
   });
 });

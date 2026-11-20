@@ -13,10 +13,7 @@ import type { Board, Card as CardModel, Provider } from "../providers/types";
 import {
   insertSpot,
   byReadiness,
-  epicTakeOwner,
   type Readiness,
-  epicRows,
-  epicsByReadiness,
   type BacklogMode,
   insertedOrder,
   backlogList,
@@ -33,10 +30,11 @@ import {
   type Anchor,
 } from "../backlogboard";
 import type { LineageRef } from "../providers/types";
-import { BacklogEpics } from "./BacklogEpics";
+import { ParentGroupHead } from "./ParentGroupHead";
+import { adjacentRuns, type PlanRun } from "../grouping";
 import { readMode } from "../viewprefs";
 import { justMade, noteMade } from "../justmade";
-import { ownerOf, planOwnerOf, planOwnPatch, type Owner } from "../owner";
+import { ownerOf, type Owner } from "../owner";
 import {
   asksFirst,
   freeSubtasks,
@@ -131,6 +129,25 @@ function dropSpot(x: number, y: number, carried: string): number | null {
   return rows.length;
 }
 
+/** dropTarget reads the grouped list for a point: the card a drop there
+ *  would land before — the row (a head stands for its run's first card)
+ *  whose middle the point has not passed — "" past the last row, or null
+ *  off the list. The cards in hand are no place of their own. */
+function dropTarget(x: number, y: number, away: ReadonlySet<string>): string | null {
+  const list = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-backlog-list]");
+  if (!list) {
+    return null;
+  }
+  const rows = [...list.querySelectorAll<HTMLElement>("[data-drop]")].filter((r) => !away.has(r.dataset.drop ?? ""));
+  for (const row of rows) {
+    const r = row.getBoundingClientRect();
+    if (y < r.top + r.height / 2) {
+      return row.dataset.drop ?? "";
+    }
+  }
+  return "";
+}
+
 const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export function BacklogBoard({
@@ -172,63 +189,12 @@ export function BacklogBoard({
   const list = useMemo(() => byReadiness(whole, readiness), [whole, readiness]);
   const members = useMemo(() => board.members.map((m) => m.login), [board.members]);
 
-  // ---- Tasks | Epics (ordering.md): one order, two readings ----
-  // The mode is the viewer's own and switching writes nothing. The Epics
-  // mode reads the epics — empty ones too, which no backlog listing holds —
-  // off the Strategy listing, and orders them by the board's order.
+  // ---- Tasks | Plans: one order, two readings ----
+  // The mode is the viewer's own and switching writes nothing. Plans draws
+  // the list cut into runs of one plan item's neighbouring cards
+  // (grouping.adjacentRuns).
   const [storedMode] = useState<BacklogMode>(readMode);
   const mode = modeProp ?? storedMode;
-  const [scope, setScope] = useState<CardModel[] | null>(null);
-  const [scopeTick, setScopeTick] = useState(0);
-  useEffect(() => {
-    if (mode !== "epics") {
-      return;
-    }
-    let live = true;
-    provider
-      .listCards({ view: "strategy" })
-      .then((l) => {
-        if (live) {
-          setScope(l.cards);
-        }
-      })
-      .catch((err: unknown) => {
-        if (live) {
-          onError(err instanceof Error ? err.message : String(err));
-        }
-      });
-    return () => {
-      live = false;
-    };
-  }, [mode, provider, scopeTick, onError]);
-  const [epicOrder, setEpicOrder] = useState<string[] | null>(null);
-  const epics = useMemo(() => {
-    // The counts are of every waiting task; All / Ready / Blocked reads the
-    // epics' own lock (own or inherited), the same rule as for tasks.
-    const rows = epicsByReadiness(epicRows(scope ?? [], whole, teams, board.boardOrder), readiness);
-    if (!epicOrder) {
-      return rows;
-    }
-    const at = new Map(epicOrder.map((id, i) => [id, i]));
-    return [...rows].sort((a, b) => (at.get(a.epic.itemId) ?? 1e9) - (at.get(b.epic.itemId) ?? 1e9));
-  }, [scope, whole, teams, board.boardOrder, epicOrder, readiness]);
-  const moveEpic = useCallback(
-    (epicId: string, anchor: { after: string } | { before: string }, order: string[]) => {
-      // Shown at once; the server gathers the epic's tasks, and the board
-      // reads back both the epics and the tasks once it has.
-      setEpicOrder(order);
-      void provider
-        .moveTo(epicId, anchor)
-        .catch((err: unknown) => onError(errText(err)))
-        .finally(() => {
-          setEpicOrder(null);
-          setScopeTick((n) => n + 1);
-          reload();
-        });
-    },
-    [provider, onError, reload],
-  );
-
   // ---- writing a place: a move by its neighbour ----
   const persistAnchor = useCallback(
     (id: string, anchor: Anchor) => {
@@ -337,9 +303,20 @@ export function BacklogBoard({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedRef = useRef<string | null>(null);
   selectedRef.current = selectedId;
+  // A selected group head (Plans) is shared as the plan item it stands for.
+  const [selectedRun, setSelectedRun] = useState<string | null>(null);
+  const selectedRunRef = useRef<string | null>(null);
+  selectedRunRef.current = selectedRun;
+  const runs = useMemo(() => adjacentRuns(list), [list]);
   useEffect(() => {
-    onPresence?.(selectedId);
-  }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+    const run = runs.find((r) => r.id === selectedRun);
+    onPresence?.(selectedId ?? (run?.head.uid || null));
+  }, [selectedId, selectedRun]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (selectedId) {
+      setSelectedRun(null);
+    }
+  }, [selectedId]);
   useEffect(() => () => onPresence?.(null), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- dragging: a reorder in the one list, by its neighbours there ----
@@ -427,6 +404,145 @@ export function BacklogBoard({
     [drop, onOpen],
   );
 
+  // ---- Plans: runs of one plan item's neighbouring cards ----
+  // A run folds like a task's subtasks (folded by default). Dragging a card
+  // moves it alone; dragging a head moves the run's cards together, in
+  // their order — each to the place it lands, by its neighbours there, the
+  // same writes as a card dragged one by one. A card taken out of a run and
+  // put elsewhere leaves its plan item in two runs; brought back next to
+  // the others it joins them again (adjacentRuns).
+  const [openRuns, setOpenRuns] = useState<Set<string>>(new Set());
+  const [addingRun, setAddingRun] = useState<string | null>(null);
+  const toggleRun = (id: string) =>
+    setOpenRuns((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  const [planCarry, setPlanCarry] = useState<{ cards: CardModel[]; title: string; run?: PlanRun } | null>(null);
+  const [planOver, setPlanOver] = useState<string | null>(null);
+  const dropPlanned = useCallback(
+    (moving: CardModel[], target: string | null) => {
+      const away = new Set(moving.map((c) => c.itemId));
+      const held = list.filter((c) => !away.has(c.itemId));
+      const at = target ? held.findIndex((c) => c.itemId === target) : held.length;
+      if (at < 0) {
+        return;
+      }
+      const next = [...held.slice(0, at), ...moving, ...held.slice(at)].map((c) => c.itemId);
+      if (next.every((id, i) => id === list[i]?.itemId)) {
+        return;
+      }
+      reorderCards(spliceOrder(board.cards.map((c) => c.itemId), next));
+      const anchors = moving.map((c) => {
+        const i = next.indexOf(c.itemId);
+        return { id: c.itemId, anchor: (i > 0 ? { after: next[i - 1] } : { before: next[1] }) as Anchor };
+      });
+      for (const { id, anchor } of anchors) {
+        moveInBoardOrder?.(id, anchor);
+      }
+      void (async () => {
+        try {
+          for (const { id, anchor } of anchors) {
+            await persistAnchor(id, anchor);
+          }
+        } catch (err: unknown) {
+          onError(errText(err));
+          reload();
+        }
+      })();
+    },
+    [list, board.cards, reorderCards, moveInBoardOrder, persistAnchor, onError, reload],
+  );
+  const beginPlanDrag = useCallback(
+    (moving: CardModel[], click: () => void, title: string) => (e: React.PointerEvent) => {
+      if ((e.target as HTMLElement).closest("button, input, a")) {
+        return;
+      }
+      e.preventDefault();
+      const start = { x: e.clientX, y: e.clientY };
+      let moved = false;
+      const away = new Set(moving.map((c) => c.itemId));
+      const onMove = (ev: PointerEvent) => {
+        if (!moved && Math.abs(ev.clientX - start.x) < DRAG_SLOP && Math.abs(ev.clientY - start.y) < DRAG_SLOP) {
+          return;
+        }
+        moved = true;
+        setPlanCarry({ cards: moving, title });
+        setPlanOver(dropTarget(ev.clientX, ev.clientY, away));
+      };
+      const done = (ev: PointerEvent, dropped: boolean) => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", cancel);
+        setPlanCarry(null);
+        setPlanOver(null);
+        if (!moved) {
+          click();
+        } else if (dropped) {
+          const target = dropTarget(ev.clientX, ev.clientY, away);
+          if (target !== null) {
+            dropPlanned(moving, target || null);
+          }
+        }
+      };
+      const up = (ev: PointerEvent) => done(ev, true);
+      const cancel = (ev: PointerEvent) => done(ev, false);
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", cancel);
+    },
+    [dropPlanned],
+  );
+  // A card's click in Plans, as in Tasks: select, then open (#290).
+  const clickCard = (c: CardModel) => () => {
+    if (clickOn(selectedRef.current === c.itemId) === "open") {
+      onOpen(c);
+    } else {
+      setSelectedId(c.itemId);
+    }
+  };
+  // A head's click: select it, then open its plan item (Ungrouped opens nothing).
+  const clickRun = (run: PlanRun) => () => {
+    if (selectedRunRef.current === run.id) {
+      if (run.head.uid) {
+        openParent(run.head.uid);
+      }
+      return;
+    }
+    setSelectedId(null);
+    setSelectedRun(run.id);
+  };
+  // The head's +: a task inside the plan item, right after the run's last
+  // card (in no plan item under Ungrouped), on the team of that card.
+  const addInRun = (run: PlanRun, team: string, title: string) => {
+    const last = run.cards[run.cards.length - 1];
+    const born = bornCustomers(customerFilter);
+    void provider
+      .createCard({
+        title,
+        team: team || null,
+        parked: true,
+        customers: born ?? null,
+        parent: run.head.uid || null,
+        after: last.itemId,
+        before: null,
+      })
+      .then((card) => {
+        noteMade(card.itemId);
+        if (customerFilter.length > 1) {
+          keep(card.itemId);
+        }
+        addCard(card);
+        reorderCards((cur) => insertedOrder(cur, card.itemId, { after: last.itemId }));
+      })
+      .catch((err: unknown) => onError(errText(err)));
+  };
+
   // ---- adding: the insert "+" in a gap, born there in ONE create ----
   // The create names its place (after the card above the gap, or before the
   // card below it at the top) and the server places it in the same request;
@@ -489,35 +605,6 @@ export function BacklogBoard({
     );
   };
 
-
-  // ---- an epic's team and owner, set from the Epics mode (ownership.md, O9):
-  // the Strategy board's gesture; the list is read again after the answer ----
-  const ownEpic = (epic: CardModel, next: Owner) => {
-    const change = planOwnPatch(planOwnerOf(epic), next);
-    if (!change) {
-      return;
-    }
-    setScope((cur) => cur && cur.map((c) => (c.itemId === epic.itemId ? { ...c, team: next.team || undefined, owner: next.person || undefined } : c)));
-    void provider
-      .patchCard(epic.itemId, change)
-      .catch((err: unknown) => onError(errText(err)))
-      .finally(() => setScopeTick((n) => n + 1));
-  };
-
-  // ---- Take on an epic: the viewer becomes its owner through the take
-  // door, which refuses an epic somebody else owns (somebodysCard) ----
-  const takeEpic = (epic: CardModel) => {
-    const before = epic.owner;
-    const mine = epicTakeOwner(epic, me ?? "");
-    setScope((cur) => cur && cur.map((c) => (c.itemId === epic.itemId ? { ...c, owner: mine.person } : c)));
-    void provider
-      .takePlanItem(epic.itemId)
-      .catch((err: unknown) => {
-        setScope((cur) => cur && cur.map((c) => (c.itemId === epic.itemId ? { ...c, owner: before } : c)));
-        onError(errText(err));
-      })
-      .finally(() => setScopeTick((n) => n + 1));
-  };
 
   // ---- a parent in a card's chain: that planning card's drawer ----
   const openParent = useCallback(
@@ -623,8 +710,6 @@ export function BacklogBoard({
     );
   };
   const [taking, setTaking] = useState<CardModel | null>(null);
-  // Take on an epic (Epics mode): the viewer becomes its owner.
-  const [takingEpic, setTakingEpic] = useState<CardModel | null>(null);
 
   return (
     <div className="backlog-board">
@@ -660,34 +745,6 @@ export function BacklogBoard({
           ))}
         </div>
       </div>
-      {mode === "epics" && (
-        <BacklogEpics
-          rows={epics}
-          loading={scope === null}
-          onMove={moveEpic}
-          onOpen={(uid) => openParent(uid)}
-          onOpenParent={openParent}
-          avatars={avatars}
-          names={names}
-          onTake={(epic) => setTakingEpic(epic)}
-          ownerPicker={(epic, badge) => (
-            <OwnerPicker
-              planning
-              current={planOwnerOf(epic)}
-              teams={roster}
-              people={members}
-              cards={board.cards}
-              avatars={avatars}
-              names={names}
-              onPick={(o) => ownEpic(epic, o)}
-              className="backlog-row-badge"
-              title={`Who carries «${epic.title}» out (a team) and who answers for it (its owner)`}
-            >
-              {badge}
-            </OwnerPicker>
-          )}
-        />
-      )}
       {mode === "tasks" && (
       <section className="backlog-list" aria-label="Backlog">
         <div className={`backlog-list-body${carried ? " backlog-list-over" : ""}${forbidden ? " backlog-list-forbid" : ""}`} data-backlog-list="">
@@ -735,14 +792,107 @@ export function BacklogBoard({
         </div>
       </section>
       )}
-      {takingEpic && (
-        <TakeDialog
-          title={takingEpic.title}
-          heading="Take this epic?"
-          text={`«${takingEpic.title}»: you become its owner. Its team stays as it is.`}
-          onClose={() => setTakingEpic(null)}
-          onTake={() => takeEpic(takingEpic)}
-        />
+      {mode === "plans" && (
+        <section className="backlog-list" aria-label="Backlog">
+          <div className={`backlog-list-body${planCarry ? " backlog-list-over" : ""}`} data-backlog-list="">
+            {(() => {
+              const away = new Set((planCarry?.cards ?? []).map((c) => c.itemId));
+              const landing = planCarry && planOver !== null ? ({ itemId: "landing", title: planCarry.title, assignees: [], progress: 0 } as CardModel) : null;
+              const at = (id: string) => landing && planOver === id && <Landing card={landing} />;
+              const shown = runs
+                .map((run) => ({ run, cards: run.cards.filter((c) => !away.has(c.itemId)) }))
+                .filter(({ cards }) => cards.length > 0);
+              const rowOf = (c: CardModel) => (
+                <BacklogRow
+                  card={c}
+                  selected={c.itemId === selectedId}
+                  selectedBy={selectedByOf(presence, c, undefined, me)}
+                  avatars={avatars}
+                  names={names}
+                  onPointerDown={beginPlanDrag([c], clickCard(c), c.title)}
+                  onRemove={() => remove(c)}
+                  onOpenParent={openParent}
+                  owner={
+                    counterpart(c) ? (
+                      <div className="card-assign">
+                        {ownerControls(c)}
+                        {counterpart(c)}
+                      </div>
+                    ) : (
+                      ownerControls(c)
+                    )
+                  }
+                  onTake={c.assignees.length === 0 ? () => setTaking(c) : undefined}
+                />
+              );
+              return (
+                <>
+                  {shown.length === 0 && !planCarry && gap(0, true)}
+                  {shown.map(({ run, cards }) => {
+                    const open = openRuns.has(run.id) || addingRun === run.id;
+                    const last = run.cards[run.cards.length - 1];
+                    const spot = insertSpot(list, list.findIndex((c) => c.itemId === last.itemId) + 1, teams);
+                    return (
+                      <div key={run.id} className="backlog-run">
+                        {at(cards[0].itemId)}
+                        <div
+                          className="backlog-run-head"
+                          data-drop={cards[0].itemId}
+                          onPointerDown={beginPlanDrag(run.cards, clickRun(run), run.head.title)}
+                        >
+                          <ParentGroupHead
+                            head={run.head}
+                            expanded={open}
+                            onToggle={() => toggleRun(run.id)}
+                            onAdd={() => setAddingRun(run.id)}
+                            selected={selectedRun === run.id}
+                            selectedBy={
+                              run.head.uid
+                                ? selectedByOf(
+                                    presence,
+                                    { itemId: run.head.uid },
+                                    { children: () => run.cards, open: () => open },
+                                    me,
+                                  )
+                                : undefined
+                            }
+                            avatars={avatars}
+                            names={names}
+                          />
+                        </div>
+                        {addingRun === run.id && (
+                          <div className="group-add" onPointerDown={(e) => e.stopPropagation()}>
+                            <AddCard
+                              placeholder={run.head.uid ? `Add a task to ${run.head.title}…` : "Add to the backlog…"}
+                              autoOpen
+                              {...spot.box}
+                              onCreate={(title, team) =>
+                                addInRun(run, "forcedTeam" in spot.box ? (spot.box.forcedTeam ?? "") : (team ?? ""), title)
+                              }
+                              onClosed={() => {
+                                setAddingRun(null);
+                                setOpenRuns((cur) => new Set(cur).add(run.id));
+                              }}
+                            />
+                          </div>
+                        )}
+                        {open &&
+                          cards.map((c, k) => (
+                            <div key={c.itemId} className="group-member" data-drop={k === 0 ? undefined : c.itemId}>
+                              {k > 0 && at(c.itemId)}
+                              {rowOf(c)}
+                            </div>
+                          ))}
+                      </div>
+                    );
+                  })}
+                  {at("")}
+                  {shown.length === 0 && !landing && <p className="backlog-list-empty">Nothing waiting</p>}
+                </>
+              );
+            })()}
+          </div>
+        </section>
       )}
       {taking && (
         <TakeDialog
