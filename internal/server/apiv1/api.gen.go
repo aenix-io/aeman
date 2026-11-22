@@ -170,6 +170,30 @@ func (e LogNoteEntryType) Valid() bool {
 	}
 }
 
+// Defines values for MoveTogetherBodyZone.
+const (
+	MoveTogetherBodyZoneNiceToHave MoveTogetherBodyZone = "niceToHave"
+	MoveTogetherBodyZonePlanned    MoveTogetherBodyZone = "planned"
+	MoveTogetherBodyZoneUnplanned  MoveTogetherBodyZone = "unplanned"
+	MoveTogetherBodyZoneUrgent     MoveTogetherBodyZone = "urgent"
+)
+
+// Valid indicates whether the value is a known member of the MoveTogetherBodyZone enum.
+func (e MoveTogetherBodyZone) Valid() bool {
+	switch e {
+	case MoveTogetherBodyZoneNiceToHave:
+		return true
+	case MoveTogetherBodyZonePlanned:
+		return true
+	case MoveTogetherBodyZoneUnplanned:
+		return true
+	case MoveTogetherBodyZoneUrgent:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NoteListKind.
 const (
 	NoteListKindNoteList NoteListKind = "NoteList"
@@ -497,6 +521,36 @@ func (e ViewListKind) Valid() bool {
 	}
 }
 
+// Defines values for Group.
+const (
+	GroupPlans Group = "plans"
+)
+
+// Valid indicates whether the value is a known member of the Group enum.
+func (e Group) Valid() bool {
+	switch e {
+	case GroupPlans:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListCardsParamsGroup.
+const (
+	ListCardsParamsGroupPlans ListCardsParamsGroup = "plans"
+)
+
+// Valid indicates whether the value is a known member of the ListCardsParamsGroup enum.
+func (e ListCardsParamsGroup) Valid() bool {
+	switch e {
+	case ListCardsParamsGroupPlans:
+		return true
+	default:
+		return false
+	}
+}
+
 // AddCustomerBody defines model for AddCustomerBody.
 type AddCustomerBody struct {
 	Name *string `json:"name,omitempty"`
@@ -555,7 +609,7 @@ type CardPatch struct {
 	// Owner The person who answers for a goal, an initiative or an epic; empty takes them off. On any other card 422 `ownerIsThePlans`.
 	Owner *string `json:"owner,omitempty"`
 
-	// Parent Puts the card under another one; empty takes it out. Under a TASK the card becomes a subtask (its team, person and sprint follow); under a goal, an initiative or an epic it is filed in the hierarchy and nothing else changes. The level rule and the repository rule hold (422 `parentLevel`, `crossDomain`).
+	// Parent Puts the card under another one; empty takes it out. Under a TASK the card becomes a subtask (its team, person and sprint follow); under a goal, an initiative or an epic it is filed in the hierarchy, and a parked task linked under a new one is placed in its team's backlog beside that item's parked tasks (Q9; an epic with none, its best gap); a task in work keeps its place, and so do a parent taken off and a goal or an initiative with no parked task of its own. The level rule and the repository rule hold (422 `parentLevel`, `crossDomain`).
 	Parent *string `json:"parent,omitempty"`
 
 	// Parked `true` parks the task in its team's backlog; `false` takes a parked task that is already in work out of it, and is refused (422 `takeIntoWork`) on one with no date and no sprint — set a date, a sprint or `own` a person instead.
@@ -751,6 +805,27 @@ type MoveResult struct {
 	Moved int `json:"moved"`
 }
 
+// MoveTogetherBody defines model for MoveTogetherBody.
+type MoveTogetherBody struct {
+	// After The card the block lands behind; empty means the top.
+	After *string `json:"after,omitempty"`
+
+	// Assignees The person every card of the block takes, as a PATCH of its `assignees` (a review card's is its reviewer); `[]` is nobody.
+	Assignees *[]string `json:"assignees,omitempty"`
+
+	// Before The card the block lands in front of. It wins when both are sent.
+	Before *string `json:"before,omitempty"`
+
+	// Uids The cards of the block, in the order they are to stand; at least one, each once.
+	Uids []string `json:"uids"`
+
+	// Zone The band every card of the block takes, as a PATCH of its `zone`.
+	Zone *MoveTogetherBodyZone `json:"zone,omitempty"`
+}
+
+// MoveTogetherBodyZone The band every card of the block takes, as a PATCH of its `zone`.
+type MoveTogetherBodyZone string
+
 // Note defines model for Note.
 type Note = apiserver.Note
 
@@ -788,6 +863,9 @@ type PersonPatch struct {
 	// Capacity The points a week; 0 takes a set number back. It is required — a body without it is refused (400) rather than read as zero.
 	Capacity *int `json:"capacity"`
 }
+
+// PlanGroup defines model for PlanGroup.
+type PlanGroup = apiserver.PlanGroup
 
 // PresenceBody defines model for PresenceBody.
 type PresenceBody struct {
@@ -962,6 +1040,9 @@ type Fields = string
 // Focus defines model for Focus.
 type Focus = string
 
+// Group defines model for Group.
+type Group string
+
 // Login defines model for Login.
 type Login = string
 
@@ -988,6 +1069,9 @@ type Team = string
 
 // UID defines model for Uid.
 type UID = string
+
+// Under defines model for Under.
+type Under = string
 
 // User defines model for User.
 type User = string
@@ -1071,7 +1155,16 @@ type ListCardsParams struct {
 
 	// Snapshot "true" or "1", with a PAST day on a me or team board: the board as it STOOD when that day ended, rather than today's cards filtered by that day's dates. Whether a day is over is asked per team. A day the clone's history no longer reaches is 410, and storage that keeps no history answers 501. Ignored where a board has no records to give.
 	Snapshot *Snapshot `form:"snapshot,omitempty" json:"snapshot,omitempty"`
+
+	// Under A card's uid: keep only the cards standing under it at any depth — a plan item's work; a review card stands under its task and what the task stands under. What that item's group shows on a board, asked of any view (view=me&under=<initiative> is the caller's work on it today). The card itself is not listed. A task's subtasks are under it as well, but the day boards and the backlog deliver a subtask only with its parent, so only view=all lists them for under=<task>.
+	Under *Under `form:"under,omitempty" json:"under,omitempty"`
+
+	// Group "plans" adds the Plans reading the Team, Me and Backlog boards draw (`groups`): on Me per band, on Team per person and band, each plan item gathered where its first card stands; on the Backlog the one list cut into runs of neighbouring cards of one plan item. Ignored on the other views.
+	Group *ListCardsParamsGroup `form:"group,omitempty" json:"group,omitempty"`
 }
+
+// ListCardsParamsGroup defines parameters for ListCards.
+type ListCardsParamsGroup string
 
 // FinishedEarlierParams defines parameters for FinishedEarlier.
 type FinishedEarlierParams struct {
@@ -1241,6 +1334,9 @@ type TakeCardParams struct {
 	Snapshot *Snapshot `form:"snapshot,omitempty" json:"snapshot,omitempty"`
 }
 
+// MoveTogetherJSONRequestBody defines body for MoveTogether for application/json ContentType.
+type MoveTogetherJSONRequestBody = MoveTogetherBody
+
 // PatchCardJSONRequestBody defines body for PatchCard for application/json ContentType.
 type PatchCardJSONRequestBody = CardPatch
 
@@ -1315,6 +1411,9 @@ type ServerInterface interface {
 	// GetBoard The board: title, the team roster, the people and the visitor's domains.
 	// (GET /board)
 	GetBoard(w http.ResponseWriter, r *http.Request, params GetBoardParams)
+	// MoveTogether Move a block of cards as one action — a plan group dragged on a board.
+	// (POST /cards/actions/move-together)
+	MoveTogether(w http.ResponseWriter, r *http.Request)
 	// DeleteCard Hard delete, cascading to the linked review card.
 	// (DELETE /cards/{uid})
 	DeleteCard(w http.ResponseWriter, r *http.Request, uid UID)
@@ -1493,6 +1592,20 @@ func (siw *ServerInterfaceWrapper) GetBoard(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetBoard(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MoveTogether operation middleware
+func (siw *ServerInterfaceWrapper) MoveTogether(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MoveTogether(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2458,6 +2571,32 @@ func (siw *ServerInterfaceWrapper) ListCards(w http.ResponseWriter, r *http.Requ
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "snapshot"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "snapshot", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "under" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "under", r.URL.Query(), &params.Under, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "under"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "under", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "group" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "group", r.URL.Query(), &params.Group, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "group"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "group", Err: err})
 		}
 		return
 	}
@@ -3459,6 +3598,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cards/{uid}", wrapper.GetCard)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/cards/{uid}", wrapper.PatchCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/move", wrapper.MoveCard)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/actions/move-together", wrapper.MoveTogether)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/reorder-in-epic", wrapper.ReorderInEpic)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/defer", wrapper.DeferCard)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/cards/{uid}/actions/in-progress", wrapper.SetInProgress)
@@ -3521,6 +3661,45 @@ type GetBoarddefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response GetBoarddefaultApplicationProblemPlusJSONResponse) VisitGetBoardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveTogetherRequestObject struct {
+	Body *MoveTogetherJSONRequestBody
+}
+
+type MoveTogetherResponseObject interface {
+	VisitMoveTogetherResponse(w http.ResponseWriter) error
+}
+
+type MoveTogether200JSONResponse MoveResult
+
+func (response MoveTogether200JSONResponse) VisitMoveTogetherResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveTogetherdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response MoveTogetherdefaultApplicationProblemPlusJSONResponse) VisitMoveTogetherResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -5019,6 +5198,9 @@ type StrictServerInterface interface {
 	// GetBoard The board: title, the team roster, the people and the visitor's domains.
 	// (GET /board)
 	GetBoard(ctx context.Context, request GetBoardRequestObject) (GetBoardResponseObject, error)
+	// MoveTogether Move a block of cards as one action — a plan group dragged on a board.
+	// (POST /cards/actions/move-together)
+	MoveTogether(ctx context.Context, request MoveTogetherRequestObject) (MoveTogetherResponseObject, error)
 	// DeleteCard Hard delete, cascading to the linked review card.
 	// (DELETE /cards/{uid})
 	DeleteCard(ctx context.Context, request DeleteCardRequestObject) (DeleteCardResponseObject, error)
@@ -5196,6 +5378,37 @@ func (sh *strictHandler) GetBoard(w http.ResponseWriter, r *http.Request, params
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetBoardResponseObject); ok {
 		if err := validResponse.VisitGetBoardResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MoveTogether operation middleware
+func (sh *strictHandler) MoveTogether(w http.ResponseWriter, r *http.Request) {
+	var request MoveTogetherRequestObject
+
+	var body MoveTogetherJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MoveTogether(ctx, request.(MoveTogetherRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MoveTogether")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MoveTogetherResponseObject); ok {
+		if err := validResponse.VisitMoveTogetherResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

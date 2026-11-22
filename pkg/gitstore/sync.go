@@ -263,9 +263,13 @@ func (r *Repo) storePack(body io.Reader) error {
 	if err == nil || r.dir == "" {
 		return err
 	}
-	tmp, _ := filepath.Glob(filepath.Join(r.dir, "objects", "pack", "tmp_pack_*"))
-	for _, f := range tmp {
-		_ = os.Remove(f)
+	// Not filepath.Glob: dir may hold its metacharacters.
+	packs := filepath.Join(r.dir, "objects", "pack")
+	entries, _ := os.ReadDir(packs)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "tmp_pack_") {
+			_ = os.Remove(filepath.Join(packs, e.Name()))
+		}
 	}
 	return err
 }

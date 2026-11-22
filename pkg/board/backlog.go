@@ -79,19 +79,16 @@ func Unplaced(c Card, subtask bool) bool {
 }
 
 // BacklogOrder sorts a backlog's cards the way it is read (Q2,
-// docs/design/ordering.md): the reviews nobody has taken (K10) first, in a
-// group of their own, then the tasks — both in the BOARD's order (rank,
-// then id). A task's rank IS its place in its team's queue: nothing is
-// inherited down the tree, so moving a goal or an initiative reorders no
-// backlog, and a task may stand between any two others. A mix of teams is
-// the same order over their cards.
+// docs/design/ordering.md): in the BOARD's order (rank, then id), every card
+// by its own key. A review nobody has taken (K10) is made at the top of the
+// board's order, so it stands first until somebody drags it lower; it is no
+// longer held there. A task's rank IS its place in its team's queue:
+// nothing is inherited down the tree, so moving a goal or an initiative
+// reorders no backlog, and a task may stand between any two others. A mix of
+// teams is the same order over their cards.
 func BacklogOrder(ix *Index, cards []Card) []Card {
 	out := append([]Card(nil), cards...)
 	sort.SliceStable(out, func(i, j int) bool {
-		ri, rj := NeedsReviewer(out[i]), NeedsReviewer(out[j])
-		if ri != rj {
-			return ri
-		}
 		return ix.pos[out[i].ItemID] < ix.pos[out[j].ItemID]
 	})
 	return out

@@ -827,6 +827,26 @@ select {
   visibility: hidden;
 }
 
+/* A plan group's head leaves the same dashed gap where it would land (Plans
+   on Team and Me); the lifted head follows the pointer in the overlay. */
+.sortable-card-placeholder .group-head {
+  background: transparent;
+  border: 1px dashed var(--placeholder-border);
+  box-shadow: none;
+}
+
+.sortable-card-placeholder .group-head > *,
+.sortable-card-placeholder .group-head::before,
+.sortable-card-placeholder .group-add {
+  visibility: hidden;
+}
+
+.dnd-overlay .group-head {
+  box-shadow: 0 8px 20px var(--elev-3);
+  transform: scale(1.02);
+  cursor: grabbing;
+}
+
 /* The lifted card following the pointer (rendered in a DragOverlay portal). */
 .dnd-overlay {
   cursor: grabbing;
@@ -1787,7 +1807,8 @@ button.card-age {
 }
 
 .card:hover .card-action.card-hoveronly,
-.card:hover .card-stage.card-hoveronly {
+.card:hover .card-stage.card-hoveronly,
+.group-head:hover .card-action.card-hoveronly {
   display: inline-flex;
 }
 
@@ -3715,9 +3736,39 @@ button.card-age {
   background: var(--hover-overlay-soft);
 }
 
-.strategy-row-focus {
-  box-shadow: inset 3px 0 0 var(--accent);
-  background: var(--accent-glow);
+/* The selected row: a quiet tint and the accent edge, not a fill — it stays
+   on while one reads the rest of the table. */
+.strategy-row-focus,
+.strategy-row-focus:hover {
+  box-shadow: inset 2px 0 0 var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+:root[data-theme="dark"] .strategy-row-focus,
+:root[data-theme="dark"] .strategy-row-focus:hover {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+
+/* Somebody else has the row selected (presence, #290): the accent outline
+   the cards wear, and their avatars after the title. */
+.strategy-row-peer-selected {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.strategy-row-focus.strategy-row-peer-selected {
+  box-shadow: inset 2px 0 0 var(--accent), inset 0 0 0 1px var(--accent);
+}
+.strategy-presence {
+  display: inline-flex;
+  flex: none;
+  margin-left: 4px;
+}
+.strategy-presence-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--bg);
+}
+.strategy-presence-avatar + .strategy-presence-avatar {
+  margin-left: -5px;
 }
 
 .strategy-cell {
@@ -4038,6 +4089,29 @@ button.card-age {
 .strategy-status-refused {
   background: var(--stage-refuse);
   color: var(--on-accent);
+}
+
+/* On the dark theme a pill is a tint of its colour with the colour as its
+   text, as labels are there: white on the light stage colours (review's
+   yellow, locked's coral) did not read, nor did in progress's dark blue on
+   its own glow. */
+:root[data-theme="dark"] .strategy-status-in-progress,
+:root[data-theme="dark"] .strategy-status-done,
+:root[data-theme="dark"] .strategy-status-review,
+:root[data-theme="dark"] .strategy-status-locked {
+  --pill: var(--accent);
+  background: color-mix(in srgb, var(--pill) 18%, transparent);
+  color: color-mix(in srgb, var(--pill) 75%, #fff);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pill) 45%, transparent);
+}
+:root[data-theme="dark"] .strategy-status-done {
+  --pill: var(--stage-done);
+}
+:root[data-theme="dark"] .strategy-status-review {
+  --pill: var(--stage-review);
+}
+:root[data-theme="dark"] .strategy-status-locked {
+  --pill: var(--stage-locked);
 }
 
 .strategy-timeline {
@@ -5571,53 +5645,9 @@ button.card-age {
   white-space: nowrap;
 }
 
-/* The Backlog's Epics mode: one row per epic, dragged to move the epic. */
+/* The Backlog's Tasks | Plans. */
 .backlog-mode {
   margin-right: 8px;
-}
-
-/* Three aligned columns: the epic (and Split), the count of its waiting
-   tasks, and the Goal › Initiative chain right-aligned in a column of its
-   own — the Tasks rows' chain, its chips cut with an ellipsis. */
-/* The Epics row is the Tasks row: the same card, its right-hand cluster —
-   chain, avatar, Take — the Tasks row's own elements and gaps. */
-.card.backlog-epic-row {
-  cursor: grab;
-}
-
-.backlog-epic-title {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.backlog-epic-title .card-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.backlog-epic-count {
-  flex: none;
-  font-size: 12px;
-  color: var(--muted);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.backlog-epic-carried {
-  opacity: 0.4;
-}
-
-.backlog-epic-drop-above {
-  box-shadow: inset 0 2px 0 var(--accent, #6af);
-}
-
-.backlog-epic-drop-below {
-  box-shadow: inset 0 -2px 0 var(--accent, #6af);
 }
 
 /* A board's own controls in the app's top bar, at its LEFT edge — the
@@ -5665,12 +5695,6 @@ button.card-age {
    the right. */
 .strategy-toolbar .strategy-fold {
   margin-left: auto;
-}
-
-/* The chain's clicks open a plan item, not the epic: a box that draws
-   nothing of its own, so the chain lays out as on a Tasks row. */
-.backlog-epic-cluster {
-  display: contents;
 }
 
 /* Take that is not the viewer's to press (an epic somebody owns): drawn,
@@ -5889,4 +5913,146 @@ button.card-age {
   .search-btn kbd {
     display: none;
   }
+}
+
+/* ---- "Group by plan" on the Team and Me boards (grouping.ts) ----
+   The head of a group: the plan item its cards stand in. A row of the cell
+   drawn on the card's own surface (it drags the group), shorter than one:
+   it is a label. */
+.group-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 500px;
+  max-width: 100%;
+  min-height: 30px;
+  padding: 3px 8px 3px 6px;
+  border: 1px solid var(--card-border);
+  border-radius: 5px;
+  background: var(--bg);
+  box-shadow: 0 1px 1px var(--elev-1);
+  color: var(--fg);
+  font-size: 13px;
+  cursor: grab;
+  user-select: none;
+}
+.group-head:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--card-border));
+}
+.group-head-selected,
+.group-head-selected:hover,
+.group-head-peer-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+.group-head-toggle {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  flex: none;
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+.group-head-toggle svg {
+  transition: transform 0.12s;
+}
+.group-head-toggle svg.open {
+  transform: rotate(90deg);
+}
+.group-head-kind {
+  flex: none;
+}
+.group-head-kind-none {
+  color: var(--muted);
+}
+/* The team circle as a card draws it: there it is a button and takes the
+   card's own type, not the bare circle's. */
+.group-head .team-avatar {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+}
+.group-head-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-align: left;
+}
+.group-head-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.group-head-count {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+/* A group of review cards only reads as a review: the review card's stripe. */
+.group-head-review::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 5px 0 0 5px;
+  background: var(--stage-review);
+}
+/* The cards of a group hang under its head, like a parent's subtasks. */
+.group-member {
+  margin-left: 14px;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
+}
+.group-member .card {
+  width: 476px;
+}
+.group-add {
+  margin: 2px 0 4px 14px;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
+}
+
+/* Expand all | Collapse all as icons (FoldControls). On the Me board the pair
+   owns the toolbar's push and View as follows it; on the Team board it
+   follows the shuffle, which owns the push. Either way a plain gap. */
+.fold-controls .segment {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+}
+.shuffle-btn + .fold-controls,
+.fold-controls + .impersonate {
+  margin-left: 8px;
+}
+
+/* The Backlog's Plans: runs of one plan item's neighbouring cards. The heads
+   and the cards take the list's whole width, as the Backlog's cards do. */
+.backlog-run .group-head {
+  width: 100%;
+  margin-top: 4px;
+}
+.backlog-run .group-member .card {
+  width: 100%;
+}
+.backlog-run .group-member {
+  margin-top: 4px;
+}
+
+/* A head's avatar hands the group's tasks over (Plans): it presses like a
+   card's. */
+.group-head-assign {
+  cursor: pointer;
 }

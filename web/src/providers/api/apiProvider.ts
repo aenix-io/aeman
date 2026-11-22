@@ -464,6 +464,25 @@ export const apiProvider: Provider = {
     return { actionId: data?.actionId, moved: data?.moved ?? 0 };
   },
 
+  async moveTogether(uids, anchor, cell): Promise<void> {
+    const ids = await Promise.all(uids.map(resolveCardId));
+    type Body = components["schemas"]["MoveTogetherBody"];
+    const body: Body = { uids: ids };
+    if ("before" in anchor) {
+      body.before = await resolveCardId(anchor.before);
+    } else {
+      body.after = anchor.after ? await resolveCardId(anchor.after) : "";
+    }
+    if (cell?.zone !== undefined) {
+      // A band a card can stand in: never the "" a patch clears with.
+      body.zone = (semanticZone(cell.zone) || "planned") as Body["zone"];
+    }
+    if (cell?.assignees !== undefined) {
+      body.assignees = cell.assignees;
+    }
+    await client.POST("/cards/actions/move-together", { body });
+  },
+
   async moveCardBefore(
     uid: string,
     beforeId: string,

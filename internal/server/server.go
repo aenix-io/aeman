@@ -169,7 +169,7 @@ func (s *Server) inSetup() (*setupState, bool) {
 func (s *Server) retrySetup() {
 	// Single-flight: /auth/setup needs no session and has no rate limit, so a
 	// burst of hits would otherwise run several clones into one data directory
-	// at once — and cloneOrOpen's fallback removes the directory under any
+	// at once — and cloneOrOpen's fallback empties the directory under any
 	// other clone in flight. A caller that finds a retry already running just
 	// leaves it to finish; it will re-render the setup page and see the result.
 	if !s.retryMu.TryLock() {

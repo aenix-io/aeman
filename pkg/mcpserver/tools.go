@@ -102,7 +102,7 @@ func (h *server) getBoard(ctx context.Context, _ *mcp.CallToolRequest, in boardR
 // filters, mirroring GET /api/v1/views/{view}/cards.
 type listCardsInput struct {
 	boardRef
-	View     string `json:"view,omitempty" jsonschema:"the board to list: team, me, backlog or strategy — or all for every card. Empty is your own Me board, which is where everyone works. backlog lists each team's PARKED open tasks — accepted and not taken into work — in the order the backlog is read (the reviews nobody has taken first, then the Strategy board's order — tasks under a plan item by their place in the tree, loose tasks after); they are on no day board until somebody gives them a day, a sprint or a person"`
+	View     string `json:"view,omitempty" jsonschema:"the board to list: team, me, backlog or strategy — or all for every card. Empty is your own Me board, which is where everyone works. backlog lists each team's PARKED open tasks — accepted and not taken into work — in the order the backlog is read — the board's order, every card by its own key: a task's rank is its place in its team's queue, and a review nobody has taken is made at the top, so it leads until somebody drags it; they are on no day board until somebody gives them a day, a sprint or a person"`
 	Team     string `json:"team,omitempty" jsonschema:"team key for the team/backlog views (a comma-separated set lists several). A task is placed by the team it STANDS UNDER: its own, else the nearest ancestor's (a task with no team under an epic of portal is portal's); on the me and all views a comma-separated set filters to those teams' TASKS (a goal, an initiative or an epic is never listed under a team there); on the strategy view a comma-separated set keeps a task whose EFFECTIVE team (its own, else the nearest ancestor's) is one of them and a planning card that has that team or such a task under it, each with its ancestors. A set is comma-separated and the no-team group is its empty member: 'alpha,' is alpha and the no-team group, ',' the no-team group alone. Left empty it means, per view: on team, the no-team group's grid; on backlog, me, all and strategy, no team filter (every team's)"`
 	Day      string `json:"day,omitempty" jsonschema:"viewed day as yyyy-mm-dd for the team/me views; defaults to today"`
 	User     string `json:"user,omitempty" jsonschema:"GitHub login for the me view; empty is everyone"`
@@ -116,6 +116,8 @@ type listCardsInput struct {
 	Customer string `json:"customer,omitempty" jsonschema:"a comma-separated set of customer ids (get_board metadata.customers), matched against a card's EFFECTIVE customers (its own plus every ancestor's). On the strategy view: a task whose effective customers include one, a planning card that does or has such a task under it, each listed with its ancestors. On the team, backlog, all and me views: the cards whose effective customers include one, AND the team set"`
 	Owner    string `json:"owner,omitempty" jsonschema:"on the strategy view, a comma-separated set of logins — the Strategy board's one person filter: the goals, initiatives and epics whose OWN owner is one of them (never inherited) and the tasks and subtasks one of them is assigned to, each with its ancestors — the plan items one answers for and the work one does. team narrows the Strategy board by EFFECTIVE team (own, else the nearest ancestor's) the same way; different filters are AND"`
 	Status   string `json:"status,omitempty" jsonschema:"on the strategy view, a comma-separated set of statuses — in-progress, backlog, done, locked, no-items — to list only that work: a task by its own work status (done when complete, backlog when parked, in-progress when in work — a date or a sprint, review/locked/refused stages included; a task nobody has placed reads as backlog) and by locked while a dependency holds it (status.locked, own or inherited) and it is not done; a subtask by its parent task's, a review card by the task it reviews; a goal, an initiative or an epic by itself for locked (status.locked, its roll-up not done) and no-items (nothing under it), and otherwise when any task under it matches; each with its ancestors. in-progress shows the work in hand; in-progress,backlog,locked,no-items (every value but done) hides exactly the finished work. Several values are OR; with team, customer and owner, AND"`
+	Under    string `json:"under,omitempty" jsonschema:"a card's uid: keep only the cards standing under it at any depth — a goal's, an initiative's or an epic's work (a review card stands under its task and what the task stands under); the card itself is not listed. A task's subtasks are under it too, but only view=all lists them for under=<task>: the day boards and the backlog deliver a subtask only with its parent. When somebody says they are working on a plan item, this is the call: view=me under=<its uid> is their work on it today, view=team&team=X under=<uid> the team's, view=backlog under=<uid> what of it is still waiting. get_card on the plan item gives its description, not its work"`
+	Group    string `json:"group,omitempty" jsonschema:"plans adds the Plans reading the Team, Me and Backlog boards draw (groups): on me per band, on team per person and band, each plan item (status.lineage's nearest entry with a type) gathered where its first card stands, the cards in none in a group with no plan; on backlog the one list cut into runs of neighbouring cards of one plan item. Read a day or a backlog by plan item with it instead of grouping the rows yourself"`
 	Snapshot bool   `json:"snapshot,omitempty" jsonschema:"read a PAST day as it stood rather than today's cards filtered by that day: every field is the day's own, so a card finished since reads unfinished and one created since is absent. Needs day set to a past day; the board's history answers it, and a day it no longer reaches is an error rather than a wrong answer"`
 }
 
@@ -126,7 +128,13 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	}
 	sel := apiserver.Selector{View: in.View, Team: in.Team, Day: in.Day, User: in.User,
 		Assignee: in.Assignee, Focus: in.Focus,
-		IncludeReviews: in.Reviews, Customer: in.Customer, Owner: in.Owner, Status: in.Status}
+		IncludeReviews: in.Reviews, Customer: in.Customer, Owner: in.Owner, Status: in.Status, Under: in.Under,
+		Group: in.Group}
+	switch in.Group {
+	case "", "plans":
+	default:
+		return nil, apiserver.CardList{}, fmt.Errorf("unknown group %q (want plans)", in.Group)
+	}
 	if err := apiserver.CheckStatus(sel.Status); err != nil {
 		return nil, apiserver.CardList{}, err
 	}
@@ -191,6 +199,11 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 			}
 		}
 		list.Items = kept
+	}
+	// The Plans reading is of the rows the caller gets, the title filter
+	// applied: the groups name no card the listing left out.
+	if in.Group == "plans" {
+		list.Regroup()
 	}
 	return nil, list, nil
 }
@@ -375,7 +388,7 @@ type updateCardInput struct {
 	Sprint      *string   `json:"sprint,omitempty" jsonschema:"sprint start day the card belongs to; empty clears it"`
 	Parked      *bool     `json:"parked,omitempty" jsonschema:"true parks the task in its TEAM's backlog: the ranked list of work the team has accepted and not taken into work. Every team has one and nothing declares it. Parking clears the person, the sprint and the dates, takes the card's subtasks off the board with it, withdraws any review of it and puts it back in its team's backlog — at its old place while that is still among its epic's tasks there, else right after its epic's last parked task. A task leaves its backlog by being TAKEN INTO WORK — a start date, a sprint, or own_card with a person — and each of those unparks it on its own; false alone on a parked task with no date and no sprint is refused. A REVIEW card and a SUBTASK are refused: neither has a place of its own to be parked in. A task has no week"`
 	ReviewOf    *string   `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews; empty breaks the link"`
-	Parent      *string   `json:"parent,omitempty" jsonschema:"uid of the card this one sits under; empty takes it out. Under a TASK it is a subtask (one level deep): it keeps its own description/notes/log, feeds the parent's derived progress and rides with it — team, person, sprint — through carry-over. Under a goal, an initiative or an epic it is filed in the hierarchy and NOTHING else changes; the parent must be of a higher level than the card (an epic may not sit under an epic) and in the card's own repository"`
+	Parent      *string   `json:"parent,omitempty" jsonschema:"uid of the card this one sits under; empty takes it out. Under a TASK it is a subtask (one level deep): it keeps its own description/notes/log, feeds the parent's derived progress and rides with it — team, person, sprint — through carry-over. Under a goal, an initiative or an epic it is filed in the hierarchy, and a PARKED task linked under a new one is placed in its team's backlog after that item's last parked task, beside its new siblings (a task in work keeps its place, and so do a parent taken off and a goal or an initiative with no parked task of its own); the parent must be of a higher level than the card (an epic may not sit under an epic) and in the card's own repository"`
 }
 
 func (h *server) updateCard(ctx context.Context, _ *mcp.CallToolRequest, in updateCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
@@ -466,7 +479,7 @@ func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, 
 		}
 	}
 	if in.Parent != nil {
-		if err := svc.SetParent(ctx, boardID, in.UID, *in.Parent); err != nil {
+		if err := svc.Relink(ctx, boardID, in.UID, *in.Parent); err != nil {
 			return err
 		}
 	}

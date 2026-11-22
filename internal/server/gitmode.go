@@ -4,17 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-git/go-billy/v5/osfs"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/cache"
+	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5/storage"
 	"github.com/go-git/go-git/v5/storage/filesystem"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -379,44 +384,88 @@ func initHint(url string) error {
 	return fmt.Errorf("%w: run `aeman init --repo %s` first (%s)", errUnbornRemote, url, url)
 }
 
+// cloneRepo is gitstore.Clone; a test swaps it to see which depth ran.
+var cloneRepo = gitstore.Clone
+
 // cloneOrOpen reopens an existing clone (its unpushed commits included) or
-// makes a shallow one; a server that does not speak shallow gets a full
-// clone instead of a refusal.
+// makes a shallow one; a shallow clone that fails is retried in full.
 func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url string, log *slog.Logger) (*gitstore.Repo, bool, error) {
 	opts.Dir = dir // where Maintain runs `git repack`
+	reportSetAside(dir, url, log)
+	// A tmp_pack_* is a pack whose write never finished; nothing reads it.
+	// Not filepath.Glob: dir comes from --data and may hold its metacharacters.
+	packs := filepath.Join(dir, "objects", "pack")
+	entries, err := os.ReadDir(packs)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		log.Warn("could not look for partial packs", "repo", url, "path", packs, "err", err)
+	}
+	dropped := 0
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), "tmp_pack_") {
+			continue
+		}
+		f := filepath.Join(packs, e.Name())
+		if err := os.Remove(f); err != nil {
+			log.Warn("could not drop a partial pack", "repo", url, "path", f, "err", err)
+			continue
+		}
+		dropped++
+	}
+	if dropped > 0 {
+		log.Warn("dropped partial packs", "repo", url, "count", dropped)
+	}
 	storer := filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
-	if existing := gitstore.Open(storer, opts); !existing.Head().IsZero() {
-		err := existing.CheckStore()
-		if !errors.Is(err, gitstore.ErrStoreLost) {
-			if err != nil {
-				return nil, false, err
-			}
+	existing := gitstore.Open(storer, opts)
+	switch err := existing.CheckStore(); {
+	case err == nil:
+		if !existing.Head().IsZero() {
 			return existing, true, nil
 		}
-		// A branch without HEAD is what a write into a store removed under
-		// a running process leaves. Set aside rather than deleted: it may
-		// hold a write that was never pushed.
-		aside := fmt.Sprintf("%s.lost-%d", dir, time.Now().Unix())
-		if err := os.Rename(dir, aside); err != nil {
-			return nil, false, fmt.Errorf("set aside damaged clone: %w", err)
+		// HEAD without the branch is what a failed clone leaves, and go-git
+		// refuses to clone into it. Another local branch (the branch
+		// setting changed) may hold commits never pushed, and so may any
+		// object: with no branch left, telling a pushed commit from an
+		// unpushed one would need the forge. Either is set aside; only an
+		// unborn store, with no object at all, is emptied.
+		why := ""
+		branches, readErr := hasLocalBranch(storer)
+		switch {
+		case readErr != nil:
+			why = "has no " + existing.Branch().Short() + " branch and a ref could not be read (" + readErr.Error() + ")"
+		case branches:
+			why = "has no " + existing.Branch().Short() + " branch but holds another"
+		case holdsAFile(filepath.Join(dir, "objects")):
+			why = "has no " + existing.Branch().Short() + " branch but holds objects"
 		}
-		log.Warn("clone had a branch but no HEAD; set aside and cloning afresh, it may hold unpushed commits",
-			"repo", url, "aside", aside)
-		if err := os.MkdirAll(dir, 0o750); err != nil {
-			return nil, false, fmt.Errorf("data dir: %w", err)
+		if why != "" {
+			if err := setAside(dir, why, url, log); err != nil {
+				return nil, false, err
+			}
+		} else if err := emptyDir(dir); err != nil {
+			return nil, false, fmt.Errorf("reset clone dir: %w", err)
+		}
+		storer = filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
+	case !errors.Is(err, gitstore.ErrStoreLost):
+		return nil, false, err
+	default:
+		if !holdsAFile(dir) {
+			break
+		}
+		if err := setAside(dir, "has no HEAD", url, log); err != nil {
+			return nil, false, err
 		}
 		storer = filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	r, err := gitstore.Clone(ctx, storer, remote, opts, 1)
+	r, err := cloneRepo(ctx, storer, remote, opts, 1)
 	if err != nil && !errors.Is(err, gitstore.ErrEmptyRepository) && !errors.Is(err, transport.ErrEmptyRemoteRepository) {
-		// Not every server speaks shallow (GitHub, GitLab and Gitea do; a
-		// plain daemon may not). The failed attempt left an unborn
-		// repository behind; start the directory over — it holds nothing
-		// yet — and a real failure fails again here.
+		// The shallow attempt fails when the server does not speak shallow
+		// or the transfer breaks off; either way it may leave an unborn
+		// store behind. Empty it and clone in full: a failure that has
+		// nothing to do with depth fails again here.
 		if gitstore.Open(storer, opts).Head().IsZero() {
-			if err := os.RemoveAll(dir); err != nil {
+			if err := emptyDir(dir); err != nil {
 				return nil, false, fmt.Errorf("reset clone dir: %w", err)
 			}
 			if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -424,7 +473,7 @@ func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url 
 			}
 		}
 		storer = filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
-		r, err = gitstore.Clone(ctx, storer, remote, opts, 0)
+		r, err = cloneRepo(ctx, storer, remote, opts, 0)
 	}
 	if err != nil {
 		if errors.Is(err, gitstore.ErrEmptyRepository) || errors.Is(err, transport.ErrEmptyRemoteRepository) {
@@ -433,6 +482,120 @@ func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url 
 		return nil, false, fmt.Errorf("clone %s: %w", url, err)
 	}
 	return r, false, nil
+}
+
+// setAside renames a damaged clone directory to <dir>.lost-<unix time> and
+// recreates dir empty. Set aside rather than deleted: it may hold a write
+// never pushed. A symlink is refused: renaming it would keep the target.
+func setAside(dir, why, url string, log *slog.Logger) error {
+	if fi, err := os.Lstat(dir); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		target, _ := filepath.EvalSymlinks(dir)
+		return fmt.Errorf("clone directory %s is a symlink to %s and %s; move %s aside by hand and start again",
+			dir, target, why, target)
+	}
+	aside := fmt.Sprintf("%s.lost-%d", dir, time.Now().Unix())
+	if err := os.Rename(dir, aside); err != nil {
+		return fmt.Errorf("set aside damaged clone %s; move it aside by hand and start again: %w", dir, err)
+	}
+	log.Warn("clone "+why+"; set aside and cloning afresh, it may hold unpushed commits",
+		"repo", url, "aside", aside)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return fmt.Errorf("data dir: %w", err)
+	}
+	return nil
+}
+
+// reportSetAside warns about every <dir>.lost-* next to dir, on every start:
+// the start that set one aside said so once, and logs rotate while the
+// copies keep taking space.
+func reportSetAside(dir, url string, log *slog.Logger) {
+	parent, prefix := filepath.Dir(dir), filepath.Base(dir)+".lost-"
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		log.Warn("could not look for set-aside clones", "repo", url, "path", parent, "err", err)
+		return
+	}
+	for _, e := range entries {
+		suffix, ok := strings.CutPrefix(e.Name(), prefix)
+		if !ok {
+			continue
+		}
+		attrs := []any{"repo", url, "path", filepath.Join(parent, e.Name())}
+		if unix, err := strconv.ParseInt(suffix, 10, 64); err == nil {
+			attrs = append(attrs, "age", time.Since(time.Unix(unix, 0)).Round(time.Minute))
+		}
+		log.Warn("a set-aside clone is still on disk and may hold unpushed commits; "+
+			"recover them and remove it (docs/api.md, Recovering a set-aside clone)", attrs...)
+	}
+}
+
+// hasLocalBranch reports whether the store holds any refs/heads/*, and
+// the error when its refs cannot all be read.
+func hasLocalBranch(s storage.Storer) (bool, error) {
+	refs, err := s.IterReferences()
+	if err != nil {
+		return false, err
+	}
+	defer refs.Close()
+	found := false
+	err = refs.ForEach(func(r *plumbing.Reference) error {
+		if r.Name().IsBranch() {
+			found = true
+			return storer.ErrStop
+		}
+		return nil
+	})
+	return found, err
+}
+
+// lostFound is what a freshly formatted ext* volume holds at its root,
+// unreadable to anyone but root; it is not a clone's content.
+const lostFound = "lost+found"
+
+// emptyDir removes what dir holds but keeps dir, which may be a mount point
+// or sit under a parent the process cannot write.
+func emptyDir(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.Name() == lostFound {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// holdsAFile reports whether anything but directories lies under dir. A
+// missing dir holds nothing; one that cannot be read through may hold
+// anything, and counts as holding a file.
+func holdsAFile(dir string) bool {
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return !errors.Is(err, fs.ErrNotExist)
+	}
+	held := false
+	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && d.Name() == lostFound && filepath.Dir(p) == root {
+			return fs.SkipDir
+		}
+		if !d.IsDir() {
+			held = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return held || (err != nil && !errors.Is(err, fs.ErrNotExist))
 }
 
 // recoverableRefreshError is deliberately narrow. A timeout or network

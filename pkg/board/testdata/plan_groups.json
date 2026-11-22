@@ -1,0 +1,36 @@
+{
+  "comment": "One fixture for the Plans reading of a listing, on both sides: apiserver.PlanGroups (what group=plans adds to a CardList) and web/src/grouping.ts (what the Team, Me and Backlog boards draw in Plans). `cards` is a listing in its order, as the wire carries it (status.lineage, root first; a review card carries its task's chain, which may end at the task itself). A card's plan item is the nearest lineage entry with a level; a subtask is in no group. `me` groups per zone (urgent, unplanned, planned, niceToHave), each plan item gathered where its first card stands; `team` the same per cell, a person (in order of first appearance, \"\" for nobody) by zone, a card in every column of its assignees; `backlog` cuts the one list into runs of neighbouring cards of one plan item. `plan` \"\" is Ungrouped.",
+  "cards": [
+    { "uid": "a1", "zone": "unplanned", "assignees": ["u"], "lineage": [{ "uid": "g", "type": "goal" }, { "uid": "e", "type": "epic" }] },
+    { "uid": "x1", "zone": "unplanned", "assignees": ["u"], "lineage": [] },
+    { "uid": "b1", "zone": "unplanned", "assignees": ["v"], "lineage": [{ "uid": "g", "type": "goal" }, { "uid": "i", "type": "initiative" }] },
+    { "uid": "a2", "zone": "unplanned", "assignees": ["u", "v"], "lineage": [{ "uid": "g", "type": "goal" }, { "uid": "e", "type": "epic" }] },
+    { "uid": "r1", "zone": "planned", "assignees": ["u"], "reviewOf": "t", "lineage": [{ "uid": "g", "type": "goal" }, { "uid": "e", "type": "epic" }, { "uid": "t" }] },
+    { "uid": "s1", "zone": "planned", "assignees": ["u"], "subtask": true, "lineage": [{ "uid": "g", "type": "goal" }, { "uid": "e", "type": "epic" }, { "uid": "a1" }] },
+    { "uid": "c1", "zone": "planned", "assignees": [], "lineage": [{ "uid": "g", "type": "goal" }, { "uid": "i", "type": "initiative" }] },
+    { "uid": "x2", "zone": "unplanned", "assignees": ["u"], "lineage": [] }
+  ],
+  "me": [
+    { "zone": "unplanned", "plan": "e", "cards": ["a1", "a2"] },
+    { "zone": "unplanned", "plan": "", "cards": ["x1", "x2"] },
+    { "zone": "unplanned", "plan": "i", "cards": ["b1"] },
+    { "zone": "planned", "plan": "e", "cards": ["r1"] },
+    { "zone": "planned", "plan": "i", "cards": ["c1"] }
+  ],
+  "team": [
+    { "assignee": "u", "zone": "unplanned", "plan": "e", "cards": ["a1", "a2"] },
+    { "assignee": "u", "zone": "unplanned", "plan": "", "cards": ["x1", "x2"] },
+    { "assignee": "u", "zone": "planned", "plan": "e", "cards": ["r1"] },
+    { "assignee": "v", "zone": "unplanned", "plan": "i", "cards": ["b1"] },
+    { "assignee": "v", "zone": "unplanned", "plan": "e", "cards": ["a2"] },
+    { "assignee": "", "zone": "planned", "plan": "i", "cards": ["c1"] }
+  ],
+  "backlog": [
+    { "plan": "e", "cards": ["a1"] },
+    { "plan": "", "cards": ["x1"] },
+    { "plan": "i", "cards": ["b1"] },
+    { "plan": "e", "cards": ["a2", "r1"] },
+    { "plan": "i", "cards": ["c1"] },
+    { "plan": "", "cards": ["x2"] }
+  ]
+}

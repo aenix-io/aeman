@@ -145,6 +145,26 @@ func TestAWriteFromAPastDayIsRefused(t *testing.T) {
 		t.Fatalf("code = %q, want invalidAsOf", p.Code)
 	}
 
+	// A BLOCK names its cards in its body (S21, move-together): one record
+	// among them refuses the whole block, and a block of live cards from the
+	// same screen goes through.
+	block := func(uids, asOf string) int {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/cards/actions/move-together",
+			strings.NewReader(`{"uids":[`+uids+`],"zone":"urgent"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Aeman-As-Of", asOf)
+		rec := httptest.NewRecorder()
+		srv.handler.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := block(`"`+working+`","`+settled+`"`, "2026-08-20"); code != http.StatusConflict {
+		t.Fatalf("a block holding a record answered %d, want 409", code)
+	}
+	if code := block(`"`+working+`"`, "2026-08-20"); code != http.StatusOK {
+		t.Fatalf("a block of live cards answered %d, want 200", code)
+	}
+
 	// A CREATE names its team, so it is judged by that team like everything
 	// else. WHILE A SPRINT IS OPEN its days are still the team's to work: a
 	// lead reading the day the sprint began, or any day of it, adds a card

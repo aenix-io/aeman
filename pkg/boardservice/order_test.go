@@ -177,3 +177,64 @@ func teamQueue(t *testing.T, s *Service, team string) string {
 	}
 	return strings.Join(out, " ")
 }
+
+// Q9 (amended 2026-11-20) — a parked task linked to another plan item
+// through the picker (a PATCH of its parent, MCP update_card) is placed by
+// Q3 like a Strategy drop into that epic: after the epic's last parked task
+// in its team's queue, so the Backlog reads it beside its new siblings. The
+// same parent again moves nothing, a task in work keeps its key, and taking
+// the parent off leaves the task where it stands.
+func TestATaskLinkedThroughThePickerJoinsItsEpicsTasks(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "A", Title: "A", Type: board.TypeEpic, Rank: "a"},
+		{ItemID: "B", Title: "B", Type: board.TypeEpic, Rank: "b"},
+		{ItemID: "A1", Title: "A1", Team: "U", Parked: true, Parent: "A", Rank: "c"},
+		{ItemID: "x", Title: "x", Team: "U", Parked: true, Rank: "d"},
+		{ItemID: "B1", Title: "B1", Team: "U", Parked: true, Parent: "B", Rank: "e"},
+		{ItemID: "A2", Title: "A2", Team: "U", Parked: true, Parent: "A", Rank: "f"},
+		{ItemID: "w", Title: "w", Team: "U", Rank: "0a", StartDate: board.TodayIso(), Day: board.TodayIso()},
+	}, map[string]board.SprintState{"U": {ItemID: "sU"}})
+	s := New(f)
+	if got := teamQueue(t, s, "U"); got != "A1 x B1 A2" {
+		t.Fatalf("seeded queue = %s", got)
+	}
+	if err := s.Relink(ctx, "acme", "x", "B"); err != nil {
+		t.Fatal(err)
+	}
+	if got := teamQueue(t, s, "U"); got != "A1 B1 x A2" {
+		t.Fatalf("U after x was linked to B = %s", got)
+	}
+	// Linked to the plan item it already has: nothing moves.
+	if err := s.Relink(ctx, "acme", "A1", "A"); err != nil {
+		t.Fatal(err)
+	}
+	if got := teamQueue(t, s, "U"); got != "A1 B1 x A2" {
+		t.Fatalf("the same parent moved a task: %s", got)
+	}
+	// Unlinked: it stays where it stands.
+	if err := s.Relink(ctx, "acme", "x", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := teamQueue(t, s, "U"); got != "A1 B1 x A2" {
+		t.Fatalf("an unlinked task moved: %s", got)
+	}
+	// Linked up a level, to a plan item with no parked task of its own in the
+	// queue: there are no siblings to stand beside, and the end of the queue
+	// is no place to send it — it keeps its key.
+	f.b.Cards = append(f.b.Cards,
+		board.Card{ItemID: "I", Title: "I", Type: board.TypeInitiative, Rank: "0b"})
+	if err := s.Relink(ctx, "acme", "A1", "I"); err != nil {
+		t.Fatal(err)
+	}
+	if got := teamQueue(t, s, "U"); got != "A1 B1 x A2" {
+		t.Fatalf("a task linked to a plan item with no siblings moved: %s", got)
+	}
+	// A task in work keeps its key.
+	before := f.get("w").Rank
+	if err := s.Relink(ctx, "acme", "w", "A"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.get("w").Rank; got != before {
+		t.Fatalf("a task in work took a new key: %q → %q", before, got)
+	}
+}

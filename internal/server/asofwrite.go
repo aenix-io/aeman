@@ -1,7 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 
@@ -52,6 +55,26 @@ func (s *Server) recordWriteGuard(next http.Handler) http.Handler {
 		// A write that names a card is judged by THAT card — through the same
 		// question the day's board is built with (board.IsRecord), so a card
 		// that is live on screen is never refused here.
+		if isBlockMove(r) {
+			// A BLOCK names its cards in the body (S21): judged card by card
+			// like any write that names one, the whole block refused when one
+			// of them is a record. The body is read here and handed on intact.
+			uids, raw, err := blockUIDs(r)
+			if err != nil {
+				writeProblem(w, problem(http.StatusBadRequest, "invalidBody", err.Error()))
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(raw))
+			for _, uid := range uids {
+				if card, ok := findCardByID(bd, uid); ok && board.IsRecord(bd, card, past) {
+					writeProblem(w, problem(http.StatusConflict, "dayIsARecord",
+						"the board of "+day+" is a record: that day is over for a card of this block's team, so it cannot be changed from there"))
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
 		if uid := cardOfPath(r.URL.Path); uid != "" {
 			card, ok := findCardByID(bd, uid)
 			if !ok || !board.IsRecord(bd, card, past) {
@@ -134,4 +157,26 @@ func withAsOf(ctx context.Context, day string) context.Context {
 func asOfDay(ctx context.Context) string {
 	day, _ := ctx.Value(asOfCtxKey{}).(string)
 	return day
+}
+
+// isBlockMove reports the write that names its cards in the body: a block
+// moved together (POST /cards/actions/move-together).
+func isBlockMove(r *http.Request) bool {
+	return r.Method == http.MethodPost && r.URL.Path == "/api/v1/cards/actions/move-together"
+}
+
+// blockUIDs reads a block move's cards from its body, and the body itself so
+// the handler can read it again.
+func blockUIDs(r *http.Request) ([]string, []byte, error) {
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, nil, err
+	}
+	var body struct {
+		UIDs []string `json:"uids"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, nil, err
+	}
+	return body.UIDs, raw, nil
 }

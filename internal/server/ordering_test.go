@@ -283,3 +283,63 @@ func TestTakeOnAnEpicOverTheWire(t *testing.T) {
 		t.Fatalf("take of an epic tester owns = %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// S21 — A GROUP MOVED ON A BOARD IS ONE ACTION. Dragging a plan group's
+// head (Plans on Team and Me, a run on the Backlog) moves its cards as one
+// block: each takes the cell it landed in (its zone and person, as a PATCH
+// of the card would give them), and the block stands at the anchor in the
+// order given — in ONE request and ONE commit, not a patch and a move per
+// card.
+func TestAGroupMovedOnABoardIsOneAction(t *testing.T) {
+	srv, ids := orderingBoard(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	before := headCount(t, srv)
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards/actions/move-together",
+		`{"uids":["`+ids["b1"]+`","`+ids["b2"]+`"],"after":"`+ids["a1"]+`","zone":"urgent"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("move together: %d %s", rec.Code, rec.Body.String())
+	}
+	var res struct {
+		ActionID string `json:"actionId"`
+		Moved    int    `json:"moved"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	// B1 takes a key behind A1; B2 already stands right behind B1 and needs
+	// none — the answer counts the cards that took a key.
+	if res.ActionID == "" || res.Moved != 1 {
+		t.Fatalf("answer = %+v, want the action and the one card that took a key", res)
+	}
+	if got := backlogOf(t, srv, ids); got != "A1 B1 B2 A2" {
+		t.Fatalf("backlog after the block moved behind A1 = %s", got)
+	}
+	for _, n := range []string{"b1", "b2"} {
+		rec := do(t, srv, http.MethodGet, "/api/v1/cards/"+ids[n], "")
+		if !strings.Contains(rec.Body.String(), `"zone":"urgent"`) {
+			t.Fatalf("%s did not take the zone: %s", n, rec.Body.String())
+		}
+	}
+	srv.store.waitDrained(ctx)
+	if got := headCount(t, srv) - before; got != 1 {
+		t.Fatalf("one group move is one commit; it made %d", got)
+	}
+	// A card named twice, or one the board does not have, is refused before
+	// anything is written: half a block must not move.
+	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/actions/move-together",
+		`{"uids":["`+ids["a2"]+`","`+ids["a2"]+`"],"zone":"planned"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("a card named twice: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/actions/move-together",
+		`{"uids":["`+ids["a2"]+`","01NOSUCHCARD00000000000000"],"zone":"planned"}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("a stranger in the block: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, srv, http.MethodGet, "/api/v1/cards/"+ids["a2"], ""); strings.Contains(rec.Body.String(), `"zone":"planned"`) {
+		t.Fatalf("a refused block wrote its first card: %s", rec.Body.String())
+	}
+	// Nothing to move is a mistake, not an empty success.
+	if rec := do(t, srv, http.MethodPost, "/api/v1/cards/actions/move-together", `{"uids":[]}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("an empty block: %d %s", rec.Code, rec.Body.String())
+	}
+}
