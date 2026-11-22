@@ -269,15 +269,15 @@ func TestHeadlessHealthzReportsWhetherCommitsAreLanding(t *testing.T) {
 		func() daemonHealth { return health }))
 	t.Cleanup(ts.Close)
 
-	ask := func(t *testing.T) daemonHealth {
+	askCode := func(t *testing.T, want int) daemonHealth {
 		t.Helper()
 		resp, err := ts.Client().Get(ts.URL + "/healthz")
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("GET /healthz = %d", resp.StatusCode)
+		if resp.StatusCode != want {
+			t.Fatalf("GET /healthz = %d, want %d", resp.StatusCode, want)
 		}
 		var got daemonHealth
 		if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
@@ -285,13 +285,14 @@ func TestHeadlessHealthzReportsWhetherCommitsAreLanding(t *testing.T) {
 		}
 		return got
 	}
+	ask := func(t *testing.T) daemonHealth { t.Helper(); return askCode(t, http.StatusOK) }
 
-	health = daemonReport(0, 5*time.Minute)
+	health = daemonReport(0, 5*time.Minute, nil)
 	if got := ask(t); got.Status != "ok" || got.UnpushedAgeSeconds != 0 {
 		t.Fatalf("a daemon with nothing waiting = %+v, want ok and 0", got)
 	}
 
-	health = daemonReport(10*time.Minute, 5*time.Minute)
+	health = daemonReport(10*time.Minute, 5*time.Minute, nil)
 	got := ask(t)
 	if got.Status != "degraded" {
 		t.Fatalf("status = %q with commits older than --unpushed-warn, want degraded", got.Status)
@@ -299,20 +300,66 @@ func TestHeadlessHealthzReportsWhetherCommitsAreLanding(t *testing.T) {
 	if got.UnpushedAgeSeconds != 600 {
 		t.Fatalf("unpushedAgeSeconds = %d, want 600", got.UnpushedAgeSeconds)
 	}
+
+	// G90: a lost data directory is the one degraded state a restart cures,
+	// so it alone is 503 — the body still says why.
+	health = daemonReport(0, 5*time.Minute, errors.New("data directory lost; restart required"))
+	if got := askCode(t, http.StatusServiceUnavailable); got.Status != "degraded" || got.StoreLost == "" {
+		t.Fatalf("a daemon whose store is lost = %+v, want degraded with storeLost", got)
+	}
 }
 
 // The threshold is the boundary, not an approximation of one, and a warning
 // age of zero is the server's own way of switching the judgement off.
 func TestDaemonReportAtAndAroundTheThreshold(t *testing.T) {
 	warn := 5 * time.Minute
-	if got := daemonReport(warn, warn); got.Status != "ok" {
+	if got := daemonReport(warn, warn, nil); got.Status != "ok" {
 		t.Errorf("exactly at the threshold = %q, want ok", got.Status)
 	}
-	if got := daemonReport(warn+time.Second, warn); got.Status != "degraded" {
+	if got := daemonReport(warn+time.Second, warn, nil); got.Status != "degraded" {
 		t.Errorf("one second past = %q, want degraded", got.Status)
 	}
-	if got := daemonReport(24*time.Hour, 0); got.Status != "ok" {
+	if got := daemonReport(24*time.Hour, 0, nil); got.Status != "ok" {
 		t.Errorf("with no threshold configured = %q, want ok", got.Status)
+	}
+}
+
+// G90 — a daemon whose data directory was removed under it cannot sync or
+// write until it is restarted, whatever its push backlog says; health says
+// degraded and carries the reason.
+func TestDaemonReportCarriesALostStore(t *testing.T) {
+	got := daemonReport(0, 5*time.Minute, errors.New("store removed; restart required"))
+	if got.Status != "degraded" || got.StoreLost != "store removed; restart required" {
+		t.Fatalf("a lost store = %+v, want degraded with the reason", got)
+	}
+	if got := daemonReport(0, 5*time.Minute, nil); got.StoreLost != "" {
+		t.Fatalf("a healthy store carries storeLost %q", got.StoreLost)
+	}
+}
+
+type fakeStoreState struct {
+	age  time.Duration
+	lost error
+}
+
+func (f *fakeStoreState) UnpushedAge() time.Duration { return f.age }
+func (f *fakeStoreState) StoreLost() error           { return f.lost }
+
+// The loaded daemon's health asks the backend on every call: a store lost
+// after start turns the next answer degraded, without a restart of the probe.
+func TestBackendHealthReadsTheStoreOnEveryCall(t *testing.T) {
+	st := &fakeStoreState{}
+	health := backendHealth(st, 5*time.Minute)
+	if got := health(); got.Status != "ok" || got.StoreLost != "" {
+		t.Fatalf("a healthy backend = %+v, want ok", got)
+	}
+	st.lost = errors.New("store removed; restart required")
+	if got := health(); got.Status != "degraded" || got.StoreLost != "store removed; restart required" {
+		t.Fatalf("a backend that lost its store = %+v, want degraded with the reason", got)
+	}
+	st.lost, st.age = nil, 10*time.Minute
+	if got := health(); got.Status != "degraded" || got.UnpushedAgeSeconds != 600 {
+		t.Fatalf("a backlog past --unpushed-warn = %+v, want degraded at 600s", got)
 	}
 }
 

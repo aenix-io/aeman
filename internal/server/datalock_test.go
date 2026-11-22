@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -197,4 +198,99 @@ func releaseDataDir(t *testing.T, srv *Server) {
 		}
 		_ = srv.Close()
 	})
+}
+
+// The claim is on a file inside the directory it guards, so removing the
+// directory removes the claim with it: the next start makes a fresh lock file
+// and takes it. The holder can still tell — the file at the path is no longer
+// the one it holds — and that is how it learns its directory is gone.
+func TestADataLockKnowsItsFileWasReplaced(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the lock is opened without sharing: the file cannot be removed while held")
+	}
+	dir := t.TempDir()
+	held, err := lockDataDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = held.Close() })
+	if err := held.Lost(); err != nil {
+		t.Fatalf("an untouched lock reads as lost: %v", err)
+	}
+	if err := os.Remove(filepath.Join(dir, "lock")); err != nil {
+		t.Fatal(err)
+	}
+	if err := held.Lost(); err == nil {
+		t.Fatal("a removed lock file must read as lost")
+	}
+	next, err := lockDataDir(dir)
+	if err != nil {
+		t.Fatalf("a second start after the removal is refused, so the race cannot happen: %v", err)
+	}
+	t.Cleanup(func() { _ = next.Close() })
+	if err := held.Lost(); err == nil {
+		t.Fatal("a lock file replaced by another process's must read as lost")
+	}
+	if err := next.Lost(); err != nil {
+		t.Fatalf("the new holder reads its own lock as lost: %v", err)
+	}
+}
+
+// Lost answers only what it can be sure of. No claim and a released claim
+// guard nothing to lose; a path it cannot read is not proof the directory is
+// gone, and refusing every write on a passing EACCES would be worse than the
+// next tick asking again. A data path that has become a file is gone.
+func TestADataLockIsLostOnlyWhenItKnows(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permissions and removal under a held lock")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through chmod 0, so the unreadable case cannot be made")
+	}
+	var none *dataLock
+	if err := none.Lost(); err != nil {
+		t.Fatalf("a nil claim reads as lost: %v", err)
+	}
+	dir := t.TempDir()
+	closed, err := lockDataDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = closed.Close()
+	if err := os.Remove(filepath.Join(dir, "lock")); err != nil {
+		t.Fatal(err)
+	}
+	if err := closed.Lost(); err != nil {
+		t.Fatalf("a released claim reads as lost: %v", err)
+	}
+
+	unreadable := filepath.Join(t.TempDir(), "data")
+	held, err := lockDataDir(unreadable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = held.Close() })
+	if err := os.Chmod(unreadable, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o750) })
+	if err := held.Lost(); err != nil {
+		t.Fatalf("an unreadable data dir reads as lost: %v", err)
+	}
+
+	filed := filepath.Join(t.TempDir(), "data")
+	held2, err := lockDataDir(filed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = held2.Close() })
+	if err := os.RemoveAll(filed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filed, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := held2.Lost(); !errors.Is(err, errDataDirLost) {
+		t.Fatalf("a data path turned into a file = %v, want errDataDirLost", err)
+	}
 }

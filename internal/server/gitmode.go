@@ -94,7 +94,7 @@ type GitConfig struct {
 // it: a server that invents a board on a typo in --repo is worse than one
 // that stops.
 func (s *Server) openGit(cfg *GitConfig) error {
-	be, err := openGitStore(s.store, cfg, s.log)
+	be, err := openGitStore(s.store, cfg, s.log, s.dataLock)
 	if err != nil {
 		return err
 	}
@@ -133,7 +133,7 @@ func OpenGitBackend(cfg *GitConfig, log *slog.Logger) (*GitBackend, error) {
 	log.Info("backend data lock acquired")
 	store := newBoardStore()
 	store.log = log
-	be, err := openGitStore(store, cfg, log)
+	be, err := openGitStore(store, cfg, log, lock)
 	if err != nil {
 		_ = lock.Close()
 		return nil, err
@@ -180,6 +180,11 @@ var errQueueNotDrained = errors.New("the write queue did not drain")
 // working apart from one whose credential died a week ago.
 func (g *GitBackend) UnpushedAge() time.Duration { return g.be.unpushedAge(storeKey(g.board)) }
 
+// StoreLost reports the data directory removed under this process — see
+// G90/G91 in docs/design/behavior-matrix.md. Once set it stays set: only a
+// restart recovers. The error is errStoreLostPublic, which names no path.
+func (g *GitBackend) StoreLost() error { return g.be.git.storeLostPublic() }
+
 // Close releases this process's claim on the data directory, so the next
 // `aeman serve` or `aeman mcp` may open the clones. It does not stop the
 // background sync, so it belongs on a process's way out rather than
@@ -190,7 +195,7 @@ func (g *GitBackend) Close() error { return g.lock.Close() }
 // data dir, check each has a board, build the store backend with its sync.
 // Every configured repository must be initialised — a server that invents
 // a domain on a typo in --repo is worse than one that stops.
-func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBackend, error) {
+func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger, lock *dataLock) (*storeBackend, error) {
 	f := cfg.Forge
 	if f == nil {
 		f = forge.NewGitHub()
@@ -312,7 +317,7 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 		}
 	}
 	return newGitBackend(store, domains, gitOptions{PushDelay: 300 * time.Millisecond, SyncInterval: cfg.SyncInterval,
-		MaintainEvery: time.Hour, HistoryMax: cfg.HistoryMax, Logger: log,
+		MaintainEvery: time.Hour, HistoryMax: cfg.HistoryMax, Logger: log, Lock: lock,
 		// Issue/PR titles in card descriptions are read with the push
 		// credential — the store has no per-visitor token any more.
 		Links: links}), nil
@@ -704,6 +709,10 @@ func (s *Server) actionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/v1") {
 			if name := actionName(r.Method, r.URL.Path); name != "" {
+				if err := s.gitBE.refuseLost(); err != nil {
+					writeProblem(w, problem(http.StatusServiceUnavailable, "storeLost", err.Error()))
+					return
+				}
 				id := gitstore.NewID(time.Now())
 				r = r.WithContext(withAction(r.Context(), id, name))
 				if s.gitBE != nil {

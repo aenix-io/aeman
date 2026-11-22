@@ -220,10 +220,23 @@ func (r *Repo) uploadPack(ctx context.Context, remote Remote, build func(*packp.
 	return tip, nil
 }
 
-// CheckStore reports ErrStoreLost when the on-disk store is gone. HEAD is
-// the witness: go-git writes it only when the store is created, so neither
+// SetStoreGuard adds a check CheckStore runs first: a store lost in a way
+// HEAD cannot show — its directory removed and refilled by another process —
+// is known only to the Repo's owner. A non-nil error from guard refuses
+// commit, fetch and deepen with that error. Call it before the Repo is
+// shared between goroutines.
+func (r *Repo) SetStoreGuard(guard func() error) { r.guard = guard }
+
+// CheckStore reports the guard's error first, if a guard is set and fails
+// (see SetStoreGuard), then ErrStoreLost when the on-disk store is gone. HEAD
+// is the witness: go-git writes it only when the store is created, so neither
 // a fetch nor a commit into the emptied directory brings it back.
 func (r *Repo) CheckStore() error {
+	if r.guard != nil {
+		if err := r.guard(); err != nil {
+			return err
+		}
+	}
 	if r.dir == "" {
 		return nil
 	}
