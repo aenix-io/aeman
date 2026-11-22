@@ -61,6 +61,9 @@ interface SortableBoardProps<Meta> {
   renderCard: (card: CardModel, group: BoardGroup<Meta>) => ReactNode;
   /** Renders the lifted card inside the DragOverlay. */
   renderOverlay: (card: CardModel) => ReactNode;
+  /** Renders what stands above a card without moving with it — the head of
+   *  a "group by plan" group. Not part of the card's drag. */
+  renderHead?: (card: CardModel, group: BoardGroup<Meta>) => ReactNode;
   /** Renders gap `at` of a group — 0 above the first card, i+1 after the
    *  i-th — the insert "+" (InsertGap). Return null where there is none.
    *  Not drawn while a card is being dragged. */
@@ -86,6 +89,10 @@ interface SortableBoardProps<Meta> {
   onDragActiveCard?: (cardId: string | null) => void;
   /** Whether the active card may group under the target (e.g. depth limits). */
   canGroup?: (active: CardModel, target: CardModel) => boolean;
+  /** The row a card is drawn nested under, by its itemId — the nesting the
+   *  drag previews and commits as groupUnder. Defaults to a subtask's parent
+   *  task; a board drawing other nested rows ("group by plan") says its own. */
+  parentOf?: (card: CardModel) => string | undefined;
   /** Whether a card may cross from one group into another. A drop the board
    *  will refuse must not be PREVIEWED either: the placeholder opening a gap
    *  in a group that then rejects the card is a promise the board does not
@@ -170,6 +177,7 @@ function DroppableGroup<Meta>({
   renderGroup,
   renderCard,
   renderGap,
+  renderHead,
   isRecord,
 }: {
   group: BoardGroup<Meta>;
@@ -182,6 +190,7 @@ function DroppableGroup<Meta>({
   renderGroup: SortableBoardProps<Meta>["renderGroup"];
   renderCard: (card: CardModel, group: BoardGroup<Meta>) => ReactNode;
   renderGap?: SortableBoardProps<Meta>["renderGap"];
+  renderHead?: SortableBoardProps<Meta>["renderHead"];
   isRecord?: (card: CardModel) => boolean;
 }) {
   const gap = (at: number) => (renderGap && activeId === null ? renderGap(group, at) : null);
@@ -196,6 +205,7 @@ function DroppableGroup<Meta>({
         }
         return (
           <Fragment key={id}>
+          {renderHead?.(c, group)}
           <SortableCard
             key={id}
             id={id}
@@ -237,6 +247,7 @@ export function SortableBoard<Meta>({
   renderOverlay,
   renderLayout,
   renderGap,
+  renderHead,
   onDrop,
   externalCards,
   onExternalDrop,
@@ -247,7 +258,9 @@ export function SortableBoard<Meta>({
   canMoveTo,
   scrollClassName,
   isRecord,
+  parentOf: parentOfProp,
 }: SortableBoardProps<Meta>) {
+  const parentOf = parentOfProp ?? subtaskParent;
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
@@ -420,9 +433,9 @@ export function SortableBoard<Meta>({
     // The parents AS TASKS: a task under an epic carries a parent too, and
     // reading it here made the slot machinery nest it under a card that is
     // not on the board (subtasks.ts, subtaskParent).
-    const belowUnder = below ? subtaskParent(below) : undefined;
-    const aboveUnder = subtaskParent(above);
-    const activeUnder = subtaskParent(active);
+    const belowUnder = below ? parentOf(below) : undefined;
+    const aboveUnder = parentOf(above);
+    const activeUnder = parentOf(active);
     if (belowUnder) {
       // Strictly inside a block: subtasks continue below, so the slot can
       // only be one of them — the dedent gesture exists on the last slot only.
@@ -521,7 +534,7 @@ export function SortableBoard<Meta>({
     setActiveId(id);
     onDragActiveCard?.(cardById.get(id)?.itemId ?? null);
     const seeded = cardById.get(id);
-    const seed = !!seeded && isSubtask(seeded);
+    const seed = !!seeded && (parentOfProp ? !!parentOf(seeded) : isSubtask(seeded));
     indentOnRef.current = seed;
     indentFlipAt.current = null;
     strongDedent.current = false;
@@ -625,7 +638,7 @@ export function SortableBoard<Meta>({
         let at = next[to].ids.indexOf(targetId) + 1;
         while (at < next[to].ids.length) {
           const c = cardById.get(next[to].ids[at]);
-          if (!c || subtaskParent(c) !== targetItem) {
+          if (!c || parentOf(c) !== targetItem) {
             break;
           }
           at++;
@@ -779,6 +792,29 @@ export function SortableBoard<Meta>({
     activeId !== null && nestPreview(local) !== null ? activeId : null;
 
 
+  // A drag re-renders this board on every new target under the pointer (the
+  // working copy moves), and drawing every card afresh each time made a full
+  // Team board crawl. A card's node depends only on what renderCard closes
+  // over and the card itself, so it is kept until either changes: the board's
+  // own drag state never redraws a card, only the wrapper that places it.
+  const cardNodes = useRef<{
+    fn: unknown;
+    map: Map<string, { card: CardModel; group: BoardGroup<Meta>; node: ReactNode }>;
+  }>({ fn: null, map: new Map() });
+  if (cardNodes.current.fn !== renderCard) {
+    cardNodes.current = { fn: renderCard, map: new Map() };
+  }
+  const renderCardKept = (card: CardModel, group: BoardGroup<Meta>): ReactNode => {
+    const key = `${group.key}\u0000${card.itemId}`;
+    const kept = cardNodes.current.map.get(key);
+    if (kept && kept.card === card && kept.group === group) {
+      return kept.node;
+    }
+    const node = renderCard(card, group);
+    cardNodes.current.map.set(key, { card, group, node });
+    return node;
+  };
+
   // Render each group as a node, keyed by group.key, so a custom layout can
   // arrange them (Team groups cells into engineer columns); default is flat.
   const nodes = new Map<string, ReactNode>();
@@ -798,8 +834,9 @@ export function SortableBoard<Meta>({
         cardById={cardById}
         groupable={!!onGroupDrop}
         renderGroup={renderGroup}
-        renderCard={renderCard}
+        renderCard={renderCardKept}
         renderGap={renderGap}
+        renderHead={renderHead}
         isRecord={isRecord}
       />,
     );

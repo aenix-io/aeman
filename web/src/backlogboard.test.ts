@@ -26,14 +26,8 @@ import {
   insertSpot,
   insertedOrder,
   byReadiness,
-  splitEpics,
-  epicRows,
-  epicDrop,
   readBacklogMode,
-  epicsByReadiness,
-  offersEpicTake,
-  epicTake,
-  epicTakeOwner,
+  splitEpics,
 } from "./backlogboard";
 import type { Card, LineageRef } from "./providers/types";
 
@@ -222,22 +216,23 @@ describe("a drop goes between any two neighbours (Q4)", () => {
     expect(dropPlan("b1", list, 0)).toEqual({ kind: "reorder", order: ["b1", "a1", "a2", "b2"], anchor: { before: "a1" } });
   });
 
-  it("never moves a review nobody has taken, and a review is no anchor", () => {
+  it("moves a review nobody has taken like a task, and anchors on one", () => {
     const rA = card({ itemId: "rA", reviewOf: "x" });
     const rB = card({ itemId: "rB", reviewOf: "y" });
-    expect(dropPlan("rB", [rA, rB, a1], 0)).toEqual({ kind: "forbidden" });
-    // A task dropped among the reviews lands before the first task.
-    expect(dropPlan("a2", [rA, rB, a1, a2], 1)).toEqual({ kind: "reorder", order: ["rA", "rB", "a2", "a1"], anchor: { before: "a1" } });
+    // A review dragged below a task (K10: it leads only by default).
+    expect(dropPlan("rB", [rA, rB, a1], 2)).toEqual({ kind: "reorder", order: ["rA", "a1", "rB"], anchor: { after: "a1" } });
+    // A task dropped among the reviews lands right there, after the review above.
+    expect(dropPlan("a2", [rA, rB, a1, a2], 1)).toEqual({ kind: "reorder", order: ["rA", "a2", "rB", "a1"], anchor: { after: "rA" } });
   });
 
-  it("has nothing to write for a task alone among reviews", () => {
+  it("puts a task above a review at the top, before it", () => {
     const rA = card({ itemId: "rA", reviewOf: "x" });
-    expect(dropPlan("a1", [rA, a1], 0)).toEqual({ kind: "none" });
+    expect(dropPlan("a1", [rA, a1], 0)).toEqual({ kind: "reorder", order: ["a1", "rA"], anchor: { before: "rA" } });
   });
 });
 
 // Q2 — the backlog reads in the BOARD's order: the reviews nobody has taken
-// first, then every task by its own key — the plan items above a task decide
+// included, every card by its own key — the plan items above a task decide
 // nothing. Mirrors board.BacklogOrder (TestABacklogReadsInTheBoardsOrder).
 describe("the board's order in the backlog (Q2)", () => {
   const ref = (uid: string, type: "goal" | "initiative" | "epic"): LineageRef => ({ uid, type, title: uid });
@@ -254,15 +249,15 @@ describe("the board's order in the backlog (Q2)", () => {
     t("t-e1", [G1, E1]),
   ];
 
-  it("lists the reviews first, then the tasks in the board's order", () => {
-    expect(backlogList(cards, [""], boardOrder).map((c) => c.itemId)).toEqual(["r", "loose-1", "t-e2", "t-e1"]);
+  it("lists every card in the board's order, a review nobody has taken by its own key", () => {
+    expect(backlogList(cards, [""], boardOrder).map((c) => c.itemId)).toEqual(["loose-1", "t-e2", "r", "t-e1"]);
   });
 
   it("re-sorts on a new board order (an Ordering frame), and a goal moved up moves no task", () => {
     const moved = ["g1", "e1", "loose-1", "t-e2", "g2", "e2", "r", "t-e1"];
-    expect(backlogList(cards, [""], moved).map((c) => c.itemId)).toEqual(["r", "loose-1", "t-e2", "t-e1"]);
+    expect(backlogList(cards, [""], moved).map((c) => c.itemId)).toEqual(["loose-1", "t-e2", "r", "t-e1"]);
     const taskMoved = ["t-e1", "loose-1", "t-e2", "g2", "e2", "r", "g1", "e1"];
-    expect(backlogList(cards, [""], taskMoved).map((c) => c.itemId)).toEqual(["r", "t-e1", "loose-1", "t-e2"]);
+    expect(backlogList(cards, [""], taskMoved).map((c) => c.itemId)).toEqual(["t-e1", "loose-1", "t-e2", "r"]);
   });
 
   it("places a card the order does not name yet after the ones it does", () => {
@@ -508,17 +503,25 @@ describe("the reviews nobody has taken (K10)", () => {
     expect(onBacklog(waiting({ assignees: ["bob"] }))).toBe(false);
   });
 
-  // In the same list as the tasks, in the group on top of them (K10), and
-  // never dragged: its place is its task's.
-  it("stands in the group on top of the tasks, and does not move by a drop", () => {
+  // In the same list as the tasks, by its own key (K10): made at the top of
+  // the board's order it leads, and it may be dragged lower like a task.
+  it("stands by its own key among the tasks, and moves by a drop like one", () => {
     const t1 = card({ itemId: "t1", team: "alpha" });
     const t2 = card({ itemId: "t2", team: "beta" });
     const top = waiting({ itemId: "r-top", team: "alpha" });
-    const dragged = waiting({ itemId: "r-low", team: "beta" });
-    const list = backlogList([top, t1, dragged, t2], ["alpha", "beta"]);
-    expect(list.map((c) => c.itemId)).toEqual(["r-top", "r-low", "t1", "t2"]);
-    expect(dropPlan("r-top", list, 1)).toEqual({ kind: "forbidden" });
-    expect(dropPlan("r-top", list, 2)).toEqual({ kind: "forbidden" });
+    const low = waiting({ itemId: "r-low", team: "beta" });
+    const list = backlogList([top, t1, low, t2], ["alpha", "beta"]);
+    expect(list.map((c) => c.itemId)).toEqual(["r-top", "t1", "r-low", "t2"]);
+    expect(dropPlan("r-top", list, 2)).toEqual({
+      kind: "reorder",
+      order: ["t1", "r-low", "r-top", "t2"],
+      anchor: { after: "r-low" },
+    });
+    expect(dropPlan("t2", list, 0)).toEqual({
+      kind: "reorder",
+      order: ["t2", "r-top", "t1", "r-low"],
+      anchor: { before: "r-top" },
+    });
   });
 
   it("drops out the moment a reviewer has it", () => {
@@ -626,98 +629,26 @@ describe("the readiness filter", () => {
 // The Epics mode (ordering.md, "Backlog Epics mode"): the epics of the
 // shown teams in the EPIC ORDER, empty ones included, done ones not, each
 // with its goal/initiative, its waiting tasks and whether they are scattered.
-describe("the Epics mode", () => {
-  const I = { uid: "i", type: "initiative" as const, title: "Kubernetes и S3" };
-  const ep = (itemId: string, over: Partial<Card> = {}) =>
-    card({ itemId, title: itemId, type: "epic", parked: false, team: "portal", lineage: [I], ...over });
-  const under = (itemId: string, epic: string, over: Partial<Card> = {}) =>
-    card({ itemId, team: "portal", parent: epic, lineage: [I, { uid: epic, type: "epic", title: epic }], ...over });
-  const A = ep("A");
-  const B = ep("B");
-  const C = ep("C"); // empty
-  const done = ep("D", { hierarchy: { status: "done", done: 1, total: 1 } } as Partial<Card>);
-  const other = ep("O", { team: "beta" });
-  const a1 = under("a1", "A");
-  const b1 = under("b1", "B");
-  const a2 = under("a2", "A");
-  const scope = [A, B, C, done, other, a1, b1, a2];
-  const list = [a1, b1, a2];
 
-  it("lists the team's epics in the epic order, empty ones in, done ones out", () => {
-    const order = ["B", "A", "C", "D", "O", "a1", "b1", "a2"];
-    expect(epicRows(scope, list, ["portal"], order).map((r) => r.epic.itemId)).toEqual(["B", "A", "C"]);
-  });
-
-  it("counts the waiting tasks, marks a scattered epic Split, and carries the plan above", () => {
-    const rows = epicRows(scope, list, ["portal"]);
-    const byId = new Map(rows.map((r) => [r.epic.itemId, r]));
-    expect(byId.get("A")?.parked).toBe(2);
-    expect(byId.get("A")?.split).toBe(true); // b1 stands inside A's area
-    expect(byId.get("B")?.split).toBe(false);
-    expect(byId.get("C")?.parked).toBe(0);
-    expect(byId.get("A")?.chain.map((r) => r.uid)).toEqual(["i"]);
-  });
-
-  it("takes in another team's epic that has a task standing under a shown team", () => {
-    const o1 = under("o1", "O");
-    expect(epicRows([...scope, o1], [...list, o1], ["portal"]).map((r) => r.epic.itemId)).toContain("O");
-  });
-
-  it("reads Split per team: two teams' tasks of one epic interleaved are no split", () => {
-    const x1 = under("x1", "A", { team: "beta" });
-    expect(splitEpics([a1, x1, a2], (c) => c.team ?? "").has("A")).toBe(false);
-  });
-
-  it("drops an epic beside another — the epic move — and nothing where it was", () => {
-    expect(epicDrop(["A", "B", "C"], "C", 0)).toEqual({ order: ["C", "A", "B"], anchor: { before: "A" } });
-    expect(epicDrop(["A", "B", "C"], "A", 1)).toEqual({ order: ["B", "A", "C"], anchor: { after: "B" } });
-    expect(epicDrop(["A", "B", "C"], "B", 1)).toBeNull();
-  });
-
-  it("remembers the mode, Tasks by default — switching it writes nothing", () => {
+// The Backlog's Tasks | Plans is the viewer's own; the Epics mode it
+// replaces is read back as Plans, the nearest reading of the same list.
+describe("the remembered mode", () => {
+  it("reads Plans, the old Epics as Plans, and anything else as Tasks", () => {
+    expect(readBacklogMode("plans")).toBe("plans");
+    expect(readBacklogMode("epics")).toBe("plans");
+    expect(readBacklogMode("tasks")).toBe("tasks");
     expect(readBacklogMode(null)).toBe("tasks");
-    expect(readBacklogMode("epics")).toBe("epics");
-    expect(readBacklogMode("nonsense")).toBe("tasks");
   });
 });
 
-// All / Ready / Blocked applies to the Epics mode by the epics' own lock
-// (own or inherited, status.locked), and never reorders.
-describe("the readiness filter on the Epics mode", () => {
-  const ep = (itemId: string, locked = false) => card({ itemId, type: "epic", team: "portal", locked });
-  const rows = epicRows([ep("A"), ep("B", true), ep("C")], [], ["portal"]);
-  it("shows the locked epics under Blocked and the others under Ready, the order kept", () => {
-    expect(epicsByReadiness(rows, "all").map((r) => r.epic.itemId)).toEqual(["A", "B", "C"]);
-    expect(epicsByReadiness(rows, "blocked").map((r) => r.epic.itemId)).toEqual(["B"]);
-    expect(epicsByReadiness(rows, "ready").map((r) => r.epic.itemId)).toEqual(["A", "C"]);
-  });
-});
-
-// Take on an epic (the Epics mode): offered while nobody owns it; it makes
-// the viewer the epic's owner and keeps its team.
-describe("Take on an epic", () => {
-  it("is offered while the epic has no owner, and not once somebody owns it", () => {
-    expect(offersEpicTake(card({ type: "epic" }))).toBe(true);
-    expect(offersEpicTake(card({ type: "epic", owner: "ann" }))).toBe(false);
-  });
-  it("makes the viewer its owner and keeps its team", () => {
-    expect(epicTakeOwner(card({ type: "epic", team: "portal" }), "kvaps")).toEqual({ team: "portal", person: "kvaps" });
-    expect(epicTakeOwner(card({ type: "epic" }), "kvaps")).toEqual({ team: "", person: "kvaps" });
-  });
-});
-
-// Take on an epic is always drawn: enabled while nobody owns it, disabled —
-// naming who does — once somebody does.
-describe("an Epics row's Take", () => {
-  it("is enabled while the epic has no owner", () => {
-    expect(epicTake(card({ type: "epic", title: "S3" }))).toEqual({
-      enabled: true,
-      title: "Take this epic yourself: you become its owner",
-    });
-  });
-  it("is disabled, saying who owns it, once somebody does", () => {
-    const t = epicTake(card({ type: "epic", title: "S3", owner: "ann" }));
-    expect(t.enabled).toBe(false);
-    expect(t.title).toBe("ann already owns «S3» — change the owner with the avatar");
+// Split, the Strategy board's mark on an epic whose tasks do not stand
+// together in a team's queue: read per team, so two teams' tasks of one epic
+// interleaved are no split.
+describe("splitEpics", () => {
+  const A: LineageRef = { uid: "A", type: "epic", title: "A" };
+  const t = (itemId: string, team: string) => card({ itemId, team, parent: "A", lineage: [A] });
+  it("reads Split per team", () => {
+    expect(splitEpics([t("a1", "alpha"), t("x1", "beta"), t("a2", "alpha")], (c) => c.team ?? "").has("A")).toBe(false);
+    expect(splitEpics([t("a1", "alpha"), card({ itemId: "o", team: "alpha" }), t("a2", "alpha")], (c) => c.team ?? "").has("A")).toBe(true);
   });
 });

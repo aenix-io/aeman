@@ -73,8 +73,9 @@ export function StrategyControls({
   );
 }
 
-/** BacklogModeSwitch is the Backlog's Tasks | Epics: one order, two
- *  readings, and switching writes nothing. */
+/** BacklogModeSwitch is the Backlog's Tasks | Plans, in the middle of the top
+ *  bar like the day boards': one order, read card by card or in runs of one
+ *  plan item's neighbours (grouping.adjacentRuns). Switching writes nothing. */
 export function BacklogModeSwitch({
   mode,
   onMode,
@@ -83,9 +84,9 @@ export function BacklogModeSwitch({
   onMode: (m: BacklogMode) => void;
 }) {
   return (
-    <div className="topbar-controls">
+    <div className="topbar-center">
       <div className="segmented backlog-mode" role="group" aria-label="Show">
-        {(["tasks", "epics"] as const).map((m) => (
+        {(["tasks", "plans"] as const).map((m) => (
           <button
             key={m}
             type="button"
@@ -93,7 +94,37 @@ export function BacklogModeSwitch({
             aria-pressed={mode === m}
             onClick={() => onMode(m)}
           >
-            {m === "tasks" ? "Tasks" : "Epics"}
+            {m === "tasks" ? "Tasks" : "Plans"}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** DayGroupingSwitch is the Team and Me boards' Tasks | Plans: the same cards,
+ *  drawn one by one or gathered under the plan item each stands in
+ *  (grouping.ts), in the middle of the top bar — the day stays at its left.
+ *  Switching writes nothing. */
+export function DayGroupingSwitch({
+  mode,
+  onMode,
+}: {
+  mode: "tasks" | "plans";
+  onMode: (m: "tasks" | "plans") => void;
+}) {
+  return (
+    <div className="topbar-center">
+      <div className="segmented day-grouping" role="group" aria-label="Group">
+        {(["tasks", "plans"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            className={`segment${mode === m ? " segment-active" : ""}`}
+            aria-pressed={mode === m}
+            onClick={() => onMode(m)}
+          >
+            {m === "tasks" ? "Tasks" : "Plans"}
           </button>
         ))}
       </div>

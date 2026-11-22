@@ -114,3 +114,33 @@ func TestACardResourceCarriesItsLineageAndHierarchy(t *testing.T) {
 		t.Fatal("a root has no lineage")
 	}
 }
+
+// A plan item in a card's lineage says whose it is: the team it stands under
+// (its own, else the nearest ancestor's — O13) and the one person who answers
+// for it, its own owner never inherited (O1). The day boards' "group by plan"
+// head draws them without fetching the plan item, which is on no day board.
+func TestALineageEntryNamesItsTeamAndOwner(t *testing.T) {
+	t.Parallel()
+	b := board.NewBoard([]board.Card{
+		{ItemID: "goal", Type: board.TypeGoal, Title: "Goal", Team: "portal", Owner: "kvaps"},
+		{ItemID: "epic", Type: board.TypeEpic, Title: "Epic", Parent: "goal", Owner: "lexfrei"},
+		{ItemID: "task", Title: "Task", Parent: "epic", Team: "cozystack"},
+		{ItemID: "plain", Type: board.TypeEpic, Title: "Plain"},
+		{ItemID: "t2", Title: "T2", Parent: "plain"},
+	})
+	find := func(id string) board.Card {
+		c, _ := board.Find(b, id)
+		return c
+	}
+	got := CardResource(b, find("task")).Status.Lineage
+	want := []LineageRef{
+		{UID: "goal", Type: board.TypeGoal, Title: "Goal", Team: "portal", Owner: "kvaps"},
+		{UID: "epic", Type: board.TypeEpic, Title: "Epic", Team: "portal", Owner: "lexfrei"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("lineage = %+v, want %+v", got, want)
+	}
+	if l := CardResource(b, find("t2")).Status.Lineage; len(l) != 1 || l[0].Team != "" || l[0].Owner != "" {
+		t.Fatalf("a plan item with no team and no owner names neither: %+v", l)
+	}
+}

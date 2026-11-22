@@ -519,8 +519,9 @@ neighbour lives in.
   means its kind's order: an EPIC's is the board-wide epic order, a
   TASK's is its place in its team's queue (the open parked tasks standing
   under the team, in board order), nothing inherited down the tree. A
-  backlog reads the reviews nobody has taken first, then the tasks, each
-  in board order (Q2). A writer reorders with a key strictly between ANY
+  backlog reads every card in board order by its own key, a review
+  nobody has taken included — made at the top, it leads until moved (Q2,
+  K10). A writer reorders with a key strictly between ANY
   two neighbours of the merged board (Q4). A writer creating a parked
   task may omit `rank`: the server places it by the default rule —
   after its epic's last parked task in the team's queue, or the epic's

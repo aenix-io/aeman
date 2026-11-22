@@ -461,11 +461,13 @@ boards never deliver a planning card to look up. The rules live in
 `web/src/strategy.ts` and `web/src/owner.ts` with their cases beside
 them; the components draw them.
 
-The Strategy board opens the drawer with a click on a card. The Me, Team and Backlog boards SELECT a card on the first
-click and open it on a click on the selected card (#290): the selection is
-shared live as presence, so a lead selecting a card on the Team board is
-seen on the person's Me board and the other way round, and each of the
-three draws the others' marks on their cards.
+Every board — Me, Team, Backlog and Strategy — SELECTS a card on the first
+click and opens its drawer on a click on the selected card (#290); on the
+Strategy board a row or its bar is the card, and a row a breadcrumb revealed
+is the selected one. The selection is shared live as presence, so a lead
+selecting a card on the Team board is seen on the person's Me board and the
+other way round, and each board draws the others' marks on their cards (on
+Strategy, an outline on the row and their avatars after its title).
 
 ## Owner
 

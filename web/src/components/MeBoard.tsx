@@ -23,6 +23,7 @@ import type {
   Card as CardModel,
   CardDayLog,
   CardPatch,
+  LineageRef,
   Note,
   Provider,
   StageKey,
@@ -67,6 +68,10 @@ import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
 import { ConnectDialog } from "./ConnectDialog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
+import { ParentGroupHead, type GroupAssign } from "./ParentGroupHead";
+import { GroupBacklogDialog } from "./GroupBacklogDialog";
+import { FoldControls } from "./FoldControls";
+import { expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowUid, reassignable, blockAnchor, type PlanRow } from "../grouping";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
 interface MeBoardProps {
@@ -114,6 +119,11 @@ interface MeBoardProps {
   reload: () => void;
   onError: (message: string) => void;
   onOpen: (card: CardModel) => void;
+  /** "Group by plan": each band draws its tasks under the plan item they
+   *  stand in (grouping.ts), and subtasks are not drawn. */
+  groupByParent?: boolean;
+  /** Opens a plan item's drawer by uid (a group head). */
+  onOpenPlan?: (uid: string) => void;
   /** Share the live selection with other boards ("" clears on deselect). */
   onPresence?: (card: string | null) => void;
   /** Others' live selections (login → card uid), drawn on the cards (#290). */
@@ -175,6 +185,8 @@ export function MeBoard({
   reload,
   onError,
   onOpen,
+  groupByParent = false,
+  onOpenPlan,
   onPresence,
   presence,
 }: MeBoardProps) {
@@ -183,10 +195,6 @@ export function MeBoard({
   const [removeChoice, setRemoveChoice] = useState<CardModel | null>(null);
   // Broadcast the selection as shared presence: teammates' Team boards
   // highlight this card with our avatar. Cleared on deselect and unmount.
-  useEffect(() => {
-    onPresence?.(selectedCardId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCardId]);
   useEffect(() => () => onPresence?.(null), []); // eslint-disable-line react-hooks/exhaustive-deps
   // Focus toggle (the meditation glyph by the View-as picker): show only cards
   // that can be worked on right now — drops locked/review/done. Ephemeral,
@@ -196,6 +204,26 @@ export function MeBoard({
   // under (its middle band is hovered — the card highlights), and the parent
   // whose add-subtask form is open (the + button flow).
   const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set());
+  // "Group by plan": the groups unfolded (folded by default) and the one
+  // whose add-a-task form is open, by head row id (grouping.planRowId).
+  const [expandedPlans, setExpandedPlans] = useState<Set<string>>(new Set());
+  const [addingPlan, setAddingPlan] = useState<string | null>(null);
+  // A selected head (S15: the second click on it opens the plan item). Kept
+  // apart from the card selection, which is shared as presence (#290).
+  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+  // The head whose × is waiting on the send-to-backlog question.
+  const [groupRemove, setGroupRemove] = useState<string | null>(null);
+  useEffect(() => {
+    if (selectedCardId) {
+      setSelectedPlan(null);
+    }
+  }, [selectedCardId]);
+  // The selection is shared live (#290) — a selected group head as the plan
+  // item it stands for: the others see it on their heads and on the Strategy
+  // board's row.
+  useEffect(() => {
+    onPresence?.(selectedCardId ?? (selectedPlan ? planRowUid(selectedPlan) || null : null));
+  }, [selectedCardId, selectedPlan]); // eslint-disable-line react-hooks/exhaustive-deps
   const [groupHover, setGroupHover] = useState<string | null>(null);
   const [addingSub, setAddingSub] = useState<string | null>(null);
   // Impersonate: view (and act on) the board as another person.
@@ -1366,23 +1394,68 @@ export function MeBoard({
   // The 4 sortable groups: one per zone, in ZONE_ORDER (top → bottom).
   // An expanded parent's subtasks follow it as indented rows of the same zone
   // band (a subtask has no zone placement of its own).
+  // "Group by plan" (grouping.ts): each band is drawn as its groups' head
+  // rows — the cards nested under them when unfolded — and the loose cards.
+  // plan.heads holds every head row with the band it stands in; plan.parent
+  // the head row each drawn card nests under.
+  const plan = useRef({
+    heads: new Map<string, PlanRow & { zone: ZoneKey }>(),
+    parent: new Map<string, string>(),
+  });
   const groups = useMemo<BoardGroup<MeMeta>[]>(
-    () =>
-      ZONE_ORDER.map((zone) => ({
-        key: zone,
-        meta: { zone },
-        cards: byZone[zone].flatMap((c) =>
-          subsOpen(c.itemId) ? [c, ...(childrenOf.get(c.itemId) ?? [])] : [c],
-        ),
-      })),
+    () => {
+      const heads = new Map<string, PlanRow & { zone: ZoneKey }>();
+      const parent = new Map<string, string>();
+      const out = ZONE_ORDER.map((zone) => {
+        if (groupByParent) {
+          // Grouped, the band draws no subtasks at all.
+          const r = groupedRows(zone, byZone[zone], (id) => expandedPlans.has(id) || addingPlan === id);
+          for (const [id, h] of r.heads) {
+            heads.set(id, { ...h, zone });
+          }
+          for (const [id, row] of r.parentOf) {
+            parent.set(id, row);
+          }
+          return { key: zone, meta: { zone }, cards: r.rows };
+        }
+        return {
+          key: zone,
+          meta: { zone },
+          cards: byZone[zone].flatMap((c) =>
+            subsOpen(c.itemId) ? [c, ...(childrenOf.get(c.itemId) ?? [])] : [c],
+          ),
+        };
+      });
+      plan.current = { heads, parent };
+      return out;
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [byZone, childrenOf, expandedSubs],
+    [byZone, childrenOf, expandedSubs, groupByParent, expandedPlans, addingPlan],
   );
+  const togglePlan = (id: string) =>
+    setExpandedPlans((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  // A head dragged unfolded folds for the flight and unfolds where it lands.
+  const planFolded = useRef<string | null>(null);
+  const handlePlanDragActive = (id: string | null) => {
+    if (id && isPlanRow(id) && expandedPlans.has(id)) {
+      planFolded.current = id;
+      togglePlan(id);
+    }
+  };
 
   // Keyboard navigation over the visible day list (zone bands top to bottom):
   // arrows move the selection, Shift+arrows reorder the selected card, Escape
   // deselects. Ignored while typing in an input.
-  const flatCards = useMemo(() => groups.flatMap((g) => g.cards), [groups]);
+  // A group's head row is not a card: the arrows step over it.
+  const flatCards = useMemo(() => groups.flatMap((g) => g.cards).filter((c) => !isPlanRow(c.itemId)), [groups]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -1446,6 +1519,201 @@ export function MeBoard({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [flatCards, selectedCardId, board, provider, reorderCards, reload, onError]);
+
+  // Persist a card's place in its band, anchored on a neighbour of the band.
+  const persistPlace = async (id: string, band: string[], order: string[]) => {
+    const at = band.indexOf(id);
+    if (at > 0) {
+      await provider.moveCard(id, band[at - 1]);
+    } else if (at === 0 && band.length > 1) {
+      await provider.moveCardBefore(id, band[1]);
+    } else {
+      await provider.moveCard(id, afterIdFor(order, id));
+    }
+  };
+
+  // A drop on the grouped board, inside one band as every drag here is: a
+  // card takes the plan item of the group it was left nested in
+  // (grouping.planDrop), a head row carries its group's cards along.
+  const handleGroupedDrop = (r: DropResult<MeMeta>) => {
+    const { card, fromMeta, toMeta, groups: g, groupUnder } = r;
+    if (!sortableWithin(fromMeta.zone, toMeta.zone)) {
+      return;
+    }
+    const heads = plan.current.heads;
+    if (isPlanRow(card.itemId)) {
+      const h = heads.get(card.itemId);
+      if (!h) {
+        return;
+      }
+      const moving = new Set(h.cards);
+      const bands = g.map((x) =>
+        x.ids.flatMap((id) => (id === card.itemId ? h.cards : moving.has(id) ? [] : expandRows([id], heads))),
+      );
+      const order = globalOrderFromGroups(board, bands);
+      reorderCards(order);
+      if (planFolded.current) {
+        planFolded.current = null;
+        setExpandedPlans((cur) => new Set(cur).add(card.itemId));
+      }
+      const band = bands.find((ids) => ids.includes(h.cards[0])) ?? [];
+      // ONE request for the whole group (S21): one commit, not a move per card.
+      const block = band.filter((id) => moving.has(id));
+      provider.moveTogether(block, blockAnchor(band, block, order)).catch((err: unknown) => {
+        onError(errMessage(err));
+        reload();
+      });
+      return;
+    }
+    const pd = planDrop(card, groupUnder, heads);
+    if (pd) {
+      patchCard(card.itemId, { parent: pd.parent || undefined, lineage: pd.lineage });
+    }
+    const bands = g.map((x) => expandRows(x.ids, heads));
+    const order = globalOrderFromGroups(board, bands);
+    reorderCards(order);
+    const band = bands.find((ids) => ids.includes(card.itemId)) ?? [];
+    void (async () => {
+      try {
+        if (pd) {
+          await provider.patchCard(card.itemId, { parent: pd.parent });
+        }
+        await persistPlace(card.itemId, band, order);
+        if (pd) {
+          reload();
+        }
+      } catch (err: unknown) {
+        onError(errMessage(err));
+        reload();
+      }
+    })();
+  };
+
+  // A card dropped on a head's middle band joins that plan item.
+  const handleGroupedJoin = (card: CardModel, rowId: string) => {
+    const pd = planDrop(card, rowId, plan.current.heads);
+    if (!pd || isPlanRow(card.itemId)) {
+      return;
+    }
+    patchCard(card.itemId, { parent: pd.parent || undefined, lineage: pd.lineage });
+    setExpandedPlans((cur) => new Set(cur).add(rowId));
+    void provider
+      .patchCard(card.itemId, { parent: pd.parent })
+      .then(() => reload())
+      .catch((err: unknown) => {
+        onError(errMessage(err));
+        reload();
+      });
+  };
+
+  // A head's middle band takes a task that may change its plan item, in the
+  // same band: not a review card (its place is its task's), not a head.
+  const canJoinPlan = (active: CardModel, target: CardModel) => {
+    const h = plan.current.heads.get(target.itemId);
+    return (
+      !!h &&
+      !isPlanRow(active.itemId) &&
+      !active.reviewOf &&
+      h.head.uid !== (parentGroupOf(active)?.uid ?? "") &&
+      sortableWithin(active.zone ?? "gray", h.zone)
+    );
+  };
+
+  // A row of the grouped board: a group's head (with its add-a-task form
+  // under it while open), a card nested in a group, or a loose card.
+  // A head's avatar menu (Plans): the group's open tasks in this band go to
+  // the team picked, each by its own card's reassignment — what a task card's
+  // menu offers here (a team; the person is the board's owner). The plan
+  // item's owner stays.
+  const groupAssign = (ids: readonly string[]): GroupAssign | undefined => {
+    if (holdsRecords) {
+      return undefined;
+    }
+    const cards = reassignable(ids.flatMap((id) => board.cards.find((c) => c.itemId === id) ?? []));
+    if (cards.length === 0) {
+      return undefined;
+    }
+    const own = new Set(cards.map((c) => c.team ?? ""));
+    return {
+      teams,
+      team: own.size === 1 ? [...own][0] || undefined : undefined,
+      onTeam: (t) => cards.forEach((c) => handleSetTeam(c, t)),
+    };
+  };
+
+  const renderGroupedRow = (card: CardModel): ReactNode => {
+    if (isPlanRow(card.itemId)) {
+      const h = plan.current.heads.get(card.itemId);
+      if (!h) {
+        return null;
+      }
+      const id = card.itemId;
+      // The Me board adds in its one band (insertgap.gapsInZone): a task
+      // typed under a head of another band would land elsewhere.
+      const adds = !holdsRecords && gapsInZone("me", h.zone);
+      return (
+        <>
+          <ParentGroupHead
+            head={h.head}
+            expanded={expandedPlans.has(id) || addingPlan === id}
+            onToggle={() => togglePlan(id)}
+            // As its +: the Me board takes work off the day in its one band.
+            onRemove={adds ? () => setGroupRemove(id) : undefined}
+            onAdd={adds ? () => setAddingPlan(id) : undefined}
+            selected={selectedPlan === id}
+            // Who else has the plan item selected — or, folded, one of the
+            // group's cards (presence.selectedByOf, as a folded parent shows
+            // its subtasks').
+            selectedBy={selectedByOf(
+              presence,
+              { itemId: h.head.uid || "\u0000" },
+              {
+                children: () => h.cards.map((itemId) => ({ itemId })),
+                open: () => expandedPlans.has(id) || addingPlan === id,
+              },
+              me,
+            )}
+            onPress={() => {
+              // As on a card (S15): the first click selects, the second opens.
+              if (selectedPlan === id) {
+                // Ungrouped stands for no plan item: nothing to open.
+                if (h.head.uid) {
+                  onOpenPlan?.(h.head.uid);
+                }
+                return;
+              }
+              setSelectedPlan(id);
+              setSelectedCardId(null);
+            }}
+            assign={groupAssign(h.cards)}
+            reviewPrefix
+            avatars={avatars}
+            names={names}
+          />
+          {addingPlan === id && (
+            <div className="group-add" onPointerDown={(e) => e.stopPropagation()}>
+              <AddCard
+                autoOpen
+                placeholder={`Add a task to ${h.head.title}…`}
+                onCreate={(title) =>
+                  handleCreate(h.zone, title, h.team ?? null, null, h.head.uid ? { parent: h.head.uid, lineage: h.lineage } : undefined)
+                }
+                onClosed={() => {
+                  setAddingPlan(null);
+                  setExpandedPlans((cur) => new Set(cur).add(id));
+                }}
+              />
+            </div>
+          )}
+        </>
+      );
+    }
+    return plan.current.parent.has(card.itemId) ? (
+      <div className="group-member">{renderMeCard(card)}</div>
+    ) : (
+      renderMeCard(card)
+    );
+  };
 
   const handleDrop = ({ card, fromMeta, toMeta, groups: g, groupUnder }: DropResult<MeMeta>) => {
     // A drag here reorders work inside a zone and does not move it between
@@ -1522,7 +1790,14 @@ export function MeBoard({
   // has none yet — reload picks the new pointer up in that case).
   // The gap whose insert "+" is open, as "<band key>:<gap>" (InsertGap).
   const [inserting, setInserting] = useState<string | null>(null);
-  const handleCreate = (zone: ZoneKey, title: string, team?: string | null, anchor: Anchor = null) => {
+  const handleCreate = (
+    zone: ZoneKey,
+    title: string,
+    team?: string | null,
+    anchor: Anchor = null,
+    // Typed in under a group head: the task is born inside its plan item.
+    plan?: { parent: string; lineage: LineageRef[] },
+  ) => {
     const tempId = `tmp-${new Date().toISOString()}`;
     const sprint = currentSprint(board, team ?? null);
     const firstSprint = sprint === null;
@@ -1544,6 +1819,7 @@ export function MeBoard({
       createdAt: new Date().toISOString(),
       description: "",
       notes: [],
+      ...(plan ? { parent: plan.parent, lineage: plan.lineage } : {}),
     };
     // Typed in under the Team filter with a team picked outside it: kept
     // shown until the filter changes, rather than gone the moment it is made.
@@ -1563,6 +1839,7 @@ export function MeBoard({
       start: selectedDate,
       assigneeLogin: viewMe || null,
       team: team ?? null,
+      parent: plan?.parent ?? null,
       after: anchor && "after" in anchor ? anchor.after : null,
       before: anchor && "before" in anchor ? anchor.before : null,
     });
@@ -1777,7 +2054,7 @@ export function MeBoard({
       counterpartAssignees={counterpartAssigneesFor(card)}
       onSetReviewAssignee={handleSetReviewAssignee}
       asOf={selectedDate}
-      subCount={(childrenOf.get(card.itemId) ?? []).length}
+      subCount={groupByParent ? 0 : (childrenOf.get(card.itemId) ?? []).length}
       expanded={subsOpen(card.itemId)}
       onToggleExpand={(c) => toggleSubs(c.itemId)}
       onAddSubtask={(c) => {
@@ -1880,6 +2157,16 @@ export function MeBoard({
           </svg>
         </ViewToggle>
 
+        <FoldControls
+          expandTitle={groupByParent ? "Unfold every plan group" : "Unfold every task's subtasks"}
+          collapseTitle={groupByParent ? "Fold every plan group" : "Fold every task's subtasks"}
+          onExpand={() =>
+            groupByParent
+              ? setExpandedPlans(new Set(plan.current.heads.keys()))
+              : setExpandedSubs(new Set(childrenOf.keys()))
+          }
+          onCollapse={() => (groupByParent ? setExpandedPlans(new Set()) : setExpandedSubs(new Set()))}
+        />
         <div className="field field-inline impersonate" ref={impRef}>
           <button
             type="button"
@@ -1950,18 +2237,19 @@ export function MeBoard({
               // and does not move; the rest of the board is live work (the
               // provider draws the same line — see frozenProvider).
               isRecord={(c) => !!c.asOf}
-              onDrop={handleDrop}
-              onGroupDrop={handleGroup}
+              onDrop={groupByParent ? handleGroupedDrop : handleDrop}
+              onGroupDrop={groupByParent ? handleGroupedJoin : handleGroup}
               onHoverCard={setGroupHover}
-              onDragActiveCard={handleDragActive}
-              canGroup={canGroup}
+              onDragActiveCard={groupByParent ? handlePlanDragActive : handleDragActive}
+              canGroup={groupByParent ? canJoinPlan : canGroup}
+              parentOf={groupByParent ? (c) => plan.current.parent.get(c.itemId) : undefined}
               // A drag reorders inside a zone and does not carry work into
               // another: the zone is the lead's statement of how the work
               // was planned (meboard.sortableWithin). Asked here so the
               // placeholder never opens a gap the drop would refuse.
               canMoveTo={(_c, from, to) => sortableWithin(from.zone, to.zone)}
-              renderCard={(card) => withSubs(card, renderMeCard(card))}
-              renderOverlay={(card) => (
+              renderCard={(card) => (groupByParent ? renderGroupedRow(card) : withSubs(card, renderMeCard(card)))}
+              renderOverlay={(card) => isPlanRow(card.itemId) ? renderGroupedRow(card) : (
                 <Card
                   card={card}
                   record={!!card.asOf}
@@ -1979,7 +2267,8 @@ export function MeBoard({
                 // The insert "+" in the gaps of the ONE band the Me board adds
                 // in, the unplanned one (insertgap.gapsInZone): the card
                 // typed there is the reader's, in that band, right there.
-                if (holdsRecords || !gapsInZone("me", group.meta.zone) || !cellGaps(group.cards).includes(at)) {
+                // Grouped, the "+" of a head adds inside a plan item instead.
+                if (groupByParent || holdsRecords || !gapsInZone("me", group.meta.zone) || !cellGaps(group.cards).includes(at)) {
                   return null;
                 }
                 const key = `${group.key}:${at}`;
@@ -2076,6 +2365,27 @@ export function MeBoard({
       {connectOpen && (
         <ConnectDialog onClose={() => setConnectOpen(false)} connectHint={connectHint} />
       )}
+      {groupRemove && plan.current.heads.get(groupRemove) && (() => {
+        const h = plan.current.heads.get(groupRemove)!;
+        const choicesOf = choicesFor;
+        const cards = h.cards.flatMap((id) => board.cards.filter((c) => c.itemId === id));
+        // Each open card goes by its own backlog answer, the one its ×
+        // offers; the finished ones (and any with no such answer) stay.
+        // On this board only what the person may take off it: the card's own
+        // × (mayRemove — the seat rule the server holds the Me board to).
+        const sending = cards.filter(
+          (c) => !isComplete(c) && mayRemove(c, me ?? undefined, !!viewAs) && choicesOf(c).includes("backlog"),
+        );
+        return (
+          <GroupBacklogDialog
+            title={h.head.title}
+            sending={sending.length}
+            staying={cards.length - sending.length}
+            onClose={() => setGroupRemove(null)}
+            onSubmit={() => sending.forEach((c) => handleDelete(c, "backlog"))}
+          />
+        );
+      })()}
       {removeChoice && (
         <RemoveChoiceDialog
           title={removeChoice.title}

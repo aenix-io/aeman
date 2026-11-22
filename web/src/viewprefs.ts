@@ -51,3 +51,10 @@ export const readZoom = (): Zoom => parseZoom(read(LS_ZOOM));
 export const storeZoom = (z: Zoom): void => write(LS_ZOOM, z);
 export const readMode = (): BacklogMode => readBacklogMode(read(BACKLOG_MODE_KEY));
 export const storeMode = (m: BacklogMode): void => write(BACKLOG_MODE_KEY, m);
+
+/** The day boards' Tasks | Plans: whether the Team and Me boards draw their
+ *  tasks grouped under the plan item they stand in (grouping.ts). */
+export const LS_DAY_GROUPING = "aeman.day.grouping";
+export type DayGrouping = "tasks" | "plans";
+export const readDayGrouping = (): DayGrouping => (read(LS_DAY_GROUPING) === "plans" ? "plans" : "tasks");
+export const storeDayGrouping = (g: DayGrouping): void => write(LS_DAY_GROUPING, g);

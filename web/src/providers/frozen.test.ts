@@ -28,6 +28,7 @@ function spyProvider(): { provider: Provider; calls: string[] } {
     carryOver: record("carryOver"),
     createCard: record("createCard"),
     moveCard: record("moveCard"),
+    moveTogether: record("moveTogether"),
     setInProgress: record("setInProgress"),
   } as unknown as Provider;
   return { provider, calls };
@@ -94,6 +95,16 @@ describe("frozenProvider", () => {
       await expect(write()).rejects.toThrow(REASON);
     }
     expect(calls).toEqual([]);
+  });
+
+  // A block names its cards in a list: one record among them refuses the
+  // whole block, and a block of live cards goes through.
+  it("refuses a block that holds a record, and passes a live one", async () => {
+    const { provider, calls } = spyProvider();
+    const frozen = guard(provider);
+    await expect(frozen.moveTogether(["live", "old"], { after: null })).rejects.toThrow(REASON);
+    await frozen.moveTogether(["live"], { after: null });
+    expect(calls).toEqual(["moveTogether"]);
   });
 
   // …and the rest of the same board is today's work, which must not be
