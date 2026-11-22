@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -385,6 +386,7 @@ var cloneRepo = gitstore.Clone
 // makes a shallow one; a shallow clone that fails is retried in full.
 func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url string, log *slog.Logger) (*gitstore.Repo, bool, error) {
 	opts.Dir = dir // where Maintain runs `git repack`
+	reportSetAside(dir, url, log)
 	// A tmp_pack_* is a pack whose write never finished; nothing reads it.
 	// Not filepath.Glob: dir comes from --data and may hold its metacharacters.
 	packs := filepath.Join(dir, "objects", "pack")
@@ -416,10 +418,22 @@ func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url 
 		}
 		// HEAD without the branch is what a failed clone leaves, and go-git
 		// refuses to clone into it. Another local branch (the branch
-		// setting changed) may hold commits never pushed: set aside. Other
-		// refs mirror the forge or are never written here; nothing to keep.
-		if hasLocalBranch(storer) {
-			if err := setAside(dir, "has no "+existing.Branch().Short()+" branch but holds another", url, log); err != nil {
+		// setting changed) may hold commits never pushed, and so may any
+		// object: with no branch left, telling a pushed commit from an
+		// unpushed one would need the forge. Either is set aside; only an
+		// unborn store, with no object at all, is emptied.
+		why := ""
+		branches, readErr := hasLocalBranch(storer)
+		switch {
+		case readErr != nil:
+			why = "has no " + existing.Branch().Short() + " branch and a ref could not be read (" + readErr.Error() + ")"
+		case branches:
+			why = "has no " + existing.Branch().Short() + " branch but holds another"
+		case holdsAFile(filepath.Join(dir, "objects")):
+			why = "has no " + existing.Branch().Short() + " branch but holds objects"
+		}
+		if why != "" {
+			if err := setAside(dir, why, url, log); err != nil {
 				return nil, false, err
 			}
 		} else if err := emptyDir(dir); err != nil {
@@ -486,12 +500,36 @@ func setAside(dir, why, url string, log *slog.Logger) error {
 	return nil
 }
 
-// hasLocalBranch reports whether the store holds any refs/heads/*. Refs
-// that cannot be read count as holding one.
-func hasLocalBranch(s storage.Storer) bool {
+// reportSetAside warns about every <dir>.lost-* next to dir, on every start:
+// the start that set one aside said so once, and logs rotate while the
+// copies keep taking space.
+func reportSetAside(dir, url string, log *slog.Logger) {
+	parent, prefix := filepath.Dir(dir), filepath.Base(dir)+".lost-"
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		log.Warn("could not look for set-aside clones", "repo", url, "path", parent, "err", err)
+		return
+	}
+	for _, e := range entries {
+		suffix, ok := strings.CutPrefix(e.Name(), prefix)
+		if !ok {
+			continue
+		}
+		attrs := []any{"repo", url, "path", filepath.Join(parent, e.Name())}
+		if unix, err := strconv.ParseInt(suffix, 10, 64); err == nil {
+			attrs = append(attrs, "age", time.Since(time.Unix(unix, 0)).Round(time.Minute))
+		}
+		log.Warn("a set-aside clone is still on disk and may hold unpushed commits; "+
+			"recover them and remove it (docs/api.md, Recovering a set-aside clone)", attrs...)
+	}
+}
+
+// hasLocalBranch reports whether the store holds any refs/heads/*, and
+// the error when its refs cannot all be read.
+func hasLocalBranch(s storage.Storer) (bool, error) {
 	refs, err := s.IterReferences()
 	if err != nil {
-		return true
+		return false, err
 	}
 	defer refs.Close()
 	found := false
@@ -502,7 +540,7 @@ func hasLocalBranch(s storage.Storer) bool {
 		}
 		return nil
 	})
-	return found || err != nil
+	return found, err
 }
 
 // lostFound is what a freshly formatted ext* volume holds at its root,
