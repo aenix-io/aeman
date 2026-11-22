@@ -134,3 +134,31 @@ func TestRepackWaitsForAPackWriteInFlight(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The data path comes from the operator and may hold a glob metacharacter;
+// the cleanup after a failed pack write must not depend on it.
+func TestAFailedPackTransferLeavesNoTemporaryPackUnderABracketedPath(t *testing.T) {
+	remote, _ := newTestRemote(t)
+	seedRemote(t, remote)
+	dir := filepath.Join(t.TempDir(), "data[1]")
+	s := filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
+	r, err := Clone(context.Background(), s, remote, Options{Committer: serverID, Dir: dir}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	truncated := strings.NewReader("PACK\x00\x00\x00\x02\x00\x00\x00\x05\x95\x0a")
+	if err := r.storePack(truncated); err == nil {
+		t.Fatal("a truncated pack was accepted")
+	}
+
+	entries, err := os.ReadDir(filepath.Join(dir, "objects", "pack"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "tmp_pack_") {
+			t.Fatalf("a temporary pack was left under a bracketed path: %s", e.Name())
+		}
+	}
+}
