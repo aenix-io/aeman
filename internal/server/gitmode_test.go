@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -17,8 +18,11 @@ import (
 	"time"
 
 	"github.com/go-git/go-billy/v5/osfs"
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5/storage"
 	"github.com/go-git/go-git/v5/storage/filesystem"
 	"github.com/go-git/go-git/v5/storage/memory"
 
@@ -728,14 +732,24 @@ func TestOpenGitBackendRefusesADamagedCloneThatCannotBeSetAside(t *testing.T) {
 	}
 }
 
-// A store with HEAD but no branch — unborn, what a failed first clone
-// leaves — holds no commit, so it is cloned over and not set aside.
-func TestOpenGitBackendClonesOverAnUnbornStore(t *testing.T) {
-	remote := gitRemote(t)
-	seedGitRemote(t, remote)
-	dir := t.TempDir()
-	cfg := &GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: dir}
+// commitUnpushed writes a commit into the stopped clone at live that the
+// remote never received.
+func commitUnpushed(t *testing.T, live string) plumbing.Hash {
+	t.Helper()
+	local := gitstore.Open(filesystem.NewStorage(osfs.New(live), cache.NewObjectLRUDefault()),
+		gitstore.Options{Committer: gitstore.Identity{Name: "aeman", Email: "a@x"}, Dir: live})
+	h, err := local.Commit(gitstore.Action{Name: "progress", Actor: "kvaps", Summary: "x"},
+		[]gitstore.FileWrite{{Path: "cards/a/1/A1.md", Data: []byte("---\ntitle: a\n---\n")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
 
+// stoppedCloneWithUnpushedCommit clones the remote under dir, stops, and
+// commits into the clone without pushing.
+func stoppedCloneWithUnpushedCommit(t *testing.T, cfg *GitConfig) (string, plumbing.Hash) {
+	t.Helper()
 	first, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
@@ -743,7 +757,18 @@ func TestOpenGitBackendClonesOverAnUnbornStore(t *testing.T) {
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
 	}
-	live := filepath.Join(dir, "repos", "board")
+	live := filepath.Join(cfg.DataDir, "repos", "board")
+	return live, commitUnpushed(t, live)
+}
+
+// A clone that lost its branch ref but still holds objects may hold a
+// commit never pushed: with no ref left, nothing tells it apart from what
+// the forge has, so the directory is set aside rather than emptied.
+func TestOpenGitBackendSetsAsideABranchlessStoreThatHoldsObjects(t *testing.T) {
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	cfg := &GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: t.TempDir()}
+	live, unpushed := stoppedCloneWithUnpushedCommit(t, cfg)
 	if err := os.Remove(filepath.Join(live, "refs", "heads", "main")); err != nil {
 		t.Fatal(err)
 	}
@@ -751,9 +776,10 @@ func TestOpenGitBackendClonesOverAnUnbornStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	second, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	var logs strings.Builder
+	second, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(&logs, nil)))
 	if err != nil {
-		t.Fatalf("an unborn store must be cloned over: %v", err)
+		t.Fatalf("a branchless store must be set aside and cloned afresh: %v", err)
 	}
 	t.Cleanup(func() { _ = second.Close() })
 	bd, err := second.Backend().LoadBoard(context.Background(), "ignored")
@@ -763,8 +789,102 @@ func TestOpenGitBackendClonesOverAnUnbornStore(t *testing.T) {
 	if len(bd.Cards) != 2 {
 		t.Fatalf("cards = %d, want the remote's 2", len(bd.Cards))
 	}
-	if aside, _ := filepath.Glob(filepath.Join(dir, "repos", "board.lost-*")); len(aside) != 0 {
-		t.Fatalf("an unborn store was set aside: %v", aside)
+	aside, _ := filepath.Glob(filepath.Join(cfg.DataDir, "repos", "board.lost-*"))
+	if len(aside) != 1 {
+		t.Fatalf("set aside = %v, want one copy", aside)
+	}
+	kept := filesystem.NewStorage(osfs.New(aside[0]), cache.NewObjectLRUDefault())
+	if _, err := kept.EncodedObject(plumbing.CommitObject, unpushed); err != nil {
+		t.Fatalf("the unpushed commit %s is not in the set-aside copy: %v", unpushed, err)
+	}
+	if !strings.Contains(logs.String(), aside[0]) {
+		t.Fatalf("the set-aside is not reported with its path:\n%s", logs.String())
+	}
+}
+
+// A ref that cannot be read is not another branch, and need not be a
+// branch at all: the store reads every ref when it looks for branches. The
+// log says a ref could not be read, and the copy is kept either way.
+func TestOpenGitBackendSaysARefCouldNotBeRead(t *testing.T) {
+	for _, ref := range []string{"refs/heads/main", "refs/remotes/origin/main"} {
+		t.Run(ref, func(t *testing.T) {
+			remote := gitRemote(t)
+			seedGitRemote(t, remote)
+			cfg := &GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: t.TempDir()}
+			live, _ := stoppedCloneWithUnpushedCommit(t, cfg)
+			if err := os.Remove(filepath.Join(live, "packed-refs")); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				t.Fatal(err)
+			}
+			if err := os.Remove(filepath.Join(live, "refs", "heads", "main")); err != nil {
+				t.Fatal(err)
+			}
+			broken := filepath.Join(live, filepath.FromSlash(ref))
+			if err := os.MkdirAll(filepath.Dir(broken), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(broken, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			var logs strings.Builder
+			second, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(&logs, nil)))
+			if err != nil {
+				t.Fatalf("a store with an unreadable ref must be set aside and cloned afresh: %v", err)
+			}
+			t.Cleanup(func() { _ = second.Close() })
+			if aside, _ := filepath.Glob(filepath.Join(cfg.DataDir, "repos", "board.lost-*")); len(aside) != 1 {
+				t.Fatalf("set aside = %v, want one copy", aside)
+			}
+			for _, claim := range []string{"holds another", "branch ref"} {
+				if strings.Contains(logs.String(), claim) {
+					t.Fatalf("the log claims %q about an unreadable %s:\n%s", claim, ref, logs.String())
+				}
+			}
+			if !strings.Contains(logs.String(), "a ref could not be read") {
+				t.Fatalf("the log does not say a ref could not be read:\n%s", logs.String())
+			}
+		})
+	}
+}
+
+// A set-aside copy is reported on every start, not only the one that made
+// it: logs rotate while the copies keep filling the volume.
+func TestEveryStartReportsTheSetAsideCopies(t *testing.T) {
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	dir := t.TempDir()
+	cfg := &GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: dir}
+	aside := filepath.Join(dir, "repos", fmt.Sprintf("board.lost-%d", time.Now().Add(-49*time.Hour).Unix()))
+	// A copy renamed by hand has no time in its name: still reported, with no age.
+	renamed := filepath.Join(dir, "repos", "board.lost-kept")
+	for _, d := range []string{aside, renamed} {
+		if err := os.MkdirAll(d, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for start := range 2 {
+		var logs strings.Builder
+		be, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(&logs, nil)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := be.Close(); err != nil {
+			t.Fatal(err)
+		}
+		line := func(path string) string {
+			for l := range strings.Lines(logs.String()) {
+				if strings.Contains(l, path) {
+					return l
+				}
+			}
+			return ""
+		}
+		if l := line(aside); !strings.Contains(l, "level=WARN") || !strings.Contains(l, "age=49h") {
+			t.Fatalf("start %d does not report the set-aside copy with its age:\n%s", start+1, logs.String())
+		}
+		if l := line(renamed); !strings.Contains(l, "level=WARN") || strings.Contains(l, "age=") {
+			t.Fatalf("start %d does not report the renamed copy without an age:\n%s", start+1, logs.String())
+		}
 	}
 }
 
@@ -1196,5 +1316,78 @@ func TestGitModeRefusesCollidingRosterNames(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("refusal %q lacks %q", err.Error(), want)
 		}
+	}
+}
+
+// A failed first clone leaves an unborn store: HEAD and config, no branch.
+// It holds nothing a later start must keep, so that start still takes the
+// shallow clone rather than the full one — on a long history the full one
+// may not fit the start's clone deadline. The test remote does not speak
+// shallow, so the seam serves the shallow attempt with a full clone and
+// records the depths asked for.
+func TestAnUnbornStoreIsClonedShallow(t *testing.T) {
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	dir := filepath.Join(t.TempDir(), "board")
+	if _, err := git.Init(filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault()), nil); err != nil {
+		t.Fatal(err)
+	}
+	var depths []int
+	cloneRepo = func(ctx context.Context, s storage.Storer, rem gitstore.Remote, opts gitstore.Options, depth int) (*gitstore.Repo, error) {
+		depths = append(depths, depth)
+		return gitstore.Clone(ctx, s, rem, opts, 0)
+	}
+	t.Cleanup(func() { cloneRepo = gitstore.Clone })
+
+	r, reopened, err := cloneOrOpen(dir, remote, gitstore.Options{Committer: gitstore.Identity{Name: "aeman", Email: "a@x"}}, remote.URL, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened || r.Head().IsZero() {
+		t.Fatalf("reopened=%v head=%v, want a fresh clone with a branch", reopened, r.Head())
+	}
+	if len(depths) != 1 || depths[0] != 1 {
+		t.Fatalf("clone depths asked = %v, want one shallow attempt [1]", depths)
+	}
+	if aside, _ := filepath.Glob(dir + ".lost-*"); len(aside) != 0 {
+		t.Fatalf("a store with no object was set aside: %v", aside)
+	}
+}
+
+// A clone whose configured branch is missing but which holds another local
+// branch — the branch setting was changed — may hold commits never pushed
+// on that branch. It is set aside, not emptied, and cloned afresh.
+func TestOpenGitBackendSetsAsideAStoreWithAnotherBranch(t *testing.T) {
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	dir := t.TempDir()
+	cfg := &GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: dir}
+	live, unpushed := stoppedCloneWithUnpushedCommit(t, cfg)
+	if err := os.Rename(filepath.Join(live, "refs", "heads", "main"), filepath.Join(live, "refs", "heads", "other")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(live, "packed-refs")); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+
+	second, err := OpenGitBackend(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("a store with another branch must be set aside and cloned afresh: %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	bd, err := second.Backend().LoadBoard(context.Background(), "ignored")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bd.Cards) != 2 {
+		t.Fatalf("cards = %d, want the remote's 2", len(bd.Cards))
+	}
+	aside, _ := filepath.Glob(filepath.Join(dir, "repos", "board.lost-*"))
+	if len(aside) != 1 {
+		t.Fatalf("set aside = %v, want one copy", aside)
+	}
+	kept, err := os.ReadFile(filepath.Join(aside[0], "refs", "heads", "other"))
+	if err != nil || strings.TrimSpace(string(kept)) != unpushed.String() {
+		t.Fatalf("the other branch in the copy = %q, %v; want %s", kept, err, unpushed)
 	}
 }

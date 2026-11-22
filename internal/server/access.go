@@ -252,17 +252,20 @@ func (f *forgeAccess) splitMembers(domain string, logins []string) (unknown, sta
 // An error leaves the answers that stand — an outage must not empty a
 // picker — and is logged, since the caller has an answer either way.
 func (f *forgeAccess) askMembers(ctx context.Context, domain, url string, logins []string) {
-	f.markAsked(domain, logins)
 	found, err := f.forge.Readers(ctx, f.client, f.tokenFor(ctx, domain), url, logins)
+	if err == nil && f.people != nil {
+		f.people.learn(found)
+	}
+	// Marked with the answer, under one lock: knownReaders offers an
+	// unasked login and drops an asked one with no answer, so a question
+	// in flight must read as unasked.
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.markAsked(domain, logins)
 	if err != nil {
 		f.log("domain members", domain, err)
 		return
 	}
-	if f.people != nil {
-		f.people.learn(found)
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
 	for _, login := range logins {
 		_, reads := found[login]
 		f.members[domain+"\x00"+login] = cachedBool{ok: reads, at: f.now()}
@@ -271,10 +274,8 @@ func (f *forgeAccess) askMembers(ctx context.Context, domain, url string, logins
 
 // markAsked records that the forge was asked about these logins, whatever
 // it answers: an attempt that comes back empty must not look like a
-// question nobody has asked yet.
+// question nobody has asked yet. The caller holds mu.
 func (f *forgeAccess) markAsked(domain string, logins []string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
 	if f.asked == nil {
 		f.asked = map[string]time.Time{}
 	}
