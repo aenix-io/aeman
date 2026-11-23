@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { adjacentRuns, blockAnchor, reassignable, takeable, takeQuestion, arrangeByParent, expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowId, planRowUid } from "./grouping";
+import { adjacentRuns, relatedRuns, blockAnchor, reassignable, takeable, takeQuestion, arrangeByParent, expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowId, planRowUid } from "./grouping";
 import type { Card, LineageRef } from "./providers/types";
 
 const goal: LineageRef = { uid: "g", type: "goal", title: "Cozystack" };
@@ -382,5 +382,30 @@ describe("takeQuestion", () => {
   });
   it("asks nothing where nothing is to take", () => {
     expect(takeQuestion(run("", "Ungrouped", [card("d", { progress: 100 })]))).toBeNull();
+  });
+});
+
+// A plan item cut into several runs on the Backlog: selecting one of them
+// lights the others up, so the reader sees where the rest of that plan item
+// waits. Ungrouped is no plan item, and nothing selected lights nothing.
+describe("relatedRuns", () => {
+  const e = { uid: "e", type: "epic", title: "E" } as LineageRef;
+  const i = { uid: "i", type: "initiative", title: "I" } as LineageRef;
+  const cards = [
+    card("a1", { lineage: [e] }),
+    card("x1", {}),
+    card("b1", { lineage: [i] }),
+    card("a2", { lineage: [e] }),
+    card("x2", {}),
+  ];
+  const runs = adjacentRuns(cards);
+  const id = (first: string) => runs.find((r) => r.cards[0].itemId === first)!.id;
+  it("lights the other runs of the selected run's plan item", () => {
+    expect([...relatedRuns(runs, id("a1"))]).toEqual([id("a2")]);
+    expect([...relatedRuns(runs, id("b1"))]).toEqual([]);
+  });
+  it("lights nothing for Ungrouped, or with nothing selected", () => {
+    expect([...relatedRuns(runs, id("x1"))]).toEqual([]);
+    expect([...relatedRuns(runs, null)]).toEqual([]);
   });
 });

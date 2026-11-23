@@ -31,7 +31,7 @@ import {
 } from "../backlogboard";
 import type { LineageRef } from "../providers/types";
 import { ParentGroupHead, type GroupAssign } from "./ParentGroupHead";
-import { adjacentRuns, blockAnchor, reassignable, takeable, takeQuestion, type PlanRun } from "../grouping";
+import { adjacentRuns, relatedRuns, blockAnchor, reassignable, takeable, takeQuestion, type PlanRun } from "../grouping";
 import { readMode } from "../viewprefs";
 import { justMade, noteMade } from "../justmade";
 import { ownerOf, type Owner } from "../owner";
@@ -339,6 +339,8 @@ export function BacklogBoard({
   const selectedRunRef = useRef<string | null>(null);
   selectedRunRef.current = selectedRun;
   const runs = useMemo(() => adjacentRuns(list), [list]);
+  // The other runs of the selected run's plan item, lit up (grouping.relatedRuns).
+  const related = useMemo(() => relatedRuns(runs, selectedRun), [runs, selectedRun]);
   useEffect(() => {
     const run = runs.find((r) => r.id === selectedRun);
     onPresence?.(selectedId ?? (run?.head.uid || null));
@@ -900,6 +902,7 @@ export function BacklogBoard({
                             onToggle={() => toggleRun(run.id)}
                             onAdd={() => setAddingRun(run.id)}
                             selected={selectedRun === run.id}
+                            related={related.has(run.id)}
                             selectedBy={
                               run.head.uid
                                 ? selectedByOf(
