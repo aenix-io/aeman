@@ -16,6 +16,7 @@ import { keepPlaced } from "../backlog";
 import { ZONES, ZONE_ORDER } from "../zones";
 import { SIZES, SIZE_ORDER } from "../size";
 import { STAGES, barColor, clampProgress, clampsProgress } from "../stages";
+import { recurrenceCycles, recurrenceLabel, repeatOf, repeatPatch, type Repeat } from "../recurrence";
 import { ProgressSlider } from "./ProgressSlider";
 import { Dropdown } from "./Dropdown";
 import { eventLabel } from "../eventlog";
@@ -591,6 +592,26 @@ export function CardDetail({
     if (target.itemId === card.itemId) {
       onClose();
     }
+  };
+
+  // Repeat: the stage menu's Recurrent and its cycle, set from the pane as
+  // from a card's menu — one stage patch, the server's answer kept.
+  const setRepeat = (to: Repeat) => {
+    const patch = repeatPatch(card, to);
+    if (!patch) {
+      return;
+    }
+    const prev = { stage: card.stage, recurrence: card.recurrence, progress: card.progress };
+    patchCard(card.itemId, { stage: patch.stage || undefined, recurrence: patch.recurrence });
+    void provider
+      .patchCard(card.itemId, patch)
+      .then((updated) =>
+        patchCard(card.itemId, { stage: updated.stage, recurrence: updated.recurrence, progress: updated.progress }),
+      )
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
+        onError?.(errMessage(err));
+      });
   };
 
   // Done and back: done clears the stage
@@ -1303,6 +1324,27 @@ export function CardDetail({
                 {!planning && stageLabel && <span className="drawer-chip">{stageLabel}</span>}
               </>,
             )}
+            {/* Whether the task repeats, and how often: the card menu's
+                Recurrent and its cycle. A review card repeats with nothing. */}
+            {task &&
+              !card.reviewOf &&
+              row(
+                "Repeat",
+                <div className="segmented drawer-repeat" role="group" aria-label="Repeat">
+                  {(["no", ...recurrenceCycles] as Repeat[]).map((r) => (
+                    <button
+                      key={r || "sprint"}
+                      type="button"
+                      className={`segment${repeatOf(card) === r ? " segment-active" : ""}`}
+                      aria-pressed={repeatOf(card) === r}
+                      disabled={isRecord}
+                      onClick={() => setRepeat(r)}
+                    >
+                      {r === "no" ? "No" : recurrenceLabel(r)}
+                    </button>
+                  ))}
+                </div>,
+              )}
             {/* The bar a task carries on its board, with its handle: drag it
                 here as there. A planning card's progress is derived and has
                 no bar of its own. */}

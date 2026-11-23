@@ -43,6 +43,15 @@ function draw(c: Card, onReveal = vi.fn()) {
 const rows = (html: string) => [...html.matchAll(/class="drawer-label">([^<]+)</g)].map((m) => m[1]);
 
 describe("the card drawer", () => {
+  // A task's recurrence is set from its pane as from its card's menu: the
+  // Repeat row, its current cycle pressed. A review card has none.
+  it("offers a task's Repeat, its cycle pressed, and none on a review", () => {
+    const html = draw(card({ stage: "recurrent", recurrence: "week" }));
+    expect(rows(html)).toContain("Repeat");
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Weekly</);
+    expect(rows(draw(card({ reviewOf: "t" })))).not.toContain("Repeat");
+  });
+
   // From a review card one can get to the card it reviews: "Reviews: «task»"
   // at the top, with the task's icon, opening it in the drawer.
   // A review card's breadcrumb ends in the task it reviews: the last crumb
@@ -86,7 +95,7 @@ describe("the card drawer", () => {
 
   it("gives a task every row: its owner, zone, size, and what it sits under", () => {
     const html = draw(card({ zone: "red", team: "core", assignees: ["ann"] }));
-    expect(rows(html)).toEqual(["Status", "Progress", "Owner", "Zone", "Size", "Under", "Customers"]);
+    expect(rows(html)).toEqual(["Status", "Repeat", "Progress", "Owner", "Zone", "Size", "Under", "Customers"]);
     expect(html).toContain(">urgent<");
     // The owner is the team and the person, in one menu (OwnerPicker).
     expect(html).toContain("core · ann");
@@ -113,7 +122,7 @@ describe("the card drawer", () => {
   it("reads a subtask's owner as its task's, and names the task as a way to it", () => {
     const sub = card({ parent: "t", team: "core", assignees: ["ann"], lineage: [{ uid: "t", title: "Render PDF" }] });
     const html = draw(sub);
-    expect(rows(html)).toEqual(["Status", "Progress", "Owner", "Zone", "Size", "Subtask of", "Customers"]);
+    expect(rows(html)).toEqual(["Status", "Repeat", "Progress", "Owner", "Zone", "Size", "Subtask of", "Customers"]);
     expect(html).not.toContain("owner-picker");
     expect(html).toContain('title="Open «Render PDF»"');
     expect(html).not.toContain('aria-label="Subtasks"'); // one level deep: a subtask has none
