@@ -59,7 +59,16 @@ func TestMCPClientConnectsWhileBackendLoads(t *testing.T) {
 		}
 	}()
 
-	if !healthy(addr) {
+	// The listener and the backend's load start side by side: the load can
+	// begin a moment before the socket is bound, so the listener is given
+	// the time a client would wait — never the backend's.
+	bound := false
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if bound = healthy(addr); bound {
+			break
+		}
+	}
+	if !bound {
 		t.Fatal("listener is not bound while the backend is still loading")
 	}
 	_, status := healthzAnswers(t.Context(), addr)
