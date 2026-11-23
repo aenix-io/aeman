@@ -43,6 +43,7 @@ import {
   sectionsOf,
   writeDrop,
   childLevels,
+  createUnderInput,
   subtreeRows,
   parentChainOf,
   pickerMatches,
@@ -775,11 +776,31 @@ describe("the tree under a card", () => {
     expect(subtreeRows(all, "missing", () => true)).toEqual([]);
   });
 
+  // A task may skip levels (H2): a goal and an initiative take one directly,
+  // and a task takes its subtasks — one level deep, so a subtask takes none.
   it("offers the levels below a card to add, the next one first", () => {
-    expect(childLevels("goal")).toEqual(["initiative", "epic"]);
-    expect(childLevels("initiative")).toEqual(["epic"]);
+    expect(childLevels("goal")).toEqual(["initiative", "epic", "task"]);
+    expect(childLevels("initiative")).toEqual(["epic", "task"]);
     expect(childLevels("epic")).toEqual(["task"]);
-    expect(childLevels("task")).toEqual([]);
+    expect(childLevels("task")).toEqual(["subtask"]);
+    expect(childLevels("subtask")).toEqual([]);
+  });
+
+  // What the "+" sends: a plan item and a task under one are the Strategy
+  // board's create (a task parked until somebody takes it); a subtask is
+  // grouped under its task the way the task's own pane groups one — the
+  // task's team, band, person and day come along.
+  it("creates a task under a plan item and a subtask under a task", () => {
+    expect(createUnderInput("epic", "Billing", goal, "2026-11-23")).toEqual({ title: "Billing", type: "epic", parent: "g", underPlanning: false });
+    expect(createUnderInput("task", "Write it", goal, "2026-11-23")).toEqual({ title: "Write it", type: undefined, parent: "g", underPlanning: true });
+    const t = { itemId: "t", title: "T", team: "alpha", zone: "yellow", startDate: "2026-11-20", day: "2026-11-21", assignees: ["ann"] } as Card;
+    expect(createUnderInput("subtask", "Piece", t, "2026-11-23")).toEqual({
+      title: "Piece", team: "alpha", zone: "yellow", start: "2026-11-20", day: "2026-11-21", assigneeLogin: "ann", parent: "t",
+    });
+    const parked = { itemId: "p", title: "P", assignees: [] } as unknown as Card;
+    expect(createUnderInput("subtask", "Piece", parked, "2026-11-23")).toEqual({
+      title: "Piece", team: null, zone: "gray", start: "2026-11-23", day: "2026-11-23", assigneeLogin: null, parent: "p",
+    });
   });
 });
 

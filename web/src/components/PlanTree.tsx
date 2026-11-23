@@ -1,9 +1,9 @@
 import { useMemo, useState, type ReactNode } from "react";
 
-import type { Card as CardModel, CardType } from "../providers/types";
+import type { Card as CardModel } from "../providers/types";
 import { ownerLabel, type Owner } from "../owner";
 import { effectiveTeamOf, strategyOwnerCell } from "../ownership";
-import { badgeOf, childLevels, KIND_LABEL, kindOf, STATUS_LABEL, subtreeRows, type Row } from "../strategy";
+import { badgeOf, childLevels, KIND_LABEL, kindOf, STATUS_LABEL, subtreeRows, type AddLevel, type Row } from "../strategy";
 import { isPlanning } from "../subtasks";
 import { displayName, type Avatars, type Names } from "../users";
 import { AddCard } from "./AddCard";
@@ -162,7 +162,10 @@ export function ownerOfRow(card: CardModel, cards: readonly CardModel[]): { owne
   return { owner: shown.owner, from: shown.from };
 }
 
-const levelOptions = (levels: (CardType | "task")[]) => levels.map((k) => ({ key: k, label: KIND_LABEL[k] }));
+/** orList reads "a", "a or b", "a, b or c". */
+const orList = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} or ${xs[xs.length - 1]}`);
+
+const levelOptions = (levels: AddLevel[]) => levels.map((k) => ({ key: k, label: KIND_LABEL[k] }));
 
 /** A card being made under a parent, shown under that parent's row until
  *  the server answers. */
@@ -177,7 +180,7 @@ export interface PendingAdd {
  *  among them — what is true of a task made there: it has no team of its
  *  own, so it stands under the plan item's team if it has one (O13) and
  *  waits in that team's backlog, else in the no-team group's. */
-export function addPlanFor(parent: CardModel, cards: readonly CardModel[]): { levels: (CardType | "task")[]; hint: string | null } {
+export function addPlanFor(parent: CardModel, cards: readonly CardModel[]): { levels: AddLevel[]; hint: string | null } {
   const levels = childLevels(kindOf(parent));
   if (!levels.includes("task")) {
     return { levels, hint: null };
@@ -238,7 +241,7 @@ export function PlanTree({
   root: CardModel;
   onOpen: (card: CardModel) => void;
   /** Make a card of a level under a parent. */
-  onCreate: (title: string, level: CardType | "task", parent: string) => void;
+  onCreate: (title: string, level: AddLevel, parent: string) => void;
   onRemove: ((card: CardModel) => void) | null;
   /** Cards being made, each shown under the row it is made under. */
   pending?: readonly PendingAdd[];
@@ -282,7 +285,7 @@ export function PlanTree({
           placeholder={`New ${KIND_LABEL[levels[0]].toLowerCase()} under «${parent.title}»…`}
           forcedTeam={null}
           picker={levels.length > 1 ? { title: "Level", options: levelOptions(levels), initial: levels[0] } : undefined}
-          onCreate={(title, _team, picked) => onCreate(title, (picked as CardType | "task") || levels[0], parent.itemId)}
+          onCreate={(title, _team, picked) => onCreate(title, (picked as AddLevel) || levels[0], parent.itemId)}
           onClosed={(created) => setAdding((a) => nextAdding(a, created))}
         />
         {hint && <span className="drawer-hint plan-tree-hint">{hint}</span>}
@@ -294,7 +297,6 @@ export function PlanTree({
     <div className="plan-tree" role="tree" aria-label={`Under «${root.title}»`}>
       {lines.map((r) => {
         const card = r.node.card;
-        const planning = isPlanning(card);
         const kids = childLevels(r.node.kind);
         const owner = owners.get(card.itemId);
         const rowOwner: ReactNode = owner ? <OwnerCell owner={owner.owner} from={owner.from} avatars={avatars} names={names} /> : null;
@@ -320,7 +322,7 @@ export function PlanTree({
                 row={r}
                 open={open}
                 onToggle={() => toggle(card.itemId)}
-                onAdd={!readOnly && planning && kids.length > 0 ? () => setAdding(adding?.under === card.itemId ? null : { under: card.itemId, round: 0 }) : null}
+                onAdd={!readOnly && kids.length > 0 ? () => setAdding(adding?.under === card.itemId ? null : { under: card.itemId, round: 0 }) : null}
                 onRemove={!readOnly && onRemove ? () => onRemove(card) : null}
               />
               <span className="strategy-cell strategy-cell-owner">{rowOwner}</span>
@@ -339,7 +341,7 @@ export function PlanTree({
           form(root, 0, "foot")
         ) : (
           <button type="button" className="drawer-add-open plan-tree-add" onClick={() => setAdding({ under: "", round: 0 })}>
-            + Add {rootKids.map((l) => KIND_LABEL[l].toLowerCase()).join(" or ")}
+            + Add {orList(rootKids.map((l) => KIND_LABEL[l].toLowerCase()))}
           </button>
         ))}
     </div>

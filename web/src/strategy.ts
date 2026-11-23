@@ -10,7 +10,7 @@ import { isComplete } from "./stages";
 import { workStatus } from "./workstatus";
 import { lockTitle } from "./dependencies";
 import { isPlanning, isSubtask } from "./subtasks";
-import type { Card, CardType, HierarchyStatus, MoveResult, Provider } from "./providers/types";
+import type { Card, CardType, HierarchyStatus, MoveResult, NewCardInput, Provider } from "./providers/types";
 
 /** StrategyKind is what a row IS: the three planning levels, a task, or a
  *  subtask (a task under a task). */
@@ -283,17 +283,49 @@ export function subtreeRows(cards: readonly Card[], rootId: string, expanded: (i
  *  the levels below a plan item's own, and under an epic a TASK (born with
  *  no team and no day, parked in the no-team backlog until somebody takes
  *  it into work, H7, K3). */
-export function childLevels(kind: StrategyKind): (CardType | "task")[] {
+export function childLevels(kind: StrategyKind): AddLevel[] {
   if (kind === "goal") {
-    return ["initiative", "epic"];
+    return ["initiative", "epic", "task"];
   }
   if (kind === "initiative") {
-    return ["epic"];
+    return ["epic", "task"];
   }
   if (kind === "epic") {
     return ["task"];
   }
+  if (kind === "task") {
+    return ["subtask"];
+  }
   return [];
+}
+
+/** AddLevel is what a "+" under a row makes: a plan item, a task under one,
+ *  or a subtask under a task. */
+export type AddLevel = CardType | "task" | "subtask";
+
+/** createUnderInput is what a "+" under a row sends. A plan item, and a task
+ *  under one, are the Strategy board's create (a task parked until somebody
+ *  takes it, K3); a subtask is grouped under its task the way the task's own
+ *  pane groups one — the task's team, band, person and day come along, today
+ *  when it has none (the server cascades the rest). */
+export function createUnderInput(level: AddLevel, title: string, parent: Card | undefined, today: string): NewCardInput {
+  if (level === "subtask" && parent) {
+    return {
+      title,
+      team: parent.team ?? null,
+      zone: parent.zone ?? "gray",
+      start: parent.startDate ?? today,
+      day: parent.day ?? parent.startDate ?? today,
+      assigneeLogin: parent.assignees[0] ?? null,
+      parent: parent.itemId,
+    };
+  }
+  return {
+    title,
+    type: level === "task" || level === "subtask" ? undefined : level,
+    parent: parent?.itemId,
+    underPlanning: level === "task",
+  };
 }
 
 /** parentChainOf is a card's ancestors, root first — what a picker shows

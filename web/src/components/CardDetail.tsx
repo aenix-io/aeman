@@ -4,7 +4,6 @@ import type {
   Card as CardModel,
   CardEvent,
   CardLog,
-  CardType,
   CustomerRef,
   LineageRef,
   Note,
@@ -39,6 +38,8 @@ import {
   planningRemoval,
   cardsAfterDelete,
   statusOf,
+  createUnderInput,
+  type AddLevel,
   type StrategyKind,
 } from "../strategy";
 import { isPlanning, isSubtask, subtaskParent } from "../subtasks";
@@ -410,20 +411,12 @@ export function CardDetail({
     }
     setSubTitle("");
     setPendingSubs((p) => [...p, t]);
-    const today = todayIso();
     // The way the Team and Me boards group a card under another: the
     // parent's team, band and person come along (the server cascades them,
-    // subtask parity), and the day is the parent's own or today.
+    // subtask parity), and the day is the parent's own or today — the same
+    // create as the Strategy board's "+" under a task (createUnderInput).
     void provider
-      .createCard({
-        title: t,
-        team: card.team ?? null,
-        zone: card.zone ?? "gray",
-        start: card.startDate ?? today,
-        day: card.day ?? card.startDate ?? today,
-        assigneeLogin: card.assignees[0] ?? null,
-        parent: card.itemId,
-      })
+      .createCard(createUnderInput("subtask", t, card, todayIso()))
       .then((made) => {
         setPendingSubs((p) => p.filter((x) => x !== t));
         const withLineage: CardModel = made.lineage
@@ -530,16 +523,16 @@ export function CardDetail({
 
   // ---- making something under a planning card, at any level of its tree ----
   const [pendingAdds, setPendingAdds] = useState<PendingAdd[]>([]);
-  const addChild = (t: string, level: CardType | "task", parent: string) => {
+  const addChild = (t: string, level: AddLevel, parent: string) => {
     const title = t.trim();
     if (!title) {
       return;
     }
     const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setPendingAdds((p) => [...p, { id: pendingId, title, parent }]);
-    const type = level === "task" ? undefined : level;
+    const up = known.find((c) => c.itemId === parent) ?? (parent === card.itemId ? card : undefined);
     void provider
-      .createCard({ title, type, parent, underPlanning: level === "task" })
+      .createCard(createUnderInput(level, title, up, todayIso()))
       .then((made) => {
         setPendingAdds((p) => p.filter((x) => x.id !== pendingId));
         dropListings();

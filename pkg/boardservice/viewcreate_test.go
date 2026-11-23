@@ -286,3 +286,25 @@ func TestTheMeBoardsRemovalIsTheNarrowOne(t *testing.T) {
 		}
 	})
 }
+
+// H2, K3 — the Strategy board's "+" makes a task under ANY plan item, not
+// only under an epic: a task may skip levels, and one under a goal or an
+// initiative is parked in the backlog the same way. (A subtask under a task
+// is the task's own create — the parent's team, person and day — which the
+// Strategy board's "+" under a task sends too, web strategy.createUnderInput.)
+func TestTheStrategyBoardMakesATaskUnderAnyPlanItem(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "g", Title: "Grow", Type: board.TypeGoal, Team: "alpha"},
+		{ItemID: "i", Title: "Billing", Type: board.TypeInitiative, Parent: "g"},
+	}, map[string]board.SprintState{"alpha": {Current: board.TodayIso()}})
+	svc := f2svc(f)
+	for _, parent := range []string{"g", "i"} {
+		c, err := svc.CreateInView(ctx, "acme", board.ViewStrategy, CreateCardArgs{Title: "under " + parent, Parent: parent})
+		if err != nil {
+			t.Fatalf("a task under %s: %v", parent, err)
+		}
+		if got := f.get(c.ItemID); got.Parent != parent || !got.Parked {
+			t.Fatalf("a task under %s = parent %q parked %v, want parked under it", parent, got.Parent, got.Parked)
+		}
+	}
+}
