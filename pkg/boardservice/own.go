@@ -55,9 +55,6 @@ func (s *Service) Own(ctx context.Context, boardID string, itemID, team, person 
 	if err != nil {
 		return err
 	}
-	if person != "" && team == "" && !board.IsPlanning(card) {
-		return ErrOwnerNeedsTeam
-	}
 	// A PLANNING card's answer is its team and its owner (O9): the person
 	// answers for the plan item and needs no team.
 	if board.IsPlanning(card) {
@@ -65,10 +62,14 @@ func (s *Service) Own(ctx context.Context, boardID string, itemID, team, person 
 	}
 	// A review NOBODY HAS TAKEN takes one answer: a person, which takes it
 	// into work as that review's reviewer (K10) — the backlog's picker on the
-	// "needs a reviewer" item. Every other answer on a review card is its
-	// link's to give.
+	// "needs a reviewer" item. Its team is its task's, so whatever team comes
+	// with the person is not asked for: a review inheriting its team (O13)
+	// names none. Every other answer on a review card is its link's to give.
 	if card.ReviewOf != "" && board.NeedsReviewer(card) && person != "" {
 		return s.takeReview(ctx, b, card, person)
+	}
+	if person != "" && team == "" {
+		return ErrOwnerNeedsTeam
 	}
 	if board.IsSubtask(b, card) || card.ReviewOf != "" {
 		return fmt.Errorf("%w: %q", ErrOwnerFollowsLink, card.Title)
