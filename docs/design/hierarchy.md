@@ -441,12 +441,16 @@ as the Strategy board's tree rooted one level below the card ("Under it",
 `PlanTree`, `strategy.subtreeRows`): every level under it — plan items,
 tasks and subtasks, each marked by its kind — with the Strategy board's rows (fold, title, owner with an inherited team,
 status) and no timeline or dates. A row opens that card in the pane, by a
-click or from the keyboard; a plan item's + adds under that row (the levels
+click or from the keyboard; a row's + adds under that row (the levels
 it may hold, the next one first) and stays open for the next one; the add
-row at the foot adds a direct child of the card (a goal an initiative or an
-epic, an initiative an epic, an epic a task), the next level down first —
-a task made there has no team of its own and stands under the plan item's
-team, if it has one. A big tree starts folded below its first level. The
+row at the foot adds a direct child of the card (a goal an initiative, an
+epic or a task, an initiative an epic or a task, an epic a task — a task
+may skip levels — and a task a subtask), the next level down first —
+a task made under a plan item has no team of its own and stands under the
+plan item's team, if it has one; a subtask is grouped under its task as
+the task's own pane groups one, its team, band, person and day coming
+along (`strategy.childLevels`, `strategy.createUnderInput`). The Strategy
+board's rows offer the same. A big tree starts folded below its first level. The
 Under picker shows each
 option's place — its ancestors, root first, small and muted with their
 kinds, cut when long and in full in the tooltip — and finds a plan item by

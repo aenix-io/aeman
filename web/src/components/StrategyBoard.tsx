@@ -24,6 +24,8 @@ import {
   KIND_LABEL,
   barOf,
   childLevels,
+  createUnderInput,
+  type AddLevel,
   buildTree,
   childrenNote,
   daysBetween,
@@ -766,19 +768,21 @@ export function StrategyBoard({
   }, [focusRow, rows, dragging]);
 
   // ---- the create: a planning card at the top, or anything under a planning row ----
-  const createUnder = (title: string, level: CardType | "task", parent?: string) => {
+  const createUnder = (title: string, level: AddLevel, parent?: string) => {
     const trimmed = title.trim();
     if (!trimmed) {
       return;
     }
     const tempId = `tmp-${new Date().toISOString()}`;
     const up = parent ? board.cards.find((c) => c.itemId === parent) : undefined;
-    const type = level === "task" ? undefined : level;
+    // A plan item, a task under one, or a subtask under a task — what each
+    // sends is strategy.createUnderInput's.
+    const input = createUnderInput(level, trimmed, up, today);
     addCard({
       itemId: tempId,
       title: trimmed,
-      assignees: [],
-      type,
+      assignees: input.assigneeLogin ? [input.assigneeLogin] : [],
+      type: input.type ?? undefined,
       parent,
       // Its lineage is its parent's plus the parent, so the tree draws the
       // new row where it was made before the server answers.
@@ -786,7 +790,7 @@ export function StrategyBoard({
       description: "",
       progress: 0,
     });
-    const created = provider.createCard({ title: trimmed, type, parent: parent ?? null, underPlanning: level === "task" });
+    const created = provider.createCard({ ...input, parent: parent ?? null });
     registerPendingCard(
       tempId,
       created.then((c) => c.itemId),
@@ -974,7 +978,7 @@ export function StrategyBoard({
     });
   };
 
-  const planningOptions = (levels: (CardType | "task")[]) => levels.map((k) => ({ key: k, label: KIND_LABEL[k] }));
+  const planningOptions = (levels: AddLevel[]) => levels.map((k) => ({ key: k, label: KIND_LABEL[k] }));
 
   const draggedCard = dragging ? board.cards.find((c) => c.itemId === dragging) : null;
 
@@ -1173,7 +1177,7 @@ export function StrategyBoard({
                       selectedBy={selectedByOf(presence, card, foldedMarks, me)}
                       avatars={avatars}
                       names={names}
-                      onAdd={planning && kids.length > 0 ? () => setAddingUnder(addingUnder === card.itemId ? null : card.itemId) : null}
+                      onAdd={kids.length > 0 ? () => setAddingUnder(addingUnder === card.itemId ? null : card.itemId) : null}
                       onRemove={planning ? () => setRemoveChoice(card) : null}
                       owner={ownerCell(card, r.node.kind)}
                       onStatus={(badge) => {
@@ -1203,7 +1207,7 @@ export function StrategyBoard({
                             initial: kids[0],
                           }}
                           onCreate={(title, _team, picked) => {
-                            createUnder(title, (picked as CardType | "task") || kids[0], card.itemId);
+                            createUnder(title, (picked as AddLevel) || kids[0], card.itemId);
                           }}
                           onClosed={() => setAddingUnder(null)}
                         />

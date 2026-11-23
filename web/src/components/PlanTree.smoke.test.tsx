@@ -39,7 +39,7 @@ describe("the drawer's tree", () => {
   it("offers a + on a plan item, and an add row for the card's next level first", () => {
     const html = draw(goal);
     expect(html).toMatch(/aria-label="Add under Billing v2"/);
-    expect(html).toMatch(/>\+ Add initiative or epic<\/button>/);
+    expect(html).toMatch(/>\+ Add initiative, epic or task<\/button>/);
     expect(draw(epic)).toMatch(/>\+ Add task<\/button>/);
   });
 
@@ -88,15 +88,22 @@ describe("a card being made", () => {
 
 describe("the add form's rules", () => {
   it("offers a nested row its own levels, the next first", () => {
-    expect(addPlanFor(ini, [goal, ini]).levels).toEqual(["epic"]);
-    expect(addPlanFor(goal, [goal]).levels).toEqual(["initiative", "epic"]);
+    // A task may skip levels (H2), and a task takes its subtasks.
+    expect(addPlanFor(ini, [goal, ini]).levels).toEqual(["epic", "task"]);
+    expect(addPlanFor(goal, [goal]).levels).toEqual(["initiative", "epic", "task"]);
+    const t = card({ itemId: "t", title: "T", parent: "e", lineage: [{ uid: "e", type: "epic", title: "Invoices" }] });
+    expect(addPlanFor(t, [goal, ini, epic, t]).levels).toEqual(["subtask"]);
   });
 
   it("says where a task made under a plan item stands", () => {
     expect(addPlanFor(epic, [goal, ini, epic]).hint).toMatch(/stands under «portal»/);
     const lone = card({ itemId: "le", title: "Lone", type: "epic" });
     expect(addPlanFor(lone, [lone]).hint).toMatch(/no-team backlog/);
-    expect(addPlanFor(goal, [goal]).hint).toBeNull();
+    // A goal takes a task too, which stands under the goal's team.
+    expect(addPlanFor(goal, [goal]).hint).toMatch(/stands under «portal»/);
+    // A subtask rides its task: nothing to say about where it stands.
+    const t = card({ itemId: "t", title: "T", parent: "e", lineage: [{ uid: "e", type: "epic", title: "Invoices" }] });
+    expect(addPlanFor(t, [goal, ini, epic, t]).hint).toBeNull();
   });
 
   it("opens again, empty, after a card is made, and closes when it was not", () => {
