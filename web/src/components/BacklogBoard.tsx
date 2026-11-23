@@ -61,7 +61,7 @@ import { OwnerPicker } from "./OwnerPicker";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { FilterSelect } from "./FilterSelect";
 import { customerOptions, teamOptions } from "../filteroptions";
-import { bornCustomers, customerPasses, sprintTeamOf } from "../ownership";
+import { bornCustomers, customerPasses, effectiveTeamOf, sprintTeamOf } from "../ownership";
 import { useKeptCreated } from "../keptcreated";
 
 /** How far the pointer must travel before a press on a card becomes a drag;
@@ -235,7 +235,10 @@ export function BacklogBoard({
         if (reviewOwnPlan(owner) === "none") {
           return;
         }
-        owner = { team: card.team ?? "", person: owner.person };
+        // Its team is its task's: the card's own, else the one it stands
+        // under (O13) — never the empty team, which the server reads as a
+        // person picked from no team.
+        owner = { team: card.team || effectiveTeamOf(card, board.cards) || owner.team, person: owner.person };
       }
       const plan = card.reviewOf ? "take" : ownPlan(card, owner);
       if (plan === "none") {
@@ -319,7 +322,8 @@ export function BacklogBoard({
       onTeam: (t) => cards.forEach((c) => t && c.team !== t && handOver(c, t)),
       onPerson: (login) => {
         if (login) {
-          cards.forEach((c) => own(c, { team: c.team ?? "", person: login }));
+          // A person is picked from the team each card stands under (O13).
+          cards.forEach((c) => own(c, { team: c.team || effectiveTeamOf(c, board.cards), person: login }));
         }
       },
     };

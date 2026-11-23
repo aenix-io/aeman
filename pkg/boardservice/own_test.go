@@ -194,3 +194,29 @@ func TestOwnIsOfferedWhereATaskIsDrawn(t *testing.T) {
 		t.Fatalf("the Strategy board draws %v, want remove, own", got)
 	}
 }
+
+// K10 — a review NOBODY HAS TAKEN takes one answer, a person, whatever team
+// is named with it: its team is its task's. A review whose task stands under
+// a plan item's team and names none of its own (it inherits, O13) is taken by
+// a person alone — "a person needs a team" is a task's rule, and refusing
+// the review on it left the Backlog's picker unable to give it to anybody.
+func TestAReviewNobodyHasTakenIsTakenByAPersonAlone(t *testing.T) {
+	today := board.TodayIso()
+	f := newFake([]board.Card{
+		{ItemID: "e", Title: "Moves", Type: board.TypeEpic, Team: "cozystack"},
+		{ItemID: "task", Title: "Move skill", Parent: "e", Assignees: []string{"kvaps"},
+			StartDate: today, Day: today, SprintStart: today},
+		{ItemID: "rev", Title: "review: Move skill", ReviewOf: "task", Parent: "e", Parked: true},
+	}, map[string]board.SprintState{"cozystack": {Current: today}})
+	if err := f2svc(f).Own(WithActor(ctx, "kvaps"), "acme", "rev", "", "lexfrei"); err != nil {
+		t.Fatalf("a person alone on a review nobody has taken: %v", err)
+	}
+	if got := f.get("rev").Assignees; len(got) != 1 || got[0] != "lexfrei" {
+		t.Fatalf("reviewer = %v, want [lexfrei]", got)
+	}
+	// A task still needs its team.
+	f.b.Cards = append(f.b.Cards, board.Card{ItemID: "loose", Title: "Loose", Parked: true})
+	if err := f2svc(f).Own(ctx, "acme", "loose", "", "lexfrei"); !errors.Is(err, ErrOwnerNeedsTeam) {
+		t.Fatalf("a person alone on a task: %v, want ErrOwnerNeedsTeam", err)
+	}
+}
