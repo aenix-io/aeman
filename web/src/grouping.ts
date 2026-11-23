@@ -344,3 +344,18 @@ export function relatedRuns(runs: readonly PlanRun[], selected: string | null): 
   }
   return new Set(runs.filter((r) => r.id !== selected && r.head.uid === uid).map((r) => r.id));
 }
+
+/** blockAnchors is where each card of a moved run stands, for the board's
+ *  own redraw of the order: the first by the block's one anchor outside it
+ *  (blockAnchor; none when the run is the whole list), each next right behind
+ *  the one before — the order the server writes for the same request (S21). */
+export function blockAnchors(
+  list: readonly string[],
+  block: readonly string[],
+): { id: string; anchor: { after: string } | { before: string } | null }[] {
+  const first = blockAnchor(list, block, list);
+  return block.map((id, i) => ({
+    id,
+    anchor: i > 0 ? { after: block[i - 1] } : "before" in first ? first : first.after ? { after: first.after } : null,
+  }));
+}

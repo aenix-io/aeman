@@ -27,11 +27,12 @@ import {
   takeOwner,
   spliceOrder,
   takenIntoWorkLocally,
+  anchorFor,
   type Anchor,
 } from "../backlogboard";
 import type { LineageRef } from "../providers/types";
 import { ParentGroupHead, type GroupAssign } from "./ParentGroupHead";
-import { adjacentRuns, relatedRuns, blockAnchor, reassignable, takeable, takeQuestion, type PlanRun } from "../grouping";
+import { adjacentRuns, relatedRuns, blockAnchor, blockAnchors, reassignable, takeable, takeQuestion, type PlanRun } from "../grouping";
 import { readMode } from "../viewprefs";
 import { justMade, noteMade } from "../justmade";
 import { ownerOf, type Owner } from "../owner";
@@ -471,10 +472,13 @@ export function BacklogBoard({
         return;
       }
       reorderCards(spliceOrder(board.cards.map((c) => c.itemId), next));
-      const anchors = moving.map((c) => {
-        const i = next.indexOf(c.itemId);
-        return { id: c.itemId, anchor: (i > 0 ? { after: next[i - 1] } : { before: next[1] }) as Anchor };
-      });
+      // Each card's place, the first anchored OUTSIDE the block — the same
+      // order the server writes (grouping.blockAnchors). Anchoring a run at
+      // the very top before its own second card redrew it where it was.
+      const anchors: { id: string; anchor: Anchor }[] =
+        moving.length > 1
+          ? blockAnchors(next, moving.map((c) => c.itemId))
+          : moving.map((c) => ({ id: c.itemId, anchor: anchorFor(next, c.itemId) }));
       for (const { id, anchor } of anchors) {
         moveInBoardOrder?.(id, anchor);
       }

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { adjacentRuns, relatedRuns, blockAnchor, reassignable, takeable, takeQuestion, arrangeByParent, expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowId, planRowUid } from "./grouping";
+import { adjacentRuns, relatedRuns, blockAnchor, blockAnchors, reassignable, takeable, takeQuestion, arrangeByParent, expandRows, groupedRows, isPlanRow, parentGroupOf, planDrop, planRowId, planRowUid } from "./grouping";
 import type { Card, LineageRef } from "./providers/types";
 
 const goal: LineageRef = { uid: "g", type: "goal", title: "Cozystack" };
@@ -407,5 +407,31 @@ describe("relatedRuns", () => {
   it("lights nothing for Ungrouped, or with nothing selected", () => {
     expect([...relatedRuns(runs, id("x1"))]).toEqual([]);
     expect([...relatedRuns(runs, null)]).toEqual([]);
+  });
+});
+
+// Where each card of a moved run stands, for the board's own redraw: the
+// block's one anchor outside it (blockAnchor) for the first, each next right
+// behind the one before — the same order the server writes (S21). A run
+// dropped at the very top must not be anchored before its own second card,
+// which redrew it where it was while the server had moved it.
+describe("blockAnchors", () => {
+  it("anchors a run dropped at the top before the first card outside it", () => {
+    expect(blockAnchors(["a", "b", "x", "y"], ["a", "b"])).toEqual([
+      { id: "a", anchor: { before: "x" } },
+      { id: "b", anchor: { after: "a" } },
+    ]);
+  });
+  it("anchors a run dropped lower behind the card in front of it", () => {
+    expect(blockAnchors(["x", "a", "b", "y"], ["a", "b"])).toEqual([
+      { id: "a", anchor: { after: "x" } },
+      { id: "b", anchor: { after: "a" } },
+    ]);
+  });
+  it("leaves a run that is the whole list where it is", () => {
+    expect(blockAnchors(["a", "b"], ["a", "b"])).toEqual([
+      { id: "a", anchor: null },
+      { id: "b", anchor: { after: "a" } },
+    ]);
   });
 });
