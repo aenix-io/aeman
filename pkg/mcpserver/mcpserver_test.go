@@ -1254,3 +1254,18 @@ func TestMCPListCardsUnderAPlanItemInPlans(t *testing.T) {
 		t.Fatalf("an unknown group was read: %s", textOf(res))
 	}
 }
+
+// An agent finishing a review must know what closes it (R4): the REVIEW card
+// done — or at 100 — takes the reviewed card off review and hands the work
+// back to its assignee. Without being told, an agent marked the reviewed task
+// done itself, or left the review card open while waiting for fixes.
+func TestMCPSaysHowAReviewIsFinished(t *testing.T) {
+	for _, tool := range []string{"send_to_review", "update_card"} {
+		surface := toolSurface(t, tool)
+		for _, want := range []string{"review card", "done", "100", "hands the work back"} {
+			if !strings.Contains(surface, want) {
+				t.Errorf("%s does not say %q", tool, want)
+			}
+		}
+	}
+}
