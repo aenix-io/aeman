@@ -5946,6 +5946,15 @@ button.card-age {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-glow);
 }
+/* Another run of the selected run's plan item (the Backlog): a light
+   accent on the background, so the reader sees where the rest of it waits. */
+.group-head-related {
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--card-border));
+}
+:root[data-theme="dark"] .group-head-related {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+}
 .group-head-toggle {
   border: 0;
   background: none;

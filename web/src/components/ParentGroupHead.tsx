@@ -21,6 +21,9 @@ interface ParentGroupHeadProps {
   onRemove?: () => void;
   /** Whether the head is the board's selection. */
   selected?: boolean;
+  /** Another group of the selected group's plan item (the Backlog's runs of
+   *  one plan item split by other work): drawn with a light accent. */
+  related?: boolean;
   /** The others who have the plan item selected (presence, #290). */
   selectedBy?: string[];
   /** The team avatar drawn dimmed, as the board's cards draw theirs. */
@@ -81,6 +84,7 @@ export function ParentGroupHead({
   onAdd,
   onRemove,
   selected,
+  related,
   selectedBy,
   dimAvatar,
   aside,
@@ -96,7 +100,7 @@ export function ParentGroupHead({
   const assignRef = useRef<HTMLDivElement | null>(null);
   return (
     <div
-      className={`group-head${head.reviewOnly ? " group-head-review" : ""}${selected ? " group-head-selected" : ""}${
+      className={`group-head${head.reviewOnly ? " group-head-review" : ""}${selected ? " group-head-selected" : ""}${related && !selected ? " group-head-related" : ""}${
         (selectedBy?.length ?? 0) > 0 ? " group-head-peer-selected" : ""
       }${dimAvatar ? " card-dim-avatar" : ""}`}
       onClick={onPress}

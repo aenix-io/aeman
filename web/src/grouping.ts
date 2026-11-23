@@ -331,3 +331,16 @@ export function takeQuestion(run: PlanRun): { heading: string; text: string } | 
     text: `The open cards ${where} that nobody has become yours, today, and leave the backlog.`,
   };
 }
+
+/** relatedRuns is the Backlog's other runs of the selected run's plan item
+ *  (Plans): a plan item split by other work stands in several runs, and
+ *  selecting one lights the rest, so the reader sees where its other cards
+ *  wait. Ungrouped is no plan item and lights nothing; neither does no
+ *  selection. */
+export function relatedRuns(runs: readonly PlanRun[], selected: string | null): Set<string> {
+  const uid = runs.find((r) => r.id === selected)?.head.uid;
+  if (!uid) {
+    return new Set();
+  }
+  return new Set(runs.filter((r) => r.id !== selected && r.head.uid === uid).map((r) => r.id));
+}
