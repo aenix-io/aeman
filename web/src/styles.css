@@ -6056,3 +6056,9 @@ button.card-age {
 .group-head-assign {
   cursor: pointer;
 }
+
+/* The card pane's Repeat: the stage menu's Recurrent and its cycle. */
+.drawer-repeat .segment {
+  padding: 2px 10px;
+  font-size: 12px;
+}

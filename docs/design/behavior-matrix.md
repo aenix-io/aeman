@@ -38,6 +38,7 @@ Legend: ✅ existing Go test · 🆕 new test written for the redesign ·
 | S2 | Done is derived: 100% + no stage; never stored; picking Done clears stage + fills 100 | board.ApplyProgress/ApplyStage | ✅ status_test, service_test, server/api_test |
 | S3 | Complete = done ∨ (100% ∧ (none ∨ recurrent)); review/locked@100 unfinished | board.Complete | ✅ status_test TestComplete |
 | S4 | Recurrent: unclamped 0–100 | board | ✅ status via S3 |
+| S4a | **A TASK'S RECURRENCE IS SET FROM ITS PANE AS FROM ITS CARD'S MENU.** The card pane's Repeat row — No, Every sprint, Weekly, Monthly — writes the stage menu's Recurrent and its cycle as one stage patch (`stage: recurrent` with `recurrence`; No clears both), whatever stage the card had; choosing what it already is writes nothing; a review card has no Repeat, and a day's record only reads it | web `recurrence.ts` (`repeatOf`, `repeatPatch`), `CardDetail.tsx` | web `recurrence.test.ts` ("the card pane's Repeat"), `CardDetail.smoke.test.tsx` |
 | S5 | In Progress: clears stage, nudges into [10,90] at the edges | board.ApplyInProgress | ✅ status_test |
 | S6 | Review card progress drives the original's review stage (100 → off review, <100 → back on) | boardservice.syncReviewLink | ✅ service_test review suite |
 | S7 | review/locked/refuse store the [10, 90] clamp on stage pick (0 → 10, 100 → 90), so the stored value matches the band | board.ApplyStage | ✅ status_test |
