@@ -5983,7 +5983,10 @@ button.card-age {
 }
 /* The team circle as a card draws it: there it is a button and takes the
    card's own type, not the bare circle's. */
-.group-head .team-avatar {
+/* A team avatar's letter reads the same on a group head, a day board's card
+   and a Backlog row: the Backlog's owner badge drew it at the badge's 9px. */
+.group-head .team-avatar,
+.backlog-row-owner .owner-badge-team {
   font-size: 13px;
   font-weight: 400;
   line-height: 1;

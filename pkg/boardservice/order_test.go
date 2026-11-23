@@ -238,3 +238,39 @@ func TestATaskLinkedThroughThePickerJoinsItsEpicsTasks(t *testing.T) {
 		t.Fatalf("a task in work took a new key: %q → %q", before, got)
 	}
 }
+
+// A place the BOARD chose — a task handed to another team (Q9), linked under
+// another plan item, back from work, newly made — is news to the tab that
+// asked as much as to any other: it said "this team", not "here". A move a
+// caller dragged names its own place, which that tab already shows. The
+// backend is told which is which (PlacedByTheBoard), so the server sends the
+// new order to the asking tab only in the first case.
+func TestAPlaceTheBoardChoseIsMarkedSo(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "A", Title: "A", Type: board.TypeEpic, Rank: "a"},
+		{ItemID: "A1", Title: "A1", Team: "U", Parked: true, Parent: "A", Rank: "b"},
+		{ItemID: "x", Title: "x", Team: "T", Parked: true, Parent: "A", Rank: "c"},
+		{ItemID: "y", Title: "y", Team: "U", Parked: true, Rank: "d"},
+	}, map[string]board.SprintState{"T": {ItemID: "sT"}, "U": {ItemID: "sU"}})
+	s := New(f)
+	if err := s.SetTeam(ctx, "acme", "x", "U", ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.placedByBoard) == 0 || !f.placedByBoard[len(f.placedByBoard)-1] {
+		t.Fatalf("a hand-over's place was not marked as the board's: %v", f.placedByBoard)
+	}
+	// A dragged move — a task's single key, or an epic's gather — names its
+	// own place.
+	before := len(f.placedByBoard)
+	if _, err := s.Move(ctx, "acme", "y", board.Spot{Before: "A1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Move(ctx, "acme", "A", board.Spot{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, placed := range f.placedByBoard[before:] {
+		if placed {
+			t.Fatal("a dragged move was marked as the board's place")
+		}
+	}
+}

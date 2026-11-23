@@ -181,8 +181,28 @@ func queued(b board.Board, c board.Card) bool {
 }
 
 // placeIn puts a task in team's queue at its default place (Q3).
+// placedKey marks a Reorder whose place the board chose (PlacedByTheBoard).
+type placedKey struct{}
+
+// BoardPlaces marks ctx: the keys about to be written are a place the BOARD
+// chose — a hand-over (Q9), a link under a plan item, a return from work, a
+// new card — not one a caller dragged to and so already shows.
+func BoardPlaces(ctx context.Context) context.Context {
+	return context.WithValue(ctx, placedKey{}, true)
+}
+
+// PlacedByTheBoard reports a Reorder whose place the board chose. A backend
+// that skips the asking client when it announces a new order (that client
+// moved the card itself and shows it) must not skip it then: the client asked
+// for a team or a parent, not a place, and learns the place only from the
+// announcement.
+func PlacedByTheBoard(ctx context.Context) bool {
+	v, _ := ctx.Value(placedKey{}).(bool)
+	return v
+}
+
 func (s *Service) placeIn(ctx context.Context, b board.Board, c board.Card, team string) ([]board.RankChange, error) {
-	return s.backend.Reorder(ctx, b, func(cur board.Board) ([]board.RankChange, error) {
+	return s.backend.Reorder(BoardPlaces(ctx), b, func(cur board.Board) ([]board.RankChange, error) {
 		return board.Place(cur, c, team)
 	})
 }
@@ -193,7 +213,7 @@ func (s *Service) placeReturned(ctx context.Context, b board.Board, c board.Card
 	if !queued(b, c) {
 		return nil
 	}
-	_, err := s.backend.Reorder(ctx, b, func(cur board.Board) ([]board.RankChange, error) {
+	_, err := s.backend.Reorder(BoardPlaces(ctx), b, func(cur board.Board) ([]board.RankChange, error) {
 		if k, ok := board.Find(cur, c.ItemID); ok {
 			c.Rank = k.Rank
 		}

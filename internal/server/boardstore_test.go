@@ -633,3 +633,18 @@ func TestUnattributedWorkIsNotEchoSuppressed(t *testing.T) {
 		t.Fatalf("unattributed work must carry no origin, got %q", got)
 	}
 }
+
+// The tab that asked for a new order is skipped when it is announced — it
+// moved the card itself and shows it — but not when the BOARD chose the place
+// (a hand-over, a link under a plan item, a return from work): that tab asked
+// for a team or a parent and learns the place only from the announcement, or
+// the card stays drawn where it was until a reload moves it far away.
+func TestTheAskingTabHearsAPlaceTheBoardChose(t *testing.T) {
+	ctx := withClientID(context.Background(), "tab-1")
+	if got := orderingOrigin(ctx); got != "tab-1" {
+		t.Fatalf("a dragged move skips %q, want the asking tab", got)
+	}
+	if got := orderingOrigin(boardservice.BoardPlaces(ctx)); got != "" {
+		t.Fatalf("a place the board chose skips %q, want nobody", got)
+	}
+}

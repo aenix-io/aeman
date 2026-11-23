@@ -35,6 +35,9 @@ type fakeBackend struct {
 	log       []string
 	creates   []board.CreateInput
 	nextID    int
+	// placedByBoard records, per Reorder, whether the board placed the cards
+	// itself (PlacedByTheBoard) rather than a caller's drag naming a place.
+	placedByBoard []bool
 }
 
 func newFake(cards []board.Card, states map[string]board.SprintState) *fakeBackend {
@@ -266,6 +269,7 @@ func (f *fakeBackend) Reorder(ctx context.Context, b board.Board, plan board.Pla
 	changes, err := plan(cur)
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.placedByBoard = append(f.placedByBoard, PlacedByTheBoard(ctx))
 	// The planner's read is the backend's own, not the service's: it is not
 	// a board read a test counts.
 	for i := len(f.log) - 1; i >= 0; i-- {
