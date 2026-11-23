@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/boardservice"
 )
 
 // ORDERING ACTIONS ON THE CACHE (docs/design/ordering.md, "Atomicity"). The
@@ -32,7 +33,7 @@ func (b *storeBackend) Reorder(ctx context.Context, bd board.Board, plan board.P
 	}
 	e.board = board.ApplyRankChanges(cur, changes)
 	e.recentMove = time.Now()
-	e.orderingChanged(clientIDFrom(ctx))
+	e.orderingChanged(orderingOrigin(ctx))
 	desc := fmt.Sprintf("reorder %d cards", len(changes))
 	itemID := ""
 	if len(changes) == 1 {
@@ -56,4 +57,15 @@ func (b *storeBackend) Reorder(ctx context.Context, bd board.Board, plan board.P
 	e.mu.Unlock()
 	start()
 	return changes, nil
+}
+
+// orderingOrigin is the tab an ordering announcement skips: the one that
+// dragged the card and already shows its place — but none when the board
+// chose the place (boardservice.PlacedByTheBoard), which the asking tab
+// learns only from the announcement.
+func orderingOrigin(ctx context.Context) string {
+	if boardservice.PlacedByTheBoard(ctx) {
+		return ""
+	}
+	return clientIDFrom(ctx)
 }
