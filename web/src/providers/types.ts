@@ -141,6 +141,8 @@ export interface Card {
    *  and people, so the drawer and the backlog row can name it, open it and
    *  draw whose it is. */
   reviewed?: ReviewedRef;
+  /** On a task: who reviews it (status.reviewedBy), when it is on review. */
+  reviewedBy?: string;
   /** A task's due date, the server's (status.dueDate): its nearest
    *  planning card's end. */
   dueDate?: string;
