@@ -97,7 +97,7 @@ describe("the drawer's lists", () => {
   });
 });
 
-// The day boards draw the derived lock with the locked stage's look — the
+// The day boards draw the derived lock with a mark of its own — the
 // card can still be moved and planned — when no stage of a person's says
 // more and the card is not done.
 describe("the day boards' lock", () => {

@@ -105,8 +105,9 @@ export function withoutDependency(list: readonly string[] | undefined, id: strin
   return (list ?? []).filter((x) => x !== id);
 }
 
-/** derivedLockOf is what the day boards draw for the derived lock: the
- *  locked stage's look, its tooltip naming what the card waits for — on a
+/** derivedLockOf is what the day boards draw for the derived lock: an
+ *  hourglass of its own in the locked stage's colour — never the stage's
+ *  warning sign — its tooltip naming what the card waits for — on a
  *  card no stage of a person's says more about and that is not done; null
  *  otherwise. It changes nothing a board lets the card do. */
 export function derivedLockOf(c: Card): string | null {

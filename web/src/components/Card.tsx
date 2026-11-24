@@ -324,8 +324,10 @@ export function Card({
   // hover flag BEFORE the links icon, so the always-visible links icon does
   // not jump left when the flag pops in on hover (the actions block is
   // right-anchored, so growth to its left leaves it in place).
-  // A card waiting for a dependency not done yet wears the locked stage's
-  // look (dependencies.derivedLockOf) — nothing it may do changes.
+  // A card waiting for a dependency not done yet wears a mark of its own, an
+  // hourglass in the locked stage's colour (dependencies.derivedLockOf) —
+  // nothing it may do changes. Not the stage's /!\: the two looked alike,
+  // and a card put In Progress while still waiting kept reading as Locked.
   const waitingFor = derivedLockOf(card);
   const shownStage: StageKey | undefined = card.stage ?? (waitingFor ? "locked" : undefined);
   const stageVisible =
@@ -340,7 +342,7 @@ export function Card({
     >
       <button
         type="button"
-        className="card-action card-status-btn"
+        className={`card-action card-status-btn${!card.stage && waitingFor ? " card-status-waiting" : ""}`}
         onClick={(e) => {
           e.stopPropagation();
           setMenuOpen((o) => !o);
@@ -354,7 +356,7 @@ export function Card({
               : card.stage === "locked"
                 ? "Locked"
                 : waitingFor
-                  ? `Locked: ${waitingFor}`
+                  ? `W${waitingFor.slice(1)}`
                 : card.stage === "refuse"
                   ? "Refused"
                   : "Status"
@@ -400,6 +402,23 @@ export function Card({
             aria-hidden="true"
           >
             <path d="M416 398.9c58.5-41.1 96-104.1 96-174.9C512 100.3 397.4 0 256 0S0 100.3 0 224c0 70.7 37.5 133.8 96 174.9c0 .4 0 .7 0 1.1l0 64c0 26.5 21.5 48 48 48l48 0 0-48c0-8.8 7.2-16 16-16s16 7.2 16 16l0 48 64 0 0-48c0-8.8 7.2-16 16-16s16 7.2 16 16l0 48 48 0c26.5 0 48-21.5 48-48l0-64c0-.4 0-.7 0-1.1zM96 256a64 64 0 1 1 128 0A64 64 0 1 1 96 256zm256-64a64 64 0 1 1 0 128 64 64 0 1 1 0-128z" />
+          </svg>
+        ) : !card.stage && waitingFor ? (
+          // An hourglass: waiting for other work, not stuck on its own.
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M5 22h14M5 2h14" />
+            <path d="M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4a2 2 0 0 0-.6 1.4V22" />
+            <path d="M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4a2 2 0 0 0 .6-1.4V2" />
           </svg>
         ) : shownStage === "locked" ? (
           <svg
