@@ -68,6 +68,7 @@ import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
 import { ConnectDialog } from "./ConnectDialog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
+import { counterpartOf } from "../counterpart";
 import { ParentGroupHead, type GroupAssign } from "./ParentGroupHead";
 import { GroupBacklogDialog } from "./GroupBacklogDialog";
 import { FoldControls } from "./FoldControls";
@@ -1287,12 +1288,9 @@ export function MeBoard({
   // assignee(s). The picker also accepts a free-text login.
   // Assignees of a card's linked review counterpart: an original's reviewer(s),
   // or a review card's implementer(s).
-  const counterpartAssigneesFor = (card: CardModel): string[] => {
-    const linked = card.reviewOf
-      ? board.cards.find((c) => c.itemId === card.reviewOf)
-      : board.cards.find((c) => c.reviewOf === card.itemId);
-    return linked?.assignees ?? [];
-  };
+  // The small avatar's people (counterpart.ts): the linked card when the
+  // board holds it, else what the server said on the card itself.
+  const counterpartAssigneesFor = (card: CardModel): string[] => counterpartOf(card, board.cards);
 
   // Reassign the linked review card to another person, or (login = null) delete
   // it — driven from the counterpart avatar's menu. One intent either way; the

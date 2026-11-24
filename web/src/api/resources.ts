@@ -118,6 +118,7 @@ export function resourceToCard(res: CardResource): Card {
     // The server's subtask answer, read for a review card only (isSubtask).
     ...(spec.reviewOf ? { subtask: res.status?.subtask ?? false } : {}),
     dueDate: res.status?.dueDate || undefined,
+    reviewedBy: res.status?.reviewedBy || undefined,
     reviewed: res.status?.reviewed
       ? {
           uid: res.status.reviewed.uid,
