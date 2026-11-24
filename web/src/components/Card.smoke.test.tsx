@@ -76,18 +76,28 @@ describe("what moves when a pointer crosses a card", () => {
   });
 });
 
-// A card waiting for a dependency not done yet wears the locked look on the
+// A card waiting for a dependency not done yet wears a mark of its own on the
 // day boards, its tooltip naming what it waits for (dependencies.md); the
-// card stays fully usable — only the mark is drawn.
+// card stays fully usable — only the mark is drawn. It is NOT the locked
+// stage's /!\: the two looked alike, so a card put In Progress while still
+// waiting kept the warning sign and read as stuck on Locked.
 describe("a card locked by what it waits for", () => {
-  it("shows the locked mark with what it waits for", () => {
+  it("shows the waiting mark with what it waits for", () => {
     const html = draw(card({ locked: true, blockedBy: [{ uid: "a", title: "Auth API" }], hiddenBlockers: 1 }));
-    expect(html).toContain("Locked: waiting for «Auth API» and 1 hidden");
+    expect(html).toContain("Waiting for «Auth API» and 1 hidden");
+    expect(html).toContain("card-status-waiting");
+    expect(html).not.toContain("M12 3 2 21h20L12 3z"); // the locked stage's sign
     expect(html).toContain(`class="card-stage"`);
   });
 
+  it("keeps the locked stage's sign for the stage", () => {
+    const html = draw(card({ stage: "locked" }));
+    expect(html).toContain("M12 3 2 21h20L12 3z");
+    expect(html).not.toContain("card-status-waiting");
+  });
+
   it("is unmarked when nothing it waits for is open", () => {
-    expect(draw(card({}))).not.toContain("Locked:");
+    expect(draw(card({}))).not.toContain("card-status-waiting");
   });
 });
 
