@@ -38,6 +38,14 @@ const READS = new Set([
 // at all (it was, and it did not).
 const QUIET = new Set(["setPresence"]);
 
+// JUDGED_BY_THE_SERVER are the writes the server judges by the team they name
+// (X-Aeman-As-Of: a create on a day its team still works is taken, one on a
+// day that team has moved past is refused with dayIsARecord and the board
+// says so). Refusing them here whenever ANY part of the view was a record
+// dropped a card typed into a cell of a team still working that day —
+// silently, while the server would have taken it.
+const JUDGED_BY_THE_SERVER = new Set(["createCard"]);
+
 // CARD_WRITES take the card's uid first, so the guard can ask whether THAT
 // card is a record. Anything else that writes is refused whenever any part of
 // the view is a record: a create or a carry-over made from a picture of a
@@ -94,7 +102,7 @@ export function frozenProvider(
       }
       const name = String(prop);
       const call = (value as (...args: unknown[]) => unknown).bind(target);
-      if (READS.has(name)) {
+      if (READS.has(name) || JUDGED_BY_THE_SERVER.has(name)) {
         return call;
       }
       if (QUIET.has(name)) {

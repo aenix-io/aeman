@@ -43,3 +43,32 @@ func TestARecordIsMarkedByCardNotByTeamName(t *testing.T) {
 		t.Fatalf("the listing says which moment it is of: %q", list.AsOf)
 	}
 }
+
+// A listing holding no record is answered as a live one, with no asOf, even
+// when the board has records of OTHER teams (docs/api.md, "a listing with no
+// records at all"). The day the running sprint began reads live for its
+// team: marketing having moved on that morning must not make portal's
+// listing a record, or the client froze it and silently refused a card typed
+// into it — while the server, judging the create by its team, would take it.
+func TestAListingWithNoRecordIsLive(t *testing.T) {
+	const asOf = "2026-11-24T23:59:59+01:00"
+	b := board.Board{
+		SprintStates: map[string]board.SprintState{"portal": {Current: "2026-11-24"}},
+		Cards: []board.Card{
+			{ItemID: "p", Team: "portal", Rank: "a",
+				SprintStart: "2026-11-24", StartDate: "2026-11-24", Day: "2026-11-24"},
+			{ItemID: "m", Team: "marketing", Rank: "b",
+				SprintStart: "2026-11-24", StartDate: "2026-11-24", Day: "2026-11-24"},
+		},
+	}
+	list := ListCards(b, Selector{View: "team", Team: "portal", Day: "2026-11-24"})
+	MarkRecords(&list, map[string]bool{"m": true}, asOf)
+	if list.AsOf != "" {
+		t.Fatalf("portal's listing holds no record and says asOf=%q", list.AsOf)
+	}
+	for _, c := range list.Items {
+		if c.Status.AsOf != "" {
+			t.Fatalf("%s carries asOf %q", c.Metadata.UID, c.Status.AsOf)
+		}
+	}
+}

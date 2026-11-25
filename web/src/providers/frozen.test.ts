@@ -122,11 +122,18 @@ describe("frozenProvider", () => {
   // a view holding records it would land in a board nobody is looking at.
   it("refuses a card-less write while any record is on screen", async () => {
     const { provider, calls } = spyProvider();
-    await expect(
-      guard(provider).createCard({ title: "x" } as never),
-    ).rejects.toThrow(REASON);
     await expect(guard(provider).carryOver("portal")).rejects.toThrow(REASON);
     expect(calls).toEqual([]);
+  });
+
+  // A create names its team, and the server judges it by that team: taken on
+  // a day the team still works, refused out loud (dayIsARecord) on one it has
+  // moved past. Refused here, it dropped a card typed into a live team's cell
+  // silently whenever another team on the screen had settled.
+  it("lets a create through for the server to judge by its team", async () => {
+    const { provider, calls } = spyProvider();
+    await guard(provider).createCard({ title: "x" } as never);
+    expect(calls).toEqual(["createCard"]);
   });
 
   it("allows it again once the view holds none", async () => {

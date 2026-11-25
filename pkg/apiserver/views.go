@@ -779,11 +779,14 @@ func MarkRecords(list *CardList, records map[string]bool, asOf string) {
 	if asOf == "" || len(records) == 0 {
 		return
 	}
-	list.AsOf = asOf
+	// The listing is of that moment only when it holds a record: the board's
+	// records may all be other teams', and a listing with none is live
+	// (docs/api.md) — or the client freezes a day its team still works.
 	for i := range list.Items {
 		item := &list.Items[i]
 		if records[item.Metadata.UID] {
 			item.Status.AsOf = asOf
+			list.AsOf = asOf
 		}
 	}
 }
