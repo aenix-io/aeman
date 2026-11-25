@@ -434,6 +434,16 @@ export function CardDetail({
 
   const setParent = (next: CardModel | null) => {
     const nextId = next?.itemId ?? "";
+    // A review card sits under nothing of its own: the server moves the card
+    // it reviews (Relink), and the review follows. Both are read back from
+    // the server rather than guessed here.
+    if (card.reviewOf) {
+      void provider
+        .patchCard(card.itemId, { parent: nextId })
+        .then(() => reload())
+        .catch((err: unknown) => onError?.(errMessage(err)));
+      return;
+    }
     if ((card.parent ?? "") === nextId) {
       return;
     }

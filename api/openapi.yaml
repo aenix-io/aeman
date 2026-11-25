@@ -2679,6 +2679,8 @@ components:
             best gap); a task in work keeps its place, and so do a parent taken
             off and a goal or an initiative with no parked task of its own. The level
             rule and the repository rule hold (422 `parentLevel`, `crossDomain`).
+            On a review card it moves the card the review is of — a review sits
+            under nothing of its own and follows that card.
     CardDatesPatch:
       type: object
       properties:

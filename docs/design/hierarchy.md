@@ -575,7 +575,10 @@ task.
 - H2 — the level rule: a parent is of a higher level (`board.Level`: goal >
   initiative > epic > task; an unknown type is a task); one parent;
   optional; a task may skip levels; a review card sits under nothing of
-  its own (`ErrReviewCardLink`). Pinned by board
+  its own (`ErrReviewCardLink` on a create); linked through the picker (a
+  PATCH of its parent, MCP `update_card`) it moves the card it reviews,
+  which it follows (`boardservice.Relink`; a review of a review is
+  refused). Pinned by board
   `TestTheLevelsAreStrictlyOrdered`, `TestLineageIsEveryAncestorRootFirst`;
   service `TestTheLevelRuleGovernsTheParent`,
   `TestAReviewCardSitsUnderNothingOfItsOwn`; apiserver

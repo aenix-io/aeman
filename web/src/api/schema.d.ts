@@ -1170,7 +1170,7 @@ export interface components {
             /** @description `true` parks the task in its team's backlog; `false` takes a parked task that is already in work out of it, and is refused (422 `takeIntoWork`) on one with no date and no sprint — set a date, a sprint or `own` a person instead. */
             parked?: boolean;
             reviewOf?: string;
-            /** @description Puts the card under another one; empty takes it out. Under a TASK the card becomes a subtask (its team, person and sprint follow); under a goal, an initiative or an epic it is filed in the hierarchy, and a parked task linked under a new one is placed in its team's backlog beside that item's parked tasks (Q9; an epic with none, its best gap); a task in work keeps its place, and so do a parent taken off and a goal or an initiative with no parked task of its own. The level rule and the repository rule hold (422 `parentLevel`, `crossDomain`). */
+            /** @description Puts the card under another one; empty takes it out. Under a TASK the card becomes a subtask (its team, person and sprint follow); under a goal, an initiative or an epic it is filed in the hierarchy, and a parked task linked under a new one is placed in its team's backlog beside that item's parked tasks (Q9; an epic with none, its best gap); a task in work keeps its place, and so do a parent taken off and a goal or an initiative with no parked task of its own. The level rule and the repository rule hold (422 `parentLevel`, `crossDomain`). On a review card it moves the card the review is of — a review sits under nothing of its own and follows that card. */
             parent?: string;
         };
         CardDatesPatch: {

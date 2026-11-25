@@ -110,6 +110,20 @@ func (s *Service) Relink(ctx context.Context, boardID, itemID, parent string) er
 	if err != nil {
 		return err
 	}
+	// A review card sits under nothing of its own and follows the card it
+	// reviews: linking it moves that card, and the review follows.
+	if card.ReviewOf != "" {
+		_, reviewed, err := s.loadCard(ctx, boardID, card.ReviewOf)
+		if err != nil {
+			return err
+		}
+		// One hop: a review of a review is a chain nothing draws, and a
+		// hand-written cycle of them must not recurse.
+		if reviewed.ReviewOf != "" {
+			return fmt.Errorf("%w: %q", ErrReviewCardLink, card.Title)
+		}
+		return s.Relink(ctx, boardID, reviewed.ItemID, parent)
+	}
 	if err := s.SetParent(ctx, boardID, itemID, parent); err != nil || parent == "" || card.Parent == parent {
 		return err
 	}

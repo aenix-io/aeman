@@ -1,6 +1,7 @@
 package boardservice
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -272,5 +273,44 @@ func TestAPlaceTheBoardChoseIsMarkedSo(t *testing.T) {
 		if placed {
 			t.Fatal("a dragged move was marked as the board's place")
 		}
+	}
+}
+
+// A review card sits under nothing of its own and follows the card it
+// reviews, so linking IT under a plan item through the picker (a PATCH of its
+// parent, MCP update_card) moves the card it reviews there: the review
+// follows. Refusing it made a person look for the reviewed card to do the same.
+func TestLinkingAReviewCardMovesTheCardItReviews(t *testing.T) {
+	today := board.TodayIso()
+	f := newFake([]board.Card{
+		{ItemID: "A", Title: "A", Type: board.TypeEpic, Rank: "a"},
+		{ItemID: "B", Title: "B", Type: board.TypeEpic, Rank: "b"},
+		{ItemID: "t", Title: "t", Team: "U", Parent: "A", Assignees: []string{"ann"}, Stage: board.StageReview,
+			StartDate: today, Day: today, SprintStart: today},
+		{ItemID: "r", Title: "review: t", Team: "U", ReviewOf: "t", Assignees: []string{"bob"},
+			StartDate: today, Day: today, SprintStart: today},
+	}, map[string]board.SprintState{"U": {Current: today}})
+	s := New(f)
+	if err := s.Relink(ctx, "acme", "r", "B"); err != nil {
+		t.Fatalf("linking a review card: %v", err)
+	}
+	if got := f.get("t").Parent; got != "B" {
+		t.Fatalf("the reviewed card's parent = %q, want B", got)
+	}
+	if got := f.get("r").Parent; got != "" {
+		t.Fatalf("the review card took a parent of its own: %q", got)
+	}
+}
+
+// A hand-written cycle of reviews (r1 reviews r2 reviews r1) is refused, not
+// followed round and round.
+func TestLinkingAReviewOfAReviewIsRefused(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "B", Title: "B", Type: board.TypeEpic, Rank: "b"},
+		{ItemID: "r1", Title: "r1", ReviewOf: "r2"},
+		{ItemID: "r2", Title: "r2", ReviewOf: "r1"},
+	}, nil)
+	if err := New(f).Relink(ctx, "acme", "r1", "B"); !errors.Is(err, ErrReviewCardLink) {
+		t.Fatalf("a cycle of reviews: %v, want ErrReviewCardLink", err)
 	}
 }
