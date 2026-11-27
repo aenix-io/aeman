@@ -1269,3 +1269,23 @@ func TestMCPSaysHowAReviewIsFinished(t *testing.T) {
 		}
 	}
 }
+
+// How an agent asks for a review (R10): stage=review with nobody named is the
+// default — the review card lands in the team's backlog for whoever takes it;
+// send_to_review only when a reviewer was named; never the agent's own person
+// or the task's assignee. Agents left to guess sent reviews to themselves or
+// picked a reviewer nobody asked for.
+func TestMCPSaysHowToAskForAReview(t *testing.T) {
+	stage := toolSurface(t, "update_card")
+	for _, want := range []string{"DEFAULT way to ask for a review", "team's backlog", "unless you were asked to name"} {
+		if !strings.Contains(stage, want) {
+			t.Errorf("update_card does not say %q", want)
+		}
+	}
+	send := toolSurface(t, "send_to_review")
+	for _, want := range []string{"ONLY when", "named", "stage=review", "never yourself"} {
+		if !strings.Contains(send, want) {
+			t.Errorf("send_to_review does not say %q", want)
+		}
+	}
+}
